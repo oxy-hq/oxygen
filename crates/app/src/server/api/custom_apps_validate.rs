@@ -151,7 +151,7 @@ pub fn oversized_art_warning(
     }
     Some(format!(
         "launcher card image `{art}` is {} KB. The HQ home downloads it for every card on every \
-         visit, so keep it under {} KB: export 1280×640 as WebP or JPEG, e.g. \
+         visit, so keep it under {} KB: export it as a 1280×640 WebP at quality 80, e.g. \
          `cwebp -q 80 -resize 1280 0 {art} -o card.webp`, then set \"art\": \"card.webp\".",
         bytes.len() / 1024,
         ART_WARN_BYTES / 1024,

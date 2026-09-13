@@ -1,17 +1,19 @@
 #!/usr/bin/env node
-// Capture the HQ launcher-card image for this app into `public/card.jpg`.
+// Capture the HQ launcher-card image for this app into `public/card.webp`.
 //
 // The card is the 1280x640 image the Oxy HQ home shows for your app
 // (manifest `art` field). This script boots the Vite dev server, opens the
 // app in a headless browser, waits for it to render, and writes a
-// screenshot to `public/card.jpg` — which Vite copies to the bundle root, so
-// it serves at `/customer-apps/<org>/<slug>/card.jpg` (the URL the server
-// derives from a RELATIVE `art: "card.jpg"`). Never hardcode the base path
+// screenshot to `public/card.webp` — which Vite copies to the bundle root, so
+// it serves at `/customer-apps/<org>/<slug>/card.webp` (the URL the server
+// derives from a RELATIVE `art: "card.webp"`). Never hardcode the base path
 // into `art`; keep it relative and let the plugin place it.
 //
-// JPEG, not PNG: the home page downloads every card's image on every visit.
-// A 1280x640 dashboard screenshot is ~290 KB as PNG and ~110 KB as JPEG, and
-// `oxyc publish` warns about an `art` file over 200 KB.
+// WebP at quality 0.8, not PNG: the home page downloads every card's image on
+// every visit. A 1280x640 dashboard screenshot is ~290 KB as PNG and 40-70 KB
+// as WebP, and `oxyc publish` warns about an `art` file over 200 KB.
+// Playwright only captures PNG/JPEG, so the PNG is re-encoded by the same
+// headless Chromium (canvas.toDataURL) — no image library needed.
 //
 // Usage:
 //   pnpm run screenshot                 # dev server, default readiness wait
@@ -20,21 +22,21 @@
 //   pnpm run screenshot -- --selector "main"              # crop to one element
 //   pnpm run screenshot -- --settle 2500                  # extra ms after ready
 //
-// After it writes public/card.jpg, set `"art": "card.jpg"` in oxy-app.json,
+// After it writes public/card.webp, set `"art": "card.webp"` in oxy-app.json,
 // rebuild, and `oxyc publish`.
 //
 // Playwright is invoked on demand — it is NOT a default dependency of the
 // scaffold. If it is missing the script prints the one-liner to add it.
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
 const CARD_WIDTH = 1280;
 const CARD_HEIGHT = 640;
-const OUT_PATH = path.resolve(process.cwd(), "public", "card.jpg");
-const JPEG_QUALITY = 82;
+const OUT_PATH = path.resolve(process.cwd(), "public", "card.webp");
+const WEBP_QUALITY = 0.8;
 const DEV_PORT = 5173;
 
 function parseArgs(argv) {
@@ -128,6 +130,34 @@ async function waitForServer(url, timeoutMs = 30_000) {
   throw new Error(`dev server never became ready at ${url}`);
 }
 
+// Re-encode a PNG screenshot as WebP inside headless Chromium. A blank page,
+// not the app's, so the app's CSP can't block the data: image.
+async function pngToWebp(browser, png) {
+  const page = await browser.newPage();
+  try {
+    const dataUrl = await page.evaluate(
+      async ({ b64, quality }) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext("2d").drawImage(img, 0, 0);
+        return canvas.toDataURL("image/webp", quality);
+      },
+      { b64: png.toString("base64"), quality: WEBP_QUALITY },
+    );
+    // A browser without a WebP encoder silently falls back to PNG.
+    if (!dataUrl.startsWith("data:image/webp")) {
+      throw new Error("this Chromium cannot encode WebP");
+    }
+    return Buffer.from(dataUrl.slice(dataUrl.indexOf(",") + 1), "base64");
+  } finally {
+    await page.close();
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const chromium = await loadPlaywright();
@@ -159,24 +189,25 @@ async function main() {
     }
     if (opts.settle > 0) await page.waitForTimeout(opts.settle);
 
-    if (!existsSync(path.dirname(OUT_PATH))) {
-      mkdirSync(path.dirname(OUT_PATH), { recursive: true });
-    }
+    let png;
     if (opts.selector) {
       const el = await page.$(opts.selector);
       if (!el) throw new Error(`--selector "${opts.selector}" matched nothing`);
-      await el.screenshot({ path: OUT_PATH, type: "jpeg", quality: JPEG_QUALITY });
+      png = await el.screenshot();
     } else {
       // clip to the exact card frame so the file is always 1280x640
-      await page.screenshot({
-        path: OUT_PATH,
-        type: "jpeg",
-        quality: JPEG_QUALITY,
+      png = await page.screenshot({
         clip: { x: 0, y: 0, width: CARD_WIDTH, height: CARD_HEIGHT },
       });
     }
-    console.log(`[screenshot] wrote ${OUT_PATH} (${CARD_WIDTH}x${CARD_HEIGHT})`);
-    console.log('[screenshot] set  "art": "card.jpg"  in oxy-app.json, then `oxyc publish`.');
+    const webp = await pngToWebp(browser, png);
+
+    if (!existsSync(path.dirname(OUT_PATH))) {
+      mkdirSync(path.dirname(OUT_PATH), { recursive: true });
+    }
+    writeFileSync(OUT_PATH, webp);
+    console.log(`[screenshot] wrote ${OUT_PATH} (${Math.round(webp.length / 1024)} KB)`);
+    console.log('[screenshot] set  "art": "card.webp"  in oxy-app.json, then `oxyc publish`.');
   } finally {
     if (browser) await browser.close();
     if (server) server.stop();

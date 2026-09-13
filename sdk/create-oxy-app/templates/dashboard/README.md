@@ -31,14 +31,14 @@ The Oxy HQ home shows each app as a card. The image is the manifest `art`
 field — a **relative** path served from the bundle root. To capture it:
 
 ```bash
-pnpm run screenshot     # boots dev, screenshots → public/card.jpg (1280×640)
+pnpm run screenshot     # boots dev, screenshots → public/card.webp (1280×640, WebP q80)
 ```
 
-Then set `"art": "card.jpg"` in `oxy-app.json` and republish. `public/card.jpg`
+Then set `"art": "card.webp"` in `oxy-app.json` and republish. `public/card.webp`
 is copied to the bundle root, so it serves at
-`/customer-apps/<org>/<slug>/card.jpg` — keep `art` relative; never hardcode the
-base path. Keep the image under 200 KB (`oxyc publish` warns above it): the home
-page downloads it on every visit. `pnpm run screenshot -- --help` lists flags (`--wait`, `--selector`,
+`/customer-apps/<org>/<slug>/card.webp` — keep `art` relative; never hardcode the
+base path. A replacement image must stay WebP at 1280×640 and under 200 KB
+(`oxyc publish` warns above it): the home page downloads it on every visit. `pnpm run screenshot -- --help` lists flags (`--wait`, `--selector`,
 `--url`, `--settle`). Playwright is installed on demand (the script prints the
 one-liner); it is not a default dependency.
 
