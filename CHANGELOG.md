@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.146] - 2026-09-13
+
+### 🚀 Features
+
+- Onboarding — staff-created orgs with a Default workspace, and a just-up path for agents to verify changes (#3154)
+- Frontline roster is the tablet's store; kiosks carry an idle timeout (#3173)
+- Sessions last 30 days, so oxyc login stays signed in for a month (#3179)
+
+### 🐛 Bug Fixes
+
+- *(custom-apps)* Publish refuses to move an app to another workspace (#3170)
+- Admin app create and move refuse a workspace outside the app's org (#3174)
+- *(custom-apps)* Publish rejects a bundle missing declared function artifacts (#3172)
+- *(cli)* Oxy-app.json environments target is optional and a broken manifest is an error (#3171)
+- *(custom-apps)* Ctx.storage delete and copy require storage.write (#3169)
+- Custom-apps boundary sanctions the shared workspace-in-org seam — main is red (#3178)
+- Custom-app warehouse writes — tag beside the SQL, tested on real engines, paged when they break (#3168)
+- Observability retries its ClickHouse store instead of disabling span capture for the process lifetime (#3183)
+
+### 🚜 Refactor
+
+- Share the workspace-in-org predicate across publish and admin (#3175)
+- Move oxy's HTTP-client commands to oxyc (#3163)
+
+### ⚡ Performance
+
+- *(custom-apps)* Launcher card images cached per build, warn on oversized art (#3180)
+- *(custom-apps)* Launcher card art is WebP, 1280x640 — scaffold writes it (#3182)
+
+### ⚙️ Miscellaneous Tasks
+
+- Claude config — grouped permissions, extracted hooks, auto-mode rules (#3176)
+
 ## [0.5.145] - 2026-09-11
 
 ### 🚀 Features
@@ -13,6 +46,10 @@ All notable changes to this project will be documented in this file.
 
 - Custom-app functions — a ClickHouse INSERT carries its audit trailer in front, not behind (#3158)
 - Custom-app secrets imports WorkspaceAdmin once — main does not compile (#3164)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.5.145 (#3156)
 
 ## [0.5.144] - 2026-09-10
 
