@@ -95,8 +95,7 @@ pub async fn get_analytics(
     Query(params): Query<MetricsAnalyticsQuery>,
 ) -> Result<Json<MetricAnalyticsResponse>, MetricsError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage
@@ -142,8 +141,7 @@ pub async fn get_metrics_list(
     Query(params): Query<MetricsListQuery>,
 ) -> Result<Json<MetricsListResponse>, MetricsError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage
@@ -187,8 +185,7 @@ pub async fn get_metric_detail(
     Query(params): Query<MetricDetailQuery>,
 ) -> Result<Json<MetricDetailResponse>, MetricsError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage

@@ -29,8 +29,10 @@ pub fn set_global(store: Arc<dyn ObservabilityStore>) {
 /// here — including on `oxy start --enterprise`, where the flag is accepted
 /// because `StartArgs` flattens `ServeArgs`.
 ///
-/// The real cause is printed once at startup by `resolve_backend`; this is the
-/// message that repeats, so it is the one that has to be right.
+/// The real cause is printed at startup by `observability_boot::finalize` in
+/// oxy-app (a label error from `backend_enabled`, a connection error from each
+/// failed open); this is the message that repeats, so it is the one that has to
+/// be right.
 pub fn require_global() -> Result<&'static Arc<dyn ObservabilityStore>, OxyError> {
     get_global().ok_or_else(|| {
         OxyError::RuntimeError(

@@ -197,8 +197,7 @@ pub async fn list_traces(
     Query(params): Query<TraceListQuery>,
 ) -> Result<extract::Json<PaginatedTraceResponse>, TracesError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| TracesError::QueryFailed("Observability not configured".into()))?;
 
     let (traces, total) = storage
@@ -260,8 +259,7 @@ pub async fn get_trace_detail(
     Path((_workspace_id, trace_id)): Path<(Uuid, String)>,
 ) -> Result<extract::Json<Vec<TraceDetailSpan>>, TracesError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| TracesError::QueryFailed("Observability not configured".into()))?;
 
     let rows = storage
@@ -387,8 +385,7 @@ pub async fn get_cluster_map(
     Query(query): Query<ClusterMapQuery>,
 ) -> Result<extract::Json<ClusterMapResponse>, TracesError> {
     let storage = state
-        .observability
-        .as_ref()
+        .observability()
         .ok_or_else(|| TracesError::QueryFailed("Observability not configured".into()))?;
 
     let embeddings = storage

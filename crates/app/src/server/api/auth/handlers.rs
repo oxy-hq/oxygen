@@ -128,7 +128,7 @@ pub async fn get_config(
 
     let github_client_id = std::env::var("GITHUB_CLIENT_ID").ok();
 
-    let observability_enabled = app_state.observability.is_some();
+    let observability_enabled = app_state.observability().is_some();
     let billing_enabled = crate::server::feature_flags::is_enabled("billing");
     // Per-caller, not process-wide: an off-box peer that the dev-login route
     // 404s must not be told from here that a bypass exists. See

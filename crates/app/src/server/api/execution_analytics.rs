@@ -125,7 +125,7 @@ pub async fn get_summary(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<SummaryQuery>,
 ) -> Result<Json<ExecutionSummary>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -198,7 +198,7 @@ pub async fn get_time_series(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<TimeSeriesQuery>,
 ) -> Result<Json<Vec<ExecutionTimeBucket>>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -241,7 +241,7 @@ pub async fn get_agent_stats(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<AgentStatsQuery>,
 ) -> Result<Json<Vec<AgentExecutionStats>>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -300,7 +300,7 @@ pub async fn get_executions(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<ExecutionsQuery>,
 ) -> Result<Json<ExecutionListResponse>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -371,7 +371,7 @@ pub async fn get_percentiles(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<LatencyPercentilesResponse>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -411,7 +411,7 @@ pub async fn get_histogram(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<LatencyHistogramResponse>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 
@@ -447,7 +447,7 @@ pub async fn get_cost(
     Path(_workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<ExecutionCostResponse>, ExecutionAnalyticsError> {
-    let storage = state.observability.as_ref().ok_or_else(|| {
+    let storage = state.observability().ok_or_else(|| {
         ExecutionAnalyticsError::QueryFailed("Observability not configured".into())
     })?;
 

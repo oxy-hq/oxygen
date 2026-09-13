@@ -285,6 +285,20 @@ impl ClickHouseObservabilityStorage {
         Self::new(&url, &user, &password, &database)
     }
 
+    /// The cheapest round trip that proves the server answers queries:
+    /// `SELECT 1` against the always-present `default` database (the configured
+    /// one may not exist yet). Carries no timeout of its own — like every call on
+    /// the default client — so callers must bound it.
+    pub async fn ping(&self) -> Result<(), OxyError> {
+        self.client
+            .clone()
+            .with_database("default")
+            .query("SELECT 1")
+            .execute()
+            .await
+            .map_err(|e| OxyError::RuntimeError(format!("ClickHouse ping failed: {e}")))
+    }
+
     /// Accessor for the underlying ClickHouse client.
     pub(crate) fn client(&self) -> &Client {
         &self.client
