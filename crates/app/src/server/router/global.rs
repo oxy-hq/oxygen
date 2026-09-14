@@ -15,6 +15,7 @@ use crate::api::middlewares::{
 };
 use crate::api::{admin, org_logo, org_teams, organizations, user, workspaces};
 use crate::server::api::chat;
+use crate::server::api::documents;
 use crate::server::api::frontline;
 use crate::server::api::frontline_admin;
 use crate::server::api::frontline_devices;
@@ -76,6 +77,63 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/work",
             get(work::handlers::list).post(work::handlers::create),
+        )
+        // Documents — read side. NOT nested under `/orgs/{org_id}`, and that is
+        // the whole reason these four exist here: nesting would put
+        // `org_middleware` in front, which rejects exactly the frontline
+        // workers a Knowledge base is for. The `org_id` therefore arrives as a
+        // query parameter and is checked, never trusted, by
+        // `documents::visibility::resolve_standing`.
+        //
+        // `route_fleet`: Postgres for the rows, a presigned object-store URL
+        // for the bytes. Nothing touches a working copy, and reading the
+        // sanitiser SOP has to survive a deploy.
+        .route_fleet("/documents", get(documents::handlers::list))
+        // Static segment, so the router matches it ahead of `/documents/{id}`
+        // rather than reading "search" as a document id.
+        .route_fleet("/documents/search", get(documents::search::search))
+        // The one document route that is NOT on the fleet. Writing an answer
+        // means resolving an agent config out of the workspace working copy,
+        // which only the ide singleton holds. Kept a separate route from
+        // `/documents/search` precisely so that pin does not spread to every
+        // search in the product — see `documents::ask`.
+        .route_ide("/documents/ask", post(documents::ask::ask))
+        // The session store, one segment deeper and on the OTHER side of the
+        // fleet split. These read and write Postgres and nothing else, so
+        // looking back at what you asked survives the ide restarting even
+        // though asking again does not. `global_route_roles` asserts both, so
+        // the two cannot collapse into one classification later.
+        .route_fleet(
+            "/documents/ask/sessions",
+            get(documents::ask_sessions::list).post(documents::ask_sessions::create),
+        )
+        .route_fleet(
+            "/documents/ask/sessions/{id}",
+            get(documents::ask_sessions::read).delete(documents::ask_sessions::delete),
+        )
+        .route_fleet("/documents/{id}", get(documents::handlers::get))
+        .route_fleet(
+            "/documents/{id}/download",
+            get(documents::handlers::download),
+        )
+        .route_fleet("/documents/{id}/versions", get(documents::versions::list))
+        // Reading ONE version — the half the history list could not reach. The
+        // listing says a version exists; these say what is in it.
+        .route_fleet(
+            "/documents/{id}/versions/{version_no}",
+            get(documents::versions::read),
+        )
+        .route_fleet(
+            "/documents/{id}/versions/{version_no}/download",
+            get(documents::versions::download),
+        )
+        .route_fleet("/document-folders", get(documents::handlers::list_folders))
+        .route_fleet("/document-categories", get(documents::categories::list))
+        // Favoriting is a personal act on something the caller can already
+        // read, so it sits with the reads and takes no org on the path.
+        .route_fleet(
+            "/documents/{id}/favorite",
+            post(documents::shelf::favorite).delete(documents::shelf::unfavorite),
         )
         .route_fleet("/work/{id}", axum::routing::patch(work::handlers::update))
         // Notifications. Self-scoped — the filter `user_id = me` IS the
@@ -529,6 +587,52 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/roles",
             get(work::handlers::list_roles).post(work::handlers::create_role),
+        )
+        // Documents — manage side. Nested here because the `OrgAdmin`
+        // extractor needs the org on the path, and because these are the
+        // writes. `Action::ManageDocuments` is differenced against this guard
+        // in the model; the mounting is held by
+        // `every_org_scoped_document_write_takes_the_orgadmin_extractor`, which
+        // reads this block and every signature it names — being INSIDE
+        // `build_org_routes` is what puts a handler under that rule.
+        .route_fleet("/document-folders", post(documents::manage::create_folder))
+        .route_fleet("/document-categories", post(documents::categories::create))
+        .route_fleet(
+            "/document-categories/{category_id}",
+            patch(documents::categories::rename).delete(documents::categories::delete),
+        )
+        .route_fleet(
+            "/document-folders/{folder_id}",
+            patch(documents::manage::update_folder).delete(documents::manage::trash_folder),
+        )
+        .route_fleet(
+            "/document-folders/{folder_id}/restore",
+            post(documents::manage::restore_folder),
+        )
+        .route_fleet("/documents", post(documents::manage::create_document))
+        .route_fleet(
+            "/documents/{document_id}",
+            patch(documents::manage::update_document).delete(documents::manage::trash_document),
+        )
+        .route_fleet(
+            "/documents/{document_id}/restore",
+            post(documents::manage::restore_document),
+        )
+        .route_fleet(
+            "/documents/{document_id}/review",
+            post(documents::review::decide),
+        )
+        .route_fleet(
+            "/documents/{document_id}/pin",
+            post(documents::shelf::pin).delete(documents::shelf::unpin),
+        )
+        .route_fleet(
+            "/documents/{document_id}/versions",
+            post(documents::versions::create),
+        )
+        .route_fleet(
+            "/documents/{document_id}/versions/{version_no}/confirm",
+            post(documents::versions::confirm),
         )
         .route_fleet(
             "/roles/{id}",

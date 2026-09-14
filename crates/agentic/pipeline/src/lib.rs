@@ -1781,6 +1781,76 @@ pub async fn run_agentic_eval(
     run_agentic_headless(platform, config_path, prompt, EventDestination::Drain).await
 }
 
+/// Run ONE turn against an agent's instructions — no tools, no databases, no FSM.
+///
+/// # Why this exists beside [`run_agentic_eval`]
+///
+/// `run_agentic_eval` drives the analytics FSM, and that FSM is a warehouse
+/// agent: `build_solver_with_context` returns `ConfigError::NoDatabases` before
+/// it reads a word of the prompt if no connector was injected. That is correct
+/// for an agent whose job is to write SQL, and it makes the same entry point
+/// unusable for an agent whose job is to read what it was handed.
+///
+/// The document librarian behind `POST /api/documents/ask` is the first of
+/// those. Its material arrives in the prompt, already filtered by the asker's
+/// own read permissions, and giving it a warehouse connector to satisfy the
+/// builder would hand a documents question the ability to run a query — the
+/// opposite of what that route's design turns on.
+///
+/// So this is the narrow door: resolve the model the agent's `llm:` block
+/// names, take `instructions:` as the system prompt, send one message, return
+/// the text. Everything the FSM adds — states, tools, retrieval, subruns — is
+/// absent by construction rather than by configuration.
+///
+/// It still reads the agent's YAML from disk, which is what keeps a caller of
+/// this on the ide pod: the instructions are an operator-editable workspace
+/// file, not a string compiled into the server.
+pub async fn run_agentic_answer(
+    platform: Arc<dyn PlatformContext>,
+    config_path: &std::path::Path,
+    prompt: String,
+) -> Result<String, String> {
+    /// A ceiling for an agent that names none. An answer over four documents
+    /// is a few sentences; a run that produces more than this has misunderstood
+    /// the job, and paying for it silently is how a per-question cost becomes a
+    /// per-month surprise.
+    const DEFAULT_MAX_TOKENS: u32 = 2048;
+
+    let config = AgentConfig::from_file(config_path).map_err(|e| {
+        format!(
+            "failed to load agentic config at {}: {e}",
+            config_path.display()
+        )
+    })?;
+
+    let info = platform
+        .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
+        .await
+        .ok_or_else(|| {
+            format!(
+                "no model configured for agent {} — its `llm:` names {:?}, \
+                 which does not resolve in this project's config.yml",
+                config_path.display(),
+                config.llm.model_ref
+            )
+        })?;
+
+    let client = platform::build_llm_client(&info);
+    // An agent with no `instructions:` gets an empty system prompt rather than
+    // a default one. A librarian's whole behaviour is in that block, and
+    // substituting house instructions for a missing one would answer in a
+    // voice nobody wrote.
+    let system = config.instructions.as_deref().unwrap_or("");
+    client
+        .complete_with_max_tokens(
+            system,
+            &prompt,
+            config.llm.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
+        )
+        .await
+        .map_err(|e| format!("agent {} failed to answer: {e}", config_path.display()))
+}
+
 /// Variant of [`run_agentic_eval`] that forwards each
 /// `Event<AnalyticsEvent>` to `event_sink` as it arrives, in addition to
 /// returning the final answer text.

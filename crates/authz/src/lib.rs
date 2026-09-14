@@ -71,6 +71,22 @@ pub enum Action {
     /// conflation this comment exists to prevent.
     ManageLocations,
     ManageOrgRoles,
+    /// Create, edit, publish, re-file or trash a DOCUMENT or folder, and decide
+    /// its visibility — org owner/admin, a managing partner, or a global
+    /// operator. Same ring as member and location management, and for the same
+    /// reason: deciding what the org publishes to itself is deciding the shape
+    /// of the org, not doing work inside it.
+    ///
+    /// Note the asymmetry with reading, which is the whole design. This action
+    /// gates WRITES only. Who may READ a document is a query filter — a
+    /// frontline worker holds no `org_members` row by design and the readable
+    /// set is unbounded per user, so a ring would need an unbounded fact on the
+    /// hot path. `visible_documents()` owns that; this owns nothing about it.
+    ///
+    /// Deliberately NOT open to a plain member in v1. Broadening authorship is
+    /// a later policy knob and a safe one — the model can only subtract, so
+    /// widening later cannot open a hole, while pre-widening now could.
+    ManageDocuments,
     /// Put a person in a position at a place, or take them out of one —
     /// `org_role_members`. Same ring again: an assignment decides the shape of
     /// the org's roster, and a store manager holding a position is not thereby
@@ -281,10 +297,11 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 41] = [
+    pub const ALL: [Action; 42] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
+        Action::ManageDocuments,
         Action::ManageAssignments,
         Action::MemberInvite,
         Action::MemberSetRole,
@@ -333,6 +350,7 @@ impl Action {
             Action::OrgRead => "org_read",
             Action::ManageLocations => "manage_locations",
             Action::ManageOrgRoles => "manage_org_roles",
+            Action::ManageDocuments => "manage_documents",
             Action::ManageAssignments => "manage_assignments",
             Action::MemberInvite => "member_invite",
             Action::MemberSetRole => "member_set_role",
@@ -381,9 +399,10 @@ impl Action {
         match self {
             Action::OrgRead => Ring::Read,
             Action::MemberInvite | Action::MemberSetRole | Action::MemberRemove => Ring::OrgAdmin,
-            Action::ManageLocations | Action::ManageOrgRoles | Action::ManageAssignments => {
-                Ring::OrgAdmin
-            }
+            Action::ManageLocations
+            | Action::ManageOrgRoles
+            | Action::ManageDocuments
+            | Action::ManageAssignments => Ring::OrgAdmin,
             Action::OrgBilling => Ring::OrgAdminStrict,
             Action::OrgOwnerManage => Ring::OwnerOnly,
             Action::OrgReadStrict => Ring::MemberStrict,
@@ -851,7 +870,11 @@ impl PrincipalFacts {
 /// choose from. Callers name an [`Action`] — the thing they are actually doing — and the
 /// mapping to a ring is this crate's to decide. Making it public would let a call site
 /// pick its own authority level, which is the scatter this crate exists to end.
-#[derive(Copy, Clone)]
+// `PartialEq` + `Debug` are for the test that asserts every ring is reachable
+// from `ALL`: an action list that omits a whole ring leaves that ring untested
+// by every sweep, which is the failure this file exists to prevent. Neither
+// derive widens the API — `Ring` stays private.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Ring {
     /// Any member of the resource's org, or a global admin/owner.
     Read,
@@ -2147,6 +2170,129 @@ mod policy_tests {
             Action::ManageAssignments,
         ] {
             assert!(!allows(&member, a, &Resource::org(org())));
+        }
+    }
+
+    #[test]
+    fn publishing_to_the_org_is_an_admin_act_and_a_worker_may_not_do_it() {
+        // `ManageDocuments` joins the two shape-changing actions above on
+        // `Ring::OrgAdmin`. What is worth pinning is the LOWER edge, because
+        // this action's whole subject is the frontline: the Knowledge base
+        // exists to be read on a tablet in a kitchen, and the person holding
+        // that tablet must not be able to edit the SOP they are following.
+        let org_admin = PrincipalFacts {
+            admin_orgs: vec![org()],
+            ..facts()
+        };
+        assert!(allows(
+            &org_admin,
+            Action::ManageDocuments,
+            &Resource::org(org())
+        ));
+
+        // A plain org member — an assistant manager with a login — may read
+        // everything published and write none of it in v1.
+        let member = PrincipalFacts {
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        assert!(!allows(
+            &member,
+            Action::ManageDocuments,
+            &Resource::org(org())
+        ));
+
+        // The narrowest standing there is. A frontline worker is enrolled by
+        // PIN on a shared device and holds no `org_members` row, so the only
+        // way this could ever pass is if some ring started reading
+        // `frontline_orgs` as if it were membership. That is the failure this
+        // assertion exists to catch.
+        let worker = PrincipalFacts {
+            frontline_orgs: vec![org()],
+            ..facts()
+        };
+        assert!(!allows(
+            &worker,
+            Action::ManageDocuments,
+            &Resource::org(org())
+        ));
+
+        // Admin of a DIFFERENT org. Documents are the first org-wide library
+        // in the model, so "admin somewhere" reaching one is the cross-tenant
+        // shape both #3050 and #3048 shipped once.
+        let elsewhere = PrincipalFacts {
+            admin_orgs: vec![other_org()],
+            member_orgs: vec![other_org()],
+            ..facts()
+        };
+        assert!(!allows(
+            &elsewhere,
+            Action::ManageDocuments,
+            &Resource::org(org())
+        ));
+    }
+
+    /// `ALL` is internally consistent — and what that does NOT prove.
+    ///
+    /// `ALL` is a hand-written array, so adding an `Action` and forgetting to
+    /// list it compiles cleanly and drops that action from every sweep that
+    /// iterates it, including `an_empty_principal_is_denied_every_action`
+    /// below — the only fail-closed check over the whole surface. A new ring
+    /// would then be untested by the test written to catch exactly that.
+    ///
+    /// Not hypothetical: merging main into the document branch got this array's
+    /// length wrong, and the only thing that objected was its type annotation.
+    ///
+    /// **Completeness is not enforced here and cannot be.** Rust has no way to
+    /// enumerate an enum's variants without a derive, and this crate is
+    /// deliberately limited to `uuid` + `tracing` — the constraint that lets the
+    /// model be tested without a database (`crates/authz/CLAUDE.md`). Adding
+    /// `strum` to buy one assertion would spend that.
+    ///
+    /// So this checks the two halves that ARE checkable, and the practical
+    /// backstop for the third is `as_str`: its match has no wildcard, so a new
+    /// variant fails to compile until somebody names it, and the person naming
+    /// it is looking at this array three screens up.
+    #[test]
+    fn all_is_internally_consistent() {
+        let mut names: Vec<&str> = Action::ALL.iter().map(|a| a.as_str()).collect();
+        let declared = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            declared,
+            names.len(),
+            "`ALL` lists the same action twice — a sweep would test it twice and another not at all"
+        );
+        // NOT a second length check — `declared` is `ALL.len()` by
+        // construction, so comparing the two could never fail, and the first
+        // version of this test shipped that tautology under a message implying
+        // it checked the `[Action; 42]` annotation. That is the compiler's job
+        // and the docstring above says so.
+        //
+        // Every ring must be reachable instead: an action whose ring nothing in
+        // `ALL` maps to is a ring no differential case can ever exercise, which
+        // is the failure this file exists to prevent.
+        // Every ring an action can name must be named by SOME action in `ALL`.
+        // Iterating the actions and collecting their rings would be circular;
+        // this walks the mapping the other way, from a list of rings that the
+        // `ring()` match must stay exhaustive over.
+        for ring in [
+            Ring::Read,
+            Ring::MemberStrict,
+            Ring::OrgAdmin,
+            Ring::OrgAdminStrict,
+            Ring::OwnerOnly,
+            Ring::WorkspaceAdmin,
+            Ring::WorkspaceEdit,
+            Ring::AppAccess,
+            Ring::WorkspaceData,
+        ] {
+            assert!(
+                Action::ALL.iter().any(|a| a.ring() == ring),
+                "no action in `ALL` sits on {ring:?} — that ring is unreachable from every \
+                 sweep that iterates `ALL`, including the fail-closed one below"
+            );
         }
     }
 

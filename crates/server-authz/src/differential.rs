@@ -208,6 +208,36 @@ fn manage_org_roles_ring_matches_the_shipped_guard() {
     });
 }
 
+/// The document model's write action.
+///
+/// Written BEFORE the routes it will guard, which is the unusual part and the
+/// point. The assignment graph's two actions arrived with no differential case,
+/// so the ring they were given had never been checked against the guard in
+/// front of them; this inverts that order. The oracle below IS the contract the
+/// manage handlers must meet.
+///
+/// It does NOT check where they are mounted — this asserts the model against a
+/// hand-written oracle and never reads a router or a signature, so swapping a
+/// handler's extractor leaves it green. That half is
+/// `every_org_scoped_document_write_takes_the_orgadmin_extractor`, in
+/// `crates/app/tests/authz/document_write_guards.rs`. An earlier version of
+/// this comment claimed both, and three comments in `crates/app` repeated the
+/// claim, so the safety net was cited four times and existed nowhere.
+///
+/// Only the write side is differenced, because only the write side is a ring.
+/// Reads are a query filter with no legacy check to difference against, and
+/// pretending otherwise would be a test that passes for the wrong reason. The
+/// cross-location read gates live with the routes, in
+/// `crates/app/tests/platform/documents.rs`.
+#[test]
+fn manage_documents_ring_matches_the_shipped_guard() {
+    // documents::handlers manage routes — OrgAdmin, same extractor as
+    // create_location and create_role.
+    assert_matches_oracle(Action::ManageDocuments, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+}
+
 #[test]
 fn manage_assignments_ring_matches_the_shipped_guard() {
     // operating_graph::assignments::create / remove — OrgAdmin

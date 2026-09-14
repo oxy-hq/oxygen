@@ -158,11 +158,16 @@ mod m20260901_000002_assignment_graph;
 mod m20260901_000003_notifications;
 mod m20260902_000001_simulation_run_queued_at;
 mod m20260903_000001_function_result_status;
+mod m20260903_000002_document_model;
+mod m20260903_000003_document_search;
+mod m20260904_000001_document_categories_and_review;
+mod m20260904_000002_document_favorites_and_pins;
 mod m20260905_000001_create_custom_app_migrations;
 mod m20260906_000001_org_kiosk_devices;
 mod m20260907_000001_operating_graph;
 mod m20260908_000001_audit_events_append_only;
 mod m20260908_000002_drop_checkpoints;
+mod m20260909_000001_document_ask_sessions;
 mod m20260911_000001_function_failure_alerts;
 mod m20260911_000001_kiosk_idle_timeout;
 mod m20260911_000002_function_failure_fingerprint_index;
@@ -325,11 +330,24 @@ impl MigratorTrait for Migrator {
             Box::new(m20260901_000003_notifications::Migration),
             Box::new(m20260902_000001_simulation_run_queued_at::Migration),
             Box::new(m20260903_000001_function_result_status::Migration),
+            Box::new(m20260903_000002_document_model::Migration),
+            Box::new(m20260903_000003_document_search::Migration),
+            Box::new(m20260904_000001_document_categories_and_review::Migration),
+            Box::new(m20260904_000002_document_favorites_and_pins::Migration),
             Box::new(m20260905_000001_create_custom_app_migrations::Migration),
             Box::new(m20260906_000001_org_kiosk_devices::Migration),
             Box::new(m20260907_000001_operating_graph::Migration),
             Box::new(m20260908_000001_audit_events_append_only::Migration),
             Box::new(m20260908_000002_drop_checkpoints::Migration),
+            // Date order, which is the only order that survives a merge.
+            // This list IS the run order for a fresh database — an existing one
+            // applies whatever `seaql_migrations` has not seen, whatever the
+            // position — so putting each entry where its own date belongs is
+            // what keeps a new database and an old one agreeing about the
+            // schema they end up with. Merged twice now, in both directions:
+            // main's `m20260908_*` landed above this branch's entry, and its
+            // `m20260911_*` below.
+            Box::new(m20260909_000001_document_ask_sessions::Migration),
             Box::new(m20260911_000001_function_failure_alerts::Migration),
             Box::new(m20260911_000001_kiosk_idle_timeout::Migration),
             Box::new(m20260911_000002_function_failure_fingerprint_index::Migration),

@@ -27,6 +27,7 @@
 mod config_write_routes;
 mod fleet_canary;
 mod global_route_roles;
+mod paginated_links_keep_the_api_prefix;
 mod route_role_derivation;
 mod route_trailing_slash;
 mod router_mount_collisions;

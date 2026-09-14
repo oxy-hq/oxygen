@@ -693,6 +693,47 @@ jobs:
       # that never opens them, and OXY_OLTP_REQUIRE_DB protects only the
       # full-test path — which is the only `cargo nextest` invocation in this
       # workflow, so that guarantee is total rather than partial.
+      # An object store, for the same reason `oltp-postgres` is here.
+      #
+      # `crates/app/tests/platform/document_storage.rs` skips when no bucket is
+      # configured, and nextest counts a returning test as a passing one — so
+      # its five presigned round trips reported green in every automated run
+      # while asserting nothing (0.59s for five S3 round trips is the tell).
+      # They are the branch's only proof that the upload path works, and the
+      # module's own doc says the content-type and length bindings are "either
+      # true or a comment".
+      #
+      # Same shape as the OLTP fix above: a service so they can run, and
+      # `OXY_REQUIRE_OBJECT_STORE=1` on the test step so a future mismatch is a
+      # red build rather than a quiet skip.
+      minio:
+        # `bitnamilegacy`, and a pinned tag, both deliberately.
+        #
+        # The public `bitnami/*` Docker Hub repos were emptied in the Broadcom
+        # migration and the images moved to `bitnamilegacy/*`. `bitnami/minio`
+        # now resolves to an EMPTY repository — `tags/list` returns `[]` and
+        # `latest` is a 404 — so naming it fails the job at "Initialize
+        # containers", before cargo runs, for BOTH matrix tasks. Measured
+        # against the registry, not assumed.
+        #
+        # Not `minio/minio`: that image needs `server /data` as its command, and
+        # Actions service containers have no `command:` field; and
+        # `MINIO_DEFAULT_BUCKETS` is a Bitnami feature, so the bucket would
+        # never be created and every presign test would fail on `NoSuchBucket`.
+        # The image, the bucket variable and the health command are one package.
+        #
+        # A tag rather than `latest`: `latest` on a legacy repo that no longer
+        # receives updates is not a promise, it is whatever was last pushed.
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
+        env:
+          MINIO_ROOT_USER: oxytest
+          MINIO_ROOT_PASSWORD: oxytest123
+          MINIO_DEFAULT_BUCKETS: oxy-documents
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local" --health-interval 10s
+          --health-timeout 5s --health-retries 10
       oltp-postgres:
         image: postgres:18-alpine
         env:
@@ -897,8 +938,16 @@ jobs:
             # the `oltp-postgres` service above is what makes it run, and this
             # is what makes a future mismatch between the two loud instead of
             # silent. OXY_TEST_REQUIRE_CLICKHOUSE does the same for the
-            # `clickhouse` service.
+            # `clickhouse` service, and OXY_REQUIRE_OBJECT_STORE for the
+            # document upload suite against `minio`. Three services, one rule:
+            # a suite that cannot reach its backend must fail, not skip.
             OXY_OLTP_REQUIRE_DB=1 OXY_TEST_REQUIRE_CLICKHOUSE=1 \
+            OXY_REQUIRE_OBJECT_STORE=1 \
+            OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET=oxy-documents \
+            AWS_ENDPOINT_URL=http://127.0.0.1:9000 \
+            AWS_REGION=us-east-1 \
+            AWS_ACCESS_KEY_ID=oxytest \
+            AWS_SECRET_ACCESS_KEY=oxytest123 \
               cargo nextest run --workspace --no-fail-fast
 
             ./target/debug/oxy gen-config-schema --check

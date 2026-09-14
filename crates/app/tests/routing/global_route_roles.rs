@@ -83,3 +83,67 @@ fn a_custom_app_function_runs_on_the_ide_and_its_bundle_does_not() {
         "bundle bytes come from S3",
     );
 }
+
+/// The document library reads on the fleet; only the answer needs the ide.
+///
+/// Belongs in this hand-written file for the same reason the rest of it does:
+/// `documents::ask::ask` takes no `WorkspaceManagerWorkingCopy` — it builds a
+/// project context from the org's workspace row — so the type-level gate
+/// cannot see it, and `route_fleet(.., post(ask))` would compile. Measured:
+/// flipping the mount produces no compile error.
+///
+/// The second half is the one that matters more. Answering was first written
+/// as `?ask=true` on `/documents/search`, which would have dragged every search
+/// in the product onto the singleton — a read that dies when the ide restarts
+/// is the HA bug the split fleet exists to prevent. Assert both directions, so
+/// a later merge of the two routes fails here rather than in production.
+#[test]
+fn asking_the_library_reaches_the_ide_and_searching_it_does_not() {
+    install_route_declarations_for_tests();
+
+    assert_eq!(
+        classify("POST", "/api/documents/ask"),
+        RouteRole::IdeOnly,
+        "writing an answer resolves an agent config from the working copy",
+    );
+    assert_eq!(
+        classify("GET", "/api/documents/search"),
+        RouteRole::FleetOk,
+        "searching reads Postgres, and must survive the ide restarting",
+    );
+}
+
+/// The session store sits one segment under an `IdeOnly` route and is not it.
+///
+/// `/documents/ask` is `IdeOnly` and `/documents/ask/sessions` is `FleetOk`,
+/// which is only true if the manifest matches on the whole path rather than on
+/// a prefix. Worth its own test because the failure is invisible: a prefix
+/// match would classify the session list `IdeOnly`, every replica would proxy
+/// it to the singleton, and the only symptom would be that looking at your own
+/// past questions stops working whenever the ide restarts — which is the exact
+/// HA bug the split exists to prevent, arrived at through a routing accident
+/// rather than a decision.
+#[test]
+fn the_session_store_stays_on_the_fleet_under_an_ide_only_route() {
+    install_route_declarations_for_tests();
+
+    let session = "33333333-3333-3333-3333-333333333333";
+    for (method, path) in [
+        ("GET", "/api/documents/ask/sessions".to_string()),
+        ("POST", "/api/documents/ask/sessions".to_string()),
+        ("GET", format!("/api/documents/ask/sessions/{session}")),
+        ("DELETE", format!("/api/documents/ask/sessions/{session}")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path} reads and writes Postgres only",
+        );
+    }
+
+    assert_eq!(
+        classify("POST", "/api/documents/ask"),
+        RouteRole::IdeOnly,
+        "and the route they sit under is still pinned",
+    );
+}

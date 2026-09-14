@@ -98,7 +98,15 @@ pub enum StorageError {
 
 /// Dedicated asset bucket, separate from the build-store and compile-blob buckets
 /// so asset retention/lifecycle is governed independently.
-fn bucket() -> Option<String> {
+///
+/// `pub(crate)` because the document model signs into the SAME bucket under its
+/// own `org-documents/` prefix. That is deliberate reuse: a second bucket would
+/// mean a second ops task before documents worked in any environment, and the
+/// prefix already separates the two owners — everything under
+/// `customer-app-storage/{app_id}/` is one app's silo, everything under
+/// `org-documents/{org_id}/` belongs to the org. See
+/// `server::api::documents::storage`.
+pub(crate) fn bucket() -> Option<String> {
     std::env::var("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET")
         .ok()
         .filter(|b| !b.trim().is_empty())
