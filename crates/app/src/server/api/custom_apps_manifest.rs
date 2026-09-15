@@ -89,6 +89,29 @@ pub(crate) fn migrations_config(
         })
 }
 
+/// Read the `airhouseMigrations` block. Strict, for the reason
+/// [`migrations_config`] gives: a block that failed to parse and meant "none"
+/// would ship functions whose facts land in tables that were never created.
+pub(crate) fn airhouse_migrations_config(
+    manifest_json: Option<&serde_json::Value>,
+) -> Result<Option<OxyAppMigrationsConfig>, String> {
+    let Some(raw) = manifest_json.and_then(|m| m.get("airhouseMigrations")) else {
+        return Ok(None);
+    };
+    if raw.is_null() {
+        return Ok(None);
+    }
+    serde_json::from_value::<OxyAppMigrationsConfig>(raw.clone())
+        .map(Some)
+        .map_err(|e| {
+            format!(
+                "the `airhouseMigrations` block in oxy-app.json is not usable ({e}); it must be an \
+                 object with a `dir` naming a directory inside the bundle, e.g. \
+                 \"airhouseMigrations\": {{ \"dir\": \"airhouse-migrations\" }}"
+            )
+        })
+}
+
 /// App-level storage config from `oxy-app.json`.
 ///
 /// Deliberately **not** the same block as the per-function `storage: { read,
@@ -155,6 +178,10 @@ pub(crate) struct OxyAppManifest {
     /// zero-config. See [`OxyAppMigrationsConfig`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations: Option<OxyAppMigrationsConfig>,
+    /// Where the bundle keeps the `*.sql` migrations for its Airhouse schema —
+    /// the tables `ctx.airhouse` appends facts to. Absent for most apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub airhouse_migrations: Option<OxyAppMigrationsConfig>,
 }
 
 /// Resolve an app's asset-retention policy from the `oxy-app.json` captured in

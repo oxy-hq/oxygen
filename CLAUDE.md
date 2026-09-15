@@ -168,6 +168,11 @@ free-text areas, not scoped parens.
   Concretely: `ctx.email.send` hits real SES, so set `OXY_APP_EMAIL_LOCAL_TEST=1` (and
   `MAGIC_LINK_LOCAL_TEST=true`) to preview the rendered email in the browser instead of
   sending. Both are in `.env.example` — which is the only `.env*` file that may be committed.
+- **Org data never goes in Oxy's Postgres, and its shape picks the store.** Facts and history →
+  the workspace's Airhouse (`ctx.airhouse`); records an app edits → org OLTP (`ctx.oltp`); files →
+  `ctx.storage`; customer warehouses are read-only. Every table a migrator creates must be placed in
+  `crates/app/tests/platform/data_placement.rs`, which fails the build otherwise. Invoke the
+  `oxy-data-placement` skill; rule and backlog: `internal-docs/data-placement.md`.
 
 ## Authorization
 
@@ -216,6 +221,7 @@ skill** rather than reasoning it out again — its `SKILL.md` carries the full c
 | `oxy-route-classification` | add/move a route under `server/router/`, or a handler touching disk/`.git`/state dir | FS-touching routes MUST be `IdeOnly` in `role_manifest.rs`; persisted-data reads MUST stay `FleetOk` |
 | `oxy-customer-apps-perf` | add/move a `/customer-apps/**` route or custom-app data endpoint; any per-request read on that hot path | serving routes need Cache-Control + SSE-safe compression; result caches keyed `project_id`-first, read after auth gates, honor `?refresh` |
 | `oxy-run-and-verify` | verify a change in the running app, seed data, sign in as a persona, screenshot a feature or reproduce a UI bug | never `--local`; `just up`, not hand-started servers; sign in by persona (`/dev-login?as=`), never by editing env |
+| `oxy-data-placement` | a new table or migration, a webhook/ingest that stores org data, a custom-app data surface, a failing `data_placement` test | org data never in Oxy's Postgres; the shape picks the store (facts → Airhouse, records → org OLTP, files → storage); customer warehouses read-only; OLTP provisioning stays manual |
 
 PRs that violate the right-hand column should be challenged through the matching skill.
 

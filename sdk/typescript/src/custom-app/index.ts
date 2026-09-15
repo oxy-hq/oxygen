@@ -32,6 +32,7 @@ export type {
   EmailAttachment,
   EmailSendInput,
   EmailSendResult,
+  OxyAirhouseApi,
   OxyAirwayApi,
   OxyEmailApi,
   OxyFetchResult,

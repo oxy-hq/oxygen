@@ -32,6 +32,8 @@ struct MintTokenRequest<'a> {
     subject: &'a str,
     role: &'a UserRole,
     ttl_secs: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    write_schemas: Option<&'a [String]>,
 }
 
 /// Wire shape of the create-SA response. Flattens
@@ -406,6 +408,10 @@ impl AirhouseAdminClient {
     /// Authenticated as the SA whose bearer is `sa_bearer` — the SA must be
     /// bound to `tenant_id`, its `max_role` must cover the requested `role`,
     /// and its `max_ttl_secs` must cover `ttl_secs`.
+    ///
+    /// `write_schemas` asks Airhouse to confine a Writer's writes to those
+    /// schemas. Omitted from the request when `None`, so an unscoped mint is
+    /// byte-identical to one from before the field existed.
     pub async fn mint_token(
         &self,
         tenant_id: &str,
@@ -413,6 +419,7 @@ impl AirhouseAdminClient {
         subject: &str,
         role: UserRole,
         ttl_secs: i32,
+        write_schemas: Option<&[String]>,
     ) -> Result<EphemeralCredential, AirhouseError> {
         let resp = self
             .client
@@ -422,6 +429,7 @@ impl AirhouseAdminClient {
                 subject,
                 role: &role,
                 ttl_secs,
+                write_schemas,
             })
             .send()
             .await?;
@@ -789,7 +797,14 @@ mod tests {
 
         let client = AirhouseAdminClient::new(server.uri(), "tok");
         let cred = client
-            .mint_token("acme", "ahsa_secret", "user_alice", UserRole::Reader, 900)
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "user_alice",
+                UserRole::Reader,
+                900,
+                None,
+            )
             .await
             .unwrap();
         assert!(cred.username.starts_with("eph_"));
@@ -809,7 +824,14 @@ mod tests {
 
         let client = AirhouseAdminClient::new(server.uri(), "tok");
         let err = client
-            .mint_token("acme", "ahsa_secret", "user_alice", UserRole::Reader, 900)
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "user_alice",
+                UserRole::Reader,
+                900,
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, AirhouseError::RateLimited(_)));
@@ -828,7 +850,14 @@ mod tests {
 
         let client = AirhouseAdminClient::new(server.uri(), "tok");
         let err = client
-            .mint_token("acme", "ahsa_secret", "user_alice", UserRole::Admin, 7200)
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "user_alice",
+                UserRole::Admin,
+                7200,
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, AirhouseError::Forbidden(_)));
@@ -845,7 +874,14 @@ mod tests {
 
         let client = AirhouseAdminClient::new(server.uri(), "tok");
         let err = client
-            .mint_token("acme", "ahsa_revoked", "user_alice", UserRole::Reader, 900)
+            .mint_token(
+                "acme",
+                "ahsa_revoked",
+                "user_alice",
+                UserRole::Reader,
+                900,
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, AirhouseError::Unauthorized(_)));
@@ -862,7 +898,14 @@ mod tests {
 
         let client = AirhouseAdminClient::new(server.uri(), "tok");
         let err = client
-            .mint_token("acme", "ahsa_secret", "user_alice", UserRole::Reader, 0)
+            .mint_token(
+                "acme",
+                "ahsa_secret",
+                "user_alice",
+                UserRole::Reader,
+                0,
+                None,
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, AirhouseError::InvalidInput(_)));

@@ -18,10 +18,11 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, join, parse, relative, resolve } from "node:path";
+import { dirname, extname, join, parse, relative, resolve } from "node:path";
 import { Ajv, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { parse as parseYaml } from "yaml";
+import { checkAppPlacement } from "../publish/placement.js";
 import { REINSTALL_REMEDY } from "../template/embedded.js";
 import { schemasDir } from "../template/locate.js";
 import * as log from "../ui/log.js";
@@ -29,6 +30,7 @@ import { heading, table } from "../ui/render.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { repoRoot } from "../util/git.js";
+import { inferOrgApp } from "./publish.js";
 
 /**
  * Which schema governs which file.
@@ -86,6 +88,18 @@ const SKIP = new Set([
   ".venv",
   "__pycache__"
 ]);
+
+/**
+ * The custom-app manifest, checked for DATA PLACEMENT rather than against a
+ * schema: none is generated for it — the SDK's type is its only definition —
+ * so `publish/placement.ts` checks where the app's data goes instead.
+ */
+const APP_MANIFEST = "oxy-app.json";
+
+/** Matched on the basename, for the reason `schemaFor` gives. */
+function isAppManifest(path: string): boolean {
+  return (path.split("\\").join("/").split("/").pop() ?? path) === APP_MANIFEST;
+}
 
 export interface ValidateFlags {
   /** Validate one file instead of the whole workspace. */
@@ -346,8 +360,10 @@ function walk(root: string, prefix = ""): Walked {
       out.broken.push(...nested.broken);
       continue;
     }
-    if (extname(entry.name) !== ".yml" && extname(entry.name) !== ".yaml") continue;
-    if (!schemaFor(rel)) continue;
+    if (entry.name !== APP_MANIFEST) {
+      if (extname(entry.name) !== ".yml" && extname(entry.name) !== ".yaml") continue;
+      if (!schemaFor(rel)) continue;
+    }
 
     // The only `stat` in this walk, and it runs on links that would otherwise
     // be EMITTED — after `schemaFor`, so an ordinary entry and a link nothing
@@ -599,18 +615,20 @@ function describe(file: string, errors: ErrorObject[] | null | undefined): Findi
 function validateFile(
   root: string,
   rel: string,
-  compiled: Map<string, ReturnType<Ajv["compile"]>>
+  compiled: Map<string, ReturnType<Ajv["compile"]>>,
+  warnings: Finding[]
 ): Finding[] | SkipCode {
   const schema = schemaFor(rel);
+  const manifest = isAppManifest(rel);
   // `undefined`, not `[]`, and for the same reason the doc gives: a file with
   // no schema was NOT checked. Unreachable through either door today — `walk`
   // filters on `!schemaFor(rel)` before emitting, and `--file` throws USAGE on
   // the same predicate — but `[]` here is the seed of the exact defect this
   // function's contract exists to prevent, and it grows back silently the day
   // either filter moves.
-  if (!schema) return KIND_UNKNOWN;
-  const validate = compiled.get(schema);
-  if (!validate) return SCHEMA_MISSING;
+  if (!schema && !manifest) return KIND_UNKNOWN;
+  const validate = schema ? compiled.get(schema) : undefined;
+  if (schema && !validate) return SCHEMA_MISSING;
 
   // NO FILESYSTEM CONDITION MAY ARRIVE LABELLED `(parse)`. Both are settled
   // here, outside the YAML try, because reported from inside it they read as
@@ -686,6 +704,10 @@ function validateFile(
     });
   }
 
+  // The manifest arm, past the same filesystem guards: `validate` is undefined
+  // here only when `schema` was, which the guard above allows for `oxy-app.json`.
+  if (!validate) return validateAppManifest(root, rel, warnings);
+
   let parsed: unknown;
   try {
     parsed = parseYaml(readFileSync(full, "utf8"));
@@ -740,10 +762,10 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
     : walk(root);
   const { files, broken } = walked;
 
-  if (single && !schemaFor(files[0] ?? "")) {
+  if (single && !schemaFor(files[0] ?? "") && !isAppManifest(files[0] ?? "")) {
     throw new CliError(`oxyc validate does not know how to check ${single}`, {
       code: ExitCode.USAGE,
-      hint: `it checks ${SCHEMA_FOR.map(([s]) => s).join(", ")}`
+      hint: `it checks ${[...SCHEMA_FOR.map(([s]) => s), APP_MANIFEST].join(", ")}`
     });
   }
   if (files.length === 0 && broken.length === 0) {
@@ -761,10 +783,11 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   }
 
   const findings: Finding[] = [];
+  const warnings: Finding[] = [];
   const checked: string[] = [];
   const unchecked: SkippedFile<SkipCode>[] = [];
   for (const rel of files) {
-    const result = validateFile(root, rel, compiled);
+    const result = validateFile(root, rel, compiled, warnings);
     if (typeof result === "string") {
       unchecked.push({ path: rel, code: result });
       continue;
@@ -793,6 +816,7 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   const nothingRead = checked.length === 0 && unchecked.length + broken.length > 0;
 
   if (flags.json) {
+    reportWarnings(warnings);
     const report: ValidateReport = { checked: checked.length, unchecked, broken, findings };
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (findings.length > 0) throw silentFailure(findings.length, checked.length);
@@ -819,6 +843,7 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   // "symlink(s)" was right when this bucket held only links; it now holds a
   // FIFO or device named like a workspace file too, which is not one.
   listSkipped("could not read them", broken, whyUnreadable);
+  reportWarnings(warnings);
 
   if (findings.length === 0) {
     // `0 file(s) valid` in green was the line a skimmer read when nothing had
@@ -845,6 +870,52 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   );
   log.info("structural checks only — `oxy validate` also resolves databases: and llm.ref");
   throw silentFailure(findings.length, checked.length);
+}
+
+/**
+ * An `oxy-app.json`: where its data goes, not its schema.
+ *
+ * Errors come back as findings and fail the run like a schema violation;
+ * warnings are collected for `reportWarnings` and do not. Unparsable JSON is a
+ * `(parse)` finding, the YAML arm's rule — not the throw `readAppManifest`
+ * makes, which would end the walk at the first broken manifest.
+ */
+function validateAppManifest(root: string, rel: string, warnings: Finding[]): Finding[] {
+  const full = join(root, rel);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(full, "utf8"));
+  } catch (cause) {
+    return [{ file: rel, path: "(parse)", message: (cause as Error).message.split("\n")[0] ?? "" }];
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return [{ file: rel, path: "(root)", message: "the top level must be an object" }];
+  }
+  const manifest = parsed as Record<string, unknown>;
+  const appDir = dirname(full);
+  // `publish`'s order, minus the flags and env it has and this does not.
+  const slug =
+    typeof manifest.slug === "string" && manifest.slug.trim()
+      ? manifest.slug
+      : inferOrgApp(appDir).app;
+
+  const prefix = dirname(rel) === "." ? "" : `${dirname(rel)}/`;
+  const findings: Finding[] = [];
+  for (const issue of checkAppPlacement(appDir, manifest, slug)) {
+    const finding = { file: `${prefix}${issue.file}`, path: issue.path, message: issue.message };
+    (issue.level === "error" ? findings : warnings).push(finding);
+  }
+  return findings;
+}
+
+/**
+ * Warnings from the manifest checks: printed, never counted as problems.
+ *
+ * On stderr in both modes, the channel every other warning here takes, so
+ * `--json` keeps one document on stdout and its shape does not move.
+ */
+function reportWarnings(warnings: Finding[]): void {
+  for (const w of warnings) log.warn(`${w.file} (${w.path}): ${w.message}`);
 }
 
 /**

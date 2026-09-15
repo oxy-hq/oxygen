@@ -36,6 +36,14 @@ impl FunctionProjectContext for OxyProjectContext {
         OxyProjectContext::build_connector_for(self, db_name).await
     }
 
+    async fn build_app_airhouse_connector(
+        &self,
+        app_slug: &str,
+        schema: &str,
+    ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
+        crate::agentic_wiring::app_airhouse::connector(self.workspace_id(), app_slug, schema).await
+    }
+
     async fn start_airway_seed(
         &self,
         db: &DatabaseConnection,

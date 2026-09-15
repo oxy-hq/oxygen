@@ -11,14 +11,17 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::plan::plan;
-use super::types::{Applied, DeclaredMigration, MigrationError};
+use super::types::{Applied, DeclaredMigration, MigrationError, STORE_OLTP};
 
-async fn read_ledger(
+/// `filename -> checksum` for one app's files in one store.
+pub(super) async fn read_ledger(
     db: &DatabaseConnection,
     app_id: Uuid,
+    store: &str,
 ) -> Result<HashMap<String, String>, MigrationError> {
     Ok(custom_app_migrations::Entity::find()
         .filter(custom_app_migrations::Column::AppId.eq(app_id))
+        .filter(custom_app_migrations::Column::Store.eq(store))
         .all(db)
         .await
         .map_err(|e| MigrationError::Db(e.to_string()))?
@@ -32,14 +35,14 @@ async fn read_ledger(
 /// Per-app rather than per-tenant: two apps in the same org have disjoint
 /// schemas and disjoint ledgers, so serialising them against each other would
 /// only make concurrent promotes slower.
-fn app_lock_key(app_id: Uuid) -> i64 {
+pub(super) fn app_lock_key(app_id: Uuid) -> i64 {
     let b = app_id.as_bytes();
     i64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
 /// Render a Postgres failure the way the author needs it — SQLSTATE, message,
 /// detail, hint. `tokio_postgres::Error`'s own Display is just "db error".
-fn pg_detail(e: &tokio_postgres::Error) -> String {
+pub(super) fn pg_detail(e: &tokio_postgres::Error) -> String {
     match e.as_db_error() {
         Some(db) => {
             let mut msg = format!("[{}] {}", db.code().code(), db.message());
@@ -83,7 +86,7 @@ pub(crate) async fn apply_on_promote(
     // connection at all, and an EDITED migration must fail the promote without
     // having touched the tenant database. The authoritative plan is recomputed
     // below under the lock.
-    if plan(declared, &read_ledger(db, app_id).await?)?.is_empty() {
+    if plan(declared, &read_ledger(db, app_id, STORE_OLTP).await?)?.is_empty() {
         return Ok(Applied {
             applied: Vec::new(),
             already_applied: declared.len(),
@@ -139,7 +142,7 @@ pub(crate) async fn apply_on_promote(
 
     // Re-read under the lock. The pre-flight above is an optimisation and a
     // fast refusal; THIS is the plan that runs.
-    let ledger = read_ledger(db, app_id).await?;
+    let ledger = read_ledger(db, app_id, STORE_OLTP).await?;
     let pending = plan(declared, &ledger)?;
     let mut outcome = Applied {
         applied: Vec::new(),
@@ -184,6 +187,7 @@ pub(crate) async fn apply_on_promote(
         // forever. Loud and recoverable beats silent and wrong.
         custom_app_migrations::ActiveModel {
             app_id: Set(app_id),
+            store: Set(STORE_OLTP.to_string()),
             filename: Set(m.filename.clone()),
             checksum: Set(m.checksum.clone()),
             applied_at: Set(Utc::now().fixed_offset()),

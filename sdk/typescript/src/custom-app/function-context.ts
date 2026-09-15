@@ -222,6 +222,12 @@ export type OxyFetchInit = RequestInit & {
  * `query` does not, because that allowlist is about modifying a project's
  * warehouse, and a `postgres_managed` database resolves the read-only analyst
  * for every caller regardless.
+ *
+ * **Shape: the customer's warehouse — read it, don't write it.** Writes to a
+ * customer warehouse (anything but `airhouse` / `airhouse_managed`) are refused
+ * unless the function names the database in `customerWarehouseWrites` with a
+ * reason. Facts your app records go to `ctx.airhouse`, records it edits to
+ * `ctx.oltp`, files to `ctx.storage`.
  */
 export interface OxyWarehouseApi {
   /**
@@ -253,8 +259,8 @@ export interface OxyWarehouseApi {
 }
 
 /**
- * The handle `ctx.tx` passes to your callback — a pinned connection with an
- * open transaction.
+ * The handle `ctx.tx` and `ctx.oltp.tx` pass to your callback — a pinned
+ * connection with an open transaction.
  *
  * Both methods take **bound parameters** (`$1`, `$2`, …). Never build SQL by
  * concatenating request data: `ctx.warehouse.exec` takes a bare string, but a
@@ -272,6 +278,11 @@ export interface OxyTransaction {
 }
 
 /**
+ * **Shape: records your app edits** — current state that needs constraints or
+ * transactions: a booking, a shift assignment, a template, a count. What
+ * happened (history that will not change) goes to `ctx.airhouse`; bytes go to
+ * `ctx.storage`.
+ *
  * `ctx.oltp` — read and WRITE the app's OWN per-org OLTP schema (`app_<writer>`)
  * on the managed Postgres tenant, and nothing else.
  *
@@ -298,8 +309,9 @@ export interface OxyTransaction {
  * handshake, and a wake-up if the compute was idle) and its own transaction, so
  * a per-row loop pays that per row. Prefer one statement over many — a
  * multi-row `INSERT`, an `INSERT … SELECT`, or `INSERT … RETURNING` to avoid a
- * follow-up read — and reach for `ctx.oltp` a handful of times per request, not
- * in a hot loop.
+ * follow-up read — or run several inside one `ctx.oltp.tx`, which holds a single
+ * connection. Reach for `ctx.oltp` a handful of times per request, not in a hot
+ * loop.
  *
  * ```ts
  * const [row] = await ctx.oltp.query(
@@ -313,9 +325,81 @@ export interface OxyOltpApi {
   query(sql: string, params?: unknown[]): Promise<OxyFunctionRow[]>;
   /** Run a statement for its effect; resolves to the number of rows affected. */
   exec(sql: string, params?: unknown[]): Promise<number>;
+  /**
+   * Run several statements as one transaction on one connection: commits when
+   * `fn` resolves, rolls back when it throws, and rethrows your error. The same
+   * handle and rules as `ctx.tx` — let a failed statement's error propagate —
+   * without naming a database: the app's own store is implicit.
+   *
+   * ```ts
+   * await ctx.oltp.tx(async (tx) => {
+   *   await tx.exec("UPDATE shifts SET status = 'closed' WHERE id = $1", [shiftId]);
+   *   await tx.exec("INSERT INTO shift_notes (shift_id, body) VALUES ($1, $2)", [shiftId, note]);
+   * });
+   * ```
+   */
+  tx<T>(fn: (tx: OxyTransaction) => Promise<T> | T): Promise<T>;
 }
 
-/** `ctx.secrets` — write app-scoped secrets (gated by the `secrets.write` capability). */
+/**
+ * **Shape: facts — what happened, which will not change**: an order, a completed
+ * checklist, a delivery, a reading. `ctx.airhouse` appends them to your app's own
+ * schema in the workspace's Airhouse, where the analytics agent, semantic views
+ * and other apps read them as history. Records your app edits in place belong in
+ * `ctx.oltp`; files in `ctx.storage`.
+ *
+ * Gated by the fail-closed `airhouse` manifest capability (`"airhouse": {
+ * "enabled": true }`), a pure gate: the schema is `app_<writer>`, derived from
+ * the app's slug (`store-ops` → `app_store_ops`) and exposed as `schema`. Writes
+ * run **as the app**, whoever invoked the function — a schedule, a webhook and a
+ * click write the same way.
+ *
+ * Every statement is checked before it is sent. Reads may name any schema;
+ * writes must target `<schema>.<table>`; `exec` runs no DDL — declare tables in
+ * `airhouseMigrations` files, which run once at publish. One statement per call.
+ *
+ * Airhouse is DuckLake: **no primary keys, UNIQUE, indexes or foreign keys**, and
+ * no bound parameters. Give every fact the id its source assigned and a
+ * `recorded_at`, append a correction as a new fact instead of updating, and keep
+ * one row per id when reading — a retried function can append twice:
+ *
+ * ```ts
+ * await ctx.airhouse.append("checklist_completions", [
+ *   { completion_id: id, store_guid: store, recorded_at: new Date().toISOString() },
+ * ]);
+ *
+ * const { rows } = await ctx.airhouse.query(`
+ *   SELECT * FROM ${ctx.airhouse.schema}.checklist_completions
+ *   QUALIFY row_number() OVER (PARTITION BY completion_id ORDER BY recorded_at DESC) = 1
+ * `);
+ * ```
+ */
+export interface OxyAirhouseApi {
+  /** `app_<writer>` when the function declares the capability, else `null`. */
+  readonly schema: string | null;
+  /** Read, from any schema. Capped like `ctx.warehouse.query`; `truncated` says the cap cut rows. */
+  query(sql: string): Promise<{ rows: OxyFunctionRow[]; truncated: boolean }>;
+  /**
+   * Append rows to `<schema>.<table>`. Pass the bare table name; every row must
+   * carry the first row's columns. Values are sent as literals, safely quoted.
+   * Resolves to the number of rows sent.
+   */
+  append(table: string, rows: OxyFunctionRow[]): Promise<number>;
+  /**
+   * One write statement against your own schema: a `DELETE` for retention or
+   * erasure, an `INSERT … SELECT` deriving facts from other facts. Nothing is
+   * bound, so never interpolate request data here — that is what `append` is for.
+   */
+  exec(sql: string): Promise<void>;
+}
+
+/**
+ * `ctx.secrets` — write app-scoped secrets (gated by the `secrets.write` capability).
+ *
+ * **Credentials only — not state.** A secret is for a value you authenticate
+ * with, like a rotated token. A cursor, a counter or a JSON blob that changes
+ * between runs is a record: keep it in `ctx.oltp`.
+ */
 export interface OxySecretsApi {
   set(key: string, value: string): Promise<void>;
 }
@@ -730,7 +814,11 @@ export interface OxyFunctionContext {
    *
    * `database` must be in this function's manifest `destinations` — a
    * transaction is a write, and the same fail-closed allowlist applies. Postgres
-   * only; other backends reject `ctx.tx` rather than faking it.
+   * only; other backends reject `ctx.tx` rather than faking it. A customer
+   * warehouse is refused unless named in `customerWarehouseWrites`; for the app's
+   * own OLTP store use `ctx.oltp.tx`, which needs no destination. A transaction
+   * counts as a write even when your callback only reads — `begin` cannot know —
+   * so for reads alone use `ctx.warehouse.query`.
    *
    * **Do not catch a failed statement and return normally.** A statement the
    * server rejects aborts the whole transaction, and `COMMIT` on an aborted
@@ -756,16 +844,24 @@ export interface OxyFunctionContext {
    */
   tx<T>(database: string, fn: (tx: OxyTransaction) => Promise<T> | T): Promise<T>;
   /**
-   * Read/write the app's OWN per-org OLTP schema (derived from its slug). The
-   * write half `ctx.warehouse` cannot give an app on a managed database. Gated
-   * by the fail-closed `oltp` manifest capability (`{ enabled: true }`). See
-   * {@link OxyOltpApi}.
+   * **Records your app edits.** Read/write the app's OWN per-org OLTP schema
+   * (derived from its slug), with `ctx.oltp.tx` for several statements at once.
+   * Gated by the fail-closed `oltp` manifest capability (`{ enabled: true }`).
+   * See {@link OxyOltpApi}.
    */
   oltp: OxyOltpApi;
+  /**
+   * **Facts: what happened.** Append-only history in the app's own Airhouse
+   * schema, written as the app. Gated by the fail-closed `airhouse` manifest
+   * capability (`{ enabled: true }`). See {@link OxyAirhouseApi}.
+   */
+  airhouse: OxyAirhouseApi;
+  /** Credentials the app rotates — not a state store. See {@link OxySecretsApi}. */
   secrets: OxySecretsApi;
   semantic: OxySemanticApi;
   airway: OxyAirwayApi;
   email: OxyEmailApi;
+  /** **Files: bytes.** The app's private storage silo. See {@link OxyStorageApi}. */
   storage: OxyStorageApi;
 }
 

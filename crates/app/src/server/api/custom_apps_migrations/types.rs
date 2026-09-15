@@ -1,5 +1,10 @@
 //! The vocabulary: what can go wrong, what was declared, what was applied.
 
+/// `custom_app_migrations.store` for a file applied to the app's OLTP schema.
+pub(crate) const STORE_OLTP: &str = "oltp";
+/// `custom_app_migrations.store` for a file applied to the app's Airhouse schema.
+pub(crate) const STORE_AIRHOUSE: &str = "airhouse";
+
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
     #[error("{0}")]
@@ -57,6 +62,11 @@ pub enum MigrationError {
     Busy,
     #[error("migration {filename:?} failed: {message}")]
     Failed { filename: String, message: String },
+    /// An Airhouse migration breaks a rule checked before anything runs: an
+    /// object outside the app's schema, or a key, `UNIQUE`, index or foreign key
+    /// DuckLake cannot hold.
+    #[error("Airhouse migration {filename:?} was refused: {message}")]
+    AirhouseRule { filename: String, message: String },
     /// The tenant connection or transaction machinery failed around a file —
     /// beginning a transaction, or committing one.
     ///
@@ -100,6 +110,7 @@ impl MigrationError {
                 // `Infra`, deliberately absent from this list.
                 | MigrationError::NoSchema(_)
                 | MigrationError::Failed { .. }
+                | MigrationError::AirhouseRule { .. }
         )
     }
 

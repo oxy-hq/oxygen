@@ -151,6 +151,28 @@ pub(crate) fn declare(
     collect(files, &cfg.dir)
 }
 
+/// The bundle's `airhouseMigrations`, every file checked against the app's
+/// schema and DuckLake's rules now — on a draft publish too — so a key or a
+/// stray schema fails the publish that carries it, not a promote weeks later.
+pub(crate) fn declare_airhouse(
+    manifest_json: Option<&serde_json::Value>,
+    files: &[(String, Vec<u8>)],
+    app_slug: &str,
+) -> Result<Vec<DeclaredMigration>, MigrationError> {
+    let Some(cfg) =
+        crate::server::api::custom_apps_manifest::airhouse_migrations_config(manifest_json)
+            .map_err(MigrationError::BadManifest)?
+    else {
+        return Ok(Vec::new());
+    };
+    let declared = collect(files, &cfg.dir)?;
+    let schema = super::airhouse::airhouse_schema_for(app_slug)?;
+    for m in &declared {
+        super::airhouse::check_file(m, &schema)?;
+    }
+    Ok(declared)
+}
+
 #[cfg(test)]
 mod collect_tests {
     use super::*;

@@ -23,6 +23,10 @@
 #[cfg(feature = "connector")]
 pub mod connector;
 
+/// The SQL a custom app may send to its own Airhouse schema.
+#[cfg(feature = "sql-rules")]
+pub mod sql_rules;
+
 #[cfg(feature = "credentials")]
 pub mod entity;
 

@@ -33,6 +33,10 @@
 //! Tunables: `OXY_AIRHOUSE_POOL_CONNS_PER_IDENTITY` (N, default 3),
 //! `OXY_AIRHOUSE_POOL_IDLE_SECS` (default 300),
 //! `OXY_AIRHOUSE_POOL_MAX_IDENTITIES` (default 16),
+//! `OXY_AIRHOUSE_POOL_MAX_APP_IDENTITIES` (default 16 — `ctx.airhouse`'s
+//! `app:<workspace>:<slug>` identities, budgeted apart so app writers and the
+//! analytics path never LRU-evict each other — so the process-wide ceiling is
+//! the two caps together, (16 + 16) × N = 96 connections at the defaults),
 //! `OXY_AIRHOUSE_POOL_DISABLED=1` (bypass → pre-pool per-request behaviour).
 
 use std::collections::HashMap;
@@ -49,6 +53,9 @@ use tokio::sync::{Mutex, RwLock};
 const DEFAULT_CONNS_PER_IDENTITY: usize = 3;
 const DEFAULT_IDLE_SECS: u64 = 300;
 const DEFAULT_MAX_IDENTITIES: usize = 16;
+const DEFAULT_MAX_APP_IDENTITIES: usize = 16;
+/// Identities `ctx.airhouse` builds (`agentic_wiring::app_airhouse`).
+const APP_KEY_PREFIX: &str = "app:";
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Up to N reused connections for one logical identity. Each slot is built
@@ -146,9 +153,36 @@ fn evict(map: &mut HashMap<String, Arc<KeyPool>>, now: u64) {
         .iter()
         .map(|(k, p)| (k.clone(), p.last_used.load(Ordering::Relaxed)))
         .collect();
-    for key in keys_to_evict(&snapshot, now, idle_secs(), max_identities()) {
+    let budgets = Budgets {
+        idle_secs: idle_secs(),
+        max_identities: max_identities(),
+        max_app_identities: max_app_identities(),
+    };
+    for key in keys_to_evict_by_budget(&snapshot, now, budgets) {
         map.remove(&key);
     }
+}
+
+#[derive(Clone, Copy)]
+struct Budgets {
+    idle_secs: u64,
+    max_identities: usize,
+    max_app_identities: usize,
+}
+
+/// [`keys_to_evict`] run separately over app-write identities and everything
+/// else, so a workspace with several `ctx.airhouse` apps cannot push the
+/// analytics path's sessions out of the pool, and analytics traffic cannot
+/// evict an app mid-burst — each eviction costs a mint and a fresh DuckLake
+/// session, the load this pool exists to cap.
+fn keys_to_evict_by_budget(entries: &[(String, u64)], now: u64, b: Budgets) -> Vec<String> {
+    let (apps, others): (Vec<_>, Vec<_>) = entries
+        .iter()
+        .cloned()
+        .partition(|(k, _)| k.starts_with(APP_KEY_PREFIX));
+    let mut out = keys_to_evict(&others, now, b.idle_secs, b.max_identities);
+    out.extend(keys_to_evict(&apps, now, b.idle_secs, b.max_app_identities));
+    out
 }
 
 /// Pure eviction policy: every identity idle beyond `idle_secs`, plus the
@@ -235,6 +269,13 @@ fn max_identities() -> usize {
     env_usize("OXY_AIRHOUSE_POOL_MAX_IDENTITIES", DEFAULT_MAX_IDENTITIES)
 }
 
+fn max_app_identities() -> usize {
+    env_usize(
+        "OXY_AIRHOUSE_POOL_MAX_APP_IDENTITIES",
+        DEFAULT_MAX_APP_IDENTITIES,
+    )
+}
+
 fn env_usize(var: &str, default: usize) -> usize {
     std::env::var(var)
         .ok()
@@ -245,10 +286,29 @@ fn env_usize(var: &str, default: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::keys_to_evict;
+    use super::{Budgets, keys_to_evict, keys_to_evict_by_budget};
 
     fn e(k: &str, last: u64) -> (String, u64) {
         (k.to_string(), last)
+    }
+
+    #[test]
+    fn app_identities_and_the_analytics_path_do_not_evict_each_other() {
+        let entries = [
+            e("mgd:w:u1:Reader", 990),
+            e("mgd:w:u2:Reader", 995),
+            e("app:w:store-ops", 900),
+            e("app:w:bookkeeping", 910),
+        ];
+        let budgets = Budgets {
+            idle_secs: 600,
+            max_identities: 3,
+            max_app_identities: 3,
+        };
+        // Four identities against one shared cap of 3 would evict the oldest two
+        // — both apps. Budgeted apart, each side is under its own cap.
+        assert!(keys_to_evict(&entries, 1000, 600, 3).len() == 2);
+        assert!(keys_to_evict_by_budget(&entries, 1000, budgets).is_empty());
     }
 
     #[test]

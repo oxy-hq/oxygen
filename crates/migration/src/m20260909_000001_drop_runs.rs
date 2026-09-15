@@ -14,6 +14,12 @@
 //! `runs.id`. `up` drops that constraint, then the table; `down` recreates the
 //! table and re-adds the constraint. The table is retired, so `down` exists only
 //! to keep the migration reversible.
+//!
+//! `m20260915_000001_drop_dead_tables` later drops `a2a_tasks` itself with a
+//! no-op `down`, so both a rollback past this migration and a re-apply after that
+//! rollback can meet no `a2a_tasks`. The FK drop in `up` and the re-add in `down`
+//! are each guarded on the table existing, so neither stops on a missing
+//! relation.
 
 use sea_orm_migration::prelude::*;
 
@@ -23,11 +29,17 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // Drop the orphaned `a2a_tasks -> runs` FK so the table can be dropped.
+        // Drop the orphaned `a2a_tasks -> runs` FK so the table can be dropped, if
+        // `a2a_tasks` is still there to carry it (see the module docs).
         manager
             .get_connection()
             .execute_unprepared(
-                r#"ALTER TABLE "a2a_tasks" DROP CONSTRAINT IF EXISTS "fk_a2a_tasks_run_id""#,
+                r#"DO $$
+BEGIN
+    IF to_regclass('public.a2a_tasks') IS NOT NULL THEN
+        ALTER TABLE "a2a_tasks" DROP CONSTRAINT IF EXISTS "fk_a2a_tasks_run_id";
+    END IF;
+END $$"#,
             )
             .await?;
         manager
@@ -118,11 +130,18 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        // Re-add the `a2a_tasks -> runs` incoming FK.
+        // Re-add the `a2a_tasks -> runs` incoming FK, if `a2a_tasks` still exists
+        // (`m20260915_000001_drop_dead_tables` drops it without a way back).
         manager
             .get_connection()
             .execute_unprepared(
-                r#"ALTER TABLE "a2a_tasks" ADD CONSTRAINT "fk_a2a_tasks_run_id" FOREIGN KEY ("run_id") REFERENCES "runs" ("id") ON DELETE SET NULL"#,
+                r#"DO $$
+BEGIN
+    IF to_regclass('public.a2a_tasks') IS NOT NULL THEN
+        ALTER TABLE "a2a_tasks" ADD CONSTRAINT "fk_a2a_tasks_run_id"
+            FOREIGN KEY ("run_id") REFERENCES "runs" ("id") ON DELETE SET NULL;
+    END IF;
+END $$"#,
             )
             .await?;
         Ok(())

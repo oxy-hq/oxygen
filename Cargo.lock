@@ -695,6 +695,7 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "sqlparser 0.62.0",
  "thiserror 2.0.20",
  "tokio",
  "tokio-postgres",

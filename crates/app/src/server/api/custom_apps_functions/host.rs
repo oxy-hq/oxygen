@@ -5,6 +5,7 @@
 //! (query cap), §11.9 (fetch size cap), §11.3 (warehouse write scope —
 //! per-function fail-closed `destinations` allowlist).
 
+use std::collections::BTreeMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
@@ -26,6 +27,11 @@ use super::seam::{FunctionProjectContext, FunctionQueryExecutor};
 use super::upsert_support;
 use agentic_connector::SqlDialect;
 use agentic_connector::SqlTransaction;
+
+mod airhouse_ops;
+mod destinations;
+
+use destinations::{WriteSurface, destination_kind, destination_write_policy};
 
 /// Outbound fetch response size cap (design doc §11.9).
 const FETCH_MAX_BYTES: u64 = 10 * 1024 * 1024;
@@ -86,6 +92,9 @@ pub struct ProjectFunctionHost {
     /// one-shot transaction on its own connection — see `oltp`); this only saves
     /// the resolve. Filled lazily on the first `ctx.oltp` call.
     oltp_conn: tokio::sync::Mutex<Option<oxy_oltp::resolver::WriterConnection>>,
+    /// The app's own Airhouse connection for `ctx.airhouse`, filled on first
+    /// use. The connection behind it is pooled per app across invocations.
+    airhouse_conn: tokio::sync::Mutex<Option<Arc<dyn DatabaseConnector>>>,
     /// Who is running, for the audit record on every data-plane write.
     identity: InvocationIdentity,
     /// The writes each open `ctx.tx()` handle has made so far, keyed by the
@@ -131,8 +140,14 @@ pub struct FunctionCapabilities {
     /// destination side of copy).
     pub storage_write: bool,
     /// What `ctx.oltp` may do — the gate AND why it's closed, so the two
-    /// fail-closed reasons get different diagnoses. See [`OltpCapability`].
-    pub oltp: OltpCapability,
+    /// fail-closed reasons get different diagnoses. See [`WriterCapability`].
+    pub oltp: WriterCapability,
+    /// What `ctx.airhouse` may do. Same derivation as `oltp`: the schema is
+    /// `app_<writer>`, from the app's slug, never from the manifest.
+    pub airhouse: WriterCapability,
+    /// Customer warehouses this function may write to despite the read-only
+    /// rule, each with the reason its manifest gave. Empty → none.
+    pub customer_warehouse_writes: BTreeMap<String, String>,
     /// App-level `storage.retention` policy. Empty → written objects carry no
     /// TTL tag and never expire.
     pub storage_retention: RetentionPolicy,
@@ -145,17 +160,18 @@ pub struct FunctionCapabilities {
     pub fetch_max_bytes: Option<u64>,
 }
 
-/// Whether `ctx.oltp` is available, and — when it is not — which of the two
-/// fail-closed reasons applies, so the host can tell them apart in the error.
+/// Whether a store keyed on the app's writer — `ctx.oltp` or `ctx.airhouse` —
+/// is available, and, when it is not, which of the two fail-closed reasons
+/// applies, so the host can tell them apart in the error.
 ///
 /// The writer is DERIVED from the app's slug, never named by the manifest (the
 /// binding that keeps one app out of another's schema), so "the slug can't back
-/// a schema" is a distinct failure from "the manifest didn't ask for `ctx.oltp`"
+/// a schema" is a distinct failure from "the manifest didn't ask for the store"
 /// — and reporting the first as the second sends an author to edit a manifest
 /// that is already correct.
 #[derive(Debug, Clone, Default)]
-pub enum OltpCapability {
-    /// The manifest did not enable `ctx.oltp`.
+pub enum WriterCapability {
+    /// The manifest did not enable the store.
     #[default]
     Disabled,
     /// Enabled, and the app's slug backs a valid `app_<writer>` schema.
@@ -165,7 +181,7 @@ pub enum OltpCapability {
     SlugNotDerivable { slug: String },
 }
 
-impl OltpCapability {
+impl WriterCapability {
     /// Build from the manifest gate and the app's slug. The writer is DERIVED
     /// from the slug (never the manifest), so an enabled gate whose slug cannot
     /// back a schema is [`Self::SlugNotDerivable`] — a different fail-closed
@@ -179,6 +195,16 @@ impl OltpCapability {
             None => Self::SlugNotDerivable {
                 slug: app_slug.to_string(),
             },
+        }
+    }
+
+    /// The app's own schema, `app_<writer>`, when the gate is open.
+    pub fn schema(&self) -> Option<String> {
+        match self {
+            Self::Enabled { writer } => oxy_oltp::schema::WriterRef::app(writer)
+                .ok()
+                .map(|w| w.schema_name()),
+            _ => None,
         }
     }
 }
@@ -219,6 +245,7 @@ impl ProjectFunctionHost {
             email_send_count: std::sync::atomic::AtomicUsize::new(0),
             transactions: super::tx::TxRegistry::default(),
             oltp_conn: tokio::sync::Mutex::new(None),
+            airhouse_conn: tokio::sync::Mutex::new(None),
             // `ctx.fetch` is defended in two layers:
             //  1. `is_safe_outbound` rejects the request URL up front (scheme,
             //     literal private IPs, internal suffixes).
@@ -327,11 +354,7 @@ impl ProjectFunctionHost {
     async fn note_write(&self, write: WriteRecord) {
         let late = self.writes.lock().await.note(write);
         if let Some(write) = late {
-            let action = if write.plane == "oltp" {
-                data_audit::ACTION_OLTP_WRITE
-            } else {
-                data_audit::ACTION_WAREHOUSE_WRITE
-            };
+            let action = data_audit::action_for(write.plane);
             let (trace_id, _) = Self::trace_context();
             self.record_writes(action, vec![write], trace_id.as_deref())
                 .await;
@@ -371,7 +394,9 @@ impl ProjectFunctionHost {
     }
 
     /// §11.3 — a write may only target a database the function declared in its
-    /// manifest `destinations`, and that database must actually be configured.
+    /// manifest `destinations`, that database must actually be configured, and
+    /// it must not be a customer warehouse the function gave no reason to write
+    /// (`destination_write_policy`).
     ///
     /// Fail-closed: an empty allowlist denies every database. Checked *before*
     /// any connector — and therefore any credential — is built, so a function
@@ -383,7 +408,7 @@ impl ProjectFunctionHost {
     /// The message names no surface: `reply_json` prefixes the one that asked
     /// (`ctx.warehouse` or `ctx.tx`), and spelling it here too was how this
     /// error came out as `ctx.tx: ctx.tx: database '…' is not in …`.
-    fn check_write_destination(&self, database: &str) -> Result<(), String> {
+    fn check_write_destination(&self, database: &str, surface: WriteSurface) -> Result<(), String> {
         if !self.write_destinations.iter().any(|d| d == database) {
             return Err(format!(
                 "database '{database}' is not in this function's \
@@ -391,12 +416,18 @@ impl ProjectFunctionHost {
             ));
         }
         let cm = &self.proj_ctx.workspace_manager().config_manager;
-        if !cm.list_databases().iter().any(|db| db.name == database) {
+        let databases = cm.list_databases();
+        let Some(db) = databases.iter().find(|db| db.name == database) else {
             return Err(format!(
                 "database '{database}' is not configured for this project"
             ));
-        }
-        Ok(())
+        };
+        destination_write_policy(
+            database,
+            destination_kind(&db.database_type),
+            &self.caps.customer_warehouse_writes,
+            surface,
+        )
     }
 
     /// Pull `{ id, sql, params }` off a `ctx.tx` payload.
@@ -467,12 +498,156 @@ impl ProjectFunctionHost {
         };
         Ok((sql, params))
     }
+
+    /// The app's OLTP writer, or why `ctx.oltp` is closed to this function.
+    fn oltp_writer(&self) -> Result<&str, String> {
+        match &self.caps.oltp {
+            WriterCapability::Enabled { writer } => Ok(writer.as_str()),
+            WriterCapability::Disabled => Err(
+                "OltpCapabilityMissing: this function has not declared the `oltp` capability \
+                 (add \"oltp\": { \"enabled\": true } to its oxy-app.json entry). The schema \
+                 it writes is derived from the app's own slug — the manifest only enables \
+                 access."
+                    .to_string(),
+            ),
+            // Enabled, but the slug can't back a schema — say THAT, not
+            // "capability missing", which would send the author to a manifest
+            // that already declares it.
+            WriterCapability::SlugNotDerivable { slug } => {
+                Err(slug_cannot_back_a_schema("OLTP", slug))
+            }
+        }
+    }
+
+    /// Resolve the app's OLTP writer once per invocation, then reuse it: N
+    /// `ctx.oltp` calls and `ctx.oltp.tx` handles cost one control-plane resolve
+    /// (a query + decrypt), not N. The isolate drives calls sequentially, so
+    /// holding this lock across the first resolve serialises nothing real. The
+    /// kill-switch is checked on that first resolve — an invocation is short
+    /// enough that a mid-run flag flip need not be observed. The cached
+    /// `WriterConnection` holds the DECRYPTED writer DSN for the rest of the
+    /// invocation; that is the same lifetime as the isolate that already drives
+    /// this credential, and the host is dropped when the invocation ends, so the
+    /// secret's window is not widened.
+    async fn oltp_connection(
+        &self,
+        writer_name: &str,
+    ) -> Result<oxy_oltp::resolver::WriterConnection, String> {
+        let mut cached = self.oltp_conn.lock().await;
+        if let Some(conn) = cached.as_ref() {
+            return Ok(conn.clone());
+        }
+        let writer = oxy_oltp::schema::WriterRef::app(writer_name)
+            .map_err(|e| format!("invalid writer '{writer_name}': {e}"))?;
+        let conn = with_db_timeout("resolve", async {
+            oxy_oltp::resolver::resolve_writer_connection_for_org(&self.db, self.org_id, &writer)
+                .await
+                .map_err(|e| {
+                    // Names the app's own writer, and points at the org operator
+                    // rather than a CLI the app author can't run.
+                    format!(
+                        "this app's OLTP store ('{writer_name}') is not provisioned yet — ask \
+                         whoever operates this org to provision it: {e}"
+                    )
+                })
+        })
+        .await?;
+        *cached = Some(conn.clone());
+        Ok(conn)
+    }
+
+    /// A connector for the resolved writer. Verifies the managed peer's
+    /// certificate (see `WriterConnection::verify_tls`); the DSN's
+    /// `sslmode=require` only encrypts.
+    fn oltp_connector(
+        conn: &oxy_oltp::resolver::WriterConnection,
+    ) -> Result<Arc<dyn DatabaseConnector>, String> {
+        let connector = PostgresConnector::from_dsn(&conn.dsn, conn.verify_tls)
+            .map_err(|e| format!("could not build a connection to '{}': {e}", conn.schema))?;
+        Ok(Arc::new(connector))
+    }
+
+    /// Open `ctx.tx(database, fn)`: the same fail-closed destination check as
+    /// `ctx.warehouse`, before a connector — and so a credential — exists.
+    async fn begin_warehouse_tx(
+        &self,
+        payload: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let database = payload
+            .get("database")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "`database` is required".to_string())?;
+        // Checked as a write even when the callback only reads: `begin` cannot
+        // know what the statements will be.
+        self.check_write_destination(database, WriteSurface::Transaction)?;
+        let connector = self.connect(database).await?;
+        let mut tx = with_db_timeout("begin", async {
+            connector
+                .begin_transaction()
+                .await
+                .map_err(|e| format!("could not open a transaction on '{database}': {e}"))
+        })
+        .await?;
+        data_audit::record_db_namespace(database);
+        if connector.dialect() == SqlDialect::Postgres {
+            let (trace_id, _) = Self::trace_context();
+            // On error `tx` drops here, which closes the connection and rolls
+            // the empty transaction back.
+            self.name_session(&mut *tx, trace_id.as_deref()).await?;
+        }
+        self.register_tx(
+            tx,
+            data_audit::plane_for_dialect(connector.dialect()),
+            database,
+        )
+        .await
+    }
+
+    /// Open `ctx.oltp.tx(fn)` on the app's own writer. No database crosses the
+    /// boundary, so there is no allowlist to check — only the `oltp` gate.
+    async fn begin_oltp_tx(&self) -> Result<serde_json::Value, String> {
+        let writer_name = self.oltp_writer()?;
+        let conn = self.oltp_connection(writer_name).await?;
+        let connector = Self::oltp_connector(&conn)?;
+        let mut tx = with_db_timeout("begin", async {
+            connector
+                .begin_transaction()
+                .await
+                .map_err(|e| format!("could not open a transaction: {e}"))
+        })
+        .await?;
+        data_audit::record_db_namespace(&conn.schema);
+        let (trace_id, _) = Self::trace_context();
+        // On error `tx` drops here, which closes the connection and rolls the
+        // empty transaction back.
+        self.name_session(&mut *tx, trace_id.as_deref()).await?;
+        self.register_tx(tx, "oltp", &conn.schema).await
+    }
+
+    /// Hand an open transaction to the registry and start its audit record.
+    async fn register_tx(
+        &self,
+        tx: Box<dyn SqlTransaction>,
+        plane: &'static str,
+        namespace: &str,
+    ) -> Result<serde_json::Value, String> {
+        let id = self.transactions.insert(tx).await?;
+        self.tx_writes.lock().await.insert(
+            id,
+            TxAudit {
+                plane,
+                database: namespace.to_string(),
+                writes: Vec::new(),
+            },
+        );
+        Ok(serde_json::json!({ "id": id }))
+    }
 }
 
 #[async_trait::async_trait]
 impl FunctionHost for ProjectFunctionHost {
-    /// Layer 3 for the buffered planes: one `app.oltp.write` and one
-    /// `app.warehouse.write` row per invocation, each listing every target
+    /// Layer 3 for the buffered planes: one row per action per invocation
+    /// (`app.oltp.write`, `app.airhouse.write`, `app.warehouse.write`), each listing every target
     /// it touched with statement counts and row sums. Runs after the isolate
     /// has finished, off the hot path; `ctx.tx()` commits were recorded as
     /// they happened.
@@ -484,15 +659,17 @@ impl FunctionHost for ProjectFunctionHost {
             return;
         }
         let (trace_id, _) = Self::trace_context();
-        let (oltp, other): (Vec<_>, Vec<_>) = writes.into_iter().partition(|w| w.plane == "oltp");
-        self.record_writes(data_audit::ACTION_OLTP_WRITE, oltp, trace_id.as_deref())
-            .await;
-        self.record_writes(
-            data_audit::ACTION_WAREHOUSE_WRITE,
-            other,
-            trace_id.as_deref(),
-        )
-        .await;
+        let mut by_action: BTreeMap<&'static str, Vec<WriteRecord>> = BTreeMap::new();
+        for write in writes {
+            by_action
+                .entry(data_audit::action_for(write.plane))
+                .or_default()
+                .push(write);
+        }
+        for (action, writes) in by_action {
+            self.record_writes(action, writes, trace_id.as_deref())
+                .await;
+        }
     }
 
     async fn query(&self, sql: String) -> Result<serde_json::Value, String> {
@@ -813,7 +990,7 @@ impl FunctionHost for ProjectFunctionHost {
             .and_then(|v| v.as_str())
             .ok_or_else(|| "`database` is required".to_string())?;
 
-        self.check_write_destination(database)?;
+        self.check_write_destination(database, WriteSurface::Warehouse)?;
 
         let sql = match op.as_str() {
             "exec" => payload
@@ -867,12 +1044,12 @@ impl FunctionHost for ProjectFunctionHost {
         Ok(serde_json::json!({ "ok": true }))
     }
 
-    /// `ctx.tx` — five verbs over one op, dispatched onto the per-invocation
-    /// [`TxRegistry`].
+    /// `ctx.tx` and `ctx.oltp.tx` — six verbs over one op, dispatched onto the
+    /// per-invocation [`TxRegistry`].
     ///
-    /// `begin` is the only verb that touches authorization: it runs the same
-    /// fail-closed `destinations` check as `ctx.warehouse`, before a connector
-    /// exists. The other four take an id that `begin` handed out, and the
+    /// The two opening verbs are the only ones that touch authorization: `begin`
+    /// runs the same fail-closed `destinations` check as `ctx.warehouse` before a
+    /// connector exists, and `begin_oltp` the `oltp` gate on the app's own writer. The other four take an id that `begin` handed out, and the
     /// registry rejects any id it did not issue — so a script cannot reach a
     /// database by guessing a number.
     ///
@@ -883,38 +1060,8 @@ impl FunctionHost for ProjectFunctionHost {
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         match op.as_str() {
-            "begin" => {
-                let database = payload
-                    .get("database")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| "`database` is required".to_string())?;
-                self.check_write_destination(database)?;
-                let connector = self.connect(database).await?;
-                let mut tx = with_db_timeout("begin", async {
-                    connector
-                        .begin_transaction()
-                        .await
-                        .map_err(|e| format!("could not open a transaction on '{database}': {e}"))
-                })
-                .await?;
-                data_audit::record_db_namespace(database);
-                if connector.dialect() == SqlDialect::Postgres {
-                    let (trace_id, _) = Self::trace_context();
-                    // On error `tx` drops here, which closes the connection
-                    // and rolls the empty transaction back.
-                    self.name_session(&mut *tx, trace_id.as_deref()).await?;
-                }
-                let id = self.transactions.insert(tx).await?;
-                self.tx_writes.lock().await.insert(
-                    id,
-                    TxAudit {
-                        plane: data_audit::plane_for_dialect(connector.dialect()),
-                        database: database.to_string(),
-                        writes: Vec::new(),
-                    },
-                );
-                Ok(serde_json::json!({ "id": id }))
-            }
+            "begin" => self.begin_warehouse_tx(&payload).await,
+            "begin_oltp" => self.begin_oltp_tx().await,
             "query" => {
                 let (id, sql, params) = Self::tx_statement(&payload)?;
                 let summary = db_query_summary(&sql);
@@ -998,86 +1145,13 @@ impl FunctionHost for ProjectFunctionHost {
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let writer_name = match &self.caps.oltp {
-            OltpCapability::Enabled { writer } => writer.as_str(),
-            OltpCapability::Disabled => {
-                return Err(
-                    "OltpCapabilityMissing: this function has not declared the `oltp` capability \
-                     (add \"oltp\": { \"enabled\": true } to its oxy-app.json entry). The schema \
-                     it writes is derived from the app's own slug — the manifest only enables \
-                     access."
-                        .to_string(),
-                );
-            }
-            // Enabled, but the slug can't back a schema — say THAT, not
-            // "capability missing", which would send the author to a manifest
-            // that already declares it.
-            OltpCapability::SlugNotDerivable { slug } => {
-                // Name every rule the slug can fail, INCLUDING no-underscore —
-                // `app_writer_name` refuses `_` (it would alias a hyphenated
-                // sibling onto one schema), which the identifier description
-                // below does NOT cover, so a slug like `my_app` would otherwise
-                // be refused against a message every clause of which it satisfies.
-                return Err(format!(
-                    "the capability is enabled, but this app's slug '{slug}' cannot back an \
-                     OLTP schema: to do so a slug must start with a letter, be at most {max} \
-                     characters, and use only lowercase letters, digits and hyphens (a `_` is \
-                     refused — it would collide with the hyphenated form). A leading digit is a \
-                     legal app slug but not a legal schema name. Rename the app to one that \
-                     qualifies.",
-                    max = oxy_oltp::schema::MAX_NAME_LEN,
-                ));
-            }
-        };
+        let writer_name = self.oltp_writer()?;
         let (sql, params) = Self::oltp_statement(&payload)?;
         let summary = db_query_summary(&sql);
         let (trace_id, traceparent) = Self::trace_context();
         let tagged = data_audit::commented(&sql, &self.identity, traceparent.as_deref());
-        // Resolve once per invocation, then reuse: N `ctx.oltp` calls cost one
-        // control-plane resolve, not N. The isolate drives calls sequentially,
-        // so holding this lock across the (first) resolve serialises nothing
-        // real. The kill-switch is checked on that first resolve — an invocation
-        // is short enough that a mid-run flag flip need not be observed. The
-        // cached `WriterConnection` holds the DECRYPTED writer DSN for the rest
-        // of the invocation; that is the same lifetime as the isolate that
-        // already drives this credential, and the host is dropped when the
-        // invocation ends, so the secret's window is not widened.
-        let conn = {
-            let mut cached = self.oltp_conn.lock().await;
-            match cached.as_ref() {
-                Some(c) => c.clone(),
-                None => {
-                    let writer = oxy_oltp::schema::WriterRef::app(writer_name)
-                        .map_err(|e| format!("invalid writer '{writer_name}': {e}"))?;
-                    let c = with_db_timeout("resolve", async {
-                        oxy_oltp::resolver::resolve_writer_connection_for_org(
-                            &self.db,
-                            self.org_id,
-                            &writer,
-                        )
-                        .await
-                        .map_err(|e| {
-                            // Names the app's own writer, and points at the org
-                            // operator rather than a CLI the app author can't run.
-                            format!(
-                                "this app's OLTP store ('{writer_name}') is not \
-                                 provisioned yet — ask whoever operates this org to provision \
-                                 it: {e}"
-                            )
-                        })
-                    })
-                    .await?;
-                    *cached = Some(c.clone());
-                    c
-                }
-            }
-        };
-        // Verify the managed peer's certificate (see `WriterConnection::verify_tls`);
-        // the DSN's `sslmode=require` only encrypts.
-        let connector: Arc<dyn DatabaseConnector> = Arc::new(
-            PostgresConnector::from_dsn(&conn.dsn, conn.verify_tls)
-                .map_err(|e| format!("could not build a connection to '{}': {e}", conn.schema))?,
-        );
+        let conn = self.oltp_connection(writer_name).await?;
+        let connector = Self::oltp_connector(&conn)?;
         let mut tx = with_db_timeout("begin", async {
             connector
                 .begin_transaction()
@@ -1139,6 +1213,23 @@ impl FunctionHost for ProjectFunctionHost {
                 Err(format!("{op}: {e}"))
             }
         }
+    }
+
+    /// `ctx.airhouse.{query,exec,append}` — the app's own facts in its
+    /// workspace's Airhouse, in the schema `app_<writer>` derived from its slug.
+    ///
+    /// The credential is the app's, whoever invoked the function, so a schedule
+    /// writes like a click — the stance `ctx.oltp` takes. Every statement is
+    /// checked against the schema before it is sent (`airhouse::sql_rules`):
+    /// reads may name any schema, writes only `app_<writer>.<table>`, and `exec`
+    /// runs no DDL, because tables come from `airhouseMigrations`. Airhouse also
+    /// confines the credential when it supports scoped mints.
+    async fn airhouse(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        self.airhouse_op(&op, &payload).await
     }
 
     async fn secrets_set(&self, key: String, value: String) -> Result<serde_json::Value, String> {
@@ -1672,39 +1763,8 @@ fn build_insert_sql(payload: &serde_json::Value, upsert: bool) -> Result<String,
         .get("table")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "`table` is required".to_string())?;
-    let rows = payload
-        .get("rows")
-        .and_then(|v| v.as_array())
-        .filter(|rows| !rows.is_empty())
-        .ok_or_else(|| "`rows` must be a non-empty array".to_string())?;
-
-    let first = rows[0]
-        .as_object()
-        .ok_or_else(|| "each row must be an object".to_string())?;
-    let columns: Vec<String> = first.keys().cloned().collect();
-
-    let mut values_sql = Vec::with_capacity(rows.len());
-    for row in rows {
-        let obj = row
-            .as_object()
-            .ok_or_else(|| "each row must be an object".to_string())?;
-        let mut literals = Vec::with_capacity(columns.len());
-        for col in &columns {
-            let value = obj
-                .get(col)
-                .ok_or_else(|| format!("row missing column '{col}'"))?;
-            literals.push(json_value_to_sql_literal(value));
-        }
-        values_sql.push(format!("({})", literals.join(", ")));
-    }
-
-    let quoted_columns: Vec<String> = columns.iter().map(|c| quote_ident(c)).collect();
-    let mut sql = format!(
-        "INSERT INTO {} ({}) VALUES {}",
-        quote_ident(table),
-        quoted_columns.join(", "),
-        values_sql.join(", ")
-    );
+    let (columns, values) = columns_and_values(payload)?;
+    let mut sql = format!("INSERT INTO {} {values}", quote_ident(table));
 
     if upsert {
         let conflict_columns: Vec<String> = payload
@@ -1742,6 +1802,58 @@ fn build_insert_sql(payload: &serde_json::Value, upsert: bool) -> Result<String,
     }
 
     Ok(sql)
+}
+
+/// `(col, …) VALUES (…), (…)` from `payload.rows`, a non-empty array of objects
+/// that all carry the first row's columns. Returns the column names too, for
+/// callers that build more around them (`upsert`'s conflict clause).
+fn columns_and_values(payload: &serde_json::Value) -> Result<(Vec<String>, String), String> {
+    let rows = payload
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .filter(|rows| !rows.is_empty())
+        .ok_or_else(|| "`rows` must be a non-empty array".to_string())?;
+    let first = rows[0]
+        .as_object()
+        .ok_or_else(|| "each row must be an object".to_string())?;
+    let columns: Vec<String> = first.keys().cloned().collect();
+
+    let mut values_sql = Vec::with_capacity(rows.len());
+    for row in rows {
+        let obj = row
+            .as_object()
+            .ok_or_else(|| "each row must be an object".to_string())?;
+        let mut literals = Vec::with_capacity(columns.len());
+        for col in &columns {
+            let value = obj
+                .get(col)
+                .ok_or_else(|| format!("row missing column '{col}'"))?;
+            literals.push(json_value_to_sql_literal(value));
+        }
+        values_sql.push(format!("({})", literals.join(", ")));
+    }
+    let quoted_columns: Vec<String> = columns.iter().map(|c| quote_ident(c)).collect();
+    let values = format!(
+        "({}) VALUES {}",
+        quoted_columns.join(", "),
+        values_sql.join(", ")
+    );
+    Ok((columns, values))
+}
+
+/// The message for a writer-keyed store whose gate is open but whose slug
+/// cannot name a schema. Names every rule the slug can fail, INCLUDING
+/// no-underscore — `app_writer_name` refuses `_` (it would alias a hyphenated
+/// sibling onto one schema), which the identifier rules alone do not cover.
+fn slug_cannot_back_a_schema(store: &str, slug: &str) -> String {
+    format!(
+        "the capability is enabled, but this app's slug '{slug}' cannot back an {store} schema: \
+         to do so a slug must start with a letter, be at most {max} characters, and use only \
+         lowercase letters, digits and hyphens (a `_` is refused — it would collide with the \
+         hyphenated form). A leading digit is a legal app slug but not a legal schema name. \
+         Rename the app to one that qualifies.",
+        max = oxy_oltp::schema::MAX_NAME_LEN,
+    )
 }
 
 /// Double-quote an identifier, escaping embedded `"` (Postgres/DuckDB/
@@ -2059,13 +2171,13 @@ mod tests {
     fn oltp_capability_distinguishes_its_two_fail_closed_reasons() {
         // Gate off → Disabled, whatever the slug.
         assert!(matches!(
-            OltpCapability::resolve(false, "bookings"),
-            OltpCapability::Disabled
+            WriterCapability::resolve(false, "bookings"),
+            WriterCapability::Disabled
         ));
         // Gate on + derivable slug → Enabled, writer derived from the slug
         // (hyphens → underscores), NOT from the manifest.
-        match OltpCapability::resolve(true, "oltp-bookings") {
-            OltpCapability::Enabled { writer } => assert_eq!(writer, "oltp_bookings"),
+        match WriterCapability::resolve(true, "oltp-bookings") {
+            WriterCapability::Enabled { writer } => assert_eq!(writer, "oltp_bookings"),
             other => panic!("expected Enabled, got {other:?}"),
         }
         // Gate on but the slug can't back a schema → SlugNotDerivable (NOT
@@ -2080,8 +2192,8 @@ mod tests {
             "my_app", // an `_` slug — refused so it can't alias `my-app`
             &"a".repeat(oxy_oltp::schema::MAX_NAME_LEN + 1),
         ] {
-            match OltpCapability::resolve(true, bad) {
-                OltpCapability::SlugNotDerivable { slug } => assert_eq!(slug, bad),
+            match WriterCapability::resolve(true, bad) {
+                WriterCapability::SlugNotDerivable { slug } => assert_eq!(slug, bad),
                 other => panic!("expected SlugNotDerivable for {bad:?}, got {other:?}"),
             }
         }

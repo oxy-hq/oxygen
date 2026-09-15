@@ -27,6 +27,7 @@ import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runGuide } from "./commands/guide.js";
 import { runInitCi } from "./commands/init-ci.js";
 import { runLaunch } from "./commands/launch.js";
+import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import { runProxy } from "./commands/proxy.js";
 import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
@@ -307,6 +308,40 @@ function buildProgram(): Command {
     );
   });
 
+  const oltp = program
+    .command("oltp")
+    .description("an org's OLTP database (ctx.oltp) — status, and provisioning, for staff");
+
+  withGlobals(
+    oltp
+      .command("status")
+      .description("every org's OLTP state — or, with --org, one org's store and writers")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpStatus(
+      createContext(globals(opts)),
+      opts.org as string | undefined,
+      Boolean(opts.json)
+    );
+  });
+
+  withGlobals(
+    oltp
+      .command("provision")
+      .description("create or reconcile an org's OLTP database and writers — a billable resource")
+      // `--org` comes from `withGlobals`, as it does for `assume`.
+      .option("--writer <app:slug|pipeline:source>", "a writer to ensure (repeatable)", collect, [])
+      .option("--yes", "provision without asking")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpProvision(
+      createContext(globals(opts)),
+      opts.org as string | undefined,
+      opts.writer as string[],
+      { yes: opts.yes as boolean | undefined, json: opts.json as boolean | undefined }
+    );
+  });
+
   withGlobals(
     program.command("logout").description("drop the cached token for a deployment")
   ).action((opts: Record<string, unknown>) => {
@@ -582,7 +617,7 @@ function buildProgram(): Command {
 
   program
     .command("validate")
-    .description("check a workspace's YAML against the schemas, without a Rust binary")
+    .description("check a workspace's YAML against the schemas, and oxy-app.json's data placement")
     .option("-f, --file <path>", "validate one file instead of the whole workspace")
     .option("--json", "emit findings as JSON")
     .addHelpText(
@@ -590,7 +625,10 @@ function buildProgram(): Command {
       "\nStructural checks only. `oxy validate` additionally resolves `databases:` and\n" +
         "`llm.ref` against config.yml, which needs the workspace loaded — where the two\n" +
         "disagree, that one is right. The schemas here are generated from the same Rust\n" +
-        "types, so they cannot drift from it.\n"
+        "types, so they cannot drift from it.\n" +
+        "\nEach oxy-app.json is checked for where its data goes: customerWarehouseWrites,\n" +
+        "airhouse, airhouseMigrations (DuckLake-safe, schema-qualified SQL) and secrets\n" +
+        "used as state. Warnings go to stderr; the server is the authority.\n"
     )
     .action((opts: Record<string, unknown>) => {
       runValidate({

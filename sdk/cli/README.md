@@ -3,7 +3,7 @@
 `oxyc` — a `gh api`-shaped client for the Oxy HTTP API, plus the tooling that
 manages customer workspace repos.
 
-- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `assume`
+- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `assume`, `oltp`
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`
 - **Development** — `validate`, `mcp`, `guide`, `skills`
@@ -172,6 +172,27 @@ it and `end` ends it in both. A staff 403 on a tenant surface is usually no
 active session rather than a role problem; `assume status` answers "none"
 without failing.
 
+## OLTP databases
+
+Staff can see and request an org's transactional Postgres — the store behind
+`ctx.oltp` — without a shell on the server.
+
+```bash
+oxyc oltp status [--org <slug|uuid|url>] [--json]
+oxyc oltp provision --org <slug|uuid|url> --writer app:<slug> [--writer pipeline:<source> …] [--yes] [--json]
+```
+
+`status` lists every org, with a database or without; with `--org` it shows
+that org's store and writers. No credential is ever printed.
+
+`provision` prints what it will create and asks first, because it calls a paid
+provider; without a terminal it refuses unless `--yes`. It is idempotent — an
+existing database or writer is reconciled, not duplicated. `app:<slug>` is
+derived the way the platform derives `ctx.oltp`'s schema (`app:store-ops` →
+`app:store_ops`, schema `app_store_ops`); `pipeline:<source>` names
+`raw_<source>`. A 404 can be an org outside your staff grant's scope, and an
+active `assume` session closes `/admin`.
+
 ## Customer workspaces
 
 A customer **is** a GitHub repo carrying the `oxy-customer` topic. Tagging the
@@ -266,6 +287,26 @@ generated from the Rust config types. No network, no token.
 
 Structural checks only. `oxy validate` additionally resolves `databases:` and
 `llm.ref` against the loaded workspace, and wins where the two disagree.
+
+Every **`oxy-app.json`** it finds is checked for data placement — the shape of
+the data picks the store: facts and history in Airhouse (`ctx.airhouse`),
+records in OLTP (`ctx.oltp`), files in `ctx.storage`, customer warehouses
+read-only. These fail the run:
+
+- `customerWarehouseWrites` that is not `{ "<database>": "<reason>" }`, or names
+  a database missing from the function's `destinations`;
+- `"airhouse": { "enabled": true }` in an app whose slug cannot derive a writer
+  (`-` → `_`, 1–56 of `[a-z0-9_]`, starting with a letter; no `_` in the slug);
+- `airhouseMigrations` without a `dir`, with one that does not exist, or with
+  `migrations.dir`'s; and in its `*.sql`, `PRIMARY KEY`, `UNIQUE`,
+  `CREATE INDEX`, `REFERENCES` or `FOREIGN KEY` (DuckLake has none), or a
+  `CREATE`/`ALTER`/`DROP`/`INSERT`/`UPDATE`/`DELETE`/`COMMENT ON` target not
+  written as `app_<writer>.<name>`.
+
+Warnings print on stderr and do not fail: each customer-warehouse exception,
+`CREATE SCHEMA` in a migration, and `ctx.secrets.set` holding state (a
+`JSON.stringify` value, or a state-like key that is not a credential's). The SQL
+checks are lexical; the server's parser is the authority.
 
 **`proxy`** forwards a local dev server's Oxy calls to a cloud target with your
 login token attached. Defaults: side-effecting calls are **held**, tracking

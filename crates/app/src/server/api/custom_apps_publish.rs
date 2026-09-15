@@ -1335,6 +1335,10 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     //
     // Empty for the overwhelmingly common app, which declares no migrations.
     let declared_migrations = migrations::declare(manifest_json.as_ref(), &files)?;
+    // The Airhouse half, checked the same way and just as early: every file is
+    // parsed against the app's schema and DuckLake's rules here.
+    let declared_airhouse_migrations =
+        migrations::declare_airhouse(manifest_json.as_ref(), &files, &input.app_slug)?;
 
     // Reserve the bundle's `__oxy/` namespace and write the platform's asset
     // manifest into it — the document that gives the serve path its preload
@@ -1490,6 +1494,30 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
             }
             Err(e) => {
                 tracing::warn!("publish: schema migrations failed for app {app_id}: {e}");
+                rollback_stored_build(&db, app_id, &input.build_id, build_pk, rollback).await;
+                return Err(PublishError::Migration(e));
+            }
+        }
+        // The app's Airhouse tables, after its OLTP schema and under the same
+        // rule: before the pointer moves, so a failure keeps the old build live.
+        match migrations::apply_airhouse_on_promote(
+            &db,
+            app_id,
+            &input.app_slug,
+            input.project_id,
+            build_pk,
+            &declared_airhouse_migrations,
+        )
+        .await
+        {
+            Ok(applied) => {
+                let summary = applied.summary();
+                if !summary.is_empty() {
+                    tracing::info!("publish: Airhouse {summary} for app {app_id}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("publish: Airhouse migrations failed for app {app_id}: {e}");
                 rollback_stored_build(&db, app_id, &input.build_id, build_pk, rollback).await;
                 return Err(PublishError::Migration(e));
             }

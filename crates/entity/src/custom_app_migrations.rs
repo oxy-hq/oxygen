@@ -1,8 +1,9 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// One `.sql` file a custom app has already applied to its own `app_<writer>`
-/// OLTP schema. Written at promote by
+/// One `.sql` file a custom app has already applied to one of its own stores —
+/// the `app_<writer>` schema in its org's OLTP Postgres, or in its workspace's
+/// Airhouse. Written at promote by
 /// `oxy_app::server::api::custom_apps_migrations`; never edited afterwards.
 ///
 /// A row here is a *fact about the tenant database*, not a description of the
@@ -17,11 +18,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "custom_app_migrations")]
 pub struct Model {
-    /// Half of the composite PK. Per-app, so two apps may legitimately ship
+    /// Part of the composite PK. Per-app, so two apps may legitimately ship
     /// files with the same name and neither sees the other's ledger.
     #[sea_orm(primary_key, auto_increment = false)]
     pub app_id: Uuid,
-    /// The other half: the path RELATIVE to the bundle's declared migrations
+    /// Which store the file ran against: `oltp` or `airhouse`. In the key
+    /// because an app may ship `0001_init.sql` for both.
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub store: String,
+    /// The last part: the path RELATIVE to the bundle's declared migrations
     /// directory, so renaming that directory does not re-run everything.
     #[sea_orm(primary_key, auto_increment = false)]
     pub filename: String,

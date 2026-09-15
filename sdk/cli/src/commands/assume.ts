@@ -72,7 +72,7 @@ export function orgOrHint(ctx: Pick<Context, "env">, org: string | undefined): s
   return (org ?? ctx.env().orgSlug ?? "").trim();
 }
 
-async function resolveOrgId(ctx: Context, org: string | undefined): Promise<string> {
+export async function resolveOrgId(ctx: Context, org: string | undefined): Promise<string> {
   const raw = orgOrHint(ctx, org);
   if (!raw) {
     throw new CliError("no organization given", {

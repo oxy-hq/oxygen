@@ -251,8 +251,9 @@ pub(super) fn is_write_verb(verb: &str) -> bool {
 /// One write, as the audit row describes it.
 #[derive(Debug, Clone, serde::Serialize)]
 pub(super) struct WriteRecord {
-    /// `oltp` (the app's silo), `airhouse`, `postgres`, or another
-    /// dialect name — see [`plane_for_dialect`].
+    /// `oltp` (the app's silo), `app_airhouse` (its own Airhouse schema),
+    /// `airhouse`, `postgres`, or another dialect name — see
+    /// [`plane_for_dialect`].
     pub plane: &'static str,
     /// The schema (OLTP) or database (Airhouse) the statement ran against.
     pub namespace: String,
@@ -323,6 +324,21 @@ pub(super) fn entry(
 pub(super) const ACTION_OLTP_WRITE: &str = "app.oltp.write";
 pub(super) const ACTION_TX_COMMIT: &str = "app.tx.commit";
 pub(super) const ACTION_WAREHOUSE_WRITE: &str = "app.warehouse.write";
+pub(super) const ACTION_AIRHOUSE_WRITE: &str = "app.airhouse.write";
+
+/// The plane of a `ctx.airhouse` write: the app's own schema in its workspace's
+/// Airhouse, written as the app. Distinct from `airhouse`, which is a
+/// `ctx.warehouse` / `ctx.tx` write to an Airhouse destination as the caller.
+pub(super) const PLANE_APP_AIRHOUSE: &str = "app_airhouse";
+
+/// The audit action a committed write is recorded under.
+pub(super) fn action_for(plane: &str) -> &'static str {
+    match plane {
+        "oltp" => ACTION_OLTP_WRITE,
+        PLANE_APP_AIRHOUSE => ACTION_AIRHOUSE_WRITE,
+        _ => ACTION_WAREHOUSE_WRITE,
+    }
+}
 
 #[cfg(test)]
 mod tests {

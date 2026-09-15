@@ -21,6 +21,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { appWriterName, WRITER_NAME_MAX } from "../publish/manifest.js";
+import { checkAppPlacement, type PlacementIssue } from "../publish/placement.js";
+import { scanAirhouseMigration, secretsUsedAsState } from "../publish/placement-scan.js";
 import { ExitCode } from "../util/errors.js";
 import {
   formatsInSchemaPosition,
@@ -114,6 +117,506 @@ function mkfifo(path: string): void {
 
 /** A workspace root — `findWorkspace` looks for `config.yml`, so it needs one. */
 const MINIMAL_CONFIG = "databases: []\nmodels: []\n";
+
+// ── data placement in oxy-app.json ──────────────────────────────────────────
+
+/** An app directory: `oxy-app.json` from `manifest`, plus any other files. */
+function app(manifest: unknown, files: Record<string, string> = {}): string {
+  return workspace({ "oxy-app.json": JSON.stringify(manifest), ...files });
+}
+
+const errorsOf = (issues: PlacementIssue[]) => issues.filter((i) => i.level === "error");
+const warningsOf = (issues: PlacementIssue[]) => issues.filter((i) => i.level === "warning");
+
+/** A function whose source exists, so the secrets scan has something to read. */
+const SYNC_SOURCE = { "functions/sync.ts": "export default async function sync() {}\n" };
+
+describe("the writer an app slug derives", () => {
+  /** Mirrors `app_writer_name` in crates/oltp/src/schema.rs, length cap included. */
+  it("turns hyphens into underscores and refuses what cannot back a schema", () => {
+    expect(appWriterName("store-ops")).toBe("store_ops");
+    expect(appWriterName("bookings")).toBe("bookings");
+    // An underscore would alias `my-app` onto the same schema and role.
+    expect(appWriterName("my_app")).toBeUndefined();
+    expect(appWriterName("1bad")).toBeUndefined();
+    expect(appWriterName("Bad")).toBeUndefined();
+    expect(appWriterName("")).toBeUndefined();
+  });
+
+  it("caps the writer at 63 bytes minus `app_` and `_rw`", () => {
+    expect(WRITER_NAME_MAX).toBe(56);
+    expect(appWriterName("a".repeat(WRITER_NAME_MAX))).toBe("a".repeat(WRITER_NAME_MAX));
+    expect(appWriterName("a".repeat(WRITER_NAME_MAX + 1))).toBeUndefined();
+  });
+});
+
+describe("customerWarehouseWrites", () => {
+  const withWrites = (fn: Record<string, unknown>) =>
+    app({ slug: "store-ops", functions: { sync: fn } }, SYNC_SOURCE);
+
+  it("warns for a valid exception, naming function, database and reason", () => {
+    const dir = withWrites({
+      destinations: ["clickhouse"],
+      customerWarehouseWrites: { clickhouse: "backfills the legacy rollup until Airway lands it" }
+    });
+    const issues = checkAppPlacement(dir, readManifest(dir), "store-ops");
+    expect(errorsOf(issues)).toEqual([]);
+    const [only, ...rest] = warningsOf(issues);
+    expect(rest).toEqual([]);
+    expect(only?.path).toBe("functions.sync.customerWarehouseWrites.clickhouse");
+    for (const part of [
+      "function `sync`",
+      "`clickhouse`",
+      "backfills the legacy rollup until Airway lands it",
+      "read-only by default",
+      "`ctx.airhouse`",
+      "`ctx.oltp`"
+    ]) {
+      expect(only?.message).toContain(part);
+    }
+  });
+
+  it("refuses anything but an object of reasons", () => {
+    const dir = withWrites({
+      destinations: ["clickhouse"],
+      customerWarehouseWrites: ["clickhouse"]
+    });
+    const [only] = errorsOf(checkAppPlacement(dir, readManifest(dir), "store-ops"));
+    expect(only?.message).toMatch(/must be an object mapping a database/);
+  });
+
+  it("refuses an empty or non-string reason", () => {
+    const dir = withWrites({
+      destinations: ["clickhouse", "snowflake"],
+      customerWarehouseWrites: { clickhouse: "   ", snowflake: 42 }
+    });
+    const issues = checkAppPlacement(dir, readManifest(dir), "store-ops");
+    expect(errorsOf(issues).map((i) => i.path)).toEqual([
+      "functions.sync.customerWarehouseWrites.clickhouse",
+      "functions.sync.customerWarehouseWrites.snowflake"
+    ]);
+    for (const e of errorsOf(issues)) expect(e.message).toMatch(/non-empty string/);
+    expect(warningsOf(issues)).toEqual([]);
+  });
+
+  it("refuses an exception for a database missing from destinations, as dead config", () => {
+    const dir = withWrites({
+      destinations: ["airhouse"],
+      customerWarehouseWrites: { clickhouse: "a real reason" }
+    });
+    const issues = checkAppPlacement(dir, readManifest(dir), "store-ops");
+    const [only] = errorsOf(issues);
+    expect(only?.message).toMatch(/not in this function's `destinations`/);
+    expect(only?.message).toMatch(/dead config/);
+    expect(warningsOf(issues)).toEqual([]);
+  });
+
+  it("says nothing about a function that declares no exception", () => {
+    const dir = withWrites({ destinations: ["clickhouse"] });
+    expect(checkAppPlacement(dir, readManifest(dir), "store-ops")).toEqual([]);
+  });
+});
+
+describe("airhouse.enabled", () => {
+  const gated = (airhouse: unknown, slug?: string) => {
+    const dir = app({ ...(slug ? { slug } : {}), functions: { sync: { airhouse } } }, SYNC_SOURCE);
+    return checkAppPlacement(dir, readManifest(dir), slug);
+  };
+
+  it("is an error when the slug contains an underscore, naming the rule", () => {
+    const [only] = errorsOf(gated({ enabled: true }, "my_app"));
+    expect(only?.path).toBe("functions.sync.airhouse.enabled");
+    expect(only?.message).toMatch(/`app_<writer>`/);
+    expect(only?.message).toMatch(/contains `_`/);
+  });
+
+  it("is an error when the derived writer is too long", () => {
+    const [only] = errorsOf(gated({ enabled: true }, "a".repeat(WRITER_NAME_MAX + 1)));
+    expect(only?.message).toMatch(/1-56 characters/);
+  });
+
+  it("is fine for a slug that derives a writer, or when the gate is off", () => {
+    expect(gated({ enabled: true }, "store-ops")).toEqual([]);
+    expect(gated({ enabled: false }, "my_app")).toEqual([]);
+  });
+
+  it("warns when no slug is known to derive the schema from", () => {
+    const [only] = warningsOf(gated({ enabled: true }));
+    expect(only?.path).toBe("slug");
+    expect(only?.message).toMatch(/no slug is known/);
+  });
+
+  it("refuses a gate that is not an object", () => {
+    const [only] = errorsOf(gated(true, "store-ops"));
+    expect(only?.message).toMatch(/must be an object/);
+  });
+});
+
+describe("airhouseMigrations", () => {
+  const CLEAN = "CREATE TABLE app_store_ops.events (at TIMESTAMP, kind VARCHAR);\n";
+  const check = (manifest: Record<string, unknown>, files: Record<string, string> = {}) => {
+    const dir = app({ slug: "store-ops", ...manifest }, files);
+    return checkAppPlacement(dir, readManifest(dir), (manifest.slug as string) ?? "store-ops");
+  };
+
+  it("requires dir", () => {
+    const [only] = errorsOf(check({ airhouseMigrations: {} }));
+    expect(only?.path).toBe("airhouseMigrations.dir");
+    expect(only?.message).toMatch(/is required/);
+  });
+
+  it("refuses a directory that does not exist", () => {
+    const [only] = errorsOf(check({ airhouseMigrations: { dir: "airhouse-migrations" } }));
+    expect(only?.message).toMatch(/`airhouse-migrations` does not exist/);
+  });
+
+  it("refuses the OLTP migrations directory", () => {
+    const [only] = errorsOf(
+      check(
+        { migrations: { dir: "migrations/" }, airhouseMigrations: { dir: "migrations" } },
+        { "migrations/0001.sql": CLEAN }
+      )
+    );
+    expect(only?.message).toMatch(/also `migrations.dir`/);
+  });
+
+  it("refuses a path that is not a plain relative directory", () => {
+    const [only] = errorsOf(check({ airhouseMigrations: { dir: "../elsewhere" } }));
+    expect(only?.message).toMatch(/not a safe path inside the bundle/);
+  });
+
+  it("refuses a directory with no .sql in it", () => {
+    const [only] = errorsOf(
+      check(
+        { airhouseMigrations: { dir: "airhouse-migrations" } },
+        {
+          "airhouse-migrations/README.md": "later\n"
+        }
+      )
+    );
+    expect(only?.message).toMatch(/no `.sql` files/);
+  });
+
+  it("finds the directory under public/, which Vite copies into the bundle", () => {
+    const issues = check(
+      { airhouseMigrations: { dir: "airhouse-migrations" } },
+      { "public/airhouse-migrations/0001_init.sql": CLEAN }
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("reports each SQL problem at its file and line", () => {
+    const [only, ...rest] = check(
+      { airhouseMigrations: { dir: "airhouse-migrations" } },
+      {
+        "airhouse-migrations/0001_init.sql": CLEAN,
+        "airhouse-migrations/0002_orders.sql":
+          "-- orders\n\nCREATE TABLE app_store_ops.orders (id INTEGER PRIMARY KEY);\n"
+      }
+    );
+    expect(rest).toEqual([]);
+    expect(only).toMatchObject({
+      level: "error",
+      file: "airhouse-migrations/0002_orders.sql",
+      path: "line 3"
+    });
+  });
+
+  it("is an error when the slug cannot derive the schema they run in", () => {
+    const issues = check(
+      { slug: "my_app", airhouseMigrations: { dir: "airhouse-migrations" } },
+      { "airhouse-migrations/0001_init.sql": CLEAN }
+    );
+    expect(errorsOf(issues).map((i) => i.path)).toEqual(["airhouseMigrations"]);
+  });
+});
+
+describe("scanning an Airhouse migration", () => {
+  const SCHEMA = "app_store_ops";
+
+  it.each([
+    ["CREATE TABLE app_store_ops.t (id INTEGER PRIMARY KEY);", "PRIMARY KEY"],
+    ["CREATE TABLE app_store_ops.t (id INTEGER UNIQUE);", "UNIQUE"],
+    ["CREATE INDEX t_id ON app_store_ops.t (id);", "CREATE INDEX"],
+    ["create unique index t_id on app_store_ops.t (id);", "CREATE UNIQUE INDEX"],
+    ["CREATE TABLE app_store_ops.t (s INTEGER REFERENCES app_store_ops.s (id));", "REFERENCES"],
+    [
+      "ALTER TABLE app_store_ops.t ADD FOREIGN KEY (a) REFERENCES app_store_ops.s (id);",
+      "FOREIGN KEY"
+    ]
+  ])("refuses %j, which DuckLake cannot carry", (sql, written) => {
+    const hits = scanAirhouseMigration(sql, SCHEMA);
+    // ONE hit: `CREATE UNIQUE INDEX` is not also a `UNIQUE`, and `FOREIGN KEY …
+    // REFERENCES` is one constraint.
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.level).toBe("error");
+    expect(hits[0]?.message).toContain(`\`${written}\` is not supported on Airhouse`);
+    expect(hits[0]?.message).toMatch(/DuckLake has no primary keys/);
+  });
+
+  it("ignores those keywords in comments, strings and quoted identifiers", () => {
+    const sql = [
+      "-- a PRIMARY KEY would break this",
+      "/* UNIQUE, REFERENCES,",
+      "   CREATE INDEX /* nested */ FOREIGN KEY */",
+      `CREATE TABLE app_store_ops.events ("unique" VARCHAR, note VARCHAR DEFAULT 'no primary key');`,
+      "COMMENT ON TABLE app_store_ops.events IS $$append-only, REFERENCES nothing$$;"
+    ].join("\n");
+    expect(scanAirhouseMigration(sql, SCHEMA)).toEqual([]);
+  });
+
+  it("reports the line in the original text", () => {
+    const sql = "/* one\n two\n three */\nCREATE TABLE app_store_ops.t (id INTEGER PRIMARY KEY);";
+    expect(scanAirhouseMigration(sql, SCHEMA).map((h) => h.line)).toEqual([4]);
+  });
+
+  it("refuses an unqualified target and prints the schema to use", () => {
+    const [only] = scanAirhouseMigration("CREATE TABLE orders (id INTEGER);", SCHEMA);
+    expect(only?.message).toContain("`CREATE TABLE orders` is unqualified");
+    expect(only?.message).toContain("write `app_store_ops.orders`");
+  });
+
+  it("refuses a target in another schema", () => {
+    const [only] = scanAirhouseMigration("INSERT INTO raw_toast.orders SELECT 1;", SCHEMA);
+    expect(only?.message).toContain("is outside the app's schema");
+    expect(only?.message).toContain("write `app_store_ops.orders`");
+  });
+
+  it.each([
+    "CREATE OR REPLACE VIEW v AS SELECT 1;",
+    "CREATE TEMP TABLE t (x INTEGER);",
+    "ALTER TABLE t ADD COLUMN x INTEGER;",
+    "DROP TABLE IF EXISTS t;",
+    "DROP VIEW v;",
+    "INSERT INTO t VALUES (1);",
+    "INSERT OR REPLACE INTO t VALUES (1);",
+    "UPDATE t SET x = 1;",
+    "DELETE FROM t;",
+    "COMMENT ON TABLE t IS 'x';",
+    "COMMENT ON COLUMN t.x IS 'y';"
+  ])("checks the target of %j", (sql) => {
+    const hits = scanAirhouseMigration(sql, SCHEMA);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.message).toContain("write `app_store_ops.");
+  });
+
+  it.each([
+    "CREATE TABLE IF NOT EXISTS app_store_ops.orders (id INTEGER);",
+    'CREATE OR REPLACE TABLE "app_store_ops"."Orders" AS SELECT 1;',
+    'INSERT INTO "APP_STORE_OPS".orders VALUES (1);',
+    "insert into APP_STORE_OPS.orders values (1);",
+    "UPDATE app_store_ops . orders SET x = 1;",
+    'DELETE FROM "app_store_ops".orders WHERE id = 1;',
+    "DROP TABLE app_store_ops.a, app_store_ops.b;",
+    "COMMENT ON COLUMN app_store_ops.orders.id IS 'x';",
+    "INSERT INTO app_store_ops.t SELECT * FROM raw_toast.orders ON CONFLICT DO UPDATE SET x = 1;"
+  ])("accepts the qualified %j", (sql) => {
+    expect(scanAirhouseMigration(sql, SCHEMA)).toEqual([]);
+  });
+
+  it("checks every name a DROP lists", () => {
+    const hits = scanAirhouseMigration("DROP TABLE app_store_ops.a, b;", SCHEMA);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.message).toContain("`DROP TABLE b`");
+  });
+
+  it("warns that CREATE SCHEMA is unnecessary, naming the schema", () => {
+    const hits = scanAirhouseMigration("CREATE SCHEMA IF NOT EXISTS app_store_ops;", SCHEMA);
+    expect(hits).toEqual([
+      {
+        line: 1,
+        level: "warning",
+        message:
+          "`CREATE SCHEMA` is unnecessary — the platform creates `app_store_ops` before it applies migrations"
+      }
+    ]);
+  });
+
+  it("still refuses constraints when there is no schema to check targets against", () => {
+    const hits = scanAirhouseMigration("CREATE TABLE t (id INTEGER PRIMARY KEY);", undefined);
+    expect(hits.map((h) => h.message)).toEqual([expect.stringContaining("`PRIMARY KEY`")]);
+  });
+});
+
+describe("ctx.secrets.set used as state", () => {
+  it("flags a JSON.stringify value", () => {
+    const hits = secretsUsedAsState(
+      "export default async (ctx) => {\n  await ctx.secrets.set(KEY, JSON.stringify(state));\n};"
+    );
+    expect(hits).toEqual([
+      { line: 2, call: "ctx.secrets.set(KEY, …)", why: "a `JSON.stringify(…)` value" }
+    ]);
+  });
+
+  it.each(["SYNC_CURSOR", "last_run", "checkpoint", "progress", "row-count", "cache"])(
+    "flags a key that names state: %s",
+    (key) => {
+      const [only] = secretsUsedAsState(`await ctx.secrets.set("${key}", value);`);
+      expect(only?.why).toBe(`a key that names state (\`${key}\`)`);
+    }
+  );
+
+  it.each(["QB_ACCOUNT_ID", "STATEMENT_EMAIL", "lastname"])(
+    "does not read %s as state because a state word hides inside it",
+    (key) => {
+      expect(secretsUsedAsState(`await ctx.secrets.set("${key}", value);`)).toEqual([]);
+    }
+  );
+
+  it("reads a camelCase key word by word", () => {
+    const [only] = secretsUsedAsState('await ctx.secrets.set("syncCursor", value);');
+    expect(only?.why).toBe("a key that names state (`syncCursor`)");
+  });
+
+  it("leaves a rotated credential alone, even stringified", () => {
+    const source = [
+      'await ctx.secrets.set("QB_REFRESH_TOKEN", JSON.stringify(tokens));',
+      "await ctx.secrets.set('API_KEY', key);",
+      "await ctx.secrets.set(`STATE_SECRET`, JSON.stringify(s));",
+      'await ctx.secrets.set("LAST_PASSWORD", p);'
+    ].join("\n");
+    expect(secretsUsedAsState(source)).toEqual([]);
+  });
+
+  it("does not see a call in a comment or a string", () => {
+    const source = [
+      '// ctx.secrets.set("cursor", JSON.stringify(s))',
+      "/* ctx.secrets.set('state', x) */",
+      `const doc = "ctx.secrets.set('cursor', JSON.stringify(1))";`
+    ].join("\n");
+    expect(secretsUsedAsState(source)).toEqual([]);
+  });
+
+  it("leaves reads and computed keys with plain values alone", () => {
+    const source = 'await ctx.secrets.get("cursor");\nawait ctx.secrets.set(keyFor(org), value);';
+    expect(secretsUsedAsState(source)).toEqual([]);
+  });
+
+  it("is not thrown off by a regex literal holding a quote", () => {
+    const source = 'const re = /"/;\nawait ctx.secrets.set("cursor", c);';
+    expect(secretsUsedAsState(source).map((h) => h.line)).toEqual([2]);
+  });
+
+  it("reaches validate as a warning at the function's source line", () => {
+    const dir = app(
+      { slug: "store-ops", functions: { sync: { secrets: { write: true } } } },
+      {
+        "functions/sync.ts":
+          'export default async (ctx) => {\n  await ctx.secrets.set("sync_cursor", c);\n};\n'
+      }
+    );
+    const issues = checkAppPlacement(dir, readManifest(dir), "store-ops");
+    expect(errorsOf(issues)).toEqual([]);
+    const [only] = warningsOf(issues);
+    expect(only).toMatchObject({ file: "functions/sync.ts", path: "line 2" });
+    expect(only?.message).toContain(
+      "function `sync` stores a key that names state (`sync_cursor`)"
+    );
+    expect(only?.message).toContain(
+      "secrets hold credentials; state that changes belongs in `ctx.oltp` (records) or `ctx.airhouse` (facts)"
+    );
+  });
+
+  it("says so when a function's source could not be scanned", () => {
+    const dir = app({ slug: "store-ops", functions: { sync: {} } });
+    const [only] = warningsOf(checkAppPlacement(dir, readManifest(dir), "store-ops"));
+    expect(only?.message).toMatch(
+      /not scanned for `ctx.secrets.set`: functions\/sync.ts could not be read \(ENOENT\)/
+    );
+  });
+});
+
+describe("oxyc validate on an oxy-app.json", () => {
+  const BAD_MIGRATION = {
+    "oxy-app.json": JSON.stringify({
+      slug: "store-ops",
+      airhouseMigrations: { dir: "airhouse-migrations" }
+    }),
+    "airhouse-migrations/0001_init.sql": "CREATE TABLE orders (id INTEGER PRIMARY KEY);\n"
+  };
+
+  it("fails the run on a placement error, and prints the schema to use", () => {
+    const root = workspace(BAD_MIGRATION);
+    const human = oxycValidate(root, []);
+    expect(human.status).toBe(ExitCode.FAILURE);
+    expect(human.stdout).toContain("2 problem(s) in 1 file(s)");
+
+    const r = oxycValidate(root, ["--json"]);
+    expect(r.status).toBe(ExitCode.FAILURE);
+    const report = JSON.parse(r.stdout);
+    // The document's shape does not move: warnings are stderr's, never a key.
+    expect(Object.keys(report)).toEqual(["checked", "unchecked", "broken", "findings"]);
+    expect(report.checked).toBe(1);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        file: "airhouse-migrations/0001_init.sql",
+        path: "line 1",
+        message: expect.stringContaining("`PRIMARY KEY` is not supported on Airhouse")
+      }),
+      expect.objectContaining({
+        file: "airhouse-migrations/0001_init.sql",
+        path: "line 1",
+        message: expect.stringContaining("write `app_store_ops.orders`")
+      })
+    ]);
+  });
+
+  it("finds a nested app, and names its files from the workspace root", () => {
+    const root = workspace(
+      Object.fromEntries(
+        Object.entries(BAD_MIGRATION).map(([k, v]) => [`apps/acme/store-ops/${k}`, v])
+      )
+    );
+    const r = oxycValidate(root, ["--json"]);
+    const files = JSON.parse(r.stdout).findings.map((f: { file: string }) => f.file);
+    expect(files).toContain("apps/acme/store-ops/airhouse-migrations/0001_init.sql");
+  });
+
+  it("prints a warning on stderr without failing", () => {
+    const root = app(
+      {
+        slug: "store-ops",
+        functions: {
+          sync: {
+            destinations: ["clickhouse"],
+            customerWarehouseWrites: { clickhouse: "legacy rollup" }
+          }
+        }
+      },
+      SYNC_SOURCE
+    );
+    const r = oxycValidate(root, []);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("1 file(s) valid");
+    expect(r.stderr).toMatch(
+      /warning: oxy-app\.json \(functions\.sync\.customerWarehouseWrites\.clickhouse\)/
+    );
+    expect(r.stderr).toContain("read-only by default");
+  });
+
+  it("accepts --file oxy-app.json", () => {
+    const root = app({ slug: "store-ops" });
+    const r = oxycValidate(root, ["--file", "oxy-app.json"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("1 file(s) valid");
+    expect(r.stderr).not.toContain("warning:");
+  });
+
+  it("reports unparsable JSON as a finding rather than ending the walk", () => {
+    const root = workspace({ "oxy-app.json": "{", "config.yml": MINIMAL_CONFIG });
+    const r = oxycValidate(root, ["--json"]);
+    expect(r.status).toBe(ExitCode.FAILURE);
+    const report = JSON.parse(r.stdout);
+    expect(report.checked).toBe(2);
+    expect(report.findings).toEqual([
+      expect.objectContaining({ file: "oxy-app.json", path: "(parse)" })
+    ]);
+  });
+});
+
+function readManifest(dir: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(join(dir, "oxy-app.json"), "utf8"));
+}
 
 describe("schemaFor", () => {
   it("maps each file kind to its own schema", () => {

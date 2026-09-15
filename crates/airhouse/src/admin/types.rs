@@ -138,6 +138,12 @@ pub struct EphemeralCredential {
     pub role: String,
     pub expires_at: DateTime<Utc>,
     pub service_account_id: String,
+    /// The schemas Airhouse confined this credential's writes to, echoed from
+    /// the mint request. `None` both when none were asked for and when the
+    /// Airhouse predates scoped credentials and ignored the request — which is
+    /// why a caller that asked must treat `None` as unscoped.
+    #[serde(default)]
+    pub write_schemas: Option<Vec<String>>,
 }
 
 /// Auth selector for the per-token revoke endpoint.

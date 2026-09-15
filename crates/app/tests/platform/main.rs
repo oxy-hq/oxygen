@@ -56,6 +56,7 @@ mod compile;
 mod compile_oltp_promote;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
+mod data_placement;
 mod document_ask;
 mod document_ask_sessions;
 mod document_compliance;

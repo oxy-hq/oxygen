@@ -51,7 +51,7 @@ agentic-connector = { workspace = true, features = [
     "mysql",
     "domo",
 ] }
-airhouse = { workspace = true, features = ["connector", "rest"] }
+airhouse = { workspace = true, features = ["connector", "rest", "sql-rules"] }
 oxy-oltp = { workspace = true }
 agentic-core = { workspace = true }
 agentic-http = { workspace = true }

@@ -78,13 +78,31 @@ export interface OxyAppFunctionManifest {
    * destination here ONLY for a function that legitimately writes to it; a
    * read-only function omits it. This scopes writes away from the project's
    * source warehouse.
+   *
+   * A customer warehouse (anything but `airhouse` / `airhouse_managed`) is
+   * read-only: listing it here is not enough, it must also appear in
+   * `customerWarehouseWrites` with a reason.
    */
   destinations?: string[];
   /**
+   * Customer warehouses this function writes to anyway, each with the reason —
+   * the exception to "customer warehouses are read-only". Every key must also be
+   * in `destinations`; a write to a customer warehouse not named here is refused.
+   * Prefer moving the data: facts to `airhouse`, records to `oltp`.
+   *
+   * ```json
+   * "customerWarehouseWrites": {
+   *   "clickhouse": "Journal entries stay beside the legacy ClickHouse facts until QuickBooks lands in Airhouse"
+   * }
+   * ```
+   */
+  customerWarehouseWrites?: Record<string, string>;
+  /**
    * Capability to write app-scoped secrets via `ctx.secrets.set` (fail-closed:
    * omit → writes rejected). Only the app's own `apps/<app-id>/` namespace is
-   * writable. Declare for a function that persists state — e.g. a scheduled
-   * token-refresher that writes the rotated token back to Oxy Secrets.
+   * writable. Declare for a function that rotates a credential — e.g. a
+   * scheduled token-refresher that writes the rotated token back to Oxy Secrets.
+   * Secrets are not a state store: a cursor or counter is a record for `oltp`.
    */
   secrets?: { write?: boolean };
   /**
@@ -129,6 +147,15 @@ export interface OxyAppFunctionManifest {
    * capability as missing. Switch it to `{ "enabled": true }`.
    */
   oltp?: { enabled?: boolean };
+  /**
+   * Capability for `ctx.airhouse` — append the app's own FACTS (what happened,
+   * never edited) to its schema in the workspace's Airhouse (fail-closed: omit →
+   * every `ctx.airhouse` call rejected). A pure GATE like `oltp`: the schema is
+   * derived from the app's slug (`store-ops` → `app_store_ops`), never named
+   * here. Writes run as the app, whoever invoked the function, so a scheduled
+   * run can write. Tables come from `airhouseMigrations`.
+   */
+  airhouse?: { enabled?: boolean };
   /**
    * Retry policy for **background** runs (a `schedule` fire or a manual job
    * trigger). Omit → a job run is attempted once. Route (HTTP) invocations are
@@ -183,7 +210,8 @@ export interface OxyAppManifest {
    */
   functions?: Record<string, OxyAppFunctionManifest>;
   /**
-   * Schema migrations that ship WITH this bundle and run on promote.
+   * Schema migrations for the app's OLTP store (`ctx.oltp`) that ship WITH this
+   * bundle and run on promote.
    *
    * `dir` is a directory inside the built bundle holding numbered `.sql` files.
    * The platform runs them in lexical order, **once each, ever**, inside a
@@ -199,6 +227,16 @@ export interface OxyAppManifest {
    * host: put no secrets in them.
    */
   migrations?: { dir: string };
+  /**
+   * Tables for the app's FACTS, in its Airhouse schema `app_<writer>`: a
+   * directory of numbered `.sql` files run once each, at promote, with the same
+   * ledger rules as `migrations` (never edit, rename or copy one that ran).
+   *
+   * Every object must be named `app_<writer>.<name>`. Airhouse is DuckLake, so a
+   * file declaring a PRIMARY KEY, UNIQUE, an index or a foreign key is refused at
+   * publish — a table carrying one fails and leaves the writer inert.
+   */
+  airhouseMigrations?: { dir: string };
   /**
    * Optional Ask Oxygen binding (agent ref + composer chips). The
    * platform's registered copy is authoritative (surfaced by

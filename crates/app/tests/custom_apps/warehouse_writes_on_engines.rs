@@ -145,8 +145,16 @@ struct Workspace {
 }
 
 /// A real host over a workspace whose `config.yml` declares `databases`, with
-/// every one of them allowed as a write destination.
+/// every one of them allowed as a write destination. Every engine here is a
+/// customer warehouse, which apps may write only with a declared reason, so
+/// each destination carries one.
 async fn workspace(databases: &str, destinations: &[&str]) -> Workspace {
+    workspace_with(databases, destinations, true).await
+}
+
+/// [`workspace`], choosing whether the destinations carry a
+/// `customerWarehouseWrites` reason.
+async fn workspace_with(databases: &str, destinations: &[&str], with_reasons: bool) -> Workspace {
     let root = tempfile::tempdir().expect("workspace dir");
     std::fs::write(
         root.path().join("config.yml"),
@@ -165,7 +173,19 @@ async fn workspace(databases: &str, destinations: &[&str]) -> Workspace {
         Uuid::new_v4(),
         Uuid::nil(),
         "Receiving".into(),
-        FunctionCapabilities::default(),
+        FunctionCapabilities {
+            customer_warehouse_writes: destinations
+                .iter()
+                .filter(|_| with_reasons)
+                .map(|d| {
+                    (
+                        d.to_string(),
+                        "the engine write tests write this warehouse".into(),
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        },
         Default::default(),
         oxy_app::server::api::operating_graph::reach::Reach::nowhere(),
         InvocationIdentity {
@@ -372,6 +392,27 @@ async fn duckdb_writes_land() {
     )
     .await;
     assert_writes_land(&ws, "duck").await;
+}
+
+/// Customer warehouses are read-only to apps: a destination in the allowlist
+/// is not enough without a `customerWarehouseWrites` reason, and the refusal
+/// names the manifest field that fixes it.
+#[tokio::test]
+async fn a_customer_warehouse_write_without_a_reason_is_refused() {
+    let ws = workspace_with(
+        "  - name: duck\n    type: duckdb\n    path: warehouse.duckdb\n",
+        &["duck"],
+        false,
+    )
+    .await;
+    let err = ws
+        .write(
+            "exec",
+            json!({ "database": "duck", "sql": "CREATE TABLE refused (a INTEGER)" }),
+        )
+        .await
+        .expect_err("a customer-warehouse write without a reason must be refused");
+    assert!(err.contains("customerWarehouseWrites"), "{err}");
 }
 
 #[tokio::test]

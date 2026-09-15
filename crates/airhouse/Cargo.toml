@@ -56,6 +56,8 @@ admin = [
 ]
 # Axum HTTP handlers for `/airhouse/me/*`. Always implies `admin`.
 rest = ["admin", "dep:axum"]
+# The SQL a custom app may send to its own Airhouse schema (`sql_rules`).
+sql-rules = ["dep:sqlparser", "dep:thiserror"]
 
 [dependencies]
 # Connector feature deps
@@ -82,6 +84,9 @@ rand = { workspace = true, optional = true }
 
 # REST feature deps
 axum = { workspace = true, optional = true }
+
+# sql-rules feature deps
+sqlparser = { workspace = true, optional = true, features = ["visitor"] }
 
 # Shared by both connector and admin
 tokio = { workspace = true, optional = true }

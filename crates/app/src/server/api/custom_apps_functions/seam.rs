@@ -60,6 +60,15 @@ pub trait FunctionProjectContext: Send + Sync {
         db_name: &str,
     ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, oxy_shared::errors::OxyError>;
 
+    /// The Airhouse connection `ctx.airhouse` writes an app's own facts through:
+    /// minted for the app whoever invoked it, and asked to be confined to
+    /// `schema`. Every statement is still checked host-side first.
+    async fn build_app_airhouse_connector(
+        &self,
+        app_slug: &str,
+        schema: &str,
+    ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, oxy_shared::errors::OxyError>;
+
     /// Seed an Airway run (`ctx.airway.run`) against `db`, returning the run id.
     async fn start_airway_seed(
         &self,

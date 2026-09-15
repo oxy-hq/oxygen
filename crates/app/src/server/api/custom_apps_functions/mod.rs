@@ -171,6 +171,17 @@ struct FunctionManifestEntry {
     /// `raw_*` schemas. The writer must be provisioned first.
     #[serde(default)]
     oltp: Option<OltpSpec>,
+    /// Opt-in capability for `ctx.airhouse` — the app's own facts in its
+    /// workspace's Airhouse (fail-closed: absent → every `ctx.airhouse` call
+    /// rejected). A pure GATE like `oltp`: the schema is `app_<writer>`, derived
+    /// from the app's slug host-side, so a manifest cannot name another app's.
+    #[serde(default)]
+    airhouse: Option<AirhouseSpec>,
+    /// Customer warehouses this function may write to anyway, each mapped to the
+    /// reason. Customer warehouses are read-only to apps; a database in
+    /// `destinations` that is one is refused unless it is named here too.
+    #[serde(default, rename = "customerWarehouseWrites")]
+    customer_warehouse_writes: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default)]
     webhook: Option<WebhookSpec>,
     /// Opt-in capability for `ctx.org.people()` — the org's people directory
@@ -300,6 +311,14 @@ struct WebhookSpec {
     encoding: Option<String>,
 }
 
+/// `"airhouse": { "enabled": true }` — a gate, like [`OltpSpec`]; it never names
+/// the schema.
+#[derive(Debug, Deserialize, Default, Clone)]
+struct AirhouseSpec {
+    #[serde(default)]
+    enabled: Option<bool>,
+}
+
 #[derive(Debug, Deserialize, Default, Clone)]
 struct OltpSpec {
     /// Whether `ctx.oltp` is permitted. A pure GATE — it does NOT name the
@@ -361,6 +380,20 @@ impl FunctionManifestEntry {
     /// slug, never from the manifest, so this cannot name another app's schema.
     fn oltp_enabled(&self) -> bool {
         self.oltp.as_ref().and_then(|o| o.enabled).unwrap_or(false)
+    }
+
+    /// Whether `ctx.airhouse` is permitted (fail-closed default: false).
+    fn airhouse_enabled(&self) -> bool {
+        self.airhouse
+            .as_ref()
+            .and_then(|a| a.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Customer warehouses this function declared a reason to write (empty →
+    /// none; every customer-warehouse write is refused).
+    fn customer_warehouse_writes(&self) -> std::collections::BTreeMap<String, String> {
+        self.customer_warehouse_writes.clone().unwrap_or_default()
     }
 
     /// Build a `RetryPolicy` for background runs from the manifest's `retries`
@@ -1147,7 +1180,9 @@ pub async fn handle_function_request(
             // named by the manifest, so one app cannot reach another's schema.
             // A slug that can't back a schema is a distinct fail-closed reason so
             // the host diagnoses it as such, not as "capability missing".
-            oltp: host::OltpCapability::resolve(manifest.oltp_enabled(), &app.slug),
+            oltp: host::WriterCapability::resolve(manifest.oltp_enabled(), &app.slug),
+            airhouse: host::WriterCapability::resolve(manifest.airhouse_enabled(), &app.slug),
+            customer_warehouse_writes: manifest.customer_warehouse_writes(),
             fetch_max_bytes: resolve_fetch_max_bytes(&manifest),
             storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
                 build.manifest_json.as_ref(),
@@ -1455,7 +1490,9 @@ pub(crate) async fn run_scheduled_function(
             // named by the manifest, so one app cannot reach another's schema.
             // A slug that can't back a schema is a distinct fail-closed reason so
             // the host diagnoses it as such, not as "capability missing".
-            oltp: host::OltpCapability::resolve(manifest.oltp_enabled(), &app.slug),
+            oltp: host::WriterCapability::resolve(manifest.oltp_enabled(), &app.slug),
+            airhouse: host::WriterCapability::resolve(manifest.airhouse_enabled(), &app.slug),
+            customer_warehouse_writes: manifest.customer_warehouse_writes(),
             fetch_max_bytes: resolve_fetch_max_bytes(&manifest),
             storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
                 build.manifest_json.as_ref(),
@@ -2066,6 +2103,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             reach,
         },
         env,
+        airhouse_schema: args.caps.airhouse.schema(),
     };
 
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and

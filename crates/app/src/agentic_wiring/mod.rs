@@ -15,6 +15,7 @@
 //!   [`agentic_pipeline::platform::ThreadOwnerLookup`].
 
 pub mod airhouse_pool;
+pub mod app_airhouse;
 pub mod builder_bridges;
 pub mod compile_dispatcher;
 pub mod metric_sink;

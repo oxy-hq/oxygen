@@ -54,6 +54,10 @@ use tracing::Instrument;
 pub struct InvocationCtx {
     pub user: CtxUser,
     pub env: BTreeMap<String, String>,
+    /// `ctx.airhouse.schema` — the app's own Airhouse schema, present only when
+    /// the function declared the `airhouse` capability.
+    #[serde(rename = "airhouseSchema", skip_serializing_if = "Option::is_none")]
+    pub airhouse_schema: Option<String>,
 }
 
 /// One org team the caller belongs to, as surfaced through `ctx.user.teams`.
@@ -318,9 +322,9 @@ pub trait FunctionHost: Send + Sync {
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String>;
-    /// `ctx.tx(database, fn)` — a multi-statement transaction on a pinned
-    /// connection. `op` is one of `begin` / `query` / `exec` / `commit` /
-    /// `rollback`; `payload` carries its args. Same single-op-dispatcher shape
+    /// `ctx.tx(database, fn)` and `ctx.oltp.tx(fn)` — a multi-statement
+    /// transaction on a pinned connection. `op` is one of `begin` / `begin_oltp`
+    /// / `query` / `exec` / `commit` / `rollback`; `payload` carries its args. Same single-op-dispatcher shape
     /// as `warehouse_write`, and gated by the same fail-closed `destinations`
     /// allowlist — a transaction is a write, so it may not reach a database the
     /// function did not declare.
@@ -337,6 +341,15 @@ pub trait FunctionHost: Send + Sync {
     /// app's own writer role — so unlike `ctx.warehouse` (read-only analyst on a
     /// managed database) it can write, and cannot see another app's data.
     async fn oltp(
+        &self,
+        op: String,
+        payload: serde_json::Value,
+    ) -> Result<serde_json::Value, String>;
+    /// `ctx.airhouse.{query,exec,append}` — the app's own facts in its
+    /// workspace's Airhouse, in the schema `app_<writer>` derived from its slug.
+    /// Written as the app whoever invoked; every statement is checked against
+    /// that schema first. Gated by the fail-closed `airhouse` manifest capability.
+    async fn airhouse(
         &self,
         op: String,
         payload: serde_json::Value,
@@ -403,6 +416,11 @@ enum HostCall {
         reply: oneshot::Sender<Result<serde_json::Value, String>>,
     },
     Oltp {
+        op: String,
+        payload: serde_json::Value,
+        reply: oneshot::Sender<Result<serde_json::Value, String>>,
+    },
+    Airhouse {
         op: String,
         payload: serde_json::Value,
         reply: oneshot::Sender<Result<serde_json::Value, String>>,
@@ -675,6 +693,32 @@ async fn op_ctx_oltp(
         .await
         .map_err(|_| JsErrorBox::generic("function host dropped the request"))?;
     Ok(reply_json("ctx.oltp", result))
+}
+
+/// `ctx.airhouse.{query,exec,append}` — bridge to `FunctionHost::airhouse`.
+/// Shaped like `op_ctx_oltp`: the app's schema is derived host-side from its
+/// slug, so no schema or database name crosses this boundary.
+#[op2]
+#[string]
+async fn op_ctx_airhouse(
+    state: Rc<RefCell<OpState>>,
+    #[string] op: String,
+    #[string] payload_json: String,
+) -> Result<String, JsErrorBox> {
+    check_cancelled(&state)?;
+    let tx = state
+        .borrow()
+        .borrow::<mpsc::UnboundedSender<HostCall>>()
+        .clone();
+    let payload: serde_json::Value =
+        serde_json::from_str(&payload_json).unwrap_or(serde_json::Value::Null);
+    let (reply, rx) = oneshot::channel();
+    tx.send(HostCall::Airhouse { op, payload, reply })
+        .map_err(|_| JsErrorBox::generic("function host unavailable"))?;
+    let result = rx
+        .await
+        .map_err(|_| JsErrorBox::generic("function host dropped the request"))?;
+    Ok(reply_json("ctx.airhouse", result))
 }
 
 /// `ctx.secrets.set(key, value)` — bridge to `FunctionHost::secrets_set`.
@@ -1045,6 +1089,7 @@ deno_core::extension!(
         op_ctx_org_assignments,
         op_ctx_tx,
         op_ctx_oltp,
+        op_ctx_airhouse,
         op_ctx_hmac,
         op_ctx_verify_hmac,
         op_ctx_timing_safe_equal,
@@ -1214,6 +1259,62 @@ function __wrapOp(opName) {
   };
 }
 
+// The commit/rollback bracket behind ctx.tx and ctx.oltp.tx. It lives HERE
+// rather than in the author's code on purpose: an author who forgets a rollback
+// in a catch block leaves a transaction open holding locks, and the only
+// reliable moment to close it is the one the runtime owns. Statements take bound
+// parameters ($1, $2, …) — never build SQL by concatenating user input.
+const __runTx = async (signature, label, beginOp, beginPayload, fn) => {
+  if (typeof fn !== "function") {
+    throw new TypeError(`${signature}: fn must be a function`);
+  }
+  const call = __wrapOp("op_ctx_tx");
+  const { id } = await call(beginOp, beginPayload);
+  let closed = false;
+  // Every method re-checks `closed` so a handle that escapes the callback
+  // (stashed on a global, captured by a stray promise) fails loudly instead of
+  // addressing whatever transaction now holds that id.
+  const live = (what) => {
+    if (closed) {
+      throw new Error(
+        `${label}: this transaction is already finished — ${what} was called after the callback returned`,
+      );
+    }
+  };
+  const handle = {
+    query: async (sql, params) => {
+      live("query");
+      // `??` not `||`: both map a real omission to [], but `||` also swallows 0
+      // and "" — handing a wrong-typed argument to the host as "no parameters"
+      // and producing a misleading arity error. Anything else is forwarded as-is
+      // for the host to reject by name.
+      const r = await call("query", { id, sql: String(sql), params: params ?? [] });
+      return r.rows;
+    },
+    exec: async (sql, params) => {
+      live("exec");
+      const r = await call("exec", { id, sql: String(sql), params: params ?? [] });
+      return r.rowCount;
+    },
+  };
+  let result;
+  try {
+    result = await fn(handle);
+  } catch (err) {
+    closed = true;
+    // Swallow a rollback failure: the connection drops either way, which the
+    // server treats as a rollback, and surfacing it would replace the error the
+    // author actually needs to see.
+    try {
+      await call("rollback", { id });
+    } catch (_) {}
+    throw err;
+  }
+  closed = true;
+  await call("commit", { id });
+  return result;
+};
+
 globalThis.__buildCtx = (ctxData) => ({
   // `org_id` is a back-compat mirror of `orgId`. The host used to serialize the
   // field snake_cased, so `ctx.user.orgId` — the name the SDK types and the docs
@@ -1293,65 +1394,11 @@ globalThis.__buildCtx = (ctxData) => ({
     query: (database, sql) =>
       __wrapOp("op_ctx_warehouse")("query", { database, sql }),
   },
-  // tx(database, fn) — run `fn` inside one transaction on a pinned connection.
-  // Commits when `fn` resolves, rolls back when it throws, and rethrows the
-  // original error either way.
-  //
-  // The commit/rollback bracket lives HERE rather than in the author's code on
-  // purpose: an author who forgets a rollback in a catch block leaves a
-  // transaction open holding locks, and the only reliable moment to close it is
-  // the one the runtime owns. Statements take bound parameters ($1, $2, …) —
-  // never build SQL by concatenating user input.
-  tx: async (database, fn) => {
-    if (typeof fn !== "function") {
-      throw new TypeError("ctx.tx(database, fn): fn must be a function");
-    }
-    const call = __wrapOp("op_ctx_tx");
-    const { id } = await call("begin", { database: String(database) });
-    let closed = false;
-    // Every method re-checks `closed` so a handle that escapes the callback
-    // (stashed on a global, captured by a stray promise) fails loudly instead
-    // of addressing whatever transaction now holds that id.
-    const live = (what) => {
-      if (closed) {
-        throw new Error(
-          `ctx.tx: this transaction is already finished — ${what} was called after the callback returned`,
-        );
-      }
-    };
-    const handle = {
-      query: async (sql, params) => {
-        live("query");
-        // `??` not `||`: both map a real omission to [], but `||` also
-        // swallows 0 and "" — handing a wrong-typed argument to the host as
-        // "no parameters" and producing a misleading arity error. Anything
-        // else is forwarded as-is for the host to reject by name.
-        const r = await call("query", { id, sql: String(sql), params: params ?? [] });
-        return r.rows;
-      },
-      exec: async (sql, params) => {
-        live("exec");
-        const r = await call("exec", { id, sql: String(sql), params: params ?? [] });
-        return r.rowCount;
-      },
-    };
-    let result;
-    try {
-      result = await fn(handle);
-    } catch (err) {
-      closed = true;
-      // Swallow a rollback failure: the connection drops either way, which the
-      // server treats as a rollback, and surfacing it would replace the error
-      // the author actually needs to see.
-      try {
-        await call("rollback", { id });
-      } catch (_) {}
-      throw err;
-    }
-    closed = true;
-    await call("commit", { id });
-    return result;
-  },
+  // tx(database, fn) — run `fn` inside one transaction on a pinned connection
+  // to a declared destination. Commits when `fn` resolves, rolls back when it
+  // throws, and rethrows the original error either way (see __runTx).
+  tx: (database, fn) =>
+    __runTx("ctx.tx(database, fn)", "ctx.tx", "begin", { database: String(database) }, fn),
   // oltp.query(sql, params?) / oltp.exec(sql, params?) — read/write the app's
   // OWN per-org OLTP schema (app_<writer>), and nothing else. This is the write
   // half ctx.warehouse cannot give an app on a managed database (that resolves
@@ -1362,6 +1409,10 @@ globalThis.__buildCtx = (ctxData) => ({
   // statement rolls back). Statements take bound parameters ($1, $2, …) — never
   // build SQL by concatenating user input.
   oltp: {
+    // oltp.tx(fn) — several statements on the app's own schema as one
+    // transaction: commits when `fn` resolves, rolls back when it throws. The
+    // same bracket and handle as ctx.tx; the writer is derived host-side.
+    tx: (fn) => __runTx("ctx.oltp.tx(fn)", "ctx.oltp.tx", "begin_oltp", {}, fn),
     query: async (sql, params) => {
       const r = await __wrapOp("op_ctx_oltp")("query", {
         sql: String(sql),
@@ -1374,6 +1425,24 @@ globalThis.__buildCtx = (ctxData) => ({
         sql: String(sql),
         params: params ?? [],
       });
+      return r.rowCount;
+    },
+  },
+  // airhouse.* — the app's own FACTS in its workspace's Airhouse: append-only
+  // history (an order happened, a checklist was completed) in the schema
+  // `app_<writer>`, derived host-side from the app's slug. Written as the app,
+  // whoever invoked the function, so a schedule writes like a click. Reads may
+  // name any schema; writes must name `${ctx.airhouse.schema}.<table>`, and
+  // tables come from airhouseMigrations, not exec. DuckLake has no keys or
+  // UNIQUE, so give each fact its source's id and keep one row per id on read.
+  airhouse: {
+    schema: ctxData.airhouseSchema ?? null,
+    query: (sql) => __wrapOp("op_ctx_airhouse")("query", { sql: String(sql) }),
+    exec: async (sql) => {
+      await __wrapOp("op_ctx_airhouse")("exec", { sql: String(sql) });
+    },
+    append: async (table, rows) => {
+      const r = await __wrapOp("op_ctx_airhouse")("append", { table: String(table), rows });
       return r.rowCount;
     },
   },
@@ -1754,6 +1823,19 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
             );
             (span, HostCallKind::Other)
         }
+        HostCall::Airhouse { op, .. } => {
+            let span = tracing::info_span!(target: HOST_CALL_TARGET,
+                "db.query",
+                db.system = "airhouse",
+                db.operation.name = %op,
+                db.namespace = Empty,
+                db.query.summary = Empty,
+                db.collection.name = Empty,
+                otel.status_code = Empty,
+                error.type = Empty,
+            );
+            (span, HostCallKind::Other)
+        }
         HostCall::Oltp { op, .. } => {
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
                 "db.query",
@@ -1861,6 +1943,7 @@ async fn dispatch_host_call(
         }
         HostCall::Tx { op, payload, reply } => (reply, host.tx(op, payload).await),
         HostCall::Oltp { op, payload, reply } => (reply, host.oltp(op, payload).await),
+        HostCall::Airhouse { op, payload, reply } => (reply, host.airhouse(op, payload).await),
         HostCall::SecretsSet { key, value, reply } => (reply, host.secrets_set(key, value).await),
         HostCall::SendEmail { input, reply } => (reply, host.send_email(input).await),
         HostCall::Storage { op, payload, reply } => (reply, host.storage(op, payload).await),
@@ -2064,6 +2147,11 @@ mod tests {
             },
             HostCall::Oltp {
                 op: "query".into(),
+                payload: json.clone(),
+                reply: reply(),
+            },
+            HostCall::Airhouse {
+                op: "append".into(),
                 payload: json,
                 reply: reply(),
             },
@@ -2084,7 +2172,8 @@ mod tests {
                 | HostCall::OrgPlaces { .. }
                 | HostCall::OrgAssignments { .. }
                 | HostCall::Tx { .. }
-                | HostCall::Oltp { .. } => {}
+                | HostCall::Oltp { .. }
+                | HostCall::Airhouse { .. } => {}
             }
         }
         // A bare registry enables every span, so `metadata()` is `Some`.
@@ -2173,7 +2262,7 @@ mod tests {
         ) -> Result<serde_json::Value, String> {
             self.tx_ops.lock().unwrap().push(op.clone());
             match op.as_str() {
-                "begin" => Ok(serde_json::json!({ "id": 1 })),
+                "begin" | "begin_oltp" => Ok(serde_json::json!({ "id": 1 })),
                 // Echo the params back so a test can assert they crossed the
                 // boundary as an array rather than being stringified.
                 "query" => Ok(serde_json::json!({
@@ -2245,6 +2334,25 @@ mod tests {
                 other => Err(format!("unexpected oltp op '{other}'")),
             }
         }
+        async fn airhouse(
+            &self,
+            op: String,
+            payload: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            // Echo what crossed the boundary: the row count proves `rows`
+            // arrived as an array, not a stringified blob.
+            match op.as_str() {
+                "append" => Ok(serde_json::json!({
+                    "rowCount": payload["rows"].as_array().map_or(0, |r| r.len()),
+                })),
+                "query" => Ok(serde_json::json!({
+                    "rows": [{ "sql": payload["sql"] }],
+                    "truncated": false,
+                })),
+                "exec" => Ok(serde_json::json!({ "ok": true })),
+                other => Err(format!("unexpected airhouse op '{other}'")),
+            }
+        }
         async fn secrets_set(
             &self,
             _key: String,
@@ -2276,6 +2384,7 @@ mod tests {
                 reach: crate::server::api::operating_graph::reach::Reach::nowhere(),
             },
             env: Default::default(),
+            airhouse_schema: None,
         }
     }
 
@@ -2409,6 +2518,7 @@ mod tests {
             InvocationCtx {
                 user: full_identity(),
                 env: Default::default(),
+                airhouse_schema: None,
             },
         )
         .await;
@@ -2897,6 +3007,52 @@ mod tests {
         assert!(
             resp.body.contains("party_size"),
             "sql must cross the boundary intact: {}",
+            resp.body
+        );
+    }
+
+    /// `ctx.oltp.tx(fn)` opens with `begin_oltp` — no database crosses the
+    /// boundary, the writer is the host's to derive — and closes through the
+    /// same commit bracket as `ctx.tx`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn oltp_tx_opens_on_the_apps_own_store_and_commits() {
+        let (result, host) = run_with_mock(
+            r#"
+            export default async (req, ctx) => {
+                const n = await ctx.oltp.tx(async (tx) => {
+                    await tx.exec("UPDATE bookings SET seated = true WHERE id = $1", [7]);
+                    return tx.exec("INSERT INTO seatings (booking_id) VALUES ($1)", [7]);
+                });
+                return Response.json({ n });
+            };
+        "#,
+        )
+        .await;
+
+        let resp = result.expect("ctx.oltp.tx must resolve");
+        assert!(resp.body.contains(r#""n":1"#), "body: {}", resp.body);
+        assert_eq!(host.tx_ops(), vec!["begin_oltp", "exec", "exec", "commit"]);
+    }
+
+    /// `ctx.airhouse.append(table, rows)` sends a bare table and the rows as an
+    /// array; adding the schema is the host's job, not the script's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn airhouse_append_forwards_the_table_and_rows() {
+        let (result, _host) = run_with_mock(
+            r#"
+            export default async (req, ctx) => {
+                const n = await ctx.airhouse.append("visits", [{ visit_id: "v1" }, { visit_id: "v2" }]);
+                return Response.json({ n, schema: ctx.airhouse.schema });
+            };
+        "#,
+        )
+        .await;
+
+        let resp = result.expect("ctx.airhouse.append must resolve");
+        assert!(resp.body.contains(r#""n":2"#), "body: {}", resp.body);
+        assert!(
+            resp.body.contains(r#""schema":null"#),
+            "no capability, no schema: {}",
             resp.body
         );
     }

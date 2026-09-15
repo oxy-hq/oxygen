@@ -86,7 +86,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(A2aTasks::Table).to_owned())
+            .drop_table(Table::drop().table(A2aTasks::Table).if_exists().to_owned())
             .await
     }
 }

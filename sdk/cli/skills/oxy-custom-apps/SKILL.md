@@ -109,9 +109,15 @@ qualified.)
    ```
 
    `ctx` bridges to the data plane: `ctx.query` / `ctx.queryStream`,
-   `ctx.semantic.query`, `ctx.warehouse.{insert,exec,upsert}`,
-   `ctx.airway.run`, `ctx.fetch` (SSRF-allowlisted), `ctx.env`,
-   `ctx.user`, `ctx.log`. `oxyc publish` bundles `functions/*.ts` with
+   `ctx.semantic.query`, `ctx.warehouse.query`,
+   `ctx.warehouse.{insert,exec,upsert}` (to Airhouse, or to a customer
+   warehouse the function names in `customerWarehouseWrites`), `ctx.airway.run`,
+   `ctx.fetch` (SSRF-allowlisted), `ctx.env`, `ctx.user`, `ctx.log`.
+   What the app STORES picks its surface by shape — facts through
+   `ctx.airhouse`, records through `ctx.oltp`, files through
+   `ctx.storage` — and customer warehouses are read-only. See
+   **Where data goes** below before writing anything.
+   `oxyc publish` bundles `functions/*.ts` with
    esbuild — no separate backend to stand up. Worked example +
    author-facing `ctx` types: `oxy-hq/customer-apps:
    examples/hello-oxy/functions/`.
@@ -123,6 +129,65 @@ qualified.)
    for the build automatically, and the vite-plugin derives the same
    from the manifest for `pnpm dev` / `pnpm build`. Mismatch → asset
    404s → blank dashboard.
+
+## Where data goes (the shape of the data picks the store)
+
+| The data | Store | In a function | In `oxy-app.json` |
+| --- | --- | --- | --- |
+| **Facts** — something happened and won't change: an order, a completed checklist, a delivery, a reading | The workspace's Airhouse, in your schema `app_<writer>` | `ctx.airhouse.append(table, rows)` · `ctx.airhouse.query(sql)` · `ctx.airhouse.exec(sql)` | function: `"airhouse": { "enabled": true }` · app: `"airhouseMigrations": { "dir": "airhouse-migrations" }` |
+| **Records** your app edits — bookings, assignments, templates, counts | The org's OLTP Postgres, in your schema `app_<writer>` | `ctx.oltp.query/exec(sql, params)` · `ctx.oltp.tx(async (tx) => …)` | function: `"oltp": { "enabled": true }` · app: `"migrations": { "dir": "migrations" }` |
+| **Files** — photos, PDFs, exports | Your app's storage silo | `ctx.storage` | function: `"storage": { "read": true, "write": true }` |
+| **The customer's warehouse** — ClickHouse, Snowflake, BigQuery, their Postgres | Theirs | `ctx.query` · `ctx.warehouse.query(db, sql)` | read-only: a write is refused unless the function declares `"customerWarehouseWrites": { "<db>": "<why>" }` |
+
+**Availability.** `ctx.airhouse`, `ctx.oltp.tx`, `airhouseMigrations`, the
+read-only rule for customer warehouses and `oxyc validate`'s data-placement
+and manifest checks arrive with the Oxy release carrying oxygen-internal#3187,
+together with the `@oxy-hq/sdk` and `@oxy-hq/cli` published from it. Against
+an older Oxy, `ctx.airhouse` is `undefined` and the new manifest fields are
+ignored; vendored `oxy.d.ts` copies (`examples/hello-oxy/functions/oxy.d.ts`)
+gain the types when they are re-synced from that SDK.
+
+Three questions, in order: **Is it bytes?** → storage (keep the key in a record
+or fact). **Does it change after it's written?** No → a fact; yes → a record;
+both when you need history (the record says what is true now, the fact says
+what changed). **Is it already in the customer's warehouse?** → read it there.
+
+`<writer>` is your slug with `-` → `_` (`store-ops` → `app_store_ops`); a slug
+with `_` can't back a schema. Both stores are written **as the app**, whoever
+invoked the function, so a scheduled run writes like a click.
+
+**Facts, in practice.** Airhouse is DuckLake: no `PRIMARY KEY`, `UNIQUE`,
+indexes or foreign keys — publish refuses a migration carrying one. So:
+
+- Give every fact the id its source assigned and a `recorded_at`. A retried
+  function appends twice; readers keep one row per id:
+  `QUALIFY row_number() OVER (PARTITION BY completion_id ORDER BY recorded_at DESC) = 1`.
+- A correction is a new fact (`voided`, `amended`), not an `UPDATE`.
+- Name tables `app_<writer>.<table>` in migrations and in `exec`/`query`
+  (`ctx.airhouse.schema` has the name). `append` takes the bare table name.
+- One statement per call, nothing bound: request data goes through `append`,
+  never into `exec` SQL. `exec` runs no DDL — tables come from migrations.
+
+**Records, in practice.** Bound parameters (`$1`, `$2`) always. Several
+statements that must land together go in one `ctx.oltp.tx`. The store is
+provisioned per org by an operator; until then calls fail naming that step.
+
+**Not a store:** `ctx.secrets` holds credentials you rotate. A cursor, a
+counter or a JSON blob is a record. `oxyc validate` warns about it, about
+keys in Airhouse migrations, and lists every customer-warehouse write exception.
+
+```ts
+// A checklist is finished: the record changes, and a fact is appended.
+async function completeChecklist(ctx, runId: string, storeGuid: string) {
+  await ctx.oltp.tx(async (tx) => {
+    await tx.exec("UPDATE checklist_runs SET status = 'done', completed_at = now() WHERE id = $1", [runId]);
+    await tx.exec("DELETE FROM open_reminders WHERE run_id = $1", [runId]);
+  });
+  await ctx.airhouse.append("checklist_completions", [
+    { completion_id: runId, store_guid: storeGuid, completed_by: ctx.user.id, recorded_at: new Date().toISOString() },
+  ]);
+}
+```
 
 ## Four pitfalls
 
@@ -278,6 +343,7 @@ be resolved at publish time):
 ```bash
 oxyc login --env production    # once; browser flow, caches a token,
                                # and prints whether you're an app-admin
+oxyc validate                           # data-placement and manifest checks first
 oxyc publish --env production           # build → tar → upload (draft channel)
 oxyc publish --env production --promote # …straight to live
 ```

@@ -118,6 +118,9 @@ pub enum Schema {
     /// `oltp_roles`). `oltp_tenants.org_id` carries a real FK to
     /// `organizations`, so the central chain has to be underneath it.
     CentralOltp,
+    /// Every migrator `oxy serve` runs — the whole of Oxy's own database, for a
+    /// test that reasons about all of it.
+    All,
 }
 
 impl Schema {
@@ -126,6 +129,7 @@ impl Schema {
             Schema::Central => "central",
             Schema::CentralAirhouse => "airhouse",
             Schema::CentralOltp => "oltp",
+            Schema::All => "all",
         }
     }
 
@@ -135,6 +139,10 @@ impl Schema {
         Migrator::up(db, None)
             .await
             .expect("run central migrations");
+        if self == Schema::All {
+            migrate_domains(db).await;
+            return;
+        }
         if self == Schema::CentralAirhouse {
             airhouse::migration::up(db)
                 .await
@@ -146,6 +154,33 @@ impl Schema {
                 .expect("run oltp migrations");
         }
     }
+}
+
+/// The side migrators, in the order `run_all_migrators` (`cli/commands/serve.rs`)
+/// runs them: airway's tables reference the runtime's, and OLTP's reference
+/// `organizations`.
+async fn migrate_domains(db: &DatabaseConnection) {
+    agentic_runtime::migration::RuntimeMigrator::up(db, None)
+        .await
+        .expect("run runtime migrations");
+    agentic_pipeline::AnalyticsMigrator::up(db, None)
+        .await
+        .expect("run analytics migrations");
+    agentic_pipeline::AutomationMigrator::up(db, None)
+        .await
+        .expect("run automation migrations");
+    agentic_pipeline::AirwayMigrator::up(db, None)
+        .await
+        .expect("run airway migrations");
+    airhouse::migration::up(db)
+        .await
+        .expect("run airhouse migrations");
+    oxy_oltp::migration::up(db)
+        .await
+        .expect("run oltp migrations");
+    oxy_cameras::CamerasMigrator::up(db, None)
+        .await
+        .expect("run cameras migrations");
 }
 
 /// The admin (`postgres`) connection URL: CI's service container when

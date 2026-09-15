@@ -79,11 +79,16 @@
 //!   decisions do.
 //! * [`apply`] — the plan against a real writer: advisory lock, re-plan, run,
 //!   ledger row per file, one transaction per migration.
+//! * [`airhouse`] — the same ledger for `airhouseMigrations`, against the app's
+//!   schema in its workspace's Airhouse, where every file is also checked
+//!   against the schema and DuckLake's rules (no keys, `UNIQUE`, indexes).
 
+mod airhouse;
 mod apply;
 mod plan;
 mod types;
 
+pub(super) use airhouse::apply_airhouse_on_promote;
 pub(super) use apply::apply_on_promote;
-pub(super) use plan::declare;
+pub(super) use plan::{declare, declare_airhouse};
 pub use types::MigrationError;

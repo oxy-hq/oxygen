@@ -114,6 +114,15 @@ pub enum BrokerSubject {
         workspace_id: Uuid,
         purpose: SystemPurpose,
     },
+    /// A custom app writing its own facts, whoever invoked it. Audited as
+    /// `system:workspace:<uuid>:app:<slug>`. A Writer mint for this subject
+    /// asks Airhouse to confine the credential to `schema`; see
+    /// [`AirhouseTokenBroker::mint_for_app`].
+    App {
+        workspace_id: Uuid,
+        app_slug: String,
+        schema: String,
+    },
 }
 
 /// Reason a system-issued credential is needed. Embedded in the audit
@@ -157,13 +166,29 @@ impl BrokerSubject {
             } => {
                 format!("system:workspace:{workspace_id}:{}", purpose.as_str())
             }
+            BrokerSubject::App {
+                workspace_id,
+                app_slug,
+                ..
+            } => format!("system:workspace:{workspace_id}:app:{app_slug}"),
+        }
+    }
+
+    /// The schemas a mint for this subject asks Airhouse to confine writes to.
+    /// Only an app's Writer credential is scoped: Airhouse refuses a scope on
+    /// any other role, and a Reader has nothing to confine.
+    fn write_schemas(&self, role: UserRole) -> Option<Vec<String>> {
+        match (self, role) {
+            (BrokerSubject::App { schema, .. }, UserRole::Writer) => Some(vec![schema.clone()]),
+            _ => None,
         }
     }
 
     fn workspace_id(&self) -> Option<Uuid> {
         match self {
             BrokerSubject::User(_) => None,
-            BrokerSubject::System { workspace_id, .. } => Some(*workspace_id),
+            BrokerSubject::System { workspace_id, .. }
+            | BrokerSubject::App { workspace_id, .. } => Some(*workspace_id),
         }
     }
 }
@@ -244,6 +269,37 @@ impl AirhouseTokenBroker {
             BrokerSubject::System {
                 workspace_id,
                 purpose,
+            },
+            role,
+            ttl,
+        )
+        .await
+    }
+
+    /// Mint a credential for a custom app to write its own facts in `schema`.
+    ///
+    /// Minted for the app, not the caller: a scheduled run and a Member's click
+    /// write the same way, the stance `ctx.oltp` takes. A `Writer` mint asks
+    /// Airhouse for `write_schemas: [schema]`. An Airhouse that supports it
+    /// echoes the scope back in [`EphemeralCredential::write_schemas`]; an older
+    /// one ignores the field and returns a tenant-wide Writer, which the caller
+    /// must treat as unscoped — the Oxy host's `sql_rules` check is then the
+    /// only fence.
+    #[instrument(skip(self), fields(workspace_id = %workspace_id, app = %app_slug))]
+    pub async fn mint_for_app(
+        &self,
+        workspace_id: Uuid,
+        app_slug: &str,
+        schema: &str,
+        role: UserRole,
+        ttl: Duration,
+    ) -> Result<EphemeralCredential, BrokerError> {
+        self.mint(
+            workspace_id,
+            BrokerSubject::App {
+                workspace_id,
+                app_slug: app_slug.to_string(),
+                schema: schema.to_string(),
             },
             role,
             ttl,
@@ -436,12 +492,20 @@ impl AirhouseTokenBroker {
     ) -> Result<EphemeralCredential, BrokerError> {
         let ttl_secs = ttl.as_secs().min(i32::MAX as u64) as i32;
         let subject_str = subject.audit_subject();
+        let write_schemas = subject.write_schemas(role);
 
         let mut attempt = 0;
         loop {
             match self
                 .client
-                .mint_token(tenant_id, sa_bearer, &subject_str, role, ttl_secs)
+                .mint_token(
+                    tenant_id,
+                    sa_bearer,
+                    &subject_str,
+                    role,
+                    ttl_secs,
+                    write_schemas.as_deref(),
+                )
                 .await
             {
                 Ok(cred) => return Ok(cred),
@@ -581,6 +645,7 @@ mod tests {
             role: "reader".into(),
             expires_at,
             service_account_id: "sa_test".into(),
+            write_schemas: None,
         }
     }
 }
