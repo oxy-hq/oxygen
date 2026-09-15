@@ -26,6 +26,19 @@ pub struct Model {
     pub granularity: String,
     /// Max chunks the driver ran concurrently.
     pub concurrency: i32,
+    /// Resources this backfill was scoped to, as a JSON array of names.
+    ///
+    /// `None` means every resource the pipeline declares, which is what ranges
+    /// created before the column existed did.
+    ///
+    /// Stored rather than passed because `/resume-backfill` re-drives a range
+    /// knowing only its id: a scope living in the originating request would
+    /// apply to the first drive and silently widen on every resume. It matters
+    /// because a backfill run is run-scoped, so a SNAPSHOT resource sees empty
+    /// state, believes it has never run, and pulls its ordinary daily snapshot
+    /// on every chunk — spending report jobs on a period Amazon cannot serve
+    /// historically anyway.
+    pub resources: Option<Json>,
     /// The user who started this backfill (`None` for CLI/local runs).
     pub created_by: Option<Uuid>,
     /// Rollup over this range's chunks: `running` (any pending/running) |

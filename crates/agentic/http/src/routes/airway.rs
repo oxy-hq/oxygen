@@ -318,6 +318,18 @@ pub struct ChunkedBackfillRequest {
     pub to: chrono::DateTime<chrono::Utc>,
     /// Chunk size: `month` | `week` | `day`.
     pub granularity: String,
+    /// Resources to replay. Empty (or omitted) means every resource the
+    /// pipeline declares.
+    ///
+    /// Worth setting on any source with SNAPSHOT resources. A backfill run is
+    /// run-scoped, so a snapshot sees empty state, concludes it has never run,
+    /// and pulls its ordinary daily snapshot on EVERY chunk — for a period the
+    /// upstream serves no historical form of. On a 13-chunk sp_api backfill
+    /// that is ~39 report jobs spent against a daily quota shared with the
+    /// vendor's own UI, which then refuses the windowed reports that were the
+    /// point. The scope is stored on the range, so `/resume-backfill` keeps it.
+    #[serde(default)]
+    pub resources: Vec<String>,
     /// Accepted for compatibility and IGNORED: chunks of one pipeline run one
     /// at a time. They share a single `<table>_raw` staging buffer whose fold
     /// watermark spans the whole buffer, so a parallel chunk's fold drains
@@ -397,6 +409,7 @@ pub async fn chunked_backfill(
         granularity,
         concurrency as i32,
         Some(user.id),
+        &body.resources,
     )
     .await
     {

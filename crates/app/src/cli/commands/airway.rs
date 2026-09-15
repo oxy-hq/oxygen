@@ -124,6 +124,17 @@ pub struct AirwayBackfillArgs {
     /// Chunk size: `month` (default), `week`, or `day`.
     #[clap(long, default_value = "month")]
     pub granularity: String,
+    /// Resources to replay (repeatable). Omitted means every resource.
+    ///
+    /// Worth setting on any source with SNAPSHOT resources. A backfill run is
+    /// run-scoped, so a snapshot reads empty state, concludes it has never run,
+    /// and pulls its ordinary daily snapshot on EVERY chunk — for a period the
+    /// upstream serves no historical form of, against a request quota the
+    /// windowed resources need. The scope is stored on the range, so a later
+    /// resume keeps it, and changing it starts a new range rather than
+    /// resuming the old one under a different scope.
+    #[clap(long = "resources", value_delimiter = ',')]
+    pub resources: Vec<String>,
     /// Max chunks to run concurrently.
     ///
     /// FORCED TO 1. Kept as a flag so existing invocations don't break, but a
@@ -526,6 +537,7 @@ async fn cmd_backfill(args: AirwayBackfillArgs) -> Result<(), OxyError> {
         granularity,
         args.concurrency as i32,
         None,
+        &args.resources,
     )
     .await
     .map_err(|e| OxyError::RuntimeError(format!("resolve backfill range: {e}")))?;

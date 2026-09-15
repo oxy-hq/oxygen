@@ -172,6 +172,7 @@ mod m20260909_000001_drop_runs;
 mod m20260911_000001_function_failure_alerts;
 mod m20260911_000001_kiosk_idle_timeout;
 mod m20260911_000002_function_failure_fingerprint_index;
+mod m20260914_000001_backfill_range_resources;
 
 pub struct Migrator;
 
@@ -353,6 +354,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260911_000001_function_failure_alerts::Migration),
             Box::new(m20260911_000001_kiosk_idle_timeout::Migration),
             Box::new(m20260911_000002_function_failure_fingerprint_index::Migration),
+            Box::new(m20260914_000001_backfill_range_resources::Migration),
         ]
     }
 }

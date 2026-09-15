@@ -336,11 +336,13 @@ enum Reuse {
     StillLive,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_airway_window(
     db: &DatabaseConnection,
     platform: &Arc<dyn PlatformContext>,
     pipeline_ref: &str,
     variables: Option<Value>,
+    resources: Vec<String>,
     backfill_from: String,
     backfill_to: String,
     existing_run_id: Option<&str>,
@@ -488,7 +490,12 @@ async fn run_airway_window(
                 pipeline_ref: pipeline_ref.to_string(),
                 variables,
                 thread_id: None,
-                resources: Vec::new(),
+                // The range's scope, not an empty list. A backfill run is
+                // run-scoped, so an unscoped chunk makes every SNAPSHOT
+                // resource believe it has never run and pull its ordinary
+                // daily snapshot — on every chunk, for a period Amazon serves
+                // no historical form of.
+                resources,
                 schedule_id: None,
                 trigger: Some("backfill".to_string()),
                 logical_date: None,
@@ -823,12 +830,14 @@ pub struct BackfillSummary {
 /// progress tick for the driver to fold into the summary. Each chunk touches
 /// only its own `backfill_checkpoints` row (distinct `(range, period)`), so this
 /// is safe to run concurrently with other chunks of the same range.
+#[allow(clippy::too_many_arguments)]
 async fn run_one_chunk(
     db: DatabaseConnection,
     platform: Arc<dyn PlatformContext>,
     backfill_range_id: Uuid,
     pipeline_ref: String,
     variables: Option<Value>,
+    resources: Vec<String>,
     chunk: Chunk,
 ) -> Result<ChunkProgress, AirwayRunError> {
     let label = format!("{} → {}", chunk.start.date_naive(), chunk.end.date_naive());
@@ -852,6 +861,7 @@ async fn run_one_chunk(
         &platform,
         &pipeline_ref,
         variables,
+        resources,
         chunk.start.to_rfc3339(),
         chunk.end.to_rfc3339(),
         cp.run_id.as_deref(),
@@ -1010,6 +1020,59 @@ fn chunk_action_for_error(e: &AirwayRunError) -> ChunkFailureAction {
     }
 }
 
+/// The resources a range was scoped to, as every reader of the column must
+/// read it.
+///
+/// NULL means UNSCOPED — every resource — because that is what every range
+/// created before the column existed carries, and those ranges really did run
+/// everything.
+///
+/// A stored value that does not decode as an array of names widens too, and
+/// that direction is deliberate. Narrowing on a misparse would silently skip
+/// resources an operator asked for and report the range `done`; widening at
+/// worst spends what the pre-column behaviour already spent, and shows up as
+/// extra runs rather than as missing data.
+fn range_scope(stored: &Option<Value>) -> Vec<String> {
+    normalize_scope(
+        &stored
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+            .unwrap_or_default(),
+    )
+}
+
+/// A scope is a SET of resource names, so it is compared as one.
+///
+/// Sorted and deduped, because the alternative is an identity that depends on
+/// argument order: `--resources shipments,ledger_detail` and
+/// `--resources ledger_detail,shipments` name the same backfill, and without
+/// this the second would miss the first's range and re-run every chunk — the
+/// same wasted replay `find_or_create_backfill_range` exists to avoid. The
+/// runtime does not care either: `resources` is a filter over the pipeline's
+/// resource map, not an execution order.
+///
+/// Applied on the way IN as well as on the way out, so a row written by this
+/// version is already canonical and one written by an older one still compares
+/// correctly.
+fn normalize_scope(resources: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = resources
+        .iter()
+        // Trimmed, and blanks dropped. `--resources "shipments, ledger_detail"`
+        // splits on the comma without trimming, so the second name arrives as
+        // " ledger_detail", matches nothing airway declares, and the chunk
+        // fetches one resource while still rolling up `done` — silent missing
+        // data, the direction `range_scope`'s widening rule exists to avoid.
+        // Worse once persisted: the stray space rides the range into every
+        // resume. Done at this seam so the CLI and the HTTP handler cannot
+        // disagree about it.
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Record a user-initiated backfill of `[from, to)` as a `backfill_ranges` row
 /// and return its id. Chunks created under this id are owned by exactly this
 /// range (per-run) — overlapping backfills are distinct ranges, never merged.
@@ -1023,9 +1086,20 @@ pub async fn create_backfill_range(
     granularity: ChunkGranularity,
     concurrency: i32,
     created_by: Option<Uuid>,
+    resources: &[String],
 ) -> Result<Uuid, DbErr> {
     let id = Uuid::new_v4();
     let now = Utc::now().fixed_offset();
+    // Normalise FIRST, then decide emptiness — the guard used to test the raw
+    // slice, which trimming made wrong: `--resources " "` is non-empty going in
+    // and empty once trimmed, so the row stored `[]`, the one literal this
+    // column is meant never to hold. Nothing misbehaves today because
+    // `range_scope` maps `[]` and NULL to the same value, but the stored form
+    // would stop matching its own invariant, and a reader that does not go
+    // through `range_scope` — a SQL filter, an admin query, the ranges gantt —
+    // would see two spellings of unscoped.
+    let scope = normalize_scope(resources);
+    let stored_scope = (!scope.is_empty()).then(|| serde_json::json!(scope));
     RangeActive {
         id: Set(id),
         workspace_id: Set(workspace_id),
@@ -1034,6 +1108,7 @@ pub async fn create_backfill_range(
         requested_to: Set(to.fixed_offset()),
         granularity: Set(granularity.as_str().to_string()),
         concurrency: Set(concurrency),
+        resources: Set(stored_scope),
         created_by: Set(created_by),
         status: Set("running".to_string()),
         created_at: Set(now),
@@ -1061,17 +1136,34 @@ pub async fn find_or_create_backfill_range(
     granularity: ChunkGranularity,
     concurrency: i32,
     created_by: Option<Uuid>,
+    resources: &[String],
 ) -> Result<Uuid, DbErr> {
-    if let Some(existing) = BackfillRange::find()
+    // The SCOPE is part of the identity, not just the window: re-running
+    // `oxy airway backfill` for the same dates under a different `--resources`
+    // is a different backfill, and resuming the old range would drive the old
+    // scope's chunks while reporting the new one.
+    //
+    // It is matched while CHOOSING the row rather than after, and that is not a
+    // refactor. Taking the newest range for the window and then comparing makes
+    // only the most recent one a resume candidate, so alternating scopes never
+    // resumes: scope A creates a range, unscoped creates another, then A again
+    // finds the unscoped one newest, mismatches, and re-runs every chunk from
+    // scratch — re-spending exactly the report jobs this scope exists to save.
+    // The scope is not a SQL filter because NULL and `[]` both mean "every
+    // resource"; `range_scope` is what reconciles them, so the comparison
+    // belongs in Rust.
+    let existing = BackfillRange::find()
         .filter(RangeCol::WorkspaceId.eq(workspace_id))
         .filter(RangeCol::PipelineRef.eq(pipeline_ref))
         .filter(RangeCol::RequestedFrom.eq(from.fixed_offset()))
         .filter(RangeCol::RequestedTo.eq(to.fixed_offset()))
         .filter(RangeCol::Granularity.eq(granularity.as_str()))
         .order_by_desc(RangeCol::CreatedAt)
-        .one(db)
+        .all(db)
         .await?
-    {
+        .into_iter()
+        .find(|r| range_scope(&r.resources) == normalize_scope(resources));
+    if let Some(existing) = existing {
         return Ok(existing.id);
     }
     create_backfill_range(
@@ -1083,6 +1175,7 @@ pub async fn find_or_create_backfill_range(
         granularity,
         concurrency,
         created_by,
+        resources,
     )
     .await
 }
@@ -1143,6 +1236,10 @@ pub async fn drive_backfill_range(
              (chunks share one raw buffer and their folds would interleave)"
         );
     }
+    // NULL (or unparseable) means unscoped — every resource — which is what
+    // ranges created before the column existed meant, and what the chunk
+    // driver did unconditionally before it could be asked otherwise.
+    let resources = range_scope(&range.resources);
     let chunks = enumerate_chunks(from, to, granularity);
     // Pre-create every chunk as `pending` so coverage shows the plan (0/N) at once.
     for chunk in &chunks {
@@ -1162,6 +1259,7 @@ pub async fn drive_backfill_range(
         range_id,
         &range.pipeline_ref,
         variables,
+        &resources,
         chunks,
         concurrency,
         on_progress,
@@ -1182,6 +1280,7 @@ async fn run_chunks(
     backfill_range_id: Uuid,
     pipeline_ref: &str,
     variables: Option<Value>,
+    resources: &[String],
     chunks: Vec<Chunk>,
     concurrency: usize,
     mut on_progress: impl FnMut(ChunkProgress),
@@ -1202,6 +1301,7 @@ async fn run_chunks(
             backfill_range_id,
             pipeline_ref.to_string(),
             variables.clone(),
+            resources.to_vec(),
             chunk,
         )
     }))
@@ -1303,6 +1403,9 @@ pub async fn resume_backfill_range(
              (chunks share one raw buffer and their folds would interleave)"
         );
     }
+    // Same scope the range was created with — a resume that widened it would
+    // be the unattended run spending report jobs the operator had excluded.
+    let resources = range_scope(&range.resources);
     let chunks: Vec<Chunk> = Checkpoint::find()
         .filter(CpCol::BackfillRangeId.eq(range_id))
         .filter(CpCol::Status.ne("done"))
@@ -1321,6 +1424,7 @@ pub async fn resume_backfill_range(
         range_id,
         &range.pipeline_ref,
         variables,
+        &resources,
         chunks,
         concurrency,
         on_progress,
@@ -1531,6 +1635,68 @@ mod tests {
 
     fn ts(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    /// NULL is not "no resources", it is "all of them" — the behaviour every
+    /// range predating the column already had.
+    #[test]
+    fn an_absent_scope_means_every_resource() {
+        assert_eq!(range_scope(&None), Vec::<String>::new());
+    }
+
+    /// A name carrying the whitespace of a comma-separated flag matches
+    /// nothing airway declares, and the chunk would still report `done`.
+    #[test]
+    fn a_scope_is_trimmed_and_blanks_dropped() {
+        let stored = Some(serde_json::json!(["shipments", " ledger_detail", "", "  "]));
+        assert_eq!(range_scope(&stored), vec!["ledger_detail", "shipments"]);
+    }
+
+    /// A scope of nothing but blanks is UNSCOPED, which is what makes
+    /// `create_backfill_range` store NULL for it rather than `[]`. The guard
+    /// there normalises before testing emptiness for exactly this input.
+    #[test]
+    fn a_scope_of_only_blanks_is_unscoped() {
+        let only_blanks = [" ".to_string(), "".to_string(), "\t".to_string()];
+        assert!(normalize_scope(&only_blanks).is_empty());
+    }
+
+    /// Round-trips as a SET — the names survive, canonically ordered. It does
+    /// not preserve the order they were written in, which is what makes two
+    /// spellings of the same scope resume each other.
+    #[test]
+    fn a_stored_scope_round_trips_canonically() {
+        let stored = Some(serde_json::json!(["shipments", "ledger_detail"]));
+        assert_eq!(range_scope(&stored), vec!["ledger_detail", "shipments"]);
+    }
+
+    /// Widen rather than narrow. Narrowing on a value nobody can parse would
+    /// skip resources the operator asked for and still roll the range up as
+    /// `done`; widening costs report jobs, which is visible.
+    #[test]
+    fn an_unreadable_scope_widens_rather_than_narrows() {
+        assert_eq!(
+            range_scope(&Some(serde_json::json!({"oops": 1}))),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            range_scope(&Some(serde_json::json!([1, 2]))),
+            Vec::<String>::new()
+        );
+    }
+
+    /// Order is not identity. Without this, `--resources a,b` and
+    /// `--resources b,a` are different backfills and the second re-runs every
+    /// chunk the first already landed.
+    #[test]
+    fn a_scope_is_a_set_not_a_sequence() {
+        let one = Some(serde_json::json!(["shipments", "ledger_detail"]));
+        let other = Some(serde_json::json!(["ledger_detail", "shipments"]));
+        assert_eq!(range_scope(&one), range_scope(&other));
+        assert_eq!(
+            range_scope(&Some(serde_json::json!(["a", "a", "b"]))),
+            vec!["a", "b"]
+        );
     }
 
     #[test]
