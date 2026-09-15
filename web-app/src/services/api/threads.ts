@@ -1,10 +1,4 @@
-import type {
-  Answer,
-  Message,
-  ThreadCreateRequest,
-  ThreadItem,
-  ThreadsResponse
-} from "@/types/chat";
+import type { Answer, ThreadCreateRequest, ThreadItem, ThreadsResponse } from "@/types/chat";
 import { apiBaseURL } from "../env";
 import { apiClient } from "./axios";
 import fetchSSE from "./fetchSSE";
@@ -54,11 +48,6 @@ export class ThreadService {
 
   static async deleteAllThreads(projectId: string): Promise<void> {
     const response = await apiClient.delete(`/${projectId}/threads`);
-    return response.data;
-  }
-
-  static async getThreadMessages(projectId: string, threadId: string): Promise<Message[]> {
-    const response = await apiClient.get(`/${projectId}/threads/${threadId}/messages`);
     return response.data;
   }
 

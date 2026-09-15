@@ -32,7 +32,6 @@ use axum::{
 use chrono::Utc;
 use entity::workspace_members::WorkspaceRole;
 use entity::workspaces::{Model as WorkspaceModel, WorkspaceStatus};
-use oxy::adapters::runs::RunsManager;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::resolve_local_workspace_path;
@@ -178,15 +177,6 @@ async fn attach_workspace_manager(
         Err(_) => {
             tracing::warn!("local_context: failed to create secrets manager, continuing without it")
         }
-    }
-
-    // Local mode has no branch concept; use nil UUID as the conventional branch_id sentinel.
-    match RunsManager::default(LOCAL_WORKSPACE_ID, Uuid::nil()).await {
-        Ok(runs_manager) => builder = builder.with_runs_manager(runs_manager),
-        Err(e) => tracing::warn!(
-            "local_context: failed to create runs manager: {}, continuing without it",
-            e
-        ),
     }
 
     builder = builder.try_with_intent_classifier().await;

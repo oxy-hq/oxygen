@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::{
-    adapters::{runs::RunsManager, secrets::SecretsManager, workspace::manager::WorkspaceManager},
+    adapters::{secrets::SecretsManager, workspace::manager::WorkspaceManager},
     config::{ConfigBuilder, ConfigManager, OnMissing, Origin, ReadOnly, WorkingCopy},
     intent::{IntentClassifier, IntentConfig},
 };
@@ -12,7 +12,6 @@ pub struct WorkspaceBuilder<S> {
     workspace_id: Option<uuid::Uuid>,
     config_manager: Option<ConfigManager<S>>,
     secrets_manager: Option<SecretsManager>,
-    runs_manager: Option<RunsManager>,
     intent_classifier: Option<Arc<IntentClassifier>>,
 }
 
@@ -22,7 +21,6 @@ impl<S> Default for WorkspaceBuilder<S> {
             workspace_id: None,
             config_manager: None,
             secrets_manager: None,
-            runs_manager: None,
             intent_classifier: None,
         }
     }
@@ -34,18 +32,12 @@ impl<S> WorkspaceBuilder<S> {
             workspace_id: Some(workspace_id),
             config_manager: None,
             secrets_manager: None,
-            runs_manager: None,
             intent_classifier: None,
         }
     }
 
     pub fn with_secrets_manager(mut self, secret_manager: SecretsManager) -> Self {
         self.secrets_manager = Some(secret_manager);
-        self
-    }
-
-    pub fn with_runs_manager(mut self, runs_manager: RunsManager) -> Self {
-        self.runs_manager = Some(runs_manager);
         self
     }
 
@@ -81,7 +73,6 @@ impl<S> WorkspaceBuilder<S> {
             workspace_id,
             config_manager,
             secret_manager,
-            self.runs_manager,
             self.intent_classifier,
         ))
     }

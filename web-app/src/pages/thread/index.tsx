@@ -2,7 +2,6 @@ import { AlertTriangle } from "lucide-react";
 import { useParams } from "react-router-dom";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import useThread from "@/hooks/api/threads/useThread";
-import AgenticThread from "./agentic";
 import AnalyticsThread from "./analytics";
 import AutomationThread from "./automation";
 
@@ -61,8 +60,6 @@ export const Thread = ({
             hideHeader={hideHeader}
           />
         );
-      case "agentic":
-        return <AgenticThread key={thread.id} thread={thread} hideHeader={hideHeader} />;
       case "analytics":
         return <AnalyticsThread key={thread.id} thread={thread} hideHeader={hideHeader} />;
       default:

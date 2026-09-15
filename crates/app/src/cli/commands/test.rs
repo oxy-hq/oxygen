@@ -14,7 +14,6 @@ use clap::Parser;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use ::oxy::adapters::runs::RunsManager;
 use ::oxy::adapters::workspace::builder::WorkspaceBuilder;
 use ::oxy::adapters::workspace::manager::WorkspaceManager;
 use ::oxy::config::resolve_local_workspace_path;
@@ -76,7 +75,6 @@ pub async fn handle_test_command(test_args: TestArgs) -> Result<(), OxyError> {
     let workspace_manager = WorkspaceBuilder::new(Uuid::nil())
         .with_working_copy(&workspace_path, None, oxy::config::OnMissing::Fail)
         .await?
-        .with_runs_manager(RunsManager::default(Uuid::nil(), Uuid::nil()).await?)
         .build()
         .await
         .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;

@@ -17,7 +17,6 @@ use crate::{
 pub mod agent;
 pub mod block;
 pub mod content;
-pub mod event;
 pub mod message;
 pub mod pagination;
 pub mod run;

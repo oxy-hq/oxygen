@@ -1220,7 +1220,6 @@ async fn handle_looker_auto_sync() -> Result<(), OxyError> {
     let project = WorkspaceBuilder::<WorkingCopy>::new(Uuid::nil())
         .with_working_copy(&workspace_path, None, OnMissing::Fail)
         .await?
-        .with_runs_manager(::oxy::adapters::runs::RunsManager::noop())
         .build()
         .await
         .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;

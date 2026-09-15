@@ -168,6 +168,7 @@ mod m20260907_000001_operating_graph;
 mod m20260908_000001_audit_events_append_only;
 mod m20260908_000002_drop_checkpoints;
 mod m20260909_000001_document_ask_sessions;
+mod m20260909_000001_drop_runs;
 mod m20260911_000001_function_failure_alerts;
 mod m20260911_000001_kiosk_idle_timeout;
 mod m20260911_000002_function_failure_fingerprint_index;
@@ -348,6 +349,7 @@ impl MigratorTrait for Migrator {
             // main's `m20260908_*` landed above this branch's entry, and its
             // `m20260911_*` below.
             Box::new(m20260909_000001_document_ask_sessions::Migration),
+            Box::new(m20260909_000001_drop_runs::Migration),
             Box::new(m20260911_000001_function_failure_alerts::Migration),
             Box::new(m20260911_000001_kiosk_idle_timeout::Migration),
             Box::new(m20260911_000002_function_failure_fingerprint_index::Migration),

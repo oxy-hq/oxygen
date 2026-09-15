@@ -32,7 +32,6 @@ export type { OltpConnectionInfo, OltpSchemaInfo } from "./oltp";
 export { OltpService } from "./oltp";
 export { OnboardingService } from "./onboarding";
 export { RepositoryService } from "./repository";
-export { RunService } from "./run";
 export { TestFileService } from "./testFiles";
 export { TestProjectRunService } from "./testProjectRuns";
 export { TestRunService } from "./testRuns";

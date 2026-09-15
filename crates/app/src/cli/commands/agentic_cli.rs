@@ -185,7 +185,6 @@ async fn cmd_run(args: RunArgs) -> Result<(), OxyError> {
     let workspace_manager = WorkspaceBuilder::new(args.workspace_id.unwrap_or_else(Uuid::nil))
         .with_working_copy(&project_path, None, oxy::config::OnMissing::Fail)
         .await?
-        .with_runs_manager(oxy::adapters::runs::RunsManager::noop())
         .build()
         .await?;
 

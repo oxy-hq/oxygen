@@ -13,9 +13,7 @@ use rmcp::{
 use uuid::Uuid;
 
 // Internal crate imports
-use oxy::adapters::{
-    runs::RunsManager, secrets::SecretsManager, workspace::builder::WorkspaceBuilder,
-};
+use oxy::adapters::{secrets::SecretsManager, workspace::builder::WorkspaceBuilder};
 use oxy_shared::errors::OxyError;
 
 use super::connections::extract_connection_overrides;
@@ -101,13 +99,6 @@ impl OxyMcpServer {
             .with_secrets_manager(SecretsManager::from_environment().map_err(|e| {
                 OxyError::from(anyhow::anyhow!("Failed to create secrets manager: {e}"))
             })?)
-            .with_runs_manager(
-                RunsManager::default(uuid::Uuid::nil(), uuid::Uuid::nil())
-                    .await
-                    .map_err(|e| {
-                        OxyError::from(anyhow::anyhow!("Failed to create runs manager: {e}"))
-                    })?,
-            )
             .try_with_intent_classifier()
             .await
             .build()

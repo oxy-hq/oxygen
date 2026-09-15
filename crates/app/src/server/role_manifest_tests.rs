@@ -206,16 +206,6 @@ fn ide_routes_classify_against_live_uri() {
         classify("GET", "/api/d9830be4-c6a4/status"),
         RouteRole::IdeOnly
     );
-    // Process-local BROADCASTER live SSE (regression: silent truncation on
-    // a worker-less serve replica).
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/events"),
-        RouteRole::IdeOnly
-    );
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/events/lookup"),
-        RouteRole::IdeOnly
-    );
     // `/world-model/events` used to belong in this list and no longer does.
     // Its publishers append to `world_model_events` and every pod tails that
     // table onto its own bus, so the feed is no longer process-local and any
@@ -426,14 +416,13 @@ fn runtime_routes_are_ide_only() {
     // answered by a replica that has neither the execution env nor the
     // broadcaster — regardless of what its handler's signature suggests.
     let ws = "d9830be4-c6a4";
-    let runtime: [(&str, String); 7] = [
+    let runtime: [(&str, String); 6] = [
         ("GET", format!("/api/{ws}/apps/cGF0aA")),
         ("POST", format!("/api/{ws}/apps/cGF0aA/run")),
         ("POST", format!("/api/{ws}/apps/cGF0aA/result")),
         ("GET", format!("/api/{ws}/apps/file/cGF0aA")),
         ("POST", format!("/api/{ws}/analytics/runs")),
         ("POST", format!("/api/{ws}/agentic-airway/run")),
-        ("GET", format!("/api/{ws}/events")),
     ];
     for (method, path) in &runtime {
         assert_eq!(
@@ -484,11 +473,6 @@ fn unknown_routes_default_to_fleet_ok() {
             "/api/d9830be4-c6a4/agentic-workflows/runs/abc/events"
         ),
         RouteRole::IdeOnly
-    );
-    // /blocks reads persisted blocks from Postgres (no broadcaster) — FleetOk.
-    assert_eq!(
-        classify("GET", "/api/d9830be4-c6a4/blocks"),
-        RouteRole::FleetOk
     );
     // Every `/world-model/*` read is FleetOk — the Postgres+S3 ones here, and
     // `/world-model/events` since its feed moved into Postgres.
@@ -1232,10 +1216,6 @@ fn manifest_covers_state_touching_routes() {
         // git/working-copy state reads (workspace_root + detect_git_mode)
         ("GET", format!("{ws}/git-state")),
         ("GET", format!("{ws}/status")),
-        // process-local BROADCASTER live SSE (legacy workflow/task streams)
-        ("GET", format!("{ws}/events")),
-        ("GET", format!("{ws}/events/lookup")),
-        ("GET", format!("{ws}/events/sync")),
         ("GET", format!("{ws}/exported-charts/abc.png")),
         // modeling/airform — dbt projects on disk; ALL methods + the bare
         // list root are IdeOnly (regression for the POST-only-manifest gap).
@@ -1264,7 +1244,6 @@ fn manifest_covers_state_touching_routes() {
     // /agentic-workflows, /agentic-airway — is now ide-pinned for tier 1;
     // see the `ide_only` set above.)
     let fleet_ok = [
-        ("GET", format!("{ws}/blocks")), // persisted Postgres read
         ("GET", format!("{ws}/world-model/cameras")),
         // parquet result cache — fleet-safe via the S3 read-through in
         // result_files::{store,get} (mirror on write, fetch on local miss).

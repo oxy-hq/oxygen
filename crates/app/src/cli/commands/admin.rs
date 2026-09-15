@@ -169,7 +169,6 @@ async fn handle_seed_global_run(args: SeedGlobalRunArgs) -> Result<(), OxyError>
             let workspace_manager = WorkspaceBuilder::new(Uuid::nil())
                 .with_working_copy(&project_path, None, oxy::config::OnMissing::Fail)
                 .await?
-                .with_runs_manager(oxy::adapters::runs::RunsManager::noop())
                 .build()
                 .await?;
             let project_ctx = Arc::new(crate::agentic_wiring::OxyProjectContext::new(

@@ -1,4 +1,4 @@
-import type { GetBlocksResponse, LogItem } from "@/services/types";
+import type { LogItem } from "@/services/types";
 import type { Artifact } from "@/types/artifact";
 
 export interface TextContent {
@@ -308,6 +308,4 @@ export interface Message {
   artifacts: { [key: string]: Artifact };
   created_at: string;
   file_path: string;
-  // Agentic/run-related fields
-  run_info?: GetBlocksResponse;
 }

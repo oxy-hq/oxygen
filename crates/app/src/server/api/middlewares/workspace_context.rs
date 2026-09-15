@@ -12,7 +12,6 @@ use axum::{
 };
 use chrono::Utc;
 use entity::workspace_members::WorkspaceRole;
-use oxy::adapters::runs::RunsManager;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::adapters::workspace::effective_workspace_path;
@@ -743,8 +742,6 @@ pub async fn workspace_middleware(
         return Err(StatusCode::NOT_FOUND.into());
     }
 
-    let branch_id = Uuid::nil();
-
     let agentic_db = app_state
         .agentic_state
         .as_ref()
@@ -767,7 +764,6 @@ pub async fn workspace_middleware(
                     &workspace_row,
                     query.branch.as_deref(),
                     workspace_id,
-                    branch_id,
                     user.id,
                     app_state.preagg_cache,
                     app_state.preagg_renewal_threshold_secs,
@@ -1293,7 +1289,6 @@ async fn try_attach_workspace_manager(
     workspace_row: &entity::workspaces::Model,
     branch_name: Option<&str>,
     workspace_id: Uuid,
-    branch_id: Uuid,
     user_id: Uuid,
     preagg_cache: Option<std::sync::Arc<std::sync::RwLock<RefreshKeyCache>>>,
     preagg_renewal_threshold_secs: Option<u64>,
@@ -1435,15 +1430,6 @@ async fn try_attach_workspace_manager(
         Err(_) => tracing::warn!(
             "Failed to create secrets manager for workspace {}, continuing without it",
             workspace_id
-        ),
-    }
-
-    match RunsManager::default(workspace_id, branch_id).await {
-        Ok(runs_manager) => builder = builder.with_runs_manager(runs_manager),
-        Err(e) => tracing::warn!(
-            "Failed to create runs manager for workspace {}: {}, continuing without it",
-            workspace_id,
-            e
         ),
     }
 

@@ -132,7 +132,6 @@ pub mod partner_role_bindings;
 pub mod quickbooks_oauth_states;
 pub mod reconcile_configs;
 pub mod run_sequences;
-pub mod runs;
 pub mod secrets;
 pub mod settings;
 pub mod slack_channel_defaults;

@@ -18,7 +18,6 @@ import ROUTES from "@/libs/utils/routes";
 import { getShortTitle } from "@/libs/utils/string";
 import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
 import type { ThinkingMode } from "@/services/api/analytics";
-import { useAskAgentic } from "@/stores/agentic";
 import { setPendingThinkingMode } from "@/stores/analyticsThinkingMode";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { FileTreeModel } from "@/types/file";
@@ -61,7 +60,6 @@ const ChatPanel = ({
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [automation, setAutomation] = useState<AutomationOption | null>(null);
-  const { mutateAsync: sendAgenticMessage } = useAskAgentic();
 
   const {
     isAvailable: isBuilderAvailable,
@@ -72,13 +70,6 @@ const ChatPanel = ({
 
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
     switch (data.source_type) {
-      case "agentic":
-        sendAgenticMessage({
-          prompt: data.input,
-          threadId: data.id,
-          agentRef: data.source
-        });
-        break;
       case "analytics":
         // Run creation is handled by AnalyticsThread's auto-start on first visit.
         // Do NOT create a run here — it races with auto-start and causes duplicates.

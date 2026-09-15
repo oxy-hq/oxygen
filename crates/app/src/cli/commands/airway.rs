@@ -292,7 +292,6 @@ async fn cmd_run(args: AirwayRunArgs) -> Result<(), OxyError> {
     let workspace_manager = WorkspaceBuilder::new(workspace_id)
         .with_working_copy(&project_path, None, oxy::config::OnMissing::Fail)
         .await?
-        .with_runs_manager(oxy::adapters::runs::RunsManager::noop())
         .build()
         .await?;
 
@@ -477,7 +476,6 @@ async fn airway_context(
     let workspace_manager = WorkspaceBuilder::new(Uuid::nil())
         .with_working_copy(&project_path, None, oxy::config::OnMissing::Fail)
         .await?
-        .with_runs_manager(oxy::adapters::runs::RunsManager::noop())
         .build()
         .await?;
     let project_ctx = Arc::new(crate::agentic_wiring::OxyProjectContext::new(

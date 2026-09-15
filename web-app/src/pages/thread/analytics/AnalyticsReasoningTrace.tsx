@@ -9,9 +9,9 @@ import {
   type StepOrGroup
 } from "@/hooks/analyticsSteps";
 import { cn } from "@/libs/shadcn/utils";
-import useAutoCollapse from "@/pages/thread/agentic/BlockMessage/ReasoningTrace/useAutoCollapse";
 import type { UiBlock } from "@/services/api/analytics";
 import AnalyticsStepRow from "./AnalyticsStepRow";
+import useAutoCollapse from "./useAutoCollapse";
 
 // ── Fan-out group row ─────────────────────────────────────────────────────────
 

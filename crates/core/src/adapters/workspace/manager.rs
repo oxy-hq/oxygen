@@ -4,7 +4,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{
-    adapters::{runs::RunsManager, secrets::SecretsManager},
+    adapters::secrets::SecretsManager,
     config::{ConfigManager, ReadOnly, WorkingCopy},
     intent::IntentClassifier,
 };
@@ -21,7 +21,6 @@ pub struct WorkspaceManager<S> {
     pub workspace_id: Uuid,
     pub config_manager: ConfigManager<S>,
     pub secrets_manager: SecretsManager,
-    pub runs_manager: Option<RunsManager>,
     pub intent_classifier: Option<Arc<IntentClassifier>>,
 }
 
@@ -41,7 +40,6 @@ impl<S> WorkspaceManager<S> {
             workspace_id: self.workspace_id,
             config_manager,
             secrets_manager: self.secrets_manager,
-            runs_manager: self.runs_manager,
             intent_classifier: self.intent_classifier,
         }
     }
@@ -50,14 +48,12 @@ impl<S> WorkspaceManager<S> {
         workspace_id: Uuid,
         config_manager: ConfigManager<S>,
         secrets_manager: SecretsManager,
-        runs_manager: Option<RunsManager>,
         intent_classifier: Option<Arc<IntentClassifier>>,
     ) -> Self {
         Self {
             workspace_id,
             config_manager,
             secrets_manager,
-            runs_manager,
             intent_classifier,
         }
     }
@@ -118,7 +114,6 @@ impl WorkspaceManager<WorkingCopy> {
             workspace_id: self.workspace_id,
             config_manager: self.config_manager.into_read_only(),
             secrets_manager: self.secrets_manager,
-            runs_manager: self.runs_manager,
             intent_classifier: self.intent_classifier,
         }
     }
@@ -128,7 +123,6 @@ impl WorkspaceManager<WorkingCopy> {
             workspace_id: self.workspace_id,
             config_manager: self.config_manager.without_working_copy(),
             secrets_manager: self.secrets_manager,
-            runs_manager: self.runs_manager,
             intent_classifier: self.intent_classifier,
         }
     }

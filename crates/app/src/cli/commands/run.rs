@@ -6,7 +6,6 @@ use clap::builder::ValueParser;
 use minijinja::{Environment, Value};
 use uuid::Uuid;
 
-use ::oxy::adapters::runs::RunsManager;
 use ::oxy::adapters::secrets::SecretsManager;
 use ::oxy::adapters::workspace::builder::WorkspaceBuilder;
 use ::oxy::config::{ConfigBuilder, ConfigManager, resolve_local_workspace_path};
@@ -191,7 +190,6 @@ async fn handle_automation_file(
     let workspace_manager = WorkspaceBuilder::new(Uuid::nil())
         .with_working_copy(&workspace_path, None, oxy::config::OnMissing::Fail)
         .await?
-        .with_runs_manager(RunsManager::noop())
         .build()
         .await
         .map_err(|e| OxyError::from(anyhow::anyhow!("Failed to create project: {e}")))?;

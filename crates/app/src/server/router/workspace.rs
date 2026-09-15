@@ -15,11 +15,11 @@ use agentic_http::{AgenticState, airway_router, automation_router, router as age
 use crate::api::{
     agent, api_keys, app, apps, artifacts, automation, chart, competitors, compile,
     custom_apps_secrets, data, data_repo, database, execution_analytics, exported_chart, file,
-    foot_traffic, integration, local_setup, message, metric_anomalies, metric_tree,
-    metric_tree_probe, metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg,
-    result_files, run, schedules, semantic, simulation, task, test_file, test_project_run,
-    test_run, thread, traces, video, workspace_custom_apps, workspace_logo, workspace_members,
-    workspace_oxy_access, workspaces, world_model, world_model_graph,
+    foot_traffic, integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
+    metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
+    schedules, semantic, simulation, test_file, test_project_run, test_run, thread, traces, video,
+    workspace_custom_apps, workspace_logo, workspace_members, workspace_oxy_access, workspaces,
+    world_model, world_model_graph,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -168,14 +168,6 @@ pub(super) fn build_workspace_routes(
             get(exported_chart::get_exported_chart),
         )
         .route_fleet("/logs", get(thread::get_logs))
-        .route_ide("/events", get(run::automation_events))
-        .route_ide("/events/lookup", get(task::agentic_events))
-        .route_ide("/events/sync", get(run::automation_events_sync))
-        .route_fleet("/blocks", get(run::get_blocks))
-        .route_fleet(
-            "/runs/{source_id}/{run_index}",
-            delete(run::cancel_automation_run),
-        )
         .route_fleet(
             "/builder-availability",
             get(agent::check_builder_availability),
@@ -529,10 +521,6 @@ fn build_thread_routes(app_state: &AppState) -> RoleRouter {
             "/{id}",
             get(thread::get_thread).delete(thread::delete_thread),
         )
-        // Thread-bound legacy `/workflow` and `/workflow-sync` routes were
-        // retired with `oxy-workflow`. Use the agentic-pipeline workflow
-        // surface (`/agentic-workflows/runs`) instead.
-        .route_fleet("/{id}/messages", get(message::get_messages_by_thread))
         .route_fleet("/{id}/stop", post(thread::stop_thread))
 }
 

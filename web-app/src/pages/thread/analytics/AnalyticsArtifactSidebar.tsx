@@ -10,7 +10,6 @@ import type { ArtifactItem, AutomationItem, SqlItem } from "@/hooks/analyticsSte
 import type { AnalyticsDisplayBlock, SseEvent } from "@/hooks/useAnalyticsRun";
 import { extractDisplayBlockForSeq } from "@/hooks/useAnalyticsRun";
 import useTheme from "@/stores/useTheme";
-import SubrunDagPanel from "../agentic/SubrunDagPanel";
 import { VERIFIED_SQL_FILE_TOOLTIP, VERIFIED_TOOLTIP } from "../constants";
 import {
   AnalyzeDbtProjectView,
@@ -68,6 +67,7 @@ import {
   VerifiedSemanticQueryView
 } from "./BuilderArtifactViews";
 import ListDbtProjectsView from "./ListDbtProjectsView";
+import SubrunDagPanel from "./SubrunDagPanel";
 
 interface Props {
   item: ArtifactItem | SqlItem | AutomationItem;

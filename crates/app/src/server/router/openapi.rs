@@ -15,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::api::{
-    agent, api_keys, app, data, database, healthcheck, organizations, projects, run, thread, user,
+    agent, api_keys, app, data, database, healthcheck, organizations, projects, thread, user,
     workspaces,
 };
 
@@ -37,14 +37,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(app::get_chart_image))
         .routes(routes!(workspaces::get_workspace))
         .routes(routes!(workspaces::get_workspace_branches))
-        .routes(routes!(run::get_automation_runs))
-        .routes(routes!(run::create_automation_run))
-        .routes(routes!(run::cancel_automation_run))
-        .routes(routes!(run::delete_automation_run))
-        .routes(routes!(run::bulk_delete_automation_runs))
-        .routes(routes!(run::automation_events))
-        .routes(routes!(run::automation_events_sync))
-        .routes(routes!(run::get_blocks))
         .routes(routes!(thread::get_threads))
         .routes(routes!(thread::get_thread))
         .routes(routes!(thread::create_thread))

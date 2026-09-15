@@ -55,9 +55,7 @@ const threadKeys = {
   list: (projectId: string, page?: number, limit?: number, search?: string) =>
     [...threadKeys.all, "list", projectId, { page, limit, search }] as const,
   item: (projectId: string, threadId: string) =>
-    [...threadKeys.all, projectId, { threadId }] as const,
-  messages: (projectId: string, threadId: string) =>
-    [...threadKeys.all, "messages", projectId, threadId] as const
+    [...threadKeys.all, projectId, { threadId }] as const
 };
 
 const traceKeys = {
@@ -139,10 +137,7 @@ const automationKeys = {
     branchName: string,
     relative_path: string,
     pagination: PaginationState
-  ) =>
-    [...automationKeys.all, "getRuns", projectId, branchName, relative_path, pagination] as const,
-  getBlocks: (projectId: string, branchName: string, sourceId: string, runIndex?: number) =>
-    [...automationKeys.all, "getBlocks", projectId, branchName, sourceId, runIndex] as const
+  ) => [...automationKeys.all, "getRuns", projectId, branchName, relative_path, pagination] as const
 };
 
 const chartKeys = {

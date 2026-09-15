@@ -15,7 +15,6 @@ import ROUTES from "@/libs/utils/routes";
 import { getShortTitle } from "@/libs/utils/string";
 import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
 import { AnalyticsService } from "@/services/api";
-import { useAskAgentic } from "@/stores/agentic";
 import useBuilderDialog from "@/stores/useBuilderDialog";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { FileTreeModel } from "@/types/file";
@@ -58,7 +57,6 @@ export function BuilderDialog() {
   const [mentions, setMentions] = useState<Map<string, string>>(new Map());
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const { formRef, onKeyDown: enterSubmitKeyDown } = useEnterSubmit();
-  const { mutateAsync: sendAgenticMessage } = useAskAgentic();
   const textareaElRef = useRef<HTMLTextAreaElement | null>(null);
   const insertMentionRafRef = useRef<number | null>(null);
   const placeCursorAtEndRef = useRef(false);
@@ -237,13 +235,6 @@ export function BuilderDialog() {
 
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
     switch (data.source_type) {
-      case "agentic":
-        sendAgenticMessage({
-          prompt: data.input,
-          threadId: data.id,
-          agentRef: data.source
-        });
-        break;
       case "analytics":
         AnalyticsService.createRun(projectId, {
           agent_id: data.source,
