@@ -85,4 +85,5 @@ mod work_item_gates;
 mod workspace_details_fields;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
+mod workspace_path_needs_is_dir;
 mod world_model_cross_pod;

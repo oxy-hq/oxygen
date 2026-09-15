@@ -281,8 +281,20 @@ impl PipelineTaskExecutor {
         // is `None` (`step_decider::probe_file_cache`), so a node with no files
         // degrades to "cache miss" instead of resolving against a directory
         // that is not there.
-        let workspace_path: Option<std::path::PathBuf> =
-            workspace.workspace_path().map(|p| p.to_path_buf());
+        //
+        // The `.filter(|p| p.is_dir())` is what makes that sentence true. It
+        // used to say "a node with no files" while testing only whether the
+        // manager DECLARED a working copy — which it does on every node,
+        // replica included. So a worker took the `Some` branch and probed a
+        // directory that is not there. Benign here (a probe against a missing
+        // root simply misses, which is the same answer), but the premise was
+        // false, and the identical wrong premise one layer over is what took a
+        // pipeline down in #3056. Enforced by
+        // `crates/app/tests/platform/workspace_path_needs_is_dir.rs`.
+        let workspace_path: Option<std::path::PathBuf> = workspace
+            .workspace_path()
+            .filter(|p| p.is_dir())
+            .map(|p| p.to_path_buf());
         // An airway step inside this automation queues the same
         // `TaskSpec::Airway` a schedule does, so it must be admitted under the
         // same `airway_source_config` policy. The domain crate has neither a

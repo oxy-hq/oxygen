@@ -86,8 +86,17 @@ pub async fn revert_builder_file_changes(
         file_paths.to_vec()
     };
 
+    // `.filter(|p| p.is_dir())`, not a bare `Option` check: `workspace_path()`
+    // is `Some` whenever the manager DECLARES a working copy, which it does on
+    // every node — the slot is full even on a replica that has no volume. Only
+    // the filesystem separates "declared" from "present", so without it this
+    // guard passes on a worker and the failure resurfaces later as a raw ENOENT
+    // from whichever write ran first. Same shape as `pipeline_ref.rs` and
+    // `step_executor::load_sql_body`; enforced by
+    // `crates/app/tests/platform/workspace_path_needs_is_dir.rs`.
     let workspace_root = platform
         .workspace_path()
+        .filter(|p| p.is_dir())
         .ok_or_else(|| {
             PipelineError::Config(
                 "revert: this node holds no workspace files, so a builder change cannot be undone"
