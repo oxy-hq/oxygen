@@ -280,9 +280,11 @@ pub async fn run_semantic_query(
     //    blocking-CPU work (parses every .view.yml / .topic.yml under
     //    the workspace scan path); same pattern the IDE handler uses.
     //
-    // When the compile boundary is enabled, materialise the semantic_views /
-    // semantic_topics rows into a tempdir and scan that instead of the
-    // workspace dir; the tempdir handle is dropped at end of request.
+    // When the compile boundary is enabled, scan the promoted revision's
+    // semantic_views / semantic_topics rows instead of the workspace dir. They
+    // are materialised into a tempdir once per revision per process and cached
+    // (`oxy::config::scan`); this handle keeps that tempdir alive until the
+    // request is done.
     let materialised = match crate::server::api::semantic_scan::scan_dir(
         &proj_ctx.workspace_manager().config_manager,
     )
@@ -366,9 +368,9 @@ pub async fn run_semantic_query(
 
     // 5b. Attach the rollup short-circuit.
     //
-    // This route is `IdeOnly` (`role_manifest`), so it executes on the node
-    // that holds the Layer-1 cache and the rollup Parquet — the same node the
-    // IDE's `/semantic` route reads from. Nothing here forces a rollup:
+    // This route is `route_fleet` (`router/public.rs`), so any replica may
+    // answer it, and the short-circuit is simply inert on one whose process
+    // holds no preagg cache or rollup Parquet. Nothing here forces a rollup:
     // `preagg_context` yields `None` when the process has no cache (the
     // internal API router, or no workspace path), and `try_resolve_preagg`
     // yields `None` when no rollup covers the request or the manifest is
