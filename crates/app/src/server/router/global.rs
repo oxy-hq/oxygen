@@ -265,7 +265,20 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
                 // an App Operator ships and develops these apps, so "which of
                 // mine are broken" is squarely their question. Scope still
                 // filters the rows — a bounded grant sees only its own orgs.
-                .route("/health", get(admin::apps::fleet_health::get_fleet_health))
+                //
+                // `fleet-health`, NOT `/health`: `public.rs` owns
+                // `/customer-apps/health` for ONE published app's external
+                // liveness, resolved from the `Host` on a custom-app
+                // subdomain, and outside monitors poll it. This tree is merged
+                // into that one in `entry::api_router`, so the two names must
+                // differ or the whole router panics at construction — which is
+                // what #3207 shipped. The hyphenated static segment also
+                // matches this nest's own `batch/promote-latest`, and it says
+                // what the endpoint is: a fleet view, not one app's liveness.
+                .route(
+                    "/fleet-health",
+                    get(admin::apps::fleet_health::get_fleet_health),
+                )
                 .route(
                     "/{id}",
                     get(admin::apps::handlers::get_app)

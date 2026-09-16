@@ -637,6 +637,24 @@ mod router_split_tests {
         );
     }
 
+    /// `entry::api_router` merges the public tree into the protected tree
+    /// wholesale, so a path registered in both panics the router at
+    /// construction — and with it every test that builds one.
+    ///
+    /// #3207 did exactly that: the staff fleet-health route landed on
+    /// `/customer-apps/health`, which `public.rs` already owned for the
+    /// host-resolved external liveness endpoint. This is the same merge
+    /// `entry.rs` performs, minus the database, so a future collision fails
+    /// here in milliseconds instead of panicking inside the DB-gated router
+    /// tests (which skip entirely when `OXY_DATABASE_URL` is unset, and so
+    /// would not have caught it locally at all).
+    #[test]
+    fn public_and_global_trees_do_not_collide() {
+        let _merged = public::build_public_routes(&bare_app_state())
+            .into_router()
+            .merge(global::build_global_routes(&bare_app_state()).into_router());
+    }
+
     #[tokio::test]
     async fn external_router_fallback_stays_behind_auth() {
         if db_unavailable() {

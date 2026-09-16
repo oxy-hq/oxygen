@@ -44,7 +44,9 @@ export const CustomAppsService = {
     if (options.offset != null) params.set("offset", String(options.offset));
     if (options.needsAttention) params.set("needs_attention", "true");
     const suffix = params.toString();
-    const response = await apiClient.get(`/customer-apps/health${suffix ? `?${suffix}` : ""}`);
+    const response = await apiClient.get(
+      `/customer-apps/fleet-health${suffix ? `?${suffix}` : ""}`
+    );
     return response.data;
   },
 

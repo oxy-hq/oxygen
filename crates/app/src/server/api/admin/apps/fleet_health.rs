@@ -1,6 +1,13 @@
 //! `GET /api/admin/apps/health` — every published custom app and whether it is
 //! working.
 //!
+//! Mounted twice, on purpose: at `/api/admin/apps/health` for OXY_OWNER
+//! (`admin/apps/mod.rs`) and at `/api/customer-apps/fleet-health` for the
+//! app-admin surface (`router/global.rs`). The second is NOT `/health`, because
+//! `/api/customer-apps/health` is the external, `Host`-resolved liveness
+//! endpoint for ONE published app (`custom_apps_health`) — a different question,
+//! a different audience, and a path outside monitors already poll.
+//!
 //! See `internal-docs/2026-09-16-custom-app-fleet-observability-design.md`.
 //!
 //! ## What this is for
