@@ -145,7 +145,9 @@ pub async fn write_reports(
         );
     }
     client.simple_query(&sql).await.map_err(|e| {
-        ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(e.to_string()))
+        ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(
+            crate::airhouse::pg_error_text(&e),
+        ))
     })?;
 
     // Live fan-out (world-model SSE) once the rows are durably inserted.
@@ -296,10 +298,8 @@ pub async fn list_for_camera(
             // "Table doesn't exist yet" is normal for a fresh workspace.
             // DuckLake doesn't ship a structured SQLSTATE we can match
             // on cleanly, so we fall back to substring sniffing.
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_compliance_reports") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     camera_id = %camera_id,
@@ -579,10 +579,8 @@ pub async fn summary_for_site(
             // Same "schema not provisioned yet → empty" treatment as
             // `list_for_camera`. The cameras still show up below with
             // zeroes.
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_compliance_reports") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     site_id = %site_id,
@@ -745,10 +743,8 @@ pub async fn list_for_fleet(
     let msgs = match client.simple_query(&sql).await {
         Ok(m) => m,
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_compliance_reports") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     "compliance.list_for_fleet: schema not provisioned, returning empty"
@@ -846,10 +842,8 @@ pub async fn summary_for_fleet(
     let msgs = match client.simple_query(&sql).await {
         Ok(m) => m,
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_compliance_reports") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     "compliance.summary_for_fleet: schema not provisioned, all-zero rollup"

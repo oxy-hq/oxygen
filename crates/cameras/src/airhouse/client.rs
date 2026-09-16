@@ -261,7 +261,7 @@ impl TenantClient {
         let config = make_pg_config(&host, port, &user, &password, &database);
         let (client, conn) = try_connect(&config, insecure)
             .await
-            .map_err(|e| AirhouseError::Connect(e.to_string()))?;
+            .map_err(|e| AirhouseError::Connect(super::pg_error_text(&e)))?;
 
         let client_ref = Arc::new(RwLock::new(Arc::new(client)));
         let alive = Arc::new(AtomicBool::new(true));

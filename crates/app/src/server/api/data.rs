@@ -144,12 +144,12 @@ pub(crate) fn agentic_error_response(
     payload: &SQLParams,
     err: SqlExecuteError,
 ) -> (StatusCode, extract::Json<SqlErrorResponse>) {
-    tracing::error!(
-        database = %payload.database,
-        sql = %truncate_sql_for_log(&payload.sql),
-        error.debug = %err.debug_string(),
-        "SQL query execution failed"
-    );
+    // Logged once the status is known. A 4xx is the query being wrong — bad
+    // SQL, a missing column — which the user sees in the IDE and which breaks
+    // nothing, so it is WARN. ERROR is kept for the 5xx classes, where the
+    // warehouse or the driver failed. At ERROR every typo became a Sentry event
+    // carrying the user's SQL.
+    let error_debug = err.debug_string();
 
     // Status: 400 only for genuine user-side query errors (bad SQL,
     // missing columns, etc.). Upstream-unreachable (`ConnectionError`)
@@ -214,6 +214,22 @@ pub(crate) fn agentic_error_response(
             },
         ),
     };
+
+    if status.is_server_error() {
+        tracing::error!(
+            database = %payload.database,
+            sql = %truncate_sql_for_log(&payload.sql),
+            error.debug = %error_debug,
+            "SQL query execution failed"
+        );
+    } else {
+        tracing::warn!(
+            database = %payload.database,
+            sql = %truncate_sql_for_log(&payload.sql),
+            error.debug = %error_debug,
+            "SQL query execution failed"
+        );
+    }
 
     (status, extract::Json(body))
 }

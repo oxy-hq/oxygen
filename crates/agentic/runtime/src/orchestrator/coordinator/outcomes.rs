@@ -264,15 +264,27 @@ impl Coordinator {
             ),
             None => ("", String::new(), ""),
         };
-        tracing::error!(
-            target: "coordinator",
-            task_id,
-            run_id,
-            task_kind = %task_kind,
-            parent_task_id,
-            error = %msg,
-            "agentic task failed"
-        );
+        if is_user_input_request(&msg) {
+            tracing::warn!(
+                target: "coordinator",
+                task_id,
+                run_id,
+                task_kind = %task_kind,
+                parent_task_id,
+                error = %msg,
+                "agentic task stopped to ask the user for input"
+            );
+        } else {
+            tracing::error!(
+                target: "coordinator",
+                task_id,
+                run_id,
+                task_kind = %task_kind,
+                parent_task_id,
+                error = %msg,
+                "agentic task failed"
+            );
+        }
 
         // Surface the raw worker failure on the parent's event stream
         // *before* we decide retry/fallback — admins should see every
@@ -533,5 +545,36 @@ fn chain_label(spec: &TaskSpec) -> &'static str {
         TaskSpec::Custom { .. } => "Custom (chain)",
         TaskSpec::Airway { .. } => "Airway (chain)",
         TaskSpec::Compile { .. } => "Compile (chain)",
+    }
+}
+
+/// Is this failure the solver stopping to ask the user a question?
+///
+/// The analytics solver reports `NeedsUserInput` as a fatal failure — the
+/// runtime receives `fatal: NeedsUserInput { prompt: .. }` from
+/// `format!("fatal: {e:?}")` and, being domain-agnostic, only that string. It
+/// is an expected outcome rather than a fault, and its prompt can quote the
+/// customer's question, so it is logged at WARN: kept in the log store, out of
+/// Sentry's error events. It reached prod's Sentry as `agentic task failed` on
+/// 2026-09-15.
+fn is_user_input_request(msg: &str) -> bool {
+    msg.contains("NeedsUserInput {")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_user_input_request;
+
+    #[test]
+    fn a_needs_user_input_failure_is_recognised() {
+        assert!(is_user_input_request(
+            r#"fatal: NeedsUserInput { prompt: "Which location did you mean?" }"#
+        ));
+    }
+
+    #[test]
+    fn other_failures_are_not() {
+        assert!(!is_user_input_request(r#"fatal: LlmError("rate limited")"#));
+        assert!(!is_user_input_request("worker panicked"));
     }
 }

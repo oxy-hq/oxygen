@@ -206,21 +206,7 @@ pub async fn ensure(client: &Client) -> Result<(), AirhouseError> {
             // which leaves operators staring at the offending SQL with
             // no idea why DuckLake rejected it. The DbError source has
             // code / detail / hint that's much more actionable.
-            let detail = e
-                .as_db_error()
-                .map(|d| {
-                    format!(
-                        "[{code}] {msg}{detail}{hint}",
-                        code = d.code().code(),
-                        msg = d.message(),
-                        detail = d.detail().map(|s| format!(" — {s}")).unwrap_or_default(),
-                        hint = d
-                            .hint()
-                            .map(|s| format!(" (hint: {s})"))
-                            .unwrap_or_default(),
-                    )
-                })
-                .unwrap_or_else(|| format!("{e:?}"));
+            let detail = super::pg_error_text(&e);
             AirhouseError::Ddl(format!("{detail}: {stmt}"))
         })?;
     }

@@ -94,7 +94,9 @@ pub async fn write_events(
     for chunk in events.chunks(crate::airhouse::insert_chunk_rows()) {
         let sql = build_events_insert(chunk);
         client.simple_query(&sql).await.map_err(|e| {
-            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(e.to_string()))
+            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(
+                crate::airhouse::pg_error_text(&e),
+            ))
         })?;
         accepted += chunk.len();
     }
@@ -144,7 +146,9 @@ pub async fn write_camera_health(
     for chunk in rows.chunks(crate::airhouse::insert_chunk_rows()) {
         let sql = build_camera_health_insert(chunk);
         client.simple_query(&sql).await.map_err(|e| {
-            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(e.to_string()))
+            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(
+                crate::airhouse::pg_error_text(&e),
+            ))
         })?;
         accepted += chunk.len();
     }
@@ -189,7 +193,9 @@ pub async fn write_box_health(
     for chunk in rows.chunks(crate::airhouse::insert_chunk_rows()) {
         let sql = build_box_health_insert(chunk);
         client.simple_query(&sql).await.map_err(|e| {
-            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(e.to_string()))
+            ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(
+                crate::airhouse::pg_error_text(&e),
+            ))
         })?;
         accepted += chunk.len();
     }

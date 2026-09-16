@@ -368,9 +368,22 @@ impl OnFailure<ServerErrorsFailureClass> for OxyOnFailure {
                 span.record("error.type", code.as_str());
                 tracing::error!(status = code.as_u16(), latency_ms, "{what}");
             }
+            // A SEPARATE TARGET, and not cosmetic: `oxy_server::logging`
+            // demotes this module's 5xx line to a Sentry breadcrumb because the
+            // handler that produced the 5xx has already reported the cause. No
+            // handler ran here — there is no response and no other line — so
+            // this is the only record a transport failure leaves, and it has to
+            // stay an issue. `Metadata` carries no fields, so the target is the
+            // only thing a filter can tell the two arms apart by. Keep the two
+            // in sync: `HTTP_TRACE_TARGET` there is matched with `==`.
             ServerErrorsFailureClass::Error(err) => {
                 span.record("error.type", "transport");
-                tracing::error!(error = %err, latency_ms, "{what}");
+                tracing::error!(
+                    target: "oxy_telemetry::http_trace::transport",
+                    error = %err,
+                    latency_ms,
+                    "{what}"
+                );
             }
         }
     }

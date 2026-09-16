@@ -432,7 +432,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                     self.execute_resume(&run.id, data, String::new()).await
                 } else {
                     Err(format!(
-                        "cannot resume automation run {}: no saved state",
+                        "cannot resume automation run {}: {NO_SAVED_STATE}",
                         run.id
                     ))
                 }
@@ -445,7 +445,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                     // No checkpoint — run hadn't reached a suspension point.
                     // Cannot resume; user needs to resubmit the question.
                     Err(format!(
-                        "run {} (type={source_type}) has no checkpoint — resubmit the question",
+                        "run {} (type={source_type}) {NO_CHECKPOINT}",
                         run.id
                     ))
                 }
@@ -453,6 +453,18 @@ impl TaskExecutor for PipelineTaskExecutor {
         }
     }
 }
+
+/// Tail of the resume error for a run that never reached a checkpoint.
+///
+/// Recovery matches on it (`recovery::is_unresumable`): a run a deploy
+/// interrupted before its first checkpoint cannot be resumed, every rolling
+/// deploy produces some, and that is a different event from a recovery that
+/// broke. One constant, so the producer and the matcher cannot drift apart.
+pub(crate) const NO_CHECKPOINT: &str = "has no checkpoint — resubmit the question";
+
+/// Tail of the resume error for an automation run with no saved state. Same
+/// role as [`NO_CHECKPOINT`].
+pub(crate) const NO_SAVED_STATE: &str = "no saved state";
 
 /// The well-known agent ID that routes to the builder domain instead of
 /// analytics.  Used by analytics → builder delegation.

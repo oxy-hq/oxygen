@@ -184,6 +184,9 @@ df-interchange = { workspace = true, features = ["arrow_54", "arrow_58"] }
 tempfile = { workspace = true }
 serial_test = { workspace = true }
 oxy-test-utils = { workspace = true }
+# `sentry::test::with_captured_events_options`, so the before_send tests run an
+# event through the real client options instead of a hand-built approximation.
+sentry = { workspace = true, features = ["test"] }
 # Only for the listing tests that assert a pruned path is greppable at DEBUG —
 # a silent prune is the failure they exist to catch, so the assertion has to
 # read what was actually logged.

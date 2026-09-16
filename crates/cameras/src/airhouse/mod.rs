@@ -55,6 +55,114 @@ pub enum AirhouseError {
     Insert(String),
 }
 
+/// Longest error text this hands back, in bytes.
+///
+/// Not a formatting nicety: the string it bounds ends up in a client-facing
+/// JSON body (`routes::errors`), in a log line, and in a Sentry event message.
+/// DuckLake can quote a large fragment of the failing statement, and none of
+/// those three places want it unbounded. `db.query.text` is capped at 8 KB
+/// elsewhere in the platform; an error message needs far less to be actionable.
+const PG_ERROR_TEXT_MAX_BYTES: usize = 2048;
+
+/// Render a `tokio_postgres::Error` with the server's reason attached.
+///
+/// Its `Display` is only the error KIND — `"db error"` — and DuckLake's message,
+/// code, detail and hint sit behind `as_db_error()`. Formatting with `{e}` /
+/// `to_string()` threw all of that away, with two effects:
+///
+/// * every airhouse failure on the edge write path read `INSERT failed: db
+///   error` — 1,270 of them in prod in the 24h to 2026-09-15, all on
+///   `POST /api/control/compliance-reports`, none saying why; and
+/// * every "schema not provisioned yet → empty result" branch sniffs this string
+///   for `does not exist`, which `"db error"` never contains, so those branches
+///   could never fire and a fresh workspace got an error instead of the empty
+///   result they exist to return.
+///
+/// **`DETAIL` is deliberately left out.** This string reaches a client: it
+/// becomes `AirhouseError::{Insert,Connect}`, which `routes::errors` puts in the
+/// response body verbatim (and logs, and therefore sends to Sentry as a message).
+/// Postgres puts the offending row in `DETAIL` — `Key (…)=(…)` — so including it
+/// would carry compliance-report and device-log VALUES out through a 502 body,
+/// after `send_default_pii(false)` has had its say. The SQLSTATE plus the
+/// server's message is what makes the failure actionable; `HINT` is the server's
+/// own advice and carries no row data, so it stays.
+///
+/// A transport failure carries no `DbError`; for those the source chain is
+/// appended so the io error survives. Same format as the DDL path used first.
+///
+/// (`crates/airhouse/src/connector/mod.rs` has a sibling of this for the
+/// connector's own errors. They are deliberately not one function: that one is
+/// an internal diagnostic and keeps the error KIND prefix to say whether the
+/// failure was a connect or a query, which is noise in a client body, and it has
+/// no reason to cap or drop `DETAIL`.)
+pub(crate) fn pg_error_text(e: &tokio_postgres::Error) -> String {
+    if let Some(db) = e.as_db_error() {
+        return truncate_on_char_boundary(format!(
+            "[{code}] {msg}{hint}",
+            code = db.code().code(),
+            msg = db.message(),
+            hint = db
+                .hint()
+                .map(|s| format!(" (hint: {s})"))
+                .unwrap_or_default(),
+        ));
+    }
+    let mut out = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(next) = source {
+        out.push_str(": ");
+        out.push_str(&next.to_string());
+        source = next.source();
+    }
+    truncate_on_char_boundary(out)
+}
+
+/// Cut to [`PG_ERROR_TEXT_MAX_BYTES`] without splitting a UTF-8 character.
+fn truncate_on_char_boundary(mut text: String) -> String {
+    if text.len() <= PG_ERROR_TEXT_MAX_BYTES {
+        return text;
+    }
+    // `*i + c.len_utf8() <= MAX`, not `*i < MAX`: the latter keeps a character
+    // that merely STARTS below the cap, so a 3-byte character could push the
+    // result two bytes past it.
+    let cut = text
+        .char_indices()
+        .take_while(|(i, c)| *i + c.len_utf8() <= PG_ERROR_TEXT_MAX_BYTES)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    text.truncate(cut);
+    text.push('…');
+    text
+}
+
+/// Whether `err` says THIS table has not been created yet.
+///
+/// Every caller is a read whose contract is "a workspace that has never written
+/// gets an empty result, not an error", and DuckLake ships no SQLSTATE precise
+/// enough to match on — hence a substring test.
+///
+/// The table name is part of the match on purpose. The predicate this replaced
+/// was `contains("Table") && contains("does not exist")`, which also matches
+/// things that are real bugs and must not be swallowed: `Catalog Error: Table
+/// Function with name … does not exist`, or a mistyped identifier in one of
+/// these hand-built statements. Those used to surface as an airhouse error; with
+/// [`pg_error_text`] now putting the server's real message in front of the
+/// predicate, they would have started returning an empty list instead — which
+/// reads as "no data" in the UI, and is the worst possible way to report a bug.
+/// One case is deliberately left in: an error that quotes statement context
+/// (`LINE 1: … FROM oxy_cam_compliance_reports …`) and whose own text says
+/// "does not exist" — a catalog error on a COLUMN, say — still matches.
+/// Closing it would mean pinning DuckDB's exact phrasing
+/// (`Table with name {table} does not exist`), and the two failure directions
+/// are not symmetric: a false positive here costs one reader an empty list,
+/// while a false negative puts every fresh workspace back to an error instead
+/// of the empty result — the bug this whole path exists to prevent. The looser
+/// form fails in the cheaper direction.
+pub(crate) fn is_missing_table(err: &str, table: &str) -> bool {
+    err.contains("does not exist") && err.contains(table)
+}
+
 // ── Tunables (env-configurable) ─────────────────────────────────────────────
 //
 // NOTE: per-connection tunables (`ingest_ttl`, `read_ttl`,
@@ -308,7 +416,7 @@ pub async fn connect(
     );
     let (client, conn_fut) = client::try_connect(&pg, client::insecure_from_env())
         .await
-        .map_err(|e| AirhouseError::Connect(e.to_string()))?;
+        .map_err(|e| AirhouseError::Connect(pg_error_text(&e)))?;
 
     // Drive the pgwire connection on a detached task. When the Client drops,
     // this future completes and the task exits.
@@ -404,5 +512,67 @@ mod tests {
             std::env::remove_var("OXY_CAMERAS_AIRHOUSE_INGEST_TTL_SECS");
             std::env::remove_var("OXY_CAMERAS_AIRHOUSE_INSERT_CHUNK_ROWS");
         }
+    }
+
+    /// The cap exists because this text reaches a client body and a Sentry
+    /// message; a DuckLake error can quote a large slice of the statement.
+    #[test]
+    fn long_error_text_is_capped() {
+        let long = "x".repeat(PG_ERROR_TEXT_MAX_BYTES * 3);
+        let out = truncate_on_char_boundary(long);
+        assert!(out.len() <= PG_ERROR_TEXT_MAX_BYTES + '…'.len_utf8());
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn short_error_text_is_untouched() {
+        let short = "[XX000] Catalog Error: Table with name oxy_cam_events does not exist!";
+        assert_eq!(truncate_on_char_boundary(short.to_string()), short);
+    }
+
+    /// Multi-byte characters must not be split — a truncated UTF-8 sequence
+    /// would make the whole JSON body unserialisable.
+    #[test]
+    fn truncation_lands_on_a_char_boundary() {
+        // 2-byte and 3-byte characters: neither may be split, and neither may
+        // push the result past the cap.
+        for filler in ["é", "€"] {
+            let out = truncate_on_char_boundary(filler.repeat(PG_ERROR_TEXT_MAX_BYTES));
+            assert!(
+                out.len() <= PG_ERROR_TEXT_MAX_BYTES + '…'.len_utf8(),
+                "{filler}: {} bytes",
+                out.len()
+            );
+            assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+        }
+    }
+
+    #[test]
+    fn missing_table_matches_only_that_table() {
+        let err = "[XX000] Catalog Error: Table with name oxy_cam_device_logs does not exist!";
+        assert!(is_missing_table(err, "oxy_cam_device_logs"));
+        assert!(
+            !is_missing_table(err, "oxy_cam_compliance_reports"),
+            "a different table's absence is not this reader's empty-result case"
+        );
+    }
+
+    /// The failures the old `contains(\"Table\") && contains(\"does not exist\")`
+    /// predicate would have swallowed as "no data" once `pg_error_text` started
+    /// putting the server's real message in front of it.
+    #[test]
+    fn missing_table_rejects_real_errors() {
+        assert!(!is_missing_table(
+            "[XX000] Catalog Error: Table Function with name read_parquet does not exist!",
+            "oxy_cam_compliance_reports"
+        ));
+        assert!(!is_missing_table(
+            "[XX000] Binder Error: Referenced column \"tokens_uesd\" not found in FROM clause",
+            "oxy_cam_compliance_reports"
+        ));
+        assert!(!is_missing_table(
+            "[53300] too many connections for tenant",
+            "oxy_cam_compliance_reports"
+        ));
     }
 }

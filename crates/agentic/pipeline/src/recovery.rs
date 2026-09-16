@@ -70,6 +70,34 @@ fn recovery_budget_exhausted(attempt: i32) -> bool {
     attempt > MAX_RECOVERY_ATTEMPTS
 }
 
+/// Did recovery fail because the run can never be resumed?
+///
+/// A run interrupted before its first checkpoint (analytics, builder, app
+/// function) or with no saved state (automation) cannot be resumed; the
+/// executor says so and the run is retired. Every deploy that lands mid-run
+/// produces some, so this is the expected path, not recovery breaking — and at
+/// ERROR it was the third-largest issue in Sentry on 2026-09-15
+/// (`failed to recover run`, 83 events in five hours on dev). Anything else
+/// stays ERROR.
+fn is_unresumable(err: &str) -> bool {
+    err.contains(crate::executor::NO_CHECKPOINT) || err.contains(crate::executor::NO_SAVED_STATE)
+}
+
+/// Log a failed recovery at the level it deserves — see [`is_unresumable`].
+/// The run is retired by the caller either way.
+fn log_recovery_failure(run_id: &str, err: &str, message: &'static str) {
+    if is_unresumable(err) {
+        tracing::warn!(
+            target: "recovery",
+            run_id,
+            error = %err,
+            "{message}: the run cannot be resumed, retiring it"
+        );
+    } else {
+        tracing::error!(target: "recovery", run_id, error = %err, "{message}");
+    }
+}
+
 /// Recover all in-flight runs on server startup.
 ///
 /// `workspace_id` — when `Some`, only resume runs owned by that
@@ -140,7 +168,7 @@ pub async fn recover_active_runs(
             // tells an operator this bound is active.
             Ok(RecoveryOutcome::Retired) => {}
             Err(e) => {
-                tracing::error!(target: "recovery", run_id = %run_id, error = %e, "failed to recover run");
+                log_recovery_failure(&run_id, &e, "failed to recover run");
                 // `retire_run`, not `mark_recovery_failed`: failing the run
                 // alone leaves its queue rows `queued`, and `claim_task` has no
                 // run-status predicate — so a worker can still claim and execute
@@ -239,7 +267,7 @@ pub async fn recover_stranded_runs(
             }
             Ok(RecoveryOutcome::Retired) => {}
             Err(e) => {
-                tracing::error!(target: "recovery", run_id = %s.run_id, error = %e, "global loop: failed to drive stranded run");
+                log_recovery_failure(&s.run_id, &e, "global loop: failed to drive stranded run");
                 // See `recover_active_runs` — retire, don't merely fail, or the
                 // run's queue rows stay claimable after the run is dead.
                 agentic_runtime::crud::retire_run(&db, &s.run_id, &e)
@@ -368,7 +396,7 @@ pub async fn recover_pending_global_runs(
             }
             Ok(RecoveryOutcome::Retired) => {}
             Err(e) => {
-                tracing::error!(target: "recovery", run_id = %s.run_id, error = %e, "latency loop: failed to drive Global run");
+                log_recovery_failure(&s.run_id, &e, "latency loop: failed to drive Global run");
                 // See `recover_active_runs` — retire, don't merely fail, or the
                 // run's queue rows stay claimable after the run is dead.
                 agentic_runtime::crud::retire_run(&db, &s.run_id, &e)
@@ -1308,5 +1336,32 @@ mod recovery_budget_tests {
         assert!(!recovery_budget_exhausted(0));
         // ...and no value above the budget escapes it.
         assert!(recovery_budget_exhausted(i32::MAX));
+    }
+}
+
+#[cfg(test)]
+mod unresumable_tests {
+    use super::is_unresumable;
+    use crate::executor::{NO_CHECKPOINT, NO_SAVED_STATE};
+
+    /// The shapes recovery actually receives: the executor's message wrapped by
+    /// the resume path, as it arrived in Sentry on 2026-09-15.
+    #[test]
+    fn a_run_interrupted_before_its_first_checkpoint_is_unresumable() {
+        let wrapped =
+            format!("failed to resume task t1: run t1 (type=app_function) {NO_CHECKPOINT}");
+        assert!(is_unresumable(&wrapped));
+        assert!(is_unresumable(&format!(
+            "cannot resume automation run r1: {NO_SAVED_STATE}"
+        )));
+    }
+
+    /// Everything else is a recovery that broke and must stay loud.
+    #[test]
+    fn any_other_recovery_failure_is_not_unresumable() {
+        assert!(!is_unresumable("database connection closed"));
+        assert!(!is_unresumable(
+            "failed to resume task t1: coordinator panicked"
+        ));
     }
 }

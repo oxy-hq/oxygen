@@ -278,10 +278,8 @@ async fn aggregate_by_model(
     let msgs = match client.simple_query(&sql).await {
         Ok(m) => m,
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_compliance_reports") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     "cost.aggregate_by_model: schema not provisioned, returning empty"
@@ -294,7 +292,7 @@ async fn aggregate_by_model(
                 "cost.aggregate_by_model: SELECT failed"
             );
             return Err(ServiceError::Airhouse(
-                crate::airhouse::AirhouseError::Connect(format!("query failed: {e}")),
+                crate::airhouse::AirhouseError::Connect(format!("query failed: {s}")),
             ));
         }
     };

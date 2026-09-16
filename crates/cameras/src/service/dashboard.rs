@@ -167,11 +167,12 @@ pub async fn rollup(
     let per_camera = match client.simple_query(&per_camera_sql).await {
         Ok(rows) => parse_per_camera(&rows),
         Err(e) => {
-            if schema_missing(&e.to_string()) {
+            let s = crate::airhouse::pg_error_text(&e);
+            if schema_missing(&s) {
                 Vec::new()
             } else {
                 return Err(ServiceError::Airhouse(
-                    crate::airhouse::AirhouseError::Insert(e.to_string()),
+                    crate::airhouse::AirhouseError::Insert(s),
                 ));
             }
         }
@@ -179,11 +180,12 @@ pub async fn rollup(
     let hourly = match client.simple_query(&hourly_sql).await {
         Ok(rows) => parse_hourly(&rows),
         Err(e) => {
-            if schema_missing(&e.to_string()) {
+            let s = crate::airhouse::pg_error_text(&e);
+            if schema_missing(&s) {
                 Vec::new()
             } else {
                 return Err(ServiceError::Airhouse(
-                    crate::airhouse::AirhouseError::Insert(e.to_string()),
+                    crate::airhouse::AirhouseError::Insert(s),
                 ));
             }
         }
@@ -246,9 +248,10 @@ fn empty_rollup() -> DashboardRollup {
     }
 }
 
+/// Both statements in `rollup` read the same table, so one predicate covers
+/// them. Narrowed to that table: see `airhouse::is_missing_table`.
 fn schema_missing(err: &str) -> bool {
-    (err.contains("Table") && err.contains("does not exist"))
-        || (err.contains("Catalog") && err.contains("does not exist"))
+    crate::airhouse::is_missing_table(err, "oxy_cam_compliance_reports")
 }
 
 fn parse_per_camera(msgs: &[SimpleQueryMessage]) -> Vec<(String, u64, u64)> {

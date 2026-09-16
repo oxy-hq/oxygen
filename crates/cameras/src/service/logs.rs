@@ -107,7 +107,9 @@ pub async fn write_batch(
     }
 
     client.simple_query(&sql).await.map_err(|e| {
-        ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(e.to_string()))
+        ServiceError::Airhouse(crate::airhouse::AirhouseError::Insert(
+            crate::airhouse::pg_error_text(&e),
+        ))
     })?;
     Ok(IngestResult {
         accepted: rows.len(),
@@ -220,10 +222,8 @@ pub async fn list_for_box(
     let msgs = match client.simple_query(&sql).await {
         Ok(m) => m,
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_device_logs") {
                 tracing::debug!(
                     workspace_id = %workspace_id,
                     edge_box_id = %edge_box_id,
@@ -238,7 +238,7 @@ pub async fn list_for_box(
                 "logs.list_for_box: SELECT failed"
             );
             return Err(ServiceError::Airhouse(
-                crate::airhouse::AirhouseError::Connect(format!("query failed: {e}")),
+                crate::airhouse::AirhouseError::Connect(format!("query failed: {s}")),
             ));
         }
     };

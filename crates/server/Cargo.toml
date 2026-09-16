@@ -50,3 +50,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# `sentry::test::with_captured_events`, so the event filter below is pinned
+# against what sentry-tracing actually does rather than against a reading of it.
+sentry = { workspace = true, features = ["test"] }

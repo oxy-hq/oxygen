@@ -288,10 +288,8 @@ async fn run_delete(
     let msgs = match client.simple_query(sql).await {
         Ok(m) => m,
         Err(e) => {
-            let s = e.to_string();
-            if s.contains("Table") && s.contains("does not exist")
-                || s.contains("Catalog") && s.contains("does not exist")
-            {
+            let s = crate::airhouse::pg_error_text(&e);
+            if crate::airhouse::is_missing_table(&s, "oxy_cam_device_logs") {
                 // Fresh workspace, no device has ever shipped a log —
                 // nothing to retain, nothing to delete.
                 tracing::debug!(
@@ -302,7 +300,7 @@ async fn run_delete(
                 return Ok(0);
             }
             return Err(ServiceError::Airhouse(
-                crate::airhouse::AirhouseError::Insert(format!("DELETE {bucket}: {e}")),
+                crate::airhouse::AirhouseError::Insert(format!("DELETE {bucket}: {s}")),
             ));
         }
     };
