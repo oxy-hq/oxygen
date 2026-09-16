@@ -1085,6 +1085,20 @@ impl PipelineTaskExecutor {
             // connector refuses it at construction.
             "netsuite" => &[("private_key_pem", "private_key_var")],
             "clickhouse" => &[("password", "password_var")],
+            // A whole DSN, not just a password: the per-org OLTP analyst
+            // credential is sealed at rest and minted per org, so there is no
+            // literal to commit. The literal `connection_string` still works
+            // for a fixed, non-secret source — this only adds the indirection.
+            // `postgres_cdc` shares the arm because it takes the same flat
+            // `connection_string` (see `SqlDatabaseParams` / `PostgresCdcParams`
+            // in agentic-airway's `source_factory`); its `slot_name` /
+            // `publication_name` are server-side object names, not credentials.
+            // Both params structs are `deny_unknown_fields` AND require
+            // `connection_string`, so the strip below is what keeps a resolved
+            // spec parseable at all, and a resolved-but-empty secret surfaces as
+            // a loud "missing field `connection_string`" rather than a silent
+            // anonymous connect.
+            "sql_database" | "postgres_cdc" => &[("connection_string", "connection_string_var")],
             // Open-Meteo commercial API key → routes the connector to the paid
             // `customer-*` endpoint (the keyless endpoint is non-commercial only).
             "weather" => &[("api_key", "api_key_var")],
@@ -1996,6 +2010,200 @@ mod tests {
         set_rest_api_auth_secret(&mut config, "token", "token_var", "");
         assert!(config["auth"].get("token").is_none());
         assert!(config["auth"].get("token_var").is_none());
+    }
+
+    // ── flat-config source secrets (`resolve_airway_source_secrets`) ─────
+
+    /// A `ProjectContext` that knows exactly one secret. `resolve_airway_source_secrets`
+    /// touches nothing else on the platform port, so the rest is stubbed.
+    struct OneSecretPlatform {
+        name: &'static str,
+        value: &'static str,
+    }
+
+    #[async_trait]
+    impl crate::platform::ProjectContext for OneSecretPlatform {
+        async fn resolve_connector(
+            &self,
+            _db_name: &str,
+        ) -> Option<agentic_connector::ConnectorConfig> {
+            None
+        }
+        async fn resolve_model(
+            &self,
+            _model_ref: Option<&str>,
+            _has_explicit_model: bool,
+        ) -> Option<agentic_analytics::config::ResolvedModelInfo> {
+            None
+        }
+        async fn resolve_secret(&self, var_name: &str) -> Option<String> {
+            (var_name == self.name).then(|| self.value.to_string())
+        }
+    }
+
+    #[async_trait]
+    impl agentic_automation::WorkspaceContext for OneSecretPlatform {
+        fn workspace_path(&self) -> Option<&std::path::Path> {
+            None
+        }
+        fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
+            vec![]
+        }
+        async fn get_connector(
+            &self,
+            _name: &str,
+        ) -> Result<Arc<dyn agentic_connector::DatabaseConnector>, String> {
+            Err("unused".into())
+        }
+        async fn get_integration(
+            &self,
+            _name: &str,
+        ) -> Result<agentic_automation::workspace::IntegrationConfig, String> {
+            Err("unused".into())
+        }
+        async fn list_automation_files(&self) -> Result<Vec<std::path::PathBuf>, String> {
+            Ok(vec![])
+        }
+        async fn resolve_automation_yaml(
+            &self,
+            _r: &str,
+        ) -> Result<String, crate::WorkspaceReadError> {
+            Err("unused".into())
+        }
+    }
+
+    fn executor_knowing(name: &'static str, value: &'static str) -> PipelineTaskExecutor {
+        PipelineTaskExecutor {
+            platform: Arc::new(OneSecretPlatform { name, value }),
+            builder_bridges: None,
+            schema_cache: None,
+            builder_test_runner: None,
+            builder_app_runner: None,
+            // Never queried: `resolve_airway_source_secrets` reads only the
+            // platform port. A `Disconnected` handle errors on any query, so a
+            // future DB read here fails the test rather than passing quietly.
+            db: DatabaseConnection::default(),
+            state: None,
+            custom_executors: None,
+        }
+    }
+
+    fn spec_with_source(
+        kind: &str,
+        config: serde_json::Value,
+    ) -> agentic_airway::AirwayPipelineSpec {
+        serde_json::from_value(serde_json::json!({
+            "name": "oltp_orders",
+            "source": { "kind": kind, "config": config },
+            "destination": { "database": "airhouse", "dataset_name": "raw_oltp" },
+        }))
+        .expect("fixture spec must parse")
+    }
+
+    /// The per-org OLTP analyst DSN is a sealed credential, so a `sql_database`
+    /// pipeline must be able to name it instead of committing the literal.
+    /// `SqlDatabaseParams` is `deny_unknown_fields`, so the strip is not
+    /// cosmetic: a surviving `connection_string_var` fails the source build.
+    #[tokio::test]
+    async fn sql_database_connection_string_var_is_resolved_and_stripped() {
+        let executor = executor_knowing(
+            "OLTP_ANALYST_DSN",
+            "postgresql://analyst:pw@db.example:5432/org_42",
+        );
+        let mut spec = spec_with_source(
+            "sql_database",
+            serde_json::json!({
+                "connection_string_var": "OLTP_ANALYST_DSN",
+                "backend": "postgres",
+                "tables": [{ "name": "orders" }],
+            }),
+        );
+
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("the secret is resolvable");
+
+        assert_eq!(
+            spec.source.config["connection_string"],
+            "postgresql://analyst:pw@db.example:5432/org_42"
+        );
+        assert!(
+            spec.source.config.get("connection_string_var").is_none(),
+            "the `*_var` indirection must be stripped so the connector never sees it"
+        );
+        // Untouched neighbours: the arm resolves one field, not the block.
+        assert_eq!(spec.source.config["backend"], "postgres");
+    }
+
+    /// `postgres_cdc` rides the same arm because it takes the same flat
+    /// `connection_string`. Same assertion so the two cannot drift apart.
+    #[tokio::test]
+    async fn postgres_cdc_connection_string_var_is_resolved_and_stripped() {
+        let executor = executor_knowing("CDC_DSN", "postgresql://cdc@db.example/org_42");
+        let mut spec = spec_with_source(
+            "postgres_cdc",
+            serde_json::json!({
+                "connection_string_var": "CDC_DSN",
+                "slot_name": "oxy_slot",
+                "publication_name": "oxy_pub",
+            }),
+        );
+
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("the secret is resolvable");
+
+        assert_eq!(
+            spec.source.config["connection_string"],
+            "postgresql://cdc@db.example/org_42"
+        );
+        assert!(spec.source.config.get("connection_string_var").is_none());
+        assert_eq!(spec.source.config["slot_name"], "oxy_slot");
+    }
+
+    /// A literal DSN carries no `*_var`, so the arm is a no-op for the fixed,
+    /// non-secret source that the existing shape already served.
+    #[tokio::test]
+    async fn sql_database_literal_connection_string_is_left_alone() {
+        let executor = executor_knowing("UNUSED", "unused");
+        let mut spec = spec_with_source(
+            "sql_database",
+            serde_json::json!({
+                "connection_string": "sqlite://./fixtures/demo.db",
+                "backend": "sqlite",
+            }),
+        );
+
+        executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect("nothing to resolve");
+
+        assert_eq!(
+            spec.source.config["connection_string"],
+            "sqlite://./fixtures/demo.db"
+        );
+    }
+
+    /// An unresolvable secret is a hard error, not a silent anonymous connect.
+    #[tokio::test]
+    async fn sql_database_unresolvable_connection_string_var_is_an_error() {
+        let executor = executor_knowing("SOME_OTHER_SECRET", "x");
+        let mut spec = spec_with_source(
+            "sql_database",
+            serde_json::json!({
+                "connection_string_var": "OLTP_ANALYST_DSN",
+                "backend": "postgres",
+            }),
+        );
+
+        let err = executor
+            .resolve_airway_source_secrets(&mut spec)
+            .await
+            .expect_err("an unresolvable secret must fail loudly");
+        assert!(err.contains("OLTP_ANALYST_DSN"), "got: {err}");
     }
 }
 

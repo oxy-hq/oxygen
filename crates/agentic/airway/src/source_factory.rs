@@ -418,13 +418,42 @@ fn build_filesystem(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError
 
 // ── sql_database ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+/// `sql_database` source over a single DSN.
+///
+/// The `agentic-pipeline` executor substitutes `connection_string_var` ->
+/// `connection_string` from the secret manager before dispatch, so the factory
+/// only ever sees the resolved literal — `connection_string_var` is therefore
+/// not an accepted field here. Same arrangement as [`ClickHouseParams`] and
+/// its `password_var`; stated here too because a reader of this crate alone
+/// cannot otherwise tell that the upstream key exists.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SqlDatabaseParams {
     connection_string: String,
     backend: SqlBackendLabel,
     #[serde(default)]
     tables: Vec<SqlTableParams>,
+}
+
+/// Hand-written so a future `tracing::debug!(?params)` cannot print the DSN.
+///
+/// `connection_string` used to be a committed literal; it is now a live
+/// per-org credential resolved from the secret manager, password included.
+/// Nothing formats this struct today, so the derive was latent rather than a
+/// bug — but the sibling credential-bearing params redact for exactly this
+/// reason ([`NetSuiteParams`], [`SpApiParams`]), and the cheap moment to join
+/// them is the diff that makes the field a secret.
+impl std::fmt::Debug for SqlDatabaseParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SqlDatabaseParams")
+            .field("connection_string", &"<redacted>")
+            // Not secrets, and both worth showing: they decide which engine is
+            // dialled and what it reads, so a run that pulled nothing is
+            // diagnosed from this line.
+            .field("backend", &self.backend)
+            .field("tables", &self.tables)
+            .finish()
+    }
 }
 
 /// Snake-case YAML labels for airway's `DatabaseBackend` variants.
@@ -674,7 +703,10 @@ async fn discover_clickhouse_tables(raw: &Value) -> Result<Vec<DiscoveredTable>,
 
 // ── postgres_cdc ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+/// `postgres_cdc` source. Shares the `connection_string_var` substitution
+/// described on [`SqlDatabaseParams`] — the executor resolves it before
+/// dispatch, so the factory only ever sees the literal.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PostgresCdcParams {
     connection_string: String,
@@ -686,6 +718,23 @@ struct PostgresCdcParams {
     batch_size: Option<usize>,
     #[serde(default)]
     initial_snapshot: Option<bool>,
+}
+
+/// Redacts the DSN for the same reason as [`SqlDatabaseParams`]'s impl.
+impl std::fmt::Debug for PostgresCdcParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PostgresCdcParams")
+            .field("connection_string", &"<redacted>")
+            // Server-side object names rather than credentials, and they are
+            // what decides which changes the pipeline sees — a slot or
+            // publication naming the wrong thing is diagnosed from here.
+            .field("slot_name", &self.slot_name)
+            .field("publication_name", &self.publication_name)
+            .field("tables", &self.tables)
+            .field("batch_size", &self.batch_size)
+            .field("initial_snapshot", &self.initial_snapshot)
+            .finish()
+    }
 }
 
 fn build_postgres_cdc(raw: &Value) -> Result<Box<dyn SourceConnector>, AirwayError> {
@@ -1799,6 +1848,46 @@ mod tests {
     }
 
     /// `{params:?}` must not put the seller's refresh token in a log.
+    /// The DSN now carries a live per-org credential. Nothing formats this
+    /// struct today, so this test is the thing that keeps it that way when
+    /// someone adds a `tracing::debug!(?params)`.
+    #[test]
+    fn sql_database_params_debug_redacts_the_dsn() {
+        let params = SqlDatabaseParams {
+            connection_string: "postgres://u:SUPER_SECRET_PW@host/db".to_string(),
+            backend: SqlBackendLabel::Postgres,
+            // Present so a field added to the struct but not to the hand-written
+            // `Debug` cannot slip through unread.
+            tables: Vec::new(),
+        };
+        let rendered = format!("{params:?}");
+        assert!(!rendered.contains("SUPER_SECRET_PW"), "{rendered}");
+        assert!(!rendered.contains("postgres://"), "{rendered}");
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+        // The non-secret fields must survive, or the redaction has cost the
+        // line its diagnostic value.
+        assert!(rendered.contains("backend"), "{rendered}");
+    }
+
+    /// Same credential, same reason. The slot and publication names are server
+    /// -side objects, not secrets, and stay visible.
+    #[test]
+    fn postgres_cdc_params_debug_redacts_the_dsn_but_keeps_slot_and_publication() {
+        let params = PostgresCdcParams {
+            connection_string: "postgres://u:SUPER_SECRET_PW@host/db".to_string(),
+            slot_name: "oxy_slot".to_string(),
+            publication_name: "oxy_pub".to_string(),
+            tables: vec!["public.orders".to_string()],
+            batch_size: None,
+            initial_snapshot: None,
+        };
+        let rendered = format!("{params:?}");
+        assert!(!rendered.contains("SUPER_SECRET_PW"), "{rendered}");
+        assert!(rendered.contains("<redacted>"), "{rendered}");
+        assert!(rendered.contains("oxy_slot"), "{rendered}");
+        assert!(rendered.contains("oxy_pub"), "{rendered}");
+    }
+
     #[test]
     fn sp_api_params_debug_redacts_both_credentials() {
         let params = SpApiParams {
