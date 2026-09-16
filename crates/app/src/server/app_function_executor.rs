@@ -10,6 +10,7 @@ use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
+use sentry::SentryFutureExt;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -99,7 +100,13 @@ impl TaskExecutor for AppFunctionTaskExecutor {
             event_tx,
             outcome_tx,
         };
-        tokio::spawn(run_job(job).instrument(job_span));
+        // A job has no request hub. Give it one tagged as a custom-app surface;
+        // the isolate thread and host calls inherit it (`middlewares::sentry_surface`).
+        tokio::spawn(
+            run_job(job)
+                .instrument(job_span)
+                .bind_hub(crate::server::api::middlewares::sentry_surface::custom_app_hub()),
+        );
 
         Ok(ExecutingTask {
             events: event_rx,

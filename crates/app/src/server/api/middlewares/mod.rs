@@ -10,6 +10,7 @@ pub mod partner_authz;
 pub mod platform_cap_guard;
 pub mod request_id;
 pub mod role_guards;
+pub mod sentry_surface;
 pub mod subscription_guard;
 pub mod timeout;
 pub mod workspace_context;

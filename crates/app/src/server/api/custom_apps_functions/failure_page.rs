@@ -7,6 +7,7 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sentry::SentryFutureExt;
 use uuid::Uuid;
 
 use super::failure_alert::{FailureKey, LOOKBACK_DAYS, THRESHOLD, Verdict, claim, mark_delivered};
@@ -54,31 +55,38 @@ pub(super) async fn observe(
     // `oxy-task-spec-default`): one capped post whose delivery the claim row
     // already tracks. A replica that dies here leaves the claim unsent; it goes
     // stale and the next failure sends it.
-    tokio::spawn(async move {
-        let client = oxy_slack_client::SlackClient::new();
-        let post = client.chat_post_message(&token, &channel, &text, None);
-        let error = match tokio::time::timeout(POST_TIMEOUT, post).await {
-            Ok(Ok(_)) => None,
-            Ok(Err(e)) => Some(e.to_string()),
-            Err(_) => Some(format!("timed out after {POST_TIMEOUT:?}")),
-        };
-        if let Some(error) = error {
-            tracing::warn!(
-                target: "oxy::app_function",
-                error,
-                "failure alert: Slack post failed; the next failure retries once the claim is stale"
-            );
-            return;
+    tokio::spawn(
+        async move {
+            let client = oxy_slack_client::SlackClient::new();
+            let post = client.chat_post_message(&token, &channel, &text, None);
+            let error = match tokio::time::timeout(POST_TIMEOUT, post).await {
+                Ok(Ok(_)) => None,
+                Ok(Err(e)) => Some(e.to_string()),
+                Err(_) => Some(format!("timed out after {POST_TIMEOUT:?}")),
+            };
+            if let Some(error) = error {
+                tracing::warn!(
+                    target: "oxy::app_function",
+                    error,
+                    "failure alert: Slack post failed; the next failure retries once the claim is stale"
+                );
+                return;
+            }
+            let key = FailureKey {
+                app_id,
+                function_name: &function_name,
+                fingerprint: &fingerprint,
+            };
+            if let Err(e) = mark_delivered(&db, key, Utc::now()).await {
+                tracing::warn!(target: "oxy::app_function", error = %e, "failure alert: mark delivered failed");
+            }
         }
-        let key = FailureKey {
-            app_id,
-            function_name: &function_name,
-            fingerprint: &fingerprint,
-        };
-        if let Err(e) = mark_delivered(&db, key, Utc::now()).await {
-            tracing::warn!(target: "oxy::app_function", error = %e, "failure alert: mark delivered failed");
-        }
-    });
+        // `text` is the tenant function's own error message. This task outlives
+        // the invocation, so it carries that hub itself — barrier 1 covers this
+        // module's `oxy::app_function` lines, not a panic or an ERROR raised
+        // inside the Slack client.
+        .bind_hub(sentry::Hub::current()),
+    );
 }
 
 /// When invocations started carrying a fingerprint: the migration's

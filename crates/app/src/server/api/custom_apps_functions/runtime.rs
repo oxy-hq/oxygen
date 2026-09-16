@@ -43,6 +43,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use deno_core::{JsRuntime, OpState, RuntimeOptions, op2};
 use deno_error::JsErrorBox;
+use sentry::SentryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tracing::Instrument;
@@ -1629,43 +1630,49 @@ pub async fn run(
     // are correlated by the `invocation_id` field both spans carry, not by the
     // trace tree. That is the right trade — a late-but-correct sibling beats a
     // parent whose duration is a lie.
+    // Sentry hubs are per thread: carry this invocation's hub onto the isolate
+    // thread, so a custom-app surface tag (`middlewares::sentry_surface`) still
+    // covers what is captured there, panics included.
+    let sentry_hub = sentry::Hub::current();
     let thread = std::thread::Builder::new()
         .name("oxy-function".into())
         .spawn({
             let cancelled = cancelled.clone();
             let meters = meters.clone();
             move || {
-                // Sync closure, so holding the guard for the whole thread body
-                // is correct (the "never hold across an await" rule is about
-                // async fns; everything below runs inside `block_on`).
-                let _span_guard = isolate_span.enter();
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        let _ = done_tx.send(Err(RuntimeError::Internal(format!(
-                            "failed to build isolate runtime: {e}"
-                        ))));
-                        return;
-                    }
-                };
-                let local = tokio::task::LocalSet::new();
-                local.block_on(&rt, async move {
-                    let result = execute_isolate(
-                        artifact_js,
-                        ctx,
-                        req,
-                        call_tx,
-                        handle_tx,
-                        cancelled,
-                        logs,
-                        meters,
-                    )
-                    .await;
-                    let _ = done_tx.send(result);
-                });
+                sentry::Hub::run(sentry_hub, || {
+                    // Sync closure, so holding the guard for the whole thread body
+                    // is correct (the "never hold across an await" rule is about
+                    // async fns; everything below runs inside `block_on`).
+                    let _span_guard = isolate_span.enter();
+                    let rt = match tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        Ok(rt) => rt,
+                        Err(e) => {
+                            let _ = done_tx.send(Err(RuntimeError::Internal(format!(
+                                "failed to build isolate runtime: {e}"
+                            ))));
+                            return;
+                        }
+                    };
+                    let local = tokio::task::LocalSet::new();
+                    local.block_on(&rt, async move {
+                        let result = execute_isolate(
+                            artifact_js,
+                            ctx,
+                            req,
+                            call_tx,
+                            handle_tx,
+                            cancelled,
+                            logs,
+                            meters,
+                        )
+                        .await;
+                        let _ = done_tx.send(result);
+                    });
+                })
             }
         });
     if let Err(e) = thread {
@@ -1752,7 +1759,10 @@ pub async fn run(
                                 record_host_call_outcome(kind, &result);
                                 let _ = reply.send(result);
                             }
-                            .instrument(span),
+                            .instrument(span)
+                            // The invocation's Sentry hub, for the same reason as
+                            // the isolate thread above.
+                            .bind_hub(sentry::Hub::current()),
                         );
                     }
                     None => { /* sender dropped; isolate is finishing */ }

@@ -53,6 +53,7 @@ use oxy_auth::types::AuthenticatedUser;
 
 use crate::agentic_wiring::OxyProjectContext;
 use crate::server::api::custom_apps_auth::{is_org_member, is_oxy_locked_down};
+use crate::server::api::middlewares::sentry_surface::mark_custom_app_surface;
 use crate::server::router::is_allowed_origin;
 use crate::server::service::secret_manager::SecretManagerService;
 use oxy_server_authz as authz;
@@ -133,6 +134,23 @@ pub async fn check_custom_app_gates(
     headers: &HeaderMap,
     project_id: Uuid,
 ) -> Result<CustomAppContext, Response> {
+    // ── 0. Sentry, barrier 2: this request is a custom app's ──────────
+    //
+    // Entering this gate IS the identity. Every route behind it is a
+    // custom-app data-plane route and the web app calls none of them, so
+    // the hub can be tagged here without guessing at a URL — which the URL
+    // rules cannot do for this plane anyway: a bundle fetches same-origin
+    // with an empty `apiBaseUrl`, and its origin is `app.oxygen-hq.com`
+    // (canonical `/customer-apps/<org>/<app>/` URL) or an org subdomain,
+    // neither of which carries a custom-app host label or a
+    // `/customer-apps/**` path. See `sentry_surface::mark_custom_app_surface`.
+    //
+    // FIRST, before authentication, so the tag covers everything captured
+    // for the rest of this request: the handler's own `error!` on a
+    // warehouse failure (whose target is `…::projects::query`, which
+    // barrier 1 does not drop), `OxyError::capture_to_sentry`, and a panic.
+    mark_custom_app_surface();
+
     // ── 1. Authenticate ───────────────────────────────────────────────
     // Session cookie (served by oxy) or a bearer token (external/dev).
     let identity = match BuiltInAuthenticator::new().authenticate(headers).await {

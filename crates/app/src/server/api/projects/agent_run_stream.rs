@@ -181,6 +181,18 @@ pub async fn stream_agent_run(
         }
     };
 
+    // Axum polls this body *after* the handler future resolves, so the outer
+    // tower layer's `Hub::run` has already unwound and `Hub::current()` on the
+    // polling task is the untagged default. Read the request's hub here, while
+    // it is still current, and bind it across every poll: the `error!` above is
+    // on this module's target, which barrier 1 does not drop, and it — like a
+    // panic under the same poll — carries a tenant agent run's id and error
+    // text (`middlewares::sentry_surface`).
+    let stream = crate::server::api::middlewares::sentry_surface::bind_hub_stream(
+        stream,
+        sentry::Hub::current(),
+    );
+
     Sse::new(stream)
         .keep_alive(KeepAlive::default())
         .into_response()

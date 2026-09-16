@@ -53,6 +53,7 @@ use std::time::{Duration, Instant};
 
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use sentry::SentryFutureExt;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -307,26 +308,32 @@ pub async fn handle(
         );
     }
 
-    tokio::spawn(async move {
-        for (name, payload) in events {
-            if let Err(e) = custom_apps_tracking::record_event(
-                &db,
-                app_id,
-                user_id,
-                user_email.clone(),
-                session_id,
-                name,
-                payload,
-            )
-            .await
-            {
-                // Same failure posture as `record_view`: losing a telemetry row
-                // is the documented acceptable outcome, and there is nobody
-                // left on the other end of the request to tell.
-                tracing::warn!("custom-app beacon insert failed for app {app_id}: {e}");
+    tokio::spawn(
+        async move {
+            for (name, payload) in events {
+                if let Err(e) = custom_apps_tracking::record_event(
+                    &db,
+                    app_id,
+                    user_id,
+                    user_email.clone(),
+                    session_id,
+                    name,
+                    payload,
+                )
+                .await
+                {
+                    // Same failure posture as `record_view`: losing a telemetry row
+                    // is the documented acceptable outcome, and there is nobody
+                    // left on the other end of the request to tell.
+                    tracing::warn!("custom-app beacon insert failed for app {app_id}: {e}");
+                }
             }
         }
-    });
+        // The event names and payloads in scope here are tenant-authored, so a
+        // panic or a callee's ERROR must stay tagged once the request's hub is
+        // gone (`middlewares::sentry_surface`).
+        .bind_hub(sentry::Hub::current()),
+    );
 
     StatusCode::NO_CONTENT.into_response()
 }

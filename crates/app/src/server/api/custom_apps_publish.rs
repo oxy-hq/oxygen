@@ -1280,11 +1280,23 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // (a crafted body that expands to the full budget parks a worker). `take`
     // moves the bytes into the blocking task — `tarball` isn't used afterwards.
     let tarball = std::mem::take(&mut input.tarball);
-    let files = tokio::task::spawn_blocking(move || unpack_tar_gz(&tarball))
-        .await
-        .map_err(|e| {
-            PublishError::BadTarball(format!("bundle decompression task failed: {e}"))
-        })??;
+    // Sentry hubs are per thread, so a panic here would otherwise be captured on
+    // the blocking pool's long-lived hub — attached to whatever scope and
+    // breadcrumbs the last unrelated job on that thread left behind. Carry the
+    // request's hub across instead.
+    //
+    // That hub is NOT custom-app-tagged, and should not be: publish is only
+    // reachable through `POST /api/customer-apps/publish`, the platform's own
+    // admin + CI endpoint, which never passes `check_custom_app_gates` and is
+    // excluded from `is_custom_app_request` by name. A panic in Oxy's own
+    // tarball unpacker is a platform bug and belongs in Sentry.
+    let hub = sentry::Hub::current();
+    let files =
+        tokio::task::spawn_blocking(move || sentry::Hub::run(hub, || unpack_tar_gz(&tarball)))
+            .await
+            .map_err(|e| {
+                PublishError::BadTarball(format!("bundle decompression task failed: {e}"))
+            })??;
     // Fast deploy validation (design doc §8, gate 1): catch the known
     // blank-screen causes (missing head, baked-vs-registered base-path
     // mismatch) as an actionable 422 BEFORE storing the build.
@@ -1380,11 +1392,15 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // the cap. Kept out of the cap deliberately: the cap exists to bound what
     // an *uploader* can make us hold, and these bytes are ours, derived from
     // already-admitted input. Count them here if that ratio ever gets tighter.
+    // Same as the unpack above: the request's hub, not the blocking pool's.
+    let hub = sentry::Hub::current();
     let files = tokio::task::spawn_blocking(move || {
-        let mut files = files;
-        let mut variants = precompress::precompressed_variants(&files);
-        files.append(&mut variants);
-        files
+        sentry::Hub::run(hub, || {
+            let mut files = files;
+            let mut variants = precompress::precompressed_variants(&files);
+            files.append(&mut variants);
+            files
+        })
     })
     .await
     .map_err(|e| PublishError::BadTarball(format!("bundle pre-compression task failed: {e}")))?;

@@ -31,6 +31,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use entity::{messages, organizations, threads};
 use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait, Set};
+use sentry::SentryFutureExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 use tracing::{error, instrument, warn};
@@ -366,23 +367,31 @@ pub async fn start_ask(
     let router = agentic_state.router.clone();
     let run_id_for_drive = run_id.clone();
     let platform_drive = platform.clone();
-    tokio::spawn(async move {
-        agentic_pipeline::drive_with_coordinator(
-            started,
-            db,
-            runtime_state,
-            answer_rx,
-            cancel_rx,
-            platform_drive,
-            None, // no builder bridges — analytics-only surface
-            schema_cache,
-            builder_test_runner,
-            builder_app_runner,
-            router,
-        )
-        .await;
-        tracing::debug!(run_id = %run_id_for_drive, "custom-app ask: drive finished");
-    });
+    tokio::spawn(
+        async move {
+            agentic_pipeline::drive_with_coordinator(
+                started,
+                db,
+                runtime_state,
+                answer_rx,
+                cancel_rx,
+                platform_drive,
+                None, // no builder bridges — analytics-only surface
+                schema_cache,
+                builder_test_runner,
+                builder_app_runner,
+                router,
+            )
+            .await;
+            tracing::debug!(run_id = %run_id_for_drive, "custom-app ask: drive finished");
+        }
+        // The drive outlives the 202 this handler returns, so the request's hub
+        // is gone by the time the pipeline runs. It carries the bundle's prompt
+        // and the warehouse errors answering it, and nothing under
+        // `agentic_pipeline` has a `custom_apps` target for barrier 1 to read,
+        // so the tag has to travel with it (`middlewares::sentry_surface`).
+        .bind_hub(sentry::Hub::current()),
+    );
 
     // The thread is always provisioned now (§5), so return its id.
     let thread_id_str = thread_uuid.to_string();

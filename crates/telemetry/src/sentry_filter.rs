@@ -28,6 +28,12 @@
 //!    is the [`CUSTOM_APP_SURFACE_TAG`] scope tag that `oxy-app`'s
 //!    `sentry_surface` sets on a custom-app request's hub. The request URL is a
 //!    second rule behind it, and **it is dormant**: see [`drop_event`].
+//!
+//!    Sentry has a **third** surface, Logs, reached by its own callback rather
+//!    than by `before_send` — so barrier 2 has a second half, [`drop_log`], or a
+//!    line kept out of the issue stream stays searchable in Sentry anyway. It
+//!    judges by module path, because a `Log` carries no tags; read its docs for
+//!    what that does and does not cover.
 
 use std::collections::BTreeMap;
 
@@ -73,11 +79,20 @@ const CUSTOM_APP_TARGET_PREFIXES: [&str; 2] = ["oxy::app_function", "custom_app_
 /// re-answer the data question first.
 const CUSTOM_APPS_MODULE_MARKER: &str = "custom_apps";
 
-fn is_custom_app_target(target: &str) -> bool {
+/// Whether a dotted/`::`-separated name belongs to custom-app code.
+///
+/// Applied to two different names, because the two barriers are handed
+/// different ones: a `tracing` **target** in barrier 1
+/// ([`sentry_disposition`]), and an emitting Rust **module path** in barrier 2's
+/// log rule ([`drop_log`]) — a `Log` does not carry its target. The rule holds
+/// for both: every `target:` we set by hand is emitted from a module whose path
+/// already contains [`CUSTOM_APPS_MODULE_MARKER`], so the module-path reading is
+/// no weaker for the lines we actually write.
+fn is_custom_app_namespace(name: &str) -> bool {
     CUSTOM_APP_TARGET_PREFIXES
         .iter()
-        .any(|prefix| target.starts_with(prefix))
-        || target.contains(CUSTOM_APPS_MODULE_MARKER)
+        .any(|prefix| name.starts_with(prefix))
+        || name.contains(CUSTOM_APPS_MODULE_MARKER)
 }
 
 /// The `tracing` target of [`crate::http_trace`]'s `OxyOnFailure` STATUS-CODE
@@ -132,7 +147,7 @@ pub const HTTP_TRACE_TARGET: &str = "oxy_telemetry::http_trace";
 pub fn sentry_disposition(target: &str, level: &Level) -> Disposition {
     // Barrier 1 first and unconditionally: a custom-app target is refused every
     // Sentry surface, so no later rule may promote it back onto one.
-    if is_custom_app_target(target) {
+    if is_custom_app_namespace(target) {
         Disposition::Drop
     } else if *level == Level::DEBUG || *level == Level::TRACE {
         // sentry-tracing's own floor, restated so it cannot move under us:
@@ -249,6 +264,40 @@ pub fn drop_event(tags: &BTreeMap<String, String>, request_url: Option<&str>) ->
         .and_then(|url| url.split('#').next())
         .and_then(|url| url.parse::<http::Uri>().ok())
         .is_some_and(|uri| is_custom_app_request(uri.host(), uri.path()))
+}
+
+/// The `Log` attribute `sentry-tracing` records the emitting Rust **module
+/// path** in (`log_from_event`, sentry-tracing 0.49.1).
+///
+/// Not the tracing target: a `Log` has no field for one. See [`drop_log`].
+pub const LOG_MODULE_ATTRIBUTE: &str = "code.module.name";
+
+/// Barrier 2 for **Sentry Logs**, which is a third Sentry surface alongside
+/// issues and breadcrumbs and is reached by its own callback
+/// (`before_send_log`), not by `before_send`. Without this rule a custom-app log
+/// line dropped as an *issue* could still be searchable in Sentry, which is the
+/// same promise broken by a slower route.
+///
+/// **What a `Log` can be judged on, and what it cannot.**
+/// `sentry::protocol::Log` (sentry-types 0.49.1) carries `level`, `body`,
+/// `trace_id`, `timestamp`, `severity_number` and `attributes` — and **no
+/// tags**. `Scope::apply_to_log` (sentry-core 0.49.1, `scope/real.rs:362`)
+/// copies only `trace_id`, `parent_span_id` and `user.{id,name,email}` onto it;
+/// it never copies `scope.tags`. So [`CUSTOM_APP_SURFACE_TAG`] — the signal
+/// [`drop_event`] relies on — **is not reachable here**, and this rule cannot be
+/// the tag rule. `a_scope_tag_does_not_reach_a_log` in `oxy::sentry_config` pins
+/// that SDK behaviour, so an upgrade that starts copying tags surfaces as a
+/// failing test rather than a missed opportunity.
+///
+/// What is reachable is the module path, which is enough for every line
+/// custom-app code itself emits. The residual gap is a **platform** module's
+/// `error!` raised while serving a custom-app request: its issue is dropped by
+/// the tag, its log line is not. Closing that needs either a tag on the log
+/// (an SDK change) or `enable_logs(false)`, which would undo #3204's deliberate
+/// use of Sentry Logs for the 5xx line. Deliberately not papered over with a
+/// proxy signal here.
+pub fn drop_log(module_path: Option<&str>) -> bool {
+    module_path.is_some_and(is_custom_app_namespace)
 }
 
 #[cfg(test)]
@@ -500,6 +549,85 @@ mod tests {
             });
         });
         assert!(events.is_empty(), "a warn must not raise an event");
+    }
+
+    /// Every line custom-app code emits is emitted *from* a `custom_apps_*`
+    /// module, so the module path a `Log` does carry stands in for the target it
+    /// does not — including the two hand-set targets, whose modules are
+    /// `…::custom_apps_functions::{runtime, failure_page, failure_alert, …}`.
+    #[test]
+    fn a_log_from_a_custom_app_module_is_dropped() {
+        for module in [
+            "oxy_app::server::api::custom_apps_functions::runtime",
+            "oxy_app::server::api::custom_apps_serve",
+            "oxy_app_core::custom_apps_host_dispatch",
+            "oxy::app_function",
+            "custom_app_function",
+        ] {
+            assert!(drop_log(Some(module)), "{module}");
+        }
+    }
+
+    /// The same boundary as barrier 1's: a platform module that merely names
+    /// apps is Oxy's own code and keeps its log line. A log with no module
+    /// attribute at all is kept too — dropping on absence would silently swallow
+    /// every log not built by `sentry-tracing`.
+    #[test]
+    fn a_log_from_a_platform_module_is_kept() {
+        assert!(!drop_log(Some("oxy_app::server::api::threads")));
+        assert!(!drop_log(Some(
+            "oxy_app::server::api::webhooks::app_function"
+        )));
+        assert!(!drop_log(None));
+    }
+
+    /// [`LOG_MODULE_ATTRIBUTE`] is a key the SDK chooses, not one we define, and
+    /// every other test of the log rule — here and in `oxy::sentry_config` —
+    /// builds its fixture from this same constant. So a key sentry-tracing does
+    /// not actually write would leave `before_send_log` reading `None` on every
+    /// real log, `drop_log(None)` answering `false` by design, and all of those
+    /// tests green while the third Sentry surface stayed wide open. Ask the SDK
+    /// instead: emit through the shipped layer under a client that records what
+    /// `before_send_log` receives.
+    ///
+    /// The `target:` is deliberately NOT a module path, which is the second
+    /// half of the claim: what lands in the attribute is the emitting module,
+    /// `oxy_telemetry::sentry_filter::tests`, and a `Log` carries no target at
+    /// all — the reason [`drop_log`] judges by module path in the first place.
+    #[test]
+    fn the_log_module_attribute_is_the_key_sentry_tracing_writes() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let logs: Arc<Mutex<Vec<sentry::protocol::Log>>> = Arc::default();
+        let recorder = Arc::clone(&logs);
+        let options = sentry::ClientOptions::new().before_send_log(move |log| {
+            recorder.lock().expect("log recorder").push(log.clone());
+            Some(log)
+        });
+
+        sentry::test::with_captured_events_options(
+            || {
+                let subscriber = tracing_subscriber::registry().with(sentry_tracing_layer());
+                tracing::subscriber::with_default(subscriber, || {
+                    tracing::error!(target: "a_target_that_is_not_a_module_path", "boom");
+                });
+            },
+            options,
+        );
+
+        let logs = logs.lock().expect("log recorder");
+        let log = logs
+            .first()
+            .expect("an ERROR must reach Sentry Logs; EventFilter::Log rides with Event");
+        assert_eq!(
+            log.attributes
+                .get(LOG_MODULE_ATTRIBUTE)
+                .and_then(|attribute| attribute.0.as_str()),
+            Some(module_path!()),
+            "sentry-tracing must still record the emitting module under \
+             LOG_MODULE_ATTRIBUTE; if this key moved, filter_log is a silent no-op"
+        );
     }
 
     /// The levelled 5xx rule, through the layer that really ships rather than

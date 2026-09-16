@@ -253,6 +253,8 @@ assert_cmd = { workspace = true }
 serial_test = { workspace = true }
 oxy-test-utils = { workspace = true }
 tower = { workspace = true, features = ["util"] }
+# `sentry::test::with_captured_events` for the custom-app surface tag tests.
+sentry = { workspace = true, features = ["test"] }
 wiremock = { workspace = true }
 testcontainers = { workspace = true, features = [
     "blocking",

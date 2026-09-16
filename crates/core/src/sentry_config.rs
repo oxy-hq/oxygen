@@ -42,6 +42,10 @@ fn client_options(environment: String, release: String) -> sentry::ClientOptions
         .send_default_pii(false) // Don't send personally identifiable information
         .max_breadcrumbs(100)
         .before_send(filter_event)
+        // Barrier 2's other half. Sentry Logs is a separate surface with a
+        // separate callback: `before_send` never sees a log, so without this a
+        // custom-app line dropped as an issue stays searchable in Sentry.
+        .before_send_log(filter_log)
 }
 
 pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
@@ -67,7 +71,8 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
     // path. `dsn` stays a direct field assignment (still allowed on a
     // `#[non_exhaustive]` struct) because the `.dsn()` builder *panics* on an
     // unparseable value, and a malformed `SENTRY_DSN` must keep degrading to "no
-    // error reporting", not take the process down at startup.
+    // error reporting", not take the process down at startup. It is also the one
+    // option that cannot live in `client_options`, which a test builds.
     let mut options = client_options(environment.clone(), release.clone());
     options.dsn = dsn?.parse().ok();
 
@@ -136,6 +141,22 @@ fn filter_event(
         }
     }
     Some(event)
+}
+
+/// Sentry's last look at every **log**, the surface `before_send` cannot reach.
+///
+/// Judged on the emitting module path, which is what a `Log` carries; the
+/// custom-app surface tag is not on it. `oxy_telemetry::sentry_filter::drop_log`
+/// holds the rule and documents exactly what that covers.
+fn filter_log(log: sentry::protocol::Log) -> Option<sentry::protocol::Log> {
+    let module = log
+        .attributes
+        .get(oxy_telemetry::sentry_filter::LOG_MODULE_ATTRIBUTE)
+        .and_then(|attribute| attribute.0.as_str());
+    if oxy_telemetry::sentry_filter::drop_log(module) {
+        return None;
+    }
+    Some(log)
 }
 
 /// Add context to Sentry scope for the current operation
@@ -452,5 +473,126 @@ mod tests {
         );
         assert!(filter_event(tagged).is_none());
         assert!(filter_event(sentry::protocol::Event::default()).is_some());
+    }
+
+    /// I1. The **wiring**, not the filter. `filter_event` is only barrier 2 if
+    /// `init_sentry` actually installs it, so read the callback back off the
+    /// options `init_sentry` builds and run the same two events through *that*.
+    ///
+    /// The test above passes whether or not `.before_send(filter_event)` is in
+    /// the chain — which is the gap. Deleting that one line is silent, and it
+    /// fails open: every custom-app event reaches Sentry.
+    #[test]
+    fn init_installs_the_custom_app_filter_as_before_send() {
+        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+
+        let before_send = client_options("test".to_string(), "oxy@test".to_string())
+            .before_send
+            .clone()
+            .expect("init_sentry must install a before_send callback; it is barrier 2");
+
+        let mut tagged = sentry::protocol::Event::default();
+        tagged.tags.insert(
+            CUSTOM_APP_SURFACE_TAG.to_string(),
+            CUSTOM_APP_SURFACE.to_string(),
+        );
+        assert!(
+            before_send(tagged).is_none(),
+            "the installed callback must drop a custom-app-tagged event"
+        );
+        assert!(
+            before_send(sentry::protocol::Event::default()).is_some(),
+            "and must keep an ordinary platform event"
+        );
+    }
+
+    fn tracing_log(module: Option<&str>) -> sentry::protocol::Log {
+        let mut log = sentry::protocol::Log {
+            level: sentry::protocol::LogLevel::Error,
+            body: "a failure".to_string(),
+            trace_id: None,
+            timestamp: std::time::SystemTime::now(),
+            severity_number: None,
+            attributes: Default::default(),
+        };
+        if let Some(module) = module {
+            log.attributes.insert(
+                oxy_telemetry::sentry_filter::LOG_MODULE_ATTRIBUTE.to_string(),
+                sentry::protocol::LogAttribute(module.into()),
+            );
+        }
+        log
+    }
+
+    /// I1, for Logs. The same shape as the `before_send` pin above: read the
+    /// callback back off the options `init_sentry` builds, so deleting
+    /// `.before_send_log(filter_log)` fails here rather than silently reopening
+    /// the third Sentry surface.
+    #[test]
+    fn init_installs_the_custom_app_log_filter_as_before_send_log() {
+        let before_send_log = client_options("test".to_string(), "oxy@test".to_string())
+            .before_send_log
+            .clone()
+            .expect("init_sentry must install a before_send_log callback; it is barrier 2");
+
+        assert!(
+            before_send_log(tracing_log(Some(
+                "oxy_app::server::api::custom_apps_functions::runtime"
+            )))
+            .is_none(),
+            "the installed callback must drop a custom-app module's log"
+        );
+        assert!(
+            before_send_log(tracing_log(Some("oxy_app::server::api::threads"))).is_some(),
+            "and must keep an ordinary platform log"
+        );
+    }
+
+    /// Why [`filter_log`] judges by module path and not by the custom-app
+    /// surface tag: the tag never arrives. `Scope::apply_to_log` copies
+    /// `trace_id`, `parent_span_id` and `user.*` onto a log and nothing else —
+    /// `scope.tags` is not among them, and `protocol::Log` has no tags field to
+    /// put them in.
+    ///
+    /// Pinned rather than merely written down, because this is a *dependency's*
+    /// behaviour and the thing it costs us is real (a platform error logged
+    /// during a custom-app request keeps its log line). If a future sentry-core
+    /// starts carrying tags, this test fails and says: tighten `filter_log` to
+    /// the tag rule.
+    #[test]
+    fn a_scope_tag_does_not_reach_a_log() {
+        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+
+        let mut scope = sentry::Scope::default();
+        scope.set_tag(CUSTOM_APP_SURFACE_TAG, CUSTOM_APP_SURFACE);
+        let mut log = tracing_log(Some("oxy_app::server::api::threads"));
+        scope.apply_to_log(&mut log);
+
+        assert!(
+            !log.attributes.contains_key(CUSTOM_APP_SURFACE_TAG),
+            "sentry-core does not copy scope tags onto a log; if it now does, \
+             filter_log should drop on the tag instead of the module path"
+        );
+        assert!(
+            filter_log(log).is_some(),
+            "so a platform module's log survives even under a tagged scope — the \
+             documented residual gap, asserted so it cannot change unnoticed"
+        );
+    }
+
+    /// The other pin in the same chain. A transaction carries span fields
+    /// (`oxy.sql` among them) that must not leave the process, so tracing being
+    /// off is a property of the build, not a deployment knob. Asserted as the
+    /// invariant rather than the spelling: both ways of saying "off" pass, a
+    /// non-zero rate or a sampler function does not.
+    #[test]
+    fn traces_are_pinned_off() {
+        match client_options("test".to_string(), "oxy@test".to_string()).traces_sampling_strategy {
+            sentry::TracesSamplingStrategy::Disabled => {}
+            sentry::TracesSamplingStrategy::FixedRate(rate) => {
+                assert_eq!(rate, 0.0, "no deployment may turn performance traces on")
+            }
+            other => panic!("traces must be off, got {other:?}"),
+        }
     }
 }

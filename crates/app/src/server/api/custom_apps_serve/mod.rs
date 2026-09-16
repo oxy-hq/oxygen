@@ -63,6 +63,7 @@ use sea_orm::ColumnTrait;
 use sea_orm::DatabaseConnection;
 use sea_orm::EntityTrait;
 use sea_orm::QueryFilter;
+use sentry::SentryFutureExt;
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -738,18 +739,26 @@ pub(crate) async fn serve_pretty(
         // Fire-and-forget; a slow DB insert must not stall the HTML
         // response. Losing a row on crash is the documented acceptable
         // failure mode for tracking-grade data.
-        tokio::spawn(async move {
-            super::custom_apps_tracking::record_view(
-                recorded_app,
-                user_id,
-                user_email,
-                session_id,
-                sanitized_referrer,
-                user_agent_class,
-                source_label,
-            )
-            .await;
-        });
+        tokio::spawn(
+            async move {
+                super::custom_apps_tracking::record_view(
+                    recorded_app,
+                    user_id,
+                    user_email,
+                    session_id,
+                    sanitized_referrer,
+                    user_agent_class,
+                    source_label,
+                )
+                .await;
+            }
+            // Outlives the request, so it needs the request's hub carried over
+            // explicitly (`middlewares::sentry_surface`): barrier 1 drops this
+            // module's own tracing by target, but an ERROR from a callee such as
+            // `sea_orm`, or a panic in here, would otherwise reach Sentry
+            // untagged — carrying the viewer's email and referrer.
+            .bind_hub(sentry::Hub::current()),
+        );
 
         let mut resp = response;
         if let Ok(hv) = axum::http::HeaderValue::from_str(&set_cookie) {

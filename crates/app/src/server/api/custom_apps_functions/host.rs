@@ -818,8 +818,12 @@ impl FunctionHost for ProjectFunctionHost {
         // so the directory is walked one time, not two.
         let pre_loaded_layer = if scoped {
             let scan_for_layer = scan_path.clone();
+            // Sentry hubs are per thread; keep the invocation's on the blocking pool.
+            let hub = sentry::Hub::current();
             let layer = tokio::task::spawn_blocking(move || {
-                oxy_airlayer_compat::load_layer_from_dir(&scan_for_layer)
+                sentry::Hub::run(hub, || {
+                    oxy_airlayer_compat::load_layer_from_dir(&scan_for_layer)
+                })
             })
             .await
             .map_err(|e| format!("semantic layer task panicked: {e}"))?
@@ -865,14 +869,18 @@ impl FunctionHost for ProjectFunctionHost {
             crate::server::preagg_context::RollupFreshness::ServeStale,
         );
 
+        // Sentry hubs are per thread; keep the invocation's on the blocking pool.
+        let hub = sentry::Hub::current();
         let compiled = tokio::task::spawn_blocking(move || {
-            resolve_and_compile(
-                &scan_path,
-                &databases,
-                &query,
-                preagg.as_ref(),
-                pre_loaded_layer,
-            )
+            sentry::Hub::run(hub, || {
+                resolve_and_compile(
+                    &scan_path,
+                    &databases,
+                    &query,
+                    preagg.as_ref(),
+                    pre_loaded_layer,
+                )
+            })
         })
         .await
         .map_err(|e| format!("semantic compile task panicked: {e}"))?
@@ -1719,8 +1727,12 @@ async fn read_rollup(
     let read_sql =
         crate::server::api::projects::semantic_query::wrap_with_limit(preagg_sql, max_rows + 1);
     let src = source.clone();
+    // Sentry hubs are per thread; keep the invocation's on the blocking pool.
+    let hub = sentry::Hub::current();
     let value = tokio::task::spawn_blocking(move || {
-        agentic_semantic::preagg::execute_preagg_sql(&read_sql, &src)
+        sentry::Hub::run(hub, || {
+            agentic_semantic::preagg::execute_preagg_sql(&read_sql, &src)
+        })
     })
     .await
     .map_err(|e| format!("preagg task panicked: {e}"))?

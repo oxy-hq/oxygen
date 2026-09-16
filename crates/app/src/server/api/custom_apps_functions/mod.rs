@@ -63,6 +63,7 @@ use entity::{app_function_invocations, app_functions};
 use oxy::database::client::establish_connection;
 use oxy_shared::utils::request_id::from_headers as request_id_from_headers;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sentry::SentryFutureExt;
 use serde::Deserialize;
 use tracing::error;
 use uuid::Uuid;
@@ -2123,12 +2124,12 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     // §11.4 — cancellation watchdog: poll `cancel_requested_at` every 1s and
     // fire the cancel signal when it's set (dashboard cancel / client gone).
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    let watchdog = tokio::spawn(spawn_cancel_watchdog(
-        args.db.clone(),
-        args.invocation_id,
-        cancel_tx,
-        args.cancel,
-    ));
+    let watchdog = tokio::spawn(
+        spawn_cancel_watchdog(args.db.clone(), args.invocation_id, cancel_tx, args.cancel)
+            // Polls for the whole invocation on its own task, so it needs the
+            // invocation's hub explicitly (`middlewares::sentry_surface`).
+            .bind_hub(sentry::Hub::current()),
+    );
 
     // Copied out before the `args` fields below are moved into the call.
     let app_id = args.app.id;

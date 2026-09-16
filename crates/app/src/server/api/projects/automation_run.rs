@@ -36,6 +36,7 @@ use dashmap::DashMap;
 use entity::customer_app_procedure_runs as proc_run;
 use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+use sentry::SentryFutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tokio::task::JoinHandle;
@@ -367,38 +368,47 @@ pub async fn start_automation_run(
     let db_for_task = db.clone();
     let run_id_str = run_id.to_string();
     let run_id_for_task = run_id_str.clone();
-    let handle = tokio::spawn(async move {
-        let workspace: Arc<dyn agentic_automation::WorkspaceContext> = Arc::new(proj_ctx_run);
-        let result = agentic_pipeline::automation_run::run_inline_automation_with_render_context(
-            workspace.as_ref(),
-            automation_config,
-            None,
-            render_context,
-            None,
-        )
-        .await;
+    let handle = tokio::spawn(
+        async move {
+            let workspace: Arc<dyn agentic_automation::WorkspaceContext> = Arc::new(proj_ctx_run);
+            let result = agentic_pipeline::automation_run::run_inline_automation_with_render_context(
+                workspace.as_ref(),
+                automation_config,
+                None,
+                render_context,
+                None,
+            )
+            .await;
 
-        // Was a cancel requested mid-run? Check the DB row before we
-        // record a result so a race between user-cancel + automation-
-        // completion lands on the right terminal state.
-        let cancel_seen = proc_run::Entity::find_by_id(run_id)
-            .one(&db_for_task)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|r| r.cancel_requested_at)
-            .is_some();
+            // Was a cancel requested mid-run? Check the DB row before we
+            // record a result so a race between user-cancel + automation-
+            // completion lands on the right terminal state.
+            let cancel_seen = proc_run::Entity::find_by_id(run_id)
+                .one(&db_for_task)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|r| r.cancel_requested_at)
+                .is_some();
 
-        let update = match (cancel_seen, result) {
-            (true, _) => set_cancelled(run_id),
-            (false, Ok(outputs)) => set_done(run_id, outputs),
-            (false, Err(e)) => set_failed(run_id, &e),
-        };
-        if let Err(db_err) = update.update(&db_for_task).await {
-            error!(run_id = %run_id_for_task, error = %db_err, "automation run completion update failed");
+            let update = match (cancel_seen, result) {
+                (true, _) => set_cancelled(run_id),
+                (false, Ok(outputs)) => set_done(run_id, outputs),
+                (false, Err(e)) => set_failed(run_id, &e),
+            };
+            if let Err(db_err) = update.update(&db_for_task).await {
+                error!(run_id = %run_id_for_task, error = %db_err, "automation run completion update failed");
+            }
+            join_handles().remove(&run_id_for_task);
         }
-        join_handles().remove(&run_id_for_task);
-    });
+        // The run outlives the 202 this handler returns, so the request's
+        // hub is gone once the automation starts. Its tasks are
+        // tenant-authored and its failures carry their SQL and results;
+        // `agentic_pipeline`'s targets are not `custom_apps`, so barrier 1
+        // does not see them and the tag must travel
+        // (`middlewares::sentry_surface`).
+        .bind_hub(sentry::Hub::current()),
+    );
     join_handles().insert(run_id_str.clone(), handle);
 
     let resp = AutomationRunStartResponse { run_id: run_id_str };

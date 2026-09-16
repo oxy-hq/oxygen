@@ -746,14 +746,7 @@ async fn create_web_application(
     // the org-subdomain dispatch is second (bare `<org>.<zone>` hosts → org
     // scoping, `/a/<slug>/` app rewrite, centralized-auth bounce). On any host
     // neither matches, both fall through untouched.
-    let main = ServiceBuilder::new()
-        .layer(axum::middleware::from_fn(
-            oxy_app_core::custom_apps_host_dispatch::subdomain_rewrite_middleware,
-        ))
-        .layer(axum::middleware::from_fn(
-            oxy_app_core::org_host_dispatch::org_host_dispatch_middleware,
-        ))
-        .service(main);
+    let main = wrap_outer_service(main);
 
     // External API surface — a sibling of `main`, so it is NOT wrapped by the
     // global CORS/trace layers OR the subdomain rewrite. It carries its OWN
@@ -1315,12 +1308,169 @@ async fn create_shutdown_signal() {
     docker::cleanup_containers().await;
 }
 
+/// The outer service stack that wraps the whole routed app, before routing.
+///
+/// Extracted from `serve` so a test can drive the real thing: assembled inline,
+/// deleting either Sentry layer left every test green while custom-app errors
+/// went to Sentry in production.
+///
+/// The order is load-bearing, outermost first:
+/// 1. `NewSentryLayer` — a hub per request, so a scope tag set for one request
+///    never lands on another's events. `/customer-apps/{*path}` and the static
+///    fallback have no hub of their own; `/api` nests one from this
+///    (`router::entry::finalize_router`) and so inherits the tag.
+/// 2. the customer-apps host rewrite, then the org-subdomain dispatch.
+/// 3. `tag_custom_app_surface` — innermost, *after* both rewrites, so a
+///    `<org>--<slug>.customer-apps…` host, `/a/<slug>/` on an org subdomain and a
+///    plain `/customer-apps/**` all reach it as `/customer-apps/**` with the
+///    caller's host header still intact. Tags the request hub so
+///    `sentry_config::filter_event` drops everything captured under it.
+///
+/// Route classification is unchanged: no route moves, and `role_manifest.rs`
+/// still decides IdeOnly/FleetOk.
+fn wrap_outer_service(
+    main: Router,
+) -> impl tower::Service<
+    axum::extract::Request,
+    Response = axum::response::Response,
+    Error = std::convert::Infallible,
+    Future: Send + 'static,
+> + Clone
++ Send
++ Sync
++ 'static {
+    ServiceBuilder::new()
+        .layer(sentry::integrations::tower::NewSentryLayer::<
+            axum::extract::Request,
+        >::new_from_top())
+        .layer(axum::middleware::from_fn(
+            oxy_app_core::custom_apps_host_dispatch::subdomain_rewrite_middleware,
+        ))
+        .layer(axum::middleware::from_fn(
+            oxy_app_core::org_host_dispatch::org_host_dispatch_middleware,
+        ))
+        .layer(axum::middleware::from_fn(
+            crate::server::api::middlewares::sentry_surface::tag_custom_app_surface,
+        ))
+        .service(main)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use axum::http::Request;
     use axum::{Router, body::Body, routing::get};
     use tower::ServiceExt;
     use tower_http::compression::CompressionLayer;
+
+    /// Drive one request through the **shipped** outer stack
+    /// ([`wrap_outer_service`], the same function `serve` calls) into a handler
+    /// that captures one error, and return that event's tags.
+    ///
+    /// Both host-dispatch layers are inert here: each needs an env-configured
+    /// zone, so with none set they fall through and nothing touches a database.
+    fn tags_captured_through_the_shipped_stack(
+        host: &str,
+        path: &str,
+    ) -> std::collections::BTreeMap<String, String> {
+        let events = sentry::test::with_captured_events(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            runtime.block_on(async {
+                let app = Router::new().route(
+                    "/{*path}",
+                    axum::routing::any(|| async {
+                        sentry::capture_message("boom", sentry::Level::Error);
+                        axum::http::StatusCode::OK
+                    }),
+                );
+                let request = Request::builder()
+                    .uri(path)
+                    .header(axum::http::header::HOST, host)
+                    .body(Body::empty())
+                    .expect("request");
+                wrap_outer_service(app)
+                    .oneshot(request)
+                    .await
+                    .expect("response");
+            });
+        });
+        assert_eq!(events.len(), 1, "exactly one captured event");
+        events[0].tags.clone()
+    }
+
+    /// The end-to-end guarantee, through the real stack: an error raised while
+    /// serving a custom app is one `before_send` drops. Fails if either
+    /// `.layer(..)` is removed from [`wrap_outer_service`].
+    #[test]
+    fn an_error_during_a_custom_app_request_is_dropped_by_before_send() {
+        let tags = tags_captured_through_the_shipped_stack(
+            "localhost",
+            "/customer-apps/acme/store/fn/orders",
+        );
+        assert!(
+            oxy_telemetry::sentry_filter::drop_event(&tags, None),
+            "the shipped stack must tag this so before_send drops it; tags: {tags:?}"
+        );
+    }
+
+    /// The converse, so the pin cannot be satisfied by tagging everything:
+    /// Oxy's own errors still reach Sentry.
+    #[test]
+    fn an_error_during_a_platform_request_is_kept() {
+        let tags = tags_captured_through_the_shipped_stack("localhost", "/api/threads");
+        assert!(
+            !oxy_telemetry::sentry_filter::drop_event(&tags, None),
+            "a platform request must not be tagged; tags: {tags:?}"
+        );
+    }
+
+    /// What the `NewSentryLayer` in [`wrap_outer_service`] is *for*: a scope tag
+    /// lives on a hub, so without a fresh hub per request the tag set while
+    /// serving a custom app stays on the shared hub and silently swallows the
+    /// next request's errors — Oxy's own. Two sequential requests through one
+    /// service; drop that layer and the platform request inherits the tag.
+    #[test]
+    fn a_custom_app_tag_does_not_leak_onto_the_next_request() {
+        let events = sentry::test::with_captured_events(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            runtime.block_on(async {
+                let app = Router::new().route(
+                    "/{*path}",
+                    axum::routing::any(|| async {
+                        sentry::capture_message("boom", sentry::Level::Error);
+                        axum::http::StatusCode::OK
+                    }),
+                );
+                let service = wrap_outer_service(app);
+                for path in ["/customer-apps/acme/store/fn/orders", "/api/threads"] {
+                    let request = Request::builder()
+                        .uri(path)
+                        .header(axum::http::header::HOST, "localhost")
+                        .body(Body::empty())
+                        .expect("request");
+                    service.clone().oneshot(request).await.expect("response");
+                }
+            });
+        });
+
+        assert_eq!(events.len(), 2, "one event per request");
+        assert!(
+            oxy_telemetry::sentry_filter::drop_event(&events[0].tags, None),
+            "the custom-app request's error must be dropped"
+        );
+        assert!(
+            !oxy_telemetry::sentry_filter::drop_event(&events[1].tags, None),
+            "the following platform request must not inherit the tag; \
+             tags: {:?}",
+            events[1].tags
+        );
+    }
 
     #[tokio::test]
     async fn custom_app_route_compresses_assets() {
