@@ -17,6 +17,11 @@ opentelemetry-appender-tracing = { workspace = true }
 opentelemetry-http = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+# For `sentry_filter::sentry_tracing_layer` — the Sentry layer's construction
+# lives beside the rules it installs, so a test can pin that the filter is
+# actually attached. Already in the tree via `oxy-shared`, so this costs no
+# extra build.
+sentry = { workspace = true }
 serde_json = { workspace = true }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }
@@ -32,3 +37,6 @@ tower-http = { workspace = true, features = ["trace", "compression-br"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["macros", "rt"] }
 tower = { workspace = true, features = ["util"] }
+# `sentry::test::with_captured_events` for the tests pinning that the shipped
+# Sentry tracing layer really carries the custom-app event filter.
+sentry = { workspace = true, features = ["test"] }

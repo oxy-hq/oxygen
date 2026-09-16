@@ -20,6 +20,7 @@
 //! | [`http_trace`]  | One `SERVER` span per HTTP request, named by route, W3C parent honoured |
 //! | [`propagation`] | `traceparent` injection for the internal serve → ide hop               |
 //! | [`stderr_capture`] | Every stray stderr line (dependencies, C libs, panics) as JSON, repeats collapsed |
+//! | [`sentry_filter`] | What reaches Sentry: `error` an event, `warn` a breadcrumb, custom-app targets and surfaces nothing |
 //!
 //! ## Configuration is the OpenTelemetry environment contract
 //!
@@ -45,6 +46,7 @@ pub mod json_format;
 pub mod otel;
 pub mod propagation;
 pub mod resource;
+pub mod sentry_filter;
 pub mod stderr_capture;
 pub mod with_dispatch;
 

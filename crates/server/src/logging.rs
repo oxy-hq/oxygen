@@ -5,7 +5,7 @@
 //!
 //! | Sink                          | When                            | Filter                          |
 //! |-------------------------------|---------------------------------|---------------------------------|
-//! | Sentry                        | always                          | `warn`+                         |
+//! | Sentry                        | always                          | `warn`+: `error` an event, `warn` a breadcrumb, the 5xx line logs-only, custom-app targets dropped (`oxy_telemetry::sentry_filter`) |
 //! | stderr, human-readable        | `LogFormat::Local`              | `OXY_LOG_LEVEL` (default `warn`) |
 //! | `oxy.<date>.log` in state dir | `LogFormat::Local`              | same                            |
 //! | stderr, one JSON object/line  | `LogFormat::Cloud`              | same                            |
@@ -28,6 +28,7 @@ use once_cell::sync::OnceCell;
 use oxy::state_dir::get_state_dir;
 use oxy_app::observability_boot;
 use oxy_telemetry::otel::OtelConfig;
+use oxy_telemetry::sentry_filter::sentry_tracing_layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -38,68 +39,6 @@ static LOG_GUARD: OnceCell<tracing_appender::non_blocking::WorkerGuard> = OnceCe
 /// How many daily `oxy.log` files to keep on local installs before the oldest
 /// is pruned. Bounds the on-disk log footprint for a long-lived local session.
 const LOCAL_LOG_MAX_FILES: usize = 7;
-
-/// The `tracing` target of `OxyOnFailure`'s STATUS-CODE arm — the 5xx line.
-///
-/// Matched exactly (`==`), never as a prefix, so it does not catch
-/// `oxy_telemetry::http_trace::transport`. That is deliberate: see the filter
-/// below.
-const HTTP_TRACE_TARGET: &str = "oxy_telemetry::http_trace";
-
-/// Sentry's default mapping, minus one duplicate.
-///
-/// `OxyOnFailure` logs every 5xx at ERROR, which is right for the log store:
-/// it is the one line per failed request. As a Sentry *event* it is a copy. The
-/// handler that produced the 5xx has already logged its own error with the
-/// cause (`cameras request failed`, `SQL query execution failed`, …), while
-/// this line carries only a status and a latency — no route, no reason. On
-/// 2026-09-15 it was the largest issue in Sentry and ~3,000 lines a week in
-/// prod, i.e. most of prod's error quota spent on the least informative event.
-/// The line itself is untouched: it stays in the log store (stderr → HyperDX),
-/// which is the complete record. Only the Sentry ISSUE goes away.
-///
-/// **Only the status-code arm.** `OxyOnFailure`'s other arm — a transport /
-/// connection failure — has no response and no handler error line behind it, so
-/// that line is the ONLY record of it. It logs under its own target
-/// (`…::http_trace::transport`) precisely so this filter cannot reach it;
-/// `Metadata` carries no fields, so a filter could not tell the two apart any
-/// other way.
-///
-/// The removal is unconditional rather than guarded by
-/// `filter.contains(EventFilter::Event)`. Which flag the default sets for ERROR
-/// is a property of the dependency (sentry-tracing 0.49.1: `Event | Log`, with
-/// `Breadcrumb`, `Event` and `Log` the only flags there are), and `remove` on an
-/// unset flag is a no-op — so stating the intent outright is both clearer and
-/// robust to that mapping changing.
-///
-/// **No `Breadcrumb` is inserted, deliberately.** It would not land where it
-/// looks like it should. `create_trace_layer()` wraps the whole router from the
-/// outside (`cli/commands/serve.rs`), while `NewSentryLayer` is applied inside
-/// `finalize_router` (`server/router/entry.rs`) — so by the time `on_failure`
-/// classifies the response, the per-request hub has been popped and the
-/// handler's own event has ALREADY been captured. A breadcrumb added there goes
-/// to the long-lived per-worker-thread hub, where it can only attach to some
-/// LATER, unrelated event on that thread, carrying another request's status.
-/// Attaching it properly would mean putting the request hub outside the trace
-/// layer, which is a larger change than this one.
-///
-/// `Log` is deliberately LEFT SET, and it is not inert: `ClientOptions::new()`
-/// is `Default::default()`, and `enable_logs` defaults to **true**
-/// (sentry-core 0.49.1 `clientoptions.rs:859`, and the builder's own doc says
-/// so). With the `logs` feature on — it is in `sentry`'s default set — this
-/// line still reaches Sentry Logs, which is where it belongs: cheap,
-/// searchable, and not what was noisy. It was the ISSUE that was noise.
-fn sentry_event_filter(
-    metadata: &tracing::Metadata<'_>,
-) -> sentry::integrations::tracing::EventFilter {
-    use sentry::integrations::tracing::{EventFilter, default_event_filter};
-
-    let mut filter = default_event_filter(metadata);
-    if metadata.target() == HTTP_TRACE_TARGET {
-        filter.remove(EventFilter::Event);
-    }
-    filter
-}
 
 type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
 
@@ -196,10 +135,18 @@ pub fn init(observability_enabled: bool, otel: &OtelConfig, server_command: bool
     let mut layers: Vec<BoxedLayer> = Vec::new();
     let mut problems: Vec<String> = Vec::new();
     let mut json_dispatch: Option<oxy_telemetry::with_dispatch::DispatchHandle> = None;
+    // Sentry, barrier 1: `error` is an event, `warn` a breadcrumb, a custom-app
+    // target nothing at any level, and `http_trace`'s 5xx line Logs only. All of
+    // it — the rule, its translation into sentry-tracing's flags, and the span
+    // refusal — is built into `sentry_tracing_layer` itself
+    // (`oxy_telemetry::sentry_filter`), where a unit test pins them: constructing
+    // the layer here would leave a deleted `.event_filter(..)` green, and a
+    // SECOND `.event_filter(..)` anywhere would silently replace the first rather
+    // than compose with it. The `WARN` bound stays, so this layer neither widens
+    // what Sentry receives nor enables INFO/DEBUG callsites. Traces are pinned
+    // off in `oxy::sentry_config`, which also holds barrier 2.
     layers.push(Box::new(
-        sentry::integrations::tracing::layer()
-            .event_filter(sentry_event_filter)
-            .with_filter(LevelFilter::WARN),
+        sentry_tracing_layer().with_filter(LevelFilter::WARN),
     ));
 
     match log_format {
@@ -326,11 +273,14 @@ mod tests {
 
     /// Emit `f`'s tracing events through the REAL sentry layer this module
     /// installs, and return what Sentry would have received.
+    ///
+    /// Built from `sentry_tracing_layer()` and bounded at `WARN`, i.e. the exact
+    /// expression in `init` above — so this asserts the shipped wiring, not a
+    /// re-statement of the rule. `oxy_telemetry::sentry_filter` tests the rule
+    /// itself; these two pin that `oxy-server` installs it.
     fn captured_events(f: impl FnOnce()) -> Vec<sentry::protocol::Event<'static>> {
         sentry::test::with_captured_events(|| {
-            let layer = sentry::integrations::tracing::layer()
-                .event_filter(sentry_event_filter)
-                .with_filter(LevelFilter::WARN);
+            let layer = sentry_tracing_layer().with_filter(LevelFilter::WARN);
             let subscriber = Registry::default().with(layer);
             tracing::subscriber::with_default(subscriber, f);
         })
@@ -372,7 +322,7 @@ mod tests {
 
     /// The transport arm is NOT a duplicate — nothing else logs a connection
     /// failure, so it must still raise an issue. Its separate target is the
-    /// only thing standing between it and the filter above.
+    /// only thing standing between it and the rule above.
     #[test]
     fn a_transport_failure_is_still_an_issue() {
         let events = captured_events(|| {

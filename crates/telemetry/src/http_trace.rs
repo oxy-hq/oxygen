@@ -368,8 +368,8 @@ impl OnFailure<ServerErrorsFailureClass> for OxyOnFailure {
                 span.record("error.type", code.as_str());
                 tracing::error!(status = code.as_u16(), latency_ms, "{what}");
             }
-            // A SEPARATE TARGET, and not cosmetic: `oxy_server::logging`
-            // demotes this module's 5xx line to a Sentry breadcrumb because the
+            // A SEPARATE TARGET, and not cosmetic: `crate::sentry_filter`
+            // demotes this module's 5xx line to a Sentry log line because the
             // handler that produced the 5xx has already reported the cause. No
             // handler ran here — there is no response and no other line — so
             // this is the only record a transport failure leaves, and it has to

@@ -84,6 +84,7 @@ oxy-ollama = { workspace = true }
 oxy-openai = { workspace = true }
 oxy-semantic = { workspace = true }
 oxy-shared = { workspace = true }
+oxy-telemetry = { workspace = true }
 oxy-oltp = { workspace = true }
 oxy-platform = { workspace = true }
 # Cannot add higher-level crates (e.g. agentic-* domain crates) here

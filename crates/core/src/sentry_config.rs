@@ -14,44 +14,34 @@ const TRACING_LOCATION_CONTEXT: &str = "Rust Tracing Location";
 /// Every client option except the DSN, so a test can run events through the
 /// SAME configuration prod uses rather than a hand-built approximation.
 ///
-/// That matters for `before_send`: the unit tests below construct a
-/// `TRACING_LOCATION_CONTEXT` themselves and would keep passing if
-/// `sentry-tracing` renamed the context or changed its shape — the fix would
-/// silently stop applying with the tests green. `a_real_tracing_event_…` closes
-/// that by emitting through a real layer with these options.
-fn client_options(
-    environment: String,
-    release: String,
-    traces_sample_rate: f32,
-) -> sentry::ClientOptions {
+/// That matters twice over, both times for `before_send`:
+///
+/// * The shaping tests below construct a `TRACING_LOCATION_CONTEXT` themselves
+///   and would keep passing if `sentry-tracing` renamed the context or changed
+///   its shape — the fix would silently stop applying with the tests green.
+///   `a_real_tracing_event_…` closes that by emitting through a real layer with
+///   these options.
+/// * `before_send` is also the whole of barrier 2 — the point where an event a
+///   custom-app surface tagged is dropped — and it is installed by one
+///   `.before_send(filter_event)` in this chain. Testing `filter_event`
+///   directly proves the *filter* works; only reading the callback back off
+///   these options proves it is *installed*. Deleting that one line is silent
+///   otherwise, and it fails open: every custom-app event reaches Sentry.
+fn client_options(environment: String, release: String) -> sentry::ClientOptions {
     sentry::ClientOptions::new()
         .environment(environment)
         .release(release)
-        // 0.49 folded `traces_sample_rate` into `traces_sampling_strategy`; this
-        // setter still writes the same fixed-rate strategy.
-        .traces_sample_rate(traces_sample_rate)
+        // Errors and panics only, never performance traces. Pinned, not read from
+        // `SENTRY_TRACES_SAMPLE_RATE`: a transaction carries span fields (e.g.
+        // `oxy.sql`) that must not leave the process, so no deployment value may
+        // turn it on. 0.49 folded this into `traces_sampling_strategy`; the setter
+        // writes the same fixed-rate strategy.
+        .traces_sample_rate(0.0)
         .attach_stacktrace(true)
         .in_app_include(IN_APP_CRATE_PREFIXES)
         .send_default_pii(false) // Don't send personally identifiable information
         .max_breadcrumbs(100)
-        .before_send(|mut event| {
-            normalize_tracing_event(&mut event);
-            // Filter out sensitive information
-            if let Some(exception) = event.exception.iter_mut().next()
-                && let Some(stacktrace) = &mut exception.stacktrace
-            {
-                for frame in &mut stacktrace.frames {
-                    // Remove absolute paths to avoid leaking system information
-                    if let Some(filename) = &mut frame.filename {
-                        let project_root = env!("CARGO_MANIFEST_DIR");
-                        if let Some(stripped) = filename.strip_prefix(project_root) {
-                            *filename = stripped.trim_start_matches('/').to_string();
-                        }
-                    }
-                }
-            }
-            Some(event)
-        })
+        .before_send(filter_event)
 }
 
 pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
@@ -72,22 +62,13 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
 
     let release = format!("oxy@{}", env!("CARGO_PKG_VERSION"));
 
-    let traces_sample_rate = if cfg!(debug_assertions) {
-        0.0 // always disable
-    } else {
-        env::var("SENTRY_TRACES_SAMPLE_RATE")
-            .ok()
-            .and_then(|s| s.parse::<f32>().ok())
-            .unwrap_or(0.0) // always disable for now
-    };
-
     // sentry 0.49 made `ClientOptions` `#[non_exhaustive]`, so it can no longer be
     // built with a struct literal — the consuming builder methods are the supported
     // path. `dsn` stays a direct field assignment (still allowed on a
     // `#[non_exhaustive]` struct) because the `.dsn()` builder *panics* on an
     // unparseable value, and a malformed `SENTRY_DSN` must keep degrading to "no
     // error reporting", not take the process down at startup.
-    let mut options = client_options(environment.clone(), release.clone(), traces_sample_rate);
+    let mut options = client_options(environment.clone(), release.clone());
     options.dsn = dsn?.parse().ok();
 
     let guard = sentry::init(options);
@@ -95,7 +76,6 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
     info!(
         environment = %environment,
         release = %release,
-        traces_sample_rate = %traces_sample_rate,
         "Sentry initialized successfully"
     );
 
@@ -116,6 +96,46 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
     });
 
     Some(guard)
+}
+
+/// Sentry's last look at every event, after the scope (and so its tags) is
+/// applied. Three steps, in this order:
+///
+/// 1. **Barrier 2.** Drop an event a custom-app surface tagged, or one whose
+///    request is a custom-app request
+///    (`oxy_telemetry::sentry_filter::drop_event`; the tag comes from
+///    `oxy-app`'s `sentry_surface`). It runs FIRST and returns `None` — an
+///    event that must not leave the process is not worth shaping, and nothing
+///    downstream may resurrect it.
+/// 2. **Shape a `tracing` event** so one call site is one issue
+///    ([`normalize_tracing_event`]).
+/// 3. **Strip absolute paths** out of the stack, so no local layout leaks.
+fn filter_event(
+    mut event: sentry::protocol::Event<'static>,
+) -> Option<sentry::protocol::Event<'static>> {
+    let request_url = event
+        .request
+        .as_ref()
+        .and_then(|request| request.url.as_ref())
+        .map(|url| url.as_str());
+    if oxy_telemetry::sentry_filter::drop_event(&event.tags, request_url) {
+        return None;
+    }
+    normalize_tracing_event(&mut event);
+    if let Some(exception) = event.exception.iter_mut().next()
+        && let Some(stacktrace) = &mut exception.stacktrace
+    {
+        for frame in &mut stacktrace.frames {
+            // Remove absolute paths to avoid leaking system information
+            if let Some(filename) = &mut frame.filename {
+                let project_root = env!("CARGO_MANIFEST_DIR");
+                if let Some(stripped) = filename.strip_prefix(project_root) {
+                    *filename = stripped.trim_start_matches('/').to_string();
+                }
+            }
+        }
+    }
+    Some(event)
 }
 
 /// Add context to Sentry scope for the current operation
@@ -350,7 +370,7 @@ mod tests {
                     tracing::error!("a real failure");
                 });
             },
-            client_options("test".to_string(), "oxy@test".to_string(), 0.0),
+            client_options("test".to_string(), "oxy@test".to_string()),
         );
 
         assert_eq!(events.len(), 1, "an ERROR must arrive as one event");
@@ -419,5 +439,18 @@ mod tests {
         capture_error_with_context(&error, "Test context");
 
         capture_message_with_context("Test message", sentry::Level::Warning, "Test context");
+    }
+
+    #[test]
+    fn filter_event_drops_what_a_custom_app_surface_tagged() {
+        use oxy_telemetry::sentry_filter::{CUSTOM_APP_SURFACE, CUSTOM_APP_SURFACE_TAG};
+
+        let mut tagged = sentry::protocol::Event::default();
+        tagged.tags.insert(
+            CUSTOM_APP_SURFACE_TAG.to_string(),
+            CUSTOM_APP_SURFACE.to_string(),
+        );
+        assert!(filter_event(tagged).is_none());
+        assert!(filter_event(sentry::protocol::Event::default()).is_some());
     }
 }
