@@ -1144,6 +1144,9 @@ pub async fn handle_function_request(
     // run; we drain it after and send it back with the response so a developer
     // never has to open the oxy server logs to see what a function printed.
     let logs: std::sync::Arc<Mutex<Vec<LogLine>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
+    // Started here, not inside the runtime: `init_ms` should cover everything
+    // between deciding to run and tenant code running, thread spawn included.
+    let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
     #[cfg(feature = "custom-app-functions")]
     let (status_str, error_msg, body_text, http_status) = run_with_runtime(RunArgs {
@@ -1190,6 +1193,7 @@ pub async fn handle_function_request(
             ),
         },
         logs: logs.clone(),
+        meters: meters.clone(),
         // Route path: cancellation is the `cancel_requested_at` DB flag (set on
         // client-gone / dashboard cancel), so a never-fired token suffices here.
         cancel: tokio_util::sync::CancellationToken::new(),
@@ -1244,6 +1248,8 @@ pub async fn handle_function_request(
         status_label: status_str,
         http_status,
         duration_ms: duration_ms.clamp(0, u32::MAX as i64) as u32,
+        host_calls: meters.host_calls(),
+        init_ms: meters.init_ms(),
         error: error_msg.as_deref(),
     });
 
@@ -1449,6 +1455,7 @@ pub(crate) async fn run_scheduled_function(
     let timeout = resolve_timeout(&manifest);
     let started = Instant::now();
     let logs: std::sync::Arc<Mutex<Vec<LogLine>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
     let (status_str, error_msg, body_text, http_status) = run_with_runtime(RunArgs {
         db,
@@ -1500,6 +1507,7 @@ pub(crate) async fn run_scheduled_function(
             ),
         },
         logs: logs.clone(),
+        meters: meters.clone(),
         cancel,
         preagg,
     })
@@ -1536,6 +1544,8 @@ pub(crate) async fn run_scheduled_function(
         status_label: status_str,
         http_status,
         duration_ms: duration_ms.clamp(0, u32::MAX as i64) as u32,
+        host_calls: meters.host_calls(),
+        init_ms: meters.init_ms(),
         error: error_msg.as_deref(),
     });
 
@@ -1734,6 +1744,10 @@ struct RunArgs<'a> {
     /// Deliberately absent rather than synthesized: a fabricated id would make a
     /// join silently group unrelated background runs into one "request".
     request_id: Option<Uuid>,
+    /// Subrequest count and setup time, read back after the run. Shared rather
+    /// than returned because the isolate thread can outlive it — see
+    /// `runtime::InvocationMeters`.
+    meters: super::custom_apps_telemetry::InvocationMeters,
     timeout: Duration,
     /// §11.3 allowlist — databases `ctx.warehouse.*` may write to (empty = none).
     write_destinations: Vec<String>,
@@ -2141,6 +2155,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
         cancel_rx,
         args.timeout,
         args.logs,
+        args.meters,
         // No `tracing` parent, carrying the same identifying fields as the
         // invocation span above. See `runtime::run`: a clone of the caller's
         // span would be pinned open by an isolate thread that outlives a cancel

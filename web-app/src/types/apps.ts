@@ -571,6 +571,60 @@ export interface AppAvailability {
   windows: AvailabilityWindow[];
 }
 
+// ── Fleet health (every published app, one verdict each) ─────────────────────
+
+/**
+ * What the fleet table says about one app.
+ *
+ * `not_measured` and `quiet` are the two that matter. Four separate layers in
+ * the backend used to turn an absent measurement into a green tick — capture
+ * off, workspace never evaluated, the query erroring, traffic below the burn
+ * evaluator's floor — and these two states are what stop that. Never render
+ * either as healthy.
+ */
+export type AppHealth = "down" | "degraded" | "not_measured" | "quiet" | "operational";
+
+export interface AppHealthRow {
+  app_id: string;
+  app_slug: string;
+  app_name: string;
+  org_id: string;
+  org_slug: string;
+  health: AppHealth;
+  /** Why, in a line. Absent only when the app is plainly operational. */
+  reason: string | null;
+  /** Requests over `window_minutes`, and how many failed. Both 0 on an
+   *  unmeasured app — read `health` first, not these. */
+  requests: number;
+  failed: number;
+  /** What the same window carried a week ago, when there was a baseline.
+   *  `null` means no established rhythm to compare against. */
+  baseline: number | null;
+  window_minutes: number;
+}
+
+export interface FleetSummary {
+  down: number;
+  degraded: number;
+  not_measured: number;
+  quiet: number;
+  operational: number;
+}
+
+export interface FleetHealthResponse {
+  apps: AppHealthRow[];
+  summary: FleetSummary;
+  /** Published apps in scope before paging. `apps.length` can be smaller for two
+   *  independent reasons — the page cap and the needs-attention filter — so this
+   *  is what tells a reader whether they are seeing the whole fleet. */
+  total: number;
+  has_more: boolean;
+  evaluated_at: string;
+  /** `false` when OXY_OBSERVABILITY_BACKEND is unset. Every row is then
+   *  `not_measured`, and the page must say so rather than look empty. */
+  observability_configured: boolean;
+}
+
 // ── Logs & client errors (per-app debuggability) ─────────────────────────────
 
 export interface FunctionLogLine {

@@ -66,6 +66,54 @@ const RULES: &[Rule] = &[
     },
 ];
 
+/// A rule that counts failures instead of dividing them. See [`LOW_TRAFFIC_RULE`].
+struct AbsoluteRule {
+    long_minutes: u32,
+    short_minutes: u32,
+    long_min_failures: u64,
+    short_min_failures: u64,
+    /// Failure ratio both windows must also reach. Without it, a busy app's
+    /// ordinary error rate would trip the count on volume alone.
+    min_ratio: f64,
+}
+
+impl AbsoluteRule {
+    fn matches(&self, w: &AppAvailabilityWindow, min_failures: u64) -> bool {
+        w.failed >= min_failures && w.failure_ratio().is_some_and(|r| r >= self.min_ratio)
+    }
+}
+
+/// The low-traffic rule: absolute failure counts, with [`SloConfig::min_requests`]
+/// deliberately bypassed.
+///
+/// The ratio rules above cannot fire below the floor, and the floor earns its
+/// place — one failure out of two on an idle app is a 50× burn and a page every
+/// time an internal tool hiccups at 3am. But it also means a quiet app failing
+/// *everything* it serves is invisible, and most of this fleet is quiet: these
+/// are internal tools for physical industries, not high-volume SaaS. The floor's
+/// own doc comment concedes the long tail is "most of them".
+///
+/// So the floor is bypassed only where the absolute count is conclusive on its
+/// own. Five failures is past a hiccup and a majority ratio is past a
+/// coincidence — the SRE workbook's remedy for low-traffic services is exactly
+/// this pair ("a minimum absolute error count before alerting"). `failure_alert`
+/// already pages on an absolute threshold of 3 for functions; this is the same
+/// idea for the surfaces it does not cover.
+/// The short window is **30m, not the 5m the ratio rules pair with 60m**. At the
+/// traffic this rule targets — roughly 5–20 requests an hour — a five-minute
+/// window is empty more often than not: 5 req/hr is one request every twelve
+/// minutes, so `short_min_failures` could never be satisfied and the rule would
+/// almost never fire. 30m is the shortest window in [`ALERT_WINDOWS_MINUTES`]
+/// that reliably carries evidence at that rate, and it still drains inside half
+/// an hour, so a recovery clears the verdict.
+const LOW_TRAFFIC_RULE: AbsoluteRule = AbsoluteRule {
+    long_minutes: 60,
+    short_minutes: 30,
+    long_min_failures: 5,
+    short_min_failures: 1,
+    min_ratio: 0.5,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     /// Wake someone.
@@ -183,11 +231,53 @@ pub fn evaluate(windows: &[AppAvailabilityWindow], cfg: &SloConfig) -> BurnVerdi
         }
     }
 
+    // Only where the ratio rules could not speak *about this rule's window*.
+    //
+    // Keyed to the 60m window specifically, NOT to `saw_enough_traffic`. That
+    // flag is set by any rule's long window — including 6h and 24h — so an app
+    // quiet by the hour but not by the day used to disable the bypass while no
+    // ratio rule could fire either: the 60m/5m rule is under the floor, and the
+    // 6h and 24h rules are blocked by their own short windows. Five requests an
+    // hour, every one failing, scored `Healthy`. That is precisely the traffic
+    // shape this rule exists for.
+    //
+    // `RULES` returns on the first match, so anything the ratio rules could
+    // judge has already returned by here and there is no double-report risk.
+    let ratio_can_judge =
+        window(windows, LOW_TRAFFIC_RULE.long_minutes).is_some_and(|w| w.total >= cfg.min_requests);
+    if !ratio_can_judge && let Some(verdict) = low_traffic_verdict(windows, cfg) {
+        return verdict;
+    }
+
     if saw_enough_traffic {
         BurnVerdict::Healthy
     } else {
         BurnVerdict::NoOpinion
     }
+}
+
+/// [`LOW_TRAFFIC_RULE`] applied, or `None` when its windows are missing or it
+/// does not match.
+///
+/// The severity is always `Page`: this rule only fires where the ratio rules
+/// were silent, and an app failing the majority of what little it serves is
+/// down rather than degrading.
+fn low_traffic_verdict(windows: &[AppAvailabilityWindow], cfg: &SloConfig) -> Option<BurnVerdict> {
+    let rule = &LOW_TRAFFIC_RULE;
+    let long = window(windows, rule.long_minutes)?;
+    let short = window(windows, rule.short_minutes)?;
+    if !rule.matches(long, rule.long_min_failures) || !rule.matches(short, rule.short_min_failures)
+    {
+        return None;
+    }
+    let failure_ratio = long.failure_ratio()?;
+    Some(BurnVerdict::Burning {
+        severity: Severity::Page,
+        burn_rate: failure_ratio / cfg.allowed_failure_ratio(),
+        long_minutes: rule.long_minutes,
+        short_minutes: rule.short_minutes,
+        failure_ratio,
+    })
 }
 
 #[cfg(test)]
@@ -399,6 +489,146 @@ mod tests {
         match evaluate(&at_ratio(0.5), &SloConfig::default()) {
             BurnVerdict::Burning { severity, .. } => assert_eq!(severity, Severity::Page),
             other => panic!("expected a page, got {other:?}"),
+        }
+    }
+
+    // ── The low-traffic rule ─────────────────────────────────────────────────
+
+    /// A quiet app's windows: totals far below `min_requests`, so no ratio rule
+    /// can reach an opinion. `failed` is absolute, as a real incident is.
+    fn quiet(
+        long_total: u64,
+        long_failed: u64,
+        short_total: u64,
+        short_failed: u64,
+    ) -> Vec<AppAvailabilityWindow> {
+        ALERT_WINDOWS_MINUTES
+            .iter()
+            .map(|m| {
+                // Keyed off the rule rather than literal 60/5, so moving its
+                // windows cannot leave these fixtures describing a shape the
+                // rule no longer reads — which is how the gap below went
+                // unnoticed in the first place.
+                let (total, failed) = if *m == LOW_TRAFFIC_RULE.long_minutes {
+                    (long_total, long_failed)
+                } else if *m == LOW_TRAFFIC_RULE.short_minutes {
+                    (short_total, short_failed)
+                } else {
+                    (0, 0)
+                };
+                AppAvailabilityWindow {
+                    window_minutes: *m,
+                    total,
+                    failed,
+                }
+            })
+            .collect()
+    }
+
+    /// The case the rule exists for, and the one the ratio rules structurally
+    /// cannot see: an app serving almost nothing, and failing all of it.
+    #[test]
+    fn a_quiet_app_failing_everything_pages_despite_the_floor() {
+        let windows = quiet(6, 6, 2, 2);
+        assert!(
+            windows
+                .iter()
+                .all(|w| w.total < SloConfig::default().min_requests),
+            "the fixture must sit below the floor or it proves nothing"
+        );
+        match evaluate(&windows, &SloConfig::default()) {
+            BurnVerdict::Burning { severity, .. } => assert_eq!(severity, Severity::Page),
+            other => panic!("a quiet app failing 6/6 must page, got {other:?}"),
+        }
+    }
+
+    /// The count alone is not enough. A quiet app that served plenty and failed
+    /// a handful is not down, and the ratio guard is what says so.
+    #[test]
+    fn enough_failures_but_a_minority_ratio_does_not_fire() {
+        // 5 failures clears `long_min_failures`, but 5/19 is well under half.
+        let verdict = evaluate(&quiet(19, 5, 4, 1), &SloConfig::default());
+        assert_eq!(verdict, BurnVerdict::NoOpinion, "got {verdict:?}");
+    }
+
+    /// The ratio alone is not enough either. One failure out of one is a 100%
+    /// failure rate and a hiccup, which is the exact thing the floor protects
+    /// against — bypassing it must not reintroduce that page.
+    #[test]
+    fn a_total_ratio_on_a_trivial_count_does_not_fire() {
+        let verdict = evaluate(&quiet(1, 1, 1, 1), &SloConfig::default());
+        assert_eq!(verdict, BurnVerdict::NoOpinion, "got {verdict:?}");
+    }
+
+    /// Two windows, same as every rule here: recovery must clear the verdict as
+    /// soon as the short window drains, or this becomes an alert nobody can
+    /// silence.
+    #[test]
+    fn a_recovered_quiet_app_clears_once_the_short_window_drains() {
+        let verdict = evaluate(&quiet(8, 8, 3, 0), &SloConfig::default());
+        assert_eq!(verdict, BurnVerdict::NoOpinion, "got {verdict:?}");
+    }
+
+    /// An app quiet by the hour but not by the day.
+    ///
+    /// This is the shape the whole rule exists for and the one the `quiet()`
+    /// fixture cannot express, because it zeroes every window except the rule's own two. Five
+    /// requests an hour clears the floor over six hours and a day, so those
+    /// windows set `saw_enough_traffic` — but neither can fire, because their
+    /// SHORT windows (30m, 120m) are still below the floor. The 60m/5m ratio
+    /// rule cannot speak either. Without a bypass keyed to this rule's own
+    /// window, the app scores Healthy while failing every request it serves.
+    #[test]
+    fn an_app_quiet_by_the_hour_but_not_by_the_day_still_pages() {
+        // 5 req/hour, every one of them failing.
+        let windows: Vec<AppAvailabilityWindow> = ALERT_WINDOWS_MINUTES
+            .iter()
+            .map(|m| {
+                let total = (5 * *m as u64) / 60;
+                AppAvailabilityWindow {
+                    window_minutes: *m,
+                    total,
+                    failed: total,
+                }
+            })
+            .collect();
+
+        let floor = SloConfig::default().min_requests;
+        let at = |m: u32| windows.iter().find(|w| w.window_minutes == m).unwrap();
+        assert!(
+            at(60).total < floor,
+            "the 60m window must be below the floor"
+        );
+        assert!(
+            at(360).total >= floor,
+            "the 6h window must clear it — that is what disables the bypass"
+        );
+        assert!(
+            at(30).total < floor && at(120).total < floor,
+            "the short windows must stay below the floor, or a ratio rule fires \
+             and this test proves nothing about the bypass"
+        );
+
+        match evaluate(&windows, &SloConfig::default()) {
+            BurnVerdict::Burning { severity, .. } => assert_eq!(severity, Severity::Page),
+            other => panic!("an app failing 100% of what it serves must not read as {other:?}"),
+        }
+    }
+
+    /// The rule is a floor-bypass for apps the ratio rules cannot judge, not a
+    /// second opinion on apps they can. A busy app degrading slowly is a
+    /// `Ticket`, and the absolute count must not promote it to a `Page`.
+    #[test]
+    fn a_busy_app_is_still_judged_by_ratio_not_by_count() {
+        // 3.5× burn: over the 3.0 ticket rule, under the 6.0 and 14.4 pages.
+        // Absolute failures here are in the hundreds, far past the count rule.
+        match evaluate(&at_ratio(0.035), &SloConfig::default()) {
+            BurnVerdict::Burning { severity, .. } => assert_eq!(
+                severity,
+                Severity::Ticket,
+                "the count rule must not outrank a ratio verdict"
+            ),
+            other => panic!("expected a ticket-grade burn, got {other:?}"),
         }
     }
 }

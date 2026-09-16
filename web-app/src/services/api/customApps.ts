@@ -9,6 +9,7 @@ import type {
   CustomApp,
   CustomAppDebug,
   CustomAppSummary,
+  FleetHealthResponse,
   FunctionInvocation,
   FunctionLogLine,
   FunctionRunDetail,
@@ -27,6 +28,26 @@ import { apiClient } from "./axios";
  * uuid.
  */
 export const CustomAppsService = {
+  /**
+   * Fleet health — every published app the caller can see, worst first.
+   *
+   * Server-side scope filters the rows, so a bounded grant sees only its own
+   * orgs. `needsAttention` drops the quiet and operational rows; unmeasured
+   * apps survive it, because "we are not watching this" is exactly what an
+   * operator needs to see.
+   */
+  async fleetHealth(
+    options: { limit?: number; offset?: number; needsAttention?: boolean } = {}
+  ): Promise<FleetHealthResponse> {
+    const params = new URLSearchParams();
+    if (options.limit != null) params.set("limit", String(options.limit));
+    if (options.offset != null) params.set("offset", String(options.offset));
+    if (options.needsAttention) params.set("needs_attention", "true");
+    const suffix = params.toString();
+    const response = await apiClient.get(`/customer-apps/health${suffix ? `?${suffix}` : ""}`);
+    return response.data;
+  },
+
   /**
    * Paged admin list. The server orders rows by `updated_at` DESC so
    * page 0 is "what got touched most recently"; `next_offset` is null

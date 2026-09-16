@@ -7,6 +7,8 @@
 //! that order, because that is the table's sort key. A query that filtered on
 //! `app_id` alone would be correct and would also scan every tenant's parts.
 
+use std::collections::HashMap;
+
 use clickhouse::Row;
 use oxy_shared::errors::OxyError;
 use serde::{Deserialize, Serialize};
@@ -39,6 +41,8 @@ struct CustomAppEventInsertRow {
     route: String,
     status: u16,
     duration_ms: u32,
+    host_calls: u32,
+    init_ms: u32,
     bytes: u64,
     app_role: String,
     outcome: String,
@@ -119,6 +123,18 @@ struct AvailabilityRow {
     failed: u64,
 }
 
+/// The same counts, plus the app they belong to, for the grouped fleet queries.
+///
+/// The baseline query has no failure notion and selects a literal `0` for
+/// `failed` rather than getting its own row type — one shape for both keeps the
+/// two fleet queries readable side by side.
+#[derive(Debug, Deserialize, Row)]
+struct FleetAvailabilityRow {
+    app_id: String,
+    total: u64,
+    failed: u64,
+}
+
 /// Longest a single log line may be. A function that dumps a 4 MB response body
 /// into `ctx.log` should cost one truncated row, not a multi-megabyte insert
 /// repeated per line — and the truncation is visible in the stored text rather
@@ -170,6 +186,8 @@ pub(super) async fn insert_custom_app_events(
             route: e.route,
             status: e.status,
             duration_ms: e.duration_ms,
+            host_calls: e.host_calls,
+            init_ms: e.init_ms,
             bytes: e.bytes,
             app_role: e.app_role,
             outcome: e.outcome,
@@ -434,6 +452,19 @@ pub(super) async fn get_function_logs(
         .collect())
 }
 
+/// The surfaces that count toward availability, as a SQL fragment.
+///
+/// One definition, shared by the per-app SLI and the fleet roll-up. Two copies
+/// would eventually disagree, and the symptom would be the fleet table and the
+/// app's own Availability panel reporting different numbers for the same app on
+/// the same screen — with nothing to say which is right.
+///
+/// `asset` is excluded on purpose: a browser cancelling an image is not the app
+/// being unavailable, and asset volume outnumbers page loads by enough to bury a
+/// real shell failure. `client` is excluded because a browser-reported event is
+/// already counted as the serve it belongs to.
+const AVAILABILITY_KINDS: &str = "kind IN ('serve', 'fn', 'data')";
+
 /// SQL for one availability window. Pure, so the shape can be regression-tested
 /// without a live ClickHouse — which is the only way the `outcome != 'ok'`
 /// clause below stays honest.
@@ -444,10 +475,69 @@ fn availability_sql(org_id: &str, app_id: &str, window_minutes: u32) -> String {
          FROM custom_app_events \
          WHERE org_id = '{org}' AND app_id = '{app}' \
          AND timestamp >= now() - INTERVAL {minutes} MINUTE \
-         AND kind IN ('serve', 'fn', 'data')",
+         AND {AVAILABILITY_KINDS}",
         org = escape_sql_literal(org_id),
         app = escape_sql_literal(app_id),
         minutes = window_minutes,
+    )
+}
+
+/// `(org_id, app_id) IN (('o','a'), …)` — the fleet predicate.
+///
+/// A tuple `IN` rather than `app_id IN (…)`, because the table's sort key is
+/// `(org_id, app_id, timestamp)` and it is org-first. Filtering on `app_id`
+/// alone would be correct and would scan every tenant's parts — the same trap
+/// the per-app query's own test guards against, and it matters more here, where
+/// one query covers the whole fleet.
+fn fleet_predicate(apps: &[(String, String)]) -> String {
+    let pairs = apps
+        .iter()
+        .map(|(org, app)| {
+            format!(
+                "('{}','{}')",
+                escape_sql_literal(org),
+                escape_sql_literal(app)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("(org_id, app_id) IN ({pairs})")
+}
+
+/// SQL for one availability window across many apps at once.
+///
+/// The per-app query runs one statement per window; doing that per app would be
+/// `windows × apps` round trips for a page of the fleet table. This is one
+/// statement per window, grouped by app.
+fn fleet_availability_sql(apps: &[(String, String)], window_minutes: u32) -> String {
+    format!(
+        "SELECT app_id, count() AS total, \
+         countIf(outcome != 'ok') AS failed \
+         FROM custom_app_events \
+         WHERE {predicate} \
+         AND timestamp >= now() - INTERVAL {window_minutes} MINUTE \
+         AND {AVAILABILITY_KINDS} \
+         GROUP BY app_id",
+        predicate = fleet_predicate(apps),
+    )
+}
+
+/// SQL for the heartbeat baseline: the same window, one cycle back.
+///
+/// **Both** bounds shift. A predicate with only a lower bound would compare the
+/// current window against everything since a week ago — a week of traffic
+/// against six hours of it — and no live app would ever read as silent.
+fn fleet_baseline_sql(apps: &[(String, String)], window_minutes: u32, cycle_days: u32) -> String {
+    format!(
+        "SELECT app_id, count() AS total, \
+         toUInt64(0) AS failed \
+         FROM custom_app_events \
+         WHERE {predicate} \
+         AND timestamp >= now() - INTERVAL {cycle_days} DAY - INTERVAL {window_minutes} MINUTE \
+         AND timestamp < now() - INTERVAL {cycle_days} DAY \
+         AND {AVAILABILITY_KINDS} \
+         GROUP BY app_id",
+        predicate = fleet_predicate(apps),
     )
 }
 
@@ -482,6 +572,83 @@ pub(super) async fn get_app_availability(
         });
     }
     Ok(out)
+}
+
+/// Availability counts for many apps at once, keyed by `app_id`.
+///
+/// An app absent from the result served nothing in that window — ClickHouse
+/// returns no group for it. The caller must read that as a zero rather than as
+/// missing data, which is why this returns totals rather than an `Option`: the
+/// distinction between "served nothing" and "we did not ask" belongs to whether
+/// this function returned `Ok` at all.
+pub(super) async fn get_fleet_availability(
+    storage: &ClickHouseObservabilityStorage,
+    apps: &[(String, String)],
+    windows_minutes: &[u32],
+) -> Result<HashMap<String, Vec<AppAvailabilityWindow>>, OxyError> {
+    // An empty `IN ()` is a ClickHouse syntax error, and an empty fleet is a
+    // perfectly ordinary state (a dev box with no published apps).
+    if apps.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut out: HashMap<String, Vec<AppAvailabilityWindow>> = apps
+        .iter()
+        .map(|(_, app_id)| (app_id.clone(), Vec::with_capacity(windows_minutes.len())))
+        .collect();
+
+    for window in windows_minutes {
+        let rows = storage
+            .read_client()
+            .query(&fleet_availability_sql(apps, *window))
+            .fetch_all::<FleetAvailabilityRow>()
+            .await
+            .map_err(|e| {
+                OxyError::RuntimeError(format!("ClickHouse fleet availability query failed: {e}"))
+            })?;
+        let by_app: HashMap<&str, &FleetAvailabilityRow> =
+            rows.iter().map(|r| (r.app_id.as_str(), r)).collect();
+
+        // Iterate the requested apps, not the returned rows: every app must end
+        // with one entry per window, including the ones that served nothing.
+        for (_, app_id) in apps {
+            let row = by_app.get(app_id.as_str());
+            if let Some(windows) = out.get_mut(app_id) {
+                windows.push(AppAvailabilityWindow {
+                    window_minutes: *window,
+                    total: row.map(|r| r.total).unwrap_or(0),
+                    failed: row.map(|r| r.failed).unwrap_or(0),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Request counts for the same window one cycle back, keyed by `app_id`, for
+/// the absence-of-traffic heartbeat.
+///
+/// An app absent from the result had no traffic in that window a cycle ago,
+/// which [`crate::heartbeat::evaluate`] reads as "no baseline" — no rhythm to
+/// have broken.
+pub(super) async fn get_fleet_heartbeat_baseline(
+    storage: &ClickHouseObservabilityStorage,
+    apps: &[(String, String)],
+    window_minutes: u32,
+    cycle_days: u32,
+) -> Result<HashMap<String, u64>, OxyError> {
+    if apps.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = storage
+        .read_client()
+        .query(&fleet_baseline_sql(apps, window_minutes, cycle_days))
+        .fetch_all::<FleetAvailabilityRow>()
+        .await
+        .map_err(|e| {
+            OxyError::RuntimeError(format!("ClickHouse heartbeat baseline query failed: {e}"))
+        })?;
+    Ok(rows.into_iter().map(|r| (r.app_id, r.total)).collect())
 }
 
 #[cfg(test)]
@@ -557,5 +724,119 @@ mod tests {
             failed: 0,
         };
         assert_eq!(window.failure_ratio(), None);
+    }
+
+    // ── Fleet queries ────────────────────────────────────────────────────────
+
+    fn fleet() -> Vec<(String, String)> {
+        vec![
+            ("acme".into(), "app-1".into()),
+            ("globex".into(), "app-2".into()),
+        ]
+    }
+
+    /// The sort key is `(org_id, app_id, timestamp)`. A fleet query that filtered
+    /// on `app_id` alone would be correct and would scan every tenant's parts on
+    /// every window — the per-app query has the same guard, and it matters more
+    /// here, where one statement covers the whole fleet.
+    #[test]
+    fn the_fleet_predicate_leads_with_org_so_it_uses_the_sort_key() {
+        let sql = fleet_availability_sql(&fleet(), 60);
+        assert!(
+            sql.contains("(org_id, app_id) IN"),
+            "must be a tuple IN on the sort key, not an app_id list: {sql}"
+        );
+        assert!(sql.contains("('acme','app-1')"), "{sql}");
+        assert!(sql.contains("('globex','app-2')"), "{sql}");
+    }
+
+    /// The fleet roll-up and the per-app SLI must count the same surfaces, or
+    /// the fleet table and the app's own Availability panel disagree about the
+    /// same app on the same screen.
+    #[test]
+    fn fleet_and_per_app_availability_count_the_same_surfaces() {
+        let per_app = availability_sql("acme", "app-1", 60);
+        let fleet_sql = fleet_availability_sql(&fleet(), 60);
+        assert!(per_app.contains(AVAILABILITY_KINDS), "{per_app}");
+        assert!(fleet_sql.contains(AVAILABILITY_KINDS), "{fleet_sql}");
+        // Outcome-driven, not status-driven, on both paths: a white-screened app
+        // serves 200s, and `status >= 500` would call that available.
+        assert!(
+            fleet_sql.contains("countIf(outcome != 'ok')"),
+            "{fleet_sql}"
+        );
+        assert!(!fleet_sql.contains("status >= 500"), "{fleet_sql}");
+    }
+
+    /// Grouped, or every app in the fleet collapses into one row and the table
+    /// reports the fleet's aggregate as each app's own health.
+    #[test]
+    fn the_fleet_query_groups_by_app() {
+        let sql = fleet_availability_sql(&fleet(), 60);
+        assert!(sql.contains("GROUP BY app_id"), "{sql}");
+        assert!(
+            sql.contains("SELECT app_id"),
+            "the group key must come back or rows cannot be attributed: {sql}"
+        );
+    }
+
+    /// **Both** bounds shift by a cycle. With only a lower bound the baseline
+    /// would be a week of traffic compared against six hours of it, and no live
+    /// app would ever read as silent — the heartbeat would be permanently,
+    /// invisibly off.
+    #[test]
+    fn the_baseline_window_is_bounded_on_both_sides() {
+        let sql = fleet_baseline_sql(&fleet(), 360, 7);
+        assert!(
+            sql.contains("timestamp >= now() - INTERVAL 7 DAY - INTERVAL 360 MINUTE"),
+            "missing the lower bound one cycle back: {sql}"
+        );
+        assert!(
+            sql.contains("timestamp < now() - INTERVAL 7 DAY"),
+            "missing the upper bound; the window would run to now: {sql}"
+        );
+    }
+
+    /// An empty `IN ()` is a ClickHouse syntax error, and an empty fleet is an
+    /// ordinary state — a dev box with nothing published.
+    #[test]
+    fn an_empty_fleet_builds_no_predicate_list() {
+        // The callers short-circuit before building SQL; this pins the reason.
+        assert_eq!(fleet_predicate(&[]), "(org_id, app_id) IN ()");
+    }
+
+    /// The slice-0 meters have to exist in BOTH the fresh-create DDL and the
+    /// idempotent ALTER, or a deployment gets them depending on when its tables
+    /// were made — and the insert names every column, so the half without them
+    /// fails every write.
+    #[test]
+    fn the_invocation_meters_are_in_the_create_and_the_alter() {
+        use super::super::schema;
+        for col in ["host_calls", "init_ms"] {
+            assert!(
+                schema::CREATE_CUSTOM_APP_EVENTS_TABLE.contains(col),
+                "{col} missing from CREATE"
+            );
+            assert!(
+                schema::CUSTOM_APP_METER_ALTERS
+                    .iter()
+                    .any(|a| a.contains(col)),
+                "{col} missing from the ALTERs"
+            );
+        }
+        assert!(
+            schema::CUSTOM_APP_METER_ALTERS
+                .iter()
+                .all(|a| a.contains("IF NOT EXISTS")),
+            "the ALTERs run on every boot, so they must be idempotent"
+        );
+    }
+
+    /// Single quotes are the one escape ClickHouse takes unconditionally, and a
+    /// slug reaches this predicate from the database.
+    #[test]
+    fn fleet_predicate_escapes_quotes() {
+        let apps = vec![("o'rg".to_string(), "app".to_string())];
+        assert!(fleet_predicate(&apps).contains("('o''rg','app')"));
     }
 }

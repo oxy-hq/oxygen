@@ -390,6 +390,17 @@ pub struct CustomAppEventRecord {
     pub route: String,
     pub status: u16,
     pub duration_ms: u32,
+    /// Host ops an `fn` invocation made — the subrequest count. `0` on every
+    /// other kind, which have no host calls to make.
+    pub host_calls: u32,
+    /// Platform setup milliseconds for an `fn` invocation: OS thread spawn,
+    /// isolate creation, bootstrap and script compile. `duration_ms - init_ms`
+    /// is the tenant's own time.
+    ///
+    /// `0` means "not applicable or never reached" — a non-`fn` row, a build
+    /// that failed to compile, or a timeout during setup. It does not mean
+    /// setup was instant.
+    pub init_ms: u32,
     pub bytes: u64,
     pub app_role: String,
     /// One of [`custom_app_outcome`].

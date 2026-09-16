@@ -11,6 +11,8 @@ mod metrics;
 pub mod schema;
 mod traces;
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use clickhouse::{Client, Row};
 use oxy_shared::errors::OxyError;
@@ -352,7 +354,10 @@ impl ClickHouseObservabilityStorage {
         // lose the whole store over two optional columns. The custom-app inserts
         // name every column and fail loudly on their own until the columns
         // exist; product traces are unaffected either way.
-        for alter in schema::CUSTOM_APP_TRACE_ID_ALTERS {
+        for alter in schema::CUSTOM_APP_TRACE_ID_ALTERS
+            .iter()
+            .chain(schema::CUSTOM_APP_METER_ALTERS)
+        {
             if let Err(e) = self.client.query(alter).execute().await {
                 tracing::warn!(error = %e, alter, "ClickHouse schema ALTER skipped");
             }
@@ -884,6 +889,31 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         with_query_timeout(
             "get_app_availability",
             custom_apps::get_app_availability(self, org_id, app_id, windows_minutes),
+        )
+        .await
+    }
+
+    async fn get_fleet_availability(
+        &self,
+        apps: &[(String, String)],
+        windows_minutes: &[u32],
+    ) -> Result<HashMap<String, Vec<AppAvailabilityWindow>>, OxyError> {
+        with_query_timeout(
+            "get_fleet_availability",
+            custom_apps::get_fleet_availability(self, apps, windows_minutes),
+        )
+        .await
+    }
+
+    async fn get_fleet_heartbeat_baseline(
+        &self,
+        apps: &[(String, String)],
+        window_minutes: u32,
+        cycle_days: u32,
+    ) -> Result<HashMap<String, u64>, OxyError> {
+        with_query_timeout(
+            "get_fleet_heartbeat_baseline",
+            custom_apps::get_fleet_heartbeat_baseline(self, apps, window_minutes, cycle_days),
         )
         .await
     }

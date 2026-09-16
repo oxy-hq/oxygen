@@ -39,7 +39,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use deno_core::{JsRuntime, OpState, RuntimeOptions, op2};
 use deno_error::JsErrorBox;
@@ -430,6 +430,7 @@ enum HostCall {
 // ── ctx ops ──────────────────────────────────────────────────────────────
 
 use super::LogLine;
+use crate::server::api::custom_apps_telemetry::InvocationMeters;
 
 /// What `op_ctx_log` should do with a line, given how many are already buffered.
 ///
@@ -1518,25 +1519,33 @@ globalThis.__buildCtx = (ctxData) => ({
 });
 "#;
 
+/// Isolate threads abandoned after [`TIMEOUT_GRACE`] expired.
+///
+/// The detach is deliberate (see the grace arm in [`run`]) and it is also an
+/// unbounded resource leak that nothing was counting. A rising value is the
+/// earliest available signal that a tenant's function is wedged in a host call
+/// that will not return, and it is a fact about **our process** rather than
+/// about the app — so it belongs in platform telemetry, never in the
+/// tenant-facing store.
+///
+/// Healthy is zero. Mirrors the `workspace_fs_probe::leaks()` idiom.
+static ABANDONED_ISOLATES: AtomicU64 = AtomicU64::new(0);
+
+/// Threads abandoned so far on this process. Healthy is zero.
+///
+/// Scraped as `oxy_abandoned_isolates_total` by `worker_metrics`; see the
+/// `ABANDONED_ISOLATES` static for why the number is per-process and why it is
+/// deliberately not on the fleet-health API.
+pub fn abandoned_isolates() -> u64 {
+    ABANDONED_ISOLATES.load(Ordering::Relaxed)
+}
+
 /// How long to wait for the isolate thread to actually exit after a wall-clock
 /// timeout (or cancel) has terminated execution, before giving up and returning
 /// `Timeout` regardless. Bounds the worst case where the isolate is parked in a
 /// not-yet-returned host call that `terminate_execution` can't interrupt.
 const TIMEOUT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Run `export default async (req, ctx) => Response` from a bundled ESM
-/// artifact to completion, bridging `ctx.*` calls to `host`.
-///
-/// `cancel` resolving (the client disconnected, or the dashboard cancel
-/// flag was observed) terminates the isolate promptly via
-/// `terminate_execution`. `timeout` is enforced here (not by the caller
-/// wrapping this future in `tokio::time::timeout`): on elapse the isolate is
-/// terminated the same way as a cancel, and we wait up to [`TIMEOUT_GRACE`]
-/// for the isolate thread to actually exit before returning — so in the common
-/// case the OS thread + V8 isolate never outlive this call. If the isolate is
-/// wedged in a not-yet-returned host call (which `terminate_execution` cannot
-/// interrupt), we return `Timeout` after the grace period and let that thread
-/// unwind on its own once the (individually bounded) host op completes.
 /// The triggering HTTP request, as the function's `req` argument sees it.
 ///
 /// Bundled rather than passed as three positional parameters: `run` is already
@@ -1563,6 +1572,19 @@ impl FnRequest {
     }
 }
 
+/// Run `export default async (req, ctx) => Response` from a bundled ESM
+/// artifact to completion, bridging `ctx.*` calls to `host`.
+///
+/// `cancel` resolving (the client disconnected, or the dashboard cancel
+/// flag was observed) terminates the isolate promptly via
+/// `terminate_execution`. `timeout` is enforced here (not by the caller
+/// wrapping this future in `tokio::time::timeout`): on elapse the isolate is
+/// terminated the same way as a cancel, and we wait up to `TIMEOUT_GRACE`
+/// for the isolate thread to actually exit before returning — so in the common
+/// case the OS thread + V8 isolate never outlive this call. If the isolate is
+/// wedged in a not-yet-returned host call (which `terminate_execution` cannot
+/// interrupt), we return `Timeout` after the grace period and let that thread
+/// unwind on its own once the (individually bounded) host op completes.
 pub async fn run(
     artifact_js: String,
     ctx: InvocationCtx,
@@ -1573,6 +1595,9 @@ pub async fn run(
     // Shared with the caller: the isolate appends `console.*`/`ctx.log` here and
     // the caller drains it after (surfaced back to the app, not just tracing).
     logs: Arc<std::sync::Mutex<Vec<LogLine>>>,
+    // Shared with the caller for the same reason as `logs`: the isolate thread
+    // can outlive this call, so what it measures cannot be a return value.
+    meters: InvocationMeters,
     // The span the isolate thread runs inside. Must be PARENTLESS — see the
     // comment at the spawn below for why a clone of the caller's span is the
     // wrong thing here.
@@ -1608,6 +1633,7 @@ pub async fn run(
         .name("oxy-function".into())
         .spawn({
             let cancelled = cancelled.clone();
+            let meters = meters.clone();
             move || {
                 // Sync closure, so holding the guard for the whole thread body
                 // is correct (the "never hold across an await" rule is about
@@ -1627,9 +1653,17 @@ pub async fn run(
                 };
                 let local = tokio::task::LocalSet::new();
                 local.block_on(&rt, async move {
-                    let result =
-                        execute_isolate(artifact_js, ctx, req, call_tx, handle_tx, cancelled, logs)
-                            .await;
+                    let result = execute_isolate(
+                        artifact_js,
+                        ctx,
+                        req,
+                        call_tx,
+                        handle_tx,
+                        cancelled,
+                        logs,
+                        meters,
+                    )
+                    .await;
                     let _ = done_tx.send(result);
                 });
             }
@@ -1688,6 +1722,13 @@ pub async fn run(
             // thread unwind on its own once the host op completes — its
             // `done_tx`/`call_tx` sends then no-op against our dropped ends.
             _ = &mut grace, if timed_out => {
+                // Deliberate, and worth counting: see `ABANDONED_ISOLATES`.
+                ABANDONED_ISOLATES.fetch_add(1, Ordering::Relaxed);
+                tracing::warn!(
+                    abandoned_total = abandoned_isolates(),
+                    grace_secs = TIMEOUT_GRACE.as_secs(),
+                    "isolate thread did not exit after termination; detaching it"
+                );
                 return Err(RuntimeError::Timeout);
             }
             // Service a host call from the isolate. Spawn so concurrent
@@ -1699,6 +1740,10 @@ pub async fn run(
             maybe_call = call_rx.recv() => {
                 match maybe_call {
                     Some(call) => {
+                        // Counted here rather than at the op sites: this is the
+                        // one place every `ctx.*` call funnels through, so the
+                        // count cannot drift as ops are added.
+                        meters.host_calls.fetch_add(1, Ordering::Relaxed);
                         let host = host.clone();
                         let (span, kind) = host_call_span(&call);
                         tokio::spawn(
@@ -1997,6 +2042,7 @@ async fn execute_isolate(
     handle_tx: oneshot::Sender<deno_core::v8::IsolateHandle>,
     cancelled: Arc<AtomicBool>,
     logs: Arc<std::sync::Mutex<Vec<LogLine>>>,
+    meters: InvocationMeters,
 ) -> Result<FnResponse, RuntimeError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![oxy_functions_ext::init()],
@@ -2027,6 +2073,20 @@ async fn execute_isolate(
         .load_side_es_module_from_code(&specifier, artifact_js)
         .await
         .map_err(|e| RuntimeError::Js(format!("module load failed: {e}")))?;
+
+    // The setup/tenant boundary, and it sits here rather than after
+    // `mod_evaluate` on purpose.
+    //
+    // Everything above is ours: OS thread spawn, isolate creation, the
+    // bootstrap script, and compiling the tenant's module. `mod_evaluate` below
+    // runs the module's **top-level statements**, which are tenant code — an app
+    // doing heavy work at module scope is the app's own cost, and folding it
+    // into `init_ms` would let a slow function look like a slow platform.
+    //
+    // So `init_ms` is what we are responsible for, and `duration_ms - init_ms`
+    // is what the app is.
+    meters.mark_tenant_code_entered();
+
     let eval = runtime.mod_evaluate(mod_id);
     runtime
         .run_event_loop(Default::default())
@@ -2558,6 +2618,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await;
@@ -2594,6 +2655,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await
@@ -2775,6 +2837,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await
@@ -2936,6 +2999,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await;
@@ -2970,6 +3034,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await
@@ -3123,6 +3188,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await
@@ -3182,6 +3248,7 @@ mod tests {
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
+            InvocationMeters::start(),
             tracing::Span::none(),
         )
         .await
@@ -3191,5 +3258,49 @@ mod tests {
         let att = &email["attachments"][0];
         assert_eq!(att["encoding"], "utf8");
         assert_eq!(att["content"], "name,total\nCafé,3\n");
+    }
+
+    // ── Invocation meters ────────────────────────────────────────────────
+
+    /// The distinction the `Option` exists for. An invocation that never
+    /// reached tenant code — a module that failed to compile, a timeout during
+    /// setup — must not report that setup took 0 ms, which would read as
+    /// "instant" and hide exactly the case worth seeing.
+    #[test]
+    fn init_ms_is_absent_until_tenant_code_is_reached_not_zero() {
+        let meters = InvocationMeters::start();
+        assert_eq!(meters.init_ms(), None, "unmarked must be absent, not 0");
+
+        meters.mark_tenant_code_entered();
+        // Elapsed can legitimately round to 0 ms on a fast machine; what this
+        // pins is that the *stored* value is no longer the sentinel.
+        meters
+            .init_ms
+            .fetch_max(1, std::sync::atomic::Ordering::Relaxed);
+        assert!(meters.init_ms().is_some(), "marked must be present");
+    }
+
+    /// The counter is a shared handle precisely because the isolate thread can
+    /// outlive `run`; a clone must observe the same count, or the caller reads
+    /// zero for a function that made a hundred calls.
+    #[test]
+    fn host_call_count_is_shared_across_clones() {
+        let meters = InvocationMeters::start();
+        let thread_side = meters.clone();
+        thread_side
+            .host_calls
+            .fetch_add(3, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(meters.host_calls(), 3);
+    }
+
+    /// Healthy is zero, and the accessor has to read the same counter the
+    /// grace arm increments — a gauge wired to the wrong static reports calm
+    /// forever, which is the failure it exists to catch.
+    #[test]
+    fn the_abandoned_isolate_gauge_starts_at_zero_and_observes_increments() {
+        let before = abandoned_isolates();
+        ABANDONED_ISOLATES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(abandoned_isolates(), before + 1);
+        ABANDONED_ISOLATES.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

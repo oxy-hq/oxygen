@@ -20,6 +20,7 @@
 //! | `oxy_tasks_dead_lettered_total` | counter | (none) | `agentic_runtime::crud::TASKS_DEAD_LETTERED` |
 //! | `oxy_router_probes_received_total` | counter | (none) | `agentic_runtime::router::PROBES_RECEIVED` |
 //! | `oxy_router_last_probe_received_timestamp_seconds` | gauge | (none) | `agentic_runtime::router::LAST_PROBE_RECEIVED_MILLIS` |
+//! | `oxy_abandoned_isolates_total` | counter | (none) | `custom_apps_functions::runtime::abandoned_isolates` |
 //! | `oxy_metrics_scrape_db_ok` | gauge=0/1 | (none) | this replica's DB read status this scrape |
 //!
 //! The queue-depth rows group by the task's kind, which `agentic_task_queue`
@@ -229,6 +230,7 @@ pub async fn metrics(State(state): State<MetricsState>) -> Response {
     );
     push_compile_health(&mut body, &compile_health.unwrap_or_default());
     push_reap_counters(&mut body);
+    push_abandoned_isolates(&mut body);
     push_router_probe(
         &mut body,
         agentic_runtime::router::PROBES_RECEIVED.load(std::sync::atomic::Ordering::Relaxed),
@@ -409,6 +411,43 @@ fn push_reap_counters(body: &mut String) {
         "oxy_tasks_dead_lettered_total {}\n",
         agentic_runtime::crud::TASKS_DEAD_LETTERED.load(std::sync::atomic::Ordering::Relaxed)
     ));
+}
+
+/// Oxy Function isolate threads abandoned after their grace period.
+///
+/// Per-process and monotonic: the thread is detached deliberately when a
+/// terminated isolate will not exit, which is also an unbounded resource leak.
+/// A rising value is the earliest available signal that a tenant's function is
+/// wedged in a host call that never returns — well before the node's memory or
+/// thread count says so.
+///
+/// Scraped rather than pushed, and deliberately **not** on the fleet-health API:
+/// that endpoint is FleetOk, so a load-balanced read would report whichever
+/// replica happened to answer, which for a per-process number is worse than not
+/// reporting it. Healthy is zero on every replica.
+#[cfg(feature = "custom-app-functions")]
+fn push_abandoned_isolates(body: &mut String) {
+    body.push_str(
+        "# HELP oxy_abandoned_isolates_total Function isolate threads detached after the termination grace period.\n\
+         # TYPE oxy_abandoned_isolates_total counter\n",
+    );
+    body.push_str(&format!(
+        "oxy_abandoned_isolates_total {}\n",
+        crate::server::api::custom_apps_functions::runtime::abandoned_isolates()
+    ));
+}
+
+/// Without the V8 runtime there are no isolates to abandon. Emitted as a flat
+/// zero rather than omitted, so the series exists on every replica and a
+/// scraper cannot mistake "this build cannot run functions" for "the metric
+/// stopped being reported".
+#[cfg(not(feature = "custom-app-functions"))]
+fn push_abandoned_isolates(body: &mut String) {
+    body.push_str(
+        "# HELP oxy_abandoned_isolates_total Function isolate threads detached after the termination grace period.\n\
+         # TYPE oxy_abandoned_isolates_total counter\n\
+         oxy_abandoned_isolates_total 0\n",
+    );
 }
 
 /// Health of the LISTEN/NOTIFY wake pipeline, as seen by this process.

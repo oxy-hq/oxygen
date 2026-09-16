@@ -18,6 +18,9 @@ use oxy_observability::types::{
     CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord, custom_app_kind,
     custom_app_outcome,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use uuid::Uuid;
 
 /// Policy-failure threshold: a request that succeeded but took longer than this
@@ -110,6 +113,8 @@ pub fn record_serve(event: ServeEvent<'_>) {
         route: event.route.to_string(),
         status: event.status,
         duration_ms: event.duration_ms,
+        host_calls: 0,
+        init_ms: 0,
         bytes: 0,
         app_role: String::new(),
         outcome: outcome.to_string(),
@@ -122,6 +127,91 @@ pub fn record_serve(event: ServeEvent<'_>) {
         trace_id,
         span_id,
     });
+}
+
+// ── Invocation meters ────────────────────────────────────────────────────────
+//
+// These live here rather than in `custom_apps_functions::runtime` because that
+// module is behind `#[cfg(feature = "custom-app-functions")]` and this type is
+// not: it is plain atomics with no deno_core in it, and the ungated emit path
+// below reads it. A `--no-default-features` build of `oxy-app` is a CI job, so
+// an ungated reference to a gated symbol fails the build rather than just
+// whoever happens to run it.
+
+/// Per-invocation counters the caller reads once the run is over.
+///
+/// Shared handles rather than return values, because the isolate thread can
+/// **outlive `run`** — on the `runtime::TIMEOUT_GRACE` path it is detached and
+/// keeps going — so anything it writes has to live somewhere the caller still
+/// owns.
+/// Same shape, and the same reason, as the `logs` buffer beside it.
+#[derive(Clone)]
+pub struct InvocationMeters {
+    /// Host ops dispatched over the broker channel: Cloudflare's "subrequest
+    /// count", and the number that separates "the warehouse is slow" from "this
+    /// function runs 200 queries in a loop". Those two are otherwise
+    /// indistinguishable in a `duration_ms`.
+    pub host_calls: Arc<AtomicU32>,
+    /// Wall milliseconds from [`InvocationMeters::start`] to the moment tenant
+    /// code first runs — OS thread spawn, isolate creation, bootstrap and
+    /// script compile.
+    ///
+    /// We build a fresh isolate *and* a fresh OS thread per invocation with no
+    /// code cache. Cloudflare reuses isolates, so it does not pay this and does
+    /// not measure it; we pay it on every call, and without this field "the
+    /// function is slow" and "the platform is slow to start the function"
+    /// produce the same `duration_ms`.
+    pub init_ms: Arc<AtomicU32>,
+    /// The zero point `init_ms` is measured from. Carried here rather than
+    /// passed alongside so the isolate thread needs one argument, not two.
+    started: std::time::Instant,
+}
+
+impl Default for InvocationMeters {
+    fn default() -> Self {
+        Self::start()
+    }
+}
+
+impl InvocationMeters {
+    /// Begin measuring. Called by the request handler just before it runs the
+    /// function, so `init_ms` covers everything between deciding to run and
+    /// tenant code actually running.
+    pub fn start() -> Self {
+        Self {
+            host_calls: Arc::new(AtomicU32::new(0)),
+            init_ms: Arc::new(AtomicU32::new(0)),
+            started: std::time::Instant::now(),
+        }
+    }
+
+    /// Stamp `init_ms`. One call site: the boundary in
+    /// `runtime::execute_isolate` between platform setup and the tenant's own
+    /// module evaluating.
+    ///
+    /// That caller is behind `custom-app-functions`, so without the feature
+    /// nothing calls this — the meters stay at their zero values, which is the
+    /// honest reading for a build that cannot run a function at all.
+    #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+    pub(crate) fn mark_tenant_code_entered(&self) {
+        let ms = self.started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        self.init_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Host ops dispatched so far.
+    pub fn host_calls(&self) -> u32 {
+        self.host_calls.load(Ordering::Relaxed)
+    }
+
+    /// Setup time in milliseconds, or `None` if tenant code was never reached —
+    /// a build that failed to compile, or a timeout during setup. A zero would
+    /// claim setup was instant; absence says it never finished.
+    pub fn init_ms(&self) -> Option<u32> {
+        match self.init_ms.load(Ordering::Relaxed) {
+            0 => None,
+            ms => Some(ms),
+        }
+    }
 }
 
 /// One Oxy Function invocation, in any mode.
@@ -137,6 +227,14 @@ pub struct FunctionEvent<'a> {
     pub status_label: &'a str,
     pub http_status: u16,
     pub duration_ms: u32,
+    /// Host ops the invocation made — the subrequest count. Distinguishes a
+    /// slow dependency from a function looping queries, which `duration_ms`
+    /// alone cannot.
+    pub host_calls: u32,
+    /// Platform setup time (thread spawn, isolate creation, bootstrap, compile).
+    /// `None` when tenant code was never reached — a compile failure, or a
+    /// timeout during setup — because a `0` would claim setup was instant.
+    pub init_ms: Option<u32>,
     pub error: Option<&'a str>,
 }
 
@@ -173,6 +271,8 @@ pub fn record_function(event: FunctionEvent<'_>) {
         route: event.function_name.to_string(),
         status: event.http_status,
         duration_ms: event.duration_ms,
+        host_calls: event.host_calls,
+        init_ms: event.init_ms.unwrap_or(0),
         bytes: 0,
         app_role: event.mode.to_string(),
         outcome: outcome.to_string(),
@@ -260,6 +360,8 @@ pub fn record_client_event(
         route: path.to_string(),
         status: 0,
         duration_ms: 0,
+        host_calls: 0,
+        init_ms: 0,
         bytes: 0,
         app_role: String::new(),
         outcome: outcome.to_string(),

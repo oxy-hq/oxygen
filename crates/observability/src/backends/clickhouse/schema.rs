@@ -229,6 +229,8 @@ CREATE TABLE IF NOT EXISTS custom_app_events (
     route String DEFAULT '',
     status UInt16 DEFAULT 0,
     duration_ms UInt32 DEFAULT 0,
+    host_calls UInt32 DEFAULT 0,
+    init_ms UInt32 DEFAULT 0,
     bytes UInt64 DEFAULT 0,
     app_role LowCardinality(String) DEFAULT '',
     outcome LowCardinality(String) DEFAULT 'ok',
@@ -326,6 +328,14 @@ SETTINGS ttl_only_drop_parts = 1
 /// statement is idempotent and runs on every boot after `ALL_DDL`. The
 /// `DEFAULT ''` keeps old rows readable and the insert row structs (which
 /// name every column) valid on both shapes.
+/// Slice-0 invocation meters (2026-09-16): the subrequest count and the
+/// platform-setup split. Same idempotent shape as the trace-id alters above and
+/// applied the same way, so a deployment whose tables predate them gets the
+/// columns in place with old rows reading `0`.
+pub const CUSTOM_APP_METER_ALTERS: &[&str] = &[
+    "ALTER TABLE custom_app_events ADD COLUMN IF NOT EXISTS host_calls UInt32 DEFAULT 0, ADD COLUMN IF NOT EXISTS init_ms UInt32 DEFAULT 0",
+];
+
 pub const CUSTOM_APP_TRACE_ID_ALTERS: &[&str] = &[
     "ALTER TABLE custom_app_events ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '', ADD COLUMN IF NOT EXISTS span_id String DEFAULT ''",
     "ALTER TABLE custom_app_logs ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '', ADD COLUMN IF NOT EXISTS span_id String DEFAULT ''",

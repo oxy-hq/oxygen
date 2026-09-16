@@ -11,6 +11,7 @@
 
 pub mod access;
 mod dto;
+pub mod fleet_health;
 pub mod fs;
 pub mod functions;
 pub mod handlers;
@@ -30,6 +31,10 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/apps", post(handlers::create_app))
         .route("/apps", get(handlers::list_apps))
+        // Fleet health — every published app and whether it is working.
+        // Declared BEFORE `/apps/{id}` would ever match it; axum routes
+        // literals over captures, but the ordering documents the intent.
+        .route("/apps/health", get(fleet_health::get_fleet_health))
         .route("/apps/{id}", get(handlers::get_app))
         .route("/apps/{id}", patch(handlers::update_app))
         .route("/apps/{id}", delete(handlers::delete_app))

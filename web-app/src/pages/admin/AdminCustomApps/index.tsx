@@ -7,6 +7,7 @@ import type { CustomApp } from "@/types/apps";
 import { AppCockpit } from "./components/AppCockpit";
 import { AppsTable } from "./components/AppsTable";
 import { CreateCustomAppDialog } from "./components/CreateCustomAppDialog";
+import { FleetHealth } from "./components/FleetHealth";
 import { FleetStrip } from "./components/FleetStrip";
 import { AccessPane } from "./components/OxyAccessPanes/AccessPane";
 import StorageTab from "./components/StorageTab";
@@ -24,13 +25,14 @@ import { useAdminAppRegistry } from "./useAdminAppRegistry";
  * Apps tab, so deep links keep working regardless of `?view`. Legacy
  * `?view=orgs` / `?view=projects` links fold into the Organizations view.
  */
-type View = "apps" | "access" | "tokens" | "storage";
+type View = "apps" | "health" | "access" | "tokens" | "storage";
 
 // "Organizations" here is the per-org custom-app view — each org's Oxy-access
 // (workspace lockdown) plus the apps it owns. It's scoped to the customer-apps
 // surface, distinct from the cross-cutting tenant directory at /admin/tenants.
 const TABS: { view: View; label: string; to: string }[] = [
   { view: "apps", label: "Apps", to: "/admin/apps" },
+  { view: "health", label: "Health", to: "/admin/apps?view=health" },
   { view: "access", label: "Organizations", to: "/admin/apps?view=access" },
   { view: "tokens", label: "Publish tokens", to: "/admin/apps?view=tokens" },
   { view: "storage", label: "Storage", to: "/admin/apps?view=storage" }
@@ -46,6 +48,8 @@ export default function AdminCustomApps() {
       <AdminTabs active={view} />
       {view === "apps" ? (
         <AppsPane />
+      ) : view === "health" ? (
+        <FleetHealth />
       ) : view === "access" ? (
         <AccessPane />
       ) : view === "storage" ? (
@@ -63,13 +67,15 @@ export default function AdminCustomApps() {
 // links from the previous three-tab layout; both resolve to the merged
 // Organizations view.
 const normalizeView = (v: string | null): View =>
-  v === "storage"
-    ? "storage"
-    : v === "tokens"
-      ? "tokens"
-      : v === "access" || v === "orgs" || v === "projects"
-        ? "access"
-        : "apps";
+  v === "health"
+    ? "health"
+    : v === "storage"
+      ? "storage"
+      : v === "tokens"
+        ? "tokens"
+        : v === "access" || v === "orgs" || v === "projects"
+          ? "access"
+          : "apps";
 
 const AdminTabs = ({ active }: { active: View }) => (
   <div className='flex items-center gap-1 border-border border-b px-2'>

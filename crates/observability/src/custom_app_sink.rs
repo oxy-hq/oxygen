@@ -261,6 +261,8 @@ mod tests {
             route: "/".into(),
             status: 200,
             duration_ms: 1,
+            host_calls: 0,
+            init_ms: 0,
             bytes: 0,
             app_role: String::new(),
             outcome: "ok".into(),

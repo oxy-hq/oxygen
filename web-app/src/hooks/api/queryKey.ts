@@ -580,6 +580,9 @@ const customAppKeys = {
    *  own uncached call, so a decrypted secret never sits in the query cache. */
   secrets: (id: string) => ["customApps", "secrets", id] as const,
   activitySummary: (id: string) => ["customApps", "activity", id, "summary"] as const,
+  /** Fleet health for every published app the caller can see. Keyed by the
+   *  filter, so the attention-only view and the full table cache separately. */
+  fleetHealth: (needsAttention: boolean) => ["customApps", "fleetHealth", needsAttention] as const,
   availability: (orgSlug: string, appSlug: string) =>
     ["customApps", "availability", orgSlug, appSlug] as const,
   logs: (orgSlug: string, appSlug: string, hours: number) =>

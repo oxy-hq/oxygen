@@ -261,6 +261,11 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
                     "/",
                     post(admin::apps::handlers::create_app).get(admin::apps::handlers::list_apps),
                 )
+                // Fleet health. On the app-admin surface as well as OXY_OWNER's:
+                // an App Operator ships and develops these apps, so "which of
+                // mine are broken" is squarely their question. Scope still
+                // filters the rows — a bounded grant sees only its own orgs.
+                .route("/health", get(admin::apps::fleet_health::get_fleet_health))
                 .route(
                     "/{id}",
                     get(admin::apps::handlers::get_app)

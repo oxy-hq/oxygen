@@ -9,6 +9,8 @@
 //! seam consumers can be tested against without a database: the batching bridge
 //! in `telemetry.rs` exercises a `RecordingStore` mock through it.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use oxy_shared::errors::OxyError;
 
@@ -283,6 +285,36 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         _windows_minutes: &[u32],
     ) -> Result<Vec<AppAvailabilityWindow>, OxyError> {
         Ok(Vec::new())
+    }
+
+    /// The same counts for many apps at once, keyed by `app_id`, for the fleet
+    /// health table. `apps` is `(org_id, app_id)` pairs.
+    ///
+    /// Batched rather than looped: the per-app call runs one query per window,
+    /// so a page of the fleet table would otherwise cost `windows × apps` round
+    /// trips.
+    ///
+    /// An app missing from the returned map served nothing. That is a zero, not
+    /// missing data — the difference between "served nothing" and "we never
+    /// asked" is carried by whether this returns `Ok` at all, and a caller that
+    /// collapses the two reports an unmeasured app as an idle one.
+    async fn get_fleet_availability(
+        &self,
+        _apps: &[(String, String)],
+        _windows_minutes: &[u32],
+    ) -> Result<HashMap<String, Vec<AppAvailabilityWindow>>, OxyError> {
+        Ok(HashMap::new())
+    }
+
+    /// Request counts for the same window one cycle back, keyed by `app_id` —
+    /// the baseline [`crate::heartbeat::evaluate`] compares against.
+    async fn get_fleet_heartbeat_baseline(
+        &self,
+        _apps: &[(String, String)],
+        _window_minutes: u32,
+        _cycle_days: u32,
+    ) -> Result<HashMap<String, u64>, OxyError> {
+        Ok(HashMap::new())
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
