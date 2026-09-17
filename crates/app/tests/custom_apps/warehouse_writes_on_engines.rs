@@ -15,6 +15,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use agentic_connector::DatabaseConnector;
 use agentic_core::result::CellValue;
@@ -36,16 +37,18 @@ use crate::common::{Schema, fresh_db};
 
 // ── Engines ─────────────────────────────────────────────────────────────────
 
-struct ClickHouseServer {
-    url: String,
-    user: String,
-    password: String,
+/// Shared with `custom_app_functions_clickhouse`, so both suites acquire, label
+/// and skip ClickHouse by one definition.
+pub(crate) struct ClickHouseServer {
+    pub(crate) url: String,
+    pub(crate) user: String,
+    pub(crate) password: String,
 }
 
 /// The ClickHouse these tests write to, or `None` to skip — never `None` when
 /// `OXY_TEST_REQUIRE_CLICKHOUSE=1`, which is what keeps CI from going green on
 /// a suite that did not run.
-async fn clickhouse() -> Option<ClickHouseServer> {
+pub(crate) async fn clickhouse() -> Option<ClickHouseServer> {
     let found = match std::env::var("OXY_TEST_CLICKHOUSE_URL") {
         Ok(url) => Ok(ClickHouseServer {
             url,
@@ -106,18 +109,73 @@ async fn clickhouse_container() -> Result<ClickHouseServer, String> {
     })
 }
 
-/// A per-test Postgres database, as a `config.yml` entry.
-async fn postgres_entry(name: &str) -> String {
+/// Prefixes of the env vars [`postgres_entry`] and [`clickhouse_entry`] park
+/// each password in.
+const PG_PASSWORD_VAR_PREFIX: &str = "OXY_TEST_WAREHOUSE_PG_PASSWORD";
+const CH_PASSWORD_VAR_PREFIX: &str = "OXY_TEST_WAREHOUSE_CH_PASSWORD";
+
+/// A variable name unique to this call — `prefix`, the entry's name and a
+/// per-process counter. One fixed name would make a second entry in the same
+/// process overwrite the first entry's password, and the first database would
+/// then fail to authenticate long after its `config.yml` was written.
+fn password_var(prefix: &str, name: &str) -> String {
+    static NTH: AtomicUsize = AtomicUsize::new(0);
+    let slug = name
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_")
+        .to_ascii_uppercase();
+    let nth = NTH.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}_{slug}_{nth}")
+}
+
+/// Parks `password` in a fresh env var under `prefix` and returns its name.
+fn park_password(prefix: &str, name: &str, password: &str) -> String {
+    let var = password_var(prefix, name);
+    // SAFETY: nextest runs each test in its own process, and this is set before
+    // any connector in it resolves the variable.
+    unsafe { std::env::set_var(&var, password) };
+    var
+}
+
+/// A per-test Postgres database, as a `config.yml` entry. Shared with
+/// `custom_app_functions_shape_zoo`.
+///
+/// **The password goes in by reference, never inline.** `oxy-compile` redacts
+/// an inline `password:` literal before the compiled config reaches Postgres,
+/// so a workspace that the runtime reads through the compile boundary would
+/// authenticate with an empty password (`28P01`). A `password_var` names a
+/// secret instead, and `SecretsManager` falls back to the environment when the
+/// project's store has no such row — which is what both the working-copy
+/// callers here and the compiled caller in `custom_app_functions_shape_zoo`
+/// resolve through. [`clickhouse_entry`] is the same rule for ClickHouse.
+pub(crate) async fn postgres_entry(name: &str) -> String {
     let (_db, url) = fresh_db(Schema::Central).await;
     let url = url::Url::parse(&url).expect("fresh_db hands back a URL");
+    let var = park_password(
+        PG_PASSWORD_VAR_PREFIX,
+        name,
+        url.password().unwrap_or_default(),
+    );
     format!(
         "  - name: {name}\n    type: postgres\n    host: {host}\n    port: \"{port}\"\n    \
-         user: {user}\n    password: {password}\n    database: {database}\n",
+         user: {user}\n    password_var: {var}\n    database: {database}\n",
         host = url.host_str().expect("host"),
         port = url.port().unwrap_or(5432),
         user = url.username(),
-        password = url.password().unwrap_or_default(),
         database = url.path().trim_start_matches('/'),
+    )
+}
+
+/// `ch` as the `config.yml` entry named `name`, its password by reference (see
+/// [`postgres_entry`]). Shared with `custom_app_functions_clickhouse` and
+/// `custom_app_functions_shape_zoo`, whose configs are compiled: CI's ClickHouse
+/// requires its password, and an inline `password:` reaches the compiled rows as
+/// `""` — so with one, those two passed only where the container had no password.
+pub(crate) fn clickhouse_entry(name: &str, ch: &ClickHouseServer) -> String {
+    let var = park_password(CH_PASSWORD_VAR_PREFIX, name, &ch.password);
+    format!(
+        "  - name: {name}\n    type: clickhouse\n    host: {}\n    user: {}\n    \
+         password_var: {var}\n    database: default\n",
+        ch.url, ch.user
     )
 }
 
@@ -260,12 +318,7 @@ fn unique_table(stem: &str) -> String {
 
 async fn clickhouse_workspace() -> Option<Workspace> {
     let ch = clickhouse().await?;
-    let entry = format!(
-        "  - name: ch\n    type: clickhouse\n    host: {}\n    user: {}\n    password: \"{}\"\n    \
-         database: default\n",
-        ch.url, ch.user, ch.password
-    );
-    Some(workspace(&entry, &["ch"]).await)
+    Some(workspace(&clickhouse_entry("ch", &ch), &["ch"]).await)
 }
 
 #[tokio::test]

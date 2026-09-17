@@ -300,7 +300,14 @@ pub async fn fresh_db(schema: Schema) -> (DatabaseConnection, String) {
 /// The env writes are what make the *seed's own* connection land on this
 /// database rather than the developer's.
 pub async fn test_db() -> DatabaseConnection {
-    let (db, test_url) = fresh_db(Schema::Central).await;
+    test_db_with(Schema::Central).await
+}
+
+/// [`test_db`] over a chosen schema — for a test whose code under test also
+/// reads a side migrator's tables, such as a queued function run's
+/// `agentic_runs` / `agentic_task_queue` rows (`Schema::All`).
+pub async fn test_db_with(schema: Schema) -> DatabaseConnection {
+    let (db, test_url) = fresh_db(schema).await;
 
     let state_dir = STATE_DIR.get_or_init(|| tempfile::tempdir().expect("state dir"));
 

@@ -93,7 +93,8 @@ async fn seed_tenant(db: &DatabaseConnection) -> Tenant {
     }
 }
 
-fn tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
+/// Shared with `custom_app_functions_fixture`, which bundles apps the same way.
+pub(crate) fn tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
     for (path, bytes) in files {
         let mut header = tar::Header::new_gnu();
