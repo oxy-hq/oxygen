@@ -27,7 +27,17 @@ export function LocationTableRow({
           {depth > 0 && (
             <CornerDownRight className='h-3.5 w-3.5 shrink-0 text-muted-foreground/60' />
           )}
-          <span className='font-medium text-sm'>{location.name}</span>
+          <div className='flex flex-col'>
+            <span className='font-medium text-sm'>{location.name}</span>
+            {location.external_id && (
+              <span
+                className='font-mono text-muted-foreground text-xs'
+                data-testid={`settings-locations-external-id-${location.id}`}
+              >
+                {location.external_id}
+              </span>
+            )}
+          </div>
         </div>
       </TableCell>
       <TableCell data-label='Kind' className={`${CELL} text-sm`}>

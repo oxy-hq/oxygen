@@ -1,4 +1,4 @@
-import type { LocationRow, LocationStatus } from "@/types/operatingGraph";
+import type { LocationRow, LocationStatus, UpdateLocationRequest } from "@/types/operatingGraph";
 
 export const LOCATION_STATUSES: LocationStatus[] = [
   "pre_launch",
@@ -99,6 +99,39 @@ export function locationSummary(locations: LocationRow[]): string {
   const total = locations.length;
   const open = locations.filter((l) => l.status === "open").length;
   return `${total} ${total === 1 ? "location" : "locations"} · ${open} open`;
+}
+
+// ── The form's draft → what to send ──
+
+/** What the location form holds; the same shape whether creating or editing. */
+export interface LocationDraft {
+  name: string;
+  kind: string;
+  /** `null` for top level. */
+  parentId: string | null;
+  status: LocationStatus;
+  timezone: string;
+  /** The tenant's own id (`external_id`); blank means none. */
+  externalId: string;
+}
+
+/**
+ * The PATCH that turns `row` into `draft` — only the fields that differ, so a
+ * save that changed nothing sends nothing. Values are compared as the server
+ * stores them: trimmed, a kind lowercased, a blank id as `null`.
+ */
+export function locationPatch(row: LocationRow, draft: LocationDraft): UpdateLocationRequest {
+  const patch: UpdateLocationRequest = {};
+  const name = draft.name.trim();
+  if (name !== row.name) patch.name = name;
+  const kind = draft.kind.trim().toLowerCase() || null;
+  if (kind !== row.kind) patch.kind = kind;
+  if (draft.parentId !== row.parent_id) patch.parent_id = draft.parentId;
+  if (draft.status !== row.status) patch.status = draft.status;
+  if (draft.timezone !== row.timezone) patch.timezone = draft.timezone;
+  const externalId = draft.externalId.trim() || null;
+  if (externalId !== row.external_id) patch.external_id = externalId;
+  return patch;
 }
 
 // ── External ids ──

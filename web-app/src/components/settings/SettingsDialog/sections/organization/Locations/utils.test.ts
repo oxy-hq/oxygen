@@ -4,6 +4,7 @@ import {
   descendantIds,
   externalIdDiff,
   externalIdsProblem,
+  locationPatch,
   locationSummary,
   locationTree,
   systemProblem,
@@ -27,6 +28,52 @@ const location = (id: string, over: Partial<LocationRow> = {}): LocationRow => (
 
 const names = (rows: ReturnType<typeof locationTree>) =>
   rows.map((r) => `${"  ".repeat(r.depth)}${r.location.name}`);
+
+describe("locationPatch", () => {
+  const row = location("clovis", {
+    name: "Clovis",
+    kind: "store",
+    status: "open",
+    timezone: "America/Los_Angeles",
+    external_id: "clovis"
+  });
+  const draft = {
+    name: "Clovis",
+    kind: "store",
+    parentId: null,
+    status: "open" as const,
+    timezone: "America/Los_Angeles",
+    externalId: "clovis"
+  };
+
+  it("sends nothing when the form matches the row, compared as the server stores", () => {
+    expect(
+      locationPatch(row, { ...draft, name: " Clovis ", kind: " Store ", externalId: " clovis " })
+    ).toEqual({});
+    expect(
+      locationPatch(location("new", { external_id: null }), {
+        ...draft,
+        name: "new",
+        kind: "",
+        timezone: "UTC",
+        externalId: ""
+      })
+    ).toEqual({});
+  });
+
+  it("sends the tenant's own id when it changes, and null to clear it", () => {
+    expect(locationPatch(row, { ...draft, externalId: "santa-clara" })).toEqual({
+      external_id: "santa-clara"
+    });
+    expect(locationPatch(row, { ...draft, externalId: "   " })).toEqual({ external_id: null });
+  });
+
+  it("sends only the fields that differ", () => {
+    expect(
+      locationPatch(row, { ...draft, kind: "Region", parentId: "west", status: "archived" })
+    ).toEqual({ kind: "region", parent_id: "west", status: "archived" });
+  });
+});
 
 describe("locationTree", () => {
   it("lists roots first, each followed by its children, siblings by name", () => {

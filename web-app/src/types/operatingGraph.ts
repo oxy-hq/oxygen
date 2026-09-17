@@ -22,7 +22,10 @@ export interface LocationRow {
   status: LocationStatus;
   /** IANA zone. */
   timezone: string;
-  /** The legacy single column; superseded by `external_ids`. */
+  /**
+   * The tenant's own id for this place — what an app keys it by (Store Ops:
+   * `santa-clara`). Unique within the org. Not the per-system `external_ids`.
+   */
   external_id: string | null;
   /** `system` → id, e.g. `{ toast: "1234" }`. `system` is a lowercase token. */
   external_ids: Record<string, string>;
@@ -50,6 +53,8 @@ export interface UpdateLocationRequest {
   parent_id?: string | null;
   status?: LocationStatus;
   timezone?: string;
+  /** The tenant's own id; `null` clears it. 409 when another location of the org carries it. */
+  external_id?: string | null;
 }
 
 /** `PUT /orgs/{orgId}/locations/{id}/external-ids/{system}`. */

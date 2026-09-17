@@ -52,7 +52,12 @@ export function WhereTheyWork({
         {rows.map((row, index) => (
           <div
             key={row.key}
-            className='grid gap-2 rounded-md border p-2 sm:grid-cols-[1fr_1fr_1fr_auto]'
+            // `minmax(0,1fr)`, not `1fr`: a `1fr` track never shrinks below its
+            // content's min width, so three selects showing "Reports to nobody"
+            // pushed the row — and with it the whole form — past the dialog's
+            // edge. Capped at 0, the tracks share the width and the triggers
+            // truncate instead.
+            className='grid gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]'
             data-testid={`settings-crew-enrol-work-row-${index}`}
           >
             <PositionSelect

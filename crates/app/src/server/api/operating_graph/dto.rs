@@ -42,6 +42,11 @@ pub struct UpdateLocation {
     pub parent_id: Option<Option<Uuid>>,
     pub status: Option<String>,
     pub timezone: Option<String>,
+    /// The tenant's own id for the place — what an app keys it by
+    /// (`santa-clara`). Not the per-system `external_ids` map. `null` and a
+    /// blank string both clear it.
+    #[serde(default, deserialize_with = "patch")]
+    pub external_id: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]

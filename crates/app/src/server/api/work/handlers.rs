@@ -558,6 +558,17 @@ pub async fn create_location(
         .map(|k| k.trim().to_lowercase())
         .filter(|k| !k.is_empty());
 
+    // The tenant's own id, by the rule PATCH uses: trimmed, blank is none, and
+    // no other place of the org carries it (409).
+    let external_id = crate::server::api::operating_graph::locations::check_external_id(
+        &db,
+        org_id,
+        id,
+        body.external_id.clone(),
+    )
+    .await
+    .map_err(|e| e.status())?;
+
     let now = Utc::now().fixed_offset();
     let saved = locations::ActiveModel {
         id: Set(id),
@@ -565,7 +576,7 @@ pub async fn create_location(
         name: Set(name.to_string()),
         status: Set(status),
         timezone: Set(timezone),
-        external_id: Set(body.external_id.clone()),
+        external_id: Set(external_id),
         parent_id: Set(parent_id),
         kind: Set(kind),
         created_at: Set(now),
@@ -575,8 +586,9 @@ pub async fn create_location(
     .await
     .map_err(|e| {
         // 409 only for the collision this table can actually have — a duplicate
-        // `(org_id, external_id)`. Answering every insert failure with CONFLICT
-        // tells an operator to go looking for a clashing row that is not there.
+        // `(org_id, name)`; the tenant id was checked above. Answering every
+        // insert failure with CONFLICT tells an operator to go looking for a
+        // clashing row that is not there.
         if is_unique_violation(&e) {
             StatusCode::CONFLICT
         } else {

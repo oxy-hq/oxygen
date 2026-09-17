@@ -198,6 +198,9 @@ pub async fn update_location(
     if let Some(parent) = patch.parent_id {
         am.parent_id = Set(check_parent(db, org_id, id, parent).await?);
     }
+    if let Some(external_id) = patch.external_id {
+        am.external_id = Set(check_external_id(db, org_id, id, external_id).await?);
+    }
     am.updated_at = Set(Utc::now().fixed_offset());
     am.update(db).await.map_err(|e| {
         if is_unique_violation(&e) {
@@ -206,6 +209,37 @@ pub async fn update_location(
             LocationError::Db(e)
         }
     })
+}
+
+/// The tenant's own id a location may carry: trimmed, `None` for blank, and
+/// held by no other location of the org — an app keys its places by it
+/// (`santa-clara` in Store Ops), so two places sharing one would be one place
+/// to the app. `id` is the location being written, so re-sending its own id
+/// is not a collision. The table has no unique index on this column
+/// (`(org_id, name)` is the only one), which is why the check lives here.
+pub async fn check_external_id(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    id: Uuid,
+    value: Option<String>,
+) -> Result<Option<String>, LocationError> {
+    let Some(value) = value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    else {
+        return Ok(None);
+    };
+    let taken = locations::Entity::find()
+        .filter(locations::Column::OrgId.eq(org_id))
+        .filter(locations::Column::ExternalId.eq(value.clone()))
+        .filter(locations::Column::Id.ne(id))
+        .one(db)
+        .await?
+        .is_some();
+    if taken {
+        return Err(LocationError::ExternalIdTaken);
+    }
+    Ok(Some(value))
 }
 
 /// The parent a location may take: none, or one of this org's that is not

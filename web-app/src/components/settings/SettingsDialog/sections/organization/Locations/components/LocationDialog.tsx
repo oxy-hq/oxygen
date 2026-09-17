@@ -24,7 +24,7 @@ import {
   useUpdateLocation
 } from "@/hooks/api/organizations";
 import { apiErrorMessage, apiStatus } from "@/libs/apiError";
-import type { LocationRow, LocationStatus, UpdateLocationRequest } from "@/types/operatingGraph";
+import type { LocationRow, LocationStatus } from "@/types/operatingGraph";
 import { LocationSelect, NO_LOCATION } from "../../shared/LocationSelect";
 import {
   browserTimeZone,
@@ -35,6 +35,7 @@ import {
   externalIdsProblem,
   LOCATION_STATUS_LABELS,
   LOCATION_STATUSES,
+  locationPatch,
   recordToDrafts,
   usedKinds
 } from "../utils";
@@ -113,6 +114,7 @@ function LocationForm({
   const [parentId, setParentId] = useState(location?.parent_id ?? NO_LOCATION);
   const [status, setStatus] = useState<LocationStatus>(location?.status ?? "pre_launch");
   const [timezone, setTimezone] = useState(location?.timezone ?? browserTimeZone());
+  const [placeId, setPlaceId] = useState(location?.external_id ?? "");
   const [externalIds, setExternalIds] = useState<ExternalIdDraft[]>(
     recordToDrafts(location?.external_ids ?? {})
   );
@@ -158,20 +160,14 @@ function LocationForm({
     return true;
   };
 
-  const patchFor = (row: LocationRow): UpdateLocationRequest => {
-    const patch: UpdateLocationRequest = {};
-    const trimmedName = name.trim();
-    if (trimmedName !== row.name) patch.name = trimmedName;
-    // The server lowercases a kind; compare like with like or every save
-    // re-sends it.
-    const kindValue = kind.trim().toLowerCase() || null;
-    if (kindValue !== row.kind) patch.kind = kindValue;
-    const parentValue = parentId === NO_LOCATION ? null : parentId;
-    if (parentValue !== row.parent_id) patch.parent_id = parentValue;
-    if (status !== row.status) patch.status = status;
-    if (timezone !== row.timezone) patch.timezone = timezone;
-    return patch;
-  };
+  const draft = () => ({
+    name,
+    kind,
+    parentId: parentId === NO_LOCATION ? null : parentId,
+    status,
+    timezone,
+    externalId: placeId
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,7 +185,7 @@ function LocationForm({
       let row: LocationRow;
       let verb: string;
       if (existing) {
-        const patch = patchFor(existing);
+        const patch = locationPatch(existing, draft());
         row =
           Object.keys(patch).length > 0
             ? await update.mutateAsync({ orgId, locationId: existing.id, request: patch })
@@ -202,6 +198,7 @@ function LocationForm({
             name: name.trim(),
             ...(kind.trim() ? { kind: kind.trim() } : {}),
             ...(parentId !== NO_LOCATION ? { parent_id: parentId } : {}),
+            ...(placeId.trim() ? { external_id: placeId.trim() } : {}),
             status,
             timezone
           }
@@ -302,6 +299,22 @@ function LocationForm({
             testId='settings-locations-timezone'
           />
         </div>
+      </div>
+      <div className='space-y-1.5'>
+        <Label htmlFor='location-external-id'>Place id</Label>
+        <Input
+          id='location-external-id'
+          className='font-mono'
+          placeholder='santa-clara'
+          autoComplete='off'
+          value={placeId}
+          onChange={(e) => setPlaceId(e.target.value)}
+          data-testid='settings-locations-external-id'
+        />
+        <p className='text-muted-foreground text-xs'>
+          Your own id for this place — what an app keys it by, sent as external_id. Unique in this
+          org. Ids other systems use go under External ids.
+        </p>
       </div>
       <div className='space-y-1.5'>
         <Label>External ids</Label>

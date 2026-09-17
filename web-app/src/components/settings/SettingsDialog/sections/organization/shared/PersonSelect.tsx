@@ -50,7 +50,9 @@ export function PersonSelect({
   }, [people, exclude, allowNone, noneLabel]);
 
   return (
-    <div data-testid={testId}>
+    // `min-w-0`: in a grid or flex row this wrapper must be allowed to shrink
+    // below the combobox's content width, or the row overflows its dialog.
+    <div data-testid={testId} className='min-w-0'>
       <Combobox
         items={items}
         value={value}

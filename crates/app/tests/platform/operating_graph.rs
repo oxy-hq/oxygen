@@ -420,6 +420,73 @@ async fn the_hierarchy_refuses_a_loop_and_a_foreign_parent() {
 }
 
 #[tokio::test]
+async fn the_tenants_own_id_is_patchable_and_one_per_org() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let fx = seed(&db).await;
+    let second = location(&db, fx.org, "Fresno").await;
+    let patch = |value: Option<&str>| UpdateLocation {
+        external_id: Some(value.map(str::to_string)),
+        ..Default::default()
+    };
+
+    // Stored trimmed, and read back on the row every client sees.
+    let row = places::update_location(&db, fx.org, fx.store, patch(Some("  santa-clara ")))
+        .await
+        .expect("set");
+    assert_eq!(row.external_id.as_deref(), Some("santa-clara"));
+    let rows = places::location_rows(&db, fx.org).await.expect("rows");
+    let store = rows.iter().find(|r| r.id == fx.store).expect("store row");
+    assert_eq!(store.external_id.as_deref(), Some("santa-clara"));
+
+    // Another place of the org may not take it; the same place may re-send it;
+    // another org's registry is that org's business.
+    assert!(matches!(
+        places::update_location(&db, fx.org, second, patch(Some("santa-clara"))).await,
+        Err(places::LocationError::ExternalIdTaken)
+    ));
+    places::update_location(&db, fx.org, fx.store, patch(Some("santa-clara")))
+        .await
+        .expect("its own id is not a collision");
+    places::update_location(
+        &db,
+        fx.other_org,
+        fx.other_store,
+        patch(Some("santa-clara")),
+    )
+    .await
+    .expect("another org may reuse the id");
+
+    // Blank clears it, as null does; an absent field leaves it alone.
+    let cleared = places::update_location(&db, fx.org, fx.store, patch(Some("   ")))
+        .await
+        .expect("blank clears");
+    assert!(cleared.external_id.is_none());
+    places::update_location(&db, fx.org, fx.store, patch(Some("santa-clara")))
+        .await
+        .expect("set again");
+    let renamed = places::update_location(
+        &db,
+        fx.org,
+        fx.store,
+        UpdateLocation {
+            name: Some("Clovis North".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("rename");
+    assert_eq!(renamed.external_id.as_deref(), Some("santa-clara"));
+    let nulled = places::update_location(&db, fx.org, fx.store, patch(None))
+        .await
+        .expect("null clears");
+    assert!(nulled.external_id.is_none());
+    // Freed, the id may move to the other place.
+    places::update_location(&db, fx.org, second, patch(Some("santa-clara")))
+        .await
+        .expect("freed id moves");
+}
+
+#[tokio::test]
 async fn an_external_id_names_one_place_per_system_per_org() {
     let (db, _url) = fresh_db(Schema::Central).await;
     let fx = seed(&db).await;

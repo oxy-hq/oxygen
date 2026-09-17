@@ -124,7 +124,10 @@ function EnrolWorkerForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className='flex flex-col gap-4 pt-1'>
+    // `min-w-0`: the form is a grid item of DialogContent, and a grid item's
+    // default `min-width: auto` lets a wide descendant widen the form past the
+    // dialog rather than wrap; every `w-full` input then follows the form out.
+    <form onSubmit={handleSubmit} className='flex min-w-0 flex-col gap-4 pt-1'>
       <div className='space-y-1.5'>
         <Label htmlFor='enrol-name'>Name</Label>
         <Input

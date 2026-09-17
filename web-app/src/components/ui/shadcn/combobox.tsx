@@ -88,7 +88,10 @@ export function Combobox({
           )}
           disabled={disabled}
         >
-          {selectedItem ? selectedItem.label : placeholder}
+          {/* A flex item with `truncate` shrinks and shows an ellipsis; a bare
+              text node keeps the button's `whitespace-nowrap` width and runs
+              over whatever sits to its right in a tight row. */}
+          <span className='truncate'>{selectedItem ? selectedItem.label : placeholder}</span>
           <ChevronsUpDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
         </Button>
       </PopoverTrigger>
