@@ -1,4 +1,4 @@
-import { Ban, Loader2, Plus } from "lucide-react";
+import { Ban, Loader2, Plus, QrCode } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import TableWrapper from "@/components/settings/components/TableWrapper";
@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/shadcn/table";
-import { useRevokeDevice } from "@/hooks/api/organizations";
+import { useReissueEnrolLink, useRevokeDevice } from "@/hooks/api/organizations";
 import { type KioskState, kioskState } from "@/libs/frontline";
 import { timeAgo } from "@/libs/utils/date";
 import type { AppAccessSummary } from "@/types/appAccess";
@@ -52,6 +52,17 @@ export function KiosksPane({
   const [created, setCreated] = useState<CreatedKioskDevice | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<KioskDeviceRow | null>(null);
   const revokeDevice = useRevokeDevice();
+  const reissueLink = useReissueEnrolLink();
+
+  const handleReissue = (device: KioskDeviceRow) => {
+    reissueLink.mutate(
+      { orgId, deviceId: device.id },
+      {
+        onSuccess: setCreated,
+        onError: () => toast.error(`Couldn't make a new link for ${device.name}`)
+      }
+    );
+  };
 
   const handleRevoke = () => {
     if (!pendingRevoke) return;
@@ -98,7 +109,7 @@ export function KiosksPane({
         <p className='py-8 text-center text-destructive text-sm'>Failed to load kiosks.</p>
       ) : devices.length === 0 ? (
         <p className='rounded-md border py-8 text-center text-muted-foreground text-sm'>
-          No kiosks yet — enrol a tablet and crew can sign in on it.
+          No kiosks yet — enroll a tablet and crew can sign in on it.
         </p>
       ) : (
         <TableWrapper>
@@ -133,6 +144,26 @@ export function KiosksPane({
                         <span className='text-muted-foreground text-xs'>
                           {stateDetail(state, device)}
                         </span>
+                        {/* The link was shown once and only its hash is kept, so a
+                            lost one is replaced — never for a bound kiosk. */}
+                        {(state === "waiting" || state === "expired") && (
+                          <Button
+                            variant='link'
+                            size='sm'
+                            className='h-auto gap-1 p-0 text-xs'
+                            onClick={() => handleReissue(device)}
+                            disabled={reissueLink.isPending}
+                            data-testid={`settings-crew-kiosk-new-link-${device.id}`}
+                          >
+                            {reissueLink.isPending &&
+                            reissueLink.variables?.deviceId === device.id ? (
+                              <Loader2 className='h-3 w-3 animate-spin' />
+                            ) : (
+                              <QrCode className='h-3 w-3' />
+                            )}
+                            New link
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell data-label='Opens' className='px-4 py-3 max-md:px-0 max-md:py-0'>
@@ -189,8 +220,8 @@ export function KiosksPane({
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke {pendingRevoke?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Crew sign-in stops working on that tablet at once, and its enrol link with it. To
-              bring it back, enrol it again as a new kiosk.
+              Crew sign-in stops working on that tablet at once, and its enroll link with it. To
+              bring it back, enroll it again as a new kiosk.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

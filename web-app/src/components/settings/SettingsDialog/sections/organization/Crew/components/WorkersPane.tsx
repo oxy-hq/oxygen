@@ -51,7 +51,7 @@ export function WorkersPane({
           data-testid='settings-crew-enrol'
         >
           <UserRoundPlus className='h-4 w-4' />
-          Enrol worker
+          Enroll worker
         </Button>
       </div>
 
@@ -66,7 +66,7 @@ export function WorkersPane({
         <div className='flex flex-col items-center gap-3 rounded-md border py-10 text-center'>
           <HardHat className='h-8 w-8 text-muted-foreground/30' />
           <p className='max-w-sm text-muted-foreground text-sm'>
-            Crew sign in on an enrolled kiosk with a PIN — enrol the first worker to get started.
+            Crew sign in on an enrolled kiosk with a PIN — enroll the first worker to get started.
           </p>
           <Button
             size='sm'
@@ -76,7 +76,7 @@ export function WorkersPane({
             data-testid='settings-crew-enrol-empty'
           >
             <UserRoundPlus className='h-4 w-4' />
-            Enrol worker
+            Enroll worker
           </Button>
         </div>
       ) : (

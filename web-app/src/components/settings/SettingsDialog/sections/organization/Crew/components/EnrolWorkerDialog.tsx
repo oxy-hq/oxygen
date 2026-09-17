@@ -33,7 +33,7 @@ export function EnrolWorkerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>Enrol worker</DialogTitle>
+          <DialogTitle>Enroll worker</DialogTitle>
           <DialogDescription>
             They will tap their name on an enrolled kiosk and enter this PIN. Nothing is emailed —
             tell them the PIN yourself.
@@ -115,11 +115,11 @@ function EnrolWorkerForm({
       }
       if (status === 403) {
         setFormError(
-          "You can't grant apps in this organization. Clear the apps to enrol without any."
+          "You can't grant apps in this organization. Clear the apps to enroll without any."
         );
         return;
       }
-      setFormError(apiErrorMessage(err, "Couldn't enrol the worker"));
+      setFormError(apiErrorMessage(err, "Couldn't enroll the worker"));
     }
   };
 
@@ -205,7 +205,7 @@ function EnrolWorkerForm({
           disabled={!canSubmit || enrol.isPending}
           data-testid='settings-crew-enrol-submit'
         >
-          {enrol.isPending ? "Enrolling..." : "Enrol worker"}
+          {enrol.isPending ? "Enrolling..." : "Enroll worker"}
         </Button>
       </div>
     </form>

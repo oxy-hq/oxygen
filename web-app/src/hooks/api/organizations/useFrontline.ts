@@ -87,6 +87,12 @@ export const useCreateDevice = () =>
     FrontlineService.createDevice(vars.orgId, vars.request)
   );
 
+/** Like `useCreateDevice`, the link in the result is shown once and not cached. */
+export const useReissueEnrolLink = () =>
+  useDeviceMutation((vars: { orgId: string; deviceId: string }) =>
+    FrontlineService.reissueEnrolLink(vars.orgId, vars.deviceId)
+  );
+
 export const useRevokeDevice = () =>
   useDeviceMutation((vars: { orgId: string; deviceId: string }) =>
     FrontlineService.revokeDevice(vars.orgId, vars.deviceId)

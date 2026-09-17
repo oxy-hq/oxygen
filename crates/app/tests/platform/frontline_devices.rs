@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::common::{Schema, fresh_db};
 use oxy_app::server::api::frontline_devices::{
     DEFAULT_IDLE_TIMEOUT_SECONDS, DeviceError, KIOSK_COOKIE_NAME, NewDevice, bind_with_token,
-    bound_device, create, revoke,
+    bound_device, create, reissue_link, revoke,
 };
 
 async fn seed_org(db: &DatabaseConnection) -> Uuid {
@@ -248,5 +248,87 @@ async fn an_expired_or_foreign_link_binds_nothing_and_a_foreign_org_cannot_revok
         )
         .await,
         Err(DeviceError::BadIdleTimeout)
+    ));
+}
+
+/// A lost or expired link is replaced, not recovered: the new token binds, the
+/// old one is dead the moment the new one exists, and once a tablet has bound
+/// (or the kiosk is revoked) there is no link to hand out at all.
+#[tokio::test]
+async fn a_new_enrol_link_kills_the_old_one_and_only_while_unbound() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+    let other_org = seed_org(&db).await;
+
+    let (row, lost) = create(
+        &db,
+        org,
+        NewDevice {
+            name: "Front counter",
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create");
+    // Expire the first link so the reissue also proves the deadline restarts.
+    org_kiosk_devices::ActiveModel {
+        id: ActiveValue::Set(row.id),
+        enrol_expires_at: ActiveValue::Set(Some(
+            (chrono::Utc::now() - chrono::Duration::hours(1)).into(),
+        )),
+        ..Default::default()
+    }
+    .update(&db)
+    .await
+    .expect("expire");
+
+    // The org filter is the fence: another org's admin gets nothing.
+    assert!(matches!(
+        reissue_link(&db, other_org, row.id).await,
+        Err(DeviceError::NotFound)
+    ));
+
+    let (fresh, token) = reissue_link(&db, org, row.id).await.expect("reissue");
+    assert_ne!(token, lost);
+    assert!(
+        fresh
+            .enrol_expires_at
+            .is_some_and(|t| t > chrono::Utc::now() + chrono::Duration::hours(23)),
+        "a new link gets a full day"
+    );
+
+    // Two reissues in a row: only the latest link is live.
+    let (_, latest) = reissue_link(&db, org, row.id).await.expect("reissue again");
+    for dead in [&lost, &token] {
+        assert!(matches!(
+            bind_with_token(&db, dead).await,
+            Err(DeviceError::NoSuchToken)
+        ));
+    }
+    bind_with_token(&db, &latest)
+        .await
+        .expect("latest link binds");
+
+    // Bound: moving the kiosk is revoke-and-enrol, never a new link.
+    assert!(matches!(
+        reissue_link(&db, org, row.id).await,
+        Err(DeviceError::NotPending)
+    ));
+
+    // Revoked before it ever bound: also no link.
+    let (waiting, _) = create(
+        &db,
+        org,
+        NewDevice {
+            name: "Drive-thru",
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create");
+    assert!(revoke(&db, org, waiting.id).await.expect("revoke"));
+    assert!(matches!(
+        reissue_link(&db, org, waiting.id).await,
+        Err(DeviceError::NotPending)
     ));
 }

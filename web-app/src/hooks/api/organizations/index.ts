@@ -3,6 +3,7 @@ export {
   useEnrolWorker,
   useFrontlineDevices,
   useFrontlineWorkers,
+  useReissueEnrolLink,
   useResetWorkerPin,
   useRevokeDevice,
   useSetWorkerApps,

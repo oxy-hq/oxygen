@@ -173,8 +173,9 @@ export interface CreateKioskDeviceRequest {
 }
 
 /**
- * `POST /orgs/{orgId}/frontline/devices`. `enrol_url` is shown once: the server
- * keeps only a hash of the token, so no later read can reproduce it.
+ * `POST /orgs/{orgId}/frontline/devices`, and `…/devices/{id}/enrol-link` for a
+ * replacement. `enrol_url` is shown once: the server keeps only a hash of the
+ * token, so no later read can reproduce it — a lost link is replaced instead.
  */
 export interface CreatedKioskDevice {
   id: string;

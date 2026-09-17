@@ -231,10 +231,15 @@ pub enum DeviceError {
     BadIdleTimeout,
     /// Covers expired, already used, revoked and never issued — one arm, so the
     /// public bind route cannot be used to tell those apart.
-    #[error("that enrol link is not valid")]
+    #[error("that enroll link is not valid")]
     NoSuchToken,
     #[error("no such device")]
     NotFound,
+    /// A new enrol link is only for a tablet that never arrived. A bound kiosk
+    /// moving to another tablet is revoke-and-enrol, so a link cannot quietly
+    /// re-point a device a shift is already signing in on.
+    #[error("only a kiosk still waiting for its tablet can get a new link")]
+    NotPending,
     #[error("database error: {0}")]
     Db(#[from] DbErr),
 }
@@ -378,6 +383,53 @@ pub async fn bind_with_token(
     Ok((bound, cookie_value))
 }
 
+/// Replace a lost or expired enrol link. The old token stops working in the
+/// same UPDATE that stores the new hash — there is one hash column — and the
+/// deadline restarts at a full [`ENROL_LINK_HOURS`].
+///
+/// Filtered on the device still being unbound and unrevoked, so a tablet that
+/// binds (or an admin who revokes) between the read and the write wins, and
+/// this answers `NotPending` rather than handing out a link to a spent row.
+pub async fn reissue_link(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> Result<(devices::Model, String), DeviceError> {
+    let row = devices::Entity::find_by_id(id)
+        .filter(devices::Column::OrgId.eq(org_id))
+        .one(db)
+        .await?
+        .ok_or(DeviceError::NotFound)?;
+    if row.bound_at.is_some() || row.revoked_at.is_some() {
+        return Err(DeviceError::NotPending);
+    }
+    let token = random_secret();
+    let expires = Utc::now() + Duration::hours(ENROL_LINK_HOURS);
+    let res = devices::Entity::update_many()
+        .col_expr(
+            devices::Column::EnrolTokenHash,
+            sea_orm::sea_query::Expr::value(sha256_hex(&token)),
+        )
+        .col_expr(
+            devices::Column::EnrolExpiresAt,
+            sea_orm::sea_query::Expr::value(expires),
+        )
+        .filter(devices::Column::Id.eq(id))
+        .filter(devices::Column::OrgId.eq(org_id))
+        .filter(devices::Column::BoundAt.is_null())
+        .filter(devices::Column::RevokedAt.is_null())
+        .exec(db)
+        .await?;
+    if res.rows_affected != 1 {
+        return Err(DeviceError::NotPending);
+    }
+    let fresh = devices::Entity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or(DeviceError::NotFound)?;
+    Ok((fresh, token))
+}
+
 /// Switch a device off. `Ok(true)` when this call did it, `Ok(false)` when it
 /// was already off; `NotFound` when the org has no such device — the org
 /// filter is what keeps one tenant from revoking another's tablets.
@@ -474,8 +526,8 @@ fn unavailable_page() -> Response {
         format!(
             "<!doctype html><meta name=viewport content=\"width=device-width\">\
              <meta name=\"referrer\" content=\"no-referrer\">\
-             <title>Enrol kiosk</title><style>{PAGE_CSS}</style>\
-             <h1>Enrolment is not available right now.</h1>\
+             <title>Enroll kiosk</title><style>{PAGE_CSS}</style>\
+             <h1>Enrollment is not available right now.</h1>\
              <p>Nothing was changed. Try the link again in a moment.</p>"
         ),
     )
@@ -585,13 +637,13 @@ pub async fn bind_page(Query(q): Query<BindQuery>) -> Response {
             format!(
                 "<!doctype html><meta name=viewport content=\"width=device-width\">\
                  <meta name=\"referrer\" content=\"no-referrer\">\
-                 <title>Enrol kiosk</title><style>{PAGE_CSS}</style>\
-                 <h1>Enrol this tablet as \u{201c}{name}\u{201d}?</h1>\
+                 <title>Enroll kiosk</title><style>{PAGE_CSS}</style>\
+                 <h1>Enroll this tablet as \u{201c}{name}\u{201d}?</h1>\
                  <p>Only do this on the device that will stay at the counter. \
                  It signs the crew in from here on.</p>\
                  <form method=\"post\" action=\"/api/frontline/devices/bind\">\
                  <input type=\"hidden\" name=\"token\" value=\"{token}\">\
-                 <button type=\"submit\">Enrol this tablet</button></form>",
+                 <button type=\"submit\">Enroll this tablet</button></form>",
                 name = escape(&row.name),
                 token = escape(q.token.trim()),
             ),
@@ -640,7 +692,7 @@ pub async fn bind_submit(headers: HeaderMap, body: String) -> Response {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!(
                         "<!doctype html><meta name=viewport content=\"width=device-width\">\
-                         <title>Enrol kiosk</title><style>{PAGE_CSS}</style>\
+                         <title>Enroll kiosk</title><style>{PAGE_CSS}</style>\
                          <h1>This tablet could not be enrolled.</h1>\
                          <p>The link has been used but the device could not be remembered on this \
                          browser. Ask your manager to create the kiosk again and to check the \
@@ -727,6 +779,24 @@ fn enrol_link_base(headers: &HeaderMap) -> String {
     format!("{scheme}://{host}")
 }
 
+impl CreatedDevice {
+    /// The one place a token becomes a link, so create and reissue cannot
+    /// drift on the path or the origin.
+    fn new(row: devices::Model, token: &str, headers: &HeaderMap) -> Self {
+        let bind_path = format!("/api/frontline/devices/bind?token={token}");
+        Self {
+            id: row.id,
+            name: row.name,
+            enrol_url: format!("{}{bind_path}", enrol_link_base(headers)),
+            bind_path,
+            expires_at: row
+                .enrol_expires_at
+                .map(|t| t.to_rfc3339())
+                .unwrap_or_default(),
+        }
+    }
+}
+
 /// `POST /api/orgs/{org_id}/frontline/devices` — org admin. Creates a device
 /// and answers with the one-time enrol link.
 #[instrument(skip_all, fields(org = %org_id))]
@@ -754,7 +824,6 @@ pub async fn create_device(
     .await
     {
         Ok((row, token)) => {
-            let base = enrol_link_base(&headers);
             audit::record_best_effort(
                 &db,
                 audit::AuditEntry::new(actor.label().to_string(), "frontline.device.created")
@@ -765,16 +834,7 @@ pub async fn create_device(
             .await;
             (
                 StatusCode::CREATED,
-                Json(CreatedDevice {
-                    id: row.id,
-                    name: row.name,
-                    enrol_url: format!("{base}/api/frontline/devices/bind?token={token}"),
-                    bind_path: format!("/api/frontline/devices/bind?token={token}"),
-                    expires_at: row
-                        .enrol_expires_at
-                        .map(|t| t.to_rfc3339())
-                        .unwrap_or_default(),
-                }),
+                Json(CreatedDevice::new(row, &token, &headers)),
             )
                 .into_response()
         }
@@ -800,8 +860,8 @@ pub struct DeviceRow {
     pub bound_at: Option<String>,
     pub last_seen_at: Option<String>,
     pub revoked_at: Option<String>,
-    /// Set while an enrol link is outstanding; the link itself is not
-    /// recoverable — create another device if it was lost.
+    /// Set while an enrol link is outstanding. The link itself is not
+    /// recoverable; `POST …/devices/{id}/enrol-link` replaces a lost one.
     pub enrol_expires_at: Option<String>,
     pub location_id: Option<Uuid>,
     pub location_name: Option<String>,
@@ -858,6 +918,41 @@ pub async fn list_devices(OrgAdmin(_ctx): OrgAdmin, Path(org_id): Path<Uuid>) ->
         Err(e) => {
             warn!(error = %e, "kiosk device list failed");
             json_error(StatusCode::INTERNAL_SERVER_ERROR, "list failed")
+        }
+    }
+}
+
+/// `POST /api/orgs/{org_id}/frontline/devices/{id}/enrol-link` — org admin.
+/// A new one-time link for a kiosk whose tablet never bound; the previous link
+/// dies. Answers the same body as create. 409 once the kiosk is bound or
+/// revoked.
+#[instrument(skip_all, fields(org = %org_id, device = %id))]
+pub async fn reissue_enrol_link(
+    OrgAdmin(_ctx): OrgAdmin,
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+) -> Response {
+    let Ok(db) = establish_connection().await else {
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
+    };
+    match reissue_link(&db, org_id, id).await {
+        Ok((row, token)) => {
+            audit::record_best_effort(
+                &db,
+                audit::AuditEntry::new(actor.label().to_string(), "frontline.device.link_reissued")
+                    .actor(actor.id, audit::ActorType::User)
+                    .org(org_id)
+                    .target("frontline_device", row.id.to_string(), row.name.clone()),
+            )
+            .await;
+            Json(CreatedDevice::new(row, &token, &headers)).into_response()
+        }
+        Err(DeviceError::NotFound) => json_error(StatusCode::NOT_FOUND, "no such device"),
+        Err(e @ DeviceError::NotPending) => json_error(StatusCode::CONFLICT, e.to_string()),
+        Err(e) => {
+            warn!(error = %e, "kiosk enrol link reissue failed");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "reissue failed")
         }
     }
 }

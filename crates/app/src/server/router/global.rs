@@ -561,6 +561,12 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             "/frontline/devices/{id}",
             axum::routing::delete(frontline_devices::revoke_device),
         )
+        // A lost or expired link for a tablet that never bound. Unbound only:
+        // moving a bound kiosk is revoke-and-enrol, not a quiet re-point.
+        .route_fleet(
+            "/frontline/devices/{id}/enrol-link",
+            post(frontline_devices::reissue_enrol_link),
+        )
         // The other half of enrolment. PATCH because nothing is deleted — a
         // worker who leaves keeps their row so their work stays attributed.
         .route_fleet(

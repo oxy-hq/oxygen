@@ -827,7 +827,7 @@ pub async fn enrol(
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
-                "error": "granting apps at enrolment needs the standing to manage app access"
+                "error": "granting apps at enrollment needs the standing to manage app access"
             })),
         )
             .into_response();
@@ -843,7 +843,7 @@ pub async fn enrol(
                 error!(%org_id, "frontline enrolment: app lookup failed: {err}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": "enrolment failed" })),
+                    Json(serde_json::json!({ "error": "enrollment failed" })),
                 )
                     .into_response()
             }
@@ -996,7 +996,7 @@ pub async fn enrol(
             error!(%org_id, error = %e, "frontline enrolment failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "could not enrol the worker" })),
+                Json(serde_json::json!({ "error": "could not enroll the worker" })),
             )
                 .into_response()
         }

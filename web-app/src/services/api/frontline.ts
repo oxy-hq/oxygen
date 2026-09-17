@@ -121,6 +121,20 @@ export class FrontlineService {
     return response.data;
   }
 
+  /**
+   * A new one-time link for a kiosk whose tablet never bound; the previous link
+   * stops working. Same body as `createDevice`. 409 once bound or revoked.
+   */
+  static async reissueEnrolLink(
+    orgId: string,
+    deviceId: KioskDeviceRow["id"]
+  ): Promise<CreatedKioskDevice> {
+    const response = await apiClient.post<CreatedKioskDevice>(
+      `/orgs/${orgId}/frontline/devices/${deviceId}/enrol-link`
+    );
+    return response.data;
+  }
+
   /** Revokes; the row remains with `revoked_at` set. */
   static async revokeDevice(orgId: string, deviceId: KioskDeviceRow["id"]): Promise<void> {
     await apiClient.delete(`/orgs/${orgId}/frontline/devices/${deviceId}`);
