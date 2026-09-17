@@ -1,0 +1,22 @@
+{
+  "staging": {
+    "baseUrl": "https://aip.staging.oxy.tech",
+    "apps": [
+      {
+        "app": "oxy-canary/platform-canary",
+        "url": "https://aip.staging.oxy.tech/customer-apps/oxy-canary/platform-canary/",
+        "expectSelector": "[data-canary=\"ready\"]"
+      }
+    ]
+  },
+  "prod": {
+    "baseUrl": "https://app.oxygen-hq.com",
+    "apps": [
+      {
+        "app": "oxy-canary/platform-canary",
+        "url": "https://oxy-canary--platform-canary.customer-apps.oxygen-hq.com/",
+        "expectSelector": "[data-canary=\"ready\"]"
+      }
+    ]
+  }
+}

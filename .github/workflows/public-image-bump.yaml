@@ -18,6 +18,12 @@ name: Bump Prod Image in Infra
 # and wrong for our own app, which is why prod imageTag has been bumped by hand
 # on nearly every release. This is that hand, automated. Renovate stays as the
 # backstop; a duplicate PR is noise, not a hazard.
+#
+# A rollback runs through here too. Dispatch it with a version below the
+# pinned one. The run skips the release-hold check and dispatches no release
+# checks. It clears the result labels and any hold from the PR, labels it
+# `release-rollback`, and says in a PR comment what it cleared. A release
+# event carrying a lower tag is still refused.
 
 on:
   workflow_run:
@@ -198,6 +204,7 @@ jobs:
         id: bump
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           cd infrastructure
@@ -227,12 +234,24 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Below the pinned version (`sort -V`; equal was handled above) is a
+          # rollback. Only a person asks for one, by dispatching with the older
+          # version. A release event carrying a lower tag, such as a re-run or a
+          # hotfix on an older line, is refused as before, so it can never
+          # replace a pending bump.
+          ROLLBACK=false
           if [[ "$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]]; then
-            echo "::notice::$VERSION is not higher than the pinned $CURRENT — refusing to" \
-                 "propose a downgrade. Roll prod back by hand if that is what you meant."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+              echo "::notice::$VERSION is not higher than the pinned $CURRENT — refusing to" \
+                   "propose a downgrade from a release event. To roll prod back, dispatch" \
+                   "this workflow with version=$VERSION."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            ROLLBACK=true
+            echo "::notice::$VERSION is below the pinned $CURRENT: proposing a rollback"
           fi
+          echo "rollback=$ROLLBACK" >> "$GITHUB_OUTPUT"
 
           # Mechanical, single-line edit. Claude writes the PR prose in the
           # next step but never touches the tree: a values file this dense,
@@ -252,8 +271,10 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
+      # Not on a rollback: its range runs backwards, and the next step writes
+      # a one-line body naming what leaves prod instead.
       - name: Summarise the release
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.bump.outputs.skip != 'true' && steps.bump.outputs.rollback != 'true'
         uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -330,23 +351,41 @@ jobs:
         if: steps.bump.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          # Dispatches custom-app-checks.yaml in oxy-hq/oxygen-internal, which the
+          # infra token above cannot reach. Optional: without it the PR still
+          # opens, labelled release-checks-not-run.
+          CHECKS_DISPATCH_TOKEN: ${{ secrets.CHECKS_DISPATCH_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
           CURRENT: ${{ steps.bump.outputs.current }}
+          ROLLBACK: ${{ steps.bump.outputs.rollback }}
         run: |
           set -euo pipefail
           SUMMARY="${GITHUB_WORKSPACE}/bump-summary.md"
           BODY="${RUNNER_TEMP}/pr-body.md"
-          COMPARE="https://github.com/oxy-hq/oxygen-internal/compare/${CURRENT}...${VERSION}"
 
-          # Ship the bump even if the prose failed. The version change is the
-          # deliverable and the summary is the convenience — but say so, rather
-          # than opening a blank PR that looks like it had nothing to report.
-          if [[ ! -s "$SUMMARY" ]]; then
-            echo "::warning::no summary was generated; opening the PR without one"
+          if [[ "$ROLLBACK" == "true" ]]; then
+            # Written newer-first, so the compare link lists what leaves prod.
+            COMPARE="https://github.com/oxy-hq/oxygen-internal/compare/${VERSION}...${CURRENT}"
             cat > "$SUMMARY" <<SUMMARY_MD
+          Rolls prod back from \`${CURRENT}\` to \`${VERSION}\`. The compare link below lists what this takes out of prod.
+          SUMMARY_MD
+            CHECKS_NOTE="> A rollback is never held and runs no release checks: this PR carries
+          > \`release-rollback\` in place of a release-checks label. Do the migration check in
+          > oxygen-internal \`internal-docs/release-process.md\` before merging."
+          else
+            COMPARE="https://github.com/oxy-hq/oxygen-internal/compare/${CURRENT}...${VERSION}"
+            # Ship the bump even if the prose failed. The version change is the
+            # deliverable and the summary is the convenience — but say so, rather
+            # than opening a blank PR that looks like it had nothing to report.
+            if [[ ! -s "$SUMMARY" ]]; then
+              echo "::warning::no summary was generated; opening the PR without one"
+              cat > "$SUMMARY" <<SUMMARY_MD
           Moves prod from \`${CURRENT}\` to \`${VERSION}\`. _(Summary generation
           failed — read the compare link below.)_
           SUMMARY_MD
+            fi
+            CHECKS_NOTE="> Release checks (\`custom-app-checks.yaml\` in oxygen-internal) run on staging
+          > once it serves \`${VERSION}\`, and label this PR with the result."
           fi
 
           # Unquoted heredoc, escaped backticks: the versions interpolate and
@@ -367,24 +406,121 @@ jobs:
           > so this reaches the cluster within minutes of the merge.
           >
           > This branch is rebuilt from \`main\` and force-pushed on every release, so a
-          > newer release re-points this same PR. Do not commit anything else onto it.
+          > newer release re-points this same PR, unless it carries \`release-hold\` or
+          > \`release-rollback\`. Do not commit anything else onto it.
+          >
+          ${CHECKS_NOTE}
           BODY_MD
           } > "$BODY"
 
           cd infrastructure
-          git commit --quiet -am "chore(oxy-prod): bump imageTag ${CURRENT} -> ${VERSION}"
-          git push --force --quiet origin "$BUMP_BRANCH"
 
-          TITLE="chore(oxy-prod): bump oxy image ${CURRENT} → ${VERSION}"
+          # Result labels written by custom-app-checks.yaml, plus the two this
+          # step reads: release-hold (set there) and release-rollback (set here).
+          ensure_label() {
+            gh label create "$1" --repo "$INFRA_REPO" --color "$2" --description "$3" 2>/dev/null || true
+          }
+          ensure_label release-checks-pending fbca04 "Custom-app release checks have not reported yet"
+          ensure_label release-checks-passed 0e8a16 "Custom-app release checks passed on staging"
+          ensure_label release-checks-failed d93f0b "Custom-app release checks failed on staging"
+          ensure_label release-checks-not-run cfd3d7 "Custom-app release checks gave no verdict; not a pass"
+          ensure_label release-hold b60205 "Release checks failed; a person removes this before the bump moves on"
+          ensure_label release-rollback 5319e7 "Rolls prod back to an older version; release checks and holds do not apply"
+
           PR=$(gh pr list --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --state open \
             --json number --jq '.[0].number // empty')
+          HELD=false
+          ROLLBACK_OPEN=false
+          PR_VERSION=""
+          if [[ -n "$PR" ]]; then
+            PR_JSON=$(gh pr view "$PR" --repo "$INFRA_REPO" --json labels,title)
+            HELD=$(jq -r '[.labels[].name] | any(. == "release-hold")' <<<"$PR_JSON")
+            ROLLBACK_OPEN=$(jq -r '[.labels[].name] | any(. == "release-rollback")' <<<"$PR_JSON")
+            # The version the open PR proposes: its title ends `→ X.Y.Z`.
+            PR_VERSION=$(jq -r '.title | capture("→ (?<v>[0-9]+\\.[0-9]+\\.[0-9]+)$") | .v' <<<"$PR_JSON")
+          fi
+
+          # A forward bump leaves a held PR, or an open rollback, exactly as it
+          # is: no push, no edit. `release-hold` means the release checks failed
+          # on the version the PR proposes; an open rollback is an incident in
+          # progress. The push is what would move the PR onto a newer version,
+          # so this check sits above it, not beside `gh pr edit`. A rollback
+          # skips it: a rollback is never held.
+          if [[ "$ROLLBACK" != "true" ]]; then
+            if [[ "$HELD" == "true" ]]; then
+              echo "::warning::prod bump PR #${PR} is held by release-hold; a person clears it before a newer version is proposed"
+              exit 0
+            fi
+            if [[ "$ROLLBACK_OPEN" == "true" ]]; then
+              echo "::warning::prod bump PR #${PR} is an open rollback to ${PR_VERSION:-an older version}; merge or close it, then dispatch this workflow with version=${VERSION}"
+              exit 0
+            fi
+          fi
+
+          # custom-app-checks.yaml finds this PR by the `→ ${VERSION}` suffix.
+          # Change these titles and that lookup together.
+          if [[ "$ROLLBACK" == "true" ]]; then
+            git commit --quiet -am "chore(oxy-prod): roll back imageTag ${CURRENT} -> ${VERSION}"
+            TITLE="chore(oxy-prod): roll back oxy image ${CURRENT} → ${VERSION}"
+            STATE_LABEL=release-rollback
+            CLEARED=release-checks-pending,release-checks-passed,release-checks-failed,release-checks-not-run,release-hold
+          else
+            git commit --quiet -am "chore(oxy-prod): bump imageTag ${CURRENT} -> ${VERSION}"
+            TITLE="chore(oxy-prod): bump oxy image ${CURRENT} → ${VERSION}"
+            # A proposed version starts pending, and the previous version's
+            # result is cleared.
+            STATE_LABEL=release-checks-pending
+            CLEARED=release-checks-passed,release-checks-failed,release-checks-not-run
+          fi
+          git push --force --quiet origin "$BUMP_BRANCH"
 
           if [[ -n "$PR" ]]; then
-            gh pr edit "$PR" --repo "$INFRA_REPO" --title "$TITLE" --body-file "$BODY"
+            gh pr edit "$PR" --repo "$INFRA_REPO" --title "$TITLE" --body-file "$BODY" \
+              --add-label "$STATE_LABEL" \
+              --remove-label "$CLEARED"
             echo "::notice::updated https://github.com/${INFRA_REPO}/pull/${PR} to ${VERSION}"
           else
             gh label create "$BUMP_LABEL" --repo "$INFRA_REPO" --color 0e8a16 \
               --description "Pending prod image bump" 2>/dev/null || true
-            gh pr create --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --base main \
-              --title "$TITLE" --body-file "$BODY" --label "$BUMP_LABEL"
+            PR_URL=$(gh pr create --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --base main \
+              --title "$TITLE" --body-file "$BODY" --label "$BUMP_LABEL" \
+              --label "$STATE_LABEL")
+            PR="${PR_URL##*/}"
+            echo "::notice::opened ${PR_URL}"
+          fi
+
+          # A rollback dispatches no checks and adds no pending: its checks
+          # would find staging on a newer version, report not-run, and never
+          # pass. Say what it cleared.
+          if [[ "$ROLLBACK" == "true" ]]; then
+            NOTE="Rollback from \`${CURRENT}\` to \`${VERSION}\`. A rollback is never held: no release checks were dispatched, and this PR carries \`release-rollback\` in place of a release-checks label."
+            if [[ "$HELD" == "true" ]]; then
+              NOTE+="
+
+          This removed \`release-hold\`, which held \`${PR_VERSION:-the version this PR proposed before}\` after its release checks failed on staging. The rollback does not explain that failure, and a newer release is no longer held on it: record why before proposing one."
+            fi
+            gh pr comment "$PR" --repo "$INFRA_REPO" --body "$NOTE"
+            echo "::notice::proposed a rollback to ${VERSION} in https://github.com/${INFRA_REPO}/pull/${PR}"
+            exit 0
+          fi
+
+          # Ask oxygen-internal to run the release checks against this version.
+          # That run waits for staging to serve it, then labels this PR.
+          #
+          # Both not-run paths below also REMOVE release-checks-pending, which was
+          # set above. The only other writer that clears it is the dispatched run
+          # itself — and on these two paths no run was dispatched, so without the
+          # removal the PR carries pending and not-run together, permanently.
+          if [[ -z "${CHECKS_DISPATCH_TOKEN:-}" ]]; then
+            echo "::warning::release checks were not dispatched: CHECKS_DISPATCH_TOKEN is not set"
+            gh pr edit "$PR" --repo "$INFRA_REPO" \
+              --add-label release-checks-not-run --remove-label release-checks-pending
+          elif ! GH_TOKEN="$CHECKS_DISPATCH_TOKEN" gh workflow run custom-app-checks.yaml \
+                 -R oxy-hq/oxygen-internal -f environment=staging -f expect_version="$VERSION"; then
+            echo "::error::dispatching custom-app-checks.yaml for ${VERSION} failed; labelled PR #${PR} release-checks-not-run"
+            gh pr edit "$PR" --repo "$INFRA_REPO" \
+              --add-label release-checks-not-run --remove-label release-checks-pending
+            exit 1
+          else
+            echo "::notice::dispatched release checks for ${VERSION} on staging"
           fi

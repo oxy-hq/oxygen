@@ -17,6 +17,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
+    "test:custom-app-checks": "playwright test -c playwright.custom-app-checks.config.ts",
     "test:agentic": "tsx tests/agentic/runner/cli.ts",
     "test:agentic:headed": "HEADED=1 tsx tests/agentic/runner/cli.ts",
     "test:agentic:debug": "DEBUG=1 HEADED=1 tsx tests/agentic/runner/cli.ts",

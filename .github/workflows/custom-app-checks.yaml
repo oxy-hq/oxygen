@@ -1,0 +1,685 @@
+name: Custom app checks
+
+# Proves published custom apps work on staging and prod, two ways per app:
+#
+#   1. server side: `oxyc checks run <org>/<app>` runs every function the app
+#      marks `"check": true` and fails if any of them fails;
+#   2. in a browser: web-app/tests/custom-app-checks loads the app and waits for
+#      the platform runtime's `oxy-app-ready` beacon. A custom-app host answers
+#      200 with the app shell for every path, so a status code proves nothing.
+#
+# Two entry points:
+#
+#   - `schedule`: both environments every 15 minutes, once the repo variable
+#     CUSTOM_APP_CHECKS_SCHEDULE is `true`. On prod, only a run whose checks
+#     all passed POSTs to CHECKIN_URL, so the All Quiet monitor behind it hears
+#     nothing when the apps break and also when the checks stop running.
+#     Staging has no heartbeat monitor yet; it gets one when the Better Stack
+#     escalation flag flips. So CHECKIN_URL is required on prod only, and a
+#     staging run without it skips the check-in with a notice.
+#
+#   - `workflow_dispatch`: one environment. `public-image-bump.yaml` dispatches
+#     staging with `expect_version` when it proposes a prod image bump. That run
+#     waits for staging to serve the version, then records the result as labels
+#     on the bump PR in oxy-hq/infrastructure (see the last step).
+#
+# Targets: `.github/custom-app-checks.json`. Secrets: the GitHub environments
+# `custom-app-checks-staging` and `custom-app-checks-prod`. Setup order:
+# internal-docs/release-process.md, "Release checks".
+#
+# Sentry, on a staging dispatch that names a version, and never a verdict. Two
+# more secrets in `custom-app-checks-staging`, both optional: a missing one
+# costs its step a warning and never fails the run.
+#
+#   - SENTRY_RELEASE_TOKEN (scope project:releases): once staging serves the
+#     version, "Mark the staging deploy in Sentry" records a `staging` deploy
+#     of release `oxy@X.Y.Z` in project `oxy`.
+#   - SENTRY_READ_TOKEN (scopes event:read and org:read): after the result is
+#     recorded, "Comment new Sentry issues on the prod bump PR" lists the
+#     unresolved issues first seen in that release on staging. It never adds a
+#     label or a hold.
+#
+# CUSTOM_APP_CHECK_ALLOWED_ORIGINS, set on the browser step from the target
+# file's baseUrl, lists the origins besides each app's own that may receive
+# X-API-Key. On prod the app is served from its custom-app subdomain, and the
+# SDK sends `/sql/query` and `/query` to the admin host, another origin. If
+# that origin is missing, those calls go out without the key: the app
+# redirects to login, and the check fails as a timeout waiting for the ready
+# beacon rather than as an auth error.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to check.
+        type: choice
+        options:
+          - staging
+          - prod
+        default: staging
+      expect_version:
+        description: >-
+          Release version (X.Y.Z) the environment must be serving before the
+          checks run. On staging, the result is recorded on the prod bump PR.
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # The Sentry org: `organization` in oxy-hq/infrastructure sentry/oxy/variables.tf.
+  SENTRY_ORG: oxygen-intelligence
+  # The org lives in Sentry's US region. infrastructure's sentry/oxy/providers.tf
+  # names the region host too: the sentry.io gateway answers some paths differently.
+  SENTRY_API: https://us.sentry.io/api/0
+
+jobs:
+  checks:
+    name: Custom app checks (${{ matrix.environment }})
+    # oxygen-internal only. The environments and secrets exist only here, so a
+    # copy of this file anywhere else (the public mirror) must not run.
+    if: >-
+      github.repository == 'oxy-hq/oxygen-internal' &&
+      (github.event_name == 'workflow_dispatch' || vars.CUSTOM_APP_CHECKS_SCHEDULE == 'true')
+    runs-on: ubuntu-latest
+    # Above the sum of the step timeouts below (2+5+15+10+2+35+2+15+15+2+5+5+3 =
+    # 116). A hung step then hits its own timeout first, and the result step
+    # still gets to label the bump PR. A job timeout would cancel it too.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.environment) || '["staging","prod"]') }}
+    environment: custom-app-checks-${{ matrix.environment }}
+    # A dispatch that names a version gets a group of its own. GitHub cancels a
+    # queued run when another joins its group, so sharing one with the schedule
+    # would let a 15-minute tick drop a release check. Scheduled runs share a
+    # group, and a new tick cancels one still in progress: its result is stale.
+    concurrency:
+      group: custom-app-checks-${{ matrix.environment }}-${{ inputs.expect_version || github.event_name }}
+      cancel-in-progress: ${{ github.event_name == 'schedule' }}
+    steps:
+      # First, before any install: a misconfigured environment should fail in
+      # seconds, and loudly. An unset secret is never a skipped check.
+      - name: Require secrets
+        id: secrets
+        timeout-minutes: 2
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          OXY_API_KEY: ${{ secrets.OXY_API_KEY }}
+          CHECKIN_URL: ${{ secrets.CHECKIN_URL }}
+          INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+        run: |
+          set -euo pipefail
+          # CHECKIN_URL feeds the prod All Quiet monitor. Staging has no monitor
+          # yet, so there it is optional (see "Check in").
+          #
+          # INFRA_PR_TOKEN is how staging's result reaches the prod bump PR
+          # ("Record the result"), and it is required ONLY on the run that does
+          # that: staging, dispatched with a version. The schedule trigger runs
+          # both environments every 15 minutes with expect_version empty, and a
+          # bare dispatch defaults it to "" too — neither touches the PR. Requiring
+          # the token on those runs killed the staging leg in two seconds whenever
+          # the token was not yet set, so the app checks it exists to run never
+          # ran, for a reason unrelated to them. "Record the result" still fails
+          # loudly and specifically when the token is missing on a release run.
+          #
+          # An `if` block, not `[[ -n … ]] && required+=(…)`: under `set -e` that
+          # form exits 1 when the test is false.
+          required=(OXY_API_KEY)
+          case "$ENVIRONMENT" in
+            prod) required+=(CHECKIN_URL) ;;
+            staging)
+              if [[ -n "${EXPECT_VERSION:-}" ]]; then
+                required+=(INFRA_PR_TOKEN)
+              fi
+              ;;
+          esac
+          missing=0
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::secret ${name} is not set in environment custom-app-checks-${ENVIRONMENT}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Checkout
+        id: checkout
+        timeout-minutes: 5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up pnpm, Node, and Playwright
+        id: setup
+        timeout-minutes: 15
+        uses: ./.github/actions/setup-web-app-test-env
+        with:
+          install-playwright: "true"
+
+      - name: Build oxyc
+        id: build
+        timeout-minutes: 10
+        run: pnpm --filter @oxy-hq/cli build
+
+      - name: Resolve targets
+        id: targets
+        timeout-minutes: 2
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          set -euo pipefail
+          CONFIG=.github/custom-app-checks.json
+          if ! BASE_URL=$(jq -er --arg env "$ENVIRONMENT" '.[$env].baseUrl | strings' "$CONFIG"); then
+            echo "::error::${CONFIG} has no baseUrl for ${ENVIRONMENT}"
+            exit 1
+          fi
+          # Every entry needs an app and a url, and the list cannot be empty:
+          # nothing to check is a failure, not a pass.
+          if ! APPS_JSON=$(jq -ec --arg env "$ENVIRONMENT" '
+                .[$env].apps | arrays
+                | select(length > 0 and all(.[]; (.app | type) == "string" and (.url | type) == "string"))
+              ' "$CONFIG"); then
+            echo "::error::${CONFIG} has no valid apps list for ${ENVIRONMENT} (each entry needs app and url)"
+            exit 1
+          fi
+          echo "base_url=${BASE_URL%/}" >> "$GITHUB_OUTPUT"
+          echo "apps=${APPS_JSON}" >> "$GITHUB_OUTPUT"
+
+      # The bump PR opens when the release image is published, which is before
+      # staging has rolled onto it. Checking the previous build and recording
+      # that as this version's result would be worse than not checking.
+      #
+      # Three endings. Serving the version: the checks run. Serving a strictly
+      # newer X.Y.Z: this version will never be served here again, so the run
+      # is superseded, which is not a failure. Still older after 30 minutes:
+      # the step fails, the checks never run, and the result step labels the
+      # bump PR not-run (no hold), naming this step.
+      #
+      # The step timeout sits above the 30-minute loop: one more poll can run
+      # past the deadline, and the timeout only catches a hang.
+      - name: Wait for the expected version
+        id: version
+        if: github.event_name == 'workflow_dispatch' && inputs.expect_version != ''
+        timeout-minutes: 35
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          BASE_URL: ${{ steps.targets.outputs.base_url }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+        run: |
+          set -euo pipefail
+          semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if [[ ! "$EXPECT_VERSION" =~ $semver ]]; then
+            echo "::error::expect_version '${EXPECT_VERSION}' is not an X.Y.Z release version"
+            exit 1
+          fi
+          deadline=$((SECONDS + 30 * 60))
+          while :; do
+            served=$(curl -fsS -m 10 "${BASE_URL}/api/version" | jq -r '.version // empty') || served=""
+            if [[ "$served" == "$EXPECT_VERSION" ]]; then
+              echo "${BASE_URL} is serving ${EXPECT_VERSION}"
+              exit 0
+            fi
+            # Only an X.Y.Z compares: `sort -V` would rank a string like `dev`
+            # above every release and call it newer.
+            if [[ "$served" =~ $semver ]] &&
+              [[ "$(printf '%s\n%s\n' "$served" "$EXPECT_VERSION" | sort -V | tail -1)" == "$served" ]]; then
+              echo "::notice::${ENVIRONMENT} moved past ${EXPECT_VERSION}; checks for this version were superseded"
+              echo "superseded=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "::error::${BASE_URL} was serving '${served:-unreachable}', not ${EXPECT_VERSION}, after 30 minutes"
+              exit 1
+            fi
+            echo "serving '${served:-unreachable}', waiting for ${EXPECT_VERSION}; retrying in 30s"
+            sleep 30
+          done
+
+      # Sentry's release signal, not a check: a `staging` deploy of
+      # `oxy@<expect_version>` in project `oxy`, so Sentry knows when staging
+      # started serving the release. Only when the wait above saw staging serve
+      # it: a superseded or timed-out wait deployed nothing. It never fails the
+      # run. A missing token, an unreachable Sentry or a refused request each
+      # end in a warning, and `continue-on-error` covers anything else.
+      # Creating the release is idempotent, but the deploy POST is not: a
+      # re-dispatch of the same version records a second `staging` deploy of it.
+      # That is expected, and the prod marker in oxy-hq/infrastructure (S3b)
+      # copies this shape.
+      - name: Mark the staging deploy in Sentry
+        id: sentry_deploy
+        if: matrix.environment == 'staging' && inputs.expect_version != '' && steps.version.outcome == 'success' && steps.version.outputs.superseded != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SENTRY_RELEASE_TOKEN: ${{ secrets.SENTRY_RELEASE_TOKEN }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # No `-e`: every failure below is reported, then exits 0.
+          set -uo pipefail
+          RELEASE="oxy@${EXPECT_VERSION}"
+          if [[ -z "${SENTRY_RELEASE_TOKEN:-}" ]]; then
+            echo "::warning::secret SENTRY_RELEASE_TOKEN is not set in environment custom-app-checks-staging: no Sentry deploy marker for ${RELEASE}"
+            exit 0
+          fi
+          RESPONSE="${RUNNER_TEMP}/sentry-response.json"
+          # sentry_post PATH JSON: prints the HTTP status, or 000 when Sentry
+          # could not be reached at all.
+          sentry_post() {
+            local code
+            code=$(curl -sS -m 20 -o "$RESPONSE" -w '%{http_code}' -X POST "${SENTRY_API}$1" \
+              -H "Authorization: Bearer ${SENTRY_RELEASE_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "$2") || true
+            [[ "$code" =~ ^[0-9]{3}$ ]] || code=000
+            echo "$code"
+          }
+          # Names what happened, for a warning: 000 out of sentry_post means
+          # Sentry was never reached, not that it answered 000.
+          sentry_said() {
+            if [[ "$1" == 000 ]]; then
+              echo "Sentry could not be reached"
+            else
+              echo "Sentry answered HTTP $1"
+            fi
+          }
+
+          # The release may not exist yet: Sentry creates one on the first event
+          # that names it, and staging may not have sent one. 201 created it and
+          # 208 means it already existed; a 400 saying it exists counts too.
+          code=$(sentry_post "/organizations/${SENTRY_ORG}/releases/" \
+            "$(jq -nc --arg v "$RELEASE" '{version: $v, projects: ["oxy"]}')")
+          if [[ "$code" != 201 && "$code" != 208 ]] &&
+            ! { [[ "$code" == 400 ]] && grep -qi 'already exist' "$RESPONSE" 2>/dev/null; }; then
+            echo "::warning::$(sentry_said "$code") when creating release ${RELEASE}: no staging deploy marker"
+            exit 0
+          fi
+
+          VERSION_PATH=$(jq -rn --arg v "$RELEASE" '$v | @uri')
+          code=$(sentry_post "/organizations/${SENTRY_ORG}/releases/${VERSION_PATH}/deploys/" \
+            "$(jq -nc --arg url "$RUN_URL" '{environment: "staging", projects: ["oxy"], name: "custom-app checks", url: $url}')")
+          if [[ "$code" != 201 ]]; then
+            echo "::warning::$(sentry_said "$code") when marking the staging deploy of ${RELEASE}"
+            exit 0
+          fi
+          echo "Marked a staging deploy of ${RELEASE} in Sentry project oxy."
+
+      - name: Run server-side checks
+        id: server
+        if: steps.version.outputs.superseded != 'true'
+        timeout-minutes: 15
+        env:
+          BASE_URL: ${{ steps.targets.outputs.base_url }}
+          APPS_JSON: ${{ steps.targets.outputs.apps }}
+          OXY_API_KEY: ${{ secrets.OXY_API_KEY }}
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          # No `-e`: every app is checked even after one fails.
+          set -uo pipefail
+          mapfile -t apps < <(jq -r '.[].app' <<<"$APPS_JSON")
+          if (( ${#apps[@]} == 0 )); then
+            echo "::error::no apps to check"
+            exit 1
+          fi
+          # API key only. `--token-env` names a variable that is never set, and a
+          # runner has no `oxyc login` cache, so no bearer resolves and the CLI
+          # sends X-API-Key as this environment's synthetic app-operator user.
+          unset OXY_CHECKS_NO_BEARER
+          # oxyc's exit-code contract (`oxyc exit-codes`). Only 9 is a verdict:
+          # a check ran and failed or timed out. Every other non-zero code means
+          # this app was never checked, and the `verdict` output tells the record
+          # step the two apart: `failed` holds the bump PR; `no-verdict` labels
+          # it not-run, with the code and its likely fix in the comment.
+          why() {
+            case "$1" in
+              1) echo "the app declares no checks; mark a function \"check\": true in its oxy-app.json" ;;
+              4) echo "no credential, or the API rejected it (401/403, e.g. an expired 90-day key); rotate OXY_API_KEY in environment custom-app-checks-${ENVIRONMENT}" ;;
+              5) echo "no such app on ${BASE_URL}; check the ${ENVIRONMENT} entry in .github/custom-app-checks.json" ;;
+              6) echo "the API refused the request (4xx); an oxyc/API mismatch, read the log" ;;
+              7) echo "the API answered 5xx or was unreachable; re-dispatch once ${BASE_URL} is healthy" ;;
+              *) echo "see \`oxyc exit-codes\`" ;;
+            esac
+          }
+          failed=()
+          unchecked=()
+          verdict=passed
+          for app in "${apps[@]}"; do
+            echo "::group::oxyc checks run ${app}"
+            node sdk/cli/dist/main.mjs checks run "$app" \
+              --target "$BASE_URL" \
+              --api-key-env OXY_API_KEY \
+              --token-env OXY_CHECKS_NO_BEARER
+            rc=$?
+            echo "::endgroup::"
+            case "$rc" in
+              0) ;;
+              9)
+                echo "::error::oxyc checks run ${app} exited 9: a check failed or timed out"
+                failed+=("$app")
+                # Written the moment they are known, so a later app that hangs
+                # into this step's timeout cannot turn a failure into not-run —
+                # and cannot leave the hold naming no app, which is the run where
+                # knowing the app matters most. GITHUB_OUTPUT keeps the last value
+                # for a repeated key, so `failed=` stays current as the list grows.
+                echo "failed=${failed[*]}" >> "$GITHUB_OUTPUT"
+                if [[ "$verdict" != failed ]]; then
+                  verdict=failed
+                  echo "verdict=failed" >> "$GITHUB_OUTPUT"
+                fi
+                ;;
+              *)
+                reason=$(why "$rc")
+                echo "::error::oxyc checks run ${app} exited ${rc}: ${reason}"
+                unchecked+=("${app} exited ${rc}: ${reason}")
+                ;;
+            esac
+          done
+          if (( ${#unchecked[@]} > 0 )); then
+            summary=$(printf '%s; ' "${unchecked[@]}")
+            echo "unchecked=${summary%; }" >> "$GITHUB_OUTPUT"
+          fi
+          if (( ${#failed[@]} > 0 )); then
+            echo "failed=${failed[*]}" >> "$GITHUB_OUTPUT"
+            echo "::error::server-side checks failed for ${#failed[@]} of ${#apps[@]} app(s): ${failed[*]}"
+            exit 1
+          fi
+          if (( ${#unchecked[@]} > 0 )); then
+            echo "verdict=no-verdict" >> "$GITHUB_OUTPUT"
+            echo "::error::${#unchecked[@]} of ${#apps[@]} app(s) could not be checked and none failed a check: no verdict"
+            exit 1
+          fi
+          echo "verdict=passed" >> "$GITHUB_OUTPUT"
+
+      # Runs even when a server-side check failed: whether the app also fails to
+      # load is the next thing whoever investigates needs to know.
+      - name: Run browser check
+        id: browser
+        if: ${{ !cancelled() && (steps.server.outcome == 'success' || steps.server.outcome == 'failure') }}
+        timeout-minutes: 15
+        env:
+          APPS_JSON: ${{ steps.targets.outputs.apps }}
+          OXY_API_KEY: ${{ secrets.OXY_API_KEY }}
+          # The spec sends X-API-Key only to each app's own origin and to these
+          # (see the header: without the admin host, prod reads as a beacon timeout).
+          CUSTOM_APP_CHECK_ALLOWED_ORIGINS: ${{ steps.targets.outputs.base_url }}
+        run: CUSTOM_APP_CHECK_TARGETS="$APPS_JSON" pnpm --dir web-app test:custom-app-checks
+
+      # Both checks must have run and passed. A superseded run skips them and
+      # succeeds, and must not tell the monitor that anything was checked.
+      - name: Check in
+        id: checkin
+        if: success() && steps.server.outcome == 'success' && steps.browser.outcome == 'success'
+        timeout-minutes: 2
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          CHECKIN_URL: ${{ secrets.CHECKIN_URL }}
+        run: |
+          set -euo pipefail
+          # "Require secrets" already failed a prod run without one.
+          if [[ -z "${CHECKIN_URL:-}" ]]; then
+            echo "::notice::${ENVIRONMENT} has no heartbeat monitor yet (it waits on the Better Stack escalation flag): CHECKIN_URL is unset, so this run does not check in"
+            exit 0
+          fi
+          curl -fsS -m 10 --retry 3 -X POST "$CHECKIN_URL"
+
+      - name: Upload Playwright report
+        if: failure()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: playwright-report-${{ matrix.environment }}
+          path: web-app/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Release gate. A dispatch from public-image-bump.yaml names the version it
+      # proposed for prod; staging's result lands on that PR as labels. Four
+      # endings, and every one removes release-checks-pending:
+      #
+      #   passed      both check steps ran and succeeded -> release-checks-passed
+      #   failed      a check reached a verdict and it was a failure: some app's
+      #               `oxyc checks run` exited 9, or the browser check failed
+      #               after the server-side checks passed -> release-checks-failed
+      #               and release-hold (the only ending that holds)
+      #   superseded  staging moved past the version -> release-checks-not-run
+      #   not run     anything else: a step failed, timed out or was cancelled
+      #               before a check could fail — including `oxyc` exiting with
+      #               a code other than 9 for some app and 9 for none (4: the
+      #               key was rejected, 5: no such app, …), which means that app
+      #               was never checked -> release-checks-not-run, no hold, and
+      #               a comment naming the first such step and, for `oxyc`, the
+      #               exit code and its likely fix
+      #
+      # A run that never checked is not-run, never failed: a hold on it would
+      # stall every later release on a failure nobody has to understand. A
+      # browser failure after a `no-verdict` server step is not-run too — the
+      # same rejected key breaks both.
+      #
+      # passed and failed replace any earlier result label. The two endings
+      # with no verdict leave an earlier passed or failed for the same version
+      # alone.
+      #
+      # `always()`, so a timed-out or cancelled step still reaches this step.
+      - name: Record the result on the prod bump PR
+        id: record
+        if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && inputs.expect_version != '' }}
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+          SUPERSEDED: ${{ steps.version.outputs.superseded == 'true' }}
+          SERVER: ${{ steps.server.outcome }}
+          VERDICT: ${{ steps.server.outputs.verdict }}
+          FAILED_APPS: ${{ steps.server.outputs.failed }}
+          UNCHECKED: ${{ steps.server.outputs.unchecked }}
+          BROWSER: ${{ steps.browser.outcome }}
+          STEPS_JSON: ${{ toJSON(steps) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          INFRA_REPO: oxy-hq/infrastructure
+          BUMP_BRANCH: chore/bump-oxy-prod-image
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::secret INFRA_PR_TOKEN is not set: the release-check result for ${EXPECT_VERSION} cannot reach the prod bump PR"
+            exit 1
+          fi
+
+          if [[ "$SUPERSEDED" == "true" ]]; then
+            RESULT=superseded
+          elif [[ "$SERVER" == "success" && "$BROWSER" == "success" ]]; then
+            RESULT=passed
+          elif [[ "$VERDICT" == "failed" ]]; then
+            # Some app's check ran and failed (`oxyc checks run` exited 9).
+            RESULT=failed
+          elif [[ "$SERVER" == "success" && "$BROWSER" == "failure" ]]; then
+            # The server-side checks reached a verdict, a pass, so the browser
+            # check ran against a checked version and its failure is one too.
+            RESULT=failed
+          else
+            # No check reached a verdict: a step stopped before the checks, the
+            # server step timed out, or `oxyc` exited with a code other than 9
+            # for some app and 9 for none (`no-verdict`) — and a browser failure
+            # after that is the same cause, not a second verdict.
+            RESULT=not-run
+          fi
+          echo "result: ${RESULT} (server-side checks: ${SERVER:-none}, verdict: ${VERDICT:-none}, browser check: ${BROWSER:-none})"
+
+          # The first step, in run order, that failed or was cancelled. A step
+          # that exceeds its timeout-minutes is one of those.
+          first_stopped_step() {
+            local entry id name outcome
+            for entry in \
+              "secrets:Require secrets" \
+              "checkout:Checkout" \
+              "setup:Set up pnpm, Node, and Playwright" \
+              "build:Build oxyc" \
+              "targets:Resolve targets" \
+              "version:Wait for the expected version" \
+              "server:Run server-side checks" \
+              "browser:Run browser check"; do
+              id="${entry%%:*}"
+              name="${entry#*:}"
+              outcome=$(jq -r --arg id "$id" '.[$id].outcome // "skipped"' <<<"$STEPS_JSON")
+              case "$outcome" in
+                failure) echo "\`${name}\` failed"; return ;;
+                cancelled) echo "\`${name}\` was cancelled"; return ;;
+              esac
+            done
+            echo "the run was cancelled between steps"
+          }
+
+          # The PR that proposes this version, not any PR mentioning it. Its
+          # title ends `→ <version>` (public-image-bump.yaml sets it). A plain
+          # `contains` would also match a PR that has since moved on FROM this
+          # version, and 0.5.14 inside 0.5.140.
+          PR=$(gh pr list --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --state open --json number,title \
+            | jq -r --arg v "$EXPECT_VERSION" '[.[] | select(.title | endswith("→ " + $v))][0].number // empty')
+          if [[ -z "$PR" ]]; then
+            echo "::warning::no open ${INFRA_REPO} PR from ${BUMP_BRANCH} proposes ${EXPECT_VERSION}; the release-check result (${RESULT}) was not recorded"
+            exit 0
+          fi
+          # The Sentry comment step below posts to the same PR.
+          echo "pr=${PR}" >> "$GITHUB_OUTPUT"
+
+          ensure_label() {
+            gh label create "$1" --repo "$INFRA_REPO" --color "$2" --description "$3" 2>/dev/null || true
+          }
+          ensure_label release-checks-passed 0e8a16 "Custom-app release checks passed on staging"
+          ensure_label release-checks-failed d93f0b "Custom-app release checks failed on staging"
+          ensure_label release-checks-pending fbca04 "Custom-app release checks have not reported yet"
+          ensure_label release-checks-not-run cfd3d7 "Custom-app release checks gave no verdict; not a pass"
+          ensure_label release-hold b60205 "Release checks failed; a person removes this before the bump moves on"
+
+          case "$RESULT" in
+            passed)
+              gh pr edit "$PR" --repo "$INFRA_REPO" \
+                --add-label release-checks-passed \
+                --remove-label release-checks-pending,release-checks-failed,release-checks-not-run
+              echo "::notice::release checks passed for ${EXPECT_VERSION}; labelled ${INFRA_REPO}#${PR}"
+              ;;
+            failed)
+              if [[ "$VERDICT" == "failed" ]]; then
+                WHY="\`oxyc checks run\` exited 9 for: ${FAILED_APPS} — a check ran and failed or timed out."
+                if [[ "$BROWSER" == "failure" ]]; then
+                  WHY="${WHY} The browser check failed as well."
+                fi
+                if [[ -n "${UNCHECKED:-}" ]]; then
+                  WHY="${WHY} Not checked: ${UNCHECKED}."
+                fi
+              else
+                WHY="The server-side checks passed; the browser check failed — the app never sent its ready beacon (see the Playwright report on the run)."
+              fi
+              gh pr edit "$PR" --repo "$INFRA_REPO" \
+                --add-label release-checks-failed,release-hold \
+                --remove-label release-checks-pending,release-checks-passed,release-checks-not-run
+              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${EXPECT_VERSION}\` failed on staging: ${RUN_URL}
+
+          ${WHY}
+
+          This PR now carries \`release-hold\`, so a newer release will not replace it. A person removes the label once the failure is understood."
+              echo "::notice::release checks failed for ${EXPECT_VERSION}; held ${INFRA_REPO}#${PR}"
+              ;;
+            superseded)
+              # Staging already serves something newer, so this version was never
+              # checked. Say so; a failure label or a hold would be about nothing.
+              gh pr edit "$PR" --repo "$INFRA_REPO" \
+                --add-label release-checks-not-run \
+                --remove-label release-checks-pending
+              echo "::notice::staging moved past ${EXPECT_VERSION}; labelled ${INFRA_REPO}#${PR} release-checks-not-run"
+              ;;
+            not-run)
+              # Nothing reached a verdict: a missing secret, a failed install, a
+              # staging that never served the version, an `oxyc` that could not
+              # check an app. A hold would stall every later release on a
+              # failure nobody has to understand.
+              STOPPED=$(first_stopped_step)
+              if [[ -n "${UNCHECKED:-}" ]]; then
+                STOPPED="${STOPPED} — ${UNCHECKED}"
+              fi
+              gh pr edit "$PR" --repo "$INFRA_REPO" \
+                --add-label release-checks-not-run \
+                --remove-label release-checks-pending
+              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${EXPECT_VERSION}\` gave no verdict on staging: ${STOPPED}. ${RUN_URL}
+
+          No \`release-hold\`: no check reached a verdict, so there is nothing to hold on, and \`release-checks-not-run\` is not a pass. Once the cause is fixed, re-dispatch:
+          \`gh workflow run custom-app-checks.yaml -R oxy-hq/oxygen-internal -f environment=staging -f expect_version=${EXPECT_VERSION}\`"
+              echo "::warning::release checks for ${EXPECT_VERSION} gave no verdict (${STOPPED}); labelled ${INFRA_REPO}#${PR} release-checks-not-run"
+              ;;
+          esac
+
+      # Sentry's view of the same release, for whoever merges the bump PR: the
+      # unresolved issues in project `oxy` first seen in `oxy@<expect_version>`
+      # on staging, or a line saying there are none. Information, never a
+      # verdict: it adds no label and no hold, and a Sentry failure never fails
+      # the run (the comment says what went wrong instead). Only when staging
+      # served the version, since otherwise the release never ran there, and
+      # only when the record step found the PR.
+      - name: Comment new Sentry issues on the prod bump PR
+        id: sentry_comment
+        if: ${{ always() && steps.record.outputs.pr != '' && inputs.expect_version != '' && steps.version.outcome == 'success' && steps.version.outputs.superseded != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          EXPECT_VERSION: ${{ inputs.expect_version }}
+          PR: ${{ steps.record.outputs.pr }}
+          INFRA_REPO: oxy-hq/infrastructure
+        run: |
+          # No `-e`: every Sentry failure becomes a sentence in the comment.
+          set -uo pipefail
+          RELEASE="oxy@${EXPECT_VERSION}"
+          ISSUES="${RUNNER_TEMP}/sentry-issues.json"
+          if [[ -z "${SENTRY_READ_TOKEN:-}" ]]; then
+            SUMMARY="Sentry was not checked for \`${RELEASE}\`: secret \`SENTRY_READ_TOKEN\` is not set in environment \`custom-app-checks-staging\`."
+          else
+            # `project` takes a slug on this endpoint. `firstRelease:` is the
+            # release an issue was first seen in: the issues this release brought.
+            code=$(curl -sS -m 20 -G -o "$ISSUES" -w '%{http_code}' \
+              -H "Authorization: Bearer ${SENTRY_READ_TOKEN}" \
+              --data-urlencode "project=oxy" \
+              --data-urlencode "environment=staging" \
+              --data-urlencode "query=is:unresolved firstRelease:${RELEASE}" \
+              --data-urlencode "statsPeriod=14d" \
+              --data-urlencode "sort=freq" \
+              --data-urlencode "limit=5" \
+              "${SENTRY_API}/organizations/${SENTRY_ORG}/issues/") || true
+            [[ "$code" =~ ^[0-9]{3}$ ]] || code=000
+            if [[ "$code" == 000 ]]; then
+              SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry could not be reached."
+            elif [[ "$code" != 200 ]]; then
+              SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry answered HTTP ${code}."
+            elif ! COUNT=$(jq -e 'if type == "array" then length else error("not a list") end' "$ISSUES" 2>/dev/null); then
+              # 200, but not the list of issues this asked for.
+              SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry answered HTTP 200, but the body was not a list of issues."
+            elif (( COUNT == 0 )); then
+              SUMMARY="No new Sentry issues first seen in \`${RELEASE}\` on staging."
+            else
+              # One line per issue. A title is an error message and can carry
+              # any text, and this comment is read just before a prod merge:
+              # newlines and backticks are flattened, `[`, `]` and `<` go too so
+              # a title cannot smuggle in a markdown link or an HTML tag, an @
+              # cannot mention anyone, and each title stops at 120 characters.
+              LINES=$(jq -r '.[:5][] |
+                "- `\(.level)` \((.title // "untitled") | gsub("[\r\n`\\[\\]<]"; " ") | gsub("@"; "@​") | .[0:120]) · \(.count) events · \(.permalink)"' "$ISSUES")
+              SUMMARY="New unresolved Sentry issues first seen in \`${RELEASE}\` on staging, most events first (at most 5):
+
+          ${LINES}"
+            fi
+          fi
+          if gh pr comment "$PR" --repo "$INFRA_REPO" --body "${SUMMARY}
+
+          Information only: this comment never adds a label or a hold."; then
+            echo "commented Sentry issues for ${RELEASE} on ${INFRA_REPO}#${PR}"
+          else
+            echo "::warning::could not comment the Sentry issues for ${RELEASE} on ${INFRA_REPO}#${PR}"
+          fi
