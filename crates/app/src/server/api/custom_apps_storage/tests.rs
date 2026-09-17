@@ -750,3 +750,22 @@ fn a_random_suffix_does_not_change_the_matched_class() {
         Some("oxy-ttl=30d")
     );
 }
+
+/// A copy whose source was never written is `NotFound`, whose message the
+/// host-call classifier reads as `not_found` — control flow, not a failure.
+/// The object store answers the same way (`s3::copy_source_missing`).
+#[tokio::test]
+async fn copy_from_a_never_written_key_is_not_found() {
+    let tmp = use_temp_state_dir();
+    let a = Uuid::new_v4();
+    let missing = format!("customer-app-storage/{a}/reports/never-written.csv");
+    let err = copy(a, &missing, "archive/report.csv", false)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, StorageError::NotFound(_)), "{err}");
+    assert_eq!(
+        err.to_string(),
+        format!("storage object not found: copy source '{missing}' does not exist")
+    );
+    let _ = std::fs::remove_dir_all(tmp);
+}

@@ -48,7 +48,7 @@ pub(super) async fn observe(
             return;
         }
     };
-    let text = message(app, key, invocation_id, failure.kind, first_seen);
+    let text = message(app, key, invocation_id, failure, first_seen);
     let (db, app_id) = (db.clone(), app.id);
     let (function_name, fingerprint) = (function_name.to_string(), failure.fingerprint.clone());
     // Spawned, not a TaskSpec (a deliberate departure from
@@ -117,12 +117,14 @@ async fn history_since(db: &DatabaseConnection) -> DateTime<Utc> {
 
 /// The page. Names the function and the shape of the failure, never its
 /// message: that stays in `app_function_invocations.error`, where reading it
-/// takes the same assume-role session as any other tenant data.
+/// takes the same assume-role session as any other tenant data — or, for a
+/// `host_call` failure, went to the app's catch block and is nowhere the
+/// platform holds, so the page names the op and kind instead.
 fn message(
     app: &entity::apps::Model,
     key: FailureKey<'_>,
     invocation_id: Uuid,
-    kind: &str,
+    failure: &Failure,
     first_seen: DateTime<Utc>,
 ) -> String {
     format!(
@@ -130,15 +132,34 @@ fn message(
          not in {LOOKBACK_DAYS} days: {THRESHOLD}+ failed invocations since {first} UTC.\n\
          • kind `{kind}` · fingerprint `{fingerprint}`\n\
          • app `{app_id}` in org `{org_id}` · latest invocation `{invocation_id}`\n\
-         The message is in `app_function_invocations.error`; the same fingerprint on other \
-         functions points at the platform rather than the app.",
+         {where_to_look}",
         slug = app.slug,
         function = key.function_name,
         first = first_seen.format("%Y-%m-%d %H:%M"),
+        kind = failure.kind,
         fingerprint = key.fingerprint,
         app_id = app.id,
         org_id = app.org_id,
+        where_to_look = where_to_look(failure),
     )
+}
+
+/// The page's last line: where the failure's message is, and what the same
+/// failure elsewhere would mean. A `host_call` row has `status = success` and
+/// a NULL `error` — the app caught the message — so pointing at the column
+/// would send on-call to an empty cell; the op and kind are what there is.
+fn where_to_look(failure: &Failure) -> String {
+    match failure.host_call {
+        Some(hc) => format!(
+            "• host call `{}` failed as `{}`; the handler caught it and answered, so \
+             `app_function_invocations.error` is NULL. The same op and kind on other apps \
+             point at the platform rather than the app.",
+            hc.op, hc.kind
+        ),
+        None => "The message is in `app_function_invocations.error`; the same fingerprint on \
+                 other functions points at the platform rather than the app."
+            .to_string(),
+    }
 }
 
 /// The ops Slack bot token and channel — the env pair Workspace Health pages
@@ -150,4 +171,27 @@ fn ops_slack_target() -> Option<(String, String)> {
         var("OXY_OPS_SLACK_BOT_TOKEN")?,
         var("OXY_OPS_SLACK_CHANNEL")?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::failure_signal::HostCallFailure;
+    use super::*;
+
+    #[test]
+    fn a_host_call_page_names_the_op_and_kind_instead_of_the_null_error_column() {
+        let hc = HostCallFailure {
+            op: "warehouse.insert",
+            kind: "host_call_failed",
+        };
+        let caught = Failure::of("success", 200, None, Some(&hc)).unwrap();
+        let line = where_to_look(&caught);
+        assert!(line.contains("`warehouse.insert`"), "{line}");
+        assert!(line.contains("`host_call_failed`"), "{line}");
+        assert!(line.contains("is NULL"), "{line}");
+        assert!(!line.contains("The message is in"), "{line}");
+
+        let threw = Failure::of("error", 0, Some("function threw: Error: x"), None).unwrap();
+        assert!(where_to_look(&threw).starts_with("The message is in"));
+    }
 }

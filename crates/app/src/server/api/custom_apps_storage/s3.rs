@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::{ByteStream, DateTimeFormat};
 
@@ -321,8 +322,25 @@ pub(super) async fn copy(
         .copy_source(format!("{bucket}/{source_key}"))
         .send()
         .await
-        .map_err(|e| StorageError::S3(format!("copy_object {from} -> {to}: {e}")))?;
+        .map_err(|err| {
+            let code = err.as_service_error().and_then(ProvideErrorMetadata::code);
+            if copy_source_missing(code) {
+                StorageError::NotFound(format!("copy source '{from}' does not exist"))
+            } else {
+                StorageError::S3(format!("copy_object {from} -> {to}: {err}"))
+            }
+        })?;
     Ok(())
+}
+
+/// Whether a failed `CopyObject` means its source is missing. S3 answers that
+/// with 404 `NoSuchKey`, but `CopyObjectError` models no such variant (only
+/// `ObjectNotInActiveTierError`), so the error code is what there is to read —
+/// and `SdkError`'s `Display` says only "service error", which nothing
+/// downstream can act on. The code rather than the status: `NoSuchBucket` is a
+/// 404 too, and that one is the deployment's to fix, not the caller's.
+fn copy_source_missing(code: Option<&str>) -> bool {
+    code == Some("NoSuchKey")
 }
 
 /// Delete everything under a prefix, page by page. Unlike [`list`], walking every
@@ -358,4 +376,19 @@ pub(super) async fn delete_prefix(bucket: &str, prefix: &str) -> Result<(), Stor
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_source_missing;
+
+    /// The code decides, not the status: a missing bucket is a 404 as well,
+    /// and that one must stay an error.
+    #[test]
+    fn only_a_no_such_key_copy_error_means_the_source_is_missing() {
+        assert!(copy_source_missing(Some("NoSuchKey")));
+        assert!(!copy_source_missing(Some("NoSuchBucket")));
+        assert!(!copy_source_missing(Some("AccessDenied")));
+        assert!(!copy_source_missing(None));
+    }
 }

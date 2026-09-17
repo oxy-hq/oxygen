@@ -13,6 +13,7 @@
 //! | `custom_apps_publish_function_artifacts` | a bundle declaring functions it lacks is refused |
 //! | `function_failure_alerts` | the pager's SQL over invocation rows inserted by hand |
 //! | `custom_app_functions_e2e` | publish, route call, isolate, invocation row; success and throw |
+//! | `custom_app_functions_host_failures` | a caught paging host-call failure writes its fingerprint; a caught `not_found` does not |
 //! | `custom_app_functions_clickhouse` | `ctx.warehouse.insert` from the isolate onto real ClickHouse |
 //! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status |
 //! | `custom_app_functions_manual_run_guards` | source scans: the executor registration and admin stack that test copies still match production |
@@ -39,6 +40,7 @@ mod custom_app_activity_roles;
 mod custom_app_functions_clickhouse;
 mod custom_app_functions_e2e;
 mod custom_app_functions_fixture;
+mod custom_app_functions_host_failures;
 mod custom_app_functions_manual_run;
 mod custom_app_functions_manual_run_guards;
 mod custom_app_functions_shape_zoo;

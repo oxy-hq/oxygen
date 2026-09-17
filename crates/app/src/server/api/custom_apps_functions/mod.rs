@@ -1150,7 +1150,7 @@ pub async fn handle_function_request(
     let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
     #[cfg(feature = "custom-app-functions")]
-    let (status_str, error_msg, body_text, http_status) = run_with_runtime(RunArgs {
+    let (status_str, error_msg, body_text, http_status, host_call) = run_with_runtime(RunArgs {
         db: &db,
         query_exec,
         app: &app,
@@ -1203,7 +1203,7 @@ pub async fn handle_function_request(
     .await;
 
     #[cfg(not(feature = "custom-app-functions"))]
-    let (status_str, error_msg, body_text, http_status) = {
+    let (status_str, error_msg, body_text, http_status, host_call) = {
         let _ = (&artifact_js, &body, timeout, &query_exec);
         (
             "error",
@@ -1213,6 +1213,8 @@ pub async fn handle_function_request(
             // `run_with_runtime`. The error framing carries this outcome, so
             // the value is never read.
             0u16,
+            // No isolate, so no host call to have failed.
+            None::<failure_signal::HostCallFailure>,
         )
     };
 
@@ -1224,7 +1226,12 @@ pub async fn handle_function_request(
     update.status = Set(status_str.to_string());
     update.duration_ms = Set(Some(duration_ms));
     update.error = Set(error_msg.clone());
-    let failure = failure_signal::Failure::of(status_str, http_status, error_msg.as_deref());
+    let failure = failure_signal::Failure::of(
+        status_str,
+        http_status,
+        error_msg.as_deref(),
+        host_call.as_ref(),
+    );
     update.failure_fingerprint = Set(failure.as_ref().map(|f| f.fingerprint.clone()));
     // Persist the result for idempotent replay — only when a key was supplied,
     // so the audit table isn't bloated with every function's output.
@@ -1319,9 +1326,10 @@ pub async fn handle_function_request(
     sse_response(sse_body)
 }
 
-/// Outcome shared by both feature arms: `(status_str, error, body, http_status)`.
+/// Outcome shared by both feature arms:
+/// `(status_str, error, body, http_status, host_call)`.
 ///
-/// FOUR elements, and the count is load-bearing across a `cfg`. The
+/// FIVE elements, and the count is load-bearing across a `cfg`. The
 /// feature-off arm builds this tuple by hand, so widening it here without
 /// widening there compiles under the default features and fails only under
 /// `--no-default-features` — which is a supported configuration
@@ -1334,7 +1342,17 @@ pub async fn handle_function_request(
 /// `resp.body`, and the SSE framing hardcoded 200. So every rejection a
 /// function expressed arrived as a success and clients had to infer it from the
 /// body's shape.
-type RunOutcome = (&'static str, Option<String>, String, u16);
+///
+/// The fifth is the first `ctx.*` call that failed in a way that pages. A
+/// handler that catches that failure and answers 2xx looks like a success in
+/// every other element, so without it such an invocation never paged.
+type RunOutcome = (
+    &'static str,
+    Option<String>,
+    String,
+    u16,
+    Option<failure_signal::HostCallFailure>,
+);
 
 /// Max `function_log` events emitted per run. Bounds the run's event log (the
 /// n8n/Windmill/Hatchet DB-bloat lesson — treat the event store as a buffer, not
@@ -1458,7 +1476,7 @@ pub(crate) async fn run_scheduled_function(
     let logs: std::sync::Arc<Mutex<Vec<LogLine>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
     let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
-    let (status_str, error_msg, body_text, http_status) = run_with_runtime(RunArgs {
+    let (status_str, error_msg, body_text, http_status, host_call) = run_with_runtime(RunArgs {
         db,
         query_exec,
         app: &app,
@@ -1522,7 +1540,12 @@ pub(crate) async fn run_scheduled_function(
     update.status = Set(status_str.to_string());
     update.duration_ms = Set(Some(duration_ms));
     update.error = Set(error_msg.clone());
-    let failure = failure_signal::Failure::of(status_str, http_status, error_msg.as_deref());
+    let failure = failure_signal::Failure::of(
+        status_str,
+        http_status,
+        error_msg.as_deref(),
+        host_call.as_ref(),
+    );
     update.failure_fingerprint = Set(failure.as_ref().map(|f| f.fingerprint.clone()));
     if status_str == "success" {
         update.result_body = Set(Some(body_text.clone()));
@@ -1833,9 +1856,13 @@ fn isolate_span(
         request_id = tracing::field::Empty,
         status = tracing::field::Empty,
         duration_ms = tracing::field::Empty,
-        // Set by `failure_signal::Failure::report` when the invocation failed.
+        // Set by `failure_signal::Failure::report` when the invocation failed;
+        // the `host_call.*` pair only for a caught host-call failure, whose
+        // message is not on the invocation row.
         otel.status_code = tracing::field::Empty,
         error.type = tracing::field::Empty,
+        host_call.op = tracing::field::Empty,
+        host_call.kind = tracing::field::Empty,
         // FaaS semantic conventions, so HyperDX's own views group invocations
         // by function; `otel.name` makes the exported span read
         // `fn <app>/<function>` while the tracing span keeps its name for the
@@ -1864,7 +1891,12 @@ async fn run_with_runtime(args: RunArgs<'_>) -> RunOutcome {
 
     span.record("status", outcome.0);
     span.record("duration_ms", started.elapsed().as_millis() as i64);
-    if let Some(failure) = failure_signal::Failure::of(outcome.0, outcome.3, outcome.1.as_deref()) {
+    if let Some(failure) = failure_signal::Failure::of(
+        outcome.0,
+        outcome.3,
+        outcome.1.as_deref(),
+        outcome.4.as_ref(),
+    ) {
         failure.report();
     }
     outcome
@@ -1890,6 +1922,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
                 Some("workspace not found".into()),
                 String::new(),
                 0,
+                None,
             );
         }
         Err(e) => {
@@ -1898,6 +1931,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
                 Some(format!("workspace lookup failed: {e}")),
                 String::new(),
                 0,
+                None,
             );
         }
     };
@@ -1968,6 +2002,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
                 Some("could not build workspace context".into()),
                 String::new(),
                 0,
+                None,
             );
         }
     };
@@ -2184,9 +2219,12 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     .await;
     watchdog.abort();
     host_for_audit.end_of_invocation().await;
+    // The broker notes a failure before it answers the call, so every call the
+    // handler awaited has been noted by the time the isolate returned.
+    let host_call = host_for_audit.host_call_failure();
 
     match result {
-        Ok(resp) => ("success", None, resp.body, resp.status),
+        Ok(resp) => ("success", None, resp.body, resp.status, host_call),
         Err(runtime::RuntimeError::Cancelled) => (
             "cancelled",
             Some("function was cancelled".into()),
@@ -2194,6 +2232,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             // Not a function status: the isolate never returned one. The error
             // framing carries these, so the value is never read.
             0,
+            host_call,
         ),
         Err(runtime::RuntimeError::Timeout) => (
             "timeout",
@@ -2202,8 +2241,9 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             // Not a function status: the isolate never returned one. The error
             // framing carries these, so the value is never read.
             0,
+            host_call,
         ),
-        Err(e) => ("error", Some(e.to_string()), String::new(), 0),
+        Err(e) => ("error", Some(e.to_string()), String::new(), 0, host_call),
     }
 }
 

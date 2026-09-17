@@ -105,6 +105,19 @@ pub struct ProjectFunctionHost {
     /// ends (`end_of_invocation`), so the hot path pays no control-plane
     /// round trip.
     writes: tokio::sync::Mutex<data_audit::WriteBuffer>,
+    /// The `ctx.*` call of this invocation that failed in a way that pages and
+    /// that the run did not recover from. The first failure stands over later
+    /// ones (one page names one failure, and later calls often fail because of
+    /// it); a later success of the same op clears it, so an app that retries a
+    /// flaky `ctx.fetch` and gets its answer on the second attempt pages
+    /// nobody. The clear goes by op name alone — two targets under one op
+    /// share it, so a `fetch` to A that failed is cleared by a `fetch` to B
+    /// that worked. That is the price of a fingerprint carrying nothing an
+    /// app chose: the op name comes from a closed list, and a target would
+    /// not. Concurrent calls of one op settle in completion order. The rule is
+    /// `HostCallFailure::{noted, recovered}`; this holds the state, for one
+    /// assignment at a time and never across an await, so a std mutex.
+    host_call_failure: std::sync::Mutex<Option<super::failure_signal::HostCallFailure>>,
 }
 
 /// The audit state of one open transaction.
@@ -246,6 +259,7 @@ impl ProjectFunctionHost {
             transactions: super::tx::TxRegistry::default(),
             oltp_conn: tokio::sync::Mutex::new(None),
             airhouse_conn: tokio::sync::Mutex::new(None),
+            host_call_failure: std::sync::Mutex::new(None),
             // `ctx.fetch` is defended in two layers:
             //  1. `is_safe_outbound` rejects the request URL up front (scheme,
             //     literal private IPs, internal suffixes).
@@ -670,6 +684,29 @@ impl FunctionHost for ProjectFunctionHost {
             self.record_writes(action, writes, trace_id.as_deref())
                 .await;
         }
+    }
+
+    fn note_host_call_failure(&self, op: &'static str, kind: &'static str) {
+        let mut noted = self
+            .host_call_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *noted = super::failure_signal::HostCallFailure::noted(*noted, op, kind);
+    }
+
+    fn note_host_call_success(&self, op: &'static str) {
+        let mut noted = self
+            .host_call_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *noted = super::failure_signal::HostCallFailure::recovered(*noted, op);
+    }
+
+    fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {
+        *self
+            .host_call_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     async fn query(&self, sql: String) -> Result<serde_json::Value, String> {

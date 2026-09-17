@@ -169,7 +169,14 @@ pub(super) async fn copy(from: &str, to: &str, allow_overwrite: bool) -> Result<
     }
     tokio::fs::copy(path_for(from), &dest)
         .await
-        .map_err(|e| StorageError::Io(format!("copy {from} -> {to}: {e}")))?;
+        .map_err(|e| match e.kind() {
+            // The destination's directory exists by now, so a missing path is
+            // the source — the same shape the object store raises.
+            std::io::ErrorKind::NotFound => {
+                StorageError::NotFound(format!("copy source '{from}' does not exist"))
+            }
+            _ => StorageError::Io(format!("copy {from} -> {to}: {e}")),
+        })?;
     Ok(())
 }
 

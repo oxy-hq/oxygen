@@ -87,6 +87,12 @@ pub enum StorageError {
     /// The target already exists and `allow_overwrite` was not set.
     #[error("storage conflict: {0}")]
     AlreadyExists(String),
+    /// A copy names a source that was never written. `get` and `head` answer
+    /// that with `Ok(None)`; a copy has nothing to answer with, so it is an
+    /// error — one both stores raise in this shape, which the host-call
+    /// classifier reads as `not_found` (control flow) rather than a failure.
+    #[error("storage object not found: {0}")]
+    NotFound(String),
     /// A presign was requested but no object-store bucket is configured.
     #[error("object storage not configured: {0}")]
     NotConfigured(String),

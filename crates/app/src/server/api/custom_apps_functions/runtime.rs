@@ -242,6 +242,21 @@ pub trait FunctionHost: Send + Sync {
     /// caller's side of the channel: the place for work that must happen once
     /// per invocation rather than once per host call.
     async fn end_of_invocation(&self) {}
+    /// Called by the broker when a host call failed in a way that pages
+    /// (`host_call_attrs::counts_toward_paging`), before the isolate sees the
+    /// rejection — so a handler that catches it and answers 2xx still leaves a
+    /// failure behind. `op` is a fixed op name, never what the call carried.
+    fn note_host_call_failure(&self, _op: &'static str, _kind: &'static str) {}
+    /// Called by the broker when a host call succeeded, so a failure noted for
+    /// the same `op` earlier in the run is dropped: the run recovered from it,
+    /// and the fingerprint should name one it did not. The rule and its
+    /// trade-off: `failure_signal::HostCallFailure::recovered`.
+    fn note_host_call_success(&self, _op: &'static str) {}
+    /// The failure noted for this invocation — the first not recovered from —
+    /// read once the isolate has finished.
+    fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {
+        None
+    }
     /// `ctx.queryStream(sql)` — read-only SQL with a higher row cap
     /// (`FUNCTION_STREAM_MAX_ROWS`) for large scans. Returns the rows as a
     /// JSON array value; the isolate yields them to the function in batches.
@@ -1752,11 +1767,26 @@ pub async fn run(
                         // count cannot drift as ops are added.
                         meters.host_calls.fetch_add(1, Ordering::Relaxed);
                         let host = host.clone();
-                        let (span, kind) = host_call_span(&call);
+                        let (span, kind, op) = host_call_span(&call);
                         tokio::spawn(
                             async move {
+                                // `dispatch_host_call` consumes its host.
+                                let host_note = host.clone();
                                 let (reply, result) = dispatch_host_call(call, host).await;
                                 record_host_call_outcome(kind, &result);
+                                // Before the reply: once the handler can catch
+                                // the error, the failure is already noted.
+                                match &result {
+                                    Err(message) => {
+                                        let error_kind =
+                                            super::host_call_attrs::classify_host_error(message);
+                                        if super::host_call_attrs::counts_toward_paging(error_kind)
+                                        {
+                                            host_note.note_host_call_failure(op, error_kind);
+                                        }
+                                    }
+                                    Ok(_) => host_note.note_host_call_success(op),
+                                }
                                 let _ = reply.send(result);
                             }
                             .instrument(span)
@@ -1791,25 +1821,27 @@ enum HostCallKind {
 /// The span one host op runs under. Named and attributed on the OpenTelemetry
 /// semantic conventions where one exists (`db.query`,
 /// `http.client.request`), `oxy.*` otherwise — see `host_call_attrs` for
-/// what is deliberately *not* recorded.
-fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
-    use super::host_call_attrs::{HOST_CALL_TARGET, db_query_summary, fetch_target};
+/// what is deliberately *not* recorded. Also the fixed op name a failure of
+/// this call pages under (`host_call_attrs::host_op_name`).
+fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind, &'static str) {
+    use super::host_call_attrs::{HOST_CALL_TARGET, db_query_summary, fetch_target, host_op_name};
     use tracing::field::Empty;
     match call {
         HostCall::Query { sql, .. } | HostCall::QueryStream { sql, .. } => {
             let s = db_query_summary(sql);
             let streaming = matches!(call, HostCall::QueryStream { .. });
+            let op = if streaming { "query_stream" } else { "query" };
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
                 "db.query",
                 db.operation.name = %s.verb,
                 db.collection.name = %s.table,
-                oxy.op = if streaming { "query_stream" } else { "query" },
+                oxy.op = op,
                 db.response.returned_rows = Empty,
                 oxy.truncated = Empty,
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Query)
+            (span, HostCallKind::Query, op)
         }
         HostCall::Fetch { url, init, .. } => {
             let t = fetch_target(url);
@@ -1829,7 +1861,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Fetch)
+            (span, HostCallKind::Fetch, "fetch")
         }
         HostCall::SemanticQuery { spec, .. } => {
             let measures = spec
@@ -1842,7 +1874,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Other)
+            (span, HostCallKind::Other, "semantic.query")
         }
         HostCall::AirwayRun { pipeline_ref, .. } => (
             tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1852,6 +1884,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            "airway.run",
         ),
         HostCall::WarehouseWrite { op, .. } => {
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1864,7 +1897,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Other)
+            (span, HostCallKind::Other, host_op_name("warehouse", op))
         }
         HostCall::Tx { op, .. } => {
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1876,7 +1909,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Other)
+            (span, HostCallKind::Other, host_op_name("tx", op))
         }
         HostCall::Airhouse { op, .. } => {
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1889,7 +1922,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Other)
+            (span, HostCallKind::Other, host_op_name("airhouse", op))
         }
         HostCall::Oltp { op, .. } => {
             let span = tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1906,7 +1939,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 otel.status_code = Empty,
                 error.type = Empty,
             );
-            (span, HostCallKind::Other)
+            (span, HostCallKind::Other, host_op_name("oltp", op))
         }
         HostCall::SecretsSet { key, .. } => (
             tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1916,6 +1949,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            "secrets.set",
         ),
         HostCall::SendEmail { input, .. } => {
             let recipients = match input.get("to") {
@@ -1931,6 +1965,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                     error.type = Empty,
                 ),
                 HostCallKind::Other,
+                "email.send",
             )
         }
         HostCall::Storage { op, .. } => (
@@ -1941,6 +1976,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            host_op_name("storage", op),
         ),
         HostCall::OrgPeople { .. } => (
             tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1949,6 +1985,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            "org.people",
         ),
         HostCall::OrgPlaces { .. } => (
             tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1957,6 +1994,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            "org.places",
         ),
         HostCall::OrgAssignments { .. } => (
             tracing::info_span!(target: HOST_CALL_TARGET,
@@ -1965,6 +2003,7 @@ fn host_call_span(call: &HostCall) -> (tracing::Span, HostCallKind) {
                 error.type = Empty,
             ),
             HostCallKind::Other,
+            "org.assignments",
         ),
     }
 }
@@ -2249,7 +2288,7 @@ mod tests {
         // A bare registry enables every span, so `metadata()` is `Some`.
         tracing::subscriber::with_default(tracing_subscriber::registry(), || {
             for call in &calls {
-                let (span, _) = host_call_span(call);
+                let (span, _, _) = host_call_span(call);
                 let meta = span.metadata().expect("span is enabled under a registry");
                 assert_eq!(
                     meta.target(),
@@ -2312,18 +2351,53 @@ mod tests {
         /// Every `ctx.tx` op this host saw, in order — the bootstrap wrapper's
         /// commit/rollback bracket is only observable from here.
         tx_ops: std::sync::Mutex<Vec<String>>,
+        /// When set, `ctx.query` fails with this message instead of answering.
+        query_error: Option<String>,
+        /// With `query_error`: only the first `ctx.query` fails; later ones
+        /// answer, the way a flaky store does for a handler that retries.
+        query_error_once: bool,
+        /// How many `ctx.query` calls have reached the host.
+        query_calls: std::sync::atomic::AtomicUsize,
+        /// When set, the app's own stores fail with this message: every
+        /// `ctx.airhouse` op, and the `begin_oltp` that opens `ctx.oltp.tx`.
+        own_store_error: Option<String>,
+        /// Every `(op, kind)` the broker noted, in order — all of them, not
+        /// just the first, so a test can see a note that should not exist.
+        host_call_failures: std::sync::Mutex<Vec<(&'static str, &'static str)>>,
+        /// Every op the broker reported a success for, in order.
+        host_call_successes: std::sync::Mutex<Vec<&'static str>>,
     }
 
     impl MockHost {
         fn tx_ops(&self) -> Vec<String> {
             self.tx_ops.lock().unwrap().clone()
         }
+        fn host_call_failures(&self) -> Vec<(&'static str, &'static str)> {
+            self.host_call_failures.lock().unwrap().clone()
+        }
+        fn host_call_successes(&self) -> Vec<&'static str> {
+            self.host_call_successes.lock().unwrap().clone()
+        }
     }
 
     #[async_trait::async_trait]
     impl FunctionHost for MockHost {
         async fn query(&self, _sql: String) -> Result<serde_json::Value, String> {
+            let calls_before = self
+                .query_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(message) = &self.query_error
+                && !(self.query_error_once && calls_before > 0)
+            {
+                return Err(message.clone());
+            }
             Ok(serde_json::json!({ "rows": [{ "x": 1 }], "truncated": false }))
+        }
+        fn note_host_call_failure(&self, op: &'static str, kind: &'static str) {
+            self.host_call_failures.lock().unwrap().push((op, kind));
+        }
+        fn note_host_call_success(&self, op: &'static str) {
+            self.host_call_successes.lock().unwrap().push(op);
         }
         async fn tx(
             &self,
@@ -2331,6 +2405,9 @@ mod tests {
             payload: serde_json::Value,
         ) -> Result<serde_json::Value, String> {
             self.tx_ops.lock().unwrap().push(op.clone());
+            if let (Some(message), "begin_oltp") = (&self.own_store_error, op.as_str()) {
+                return Err(message.clone());
+            }
             match op.as_str() {
                 "begin" | "begin_oltp" => Ok(serde_json::json!({ "id": 1 })),
                 // Echo the params back so a test can assert they crossed the
@@ -2409,6 +2486,9 @@ mod tests {
             op: String,
             payload: serde_json::Value,
         ) -> Result<serde_json::Value, String> {
+            if let Some(message) = &self.own_store_error {
+                return Err(message.clone());
+            }
             // Echo what crossed the boundary: the row count proves `rows`
             // arrived as an array, not a stringified blob.
             match op.as_str() {
@@ -2618,21 +2698,165 @@ mod tests {
         artifact: &str,
         ctx: InvocationCtx,
     ) -> (Result<FnResponse, RuntimeError>, Arc<MockHost>) {
-        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         let host = Arc::new(MockHost::default());
-        let result = run(
+        (run_on(artifact, ctx, host.clone()).await, host)
+    }
+
+    /// Run `artifact` against a caller-built `host`, for a test that needs the
+    /// host to fail in a particular way.
+    async fn run_on(
+        artifact: &str,
+        ctx: InvocationCtx,
+        host: Arc<MockHost>,
+    ) -> Result<FnResponse, RuntimeError> {
+        let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        run(
             artifact.to_string(),
             ctx,
             FnRequest::from_body(b"{}".to_vec()),
-            host.clone(),
+            host,
             cancel_rx,
             std::time::Duration::from_secs(10),
             Arc::new(std::sync::Mutex::new(Vec::new())),
             InvocationMeters::start(),
             tracing::Span::none(),
         )
-        .await;
-        (result, host)
+        .await
+    }
+
+    /// A handler that catches a failed `ctx.*` call and answers 200 is the
+    /// failure that never paged. The broker notes it on the host before the
+    /// isolate sees the rejection, so catching it cannot hide it.
+    const CATCHES_A_FAILED_QUERY: &str = r#"
+        export default async (req, ctx) => {
+            let seen = "none";
+            try { await ctx.query("select 1"); } catch (e) { seen = e.message; }
+            return new Response(seen);
+        };
+    "#;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_caught_host_call_failure_is_noted_on_the_host() {
+        let host = Arc::new(MockHost {
+            query_error: Some("connection refused".into()),
+            ..Default::default()
+        });
+        let resp = run_on(CATCHES_A_FAILED_QUERY, test_ctx(), host.clone())
+            .await
+            .expect("the handler caught the failure and returned");
+        assert_eq!(resp.status, 200);
+        assert!(resp.body.contains("connection refused"), "{}", resp.body);
+        assert_eq!(
+            host.host_call_failures(),
+            vec![("query", "host_call_failed")],
+            "exactly one note, for the one failed call"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_not_found_host_call_failure_is_not_noted() {
+        let host = Arc::new(MockHost {
+            query_error: Some("object not found".into()),
+            ..Default::default()
+        });
+        let resp = run_on(CATCHES_A_FAILED_QUERY, test_ctx(), host.clone())
+            .await
+            .expect("the handler caught the failure and returned");
+        // The call did fail — so an empty note list means "not paged", not
+        // "never reached the host".
+        assert!(resp.body.contains("object not found"), "{}", resp.body);
+        assert_eq!(host.host_call_failures(), Vec::new());
+    }
+
+    /// A handler that retries a failed call and gets its answer has recovered.
+    /// The broker reports the success under the same closed-list op name as
+    /// the failure, which is what lets the host's note clear
+    /// (`HostCallFailure::recovered`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retried_host_call_reports_its_success_under_the_same_op() {
+        let host = Arc::new(MockHost {
+            query_error: Some("connection refused".into()),
+            query_error_once: true,
+            ..Default::default()
+        });
+        let resp = run_on(
+            r#"
+            export default async (req, ctx) => {
+                let rows;
+                try { rows = await ctx.query("select 1"); }
+                catch (e) { rows = await ctx.query("select 1"); }
+                return Response.json({ rows });
+            };
+        "#,
+            test_ctx(),
+            host.clone(),
+        )
+        .await
+        .expect("the retry answered");
+        assert_eq!(resp.status, 200, "{}", resp.body);
+        assert_eq!(
+            host.host_call_failures(),
+            vec![("query", "host_call_failed")]
+        );
+        assert_eq!(host.host_call_successes(), vec!["query"]);
+    }
+
+    /// A refusal of the call's own arguments is the app's error, and the run
+    /// fails the same way every time; catching it is not hiding a failure.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_caught_bad_request_is_not_noted() {
+        let host = Arc::new(MockHost {
+            query_error: Some("`sql` is required".into()),
+            ..Default::default()
+        });
+        let resp = run_on(CATCHES_A_FAILED_QUERY, test_ctx(), host.clone())
+            .await
+            .expect("the handler caught the refusal and returned");
+        assert!(resp.body.contains("`sql` is required"), "{}", resp.body);
+        assert_eq!(host.host_call_failures(), Vec::new());
+    }
+
+    /// `ctx.airhouse` and `ctx.oltp.tx` reach the broker like every other host
+    /// call, so a caught failure in either is noted, and under its own name
+    /// from the closed list rather than `airhouse.other` or `tx.other`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn caught_airhouse_and_oltp_tx_failures_are_noted_by_name() {
+        let host = Arc::new(MockHost {
+            own_store_error: Some("connection refused".into()),
+            ..Default::default()
+        });
+        let resp = run_on(
+            r#"
+            export default async (req, ctx) => {
+                const seen = [];
+                try {
+                    await ctx.airhouse.append("visits", [{ visit_id: "v1" }]);
+                } catch (e) { seen.push(e.message); }
+                try {
+                    await ctx.oltp.tx(async (tx) => tx.exec("UPDATE bookings SET seated = true"));
+                } catch (e) { seen.push(e.message); }
+                return Response.json({ seen });
+            };
+        "#,
+            test_ctx(),
+            host.clone(),
+        )
+        .await
+        .expect("the handler caught both failures and returned");
+        assert_eq!(resp.status, 200);
+        assert_eq!(
+            resp.body.matches("connection refused").count(),
+            2,
+            "both calls failed: {}",
+            resp.body
+        );
+        assert_eq!(
+            host.host_call_failures(),
+            vec![
+                ("airhouse.append", "host_call_failed"),
+                ("tx.begin_oltp", "host_call_failed"),
+            ]
+        );
     }
 
     /// `req` carries the request, not just its body. Asserts the plumbing end

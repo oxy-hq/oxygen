@@ -22,22 +22,80 @@ use sha2::{Digest, Sha256};
 pub(super) struct Failure {
     /// `threw` (the app's code threw) | `internal` (the runtime failed) |
     /// `platform` (the invocation never reached the app's code) | `timeout` |
-    /// `http_5xx`. Bounded on purpose: a facet with one value per message is no
-    /// facet.
+    /// `http_5xx` | `host_call` (the app answered below 500 after a `ctx.*`
+    /// call failed). Bounded on purpose: a facet with one value per message is
+    /// no facet.
     pub kind: &'static str,
     /// See [`fingerprint`].
     pub fingerprint: String,
+    /// The call behind a `host_call` failure, by op and kind; `None` for every
+    /// other kind. Carried because that row's `error` is NULL — the app caught
+    /// the message — so these two closed-list values are what the page and the
+    /// log line can name.
+    pub host_call: Option<HostCallFailure>,
+}
+
+/// The first `ctx.*` call of an invocation that failed on the platform's side,
+/// by name only. `op` is a fixed op name (`query`, `warehouse.insert`), never
+/// the SQL, URL or secret name the call carried; `kind` is a
+/// `host_call_attrs::classify_host_error` value that counts toward paging.
+// Only the V8 runtime constructs one; without it the type is still named by
+// the run outcome, which always carries `None`.
+//
+// `pub`, not `pub(super)`: `FunctionHost::host_call_failure` is a method of a
+// `pub` trait, and a `pub(super)` return type there trips `private_interfaces`.
+// This module is private, so the type still reaches no further than
+// `custom_apps_functions`.
+#[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostCallFailure {
+    pub op: &'static str,
+    pub kind: &'static str,
+}
+
+/// The rule for the note a host keeps across one invocation's calls. The host
+/// holds the state (`ProjectFunctionHost::host_call_failure`); the broker
+/// reports each call's outcome; these decide what the note becomes.
+#[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+impl HostCallFailure {
+    /// After a call of `op` failed as `kind`: the first failure stands. One
+    /// page names one failure, and later calls often fail because of it.
+    pub fn noted(current: Option<Self>, op: &'static str, kind: &'static str) -> Option<Self> {
+        current.or(Some(Self { op, kind }))
+    }
+
+    /// After a call of `op` succeeded: a failure of that op is one the run
+    /// recovered from (a retried `ctx.fetch` that answered on the second
+    /// attempt), and the fingerprint should name a failure it did not. By op
+    /// name only — two targets under one op share the clear, because the op
+    /// name comes from a closed list and a target would not.
+    pub fn recovered(current: Option<Self>, op: &'static str) -> Option<Self> {
+        current.filter(|hc| hc.op != op)
+    }
 }
 
 impl Failure {
     /// The failure an invocation's outcome describes, or `None` when it did not
     /// fail. A cancellation is someone asking it to stop, not the app failing.
     /// A handler that caught an error and answered 5xx did fail — that is how a
-    /// broken host call looks from an app that handles its errors.
-    pub fn of(status: &str, http_status: u16, error: Option<&str>) -> Option<Self> {
+    /// broken host call looks from an app that handles its errors. So did one
+    /// that answered below 500 after a host call failed (`host_call`): catching
+    /// the error hides it from the response, not from on-call.
+    pub fn of(
+        status: &str,
+        http_status: u16,
+        error: Option<&str>,
+        host_call: Option<&HostCallFailure>,
+    ) -> Option<Self> {
         let (kind, fingerprint) = match status {
             "cancelled" => return None,
-            "success" if http_status < 500 => return None,
+            "success" if http_status < 500 => {
+                return host_call.map(|hc| Self {
+                    kind: "host_call",
+                    fingerprint: digest(&format!("host_call {} {}", hc.op, hc.kind)),
+                    host_call: Some(*hc),
+                });
+            }
             // Digested whole, not normalized: the status IS the signature, and
             // normalizing would fold a new 500 into a function's usual 503.
             "success" => ("http_5xx", digest(&format!("http status {http_status}"))),
@@ -47,7 +105,11 @@ impl Failure {
                 (kind_of_error(message), fingerprint(message))
             }
         };
-        Some(Self { kind, fingerprint })
+        Some(Self {
+            kind,
+            fingerprint,
+            host_call: None,
+        })
     }
 
     /// The fingerprint every timeout shares, for the reaper, which marks
@@ -65,11 +127,23 @@ impl Failure {
         let span = tracing::Span::current();
         span.record("otel.status_code", "ERROR");
         span.record("error.type", self.kind);
+        // A `host_call` failure's message went to the app's catch block, not
+        // the invocation row, so the op and kind are what on-call has to go on.
+        let (op, host_kind) = self
+            .host_call
+            .map_or((None, None), |hc| (Some(hc.op), Some(hc.kind)));
+        span.record("host_call.op", op);
+        span.record("host_call.kind", host_kind);
         // Braced: `type` is a keyword, so the field is a string literal, and
         // unbraced the macro cannot tell a literal field from the message.
         tracing::warn!(
             target: "oxy::app_function",
-            { error.fingerprint = %self.fingerprint, "error.type" = %self.kind },
+            {
+                error.fingerprint = %self.fingerprint,
+                "error.type" = %self.kind,
+                host_call.op = op,
+                host_call.kind = host_kind
+            },
             "custom-app function invocation failed"
         );
     }
@@ -223,37 +297,42 @@ mod tests {
 
     #[test]
     fn only_a_failed_outcome_is_a_failure() {
-        assert_eq!(Failure::of("success", 200, None), None);
+        assert_eq!(Failure::of("success", 200, None, None), None);
         assert_eq!(
-            Failure::of("success", 404, None),
+            Failure::of("success", 404, None, None),
             None,
             "a 4xx is an answer"
         );
         assert_eq!(
-            Failure::of("cancelled", 0, Some("function was cancelled")),
+            Failure::of("cancelled", 0, Some("function was cancelled"), None),
             None
         );
 
-        let caught = Failure::of("success", 500, None).expect("a 5xx is a failure");
+        let caught = Failure::of("success", 500, None, None).expect("a 5xx is a failure");
         assert_eq!(caught.kind, "http_5xx");
         assert_ne!(
             caught.fingerprint,
-            Failure::of("success", 503, None).unwrap().fingerprint
+            Failure::of("success", 503, None, None).unwrap().fingerprint
         );
 
         assert_eq!(
-            Failure::of("timeout", 0, Some("function execution timed out"))
+            Failure::of("timeout", 0, Some("function execution timed out"), None)
                 .unwrap()
                 .kind,
             "timeout"
         );
         assert_eq!(
-            Failure::of("error", 0, Some("internal runtime error: isolate died"))
-                .unwrap()
-                .kind,
+            Failure::of(
+                "error",
+                0,
+                Some("internal runtime error: isolate died"),
+                None
+            )
+            .unwrap()
+            .kind,
             "internal"
         );
-        let threw = Failure::of("error", 0, Some(CODE_27_A)).unwrap();
+        let threw = Failure::of("error", 0, Some(CODE_27_A), None).unwrap();
         assert_eq!(threw.kind, "threw");
         assert_eq!(threw.fingerprint, fingerprint(CODE_27_B));
         // Never reached the app's code: the platform's failure, not the app's.
@@ -261,16 +340,84 @@ mod tests {
             Failure::of(
                 "error",
                 0,
-                Some("workspace lookup failed: connection refused")
+                Some("workspace lookup failed: connection refused"),
+                None
             )
             .unwrap()
             .kind,
             "platform"
         );
         assert_eq!(
-            Failure::of("timeout", 0, None).unwrap().fingerprint,
+            Failure::of("timeout", 0, None, None).unwrap().fingerprint,
             Failure::timeout_fingerprint(),
             "the reaper's timeouts group with the runtime's"
         );
+    }
+
+    #[test]
+    fn a_caught_host_call_failure_on_a_2xx_is_a_failure() {
+        let hc = HostCallFailure {
+            op: "warehouse.insert",
+            kind: "host_call_failed",
+        };
+        let f = Failure::of("success", 200, None, Some(&hc)).expect("caught host failure pages");
+        assert_eq!(f.kind, "host_call");
+        assert_eq!(
+            f.fingerprint,
+            digest("host_call warehouse.insert host_call_failed")
+        );
+        assert_eq!(f.host_call, Some(hc), "the page names the op and kind");
+    }
+
+    /// The first failure stands over a later one, and a later success of the
+    /// same op clears it: an app that retried and got its answer pages nobody.
+    /// A success of another op clears nothing — a `storage.head` that worked
+    /// says nothing about the `fetch` that did not.
+    #[test]
+    fn a_noted_host_call_failure_is_cleared_by_a_success_of_the_same_op() {
+        let noted = HostCallFailure::noted(None, "fetch", "timeout");
+        assert_eq!(
+            noted,
+            Some(HostCallFailure {
+                op: "fetch",
+                kind: "timeout"
+            })
+        );
+        assert_eq!(
+            HostCallFailure::noted(noted, "warehouse.insert", "host_call_failed"),
+            noted,
+            "the first failure stands"
+        );
+        assert_eq!(HostCallFailure::recovered(noted, "storage.head"), noted);
+        assert_eq!(HostCallFailure::recovered(noted, "fetch"), None);
+        // Recovered, then failed again: the second failure is the one the run
+        // did not recover from.
+        assert_eq!(
+            HostCallFailure::noted(
+                HostCallFailure::recovered(noted, "fetch"),
+                "warehouse.insert",
+                "host_call_failed",
+            ),
+            Some(HostCallFailure {
+                op: "warehouse.insert",
+                kind: "host_call_failed"
+            })
+        );
+    }
+
+    #[test]
+    fn a_host_call_failure_does_not_reclassify_a_real_failure() {
+        let hc = HostCallFailure {
+            op: "query",
+            kind: "timeout",
+        };
+        let real = Failure::of("success", 503, None, Some(&hc)).unwrap();
+        assert_eq!(real.kind, "http_5xx");
+        assert_eq!(real.host_call, None, "the page names the 5xx, not the call");
+        assert_eq!(
+            Failure::of("timeout", 0, None, Some(&hc)).unwrap().kind,
+            "timeout"
+        );
+        assert_eq!(Failure::of("cancelled", 0, None, Some(&hc)), None);
     }
 }

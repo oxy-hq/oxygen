@@ -156,9 +156,15 @@ pub(super) fn fetch_target(url: &str) -> FetchTarget {
 /// `error.type` for a failed host op, from the message the host returned.
 /// Coarse on purpose: these become a HyperDX facet, and a facet with one
 /// value per distinct message is no facet.
+///
+/// `bad_request` is decided first: the host composes those messages itself,
+/// and some of them echo a value the caller sent (`unknown op '<op>'`,
+/// `unknown encoding '<encoding>'`), which must not get to pick the kind.
 pub(super) fn classify_host_error(message: &str) -> &'static str {
     let m = message.to_ascii_lowercase();
-    if m.contains("timed out") || m.contains("timeout") || m.contains("deadline") {
+    if is_caller_error(&m) {
+        "bad_request"
+    } else if m.contains("timed out") || m.contains("timeout") || m.contains("deadline") {
         "timeout"
     } else if m.contains("permission") || m.contains("denied") || m.contains("forbidden") {
         "permission_denied"
@@ -170,6 +176,97 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
         "cancelled"
     } else {
         "host_call_failed"
+    }
+}
+
+/// The host refused the call's arguments before doing anything with them: a
+/// field missing or of the wrong shape, an op or encoding off its list, a
+/// `storage.copy` onto a key that exists without `allowOverwrite`. The app
+/// sent that, so it is the app's to fix, and it fails the same way on every
+/// call — an app using `AlreadyExists` as its put-if-absent idiom would
+/// otherwise clear the paging threshold by itself.
+///
+/// The host returns errors as plain strings, with no caller-vs-platform
+/// distinction to read, so this matches the host's own phrasing (`host.rs`,
+/// `host/airhouse_ops.rs`, `StorageError`'s `Display`): one marker per shape,
+/// each as the host writes it. The backtick in `` ` is required `` and
+/// `` ` must be `` is the host quoting a field name; a warehouse's own
+/// "is required" or "must be" carries none and stays platform-side.
+/// `m` is the lowercased message.
+fn is_caller_error(m: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "` is required",
+        "` must be",
+        "each row must be an object",
+        "row missing column '",
+        "unknown op '",
+        "unknown encoding '",
+        "unknown bodyencoding '",
+        "is not valid base64",
+        "invalid url:",
+        "invalid method '",
+        "invalid semantic query spec:",
+        "invalid storage request:",
+        "storage conflict:",
+    ];
+    MARKERS.iter().any(|marker| m.contains(marker))
+}
+
+/// Whether a [`classify_host_error`] kind pages even when the handler catches
+/// it. Not every counted kind is the platform failing. Some are the app's or
+/// its config's own condition:
+/// - `permission_denied` from a scheduled or manual airhouse write, which
+///   holds only a Reader credential;
+/// - `not_allowed` from a host missing in `allow_hosts`;
+/// - `timeout` from a third party slow to answer `ctx.fetch`.
+///
+/// Those pages are accepted noise. The new-in-a-week rule and the
+/// per-function and hourly caps in `failure_alert` bound them.
+/// `not_found` is ordinary control flow (a `storage.head` probe for an object
+/// not written yet), `bad_request` is the app's own argument error
+/// ([`is_caller_error`]), and `cancelled` is someone asking the run to stop.
+pub(super) fn counts_toward_paging(kind: &str) -> bool {
+    matches!(
+        kind,
+        "host_call_failed" | "timeout" | "permission_denied" | "not_allowed"
+    )
+}
+
+/// The fixed name a host op pages under: its family and sub-op from a closed
+/// list, e.g. `warehouse.insert`. The sub-op string arrives from the isolate,
+/// so one off the list is `<family>.other`, never the string itself — a page
+/// fingerprint is shared across apps and carries nothing an app chose.
+pub(super) fn host_op_name(family: &str, op: &str) -> &'static str {
+    match (family, op) {
+        ("warehouse", "insert") => "warehouse.insert",
+        ("warehouse", "exec") => "warehouse.exec",
+        ("warehouse", "upsert") => "warehouse.upsert",
+        ("warehouse", "query") => "warehouse.query",
+        ("warehouse", _) => "warehouse.other",
+        ("tx", "begin") => "tx.begin",
+        ("tx", "begin_oltp") => "tx.begin_oltp",
+        ("tx", "query") => "tx.query",
+        ("tx", "exec") => "tx.exec",
+        ("tx", "commit") => "tx.commit",
+        ("tx", "rollback") => "tx.rollback",
+        ("tx", _) => "tx.other",
+        ("oltp", "query") => "oltp.query",
+        ("oltp", "exec") => "oltp.exec",
+        ("oltp", _) => "oltp.other",
+        ("airhouse", "query") => "airhouse.query",
+        ("airhouse", "exec") => "airhouse.exec",
+        ("airhouse", "append") => "airhouse.append",
+        ("airhouse", _) => "airhouse.other",
+        ("storage", "getUploadUrl") => "storage.getUploadUrl",
+        ("storage", "getDownloadUrl") => "storage.getDownloadUrl",
+        ("storage", "put") => "storage.put",
+        ("storage", "get") => "storage.get",
+        ("storage", "head") => "storage.head",
+        ("storage", "list") => "storage.list",
+        ("storage", "delete") => "storage.delete",
+        ("storage", "copy") => "storage.copy",
+        ("storage", _) => "storage.other",
+        _ => "other",
     }
 }
 
@@ -304,6 +401,115 @@ mod tests {
             "not_found"
         );
         assert_eq!(classify_host_error("something odd"), "host_call_failed");
+    }
+
+    #[test]
+    fn only_platform_side_host_errors_count_toward_paging() {
+        for kind in [
+            "host_call_failed",
+            "timeout",
+            "permission_denied",
+            "not_allowed",
+        ] {
+            assert!(counts_toward_paging(kind), "{kind}");
+        }
+        // `not_found` is ordinary control flow (a `storage.head` probe), a
+        // `bad_request` is the app's own argument error, and a cancellation is
+        // someone asking the run to stop.
+        for kind in ["not_found", "bad_request", "cancelled"] {
+            assert!(!counts_toward_paging(kind), "{kind}");
+        }
+    }
+
+    /// One message per shape the host refuses a call's arguments with, each as
+    /// `host.rs`, `host/airhouse_ops.rs` or `StorageError`'s `Display` writes
+    /// it. Dropping a marker from `is_caller_error` fails its line here.
+    #[test]
+    fn a_host_refusing_the_calls_arguments_is_a_bad_request() {
+        for message in [
+            "`sql` is required",
+            "warehouse.exec: `sql` is required",
+            "ctx.storage.put: `body` is required",
+            "`table` is required",
+            "`params` must be an array of values, got an object. \
+             Pass positional arguments for $1, $2, … — e.g. [tableNo, sku].",
+            "warehouse.upsert: `conflictColumns` must be a non-empty array",
+            "`rows` must be a non-empty array",
+            "`table` must be a bare lowercase table name such as \"visits\"",
+            "each row must be an object",
+            "row missing column 'sku'",
+            "unknown op 'drop'",
+            "ctx.storage: unknown op 'move'",
+            "ctx.fetch: unknown encoding 'latin1' (expected 'utf8' or 'base64')",
+            "ctx.fetch: unknown bodyEncoding 'hex' (expected 'utf8' or 'base64')",
+            "ctx.storage.put: `body` is not valid base64: Invalid padding",
+            "ctx.fetch: `body` is not valid base64: Invalid symbol 32, offset 4.",
+            "invalid url: relative URL without a base",
+            "invalid method 'FETCH'",
+            "invalid semantic query spec: missing field `measures`",
+            "invalid storage request: copy source and destination are the same key",
+            "storage conflict: 'customer-app-storage/7c1e/generated/report.csv' already \
+             exists; pass allowOverwrite to replace it",
+        ] {
+            assert_eq!(classify_host_error(message), "bad_request", "{message}");
+        }
+    }
+
+    /// A value the caller sent, echoed inside a refusal, does not pick the kind.
+    #[test]
+    fn a_caller_value_echoed_in_a_refusal_does_not_reclassify_it() {
+        assert_eq!(classify_host_error("unknown op 'timeout'"), "bad_request");
+        assert_eq!(
+            classify_host_error(
+                "ctx.storage.get: unknown encoding 'permission denied' (expected 'utf8' or 'base64')"
+            ),
+            "bad_request"
+        );
+    }
+
+    /// The markers are the host's phrasing. A warehouse saying "required" or
+    /// "must be" about the app's SQL is still a failed call on the platform's
+    /// side of the line, and pages as before.
+    #[test]
+    fn a_warehouse_message_in_similar_words_is_not_a_bad_request() {
+        for message in [
+            "ERROR: a column definition list is required for functions returning \"record\"",
+            "argument of WHERE must be type boolean, not type integer",
+            "Code: 62. DB::Exception: Syntax error: failed at position 8",
+        ] {
+            assert_eq!(
+                classify_host_error(message),
+                "host_call_failed",
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_host_op_name_comes_from_a_closed_list() {
+        assert_eq!(host_op_name("warehouse", "insert"), "warehouse.insert");
+        assert_eq!(host_op_name("storage", "head"), "storage.head");
+        // The sub-op comes from the isolate: off the list, it is not echoed.
+        assert_eq!(
+            host_op_name("warehouse", "select * from secrets"),
+            "warehouse.other"
+        );
+        assert_eq!(host_op_name("nope", "insert"), "other");
+    }
+
+    #[test]
+    fn the_airhouse_and_oltp_tx_ops_page_under_their_own_names() {
+        for (family, op, name) in [
+            ("airhouse", "query", "airhouse.query"),
+            ("airhouse", "exec", "airhouse.exec"),
+            ("airhouse", "append", "airhouse.append"),
+            // `ctx.oltp.tx` opens through the `ctx.tx` op; its later verbs
+            // share the `tx.*` names with `ctx.tx(database, fn)`.
+            ("tx", "begin_oltp", "tx.begin_oltp"),
+        ] {
+            assert_eq!(host_op_name(family, op), name, "{family} {op}");
+        }
+        assert_eq!(host_op_name("airhouse", "drop"), "airhouse.other");
     }
 
     #[test]
