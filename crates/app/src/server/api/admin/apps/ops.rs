@@ -92,140 +92,6 @@ pub(crate) fn validate_display_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a LocalFolder app's configured path. Returns operator-
-/// facing warning strings — nothing here is an error (the row is
-/// already persisted); these are hints the UI surfaces as toasts so
-/// the operator catches a misconfigured path BEFORE they click
-/// Preview and stare at a broken iframe.
-///
-/// Three things make a path "wrong" in different ways:
-///   1. Empty / unset — path was never configured
-///   2. Path exists but isn't a directory
-///   3. Path is a directory but has no `index.html`
-///
-/// All three produce a single combined message because they share a
-/// fix (set / correct the path to point at the build output).
-pub(super) fn validate_local_source(
-    source_type: &str,
-    source_config: &serde_json::Value,
-    org_slug: &str,
-    app_slug: &str,
-) -> Vec<String> {
-    if source_type != "local" {
-        return Vec::new();
-    }
-    let raw = source_config
-        .get("path")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    if raw.trim().is_empty() {
-        return vec![
-            "Local source has no path configured. Set it from Settings → Local bundle path."
-                .to_string(),
-        ];
-    }
-    let path = std::path::Path::new(raw);
-    match path.metadata() {
-        Ok(meta) if !meta.is_dir() => {
-            vec![format!(
-                "Local bundle path {raw:?} exists but isn't a directory. \
-                 Point at the folder that holds index.html (Next.js export → out/, Vite → dist/)."
-            )]
-        }
-        Ok(_) => {
-            if path.join("index.html").exists() {
-                check_baked_base_path(path, org_slug, app_slug)
-            } else {
-                vec![format!(
-                    "Local bundle path {raw:?} has no index.html. \
-                     Did you run `pnpm build`? Or point at the build output dir \
-                     (Next.js export → out/, Vite → dist/)."
-                )]
-            }
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            vec![format!(
-                "Local bundle path {raw:?} doesn't exist on the oxy host. \
-                 Check the path and try again."
-            )]
-        }
-        Err(e) => {
-            // Permission denied or other transient — surface verbatim
-            // so the operator can act on it.
-            vec![format!("Local bundle path {raw:?} can't be read: {e}.")]
-        }
-    }
-}
-
-/// Read the bundle's `index.html`, extract the baked
-/// `/customer-apps/<org>/<slug>/` prefix, and warn if it doesn't
-/// match the chosen `<org_slug>/<app_slug>`. This is the warning we
-/// most need to surface at link time — the serve-time rewrite patches
-/// `index.html` but cannot reach into the bundle's JS chunks, so a
-/// slug-vs-baked mismatch means every data fetch from the bundle 404s
-/// and the dashboard sits forever at "Loading…".
-fn check_baked_base_path(
-    bundle_dir: &std::path::Path,
-    org_slug: &str,
-    app_slug: &str,
-) -> Vec<String> {
-    let Ok(bytes) = std::fs::read(bundle_dir.join("index.html")) else {
-        return Vec::new();
-    };
-    let Ok(html) = std::str::from_utf8(&bytes) else {
-        return Vec::new();
-    };
-    let Some(baked) = crate::server::api::custom_apps_serve::first_custom_apps_prefix(html) else {
-        // Bundle doesn't reference any /customer-apps/* prefix —
-        // probably built without OXY_APP_BASE_PATH. The serve-time
-        // path rewrite handles this case by injecting the expected
-        // prefix, so it's not actionable here.
-        return Vec::new();
-    };
-    let expected = format!("/customer-apps/{org_slug}/{app_slug}/");
-    if baked == expected {
-        return Vec::new();
-    }
-    vec![format!(
-        "Bundle was built with base path {baked:?} baked in, but this app is \
-         registered as {expected:?}. The JS chunks fetch from the baked path and \
-         will 404 every data product (the dashboard will sit at 'Loading…' \
-         forever). Fix by either rebuilding with OXY_APP_BASE_PATH={expected} \
-         or changing the app slug to match the baked path."
-    )]
-}
-
-/// Create `$OXY_STATE_DIR/customer-apps/<id>/source/` for a freshly
-/// inserted local-source app. Returns the canonical path on success.
-/// Failures are typed back as the HTTP status the caller should
-/// surface so the rollback path stays simple.
-pub(super) async fn provision_local_dir_for(id: Uuid) -> Result<std::path::PathBuf, ApiErr> {
-    let state_root = std::env::var("OXY_STATE_DIR")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| {
-            api_err(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "Cannot provision a local bundle dir: OXY_STATE_DIR is not set.",
-            )
-        })?;
-
-    let dir = std::path::PathBuf::from(state_root)
-        .join("customer-apps")
-        .join(id.to_string())
-        .join("source");
-
-    tokio::fs::create_dir_all(&dir).await.map_err(|e| {
-        tracing::error!("create_dir_all({}): {e}", dir.display());
-        api_err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Couldn't create bundle directory at {}.", dir.display()),
-        )
-    })?;
-
-    Ok(dir)
-}
-
 /// Bulk-resolve org_id → org_slug for a batch of apps. One query regardless
 /// of how many apps; missing orgs (deleted out from under us — should be
 /// impossible thanks to the FK cascade, but just in case) get a fallback
@@ -504,8 +370,9 @@ pub(super) async fn load_org(
 
 /// Core publish mutation shared by [`publish_app`] and [`batch_publish_apps`].
 /// Pure pointer move: stamp `published_at`/promoter, repoint the published
-/// channel at the current draft build, and drop the canonical-dir cache so the
-/// serve path resolves the freshly-published channel instead of a stale entry.
+/// channel at the current draft build, and drop the app-resolution cache so
+/// the serve path resolves the freshly-published channel instead of a stale
+/// entry.
 pub async fn publish_one(
     db: &DatabaseConnection,
     id: Uuid,
@@ -541,12 +408,10 @@ pub async fn publish_one(
         AppOpError::internal()
     })?;
 
-    // Per-app cache only — the global access cache is invalidated ONCE by the
-    // caller (a batch would otherwise do N full global invalidations).
-    crate::server::api::custom_apps_cache::invalidate_cached_canonical_dir_all_channels(id);
     // The serve path caches the `apps` row itself (channel pointers,
-    // `published_at`), so it must be dropped here too or this mutation takes
-    // up to the cache TTL to appear.
+    // `published_at`), so drop that cache here or this mutation takes up to
+    // the cache TTL to appear. The global access cache is invalidated ONCE by
+    // the caller (a batch would otherwise do N full global invalidations).
     crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
     Ok(updated)
 }
@@ -574,12 +439,10 @@ pub async fn unpublish_one(db: &DatabaseConnection, id: Uuid) -> Result<apps::Mo
         AppOpError::internal()
     })?;
 
-    // Per-app cache only — the global access cache is invalidated ONCE by the
-    // caller (a batch would otherwise do N full global invalidations).
-    crate::server::api::custom_apps_cache::invalidate_cached_canonical_dir_all_channels(id);
     // The serve path caches the `apps` row itself (channel pointers,
-    // `published_at`), so it must be dropped here too or this mutation takes
-    // up to the cache TTL to appear.
+    // `published_at`), so drop that cache here or this mutation takes up to
+    // the cache TTL to appear. The global access cache is invalidated ONCE by
+    // the caller (a batch would otherwise do N full global invalidations).
     crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
     Ok(updated)
 }
@@ -692,12 +555,10 @@ pub(super) async fn promote_latest_one(
         AppOpError::internal()
     })?;
 
-    // Per-app cache only — the global access cache is invalidated ONCE by the
-    // caller (a batch would otherwise do N full global invalidations).
-    crate::server::api::custom_apps_cache::invalidate_cached_canonical_dir_all_channels(id);
     // The serve path caches the `apps` row itself (channel pointers,
-    // `published_at`), so it must be dropped here too or this mutation takes
-    // up to the cache TTL to appear.
+    // `published_at`), so drop that cache here or this mutation takes up to
+    // the cache TTL to appear. The global access cache is invalidated ONCE by
+    // the caller (a batch would otherwise do N full global invalidations).
     crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
     Ok(updated)
 }

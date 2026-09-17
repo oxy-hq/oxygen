@@ -1,18 +1,22 @@
 import { AppMark } from "@/components/apps/AppMark";
-import { Badge } from "@/components/ui/shadcn/badge";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
-import type { CustomApp } from "@/types/apps";
-import { resolveBundleUrl } from "../../../resolveBundleUrl";
-import { formatRelativeTime } from "../useAppsTable";
-import { AppActionsMenu, StatusPill } from "./AppActionsMenu";
+import { cn } from "@/libs/shadcn/utils";
+import type { AppHealthRow, CustomApp } from "@/types/apps";
+import { type AppStatus, ATTENTION, formatRelativeTime } from "../useAppsTable";
+import { AppActionsMenu } from "./AppActionsMenu";
+import { AppStatusLabel } from "./AppStatus";
 import { SourceWarning } from "./SourceWarning";
-import { CopyButton, OpenAppButton } from "./UrlActions";
 
 interface AppTableRowProps {
   app: CustomApp;
+  status: AppStatus | null;
+  /** This app's health row, when the fleet endpoint returned one. */
+  health: AppHealthRow | undefined;
   showOrg: boolean;
   isSelected: boolean;
+  /** Any row is selected — checkboxes stay visible while a selection exists. */
+  selecting: boolean;
   onToggle: (shiftKey: boolean) => void;
   onOpen: (app: CustomApp) => void;
   onPublish: (app: CustomApp) => void;
@@ -20,87 +24,106 @@ interface AppTableRowProps {
 }
 
 /**
- * One app as a single scannable row: checkbox · name · [org] · source ·
- * status · workspace · last-active · actions. The actions cell carries the
- * visible copy-URL + open-in-new-tab quick buttons (restored from the old
- * list) plus the ⋯ menu. Row click opens the detail; the checkbox and the
- * actions cell stop propagation so acting on a row never also opens it.
+ * One app, one line: mark and name · org · status · requests · last active.
+ *
+ * The app's mark stays: in a fleet where several apps share a name ("Oxy
+ * Starter" in two orgs), the picture is what an operator's eye finds first.
+ * It is the shared `AppMark`, so a row shows what the launcher shows.
+ *
+ * What left the resting row, and why:
+ * - **The workspace-id prefix.** Not a triage fact; it is in the detail.
+ * - **Copy-URL and open-in-new-tab buttons.** They duplicated two items already
+ *   in the ⋯ menu, three icons repeated down every row.
+ *
+ * The checkbox and ⋯ menu appear on hover and keyboard focus rather than at rest,
+ * and the checkboxes stay visible while any row is selected so a multi-select is
+ * never done blind.
+ *
+ * The reason sentence renders only for the states that need someone. For a quiet
+ * or operational app it would be the same line repeated down the list.
  */
 export const AppTableRow = ({
   app,
+  status,
+  health,
   showOrg,
   isSelected,
+  selecting,
   onToggle,
   onOpen,
   onPublish,
   onUnpublish
-}: AppTableRowProps) => (
-  <TableRow
-    data-state={isSelected ? "selected" : undefined}
-    className='cursor-pointer'
-    onClick={() => onOpen(app)}
-  >
-    <TableCell className='w-10' onClick={(e) => e.stopPropagation()}>
-      <Checkbox
-        checked={isSelected}
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle(e.shiftKey);
-        }}
-        aria-label={`Select ${app.name}`}
-      />
-    </TableCell>
-
-    <TableCell>
-      <div className='flex items-center gap-2'>
-        <AppMark iconUrl={app.icon_url} name={app.name} size='sm' />
-        <button
-          type='button'
-          className='max-w-[26ch] truncate text-left font-medium text-foreground outline-none hover:underline focus-visible:underline'
+}: AppTableRowProps) => {
+  const needsAttention = status !== null && ATTENTION.has(status);
+  const revealed = isSelected || selecting;
+  return (
+    <TableRow
+      data-state={isSelected ? "selected" : undefined}
+      className='group cursor-pointer'
+      onClick={() => onOpen(app)}
+      data-testid={`admin-apps-row-${app.org_slug}-${app.slug}`}
+    >
+      <TableCell className='w-9 pr-0' onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          checked={isSelected}
           onClick={(e) => {
             e.stopPropagation();
-            onOpen(app);
+            onToggle(e.shiftKey);
           }}
-        >
-          {app.name}
-        </button>
-        <SourceWarning unrecorded={app.source_unrecorded} />
-      </div>
-    </TableCell>
-
-    {showOrg && (
-      <TableCell className='max-w-[140px] truncate font-mono text-muted-foreground text-xs'>
-        {app.org_slug}
+          aria-label={`Select ${app.name}`}
+          className={cn(
+            "transition-opacity focus-visible:opacity-100 group-hover:opacity-100",
+            revealed ? "opacity-100" : "opacity-0"
+          )}
+        />
       </TableCell>
-    )}
 
-    <TableCell>
-      <Badge variant='outline' className='px-1.5 py-0 font-mono text-[10px] tracking-wide'>
-        {app.source_type.toUpperCase()}
-      </Badge>
-    </TableCell>
+      <TableCell className='max-w-64'>
+        <span className='flex items-center gap-2'>
+          <AppMark iconUrl={app.icon_url} name={app.name} size='sm' />
+          <span className='truncate font-medium text-foreground'>{app.name}</span>
+          <SourceWarning unrecorded={app.source_unrecorded} />
+        </span>
+      </TableCell>
 
-    <TableCell>
-      <StatusPill isLive={!!app.published_at} />
-    </TableCell>
+      {showOrg && (
+        <TableCell className='max-w-36 truncate text-muted-foreground'>{app.org_slug}</TableCell>
+      )}
 
-    <TableCell
-      className='font-mono text-muted-foreground text-xs'
-      title={`Workspace ${app.project_id}`}
-    >
-      {app.project_id.slice(0, 8)}
-    </TableCell>
+      <TableCell className='max-w-96'>
+        <span className='flex min-w-0 items-center gap-2'>
+          <AppStatusLabel status={status} className='shrink-0' />
+          {needsAttention && health?.reason && (
+            <span className='truncate text-muted-foreground' title={health.reason}>
+              {health.reason}
+            </span>
+          )}
+        </span>
+      </TableCell>
 
-    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-      {formatRelativeTime(app.last_active_at ?? app.last_synced_at)}
-    </TableCell>
+      <TableCell className='text-right text-muted-foreground tabular-nums'>
+        {health && status !== "not_measured" ? health.requests.toLocaleString() : "—"}
+      </TableCell>
 
-    <TableCell className='w-28' onClick={(e) => e.stopPropagation()}>
-      <div className='flex items-center justify-end gap-0.5'>
-        <CopyButton value={resolveBundleUrl(app.url)} label='app URL' />
-        <OpenAppButton url={app.url} />
-        <AppActionsMenu app={app} onOpen={onOpen} onPublish={onPublish} onUnpublish={onUnpublish} />
-      </div>
-    </TableCell>
-  </TableRow>
-);
+      <TableCell className='text-right text-muted-foreground tabular-nums'>
+        {formatRelativeTime(app.last_active_at ?? app.last_synced_at)}
+      </TableCell>
+
+      <TableCell className='w-10' onClick={(e) => e.stopPropagation()}>
+        <AppActionsMenu
+          app={app}
+          onOpen={onOpen}
+          onPublish={onPublish}
+          onUnpublish={onUnpublish}
+          // Only this row's own selection pins the menu open. A multi-select is
+          // acted on from the bulk bar, and a column of ⋯ would be the clutter
+          // this row was rebuilt to remove.
+          triggerClassName={cn(
+            "transition-opacity focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100",
+            isSelected ? "opacity-100" : "opacity-0"
+          )}
+        />
+      </TableCell>
+    </TableRow>
+  );
+};

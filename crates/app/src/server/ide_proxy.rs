@@ -16,11 +16,11 @@
 //! forward-on-doubt + router-introspecting-drift-test fast-follows in
 //! `internal-docs/multi-instance-fleet.md`.)
 //!
-//! ## Trust posture (vs the customer-apps proxy)
+//! ## Trust posture
 //!
 //! The ide upstream is OUR OWN backend inside the cluster, reached over an
-//! in-cluster Service. So — unlike `custom_apps_proxy`, which strips `Cookie`
-//! / `Authorization` to avoid leaking the session to a third party — we
+//! in-cluster Service. So — unlike a proxy to a third party, which would have
+//! to strip `Cookie` / `Authorization` to avoid leaking the session — we
 //! **preserve** auth headers: the forwarded request must stay the same
 //! authenticated user. We strip only RFC 7230 hop-by-hop headers and guard
 //! against forward loops.
@@ -297,8 +297,8 @@ fn filter_request_headers(headers: &HeaderMap) -> HeaderMap {
 /// of us supplies it either.
 ///
 /// Prefer an inbound `X-Forwarded-Host` over `Host`: an edge that already
-/// rewrote the host is the authority on what the client asked for. Mirrors
-/// `custom_apps_proxy::…` , which has always done this.
+/// rewrote the host is the authority on what the client asked for. Same
+/// order as `is_self_origin`.
 fn preserve_public_host(incoming: &HeaderMap, out: &mut HeaderMap) {
     let public_host = incoming
         .get(HEADER_FORWARDED_HOST)

@@ -186,9 +186,9 @@ export interface OxyAppManifest {
   /** Must be 2. v1 manifests are no longer supported. */
   schemaVersion: 2;
   /**
-   * Optional display name. The admin "Link existing" dialog prefills
-   * its Name field from this. Omit to let oxy fall back to the
-   * folder basename.
+   * Optional display name. Informational: the name an app shows is its
+   * registry row's, set when the row is created (the admin **New app**
+   * dialog, or `oxyc publish --name` on a first publish).
    */
   name?: string;
   /**

@@ -610,7 +610,7 @@ async fn seed_app(conn: &DatabaseConnection, org_id: Uuid, restricted: bool) -> 
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("authz/diff".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         visibility: ActiveValue::Set(if restricted { "members" } else { "org" }.to_string()),
         ..Default::default()

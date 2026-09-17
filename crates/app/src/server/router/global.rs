@@ -366,14 +366,6 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
                     post(crate::server::api::custom_apps_preview::enable_preview_draft)
                         .delete(crate::server::api::custom_apps_preview::disable_preview_draft),
                 )
-                // Server-side folder picker for the "Add custom app"
-                // dialog's local-link / create-new flow. Local-mode only;
-                // returns 404 in cloud. See `admin::apps::fs`.
-                .route("/fs/listdir", get(admin::apps::fs::listdir))
-                // Bundle identity probe: reads oxy-app.json + index.html
-                // for the picked folder so the dialog can lock name/slug
-                // to what the bundle declares.
-                .route("/fs/probe", get(admin::apps::fs::probe))
                 // Template gallery for the Create-new dialog. No
                 // screenshot route yet — re-add when the first PNG
                 // ships (see templates.rs module docstring).
@@ -405,16 +397,6 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
                 .route(
                     "/{id}/storage/delete",
                     post(admin::apps::storage::delete_objects),
-                )
-                // Mint an app-scoped API key. The plaintext key is
-                // returned **once** for the operator to paste into the
-                // bundle's deploy env (e.g. `OXY_API_KEY` in Vercel). The
-                // Vercel-hosted Next.js server-side calls use it to
-                // authenticate back into oxy. See
-                // `custom_apps_api_keys`.
-                .route(
-                    "/{id}/api-keys",
-                    post(crate::server::api::custom_apps_api_keys::mint),
                 )
                 // App-scoped secrets (`apps/<app_id>/<KEY>` — the namespace
                 // `ctx.env` reads). The list is reconciled against what the

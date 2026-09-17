@@ -11,9 +11,9 @@
 //! Why an allow-list rather than per-route guards: the token resolves to a real
 //! app-admin user, so it would otherwise pass every guard that user passes —
 //! including destructive routes (delete an app, delete users/orgs) and, worse,
-//! `POST /customer-apps/{id}/api-keys`, which mints a *separate persisted*
-//! credential (the exact escalation-persistence shape these tokens must not
-//! enable). This middleware is the single choke-point that keeps the blast
+//! `POST /customer-apps/{id}/secrets`, which writes a *persisted* credential
+//! the app's functions read at runtime (the exact escalation-persistence shape
+//! these tokens must not enable). This middleware is the single choke-point that keeps the blast
 //! radius to "ship a build + look at the surface". Requests WITHOUT the marker
 //! (cookie/JWT/API-key sessions) are unaffected.
 //!
@@ -23,7 +23,7 @@
 //!   - `POST /customer-apps/publish` — the CLI tarball upload.
 //!   - `POST /customer-apps/{id}/publish` — promote draft → live.
 //!   - everything else (DELETE/unpublish, PATCH/update, create, rollback,
-//!     `POST /{id}/api-keys`, preview-draft, and every non-customer-apps path)
+//!     `POST /{id}/secrets`, preview-draft, and every non-customer-apps path)
 //!     → `403`.
 //!
 //! Runs immediately after `auth_middleware` (which sets the marker). NOTE:
@@ -88,7 +88,7 @@ fn under_custom_apps(path: &str) -> bool {
 
 /// True only for `POST /customer-apps/publish` (CLI upload) and
 /// `POST /customer-apps/{id}/publish` (promote). Matched by exact segment
-/// shape so siblings like `/customer-apps/{id}/api-keys` never qualify.
+/// shape so siblings like `/customer-apps/{id}/secrets` never qualify.
 fn is_publish_route(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("/customer-apps/") else {
         return false;
@@ -126,10 +126,10 @@ mod tests {
 
     #[test]
     fn blocks_destructive_and_credential_mint() {
-        // The escalation the reviewer flagged: minting a persisted app API key.
+        // The escalation-persistence shape: writing a persisted credential.
         assert!(!is_allowed(
             &Method::POST,
-            "/customer-apps/3f2504e0/api-keys"
+            "/customer-apps/3f2504e0/secrets"
         ));
         assert!(!is_allowed(&Method::DELETE, "/customer-apps/3f2504e0"));
         assert!(!is_allowed(
@@ -190,7 +190,7 @@ mod tests {
             .route("/customer-apps/publish", post(ok))
             .route("/customer-apps/{id}", get(ok).delete(ok))
             .route("/customer-apps/{id}/publish", post(ok))
-            .route("/customer-apps/{id}/api-keys", post(ok))
+            .route("/customer-apps/{id}/secrets", post(ok))
             .route("/admin/app-publish-tokens", get(ok))
             .layer(middleware::from_fn(app_publish_token_scope_middleware));
         if with_marker {
@@ -232,12 +232,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_mint_and_delete_are_blocked() {
-        // The escalation-persistence route: minting a persisted app API key.
+    async fn credential_write_and_delete_are_blocked() {
+        // The escalation-persistence route: writing a persisted credential.
         assert_eq!(
-            status_of(nested_app(true), "POST", "/api/customer-apps/abc/api-keys").await,
+            status_of(nested_app(true), "POST", "/api/customer-apps/abc/secrets").await,
             StatusCode::FORBIDDEN,
-            "publish tokens must not mint app API keys"
+            "publish tokens must not write app secrets"
         );
         // Destroying an app registration.
         assert_eq!(

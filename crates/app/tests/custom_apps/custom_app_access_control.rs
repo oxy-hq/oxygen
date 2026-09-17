@@ -107,7 +107,7 @@ async fn seed_app(conn: &DatabaseConnection, org_id: Uuid, workspace_id: Uuid) -
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("acl/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         published_at: ActiveValue::Set(Some(chrono::Utc::now().into())),
         ..Default::default()

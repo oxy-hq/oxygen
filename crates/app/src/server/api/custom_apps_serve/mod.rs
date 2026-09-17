@@ -4,16 +4,10 @@
 //! `GET /customer-apps/{uuid}/{*rest}`, gating each request with cookie or
 //! bearer auth and an org-membership check.
 //!
-//! Bundle source per app — see `custom_apps_source::AppSource`:
-//! - `LocalFolder { path }` — the dev's `path` IS the bundle dir
-//!   (the directory containing `index.html`), so this handler reads
-//!   `<path>/<rest_path>` straight off disk. Whatever your bundler
-//!   names the output folder (`out/`, `dist/`, `build/`, …), point at
-//!   it directly.
-//! - `S3` — bundle was synced to
-//!   `$OXY_STATE_DIR/customer-apps/<uuid>/out/` by `POST /sync`. The
-//!   `out/` segment is owned by the publish pipeline here, not the
-//!   dev — CI uploads to `s3://<bucket>/apps/<uuid>/out/`.
+//! Every app is served from the build store (`custom_apps_source::AppSource`
+//! has one variant): the channel the request resolves to names a build, and
+//! `sources::serve_from_s3_build` reads that build's objects through the
+//! in-memory bundle cache. `oxyc publish` is the only way bytes get there.
 //!
 //! Authentication failures redirect to `{base}/login?return_to=<url>` rather
 //! than 401 so unauthenticated visitors land in the magic-link flow
@@ -86,13 +80,15 @@ use sources::*;
 pub(crate) use rewrite::first_custom_apps_prefix;
 pub(crate) use sources::serve_from_s3_build;
 
-/// Single entry point for `GET /customer-apps/{*path}`. Decides between
-/// the legacy uuid form (redirects to the canonical pretty URL) and the
-/// new pretty form (`<org_slug>/<app_slug>/<rest>`).
+/// 32 MiB ceiling on an Oxy Function invocation's request body.
 ///
-/// Auth lives inside [`serve_resolved`] so the legacy-uuid redirect path
-/// can still bounce anonymous visitors through `/login?return_to=...`
-/// before they ever learn whether a given uuid is a real app.
+/// Function POSTs are normally small JSON. Anything larger is almost certainly
+/// user-uploaded media, which belongs in `ctx.storage` via a presigned URL rather
+/// than buffered through this process — one serve instance hosts many apps.
+/// (Moved here from the removed v0 reverse proxy, where it also bounded proxied
+/// bodies; functions are now its only use.)
+pub(crate) const FUNCTION_BODY_LIMIT: usize = 32 * 1024 * 1024;
+
 /// One route, two pods. `serve_dispatch` answers everything under
 /// `/customer-apps/{*path}`: bundle bytes from S3, which any replica can serve,
 /// and `POST .../fn/<name>`, which EXECUTES an Oxy Function against the working
@@ -113,6 +109,13 @@ pub fn serve_dispatch_roles() -> &'static [RouteRoleDecl] {
     ]
 }
 
+/// Single entry point for `GET /customer-apps/{*path}`. Decides between
+/// the legacy uuid form (redirects to the canonical pretty URL) and the
+/// new pretty form (`<org_slug>/<app_slug>/<rest>`).
+///
+/// Auth lives inside [`serve_pretty`] so the legacy-uuid redirect path
+/// can still bounce anonymous visitors through `/login?return_to=...`
+/// before they ever learn whether a given uuid is a real app.
 pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Request) -> Response {
     let (parts, body) = request.into_parts();
     let headers = parts.headers;
@@ -156,11 +159,10 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
         if function_name.is_empty() || function_name.contains('/') {
             return StatusCode::NOT_FOUND.into_response();
         }
-        let body_bytes =
-            match axum::body::to_bytes(body, super::custom_apps_proxy::REQUEST_BODY_LIMIT).await {
-                Ok(b) => b,
-                Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-            };
+        let body_bytes = match axum::body::to_bytes(body, FUNCTION_BODY_LIMIT).await {
+            Ok(b) => b,
+            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+        };
         // `?refresh` bypasses the opt-in function result cache (same convention
         // as the /query endpoint).
         let refresh = uri
@@ -429,9 +431,10 @@ pub(crate) async fn serve_pretty(
             .into_response();
     }
 
-    // 3. Dispatch through the source facade. The per-app source decision
-    //    (v0 / local / s3) is recorded at register time; this handler only
-    //    knows about three rendering modes and matches on them.
+    // 3. Dispatch through the source facade. The per-app source is recorded at
+    //    register time. A row still carrying a removed type (`v0`, `local`)
+    //    fails to parse here and answers a recorded 500 — see
+    //    `custom_apps_source` for why those rows are not migrated.
     let source = match super::custom_apps_source::AppSource::from_model(&app) {
         Ok(s) => s,
         Err(e) => {
@@ -519,8 +522,6 @@ pub(crate) async fn serve_pretty(
         span.record(
             "source",
             match &source {
-                AppSource::V0 { .. } => "v0_proxy",
-                AppSource::LocalFolder { .. } => "local_folder",
                 AppSource::S3 => "s3",
             },
         );
@@ -531,29 +532,6 @@ pub(crate) async fn serve_pretty(
     );
     let response = async {
         match source {
-            AppSource::V0 { url } => {
-                super::custom_apps_proxy::proxy(
-                    &url,
-                    &rest,
-                    method,
-                    &uri,
-                    &headers,
-                    body,
-                    super::custom_apps_proxy::ProxyIdentity {
-                        app: &app,
-                        org: &org,
-                        user_id: user.id,
-                        user_email: user.email.as_deref().unwrap_or(""),
-                    },
-                )
-                .await
-            }
-            AppSource::LocalFolder { path } => {
-                // LocalFolder has no draft/published split — one directory
-                // serves everyone. Publishing for these sources is purely a
-                // sidebar visibility toggle.
-                serve_from_local(id, &path, &rest, &headers, &runtime).await
-            }
             AppSource::S3 => {
                 // The customer URL accepts no view modifier. Draft mode
                 // lives on a staff-only HttpOnly cookie set via
@@ -644,29 +622,16 @@ pub(crate) async fn serve_pretty(
     // its cache, which is a view. `html_response`'s `if_none_match` and an
     // upstream conditional response both produce one.
     //
-    // Two consequences worth knowing, because they cut opposite ways:
+    // What that buys: an app that is registered but has nothing to serve —
+    // no `oxyc publish` yet — stops recording a view for every hit on its
+    // 404. That is a state customers sit in, so it was real inflation.
     //
-    //   - **Gained.** An app that is registered but has nothing to serve —
-    //     no `oxyc publish` yet, a `LocalFolder` path pointing nowhere, an
-    //     S3 source not yet synced — stops recording a view for every hit
-    //     on its 404. That is a state customers sit in, so it was real
-    //     inflation.
-    //   - **Lost.** A proxied app's *own* rendered error page — a Next.js
-    //     `404.tsx`, a maintenance `503` — no longer counts, though a
-    //     human did look at it. `AppSource::V0` passes the upstream status
-    //     through verbatim, so this route cannot tell "the app rendered
-    //     its own 404" from "the app is broken." Undercounting those beats
-    //     counting every hit on an app that renders nothing.
-    //   - **Lost.** A proxied app's redirect off its front door. Note this
-    //     is a loss, not a de-duplication: `is_html_navigation` is true
-    //     only for root, trailing-slash and `.html`, so a `middleware.ts`
-    //     or i18n bounce from `/` to `/en` loses the `/` view and never
-    //     gains one for `/en` — the entry point every visitor arrives
-    //     through drops to zero. It de-duplicates only when the target is
-    //     itself tracked (`/foo/` → `/bar/`), which is the narrower half
-    //     of the redirect space. Accepted because a 3xx isn't a page load;
-    //     if the count matters, the fix is to track a 3xx whose `Location`
-    //     resolves inside the same app rather than to widen this gate.
+    // It used to cost something too. The removed `v0` source proxied an app
+    // hosted elsewhere and passed its status through verbatim, so that app's
+    // own rendered 404 or maintenance 503, and a redirect off its front door,
+    // stopped counting as views. A build-store bundle is static: it neither
+    // chooses its own error status nor issues server redirects, so those cases
+    // no longer arise here.
     //
     // This gates the `Set-Cookie` too, so a visitor whose first hit is a
     // non-2xx starts a fresh session on their next navigation. Harmless —

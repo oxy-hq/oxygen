@@ -1,10 +1,16 @@
-import type { CustomApp } from "@/types/apps";
-import { type AppGroup, groupCheckState } from "../useAppsTable";
+import type { AppHealthRow, CustomApp } from "@/types/apps";
+import { type AppGroup, type AppStatus, groupCheckState } from "../useAppsTable";
 import { AppCard } from "./AppCard";
 import { GroupSectionHeader } from "./GroupSectionHeader";
 
 export interface AppsViewProps {
   groups: AppGroup[];
+  /** Each app's status, already resolved against the health index. */
+  statusOf: (app: CustomApp) => AppStatus | null;
+  /** Health rows by app id — `undefined` until the fleet query answers. */
+  health: ReadonlyMap<string, AppHealthRow> | undefined;
+  /** Any row is selected. */
+  selecting: boolean;
   showOrg: boolean;
   showGroupHeaders: boolean;
   collapsed: Set<string>;
@@ -24,6 +30,7 @@ export interface AppsViewProps {
  */
 export const AppsGallery = ({
   groups,
+  statusOf,
   showOrg,
   showGroupHeaders,
   collapsed,
@@ -58,6 +65,7 @@ export const AppsGallery = ({
                 <AppCard
                   key={app.id}
                   app={app}
+                  status={statusOf(app)}
                   showOrg={showOrg}
                   isSelected={isSelected(app.id)}
                   onToggle={(shiftKey) => onToggleRow(app.id, shiftKey)}

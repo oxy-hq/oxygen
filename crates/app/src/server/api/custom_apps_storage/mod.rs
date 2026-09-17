@@ -5,7 +5,7 @@
 //! * **Uploaded** — a file a human picks in the browser. The function mints a
 //!   presigned PUT and the browser uploads **straight to S3**, so the bytes never
 //!   cross the isolate's JSON op boundary (every op arg is a JSON string) and never
-//!   proxy through oxy (the 32 MiB body limit in `custom_apps_proxy` exists
+//!   proxy through oxy (the 32 MiB `FUNCTION_BODY_LIMIT` in `custom_apps_serve` exists
 //!   precisely because large bodies "should hit S3 directly").
 //! * **Generated** — a file the function itself produces (a rendered PDF, a CSV
 //!   export, a chart PNG). Written server-side with [`put`], which takes raw bytes,

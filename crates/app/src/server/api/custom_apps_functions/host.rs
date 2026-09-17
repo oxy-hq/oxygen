@@ -1934,9 +1934,7 @@ pub fn into_arc(host: ProjectFunctionHost) -> Arc<dyn FunctionHost> {
 /// private, link-local, and internal-suffix hosts *by inspecting the URL
 /// string only*. A non-literal hostname that resolves to a private/internal
 /// address (DNS rebinding) passes this check; that case is caught at connect
-/// time by [`PublicOnlyDnsResolver`]. Mirrors `custom_apps_proxy`'s
-/// `is_safe_upstream` (kept as a local copy to avoid widening that module's
-/// API surface; the two should stay in sync).
+/// time by [`PublicOnlyDnsResolver`].
 fn is_safe_outbound(url: &reqwest::Url) -> bool {
     if url.scheme() != "https" {
         return false;

@@ -98,7 +98,7 @@ async fn seed_app(
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("vis/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         visibility: ActiveValue::Set(if restricted { "members" } else { "org" }.to_string()),
         published_at: ActiveValue::Set(Some(chrono::Utc::now().into())),

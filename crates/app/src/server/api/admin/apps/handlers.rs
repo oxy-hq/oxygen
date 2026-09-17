@@ -335,33 +335,17 @@ async fn create_app_unscoped(
     let now = Utc::now().fixed_offset();
     let (source_type, source_config) = req.source.into_columns();
 
-    // `repo_path` is the stable cross-env identifier for S3-sourced
-    // bundles. Operator-overridable; defaults to the row's
-    // `<org_slug>/<slug>` pair so the common case (admin row name
-    // matches the repo path) requires no extra input. For non-S3
-    // sources we record None — those source types don't read from S3.
-    let repo_path: Option<String> = match source_type.as_str() {
-        "s3" => Some(
-            req.repo_path
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(|s| s.trim_matches('/').to_string())
-                .unwrap_or_else(|| format!("{}/{slug}", org.slug)),
-        ),
-        _ => None,
-    };
-
-    // Only S3 apps have a draft/published bundle separation worth
-    // gating on — Local and V0 are essentially "the engineer already
-    // controls the bundle", so we auto-publish them on create. That
-    // way they show up in the customer sidebar immediately, and the
-    // explicit Publish button is a no-op for them (a sidebar
-    // visibility toggle, not a deploy step).
-    let initial_published_at = match source_type.as_str() {
-        "s3" => ActiveValue::NotSet,
-        _ => ActiveValue::Set(Some(now)),
-    };
+    // `repo_path` is the stable cross-env identifier for the bundle.
+    // Operator-overridable; defaults to the row's `<org_slug>/<slug>` pair
+    // so the common case (admin row name matches the repo path) requires no
+    // extra input.
+    let repo_path = req
+        .repo_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_matches('/').to_string())
+        .unwrap_or_else(|| format!("{}/{slug}", org.slug));
 
     let model = apps::ActiveModel {
         // Leave to the DB default ('org'): a new app is org-visible unless
@@ -382,8 +366,9 @@ async fn create_app_unscoped(
         // No per-deployment override on create — defaults to "use the
         // bundle's bundled oxy-app.json."
         manifest_override: ActiveValue::NotSet,
-        published_at: initial_published_at,
-        repo_path: ActiveValue::Set(repo_path),
+        // A new app is a draft until its first build is promoted.
+        published_at: ActiveValue::NotSet,
+        repo_path: ActiveValue::Set(Some(repo_path)),
         draft_build_id: ActiveValue::NotSet,
         published_build_id: ActiveValue::NotSet,
         last_promoted_by: ActiveValue::NotSet,
@@ -408,53 +393,10 @@ async fn create_app_unscoped(
 
     let mut row = inserted;
 
-    // Local-source provisioning: mkdir the engineer's empty folder
-    // under the state dir and update the row's source_config.path so
-    // the serve handler can find it. Failure rolls back the row so
-    // we never leave behind an app whose configured path doesn't
-    // exist on disk (the silent-loading-iframe class of bug).
-    if req.provision_local_source && row.source_type == "local" {
-        match provision_local_dir_for(row.id).await {
-            Ok(path) => {
-                let active = apps::ActiveModel {
-                    id: ActiveValue::Unchanged(row.id),
-                    source_config: ActiveValue::Set(serde_json::json!({
-                        "path": path.display().to_string(),
-                    })),
-                    updated_at: ActiveValue::Set(Utc::now().fixed_offset()),
-                    ..Default::default()
-                };
-                match active.update(&db).await {
-                    Ok(updated) => {
-                        row = updated;
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to persist provisioned local path: {e}");
-                        // Best-effort cleanup of the freshly-created dir
-                        // before we drop the row — leaves no debris.
-                        let _ = tokio::fs::remove_dir_all(&path).await;
-                        let _ = row.clone().delete(&db).await;
-                        return Err(internal(e));
-                    }
-                }
-            }
-            Err(err) => {
-                tracing::error!(
-                    "Local-source provisioning failed for {}: {:?}; rolling back app row",
-                    row.id,
-                    err.1
-                );
-                let _ = row.clone().delete(&db).await;
-                return Err(err);
-            }
-        }
-    }
-
-    // If the caller asked for a scaffold PR and the source is s3, open one
-    // synchronously. Failure rolls the row back so we never persist an app
+    // If the caller asked for a scaffold PR, open one synchronously. Failure rolls the row back so we never persist an app
     // whose caller asked for a PR and didn't get one — the only state that
     // exists post-handler is the state the response reflects.
-    if req.scaffold_pr && row.source_type == "s3" {
+    if req.scaffold_pr {
         match crate::server::api::custom_apps_scaffold::scaffold_pr(&db, &row, &org, template_id)
             .await
         {
@@ -484,11 +426,7 @@ async fn create_app_unscoped(
         }
     }
 
-    let warnings =
-        validate_local_source(&row.source_type, &row.source_config, &org.slug, &row.slug);
-    let mut resp = AppResponse::from_model_with_org(row, &org.slug);
-    resp.warnings = warnings;
-    Ok(Json(resp))
+    Ok(Json(AppResponse::from_model_with_org(row, &org.slug)))
 }
 
 /// Ceiling on `list_apps` page size — bounds the per-page batched lookups
@@ -831,28 +769,11 @@ pub async fn update_app(
         .await
         .map_err(internal)?
         .ok_or_else(|| api_err(StatusCode::INTERNAL_SERVER_ERROR, "Organization not found."))?;
-    let warnings = validate_local_source(
-        &updated.source_type,
-        &updated.source_config,
-        &org.slug,
-        &updated.slug,
-    );
-    let mut resp = AppResponse::from_model_with_org(updated, &org.slug);
-    resp.warnings = warnings;
-    Ok(Json(resp))
+    Ok(Json(AppResponse::from_model_with_org(updated, &org.slug)))
 }
 
-/// Publish:
-///
-/// - **S3 source**: server-side copy `apps/<org>/<slug>/draft/*` →
-///   `apps/<org>/<slug>/published/*`, then sync the `published`
-///   channel into the local state-dir. This is what isolates the
-///   customer view from the engineer's draft.
-/// - **Local / V0 source**: there's no bundle channel to promote —
-///   just stamp `published_at`. Publishing is purely a sidebar
-///   visibility toggle for these.
-///
-/// In all cases stamp `published_at = now()` so the customer-facing
+/// Publish: point the published channel at the current draft build (see
+/// [`publish_one`]) and stamp `published_at = now()` so the customer-facing
 /// auth gate flips and the workspace sidebar picks up the entry.
 pub async fn publish_app(
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
@@ -950,9 +871,8 @@ pub async fn run_function_job(
     Ok(Json(RunFunctionJobResponse { run_id }))
 }
 
-/// `GET /api/customer-apps/{id}/builds` — newest-first build history for
-/// the new publish pipeline. Empty for legacy `s3`/local/v0 rows that
-/// have never been published via `oxyc publish`.
+/// `GET /api/customer-apps/{id}/builds` — newest-first build history. Empty
+/// for an app that has never been published via `oxyc publish`.
 pub async fn list_builds(Path(id): Path<Uuid>) -> Result<Json<BuildHistoryResponse>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("list_builds DB connect failed: {e}");
@@ -1068,7 +988,6 @@ pub async fn rollback_app(
     })?;
 
     crate::server::api::custom_apps_auth::invalidate_access_cache();
-    crate::server::api::custom_apps_cache::invalidate_cached_canonical_dir_all_channels(id);
     crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
     Ok(Json(AppResponse::from_model_with_org(updated, &org.slug)))
 }

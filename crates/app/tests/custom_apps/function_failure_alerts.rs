@@ -81,7 +81,7 @@ async fn seed(db: &DatabaseConnection) -> Seeded {
         branch: Set("main".into()),
         source_repo: Set("failure-alerts/test".into()),
         status: Set("active".into()),
-        source_type: Set("local".into()),
+        source_type: Set("s3".into()),
         source_config: Set(serde_json::json!({})),
         published_at: Set(Some(Utc::now().into())),
         ..Default::default()

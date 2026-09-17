@@ -70,8 +70,8 @@
 //!
 //! ## Fleet posture
 //!
-//! Postgres reads (`apps`, and `app_builds` on the S3 path) plus at most one
-//! build-store `HEAD` → **FleetOk**,
+//! Postgres reads (`apps`, `app_builds`) plus at most one build-store `HEAD`
+//! → **FleetOk**,
 //! which is the manifest default and is pinned by `custom_app_health_is_fleet_ok`
 //! rather than by a manifest entry. Not incidental: a liveness endpoint routed to
 //! the ide singleton would report failure every time that singleton restarted,
@@ -147,31 +147,13 @@ async fn health_for(headers: &HeaderMap, org_slug: &str, app_slug: &str) -> Resp
     respond(app_ref, build, checks)
 }
 
-/// Does this source serve from a build in the store?
-///
-/// The serve path dispatches on `AppSource` **before** it looks at any build
-/// pointer, and only the S3 arm resolves one — a V0 app is proxied upstream and a
-/// local-folder app is read from a directory. So "is there a published build" is
-/// a question that only exists for S3.
-fn serves_from_build_store(source: &AppSource) -> bool {
-    // Exhaustive on purpose, not `matches!`. `custom_apps_source` advertises that
-    // adding a variant is contained — "extend the enum + parse + handle" — and a
-    // `matches!` would answer `false` for a new one in silence, quietly giving it
-    // `published_at` semantics and skipping both store rungs with nothing failing
-    // to build. `check_entrypoint` is already exhaustive; this is the other half.
-    match source {
-        AppSource::S3 => true,
-        AppSource::V0 { .. } | AppSource::LocalFolder { .. } => false,
-    }
-}
-
 /// The two columns the publication rung reads, lifted off the row so the rule can
-/// be unit-tested per source kind without constructing a whole `apps::Model`.
+/// be unit-tested without constructing a whole `apps::Model`.
 #[derive(Debug, Clone, Copy)]
 struct PublicationState {
-    /// `published_at` is set — the only publication state a non-S3 app has.
+    /// `published_at` is set — what the customer access gate reads.
     marked_published: bool,
-    /// `published_build_id` is set — meaningful only for an S3 app.
+    /// `published_build_id` is set — what the serve path reads.
     has_published_build: bool,
 }
 
@@ -184,32 +166,13 @@ impl PublicationState {
     }
 }
 
-/// Is this app published, in the sense **its own source kind** uses?
+/// Is this app serving a published build?
 ///
-/// Pure, so every source's verdict is unit-testable without a database — which is
-/// how the bug this replaces would have been caught. That bug: the ladder asked
-/// `published_build_id.is_some()` for everyone, but `publish_one` sets that column
-/// only `if let Some(ptr) = draft_ptr`, and a V0 or local-folder app has no
-/// `app_builds` rows to point at. Publishing one is, in the serve path's own words,
-/// "purely a sidebar visibility toggle" — so it stamps `published_at` and leaves
-/// the pointer NULL, forever. Every healthy, serving V0 app therefore reported
-/// `published: fail` → 503 on the first poll and every poll after, and republishing
-/// could not clear it. Worst on the source kind most likely to actually disappear,
-/// where a permanently-red monitor makes the real outage invisible.
-fn publication_check(state: PublicationState, source: &AppSource) -> Check {
+/// Pure, so the verdict is unit-testable without a database. The two columns can
+/// disagree, and the disagreement is the diagnosis: the access gate reads
+/// `published_at`, the serve path reads the build pointer.
+fn publication_check(state: PublicationState) -> Check {
     const NAME: &str = "published";
-    if !serves_from_build_store(source) {
-        return if state.marked_published {
-            Check::pass(NAME)
-        } else {
-            Check::fail(
-                NAME,
-                "app is not published — for an externally hosted or local-folder app that is the \
-                 whole of its publication state (a visibility toggle), so there is nothing else \
-                 to promote",
-            )
-        };
-    }
     match (state.has_published_build, state.marked_published) {
         (true, _) => Check::pass(NAME),
         // Published, but nothing was ever promoted into the published channel.
@@ -233,27 +196,25 @@ fn publication_check(state: PublicationState, source: &AppSource) -> Check {
 async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
     let mut checks = vec![Check::pass("registered")];
 
-    // Source first: it decides what every later rung means. A source the serve
-    // path can't parse is also a hard failure with its OWN remediation — the
-    // serve handler 500s on the same error, and re-publishing does not repair a
-    // malformed `source_config`.
-    let source = match AppSource::from_model(app) {
-        Ok(s) => s,
-        Err(e) => {
-            checks.push(Check::fail(
-                "source_config",
-                format!(
-                    "source_config is unreadable ({e}) — every request for this app fails at \
-                     dispatch. Fix the app's source configuration; re-publishing will not repair it."
-                ),
-            ));
-            skip_remaining(&mut checks, "source configuration is unreadable");
-            return (None, checks);
-        }
-    };
+    // Source first. A source the serve path doesn't know — in practice a row
+    // left over from the removed `v0` / `local` kinds — is a hard failure with
+    // its OWN remediation: the serve handler 500s on the same error, and
+    // re-publishing does not change the row's source.
+    if let Err(e) = AppSource::from_model(app) {
+        checks.push(Check::fail(
+            "source_config",
+            format!(
+                "{e} — oxy serves only build-store (s3) apps, so every request for this app fails \
+                 at dispatch, and re-publishing will not repair it. Switch the app's source to \
+                 s3 (PATCH /api/admin/apps/{{id}}), then ship a build with `oxyc publish`."
+            ),
+        ));
+        skip_remaining(&mut checks, "source configuration is unreadable");
+        return (None, checks);
+    }
     checks.push(Check::pass("source_config"));
 
-    let publication = publication_check(PublicationState::of(app), &source);
+    let publication = publication_check(PublicationState::of(app));
     let published = publication.result == PASS;
     checks.push(publication);
     if !published {
@@ -261,16 +222,7 @@ async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
         return (None, checks);
     }
 
-    if !serves_from_build_store(&source) {
-        checks.push(Check::skipped(
-            "build_record",
-            "this source kind serves without a build record — oxy proxies or reads it directly",
-        ));
-        checks.push(check_entrypoint(app.id, "", &source).await);
-        return (None, checks);
-    }
-
-    // `publication_check` only passes an S3 app when the pointer is set, so this
+    // `publication_check` only passes an app when the pointer is set, so this
     // branch is unreachable today. It is a check rather than an `unreachable!`
     // because the invariant now lives in a different function from the read: if
     // the two ever drift, a panic here costs a monitor its answer entirely —
@@ -298,7 +250,7 @@ async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
         build_id: build.build_id.clone(),
         published_at: app.published_at.map(|t| t.to_rfc3339()),
     };
-    checks.push(check_entrypoint(app.id, &build.build_id, &source).await);
+    checks.push(check_entrypoint(app.id, &build.build_id).await);
     (Some(build_ref), checks)
 }
 
@@ -325,51 +277,34 @@ async fn load_build(build_pk: Uuid) -> Result<entity::app_builds::Model, String>
 ///
 /// `HEAD`, not `GET`: "present and non-empty" is answered identically without
 /// transferring the file, and this endpoint is designed to be polled per app.
-async fn check_entrypoint(app_id: Uuid, build_id: &str, source: &AppSource) -> Check {
+async fn check_entrypoint(app_id: Uuid, build_id: &str) -> Check {
     const NAME: &str = "bundle_entrypoint";
-    match source {
-        AppSource::S3 => {
-            match super::custom_apps_build_store::head_object(app_id, build_id, ENTRYPOINT).await {
-                // Unknown size counts as present: a store that declines to report
-                // `Content-Length` has told us the object is there, and only a
-                // size *known* to be zero is a broken bundle.
-                Ok(Some(size)) if !size.is_known_empty() => Check::pass(NAME),
-                Ok(Some(_)) => Check::fail(
-                    NAME,
-                    format!("{ENTRYPOINT} is present but empty in the build store"),
-                ),
-                Ok(None) => Check::fail(
-                    NAME,
-                    format!(
-                        "{ENTRYPOINT} is absent from the build store for build {build_id} — \
-                         re-publish the app"
-                    ),
-                ),
-                Err(e) => Check::fail(NAME, format!("build store unreachable: {e}")),
-            }
-        }
-        // Probing the upstream on every poll would put a third party's latency
-        // and rate limits on our critical path and make this endpoint report
-        // their uptime. Routing is verified; the upstream is declared un-probed
-        // rather than guessed at.
-        AppSource::V0 { .. } => Check::skipped(
+    match super::custom_apps_build_store::head_object(app_id, build_id, ENTRYPOINT).await {
+        // Unknown size counts as present: a store that declines to report
+        // `Content-Length` has told us the object is there, and only a size
+        // *known* to be zero is a broken bundle.
+        Ok(Some(size)) if !size.is_known_empty() => Check::pass(NAME),
+        Ok(Some(_)) => Check::fail(
             NAME,
-            "externally hosted (v0) app — oxy proxies it and does not host the bundle, so this \
-             endpoint verifies routing only. Monitor the upstream directly as well.",
+            format!("{ENTRYPOINT} is present but empty in the build store"),
         ),
-        AppSource::LocalFolder { .. } => Check::skipped(
+        Ok(None) => Check::fail(
             NAME,
-            "local-folder app — served from a developer machine's disk, not the build store",
+            format!(
+                "{ENTRYPOINT} is absent from the build store for build {build_id} — \
+                 re-publish the app"
+            ),
         ),
+        Err(e) => Check::fail(NAME, format!("build store unreachable: {e}")),
     }
 }
 
 /// 200 when every evaluated check passed, 503 otherwise.
 ///
 /// `skipped` does not fail the verdict — it means "we could not evaluate this",
-/// and the detail says why. Treating it as a failure would mark every V0 app
-/// permanently down; treating it as a pass would claim we checked something we
-/// did not, which is why it is neither.
+/// and the detail says why. It only ever follows a failed rung today, which
+/// fails the verdict on its own; counting a skip as a failure too would say
+/// nothing more, and counting it as a pass would claim a check we never ran.
 fn respond(app: AppRef, build: Option<BuildRef>, checks: Vec<Check>) -> Response {
     // `skip_remaining` holds the bail-out paths to `LADDER`; nothing held the
     // happy path, so adding a name to the const would have silently omitted it

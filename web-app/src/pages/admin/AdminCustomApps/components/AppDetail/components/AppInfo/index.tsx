@@ -13,9 +13,9 @@ import type { CustomApp } from "@/types/apps";
 import { CopyButton } from "../../../AppsTable/components/UrlActions";
 
 /**
- * Diagnostics dossier for the selected app: what oxy currently resolves (bundle
- * dir, manifest source, raw manifest) as a scannable health readout rather than
- * a wall of pills. Three LED health chips up top answer "is this app wired
+ * Diagnostics dossier for the selected app: what oxy currently resolves (the
+ * channel's build, manifest source, raw manifest) as a scannable health readout
+ * rather than a wall of pills. Two health chips up top answer "is this app wired
  * right?" at a glance; URLs + identity are compact rows; the raw manifest is a
  * copyable, collapsed-by-default block so it stops dominating the panel.
  *
@@ -43,35 +43,31 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
     );
   }
 
-  const isRemote = data.manifest_source === "remote";
-  const manifestOk = isRemote || (!!data.manifest && !data.manifest_error);
-  // Remote bundles have no oxy-side filesystem — bundle-dir checks don't
-  // apply, so treat them as OK and show the upstream URL instead.
-  const dirOk = isRemote || data.bundle_dir_exists;
+  const manifestOk = !!data.manifest && !data.manifest_error;
+  // The bundle is the build the resolved channel points at. There is no
+  // directory to look for: every app serves from the build store.
+  const bundleOk = data.build !== null;
 
   return (
     <div className='space-y-4 p-4 pt-0'>
-      {/* Health readout — the two things that can actually be broken. (A third
-          "Source" chip used to sit here; source_type is already a badge in the
-          toolbar and branch is a row below, so it was pure duplication paying
-          for a third of the width.) */}
+      {/* Health readout — the two things that can actually be broken. */}
       <div className='grid grid-cols-2 gap-2'>
         <HealthChip
           label='Bundle'
-          ok={dirOk}
-          value={isRemote ? "remote" : dirOk ? "exists" : "missing"}
+          ok={bundleOk}
+          // The channel it read, or `missing` — short enough not to truncate in
+          // the narrow details column.
+          value={bundleOk ? data.channel : "missing"}
         />
         <HealthChip
           label='Manifest'
           ok={manifestOk}
           value={
-            isRemote
-              ? "external"
-              : !manifestOk
-                ? "error"
-                : data.manifest_source === "db_override"
-                  ? "DB override"
-                  : "bundled"
+            !manifestOk
+              ? "error"
+              : data.manifest_source === "db_override"
+                ? "DB override"
+                : "bundled"
           }
         />
       </div>
@@ -84,23 +80,20 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
         )}
       </Section>
 
-      {/* Identity + what oxy resolved. Paths and ids wrap rather than truncate:
-          a half-shown bundle dir answers no question an operator has. */}
+      {/* Identity + what oxy resolved. Ids are shortened, not wrapped: nobody
+          reads a UUID, they copy it, and two full ids wrapping across four lines
+          were most of this block's height. */}
       <Section title='Identity'>
-        <KV k='App ID' v={data.app.id} mono />
-        <KV k='Project' v={app.project_id} mono />
+        <KVId k='App ID' id={data.app.id} />
+        <KVId k='Workspace' id={app.project_id} />
         <KV k='Branch' v={app.branch} mono />
-        <KV k='Source' v={data.app.source_type} />
         <KV k='Status' v={data.app.status} />
-        {isRemote ? (
-          <KV k='Upstream' v={data.upstream_url ?? "—"} mono />
-        ) : (
-          <KV k='Bundle dir' v={data.bundle_dir ?? "—"} mono />
-        )}
+        {/* Only a row left over from a removed source kind says anything here —
+            and what it says is why the app fails. */}
+        {data.app.source_type !== "s3" && <KV k='Source' v={`${data.app.source_type} (removed)`} />}
       </Section>
 
-      {/* Manifest error, if any — never for remote bundles (no oxy-side manifest). */}
-      {!isRemote && data.manifest_error && (
+      {data.manifest_error && (
         <Section title='Manifest error' tone='destructive'>
           <pre className='whitespace-pre-wrap rounded-md bg-destructive/10 p-3 text-destructive text-xs'>
             {data.manifest_error}
@@ -109,29 +102,34 @@ export const AppInfo = ({ app }: { app: CustomApp }) => {
       )}
 
       {/* Raw manifest — collapsed by default so it stops dominating; copyable. */}
-      {!isRemote && manifestOk && <ManifestBlock manifest={data.manifest} />}
+      {manifestOk && <ManifestBlock manifest={data.manifest} />}
     </div>
   );
 };
 
 /**
- * A LED status chip: brand dot = healthy, destructive dot = broken. One line —
- * label and reading share the row, so two chips fit a narrow column without
- * either one truncating.
+ * A status chip for one integrity check. Only a broken reading carries colour: a
+ * healthy chip's dot is neutral, the same rule the app list follows — colour on
+ * these pages means something needs a look. One line, label and reading sharing
+ * the row, so two chips fit a narrow column without either one truncating.
  */
 const HealthChip = ({ label, ok, value }: { label: string; ok: boolean; value: string }) => (
-  <div className='flex min-w-0 items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5'>
+  <div
+    className='flex min-w-0 items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-xs'
+    data-testid={`admin-app-info-check-${label.toLowerCase()}`}
+  >
     <span
       aria-hidden
       className={cn(
         "size-1.5 shrink-0 rounded-full",
-        ok ? "bg-primary ring-2 ring-primary/25" : "bg-destructive"
+        ok ? "bg-muted-foreground/40" : "bg-destructive"
       )}
     />
-    <span className='shrink-0 font-medium text-[10px] text-muted-foreground uppercase tracking-wider'>
-      {label}
-    </span>
-    <span className='min-w-0 flex-1 truncate text-right font-medium text-xs' title={value}>
+    <span className='shrink-0 text-muted-foreground'>{label}</span>
+    <span
+      className={cn("min-w-0 flex-1 truncate text-right font-medium", !ok && "text-destructive")}
+      title={value}
+    >
       {value}
     </span>
   </div>
@@ -169,10 +167,13 @@ const Section = ({
   tone?: "destructive";
 }) => (
   <div>
+    {/* Sentence case, not tracked caps: these are sub-headings inside a
+        dossier section, and the admin convention reserves caps for the
+        collapsible section label above them. Hierarchy comes from weight. */}
     <h3
       className={cn(
-        "mb-2 font-medium text-[10px] uppercase tracking-wider",
-        tone === "destructive" ? "text-destructive" : "text-muted-foreground"
+        "mb-1.5 font-medium text-xs",
+        tone === "destructive" ? "text-destructive" : "text-foreground"
       )}
     >
       {title}
@@ -194,6 +195,21 @@ const KV = ({ k, v, mono }: { k: string; v: string; mono?: boolean }) => (
   </div>
 );
 
+/**
+ * An id row: the first eight characters, the rest behind a copy button. The full
+ * value is the tooltip, so it is still one hover away when someone does need to
+ * read it.
+ */
+const KVId = ({ k, id }: { k: string; id: string }) => (
+  <div className='flex items-center gap-3 border-b py-1 text-xs last:border-0'>
+    <span className='w-20 shrink-0 text-muted-foreground'>{k}</span>
+    <span className='min-w-0 flex-1 font-mono' title={id}>
+      {id.slice(0, 8)}
+    </span>
+    <CopyButton value={id} label={k} />
+  </div>
+);
+
 const UrlRow = ({
   label,
   url,
@@ -212,11 +228,7 @@ const UrlRow = ({
       <div className='min-w-0 flex-1 overflow-hidden'>
         <div className='flex items-center gap-1.5'>
           <span className='text-muted-foreground text-xs'>{label}</span>
-          {recommended && (
-            <span className='rounded bg-primary/10 px-1 py-0.5 font-medium text-[9px] text-primary uppercase tracking-wide'>
-              Recommended
-            </span>
-          )}
+          {recommended && <span className='text-muted-foreground text-xs'>(recommended)</span>}
         </div>
         <div className='truncate font-mono text-xs' title={url}>
           {url}

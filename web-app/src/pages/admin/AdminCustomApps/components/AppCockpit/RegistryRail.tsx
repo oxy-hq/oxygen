@@ -1,20 +1,10 @@
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/shadcn/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/shadcn/select";
+import { useAppHealthIndex } from "@/hooks/api/customApps/useFleetHealth";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
-import {
-  type AppsTableState,
-  buildAppsTableModel,
-  useAppsTableState
-} from "../AppsTable/useAppsTable";
+import { buildAppsTableModel, statusOf, useAppsTableState } from "../AppsTable/useAppsTable";
 import { RegistryRow } from "./RegistryRow";
 
 interface RegistryRailProps {
@@ -41,7 +31,9 @@ export const RegistryRail = ({
   onUnpublish
 }: RegistryRailProps) => {
   const [state, setState] = useAppsTableState();
-  const model = useMemo(() => buildAppsTableModel(apps, state), [apps, state]);
+  // The same query as the landing — React Query shares one fetch between them.
+  const { rows: health } = useAppHealthIndex();
+  const model = useMemo(() => buildAppsTableModel(apps, state, health), [apps, state, health]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const activeRef = useRef<HTMLButtonElement>(null);
   // Set just before a keyboard-driven selection so the effect knows to move DOM
@@ -102,30 +94,15 @@ export const RegistryRail = ({
 
   return (
     <div className='flex h-full min-h-0 flex-col bg-sidebar-background/40'>
-      <div className='flex shrink-0 items-center gap-1.5 border-b p-2'>
-        <div className='relative min-w-0 flex-1'>
-          <Search className='absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            value={state.q}
-            onChange={(e) => setState({ q: e.target.value })}
-            placeholder='Filter apps…'
-            className='h-7 pl-7 text-xs'
-          />
-        </div>
-        <Select
-          value={state.group}
-          onValueChange={(v) => setState({ group: v as AppsTableState["group"] })}
-        >
-          <SelectTrigger className='h-7 w-auto gap-1 px-2 text-xs' aria-label='Group by'>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align='end'>
-            <SelectItem value='org'>Org</SelectItem>
-            <SelectItem value='status'>Status</SelectItem>
-            <SelectItem value='source'>Source</SelectItem>
-            <SelectItem value='none'>Flat</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className='shrink-0 border-b p-2'>
+        <Input
+          value={state.q}
+          onChange={(e) => setState({ q: e.target.value })}
+          placeholder='Filter apps'
+          aria-label='Filter apps'
+          className='h-7 text-xs'
+          data-testid='admin-apps-rail-filter'
+        />
       </div>
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: keyboard handler is
@@ -148,10 +125,10 @@ export const RegistryRail = ({
                     <ChevronRight
                       className={cn("size-3 transition-transform", !isCollapsed && "rotate-90")}
                     />
-                    <span className='min-w-0 flex-1 truncate font-medium text-[10px] uppercase tracking-wider'>
+                    <span className='min-w-0 flex-1 truncate font-medium text-xs'>
                       {group.label}
                     </span>
-                    <span className='font-mono text-[10px] tabular-nums'>{group.items.length}</span>
+                    <span className='text-xs tabular-nums'>{group.items.length}</span>
                   </button>
                 )}
                 {!isCollapsed &&
@@ -162,6 +139,7 @@ export const RegistryRail = ({
                         key={app.id}
                         ref={isSel ? activeRef : undefined}
                         app={app}
+                        status={statusOf(app, health)}
                         selected={isSel}
                         showOrg={showOrg}
                         onSelect={onSelect}

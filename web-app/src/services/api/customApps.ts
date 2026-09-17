@@ -13,11 +13,7 @@ import type {
   FunctionInvocation,
   FunctionLogLine,
   FunctionRunDetail,
-  ListdirResponse,
-  OxyAccessRow,
-  ProbeResponse,
-  Template,
-  UpdateAppRequest
+  OxyAccessRow
 } from "@/types/apps";
 import { apiClient } from "./axios";
 
@@ -89,11 +85,6 @@ export const CustomAppsService = {
 
   async create(req: CreateAppRequest): Promise<CustomApp> {
     const response = await apiClient.post("/customer-apps", req);
-    return response.data;
-  },
-
-  async update(id: string, req: UpdateAppRequest): Promise<CustomApp> {
-    const response = await apiClient.patch(`/customer-apps/${id}`, req);
     return response.data;
   },
 
@@ -267,53 +258,6 @@ export const CustomAppsService = {
       `/customer-apps/${encodeURIComponent(app.org_slug)}/${encodeURIComponent(app.slug)}/debug`
     );
     return response.data;
-  },
-
-  /**
-   * Server-side folder picker. Local-mode only — returns 404 in cloud
-   * and the dialog hides the picker on that surface. Pass an absolute
-   * path or an empty string for the server-chosen default landing
-   * (`$OXY_STATE_DIR/customer-apps` if present, else `$HOME`).
-   */
-  async listdir(path: string, showHidden = false): Promise<ListdirResponse> {
-    const params = new URLSearchParams();
-    if (path) params.set("path", path);
-    if (showHidden) params.set("show_hidden", "true");
-    const response = await apiClient.get(`/customer-apps/fs/listdir?${params.toString()}`);
-    return response.data;
-  },
-
-  /**
-   * Bundle identity probe — reads `oxy-app.json` + `index.html` from
-   * the picked folder so the dialog can lock the slug to whatever the
-   * bundle declares. Only available in local mode; returns 404 in cloud.
-   */
-  async probe(path: string): Promise<ProbeResponse> {
-    const params = new URLSearchParams({ path });
-    const response = await apiClient.get(`/customer-apps/fs/probe?${params.toString()}`);
-    return response.data;
-  },
-
-  /**
-   * List the curated scaffold templates available on this server.
-   * Templates are baked into the binary and never change at runtime.
-   *
-   * Defensive: validate the response is an array before returning.
-   * The endpoint sits behind the SPA fallback in oxy's router, so a
-   * routing regression / stale dev-server proxy could return
-   * `index.html` (HTML string) instead of JSON. Without this check
-   * the consumer's `.map()` would crash the entire dialog.
-   */
-  async listTemplates(): Promise<Template[]> {
-    const { data } = await apiClient.get<unknown>("/customer-apps/templates");
-    if (!Array.isArray(data)) {
-      throw new Error(
-        `Templates endpoint returned ${typeof data} instead of an array — ` +
-          `is /customer-apps/templates falling through to the SPA fallback? ` +
-          `Sample: ${JSON.stringify(data).slice(0, 80)}`
-      );
-    }
-    return data as Template[];
   },
 
   // ── Availability (derived SLI) ─────────────────────────────────────────

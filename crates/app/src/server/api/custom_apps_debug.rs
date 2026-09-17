@@ -5,8 +5,8 @@
 //! loading. Org-membership gated; response shape is for human inspection and
 //! not guaranteed stable.
 //!
-//! Auth, manifest, and bundle-dir resolution all live in
-//! `custom_apps_auth`; this module is a thin handler that assembles the
+//! Auth lives in `custom_apps_auth` and manifest resolution in
+//! `custom_apps_manifest`; this module is a thin handler that assembles the
 //! snapshot from those reusable helpers.
 
 use axum::Json;
@@ -19,10 +19,8 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use super::custom_apps_auth::{AuthOutcome, authenticate_and_authorize};
-use super::custom_apps_manifest::{
-    bundle_dir_for, pick_channel_for, resolve_manifest, sanitize_bundle_dir_for_display,
-};
-use super::custom_apps_source::AppSource;
+use super::custom_apps_manifest::{pick_channel_for, resolve_manifest};
+use super::custom_apps_sync::Channel;
 
 // ── Response types ───────────────────────────────────────────────────────────
 
@@ -32,13 +30,8 @@ use super::custom_apps_source::AppSource;
 enum ManifestSource {
     /// `apps.manifest_override` is set; bundled `oxy-app.json` is ignored.
     DbOverride,
-    /// No override; the bundle's `oxy-app.json` is the source.
+    /// No override; the `oxy-app.json` captured with the channel's build.
     BundleFile,
-    /// Bundle is served by an external host (e.g. v0/Vercel) through the
-    /// reverse proxy. There is no `oxy-app.json` on our side — the upstream
-    /// owns identity, so `manifest` and `bundle_dir` are intentionally
-    /// absent and not an error condition.
-    Remote,
 }
 
 #[derive(Serialize)]
@@ -46,18 +39,19 @@ struct DebugSnapshot {
     org_slug: String,
     app_slug: String,
     app: AppSnapshot,
-    bundle_dir: Option<String>,
-    bundle_dir_exists: bool,
+    /// The channel this request resolved to: `draft` for staff with the
+    /// preview cookie or an app never published, `published` otherwise.
+    channel: &'static str,
+    /// The build that channel points at (`app_builds.id`). `None` means the
+    /// app has nothing to serve on this channel — the one bundle fault an
+    /// operator can see from here.
+    build: Option<Uuid>,
     manifest_source: ManifestSource,
     /// Raw parsed manifest JSON — useful for diagnostics without leaking
     /// admin-grade internal fields (project_id / branch are on the DB app row,
     /// not here).
     manifest: Option<JsonValue>,
     manifest_error: Option<String>,
-    /// Upstream URL when `manifest_source = remote`; `None` for
-    /// `db_override` / `bundle_file`. Used by the admin UI to render the
-    /// V0 bundle's actual location instead of a spurious "missing" state.
-    upstream_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -96,8 +90,11 @@ pub async fn get_debug(
             status: app.status.clone(),
             source_type: app.source_type.clone(),
         },
-        bundle_dir: None,
-        bundle_dir_exists: false,
+        channel: channel.as_str(),
+        build: match channel {
+            Channel::Draft => app.draft_build_id,
+            Channel::Published => app.published_build_id,
+        },
         manifest_source: if app.manifest_override.is_some() {
             ManifestSource::DbOverride
         } else {
@@ -105,23 +102,7 @@ pub async fn get_debug(
         },
         manifest: None,
         manifest_error: None,
-        upstream_url: None,
     };
-
-    // V0 / Vercel sources have no oxy-side bundle dir or oxy-app.json — the
-    // upstream owns identity. Report them as `remote` instead of running
-    // `resolve_manifest`, which would otherwise surface a spurious
-    // "oxy-app.json not found in bundle directory" error in the admin UI.
-    if let Ok(AppSource::V0 { url }) = AppSource::from_model(&app) {
-        snap.manifest_source = ManifestSource::Remote;
-        snap.upstream_url = Some(url);
-        return Json(snap).into_response();
-    }
-
-    if let Some(d) = bundle_dir_for(&app) {
-        snap.bundle_dir_exists = d.exists();
-        snap.bundle_dir = Some(sanitize_bundle_dir_for_display(&app, &d));
-    }
 
     let manifest = match oxy::database::client::establish_connection().await {
         Ok(db) => resolve_manifest(&db, &app, channel).await,

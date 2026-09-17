@@ -1,8 +1,8 @@
-import { AppWindow, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { usePublishApp, useUnpublishApp } from "@/hooks/api/customApps/useCustomApps";
+import { useAppHealthIndex } from "@/hooks/api/customApps/useFleetHealth";
 import { useRowSelection } from "@/hooks/useRowSelection";
 import type { CustomApp } from "@/types/apps";
 import { AppsGallery, type AppsViewProps } from "./components/AppsGallery";
@@ -13,6 +13,7 @@ import {
   buildAppsTableModel,
   defaultDirFor,
   type SortKey,
+  statusOf,
   useAppsTableState
 } from "./useAppsTable";
 
@@ -26,10 +27,13 @@ interface AppsTableProps {
 }
 
 /**
- * The custom-app registry browser: a toolbar (search / group / filters /
- * gallery-list toggle), a card **or** list view over the same filtered+grouped
- * model, row selection, and a sticky bulk-action bar. Rich per-app detail
- * opens as a full page via `onSelect`.
+ * The custom-app registry, with each app's health joined on: a toolbar, a list
+ * **or** cards over the same filtered model, row selection, and a sticky bulk-
+ * action bar. Rich per-app detail opens as a full page via `onSelect`.
+ *
+ * Health used to be its own tab listing the same apps with different facts. It
+ * is a column here now, because "is this app OK?" is one question and an
+ * operator should not have to cross-reference two tables to answer it.
  */
 export const AppsTable = ({
   apps,
@@ -39,7 +43,11 @@ export const AppsTable = ({
   onCreate
 }: AppsTableProps) => {
   const [state, setState] = useAppsTableState();
-  const model = useMemo(() => buildAppsTableModel(apps, state), [apps, state]);
+  const health = useAppHealthIndex();
+  const model = useMemo(
+    () => buildAppsTableModel(apps, state, health.rows),
+    [apps, state, health.rows]
+  );
   const selection = useRowSelection(model.flatIds);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -67,6 +75,9 @@ export const AppsTable = ({
 
   const viewProps: AppsViewProps = {
     groups: model.groups,
+    statusOf: (a) => statusOf(a, health.rows),
+    health: health.rows,
+    selecting: selection.someSelected || selection.allSelected,
     showOrg,
     showGroupHeaders,
     collapsed,
@@ -85,8 +96,10 @@ export const AppsTable = ({
         state={state}
         setState={setState}
         onCreate={onCreate}
-        filteredCount={model.filteredCount}
-        totalCount={model.totalCount}
+        counts={model.statusCounts}
+        scopedTotal={countScoped(model.statusCounts)}
+        orgs={model.orgs}
+        healthNote={healthNote(health)}
       />
 
       {isLoading ? (
@@ -100,7 +113,18 @@ export const AppsTable = ({
           <EmptyState onCreate={onCreate} />
         </CenteredState>
       ) : model.filteredCount === 0 ? (
-        <CenteredState>No apps match these filters.</CenteredState>
+        <CenteredState>
+          <div className='flex flex-col items-center gap-2' data-testid='admin-apps-no-match'>
+            <p>No apps match these filters.</p>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={() => setState({ q: "", status: "all", org: "all" })}
+            >
+              Clear filters
+            </Button>
+          </div>
+        </CenteredState>
       ) : state.view === "gallery" ? (
         <AppsGallery {...viewProps} />
       ) : (
@@ -133,12 +157,28 @@ const CenteredState = ({ children }: { children: React.ReactNode }) => (
 );
 
 const EmptyState = ({ onCreate }: { onCreate: () => void }) => (
-  <div className='flex flex-col items-center gap-2'>
-    <AppWindow className='size-6 text-muted-foreground/60' />
+  <div className='flex flex-col items-center gap-2' data-testid='admin-apps-empty'>
     <p>No custom apps yet.</p>
     <Button size='sm' variant='outline' onClick={onCreate}>
-      <Plus className='size-3.5' />
-      Create the first
+      Create the first app
     </Button>
   </div>
 );
+
+/** Every app the non-status filters let through: the `All` chip's number. */
+const countScoped = (c: ReturnType<typeof buildAppsTableModel>["statusCounts"]) =>
+  c.down + c.degraded + c.not_measured + c.quiet + c.operational + c.draft + c.unknown;
+
+/**
+ * Why published apps might show no status, said once for the whole list rather
+ * than as a blank down a column. Each case has a different fix, so each names
+ * its own. `null` when nothing needs saying.
+ */
+function healthNote(h: ReturnType<typeof useAppHealthIndex>): string | null {
+  if (h.isError) return "Health could not be loaded — statuses are unknown, not healthy.";
+  if (h.isLoading) return "Checking health…";
+  if (!h.captureConfigured) return "Observability capture is off, so no app is being measured.";
+  if (h.hasMore)
+    return `Health covers the first ${h.rows?.size ?? 0} of ${h.total} published apps.`;
+  return null;
+}

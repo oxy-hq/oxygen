@@ -50,9 +50,6 @@ export const AppCockpit = ({ apps, selected, onSelect, onBack }: AppCockpitProps
         >
           <PanelLeft className='size-3.5' />
         </Button>
-        <span className='ml-1 font-mono text-[11px] text-muted-foreground uppercase tracking-wider'>
-          Registry
-        </span>
       </header>
 
       <div className='flex min-h-0 flex-1'>

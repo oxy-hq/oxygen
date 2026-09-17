@@ -4,11 +4,11 @@
 //! deliberately does not consult **scope**, because `Resource::platform()` has no org to
 //! check against. Scope is therefore the handler's job — and the custom-app console has
 //! roughly twenty `/{id}`-shaped routes: publish, unpublish, rollback, builds, functions,
-//! function runs, access, teams, members, activity, api-keys, publishers.
+//! function runs, access, teams, members, activity, secrets, publishers.
 //!
 //! Asking each of those to remember a scope check is how the ~170-site authorization
 //! scatter got built in the first place. One of them forgetting is not a cosmetic bug: a
-//! grant bounded to org A could mint an API key for org B's app, or rewrite who may open
+//! grant bounded to org A could write a secret into org B's app, or rewrite who may open
 //! it. So the check lives here, layered once over the whole tree, and reads the app id
 //! straight out of the matched path.
 //!
@@ -46,7 +46,7 @@ use crate::server::authz::globals;
 /// Enforce the caller's grant scope on whatever app `{id}` names.
 ///
 /// Passes through untouched when there is nothing to check — no `{id}` in the matched
-/// path (`/apps`, `/apps/fs/probe`, `/templates`), an unparseable id, or an app that
+/// path (`/apps`, `/apps/health`, `/templates`), an unparseable id, or an app that
 /// doesn't exist. Those all belong to the handler, which returns its own 404/400; this
 /// layer only ever *subtracts*.
 pub async fn enforce_app_scope(request: Request<Body>, next: Next) -> Result<Response, StatusCode> {

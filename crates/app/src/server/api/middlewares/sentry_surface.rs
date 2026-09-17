@@ -45,9 +45,9 @@ use oxy_telemetry::sentry_filter::{
 /// ide pod, so every error captured under it would have gone to Sentry.
 ///
 /// The same header loss already produced the "origin not allowed" 403s that
-/// `ide_proxy` documents at length, and both existing readers of a public host
-/// resolve it exactly this way: `custom_apps_proxy`'s `public_host` and the
-/// `is_self_origin` gate. Mirror them rather than inventing a third order.
+/// `ide_proxy` documents at length, and the existing readers of a public host
+/// resolve it exactly this way: `ide_proxy::preserve_public_host` and the
+/// `is_self_origin` gate. Mirror them rather than inventing another order.
 ///
 /// **This trusts a caller-settable header, and that is affordable here.**
 /// `HeaderMap::get` returns the FIRST value, so a header a client appends after
@@ -273,7 +273,7 @@ mod tests {
 
     /// An edge that already rewrote the host is the authority on what the
     /// client asked for, so `X-Forwarded-Host` outranks `Host` — the same
-    /// precedence `custom_apps_proxy` and `is_self_origin` use.
+    /// precedence `ide_proxy` and `is_self_origin` use.
     #[test]
     fn x_forwarded_host_outranks_a_platform_host_header() {
         assert_eq!(

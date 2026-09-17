@@ -5,17 +5,14 @@
 //!
 //! - The Rust mirror of that schema (`OxyAppManifest`) — identity fields only.
 //! - `resolve_manifest` — the single entry point handlers call; it checks
-//!   the DB override first, then falls back to the bundle file.
-//! - `pick_channel_for`, `bundle_dir_for`, `sanitize_bundle_dir_for_display`
-//!   — helpers for turning an app row into a filesystem path.
-
-use std::path::{Path as StdPath, PathBuf};
+//!   the DB override first, then falls back to the manifest captured with
+//!   the channel's build.
+//! - `pick_channel_for` — which channel a request is served from.
 
 use entity::{app_builds, apps};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
-use super::custom_apps_source::AppSource;
 use super::custom_apps_storage::{RetentionPolicy, RetentionRule};
 use super::custom_apps_sync::Channel;
 
@@ -226,7 +223,7 @@ pub(crate) fn retention_policy_from_build_manifest(
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ManifestError {
-    #[error("oxy-app.json not found in bundle directory")]
+    #[error("no oxy-app.json recorded for this app's build")]
     NotFound,
     #[error("oxy-app.json could not be read: {0}")]
     Io(String),
@@ -234,23 +231,6 @@ pub(super) enum ManifestError {
     Parse(String),
     #[error("oxy-app.json schemaVersion {0} is not supported; expected 2")]
     UnsupportedSchema(u32),
-}
-
-async fn read_manifest(bundle_dir: &StdPath) -> Result<OxyAppManifest, ManifestError> {
-    let path = bundle_dir.join("oxy-app.json");
-    let bytes = tokio::fs::read(&path).await.map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            ManifestError::NotFound
-        } else {
-            ManifestError::Io(e.to_string())
-        }
-    })?;
-    let manifest: OxyAppManifest =
-        serde_json::from_slice(&bytes).map_err(|e| ManifestError::Parse(e.to_string()))?;
-    if manifest.schema_version != 2 {
-        return Err(ManifestError::UnsupportedSchema(manifest.schema_version));
-    }
-    Ok(manifest)
 }
 
 // ── Manifest resolution ──────────────────────────────────────────────────────
@@ -265,11 +245,12 @@ fn parse_manifest_value(raw: serde_json::Value) -> Result<OxyAppManifest, Manife
 }
 
 /// Resolve the manifest for an app on a given channel. Precedence:
-///   1. `apps.manifest_override` (per-deployment override).
-///   2. S3 apps: the manifest captured in the channel's current build row
-///      (`app_builds.manifest_json`, written at publish from the bundle's
-///      `oxy-app.json`). No build pointer → `NotFound`.
-///   3. Local-folder apps: the `oxy-app.json` on disk (dev).
+///
+/// 1. `apps.manifest_override` (per-deployment override).
+/// 2. The manifest captured in the channel's current build row
+///    (`app_builds.manifest_json`, written at publish from the bundle's
+///    `oxy-app.json`). No build pointer → `NotFound`.
+///
 /// Called by the customer-apps debug endpoint and the workspace custom-apps
 /// list (launcher card metadata); the live serve path injects identity via
 /// `window.__OXY_APP__` and serves the bundle's `oxy-app.json` directly.
@@ -281,23 +262,17 @@ pub(super) async fn resolve_manifest(
     if let Some(raw) = &app.manifest_override {
         return parse_manifest_value(raw.clone());
     }
-    match AppSource::from_model(app).map_err(|_| ManifestError::NotFound)? {
-        AppSource::LocalFolder { path } => read_manifest(StdPath::new(&path)).await,
-        AppSource::S3 => {
-            let build_pk = match channel {
-                Channel::Draft => app.draft_build_id,
-                Channel::Published => app.published_build_id,
-            }
-            .ok_or(ManifestError::NotFound)?;
-            let build = app_builds::Entity::find_by_id(build_pk)
-                .one(db)
-                .await
-                .map_err(|e| ManifestError::Io(e.to_string()))?
-                .ok_or(ManifestError::NotFound)?;
-            parse_manifest_value(build.manifest_json.ok_or(ManifestError::NotFound)?)
-        }
-        AppSource::V0 { .. } => Err(ManifestError::NotFound),
+    let build_pk = match channel {
+        Channel::Draft => app.draft_build_id,
+        Channel::Published => app.published_build_id,
     }
+    .ok_or(ManifestError::NotFound)?;
+    let build = app_builds::Entity::find_by_id(build_pk)
+        .one(db)
+        .await
+        .map_err(|e| ManifestError::Io(e.to_string()))?
+        .ok_or(ManifestError::NotFound)?;
+    parse_manifest_value(build.manifest_json.ok_or(ManifestError::NotFound)?)
 }
 
 /// Resolve manifests for MANY apps with a **single** `app_builds` query — the
@@ -312,17 +287,15 @@ pub(super) async fn resolve_manifests_batch(
     apps: &[apps::Model],
 ) -> std::collections::HashMap<uuid::Uuid, OxyAppManifest> {
     use std::collections::{HashMap, HashSet};
-    // 1. Collect the S3 build ids we might read (published + draft fallback),
+    // 1. Collect the build ids we might read (published + draft fallback),
     //    skipping apps that carry an inline override (no build lookup needed).
     let mut build_ids: HashSet<uuid::Uuid> = HashSet::new();
     for app in apps {
         if app.manifest_override.is_some() {
             continue;
         }
-        if matches!(AppSource::from_model(app), Ok(AppSource::S3)) {
-            build_ids.extend(app.published_build_id);
-            build_ids.extend(app.draft_build_id);
-        }
+        build_ids.extend(app.published_build_id);
+        build_ids.extend(app.draft_build_id);
     }
     // 2. One query for every build manifest on the page.
     let builds: HashMap<uuid::Uuid, serde_json::Value> = if build_ids.is_empty() {
@@ -337,36 +310,26 @@ pub(super) async fn resolve_manifests_batch(
             .filter_map(|b| Some((b.id, b.manifest_json?)))
             .collect()
     };
-    // 3. Resolve each app from the pre-fetched map (or its override / disk).
-    let mut out = HashMap::with_capacity(apps.len());
-    for app in apps {
-        if let Some(m) = manifest_from_prefetched(app, &builds).await {
-            out.insert(app.id, m);
-        }
-    }
-    out
+    // 3. Resolve each app from the pre-fetched map (or its override).
+    apps.iter()
+        .filter_map(|app| Some((app.id, manifest_from_prefetched(app, &builds)?)))
+        .collect()
 }
 
 /// Per-app resolution against a pre-fetched `build_id → manifest_json` map — the
 /// same precedence as [`resolve_manifest`], minus the DB round-trip.
-async fn manifest_from_prefetched(
+fn manifest_from_prefetched(
     app: &apps::Model,
     builds: &std::collections::HashMap<uuid::Uuid, serde_json::Value>,
 ) -> Option<OxyAppManifest> {
     if let Some(raw) = &app.manifest_override {
         return parse_manifest_value(raw.clone()).ok();
     }
-    match AppSource::from_model(app).ok()? {
-        AppSource::LocalFolder { path } => read_manifest(StdPath::new(&path)).await.ok(),
-        AppSource::S3 => {
-            let from_build = |id: Option<uuid::Uuid>| {
-                id.and_then(|i| builds.get(&i))
-                    .and_then(|v| parse_manifest_value(v.clone()).ok())
-            };
-            from_build(app.published_build_id).or_else(|| from_build(app.draft_build_id))
-        }
-        AppSource::V0 { .. } => None,
-    }
+    let from_build = |id: Option<uuid::Uuid>| {
+        id.and_then(|i| builds.get(&i))
+            .and_then(|v| parse_manifest_value(v.clone()).ok())
+    };
+    from_build(app.published_build_id).or_else(|| from_build(app.draft_build_id))
 }
 
 // ── Channel selection ────────────────────────────────────────────────────────
@@ -385,33 +348,6 @@ pub(super) fn pick_channel_for(
     } else {
         Channel::Draft
     }
-}
-
-// ── Bundle dir resolution ────────────────────────────────────────────────────
-
-/// Local filesystem bundle dir, when one exists. Only `LocalFolder`
-/// (dev) sources have one now; S3 apps are served from S3 with no local
-/// copy, and V0 apps are iframes. Used by the debug endpoint for display.
-pub(super) fn bundle_dir_for(app: &apps::Model) -> Option<PathBuf> {
-    match AppSource::from_model(app).ok()? {
-        AppSource::LocalFolder { path } => Some(path),
-        AppSource::S3 | AppSource::V0 { .. } => None,
-    }
-}
-
-pub(super) fn sanitize_bundle_dir_for_display(app: &apps::Model, dir: &StdPath) -> String {
-    if app.source_type == "s3" {
-        if let Some(s) = dir.to_str()
-            && let Some(idx) = s.find("customer-apps/")
-        {
-            return s[idx..].to_string();
-        }
-        return dir
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "<unknown>".to_string());
-    }
-    dir.display().to_string()
 }
 
 #[cfg(test)]

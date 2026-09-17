@@ -1,7 +1,6 @@
 import { EyeOff, Rocket } from "lucide-react";
 import type { ReactNode } from "react";
 import { AppMark } from "@/components/apps/AppMark";
-import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/shadcn/hover-card";
 import type { CustomApp } from "@/types/apps";
@@ -69,9 +68,6 @@ export const AppHoverCard = ({
                 {app.org_slug}/{app.slug}
               </span>
             </div>
-            <Badge variant='outline' className='shrink-0 px-1.5 py-0 font-mono text-[10px]'>
-              {app.source_type.toUpperCase()}
-            </Badge>
           </div>
 
           <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs'>

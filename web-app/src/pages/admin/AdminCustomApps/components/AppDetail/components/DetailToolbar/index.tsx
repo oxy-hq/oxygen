@@ -9,6 +9,7 @@ import {
   Tablet
 } from "lucide-react";
 import { useState } from "react";
+import { AppMark } from "@/components/apps/AppMark";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +20,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/shadcn/alert-dialog";
-import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/shadcn/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/shadcn/toggle-group";
@@ -127,18 +127,15 @@ export const DetailToolbar = ({
 
   return (
     <header className='flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b bg-background px-3 py-1'>
-      {/* Identity — name + breadcrumb + source on one truncating line. */}
+      {/* Identity — name and where it lives, on one truncating line. The source
+          badge that also sat here is in the Identity block of the details panel,
+          which is where an operator looks it up. */}
       <div className='flex min-w-0 flex-1 items-center gap-2'>
+        <AppMark iconUrl={app.icon_url} name={app.name} size='sm' />
         <span className='truncate font-medium text-xs leading-none'>{app.name}</span>
-        <span className='hidden min-w-0 truncate font-mono text-muted-foreground/70 text-xs sm:inline'>
+        <span className='hidden min-w-0 truncate text-muted-foreground text-xs sm:inline'>
           {app.org_slug}/{app.slug}
         </span>
-        <Badge
-          variant='outline'
-          className='shrink-0 px-1.5 py-0 font-mono text-[9px] tracking-wide'
-        >
-          {app.source_type.toUpperCase()}
-        </Badge>
       </div>
 
       {/* Section nav — only when the host renders sub-tabs. The
@@ -225,50 +222,43 @@ export const DetailToolbar = ({
             takes the channel's color (emerald/amber) for peripheral
             recognition.
 
-            Gated on source_type === "s3": local-source bundles have
-            no draft/published split (one directory) and v0-source
-            apps don't serve through oxy at all. Showing the toggle
-            on those would be cosmetic noise + a confused click.
-
             Published segment is disabled when the app has never been
             published — the cookie would do nothing, the iframe would
             still 403 for non-app-admins. */}
-        {app.source_type === "s3" && (
-          <ToggleGroup
-            type='single'
-            value={channel}
-            onValueChange={(v) => v && handleChannelClick(v as ChannelView)}
-            size='sm'
-            variant='outline'
-            disabled={channelBusy}
-            aria-label='Bundle channel'
+        <ToggleGroup
+          type='single'
+          value={channel}
+          onValueChange={(v) => v && handleChannelClick(v as ChannelView)}
+          size='sm'
+          variant='outline'
+          disabled={channelBusy}
+          aria-label='Bundle channel'
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem
+                value='published'
+                aria-label='Show published bundle'
+                disabled={!app.published_at}
+                className='h-7 gap-1.5 px-2 data-[state=on]:bg-emerald-500/10 data-[state=on]:text-emerald-600 dark:data-[state=on]:text-emerald-400'
+              >
+                <Eye className='size-3.5' />
+                <span className='text-xs'>Published</span>
+              </ToggleGroupItem>
+            </TooltipTrigger>
+            {!app.published_at && (
+              <TooltipContent>Publish the app to enable this view.</TooltipContent>
+            )}
+          </Tooltip>
+          <ToggleGroupItem
+            value='draft'
+            aria-label='Preview draft bundle'
+            className='h-7 gap-1.5 px-2 data-[state=on]:bg-amber-500/10 data-[state=on]:text-amber-600 dark:data-[state=on]:text-amber-400'
           >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <ToggleGroupItem
-                  value='published'
-                  aria-label='Show published bundle'
-                  disabled={!app.published_at}
-                  className='h-7 gap-1.5 px-2 data-[state=on]:bg-emerald-500/10 data-[state=on]:text-emerald-600 dark:data-[state=on]:text-emerald-400'
-                >
-                  <Eye className='size-3.5' />
-                  <span className='text-xs'>Published</span>
-                </ToggleGroupItem>
-              </TooltipTrigger>
-              {!app.published_at && (
-                <TooltipContent>Publish the app to enable this view.</TooltipContent>
-              )}
-            </Tooltip>
-            <ToggleGroupItem
-              value='draft'
-              aria-label='Preview draft bundle'
-              className='h-7 gap-1.5 px-2 data-[state=on]:bg-amber-500/10 data-[state=on]:text-amber-600 dark:data-[state=on]:text-amber-400'
-            >
-              <EyeOff className='size-3.5' />
-              <span className='text-xs'>Draft</span>
-            </ToggleGroupItem>
-          </ToggleGroup>
-        )}
+            <EyeOff className='size-3.5' />
+            <span className='text-xs'>Draft</span>
+          </ToggleGroupItem>
+        </ToggleGroup>
 
         {onToggleDossier && (
           <Tooltip>
@@ -319,14 +309,12 @@ export const DetailToolbar = ({
           <TooltipContent className='max-w-md space-y-1.5'>
             {app.url_subdomain && (
               <div>
-                <span className='block text-xs uppercase tracking-wider opacity-60'>
-                  Subdomain URL (recommended)
-                </span>
+                <span className='block text-xs opacity-60'>Subdomain URL (recommended)</span>
                 <span className='block break-all font-mono text-xs'>{app.url_subdomain}</span>
               </div>
             )}
             <div>
-              <span className='block text-xs uppercase tracking-wider opacity-60'>Subpath URL</span>
+              <span className='block text-xs opacity-60'>Subpath URL</span>
               <span className='block break-all font-mono text-xs'>{app.url}</span>
             </div>
           </TooltipContent>

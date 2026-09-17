@@ -1,25 +1,20 @@
-//! Bundle-source resolution and file serving for custom apps.
+//! Bundle file serving for custom apps.
 //!
-//! The per-app source decision (v0 / local / s3) is recorded at register
-//! time; this module turns a resolved source into a served response —
-//! reading objects from S3 through the in-memory bundle cache, or from a
-//! local bundle dir with path-traversal + symlink-escape defenses.
+//! Turns a request for a published or draft build into a response, reading
+//! the build's objects through the in-memory bundle cache. There is one
+//! source — the build store; see `custom_apps_source`.
 
-use std::path::{Component, Path as StdPath, PathBuf};
+use std::path::Path as StdPath;
 
 use axum::body::{Body, Bytes};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use sea_orm::EntityTrait;
-use tokio::fs;
 use uuid::Uuid;
 
 use crate::server::api::custom_apps_asset_manifest::{self as asset_manifest, AssetManifest};
 use crate::server::api::custom_apps_bundle_cache;
-use crate::server::api::custom_apps_cache::{
-    CACHE_CHANNEL_LOCAL, cached_build, cached_canonical_dir, invalidate_cached_canonical_dir,
-    set_cached_build, set_cached_canonical_dir,
-};
+use crate::server::api::custom_apps_cache::{cached_build, set_cached_build};
 use crate::server::api::custom_apps_html_cache::{self as html_cache, RenderedHtml};
 use crate::server::api::custom_apps_precompress as precompress;
 
@@ -125,9 +120,9 @@ const SERVER_ONLY_PREFIXES: &[&str] = &["functions"];
 ///
 /// Compares the first real path segment, skipping empty and `.` components so
 /// `//functions/x` and `./functions/x` can't slip past, and case-insensitively
-/// so a case-insensitive filesystem (a macOS dev box) doesn't answer
-/// `Functions/x` when Linux wouldn't. Traversal (`..`) is already rejected
-/// upstream by `resolve_safe` / `is_safe_rel`.
+/// so a case-insensitive store (a macOS dev box's filesystem build store)
+/// doesn't answer `Functions/x` when Linux wouldn't. Traversal (`..`) is
+/// already rejected upstream by the build store's `is_safe_rel`.
 ///
 /// **A child segment is required.** The artifact is always
 /// `functions/<name>.js` (see `custom_apps_functions`), never bare
@@ -135,8 +130,7 @@ const SERVER_ONLY_PREFIXES: &[&str] = &["functions"];
 /// pages: an app routing `/functions` client-side, or a static export whose
 /// own `functions.html` / `functions/index.html` the `.html`-suffix candidate
 /// exists to serve, would silently get the site root at `200`. That hit apps
-/// with no Oxy Functions at all, and `LocalFolder` sources that cannot
-/// contain an artifact by construction.
+/// with no Oxy Functions at all.
 ///
 /// Prefix-scoped on purpose: `assets/functions.js` and `my-functions/x` are
 /// ordinary frontend files and stay servable.
@@ -176,10 +170,8 @@ pub(super) enum ServeGuard {
     NotFound,
 }
 
-/// The single decision both serve branches take. Shared deliberately: the S3
-/// and local-dir wirings resolve files differently enough that a test of one
-/// would not catch a regression in the other, so the part worth getting right
-/// lives in one tested function instead of twice in prose.
+/// The server-only / source-map decision, as one pure function so it can be
+/// tested without a build store. `s3_object_key` applies it to the raw path.
 pub(super) fn serve_guard(rest: &str, accepts_html: bool) -> ServeGuard {
     // A source map is not a public asset. `guess_content_type` maps `.map` to
     // `application/json`, so before this check every `.map` in a published
@@ -211,14 +203,12 @@ pub(super) fn serve_guard(rest: &str, accepts_html: bool) -> ServeGuard {
 ///
 /// Extracted so the branch that serves production is testable at all — the
 /// rest of `serve_from_s3_build` needs a database and a build store, which is
-/// why this decision previously had no coverage and the local-dir test could
-/// not stand in for it.
+/// why this decision previously had no coverage.
 ///
 /// **Order matters: guard the RAW path, then rewrite.** Guarding the rewritten
 /// value turned `/functions/` into `functions/index.html`, which *does* have a
 /// child segment and so was blocked — handing the site root to a static
-/// export's own `/functions/` page, while the local-dir branch (which guards
-/// `rest`) served it correctly. Same predicate, same input, both branches.
+/// export's own `/functions/` page.
 ///
 /// Guarding first is not a hole: the rewrite only ever appends `index.html` to
 /// a directory-style path, and an artifact is `<name>.js` with `name` matching
@@ -299,8 +289,6 @@ pub(crate) async fn serve_from_s3_build(
     // as `application/octet-stream` with no `Content-Encoding` — a body no
     // client can read, under a URL nothing links. 404 is the honest answer:
     // the resource here is the identity object, reached without the suffix.
-    // Build-store path only; a LocalFolder app's own `dist/` may legitimately
-    // ship `.br` files the dev put there, and those are not ours to hide.
     if precompress::is_precompressed_path(&requested) {
         return no_store_404();
     }
@@ -324,17 +312,14 @@ pub(crate) async fn serve_from_s3_build(
             Ok(Some(b)) => (requested.clone(), b),
             // Only a navigation gets the SPA shell. An asset XHR for a
             // missing file must get a real 404 rather than an opaque 200
-            // carrying HTML — the `wants_html` gate `serve_from_dir` applies
-            // via `allow_spa_fallback`, which this path had been missing.
+            // carrying HTML.
             //
-            // The *gate* now matches the disk path; the *ladder* does not.
-            // `serve_file` also tries `<path>.html` and `<path>/index.html`
-            // before the root shell, so a multi-page static export (Next.js
-            // `trailingSlash: false`, Astro) resolves `/about` to
-            // `about.html` from a local folder but to the shell here. Left
-            // as-is deliberately: this is the hot navigation path and the
-            // extra rungs would add two store round-trips per cold client
-            // route on the SPA case this PR is tuning for.
+            // There is no `<path>.html` / `<path>/index.html` ladder before
+            // the root shell, so a multi-page static export (Next.js
+            // `trailingSlash: false`, Astro) resolves `/about` to the shell,
+            // not `about.html`. Deliberate: this is the hot navigation path,
+            // and the extra rungs would add two store round-trips per cold
+            // client route.
             Ok(None) if !wants_html(headers) => return no_store_404(),
             Ok(None) => {
                 match custom_apps_bundle_cache::get_or_fetch(app_id, &build.build_id, "index.html")
@@ -659,227 +644,6 @@ fn asset_response(
     response
 }
 
-pub(super) async fn serve_from_local(
-    id: Uuid,
-    configured_path: &StdPath,
-    rest: &str,
-    headers: &HeaderMap,
-    runtime: &AppRuntimeConfig,
-) -> Response {
-    // The configured path IS the bundle dir — the dev points us
-    // directly at the directory that holds `index.html` + assets.
-    // We used to append `out/` on the assumption it was always a
-    // Next.js static export; that broke Vite (`dist/`), Astro
-    // (`dist/`), Rsbuild (`dist/`), and anything with a custom out
-    // dir. Today the convention is explicit on the dev's side: point
-    // at the right folder, however your bundler names it.
-    serve_from_dir(
-        id,
-        CACHE_CHANNEL_LOCAL,
-        configured_path,
-        rest,
-        headers,
-        runtime,
-    )
-    .await
-}
-
-/// Shared serving path for both local-folder and s3 sources. Resolves the
-/// per-uuid canonical bundle dir (cached), then defers to `serve_file` for
-/// the path-traversal-safe + symlink-defended file read.
-///
-/// `channel_key` keys the cache so draft and published bundle dirs don't
-/// cross-contaminate (a staff preview-draft request must never be cached
-/// and served back to a customer asking for published, and vice versa).
-/// Pass `CACHE_CHANNEL_LOCAL` for local-folder sources; otherwise pass
-/// the active S3 channel's `.as_str()` value.
-async fn serve_from_dir(
-    id: Uuid,
-    channel_key: &'static str,
-    bundle_dir: &StdPath,
-    rest: &str,
-    headers: &HeaderMap,
-    runtime: &AppRuntimeConfig,
-) -> Response {
-    let canonical_dir = if let Some(p) = cached_canonical_dir(id, channel_key) {
-        p
-    } else {
-        match bundle_dir.canonicalize() {
-            Ok(p) if p.is_dir() => {
-                set_cached_canonical_dir(id, channel_key, p.clone());
-                p
-            }
-            _ => {
-                // Echo the resolved path back so the operator can see at a
-                // glance whether the wrong directory is configured — common
-                // cause for LocalFolder apps after the implicit `out/`
-                // suffix was dropped, and for S3 apps that haven't been
-                // synced yet.
-                tracing::warn!(
-                    "Bundle dir missing or unresolvable for custom app {id} (expected {bundle_dir:?})"
-                );
-                return (
-                    StatusCode::NOT_FOUND,
-                    // Flips to 200 the moment the bundle syncs — see
-                    // `no_store_404`, which this mirrors with a body.
-                    [(header::CACHE_CONTROL, "no-store")],
-                    format!(
-                        "Bundle not deployed for custom app {id}.\n\
-                         Server looked for files at: {}\n\n\
-                         Common causes:\n\
-                         - LocalFolder source: source_config.path doesn't point at the directory containing index.html.\n\
-                         - S3 source: bundle hasn't been synced yet, or publish ran against an empty draft prefix.",
-                        bundle_dir.display()
-                    ),
-                )
-                    .into_response();
-            }
-        }
-    };
-    let allow_spa_fallback = wants_html(headers);
-    let response = serve_file(&canonical_dir, rest, allow_spa_fallback, runtime).await;
-    // If the symlink-escape guard fired, the canonical dir we cached points
-    // at something suspicious — invalidate now so a follow-up request after
-    // the operator fixes the symlink doesn't have to wait CACHE_TTL.
-    if response.status() == StatusCode::FORBIDDEN {
-        invalidate_cached_canonical_dir(id, channel_key);
-    }
-    response
-}
-
-/// Serve a file from `bundle_dir`. `bundle_dir` MUST be a canonicalized,
-/// absolute path — the symlink-escape check at the bottom compares against
-/// it as a fixed prefix.
-async fn serve_file(
-    bundle_dir: &StdPath,
-    rest: &str,
-    allow_spa_fallback: bool,
-    runtime: &AppRuntimeConfig,
-) -> Response {
-    let Some(candidate) = resolve_safe(bundle_dir, rest) else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-
-    // Candidate order: literal path → `.html` suffix (Next.js
-    // trailingSlash=false) → index.html in the requested directory. The
-    // bundle-root index.html SPA fallback is appended only when the request
-    // accepts HTML — that way an asset XHR for a missing file still gets a
-    // proper 404 instead of an opaque 200 with the SPA shell, which makes
-    // operator debugging much harder.
-    // Server-only subtrees (`functions/<name>.js`) contribute NO real-file
-    // candidate — same `serve_guard` the S3 branch takes. `allow_spa_fallback`
-    // is `wants_html`, so a blocked navigation still reaches the shell below
-    // and a blocked asset fetch falls through to the 404.
-    let mut candidates = match serve_guard(rest, allow_spa_fallback) {
-        ServeGuard::Allow => vec![
-            candidate.clone(),
-            candidate.with_extension("html"),
-            candidate.join("index.html"),
-        ],
-        ServeGuard::SpaShell | ServeGuard::NotFound => Vec::new(),
-    };
-    // The SPA fallback is unconditional otherwise, so it would hand the shell to
-    // a `.map` request with `Accept: text/html` even though `serve_guard` said
-    // NotFound — the local-folder path re-opening the hole the S3 path closes.
-    // `serve_guard` alone cannot prevent this: it decides candidates, and this
-    // push happens after.
-    if allow_spa_fallback && !is_source_map(rest) {
-        candidates.push(bundle_dir.join("index.html"));
-    }
-    let resolved = first_existing(&candidates).await;
-
-    let Some(path) = resolved else {
-        return no_store_404();
-    };
-
-    // Symlink-escape defense: bundles come from CI output, not a hand-curated
-    // directory, so a symlink inside `<bundle_dir>` that points outside it
-    // (`out/secrets -> /etc/passwd`) would otherwise be served. Canonicalize
-    // and verify the real file lives inside the canonical bundle root.
-    let canon = match fs::canonicalize(&path).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("Failed to canonicalize {path:?}: {e}");
-            return no_store_404();
-        }
-    };
-    if !canon.starts_with(bundle_dir) {
-        tracing::warn!(
-            "Refusing to serve {canon:?}: escapes bundle root {bundle_dir:?} via symlink"
-        );
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    match fs::read(&canon).await {
-        Ok(bytes) => {
-            let mime = guess_content_type(&canon);
-            // No version pin: a local folder is edited in place, so no build's
-            // bytes are fixed and a `?v=` must never make them immutable.
-            let cache = cache_control_for(rest, &canon, VersionPin::default());
-            // HTML responses get two passes:
-            //   1. base-path rewrite — fixes the build-time-vs-serve-time
-            //      mismatch that bites when an engineer renames a slug
-            //      without rebuilding (the bundle's `<script src=...>`
-            //      hardcodes the absolute base it was built with).
-            //   2. runtime identity injection — `window.__OXY_APP__` into
-            //      `<head>` so the SDK can read identity at runtime.
-            //
-            // Non-HTML responses pass through unchanged. The rewrite is
-            // safe to skip for them because Vite/Next-style bundles only
-            // emit absolute base-path strings in the HTML entry; JS/CSS
-            // chunks reference each other relatively at runtime.
-            let body_bytes = if mime.starts_with("text/html") {
-                // Same transform the build-store branch runs, minus the
-                // memoization: a local-folder bundle is a directory the dev is
-                // actively editing, so there is no build id to key a rendered
-                // copy on and caching one would serve their last save forever.
-                // No asset manifest either — it is written at publish, and this
-                // source never publishes.
-                render_html(&bytes, &canon, runtime, runtime.app_id, None)
-                    .body
-                    .to_vec()
-            } else {
-                bytes
-            };
-            (
-                [(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, cache)],
-                Body::from(body_bytes),
-            )
-                .into_response()
-        }
-        Err(e) => {
-            tracing::error!("Failed to read bundle file {canon:?}: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
-/// Join `bundle_dir` with `rest`, rejecting paths that try to escape via
-/// `..` or absolute components. Without this guard a request for
-/// `../../etc/passwd` would happily traverse out of the bundle root.
-fn resolve_safe(bundle_dir: &StdPath, rest: &str) -> Option<PathBuf> {
-    let rest = rest.trim_start_matches('/');
-    let rel = StdPath::new(rest);
-    for c in rel.components() {
-        match c {
-            Component::Normal(_) | Component::CurDir => {}
-            _ => return None,
-        }
-    }
-    Some(bundle_dir.join(rel))
-}
-
-async fn first_existing(paths: &[PathBuf]) -> Option<PathBuf> {
-    for p in paths {
-        if let Ok(meta) = fs::metadata(p).await
-            && meta.is_file()
-        {
-            return Some(p.clone());
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -916,11 +680,6 @@ mod tests {
         );
         // And an ordinary asset is unaffected.
         assert_eq!(serve_guard("assets/index.js", false), ServeGuard::Allow);
-        // `serve_file`'s SPA fallback is gated on the same predicate — the
-        // guard decides candidates, the fallback pushes one after it, so
-        // without that second check a local-folder app would answer a `.map`
-        // navigation with the shell.
-        assert!(is_source_map("assets/index.js.map"));
     }
 
     #[test]
@@ -968,8 +727,7 @@ mod tests {
     ///
     /// The `functions/` case is the one that regressed: guarding the value
     /// AFTER the directory-index rewrite saw `functions/index.html`, blocked
-    /// it, and served the site root — on the branch that serves production,
-    /// for a shape the local-dir branch handled correctly.
+    /// it, and served the site root to a static export's own page.
     #[test]
     fn s3_object_key_guards_the_raw_path_then_rewrites() {
         // A static export's own `/functions/` page resolves to its real file.
@@ -989,8 +747,7 @@ mod tests {
         );
         assert_eq!(s3_object_key("functions/top-stores.js", false), None);
         // An explicit request for a file inside the reserved dir is blocked
-        // even when the rewrite would have produced the same key — matching
-        // the local-dir branch exactly.
+        // even when the rewrite would have produced the same key.
         assert_eq!(s3_object_key("functions/index.html", false), None);
     }
 
@@ -1048,72 +805,6 @@ mod tests {
             analytics: true,
             build_id: String::new(),
         }
-    }
-
-    /// A published bundle carries its compiled Oxy Functions next to the
-    /// frontend. The asset route used to hand them out to anyone past the
-    /// app's auth gate — handler logic, inlined SQL, and the author's original
-    /// TypeScript via the sourcemap. Whatever the Accept header says, the
-    /// bytes must never come back.
-    #[tokio::test]
-    async fn serve_file_never_returns_a_compiled_function() {
-        // `TempDir` rather than a hand-rolled path: it cleans up on unwind, so
-        // a failing assert below doesn't leak a bundle into the temp dir.
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = tmp.path();
-        std::fs::create_dir_all(dir.join("functions")).expect("mkdir");
-        std::fs::write(dir.join("index.html"), b"<html><head></head></html>").expect("index");
-        std::fs::write(
-            dir.join("functions/top-stores.js"),
-            b"const MARGIN_RULE='cost*1.42';export default async()=>MARGIN_RULE;",
-        )
-        .expect("fn");
-        // A static export's own page at the same name (`trailingSlash: false`)
-        // — must keep working, sharing the directory with the artifact above.
-        // The `trailingSlash: true` shape gets its own fixture below, because
-        // the `.html` candidate is tried first and would mask it here.
-        std::fs::write(dir.join("functions.html"), b"<html>functions page</html>").expect("page");
-        let root = dir.canonicalize().expect("canonicalize");
-        let runtime = test_runtime();
-
-        // Asset-style fetch (no SPA fallback): a plain 404, same as any path
-        // that doesn't exist — the route doesn't confirm which handlers exist.
-        let res = serve_file(&root, "functions/top-stores.js", false, &runtime).await;
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
-
-        // Navigation (SPA fallback allowed): the shell, never the handler. An
-        // app may legitimately route `/functions` client-side.
-        let res = serve_file(&root, "functions/top-stores.js", true, &runtime).await;
-        assert_eq!(res.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(res.into_body(), 64 * 1024)
-            .await
-            .expect("body");
-        let body = String::from_utf8_lossy(&body);
-        assert!(
-            !body.contains("MARGIN_RULE"),
-            "SPA fallback leaked the function body: {body}"
-        );
-        assert!(
-            body.contains("<html>"),
-            "expected the SPA shell, got: {body}"
-        );
-
-        // The frontend next to it is unaffected.
-        let res = serve_file(&root, "index.html", false, &runtime).await;
-        assert_eq!(res.status(), StatusCode::OK);
-
-        // The app's OWN `/functions` page still resolves to its real file via
-        // the `.html`-suffix candidate — the guard reserves the subtree, not
-        // the name. Previously this returned the site root at 200.
-        let res = serve_file(&root, "functions", true, &runtime).await;
-        assert_eq!(res.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(res.into_body(), 64 * 1024)
-            .await
-            .expect("body");
-        assert!(
-            String::from_utf8_lossy(&body).contains("functions page"),
-            "the app's own /functions page must still be served"
-        );
     }
 
     fn manifest_with_entries() -> AssetManifest {
@@ -1186,9 +877,9 @@ mod tests {
         );
     }
 
-    /// A build with no manifest — anything published before manifests existed,
-    /// and every local-folder source — must serve exactly as it did, minus the
-    /// hints. This is the whole backwards-compatibility story.
+    /// A build with no manifest — anything published before manifests existed —
+    /// must serve exactly as it did, minus the hints. This is the whole
+    /// backwards-compatibility story.
     #[test]
     fn html_response_omits_the_link_header_without_a_manifest() {
         let runtime = test_runtime();
@@ -1276,44 +967,5 @@ mod tests {
         let body = String::from_utf8_lossy(&on.body);
         assert!(body.contains("\"serviceWorker\":true"));
         assert!(body.contains("\"analytics\":true"));
-    }
-
-    /// The `trailingSlash: true` shape, in its own fixture: a bundler emits
-    /// `functions.html` or `functions/index.html`, not both, and the candidate
-    /// order (`.html` suffix before `<dir>/index.html`) means a fixture
-    /// carrying both only ever exercises the first.
-    ///
-    /// This is the shape that regressed on the S3 branch, where the guard ran
-    /// on the rewritten `functions/index.html` instead of the raw
-    /// `functions/`. `s3_object_key_guards_the_raw_path_then_rewrites` pins
-    /// the S3 half; this pins the local half.
-    #[tokio::test]
-    async fn serve_file_serves_a_directory_style_functions_page() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let dir = tmp.path();
-        std::fs::create_dir_all(dir.join("functions")).expect("mkdir");
-        std::fs::write(dir.join("index.html"), b"<html>site root</html>").expect("index");
-        std::fs::write(
-            dir.join("functions/index.html"),
-            b"<html>functions dir page</html>",
-        )
-        .expect("dir page");
-        std::fs::write(dir.join("functions/top-stores.js"), b"const SECRET=1;").expect("fn");
-        let root = dir.canonicalize().expect("canonicalize");
-        let runtime = test_runtime();
-
-        let res = serve_file(&root, "functions/", true, &runtime).await;
-        assert_eq!(res.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(res.into_body(), 64 * 1024)
-            .await
-            .expect("body");
-        assert!(
-            String::from_utf8_lossy(&body).contains("functions dir page"),
-            "the app's own /functions/ directory page must still be served"
-        );
-
-        // The artifact sharing that directory is still unreachable.
-        let res = serve_file(&root, "functions/top-stores.js", false, &runtime).await;
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

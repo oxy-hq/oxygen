@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { TableHead, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
@@ -15,9 +15,16 @@ interface AppsTableHeaderProps {
 }
 
 /**
- * Sticky column header. Sortable columns are buttons that toggle direction on
- * re-click; the active column shows an up/down arrow, the rest a faint
- * up-down hint on hover. Workspace + Actions are not sortable.
+ * The request window the Requests column reports. Fixed by the backend — it is
+ * the heartbeat window (`oxy_observability::heartbeat::WINDOW_MINUTES`), which the
+ * fleet endpoint also uses for its traffic count.
+ */
+const REQUEST_WINDOW_LABEL = "6h";
+
+/**
+ * Sticky column header. Only the active sort column carries an arrow; the
+ * always-faint up/down hint on every other column is gone — sortable columns
+ * already read as clickable, and five hint glyphs were more of the same noise.
  */
 export const AppsTableHeader = ({
   showOrg,
@@ -30,19 +37,31 @@ export const AppsTableHeader = ({
 }: AppsTableHeaderProps) => (
   <TableHeader className='sticky top-0 z-10 bg-background'>
     <TableRow className='hover:bg-transparent'>
-      <TableHead className='w-10'>
+      <TableHead className='w-9 pr-0'>
         <Checkbox
           checked={allSelected ? true : someSelected ? "indeterminate" : false}
           onCheckedChange={onToggleAll}
           aria-label='Select all apps'
+          className={cn(
+            "transition-opacity",
+            allSelected || someSelected ? "opacity-100" : "opacity-40 hover:opacity-100"
+          )}
         />
       </TableHead>
-      <SortHead col='name' label='Name' active={sortKey} dir={sortDir} onSort={onSort} />
+      <SortHead col='name' label='App' active={sortKey} dir={sortDir} onSort={onSort} />
       {showOrg && <SortHead col='org' label='Org' active={sortKey} dir={sortDir} onSort={onSort} />}
-      <SortHead col='source' label='Source' active={sortKey} dir={sortDir} onSort={onSort} />
       <SortHead col='status' label='Status' active={sortKey} dir={sortDir} onSort={onSort} />
-      <TableHead className='font-medium text-muted-foreground text-xs'>Workspace</TableHead>
-      <SortHead col='active' label='Active' active={sortKey} dir={sortDir} onSort={onSort} />
+      <TableHead className='text-right font-medium text-muted-foreground'>
+        Requests ({REQUEST_WINDOW_LABEL})
+      </TableHead>
+      <SortHead
+        col='active'
+        label='Last active'
+        active={sortKey}
+        dir={sortDir}
+        onSort={onSort}
+        align='right'
+      />
       <TableHead className='w-10'>
         <span className='sr-only'>Actions</span>
       </TableHead>
@@ -55,35 +74,34 @@ const SortHead = ({
   label,
   active,
   dir,
-  onSort
+  onSort,
+  align = "left"
 }: {
   col: SortKey;
   label: string;
   active: SortKey;
   dir: SortDir;
   onSort: (key: SortKey) => void;
+  align?: "left" | "right";
 }) => {
   const isActive = active === col;
   return (
-    <TableHead className='p-0'>
+    <TableHead
+      className='p-0'
+      aria-sort={isActive ? (dir === "asc" ? "ascending" : "descending") : undefined}
+    >
       <button
         type='button'
         onClick={() => onSort(col)}
         className={cn(
-          "group flex h-full w-full items-center gap-1 px-2 py-2 text-left font-medium text-xs outline-none focus-visible:underline",
+          "flex h-full w-full items-center gap-1 px-2 py-2 font-medium outline-none focus-visible:underline",
+          align === "right" ? "justify-end" : "text-left",
           isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground"
         )}
       >
         {label}
-        {isActive ? (
-          dir === "asc" ? (
-            <ArrowUp className='size-3' />
-          ) : (
-            <ArrowDown className='size-3' />
-          )
-        ) : (
-          <ChevronsUpDown className='size-3 opacity-0 transition-opacity group-hover:opacity-50' />
-        )}
+        {isActive &&
+          (dir === "asc" ? <ArrowUp className='size-3' /> : <ArrowDown className='size-3' />)}
       </button>
     </TableHead>
   );

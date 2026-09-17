@@ -21,6 +21,9 @@ interface AppsListViewProps extends AppsViewProps {
  */
 export const AppsListView = ({
   groups,
+  statusOf,
+  health,
+  selecting,
   showOrg,
   showGroupHeaders,
   collapsed,
@@ -38,9 +41,14 @@ export const AppsListView = ({
   someSelected,
   onToggleAll
 }: AppsListViewProps) => {
-  const colCount = showOrg ? 8 : 7;
+  // checkbox · app · [org] · status · requests · last active · actions
+  const colCount = showOrg ? 7 : 6;
   return (
-    <Table containerClassName='min-h-0 flex-1 overflow-auto'>
+    <Table
+      containerClassName='min-h-0 flex-1 overflow-auto'
+      className='text-xs'
+      data-testid='admin-apps-list'
+    >
       <AppsTableHeader
         showOrg={showOrg}
         sortKey={sortKey}
@@ -72,8 +80,11 @@ export const AppsListView = ({
                 <AppTableRow
                   key={app.id}
                   app={app}
+                  status={statusOf(app)}
+                  health={health?.get(app.id)}
                   showOrg={showOrg}
                   isSelected={isSelected(app.id)}
+                  selecting={selecting}
                   onToggle={(shiftKey) => onToggleRow(app.id, shiftKey)}
                   onOpen={onOpen}
                   onPublish={onPublish}

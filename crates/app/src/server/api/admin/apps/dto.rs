@@ -40,27 +40,17 @@ pub struct CreateAppRequest {
     /// Must match the same shape as auto-derived slugs when provided.
     #[serde(default)]
     pub slug: Option<String>,
-    /// Where the app's bundle comes from. Default to s3 so older clients
-    /// that omit this field keep behaving exactly as before.
+    /// Where the app's bundle comes from. `s3` is the only source, so
+    /// clients may omit the field; a request naming a removed source
+    /// (`v0`, `local`) fails to deserialize.
     #[serde(default = "default_source")]
     pub source: SourceSpec,
-    /// When true and `source` is `s3`, open a PR on
-    /// `OXY_CUSTOMER_APPS_REPO` scaffolding the apps/<org>/<slug>/ folder
-    /// before returning. PR URL ends up on `bootstrap_pr_url`.
+    /// When true, open a PR on `OXY_CUSTOMER_APPS_REPO` scaffolding the
+    /// apps/<org>/<slug>/ folder before returning. PR URL ends up on
+    /// `bootstrap_pr_url`.
     #[serde(default)]
     pub scaffold_pr: bool,
-    /// When true and `source` is `local` with an empty `path`, oxy
-    /// creates `$OXY_STATE_DIR/customer-apps/<uuid>/source/` itself
-    /// and pre-populates `source_config.path` with that path. Lets
-    /// the Create-new-app dialog hand the engineer a ready-made
-    /// folder without making them think about the filesystem layout.
-    ///
-    /// Rejected when `OXY_STATE_DIR` is unset or when the deployment
-    /// is in cloud mode (no engineer-reachable filesystem to write
-    /// to).
-    #[serde(default)]
-    pub provision_local_source: bool,
-    /// Curated template id to scaffold from. Defaults to `"vite"` when
+    /// Curated template id for the scaffold PR. Defaults to `"vite"` when
     /// absent (back-compat). Validated against the registry; unknown
     /// ids return 400 before any row is inserted.
     #[serde(default)]
@@ -71,8 +61,7 @@ pub struct CreateAppRequest {
     /// (`customer-apps/<repo_path>/{draft,published}/...`) so the
     /// bundle has the same storage path across every environment.
     ///
-    /// Only meaningful for `source: s3`. Defaults to `<org_slug>/<slug>`
-    /// when absent — covers the common case where the operator's
+    /// Defaults to `<org_slug>/<slug>` when absent — covers the common case where the operator's
     /// admin-row identity matches the repo layout. Operators with
     /// per-env slug drift type this field explicitly so dev and prod
     /// stay aligned.
@@ -104,7 +93,7 @@ pub struct AppResponse {
     /// Canonical pretty URL `<base>/customer-apps/<org_slug>/<app_slug>/`.
     /// Always set; works for every source_type.
     pub url: String,
-    /// Subdomain URL for v0 sources, e.g.
+    /// Subdomain URL, e.g.
     /// `https://mars--command-center.customer-apps-dev.oxygen-hq.com/`.
     ///
     /// There is **no** env var for this. The zone is auto-derived from
@@ -114,8 +103,7 @@ pub struct AppResponse {
     /// the admin host has no `.` (e.g. `localhost`), or its first label
     /// doesn't start with `app` (custom-branded host).
     ///
-    /// `None` otherwise — the admin UI shows whichever URLs are present
-    /// and hides the row when both are unavailable for the current source.
+    /// The admin UI shows the subdomain row only when this is set.
     pub url_subdomain: Option<String>,
     pub source_type: String,
     pub source_config: serde_json::Value,
@@ -127,9 +115,9 @@ pub struct AppResponse {
     /// is set; app admins always see.
     pub published_at: Option<String>,
     /// Stable bundle identifier in the customer-apps git repo
-    /// (`<repo-org>/<repo-slug>`). Drives the S3 key. NULL on
-    /// non-S3 sources; on S3 sources, defaults to the row's
-    /// `<org_slug>/<slug>` when not explicitly overridden.
+    /// (`<repo-org>/<repo-slug>`). Drives the S3 key. Defaults to the
+    /// row's `<org_slug>/<slug>` when not explicitly overridden; NULL only
+    /// on rows from a removed source kind.
     pub repo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -174,31 +162,15 @@ pub struct AppResponse {
     /// nothing is deployed, so nothing is orphaned yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub source_unrecorded: bool,
-    /// Soft warnings the UI should surface to the operator. Populated
-    /// by `create_app` + `update_app` after side-effect validation
-    /// (e.g. "no index.html at the configured local path"). The row
-    /// itself was still persisted — these are hints, not errors. List
-    /// + Get endpoints leave this empty to keep them cheap.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
 }
 
 impl AppResponse {
     pub(super) fn from_model_with_org(m: apps::Model, org_slug: &str) -> Self {
         let url = build_pretty_url(org_slug, &m.slug);
-        // Subdomain URL applies to every source type that gets served
-        // through the customer-apps surface — both v0 (reverse-proxied
-        // to Vercel) and s3 (served from this oxy backend's bundle
-        // cache). The host dispatcher's `already_canonicalized` guard
-        // (#2466) made S3 apps work on the subdomain too, but this
-        // function still had the original v0-only gate from when the
-        // feature first shipped — so the admin UI surfaced subdomain
-        // URLs only for v0 apps and operators wondered why their
-        // `oxy publish`-deployed apps showed just the subpath. Drop
-        // the gate; `subdomain_url_for` returns None when the
-        // cluster's admin host doesn't fit the auto-derivation
-        // convention (local dev / custom-branded host), which is the
-        // only case where the row should be hidden.
+        // `subdomain_url_for` returns None when the cluster's admin host
+        // doesn't fit the auto-derivation convention (local dev /
+        // custom-branded host), which is the only case where the row
+        // should be hidden.
         let url_subdomain =
             oxy_app_core::custom_apps_host_dispatch::subdomain_url_for(org_slug, &m.slug);
         Self {
@@ -230,7 +202,6 @@ impl AppResponse {
             icon_url: None,
             art_url: None,
             source_unrecorded: false,
-            warnings: Vec::new(),
         }
     }
 }
@@ -293,9 +264,9 @@ pub struct UpdateAppRequest {
     pub project_id: Option<Uuid>,
     pub branch: Option<String>,
     pub status: Option<String>,
-    /// Repoint the bundle source. Most useful for LocalFolder paths
-    /// (e.g. fixing a wrong-folder mistake) and for moving an app
-    /// between v0 / local / s3 without delete+recreate.
+    /// Set the bundle source. With `s3` the only source, this is how a row
+    /// left over from a removed source kind (`v0`, `local`) is moved onto
+    /// the build store without delete + recreate.
     pub source: Option<SourceSpec>,
 }
 

@@ -30,10 +30,10 @@ pub(super) const ENTRYPOINT: &str = "index.html";
 /// [`super::respond`], because `skip_remaining` alone would let a newly added
 /// name be silently absent from every *passing* body.
 ///
-/// `source_config` comes second on purpose: an app's source kind decides what
-/// every later rung even means — whether `published` reads a build pointer or a
-/// timestamp, and whether there is a bundle to look for at all. Asking the
-/// source-independent question first is what made every V0 app report `fail`.
+/// `source_config` comes second on purpose: an app whose source oxy doesn't
+/// serve fails at dispatch, so no later rung means anything for it. The name
+/// dates from when there were several source kinds; it stays because monitors
+/// match on it.
 pub(super) const LADDER: [&str; 5] = [
     "registered",
     "source_config",
@@ -146,14 +146,13 @@ mod tests {
         assert!(!body.contains("<!doctype"));
     }
 
-    /// `skipped` must not read as healthy *or* as broken: a V0 app whose bundle
-    /// we never host would otherwise be permanently down (if skipped failed) or
-    /// claim a check we never ran (if it passed silently).
+    /// `skipped` must not read as healthy *or* as broken: a rung we could not
+    /// evaluate is neither a failure nor a check we ran.
     #[test]
     fn skipped_checks_do_not_fail_the_verdict() {
         let checks = vec![
             Check::pass("registered"),
-            Check::skipped("bundle_entrypoint", "externally hosted"),
+            Check::skipped("bundle_entrypoint", "not evaluated"),
         ];
         assert!(!checks.iter().any(|c| c.result == FAIL));
     }

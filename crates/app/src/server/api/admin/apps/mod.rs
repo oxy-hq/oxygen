@@ -12,7 +12,6 @@
 pub mod access;
 mod dto;
 pub mod fleet_health;
-pub mod fs;
 pub mod functions;
 pub mod handlers;
 mod ops;
@@ -72,6 +71,4 @@ pub(crate) fn router() -> Router<AppState> {
         )
         .route("/apps/{id}/teams", get(access::list_app_org_teams))
         .route("/apps/{id}/members", get(access::list_app_org_members))
-        .route("/apps/fs/listdir", get(fs::listdir))
-        .route("/apps/fs/probe", get(fs::probe))
 }

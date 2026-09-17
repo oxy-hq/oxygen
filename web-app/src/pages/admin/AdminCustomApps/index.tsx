@@ -7,8 +7,6 @@ import type { CustomApp } from "@/types/apps";
 import { AppCockpit } from "./components/AppCockpit";
 import { AppsTable } from "./components/AppsTable";
 import { CreateCustomAppDialog } from "./components/CreateCustomAppDialog";
-import { FleetHealth } from "./components/FleetHealth";
-import { FleetStrip } from "./components/FleetStrip";
 import { AccessPane } from "./components/OxyAccessPanes/AccessPane";
 import StorageTab from "./components/StorageTab";
 import { useAdminAppRegistry } from "./useAdminAppRegistry";
@@ -25,14 +23,13 @@ import { useAdminAppRegistry } from "./useAdminAppRegistry";
  * Apps tab, so deep links keep working regardless of `?view`. Legacy
  * `?view=orgs` / `?view=projects` links fold into the Organizations view.
  */
-type View = "apps" | "health" | "access" | "tokens" | "storage";
+type View = "apps" | "access" | "tokens" | "storage";
 
 // "Organizations" here is the per-org custom-app view — each org's Oxy-access
 // (workspace lockdown) plus the apps it owns. It's scoped to the customer-apps
 // surface, distinct from the cross-cutting tenant directory at /admin/tenants.
 const TABS: { view: View; label: string; to: string }[] = [
   { view: "apps", label: "Apps", to: "/admin/apps" },
-  { view: "health", label: "Health", to: "/admin/apps?view=health" },
   { view: "access", label: "Organizations", to: "/admin/apps?view=access" },
   { view: "tokens", label: "Publish tokens", to: "/admin/apps?view=tokens" },
   { view: "storage", label: "Storage", to: "/admin/apps?view=storage" }
@@ -42,14 +39,13 @@ export default function AdminCustomApps() {
   const [searchParams] = useSearchParams();
   const params = useParams<{ orgSlug?: string; appSlug?: string }>();
   const view: View = params.appSlug ? "apps" : normalizeView(searchParams.get("view"));
+  useLegacyHealthRedirect();
 
   return (
     <div data-testid='admin-customer-apps' className='flex h-[calc(100vh-3.5rem)] flex-col'>
       <AdminTabs active={view} />
       {view === "apps" ? (
         <AppsPane />
-      ) : view === "health" ? (
-        <FleetHealth />
       ) : view === "access" ? (
         <AccessPane />
       ) : view === "storage" ? (
@@ -63,19 +59,33 @@ export default function AdminCustomApps() {
   );
 }
 
+/**
+ * `?view=health` was a separate Health tab. Health is a column on the Apps list
+ * now, so an old link lands on the list filtered to what that tab was for — the
+ * apps that need someone — instead of on an unrelated default.
+ */
+function useLegacyHealthRedirect() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("view") !== "health") return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("view");
+    next.set("status", "attention");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+}
+
 // `orgs` / `projects` are accepted for backward compatibility with bookmarked
 // links from the previous three-tab layout; both resolve to the merged
 // Organizations view.
 const normalizeView = (v: string | null): View =>
-  v === "health"
-    ? "health"
-    : v === "storage"
-      ? "storage"
-      : v === "tokens"
-        ? "tokens"
-        : v === "access" || v === "orgs" || v === "projects"
-          ? "access"
-          : "apps";
+  v === "storage"
+    ? "storage"
+    : v === "tokens"
+      ? "tokens"
+      : v === "access" || v === "orgs" || v === "projects"
+        ? "access"
+        : "apps";
 
 const AdminTabs = ({ active }: { active: View }) => (
   <div className='flex items-center gap-1 border-border border-b px-2'>
@@ -147,7 +157,6 @@ const AppsPane = () => {
 
   return (
     <div className='flex h-full min-h-0 flex-col'>
-      {apps.length > 0 && <FleetStrip apps={apps} />}
       <div className='min-h-0 flex-1'>
         <AppsTable
           apps={apps}

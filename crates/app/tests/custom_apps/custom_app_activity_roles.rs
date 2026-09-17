@@ -83,7 +83,7 @@ async fn seed_app(conn: &DatabaseConnection, org_id: Uuid) -> apps::Model {
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("activity/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         published_at: ActiveValue::Set(Some(Utc::now().into())),
         ..Default::default()
@@ -384,7 +384,7 @@ async fn an_event_names_only_an_app_its_sender_can_open() {
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("activity/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         visibility: ActiveValue::Set("members".into()),
         published_at: ActiveValue::Set(Some(Utc::now().into())),

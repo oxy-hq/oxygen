@@ -293,9 +293,7 @@ const ChannelCard = ({
         className={`size-2 rounded-full ${tone === "live" ? "bg-primary" : "bg-muted-foreground/50"}`}
         aria-hidden
       />
-      <span className='font-medium text-muted-foreground text-xs uppercase tracking-wide'>
-        {label}
-      </span>
+      <span className='font-medium text-foreground text-xs'>{label}</span>
     </div>
     {build ? (
       <>

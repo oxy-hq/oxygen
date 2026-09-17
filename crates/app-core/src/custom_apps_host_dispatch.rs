@@ -45,8 +45,7 @@
 //!      `(org, slug)`, the URI path is rewritten from `/<rest>` to
 //!      `/customer-apps/<org>/<slug>/<rest>` so the existing
 //!      `/customer-apps/{*path}` route handler (`serve_dispatch`)
-//!      takes over with no other changes — including the proxy to the
-//!      upstream Vercel URL for `AppSource::V0`.
+//!      takes over with no other changes.
 //!   2. Otherwise the request passes through unchanged.
 //!
 //! Critical exception: requests with path `/api/...` are left

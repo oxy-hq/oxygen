@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { CustomApp } from "@/types/apps";
+import type { AppHealth, CustomApp } from "@/types/apps";
 import {
   type AppsTableState,
   buildAppsTableModel,
   DEFAULT_TABLE_STATE,
-  fleetStats
+  statusOf
 } from "./useAppsTable";
 
 /** Minimal CustomApp with sensible defaults; override per test. */
@@ -62,20 +62,17 @@ describe("buildAppsTableModel", () => {
     ]);
   });
 
-  it("filters by source type", () => {
-    const apps = [app({ id: "v", source_type: "v0" }), app({ id: "s", source_type: "s3" })];
-    expect(buildAppsTableModel(apps, state({ source: "v0", group: "none" })).flatIds).toEqual([
-      "v"
-    ]);
-  });
-
   it("groups by org and orders groups by their top sorted row", () => {
     const apps = [
       app({ id: "old", org_slug: "acme", updated_at: "2026-01-01T00:00:00Z" }),
       app({ id: "new", org_slug: "globex", updated_at: "2026-06-01T00:00:00Z" })
     ];
-    // Default sort is updated desc → globex (newest) group first.
-    const model = buildAppsTableModel(apps, state({ group: "org" }));
+    // Explicit sort: this pins that group order follows the sort, not which
+    // sort happens to be the default.
+    const model = buildAppsTableModel(
+      apps,
+      state({ group: "org", sortKey: "updated", sortDir: "desc" })
+    );
     expect(model.groups.map((g) => g.key)).toEqual(["globex", "acme"]);
     expect(model.flatIds).toEqual(["new", "old"]);
   });
@@ -111,30 +108,107 @@ describe("buildAppsTableModel", () => {
   });
 });
 
-describe("fleetStats", () => {
-  it("rolls up totals, live/draft, distinct orgs, and source mix", () => {
-    const apps = [
-      app({ id: "1", org_slug: "acme", source_type: "s3", published_at: "2026-02-01T00:00:00Z" }),
-      app({ id: "2", org_slug: "acme", source_type: "s3", published_at: null }),
-      app({ id: "3", org_slug: "globex", source_type: "v0", published_at: "2026-02-01T00:00:00Z" }),
-      app({ id: "4", org_slug: "globex", source_type: "local", published_at: null })
-    ];
-    expect(fleetStats(apps)).toEqual({
-      total: 4,
-      live: 2,
-      draft: 2,
-      orgs: 2,
-      bySource: { s3: 2, v0: 1, local: 1 }
-    });
+const LIVE = "2026-02-01T00:00:00Z";
+const health = (entries: Record<string, AppHealth>) =>
+  new Map(Object.entries(entries).map(([id, h]) => [id, { health: h }]));
+
+describe("status", () => {
+  it("is draft for an unpublished app, whatever the health data says", () => {
+    const a = app({ id: "d", published_at: null });
+    expect(statusOf(a, health({ d: "down" }))).toBe("draft");
   });
 
-  it("returns an all-zero shape for an empty registry", () => {
-    expect(fleetStats([])).toEqual({
-      total: 0,
-      live: 0,
-      draft: 0,
-      orgs: 0,
-      bySource: { v0: 0, local: 0, s3: 0 }
+  /** The fleet view exists to stop calling an unasked-about app unmeasured. A
+   *  published app missing from the health data is unknown — still loading, or
+   *  past the page cap — and must not borrow a verdict. */
+  it("is unknown, not not_measured, for a published app with no health entry", () => {
+    const a = app({ id: "p", published_at: LIVE });
+    expect(statusOf(a, undefined)).toBeNull();
+    expect(statusOf(a, health({}))).toBeNull();
+    expect(statusOf(a, health({ p: "quiet" }))).toBe("quiet");
+  });
+
+  it("sorts worst first by default: verdicts, then unknown, then drafts", () => {
+    const apps = [
+      app({ id: "draft", published_at: null }),
+      app({ id: "ok", published_at: LIVE }),
+      app({ id: "unknown", published_at: LIVE }),
+      app({ id: "quiet", published_at: LIVE }),
+      app({ id: "unmeasured", published_at: LIVE }),
+      app({ id: "degraded", published_at: LIVE }),
+      app({ id: "down", published_at: LIVE })
+    ];
+    const h = health({
+      ok: "operational",
+      quiet: "quiet",
+      unmeasured: "not_measured",
+      degraded: "degraded",
+      down: "down"
+    });
+    expect(buildAppsTableModel(apps, state(), h).flatIds).toEqual([
+      "down",
+      "degraded",
+      "unmeasured",
+      "quiet",
+      "ok",
+      "unknown",
+      "draft"
+    ]);
+  });
+
+  it("filters to the three verdicts that need someone, and nothing unknown", () => {
+    const apps = [
+      app({ id: "down", published_at: LIVE }),
+      app({ id: "unmeasured", published_at: LIVE }),
+      app({ id: "ok", published_at: LIVE }),
+      app({ id: "unknown", published_at: LIVE }),
+      app({ id: "draft", published_at: null })
+    ];
+    const h = health({ down: "down", unmeasured: "not_measured", ok: "operational" });
+    expect(buildAppsTableModel(apps, state({ status: "attention" }), h).flatIds).toEqual([
+      "down",
+      "unmeasured"
+    ]);
+  });
+
+  it("keeps an old ?status=live meaning 'not a draft', unknown included", () => {
+    const apps = [
+      app({ id: "unknown", published_at: LIVE }),
+      app({ id: "draft", published_at: null })
+    ];
+    expect(buildAppsTableModel(apps, state({ status: "live" })).flatIds).toEqual(["unknown"]);
+  });
+
+  /** A chip's number says what clicking it would show. If the counts followed
+   *  the status filter, choosing "Down" would zero every other chip. */
+  it("counts statuses over the other filters, ignoring the status filter", () => {
+    const apps = [
+      app({ id: "d1", org_slug: "acme", published_at: LIVE }),
+      app({ id: "d2", org_slug: "globex", published_at: LIVE }),
+      app({ id: "q", org_slug: "acme", published_at: LIVE }),
+      app({ id: "draft", org_slug: "acme", published_at: null })
+    ];
+    const h = health({ d1: "down", d2: "down", q: "quiet" });
+    const model = buildAppsTableModel(apps, state({ status: "down", org: "acme" }), h);
+    expect(model.flatIds).toEqual(["d1"]);
+    expect(model.statusCounts).toMatchObject({ down: 1, quiet: 1, draft: 1, attention: 1 });
+  });
+
+  it("filters by org, and lists every org regardless of the filters", () => {
+    const apps = [app({ id: "a", org_slug: "acme" }), app({ id: "g", org_slug: "globex" })];
+    const model = buildAppsTableModel(apps, state({ org: "globex" }));
+    expect(model.flatIds).toEqual(["g"]);
+    expect(model.orgs).toEqual(["acme", "globex"]);
+  });
+
+  /** The landing is the redesign's decision: one ungrouped list, worst first.
+   *  Grouping by org cut worst-first into one short run per tenant. */
+  it("lands on an ungrouped list, worst first", () => {
+    expect(DEFAULT_TABLE_STATE).toMatchObject({
+      view: "list",
+      group: "none",
+      sortKey: "status",
+      sortDir: "asc"
     });
   });
 });

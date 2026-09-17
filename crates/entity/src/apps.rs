@@ -16,13 +16,12 @@ pub struct Model {
     pub branch: String,
     pub source_repo: String,
     pub status: String,
-    /// Tagged source: `"v0"` | `"local"` | `"s3"`. Pairs with `source_config`
-    /// to dispatch the bundle-serving handler. Default `"s3"` matches the
-    /// pre-facade behavior so existing rows keep working.
+    /// Where the bundle is served from. `"s3"` (the build store) is the only
+    /// value oxy serves; `"v0"` and `"local"` were removed on 2026-09-17 and
+    /// a row still carrying one fails at dispatch. See `custom_apps_source`.
     pub source_type: String,
-    /// Variant payload. For `v0`: `{"url": "..."}`. For `local`:
-    /// `{"path": "..."}`. For `s3`: `{}` (the bucket name + uuid prefix
-    /// come from env vars). Stored as JSONB; deserialised at request time.
+    /// Per-source payload; `{}` for `s3`. Kept as a column so a future source
+    /// kind has somewhere to put its config.
     pub source_config: Json,
     /// Set by `POST /api/customer-apps/<org>/<app>/sync` after a successful
     /// pull from S3. NULL means the app has never been synced.

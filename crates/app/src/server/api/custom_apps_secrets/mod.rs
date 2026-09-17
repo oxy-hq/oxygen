@@ -25,13 +25,13 @@
 //!
 //! | Mount | Guard |
 //! | --- | --- |
-//! | `/api/customer-apps/{id}/secrets` | owner **or** app-admin, beside `/{id}/api-keys` |
+//! | `/api/customer-apps/{id}/secrets` | owner **or** app-admin, beside `/{id}/publish` |
 //! | `/api/workspaces/{ws}/custom-apps/{app_id}/secrets` (POST only) | `WorkspaceAdmin` |
 //!
 //! No `/admin/apps/{id}/secrets` twin: `/customer-apps` is already reachable by
 //! owners as well as app-admins (`oxy_owner_or_app_admin_guard`), and it is the
 //! surface the staff console actually calls for app work — publish, builds,
-//! functions, storage, api-keys. A second mount would add a route, not reach.
+//! functions, storage. A second mount would add a route, not reach.
 //!
 //! The staff mount reaches any app by id, exactly as the rest of that surface
 //! does. **The workspace mount must not** — see [`scoped_to_workspace`].

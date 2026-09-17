@@ -83,7 +83,7 @@ async fn seed_app_with_org(conn: &DatabaseConnection) -> (Uuid, Uuid) {
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("hist/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         visibility: ActiveValue::Set("org".into()),
         ..Default::default()
@@ -118,7 +118,7 @@ async fn seed_app_into_org(conn: &DatabaseConnection, org_id: Uuid, app_id: Uuid
         branch: ActiveValue::Set("main".into()),
         source_repo: ActiveValue::Set("hist/test".into()),
         status: ActiveValue::Set("active".into()),
-        source_type: ActiveValue::Set("local".into()),
+        source_type: ActiveValue::Set("s3".into()),
         source_config: ActiveValue::Set(serde_json::json!({})),
         visibility: ActiveValue::Set("org".into()),
         ..Default::default()

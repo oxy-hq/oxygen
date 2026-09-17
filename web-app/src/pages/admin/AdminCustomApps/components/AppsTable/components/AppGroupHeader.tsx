@@ -46,7 +46,7 @@ export const AppGroupHeader = ({
         aria-expanded={!collapsed}
       >
         <ChevronRight className={cn("size-3 transition-transform", !collapsed && "rotate-90")} />
-        <span className='font-medium text-xs uppercase tracking-wide'>{label}</span>
+        <span className='font-medium text-foreground text-xs'>{label}</span>
         <span className='text-muted-foreground/60 text-xs tabular-nums'>{count}</span>
       </button>
     </TableCell>

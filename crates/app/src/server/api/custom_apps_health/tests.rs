@@ -9,8 +9,6 @@
 
 use super::*;
 
-use super::*;
-
 /// An `apps::Model` with only the fields this module reads set meaningfully.
 /// Mirrors `custom_apps_source`'s own fixture; kept local so a change to that
 /// test module can't silently retune this one.
@@ -51,9 +49,9 @@ fn fake_app(source_type: &str, source_config: serde_json::Value) -> apps::Model 
 /// Add a name to the const without wiring it up and this fails.
 #[tokio::test]
 async fn evaluate_reports_the_whole_ladder_in_order_on_a_bail_out() {
-    // `source_type` the parser doesn't know → `AppSource::from_model` errors
-    // at the second rung, before anything touches Postgres.
-    let app = fake_app("not-a-real-source", serde_json::json!({}));
+    // A row left over from the removed `v0` source → `AppSource::from_model`
+    // errors at the second rung, before anything touches Postgres.
+    let app = fake_app("v0", serde_json::json!({ "url": "https://example.v0.dev" }));
     let (build, checks) = evaluate(&app).await;
 
     assert!(build.is_none());
@@ -70,13 +68,12 @@ async fn evaluate_reports_the_whole_ladder_in_order_on_a_bail_out() {
     );
     // The remediation that made this its own rung rather than folding into
     // the bundle check.
+    let detail = checks[1].detail.as_deref().unwrap();
     assert!(
-        checks[1]
-            .detail
-            .as_deref()
-            .unwrap()
-            .contains("re-publishing will not repair it")
+        detail.contains("re-publishing will not repair it"),
+        "{detail}"
     );
+    assert!(detail.contains(r#"unknown source_type "v0""#), "{detail}");
 }
 
 fn state(marked_published: bool, has_published_build: bool) -> PublicationState {
@@ -86,49 +83,11 @@ fn state(marked_published: bool, has_published_build: bool) -> PublicationState 
     }
 }
 
-/// The bug this ordering exists to prevent: a healthy, serving, published V0
-/// app reported `published: fail` → 503 on every poll, forever, because the
-/// rung asked `published_build_id.is_some()` for every source kind.
-///
-/// `publish_one` sets that column only when a draft pointer exists, and a V0
-/// app has no `app_builds` rows to point at — publishing one is a visibility
-/// toggle, as the serve path's own comment says. So republishing could not
-/// clear it either, and the monitor was red from the first poll: the steady
-/// state and a real outage looked identical.
+/// The build pointer is the question: it is what the serve path resolves.
 #[test]
-fn an_externally_hosted_app_is_published_by_its_timestamp_not_a_build_pointer() {
-    let source = AppSource::V0 {
-        url: "https://example.v0.dev".into(),
-    };
-    assert_eq!(
-        publication_check(state(true, false), &source).result,
-        PASS,
-        "a published v0 app has no build pointer and never will"
-    );
-    assert_eq!(publication_check(state(false, false), &source).result, FAIL);
-}
-
-#[test]
-fn a_local_folder_app_follows_the_same_rule() {
-    let source = AppSource::LocalFolder {
-        path: "/tmp/bundle".into(),
-    };
-    assert_eq!(publication_check(state(true, false), &source).result, PASS);
-    assert_eq!(publication_check(state(false, false), &source).result, FAIL);
-}
-
-/// S3 is the only kind the serve path resolves a build pointer for, so it is
-/// the only kind for which the pointer is the question.
-#[test]
-fn an_s3_app_needs_the_published_build_pointer() {
-    assert_eq!(
-        publication_check(state(true, true), &AppSource::S3).result,
-        PASS
-    );
-    assert_eq!(
-        publication_check(state(false, false), &AppSource::S3).result,
-        FAIL
-    );
+fn a_published_app_needs_the_published_build_pointer() {
+    assert_eq!(publication_check(state(true, true)).result, PASS);
+    assert_eq!(publication_check(state(false, false)).result, FAIL);
 }
 
 /// "Published but nothing promoted" is reachable with an ordinary org-member
@@ -138,23 +97,12 @@ fn an_s3_app_needs_the_published_build_pointer() {
 /// looking for the wrong thing.
 #[test]
 fn published_without_a_build_is_its_own_diagnosis() {
-    let bare = publication_check(state(true, false), &AppSource::S3);
-    let never = publication_check(state(false, false), &AppSource::S3);
+    let bare = publication_check(state(true, false));
+    let never = publication_check(state(false, false));
     assert_eq!(bare.result, FAIL);
     assert_eq!(never.result, FAIL);
     assert!(bare.detail.as_deref().unwrap().contains("marked published"));
     assert_ne!(bare.detail, never.detail);
-}
-
-#[test]
-fn only_s3_serves_from_the_build_store() {
-    assert!(serves_from_build_store(&AppSource::S3));
-    assert!(!serves_from_build_store(&AppSource::V0 {
-        url: "https://example.v0.dev".into()
-    }));
-    assert!(!serves_from_build_store(&AppSource::LocalFolder {
-        path: "/tmp/bundle".into()
-    }));
 }
 
 /// Read a response the way a monitor does: status, cache header, body text.
@@ -234,8 +182,9 @@ async fn any_single_failing_rung_flips_the_verdict_to_503() {
 }
 
 /// `skipped` is the third result, and a ladder carrying only passes and skips is
-/// still a pass. If this ever flips, every source kind that legitimately skips a
-/// rung goes permanently red — the shape of the bug this ladder already had once.
+/// still a pass. If this ever flips, any rung that legitimately cannot be
+/// evaluated turns the app permanently red — the shape of a bug this ladder has
+/// already had once.
 ///
 /// Exercises `respond` directly with a hand-built ladder rather than a state
 /// `evaluate` reaches (its earliest bail-out is `source_config`), because the

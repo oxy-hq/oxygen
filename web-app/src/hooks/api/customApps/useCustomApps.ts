@@ -77,45 +77,6 @@ export const useAppDebug = (orgSlug: string | undefined, appSlug: string | undef
     staleTime: 30_000
   });
 
-/**
- * List the curated scaffold templates. Templates are baked into the
- * server binary and never change at runtime, so we cache them forever.
- */
-export function useListTemplates() {
-  return useQuery({
-    queryKey: queryKeys.customApps.templates(),
-    queryFn: () => CustomAppsService.listTemplates(),
-    // Templates are baked into the binary — never change at runtime.
-    staleTime: Infinity
-  });
-}
-
-/**
- * PATCH /customer-apps/{id}. Used by the Settings tab to fix things
- * like a wrong LocalFolder path without having to delete + recreate.
- *
- * Server-side validation hits configurable surfaces (e.g. "the
- * configured local path doesn't have an index.html"). Those come
- * back as `app.warnings[]` — we surface them as separate warning
- * toasts after the success toast so the operator catches them
- * without having to dig.
- */
-export const useUpdateApp = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (args: { id: string; req: import("@/types/apps").UpdateAppRequest }) =>
-      CustomAppsService.update(args.id, args.req),
-    onSuccess: (app) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.customApps.all() });
-      toast.success("App updated");
-      for (const warning of app.warnings ?? []) {
-        toast.warning(warning, { duration: 8000 });
-      }
-    },
-    onError: (err) => toast.error(errMessage(err, "Update failed"))
-  });
-};
-
 // ── Activity (usage tracking) ───────────────────────────────────────────
 
 /**

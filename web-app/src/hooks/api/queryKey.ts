@@ -568,9 +568,6 @@ const customAppKeys = {
   all: () => ["customApps"] as const,
   manage: () => ["customApps", "manage"] as const,
   debug: (orgSlug: string, appSlug: string) => ["customApps", "debug", orgSlug, appSlug] as const,
-  listdir: (path: string, showHidden: boolean) =>
-    ["customApps", "listdir", path, showHidden] as const,
-  probe: (path: string) => ["customApps", "probe", path] as const,
   builds: (id: string) => ["customApps", "builds", id] as const,
   functions: (id: string) => ["customApps", "functions", id] as const,
   functionInvocations: (id: string, name: string) =>
@@ -593,11 +590,6 @@ const customAppKeys = {
     ["customApps", "activity", id, "visitors", days] as const,
   activityEvents: (id: string, days: number, eventName: string | null) =>
     ["customApps", "activity", id, "events", days, eventName] as const,
-  // Key includes a version segment so any cache entry recorded
-  // against the pre-fix URL (`/api/admin/customer-apps/templates`,
-  // which SPA-fell-back to HTML) gets invalidated when this code
-  // ships. Bump again if the response shape changes.
-  templates: () => ["customApps", "templates", "v2"] as const,
   // Workspace-scoped published list (HQ launcher + workspace rail).
   list: (workspaceId: string) => ["customApps", "list", workspaceId] as const,
   // Storage: fleet rollup vs per-app live S3 listing (two sources, two keys).

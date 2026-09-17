@@ -16,10 +16,8 @@
 //!   admin host ([`admin_base_url`]), which the bundle cannot derive
 //!   itself. `/api/*` stays relative everywhere (same-host data plane).
 //!
-//! Fleet posture: Postgres reads (workspace, org, apps + build rows) with
-//! the same best-effort local-manifest fallback as `/custom-apps`
-//! (dev-machine LocalFolder apps only — hosted fleets never touch disk
-//! here) → FleetOk, deliberately NOT pinned in `role_manifest.rs`; see
+//! Fleet posture: Postgres reads (workspace, org, apps + build rows), no
+//! disk → FleetOk, deliberately NOT pinned in `role_manifest.rs`; see
 //! the `oxy-route-classification` skill. Response is per-viewer (carries
 //! `user`), so it is not cached anywhere — no shared result cache (would
 //! leak across tenants/viewers) and `Cache-Control: private, no-store`

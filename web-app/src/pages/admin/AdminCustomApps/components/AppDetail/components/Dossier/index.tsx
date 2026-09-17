@@ -92,7 +92,7 @@ export const DossierHeader = ({
   onClose?: () => void;
 }) => (
   <div className='flex h-9 shrink-0 items-center gap-2 border-b bg-background px-2'>
-    <span className='ml-1 min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground uppercase tracking-wider'>
+    <span className='ml-1 min-w-0 flex-1 truncate font-medium text-foreground text-xs'>
       Details
     </span>
     <DockControls value={dock} onChange={onDockChange} />

@@ -209,7 +209,7 @@ fn both_app_route_trees_carry_the_scope_guard() {
             src.contains("app_scope_guard::enforce_app_scope"),
             "{what} ({file}) no longer applies `app_scope_guard::enforce_app_scope`.\n\
              Every `/{{id}}` custom-app route under it is now reachable by a platform \
-             grant bounded to a DIFFERENT org — publish, rollback, api-keys, access, all \
+             grant bounded to a DIFFERENT org — publish, rollback, secrets, access, all \
              of it. If the guard moved, point this test at its new home; if it was \
              removed, scope is no longer enforced and that needs to be a deliberate, \
              stated decision."

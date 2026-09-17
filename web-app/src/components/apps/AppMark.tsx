@@ -50,6 +50,9 @@ export function AppMark({
     <img
       src={iconUrl}
       alt=''
+      // Admin lists render one per app, most of them off-screen.
+      loading='lazy'
+      decoding='async'
       data-testid={testId}
       onError={() => setFailed(true)}
       className={cn("shrink-0 rounded-md border object-contain", box, className)}
