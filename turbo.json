@@ -4,7 +4,9 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**", "target/**"]
+      "outputs": ["dist/**", "target/**"],
+      "env": ["VITE_SENTRY_*"],
+      "passThroughEnv": ["SENTRY_AUTH_TOKEN", "SENTRY_ORG"]
     },
     "lint": {
       "dependsOn": ["^lint"]

@@ -18,6 +18,14 @@ const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, "package.json")
 };
 const BUILD_ID = process.env.VITE_APP_VERSION || `${pkg.version}+${new Date().toISOString()}`;
 
+// Sourcemaps exist only to be uploaded to Sentry (`oxygen-intelligence/oxy-web`).
+// A stable release build in public-release.yaml carries SENTRY_AUTH_TOKEN: it
+// emits hidden maps, uploads them, and the plugin deletes them (in a `finally`,
+// so after a failed upload too) before `dist/` is embedded in the binary. Every
+// other build (local, CI, edge, a repo without the secret) keeps maps off and
+// the plugin off.
+const UPLOAD_SOURCEMAPS = Boolean(process.env.SENTRY_AUTH_TOKEN);
+
 const emitVersionJson = (): Plugin => ({
   name: "oxy-emit-version-json",
   apply: "build",
@@ -255,9 +263,23 @@ export default defineConfig(({ mode }) => {
           brotliSize: true
         }),
       sentryVitePlugin({
-        org: process.env.SENTRY_ORG || "oxy-z9",
-        project: process.env.VITE_SENTRY_PROJECT || "oxy-frontend",
-        authToken: process.env.SENTRY_AUTH_TOKEN
+        disable: !UPLOAD_SOURCEMAPS,
+        // infrastructure sentry/oxy: variables.tf `organization`, projects.tf `oxy_web`.
+        org: process.env.SENTRY_ORG || "oxygen-intelligence",
+        project: process.env.VITE_SENTRY_PROJECT || "oxy-web",
+        authToken: process.env.SENTRY_AUTH_TOKEN,
+        // The same name the bundle reports: VITE_SENTRY_RELEASE, `oxy@X.Y.Z`.
+        release: { name: process.env.VITE_SENTRY_RELEASE },
+        sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
+        // A Sentry outage, a bad token or a rejected option must not fail a
+        // release: warn and ship. The plugin already tolerates a failed upload on
+        // its own (`handleRecoverableError(e, false)`); this handler is what also
+        // keeps a rejected option set from throwing, and names the cause.
+        errorHandler: (err) => {
+          console.warn(
+            `[sentry-vite-plugin] sourcemap upload failed; the build continues: ${err.message}`
+          );
+        }
       })
     ],
     publicDir: "public",
@@ -341,7 +363,10 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: "es2020",
-      sourcemap: false, // Disable source maps to reduce memory usage
+      // Off (memory) except in a build that uploads them; see UPLOAD_SOURCEMAPS.
+      // "hidden": no `sourceMappingURL` comment points at a map, and the plugin
+      // deletes the files after upload.
+      sourcemap: UPLOAD_SOURCEMAPS ? "hidden" : false,
       // Increase chunk size warning limit (500kb)
       chunkSizeWarningLimit: 500,
       rollupOptions: {

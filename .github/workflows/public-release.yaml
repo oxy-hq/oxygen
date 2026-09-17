@@ -232,6 +232,18 @@ jobs:
       - name: Install dependencies & Build web-app
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
+          # Sentry `oxy-web`, stable releases only: an edge build has no X.Y.Z to
+          # name its release. Empty values keep the bundle dark and the build
+          # map-free (web-app/vite.config.ts UPLOAD_SOURCEMAPS), which is also what
+          # a repo without these secrets gets. No environment here: one image
+          # serves staging then prod, so web-app/src/sentry.ts reads it from the
+          # host. This workflow runs only in oxy-hq/oxygen; the secrets live there.
+          VITE_SENTRY_DSN: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
+            secrets.VITE_SENTRY_DSN || '' }}
+          VITE_SENTRY_RELEASE: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
+            format('oxy@{0}', needs.determine-build-type.outputs.version) || '' }}
+          SENTRY_AUTH_TOKEN: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
+            secrets.SENTRY_AUTH_TOKEN || '' }}
         run: |
           pnpm install --frozen-lockfile --prefer-offline
           pnpm build
