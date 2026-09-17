@@ -4,6 +4,14 @@ import { useForm } from "react-hook-form";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/shadcn/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/shadcn/dialog";
 import { FieldError } from "@/components/ui/shadcn/field";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
@@ -160,6 +168,74 @@ const DevSignInSection = () => (
   </Link>
 );
 
+/** Everything an account holder signs in with: magic link, OAuth, and the dev bypass. */
+const AccountSignIn = () => {
+  const { authConfig } = useAuth();
+  const hasOAuth = Boolean(authConfig.google || authConfig.okta || authConfig.github);
+  const hasMagicLink = Boolean(authConfig.magic_link);
+
+  return (
+    <>
+      {hasMagicLink && <MagicLinkSection />}
+
+      {hasOAuth && hasMagicLink && <Divider label='or' />}
+
+      {authConfig.github && (
+        <LoginWithGitHubButton disabled={false} clientId={authConfig.github.client_id} />
+      )}
+      {authConfig.google && (
+        <LoginWithGoogleButton disabled={false} clientId={authConfig.google.client_id} />
+      )}
+      {authConfig.okta && (
+        <LoginWithOktaButton
+          disabled={false}
+          clientId={authConfig.okta.client_id}
+          domain={authConfig.okta.domain}
+        />
+      )}
+
+      {authConfig.dev_login && (
+        <>
+          <Divider label='dev only' />
+          <DevSignInSection />
+        </>
+      )}
+    </>
+  );
+};
+
+/**
+ * On a kiosk the screen belongs to the crew. Account sign-in stays one tap away
+ * for the manager setting the tablet up, but never sits under the PIN pad where
+ * a worker could wander into an email form.
+ */
+const AdminSignInDialog = () => (
+  <Dialog>
+    <DialogTrigger asChild>
+      <Button
+        type='button'
+        variant='link'
+        size='sm'
+        className='self-center text-muted-foreground'
+        data-testid='login-admin-signin'
+      >
+        Sign in as an admin
+      </Button>
+    </DialogTrigger>
+    <DialogContent className='sm:max-w-sm' data-testid='login-admin-dialog'>
+      <DialogHeader>
+        <DialogTitle>Sign in as an admin</DialogTitle>
+        <DialogDescription>
+          Use your Oxygen account. Crew sign in with their PIN on this screen.
+        </DialogDescription>
+      </DialogHeader>
+      <div className='flex flex-col gap-4'>
+        <AccountSignIn />
+      </div>
+    </DialogContent>
+  </Dialog>
+);
+
 const ACCOUNT_COPY = {
   title: "Welcome back",
   subtitle: "Sign in to your account to continue"
@@ -177,13 +253,29 @@ const LoginForm = () => {
   // Crew sign-in's first-choice destination (validated server-side before any
   // redirect). The magic-link section reads the same param on its own.
   const returnTo = searchParams.get("return_to") ?? undefined;
-  const { data: device } = useKioskDevice();
+  const { data: device, isPending: isProbingKiosk } = useKioskDevice();
   const kiosk = device?.bound ? device : undefined;
   const { data: staff = [], isLoading: isRosterLoading } = useFrontlineRoster(kiosk?.org);
 
-  const hasOAuth = Boolean(authConfig.google || authConfig.okta || authConfig.github);
-  const hasMagicLink = Boolean(authConfig.magic_link);
-  const hasAccountSignIn = hasMagicLink || hasOAuth;
+  const hasAccountSignIn = Boolean(
+    authConfig.magic_link ||
+      authConfig.google ||
+      authConfig.okta ||
+      authConfig.github ||
+      authConfig.dev_login
+  );
+
+  // Hold the page until the probe answers. Rendering the account options first
+  // would flash exactly what a kiosk hides. The probe never throws, and for a
+  // browser without a kiosk cookie the server runs no query before answering.
+  if (isProbingKiosk) {
+    return (
+      <div className='flex justify-center py-10' data-testid='login-probing'>
+        <Spinner />
+      </div>
+    );
+  }
+
   // While the roster is still loading, assume the common case (there is one)
   // so the subtitle doesn't flip mid-read.
   const copy = kiosk ? kioskCopy(isRosterLoading || staff.length > 0) : ACCOUNT_COPY;
@@ -196,44 +288,22 @@ const LoginForm = () => {
       </div>
 
       <div className='flex flex-col gap-4'>
-        {kiosk && (
-          <CrewSignIn
-            device={kiosk}
-            staff={staff}
-            isRosterLoading={isRosterLoading}
-            returnTo={returnTo}
-          />
-        )}
-        {kiosk && hasAccountSignIn && <Divider label='or' />}
-
-        {hasMagicLink && <MagicLinkSection />}
-
-        {hasOAuth && hasMagicLink && <Divider label='or' />}
-
-        {authConfig.github && (
-          <LoginWithGitHubButton disabled={false} clientId={authConfig.github.client_id} />
-        )}
-        {authConfig.google && (
-          <LoginWithGoogleButton disabled={false} clientId={authConfig.google.client_id} />
-        )}
-        {authConfig.okta && (
-          <LoginWithOktaButton
-            disabled={false}
-            clientId={authConfig.okta.client_id}
-            domain={authConfig.okta.domain}
-          />
-        )}
-
-        {authConfig.dev_login && (
+        {kiosk ? (
           <>
-            <Divider label='dev only' />
-            <DevSignInSection />
+            <CrewSignIn
+              device={kiosk}
+              staff={staff}
+              isRosterLoading={isRosterLoading}
+              returnTo={returnTo}
+            />
+            {hasAccountSignIn && <AdminSignInDialog />}
+          </>
+        ) : (
+          <>
+            <AccountSignIn />
+            {returnToPointsAtCustomApp(returnTo) && <CrewSignInHint />}
           </>
         )}
-
-        {/* Only once the probe has answered "not a kiosk" — never during the
-            probe, or a real kiosk would flash the hint before its board. */}
-        {device && !device.bound && returnToPointsAtCustomApp(returnTo) && <CrewSignInHint />}
       </div>
     </div>
   );
