@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.147] - 2026-09-17
+
+### 🚀 Features
+
+- The document model — folders, documents, versions, visibility and search (#3087)
+- *(airway)* Scope a chunked backfill to resources, and keep that scope on resume (#3184)
+- Custom apps store data by its shape — ctx.airhouse, ctx.oltp.tx, read-only customer warehouses, placement guard (#3187)
+- Airway sql_database can hold its DSN as a managed secret (#3141)
+- Custom-app fleet health, low-traffic detection, and function meters (#3207)
+
+### 🐛 Bug Fixes
+
+- Make the workspace_path presence check a build failure, not a habit (#3153)
+- Sentry signal — real levels, one issue per log line, airhouse errors keep their cause (#3204)
+- Custom-app fleet health collides with the external liveness route (#3227)
+- Sentry records errors only and drops custom-app log targets (#3221)
+- Custom-app requests, runs and jobs carry a sentry surface tag that before_send drops (#3222)
+
+### 💼 Other
+
+- *(deps)* Bump docker/login-action from 4.4.0 to 4.6.0 (#3228)
+- *(deps)* Bump taiki-e/install-action from 2.85.7 to 2.87.12 (#3229)
+- *(deps-dev)* Bump the dev-npm-minor-dependencies group across 2 directories with 10 updates (#3230)
+
+### 🚜 Refactor
+
+- Retire the runs table and pre-agentic run store (#3160)
+- Remove deprecated permissions and settings from .claude/settings.json
+
+### 📚 Documentation
+
+- Ground LLM provider strategy Phase 2 (reachability + measured build-null) (#3189)
+- Design for per-workspace Airway cursor and audit state (#3203)
+
+### ⚡ Performance
+
+- Semantic scan materialises each revision once per process, not per request (#3185)
+
 ## [0.5.146] - 2026-09-13
 
 ### 🚀 Features
@@ -34,6 +72,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Claude config — grouped permissions, extracted hooks, auto-mode rules (#3176)
+- Release 0.5.146 (#3167)
 
 ## [0.5.145] - 2026-09-11
 
