@@ -170,7 +170,9 @@ pub(crate) fn is_missing_table(err: &str, table: &str) -> bool {
 // persistent connection is FIRST opened and captured for that connection's
 // lifetime (including its background reconnects). Changing the env later only
 // affects tenants connected afterward, not already-open ones. `insert_chunk_rows`
-// is read per write, so it takes effect immediately.
+// is read per write, so it takes effect immediately, and `connect_timeout` is
+// read per connect attempt, so a change applies to the next reconnect without a
+// restart.
 
 /// Default credential TTL for the ingest (Writer) + DDL (Admin) paths.
 /// Override with `OXY_CAMERAS_AIRHOUSE_INGEST_TTL_SECS`.
@@ -192,9 +194,23 @@ const DEFAULT_INSERT_CHUNK_ROWS: usize = 500;
 /// forever. Counts both connect/auth failures (can't connect at all) and rapid
 /// flaps (connect succeeds but the session drops almost immediately); a
 /// connection that stays up resets the count. The next request re-establishes
-/// lazily. At the 30s backoff cap, 20 is ~10 minutes of continuous failure.
+/// lazily. Each failed cycle is the backoff sleep PLUS the attempt itself, and
+/// an attempt that hangs runs to `connect_timeout()` (30s): at the 30s backoff
+/// cap, 20 is ~10 minutes of failures that return at once, and ~20 minutes when
+/// every attempt hangs.
 /// Override with `OXY_CAMERAS_AIRHOUSE_MAX_RECONNECT_ATTEMPTS`; `0` = forever.
 const DEFAULT_MAX_RECONNECT_ATTEMPTS: u32 = 20;
+
+/// Default bound on ONE connect attempt, end to end: TCP, TLS and the pgwire
+/// startup/auth exchange. `tokio_postgres::Config::connect_timeout` does not
+/// do this — it bounds only the TCP connect, and through HAProxy that always
+/// succeeds at once. Unbounded, a handshake HAProxy holds open (a backend that
+/// went away mid-rollout) stalls until its `timeout server`, 1h, and a stalled
+/// reconnect driver still reads as live, so every write fails with
+/// `connection closed` meanwhile (prod 2026-09-17, airhouse 0.1.50 rollout).
+/// Generous against a cold DuckDB session, and 120x shorter than that stall.
+/// Override with `OXY_CAMERAS_AIRHOUSE_CONNECT_TIMEOUT_SECS`.
+const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 30;
 
 /// Credential lifetime for the ingest / DDL path. Plenty of headroom for an
 /// ingest burst; well under the airhouse max (`SYSTEM_MAX_TTL_SECS = 86400`).
@@ -228,6 +244,15 @@ pub fn max_reconnect_attempts() -> u32 {
         .ok()
         .and_then(|v| v.trim().parse::<u32>().ok())
         .unwrap_or(DEFAULT_MAX_RECONNECT_ATTEMPTS)
+}
+
+/// Bound on one whole connect attempt (see [`DEFAULT_CONNECT_TIMEOUT_SECS`]).
+/// Read per attempt, so a change applies to the next reconnect.
+pub fn connect_timeout() -> Duration {
+    env_duration_secs(
+        "OXY_CAMERAS_AIRHOUSE_CONNECT_TIMEOUT_SECS",
+        DEFAULT_CONNECT_TIMEOUT_SECS,
+    )
 }
 
 /// Parse a positive-integer seconds env var into a `Duration`, falling back
@@ -416,7 +441,7 @@ pub async fn connect(
     );
     let (client, conn_fut) = client::try_connect(&pg, client::insecure_from_env())
         .await
-        .map_err(|e| AirhouseError::Connect(pg_error_text(&e)))?;
+        .map_err(|e| AirhouseError::Connect(e.text()))?;
 
     // Drive the pgwire connection on a detached task. When the Client drops,
     // this future completes and the task exits.

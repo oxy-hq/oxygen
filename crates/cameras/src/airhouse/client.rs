@@ -261,7 +261,7 @@ impl TenantClient {
         let config = make_pg_config(&host, port, &user, &password, &database);
         let (client, conn) = try_connect(&config, insecure)
             .await
-            .map_err(|e| AirhouseError::Connect(super::pg_error_text(&e)))?;
+            .map_err(|e| AirhouseError::Connect(e.text()))?;
 
         let client_ref = Arc::new(RwLock::new(Arc::new(client)));
         let alive = Arc::new(AtomicBool::new(true));
@@ -475,16 +475,70 @@ pub(super) fn make_pg_config(
     cfg
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ConnectError {
+    #[error(transparent)]
+    Pg(#[from] tokio_postgres::Error),
+    #[error("connect timed out after {0:?} (TCP, TLS and pgwire startup together)")]
+    TimedOut(Duration),
+}
+
+impl ConnectError {
+    /// The text [`AirhouseError::Connect`] carries: the server's own message
+    /// for a pgwire error, as everywhere else in this module.
+    pub(super) fn text(&self) -> String {
+        match self {
+            Self::Pg(e) => super::pg_error_text(e),
+            Self::TimedOut(_) => self.to_string(),
+        }
+    }
+}
+
+/// One connect attempt, bounded end to end by [`super::connect_timeout`].
+/// Every caller needs the bound: the reconnect driver (a hung attempt keeps a
+/// closed client cached behind a live handle), the first connect (it runs
+/// inside the registry's `OnceCell`, so every request for the tenant queues
+/// behind it), and the one-shot path.
 pub(super) async fn try_connect(
     config: &tokio_postgres::Config,
     insecure: bool,
-) -> Result<(Client, BoxConn), tokio_postgres::Error> {
-    if insecure {
-        let (c, conn) = config.connect(NoTls).await?;
-        Ok((c, Box::pin(conn)))
-    } else {
-        let (c, conn) = config.connect(tls_connector()).await?;
-        Ok((c, Box::pin(conn)))
+) -> Result<(Client, BoxConn), ConnectError> {
+    try_connect_within(config, insecure, super::connect_timeout()).await
+}
+
+async fn try_connect_within(
+    config: &tokio_postgres::Config,
+    insecure: bool,
+    limit: Duration,
+) -> Result<(Client, BoxConn), ConnectError> {
+    let attempt = async {
+        if insecure {
+            let (c, conn) = config.connect(NoTls).await?;
+            Ok::<_, tokio_postgres::Error>((c, Box::pin(conn) as BoxConn))
+        } else {
+            let (c, conn) = config.connect(tls_connector()).await?;
+            Ok((c, Box::pin(conn) as BoxConn))
+        }
+    };
+    let started = Instant::now();
+    match tokio::time::timeout(limit, attempt).await {
+        Ok(result) => {
+            let connected = result?;
+            // The bound is chosen, not measured. A connect that succeeds but
+            // takes over half of it is the warning that the bound is about to
+            // fail EVERY connect at once (a loaded DP building cold sessions),
+            // which would otherwise first show up as timeouts that read like a
+            // network fault.
+            let took = started.elapsed();
+            if took > limit / 2 {
+                tracing::warn!(
+                    "cameras airhouse connect took {took:?}, over half the {limit:?} bound \
+                     (OXY_CAMERAS_AIRHOUSE_CONNECT_TIMEOUT_SECS)"
+                );
+            }
+            Ok(connected)
+        }
+        Err(_) => Err(ConnectError::TimedOut(limit)),
     }
 }
 
@@ -514,6 +568,64 @@ pub(super) fn tls_connector() -> MakeRustlsConnect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A peer that accepts TCP and then never speaks is what HAProxy looks
+    /// like while it holds a session for a backend that has gone. The attempt
+    /// must fail within the bound, so the driver counts a failure and retries,
+    /// rather than hanging until HAProxy's 1h `timeout server` while every
+    /// write on the handle fails with `connection closed` (prod 2026-09-17).
+    #[tokio::test]
+    async fn connect_attempt_to_a_silent_peer_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let silent_peer = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        let config = make_pg_config("127.0.0.1", port, "u", "p", "db");
+        let limit = Duration::from_millis(200);
+        let started = Instant::now();
+        let result = try_connect_within(&config, true, limit).await;
+
+        assert!(
+            matches!(result, Err(ConnectError::TimedOut(d)) if d == limit),
+            "expected a timeout, got {:?}",
+            result.map(|_| ())
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+        silent_peer.abort();
+    }
+
+    /// Why `try_connect_within` wraps the whole attempt instead of setting
+    /// `Config::connect_timeout`: that option bounds only the TCP connect,
+    /// which a silent peer (or HAProxy) completes at once, so the startup
+    /// exchange after it still hangs. Pins the trap so nobody "simplifies"
+    /// the wrapper away.
+    #[tokio::test]
+    async fn tokio_postgres_connect_timeout_does_not_bound_a_silent_peer() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let silent_peer = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        // Wide margins: connect_timeout also covers the loopback TCP connect,
+        // and on a contended runner a slow connect must not be what fires it.
+        let mut config = make_pg_config("127.0.0.1", port, "u", "p", "db");
+        config.connect_timeout(Duration::from_millis(500));
+        let outcome = tokio::time::timeout(Duration::from_secs(2), config.connect(NoTls)).await;
+
+        assert!(
+            outcome.is_err(),
+            "connect_timeout ended the attempt: either tokio-postgres now bounds the startup \
+             exchange (then the wrapper may be removable) or the loopback connect itself took \
+             over 500ms on this runner; got {:?}",
+            outcome.map(|r| r.map(|_| ()))
+        );
+        silent_peer.abort();
+    }
 
     #[test]
     fn give_up_bound_of_zero_retries_forever() {
