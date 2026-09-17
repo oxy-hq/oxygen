@@ -13,6 +13,8 @@ on:
         value: ${{ jobs.changesets.outputs.ci-scripts }}
       ci-counter:
         value: ${{ jobs.changesets.outputs.ci-counter }}
+      canary-zoo:
+        value: ${{ jobs.changesets.outputs.canary-zoo }}
       docker:
         value: ${{ jobs.changesets.outputs.docker }}
       changes:
@@ -40,6 +42,7 @@ jobs:
       sdk: ${{ steps.changes.outputs.sdk }}
       ci-scripts: ${{ steps.changes.outputs.ci-scripts }}
       ci-counter: ${{ steps.changes.outputs.ci-counter }}
+      canary-zoo: ${{ steps.changes.outputs.canary-zoo }}
       docker: ${{ steps.changes.outputs.docker }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -168,6 +171,25 @@ jobs:
               # And this file: a diff that edits only these filters decides
               # which jobs run, so it has to run them. Self-reference is the
               # fixed point, not a regress — once listed, editing it matches.
+              - ".github/workflows/changesets.yaml"
+            # `canary-zoo` gates the drift check between the zoo fixture and
+            # the canary's bundled copy of it. The copy exists because an Oxy
+            # Function bundle cannot read outside itself, so the two files are
+            # kept byte-identical by hand
+            # (`scripts/data-shapes/sync-canary-zoo.mjs`).
+            #
+            # `functions/shape-zoo-sync.test.ts` asserts exactly this too, but
+            # platform-canary carries its own `pnpm-workspace.yaml`, so it is
+            # outside the root workspace that `vitest` and `lint:ts` walk. The
+            # two ci.yaml jobs this gates are the only things that run it:
+            # `canary-zoo` (shell, no install) and `canary-tests` (the canary's
+            # own vitest files and tsc projects, from its own lockfile).
+            canary-zoo:
+              - "fixtures/data-shapes/**"
+              - "customer-apps/examples/platform-canary/**"
+              # And where the job is defined, and where these filters are —
+              # the same self-reference the two filters above document.
+              - ".github/workflows/ci.yaml"
               - ".github/workflows/changesets.yaml"
             docker:
               - "Dockerfile*"

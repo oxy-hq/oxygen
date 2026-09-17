@@ -103,7 +103,7 @@ tokens than the same rows as JSON, which repeats every field name per row.
 
     0 ok · 1 it ran and found problems · 2 you called it wrong, stop
     4 log in (\`oxyc login --env <env>\`) · 5 not found · 6 malformed request
-    7 retryable (5xx/timeout) · 8 refused
+    7 retryable (5xx/timeout) · 8 refused · 9 a check failed (\`oxyc checks run\`)
 
 ### Beyond the API
 

@@ -616,6 +616,134 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
+  canary-zoo:
+    name: Canary shape zoo (fixture drift)
+    needs: [changesets]
+    # Two of the assertions in `platform-canary`'s own vitest files, restated in
+    # shell. The canary bundles its own copy of the zoo fixture, because an Oxy
+    # Function bundle cannot read outside itself; `shape-zoo-sync.test.ts`
+    # asserts the copy and its digest match and `manifest.test.ts` asserts the
+    # function timeout is sized for `shape_zoo`. `canary-tests` below runs
+    # those files themselves; this job keeps the two checks that guard the
+    # fixture on a path with no install, so a stale copy fails in seconds and
+    # even when the canary's own toolchain cannot be installed.
+    # Plain shell on purpose: a pnpm install to make two file comparisons and
+    # read one JSON field would cost more than everything it is guarding.
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.canary-zoo == 'true' &&
+      !(github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        startsWith(github.event.head_commit.message, 'chore: release')) &&
+      github.event.pull_request.draft != true &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
+    runs-on:
+      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
+      'ubuntu-latest' }}
+    # Two file comparisons and a JSON field read; 10m is pure hang insurance.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Zoo copy and digest match the fixture
+        run: |
+          set -euo pipefail
+          fixture=fixtures/data-shapes/zoo.json
+          copy=customer-apps/examples/platform-canary/functions/shape-zoo.json
+          digest=customer-apps/examples/platform-canary/functions/shape-zoo-sha256.ts
+          sync="run node scripts/data-shapes/sync-canary-zoo.mjs from the repo root"
+          if ! cmp -s "$fixture" "$copy"; then
+            echo "::error file=$copy::stale zoo copy: it differs from $fixture. To fix, $sync"
+            diff -u "$fixture" "$copy" || true
+            exit 1
+          fi
+          want="$(sha256sum "$fixture" | cut -d " " -f 1)"
+          got="$(grep -oE "[0-9a-f]{64}" "$digest" | head -n 1)"
+          if [ "$want" != "$got" ]; then
+            echo "::error file=$digest::stale ZOO_SHA256: it is $got, the fixture hashes to $want. To fix, $sync"
+            exit 1
+          fi
+          echo "zoo copy and digest match $fixture ($want)"
+      - name: Canary timeout is sized for the zoo
+        run: |
+          set -euo pipefail
+          manifest=customer-apps/examples/platform-canary/oxy-app.json
+          # `shape_zoo` is in `ALL_STEPS`, so an unset `CANARY_STEPS` runs it,
+          # and it sends one statement per zoo case — about 200, all sequential.
+          # Under this floor a real run dies on the timeout instead of naming
+          # the case that differs, and the pager fingerprints a timeout rather
+          # than `canary step shape_zoo failed: …`.
+          floor=180
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::error file=$manifest::jq is missing on this runner, so the canary timeout floor went unchecked. Install jq or restate the check without it — do not drop it."
+            exit 1
+          fi
+          got="$(jq -r '.functions.canary.timeoutSeconds // "absent"' "$manifest")"
+          case "$got" in
+            '' | *[!0-9]*)
+              echo "::error file=$manifest::functions.canary.timeoutSeconds is \"$got\"; it must be an integer of at least ${floor}s. See functions/manifest.test.ts for why."
+              exit 1
+              ;;
+          esac
+          if [ "$got" -lt "$floor" ]; then
+            echo "::error file=$manifest::functions.canary.timeoutSeconds is ${got}s, under the ${floor}s shape_zoo needs. See functions/manifest.test.ts for why."
+            exit 1
+          fi
+          echo "canary timeoutSeconds is ${got}s (floor ${floor}s)"
+
+  canary-tests:
+    name: Canary unit tests and typecheck
+    needs: [changesets]
+    # `platform-canary`'s own `functions/*.test.ts` and `src/*.test.ts` — some
+    # 1,100 lines pinning the canary's step registry, the zoo copy and its
+    # digest, and the manifest timeout floor — plus its two tsconfigs. The
+    # canary carries its own pnpm-workspace.yaml, so it is outside the root
+    # workspace `vitest` and `lint:ts` walk, and until this job nothing ran
+    # them: `canary-zoo` above restates two of the assertions in shell, this
+    # job runs the files. Installed from the canary's own lockfile, in its
+    # directory, the way `oxyc publish` does.
+    # Gated on the same filter as `canary-zoo`: the canary's directory and the
+    # zoo fixture it copies.
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.canary-zoo == 'true' &&
+      !(github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        startsWith(github.event.head_commit.message, 'chore: release')) &&
+      github.event.pull_request.draft != true &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
+    # Warp arm64, like every other job in this repo that runs tests.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # 81 vitest cases and two tsc projects finish in seconds; 15m covers a
+    # cold pnpm store.
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: customer-apps/examples/platform-canary
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          run_install: false
+          # The canary's own `packageManager`: it is its own workspace, and
+          # its lockfile is the one pnpm 11 wrote.
+          package_json_file: customer-apps/examples/platform-canary/package.json
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24.x
+          cache: "pnpm"
+          cache-dependency-path: customer-apps/examples/platform-canary/pnpm-lock.yaml
+      - name: Install the canary's workspace
+        run: pnpm install --frozen-lockfile --prefer-offline
+      - name: Canary unit tests (vitest)
+        run: pnpm exec vitest run
+      # Both projects, as the canary's own `typecheck` script does: the app's
+      # (DOM lib, Vite) and the functions' (no DOM — they run on the isolate).
+      - name: Canary typecheck (tsc)
+        run: |
+          pnpm exec tsc --noEmit -p tsconfig.json
+          pnpm exec tsc --noEmit -p functions/tsconfig.json
+
   cargo-check-and-test:
     concurrency:
       group: cargo-check-and-test-${{ matrix.task }}-${{

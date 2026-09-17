@@ -31,7 +31,9 @@ export const ExitCode = {
   /** The server answered 5xx, or the network failed. Retryable. */
   UNAVAILABLE: 7,
   /** A refusal: the operation would have destroyed or overwritten something. */
-  REFUSED: 8
+  REFUSED: 8,
+  /** `oxyc checks run`: a check ran and failed or timed out. */
+  CHECK_FAILED: 9
 } as const;
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];

@@ -63,6 +63,13 @@ export interface OxyAppFunctionManifest {
   /** Wall-clock timeout. Default 30, max 300. */
   timeoutSeconds?: number;
   /**
+   * Mark this function as a check. `oxyc checks run` runs it; with a
+   * `schedule` the platform runs it continuously and a failure pages. A
+   * check fails when it throws, times out, or returns `{ ok: false }`.
+   * Checks must not have customer-visible side effects.
+   */
+  check?: boolean;
+  /**
    * Opt-in result caching for route invocations. Omit (the default) to never
    * cache — the safe choice for a side-effectful function (writes, external
    * POSTs, ELT). Set `ttlSeconds` ONLY for read-only / idempotent functions:
@@ -661,6 +668,12 @@ function validateFunctions(raw: unknown): Record<string, OxyAppFunctionManifest>
         );
       }
       fn.timeoutSeconds = t;
+    }
+    if (value.check !== undefined) {
+      if (typeof value.check !== "boolean") {
+        throw new Error(`oxy-app.json: function "${fnName}" \`check\` must be a boolean`);
+      }
+      fn.check = value.check;
     }
     if (value.cache !== undefined) {
       const c = value.cache;

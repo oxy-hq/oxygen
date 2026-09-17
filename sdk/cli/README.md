@@ -6,6 +6,7 @@ manages customer workspace repos.
 - **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `assume`, `oltp`
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`
+- **Checks** — `checks run`
 - **Development** — `validate`, `mcp`, `guide`, `skills`
 
 ## Install
@@ -263,6 +264,39 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
 environment-gated `publish` job whose only work is `publish --prebuilt` with
 OIDC. It prints the `oxyc api …/publishers` call that registers the workflow.
 
+## Checks
+
+```bash
+oxyc checks run <org-slug>/<app-slug>   # or an app UUID
+oxyc checks run acme/dashboards --json --timeout 60
+```
+
+Runs every function the app declared `"check": true` (in `oxy-app.json`), one
+POST per check to start its run, then polls each run to a terminal status —
+`done`, `failed`, `cancelled`, or a client-side `timed_out` past `--timeout`
+seconds (default 300, per check). A check **passes** when its run finishes
+`done` and its answer does not parse to an object with `ok: false`.
+
+Human mode prints one line per check to stderr as it lands (`✓ canary 4.1s` /
+`✗ canary failed: <reason>`), suppressed by `--quiet`. `--json` prints one
+object to stdout instead:
+
+```json
+{ "app": "acme/dashboards", "appId": "…", "checks": [{ "name": "canary", "runId": "…", "status": "done", "passed": true, "durationMs": 4123 }] }
+```
+
+**Auth** follows the same rule as `oxyc api`'s bearer surface, with one
+difference: `checks run` talks to `/api/admin/**`, which is not the
+`/external/api/*` surface, so a configured API key is sent explicitly as
+`X-API-Key` only when **no bearer resolves** — never both. A bearer from
+`oxyc login` (or `--token-env`) always wins when one is present.
+
+**Exit codes:** `0` every check passed; `9` (`CHECK_FAILED`) at least one check
+failed or timed out; `1` the app declares no checks; `5` the app was not
+found; `4` no credential resolved, or the API rejected it (401/403 — an
+expired 90-day API key reads this way, not as a missing one); `2` a bad
+`--timeout` (not a positive number of seconds).
+
 ## Development commands
 
 ```bash
@@ -340,6 +374,7 @@ once npm reclaims it.
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
+9  a check ran and failed or timed out (`oxyc checks run`)
 ```
 
 `4` almost always means the wrong `--env`. `7` is worth retrying; `6` never is.

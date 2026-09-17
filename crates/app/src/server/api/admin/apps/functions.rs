@@ -40,6 +40,8 @@ pub struct FunctionSummary {
     /// The function is wired as an Airway pipeline transform step.
     pub airway: bool,
     pub timeout_seconds: Option<u32>,
+    /// Marked "check": true — run by `oxyc checks run`.
+    pub check: bool,
     /// Background-run retry policy, when declared (`maxAttempts > 1`).
     pub retries: Option<RetriesSummary>,
     /// The function may write app-scoped secrets via `ctx.secrets.set`.
@@ -117,6 +119,8 @@ struct ManifestView {
     timezone: Option<String>,
     #[serde(default, rename = "timeoutSeconds")]
     timeout_seconds: Option<u32>,
+    #[serde(default)]
+    check: Option<bool>,
     #[serde(default, rename = "airwayStep")]
     airway_step: Option<serde_json::Value>,
     #[serde(default)]
@@ -171,6 +175,7 @@ fn to_summary(name: String, manifest: Option<&serde_json::Value>) -> FunctionSum
         timezone: m.timezone,
         airway: has_airway,
         timeout_seconds: m.timeout_seconds,
+        check: m.check.unwrap_or(false),
         retries,
         secrets_write: m.secrets.and_then(|s| s.write).unwrap_or(false),
         destinations: m.destinations.unwrap_or_default(),
@@ -448,5 +453,14 @@ mod tests {
             Some(&json!({ "retries": { "maxAttempts": 1 } })),
         );
         assert!(s.retries.is_none());
+    }
+
+    #[test]
+    fn summary_projects_the_check_flag() {
+        let with = json!({ "check": true, "schedule": "*/15 * * * *" });
+        assert!(to_summary("smoke".into(), Some(&with)).check);
+        let without = json!({ "route": true });
+        assert!(!to_summary("echo".into(), Some(&without)).check);
+        assert!(!to_summary("bare".into(), None).check);
     }
 }

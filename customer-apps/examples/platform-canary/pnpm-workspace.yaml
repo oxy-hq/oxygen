@@ -1,0 +1,14 @@
+# Present only to declare the build-script decision below — this app is a single
+# package, not a workspace, and it sits outside the repo's root pnpm workspace.
+# Install with plain `pnpm install` in this directory: `--ignore-workspace` would
+# skip this file and its esbuild decision, and the install would exit 1.
+#
+# pnpm 10+ refuses to run a dependency's install scripts unless the project says
+# so, and `pnpm install` EXITS NON-ZERO on an undeclared one. esbuild has such a
+# script, and `oxyc publish` shells out to `pnpm exec esbuild`.
+#
+# `false`, not `true`: esbuild ships its platform binary as an optional
+# dependency, so the install script is not needed to run it — the oxy repo root
+# makes the same call for the same reason.
+allowBuilds:
+  esbuild: false

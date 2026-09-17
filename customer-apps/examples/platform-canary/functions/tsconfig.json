@@ -1,0 +1,17 @@
+{
+  "//": "Typecheck the server-side Oxy Functions. Separate from the app's tsconfig because functions run on the V8 isolate runtime, not the browser: NO DOM lib (the ambient `Response` is the runtime's, not the fetch API), and these files are bundled by `oxyc publish` (esbuild), never by Vite.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "types": [],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["."]
+}

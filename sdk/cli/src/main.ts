@@ -22,6 +22,7 @@ import { runActivity } from "./commands/activity.js";
 import { runApi } from "./commands/api.js";
 import { runAssumeEnd, runAssumeStart, runAssumeStatus } from "./commands/assume.js";
 import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
+import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runGuide } from "./commands/guide.js";
@@ -361,6 +362,22 @@ function buildProgram(): Command {
     program.command("token").description("print the bearer token, for a raw curl")
   ).action((opts: Record<string, unknown>) => {
     runToken(createContext(globals(opts)));
+  });
+
+  const checks = program
+    .command("checks")
+    .description('run an app\'s checks (functions marked "check": true)');
+  withGlobals(
+    checks
+      .command("run <app>")
+      .description("run every check of <org>/<app> (or an app id) and wait for results")
+      .option("--json", "emit results as JSON")
+      .option("--timeout <seconds>", "per-check timeout", "300")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runChecks(createContext(globals(opts)), app, {
+      json: Boolean(opts.json),
+      timeoutSeconds: Number(opts.timeout)
+    });
   });
 
   // ── the customer half ────────────────────────────────────────────────────
@@ -717,6 +734,7 @@ const EXIT_CODE_HELP = `0  success
 6  the request was malformed (4xx other than 401/403/404)
 7  unavailable — 5xx, a timeout, or the network failed. Retryable.
 8  refused — the operation would have destroyed or overwritten something
+9  a check ran and failed or timed out (\`oxyc checks run\`)
 `;
 
 /**

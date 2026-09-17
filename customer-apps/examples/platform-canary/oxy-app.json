@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "slug": "platform-canary",
+  "name": "Platform Canary",
+  "env": {
+    "CANARY_STEPS": {
+      "description": "Comma list of steps to run; absent means all. Naming fewer is the recorded decision to skip the rest here."
+    },
+    "CANARY_CHECKIN_URL": {
+      "required": true,
+      "description": "All Quiet cron check-in URL. Required while check_in runs."
+    },
+    "CANARY_SECRET_ROUNDTRIP": {
+      "description": "Written by the canary on every run (secrets_roundtrip). Never set by hand."
+    }
+  },
+  "functions": {
+    "canary": {
+      "check": true,
+      "route": true,
+      "schedule": "*/5 * * * *",
+      "timezone": "UTC",
+      "timeoutSeconds": 180,
+      "destinations": ["canary_warehouse"],
+      "oltp": { "enabled": true },
+      "org": { "read": true },
+      "storage": { "read": true, "write": true },
+      "secrets": { "write": true }
+    },
+    "echo": {
+      "route": true,
+      "timeoutSeconds": 10
+    }
+  }
+}

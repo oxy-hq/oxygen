@@ -1,0 +1,16 @@
+node_modules
+
+# build output — `out/` is what `oxyc publish` ships
+out
+dist
+
+# tsc / vite build state
+*.tsbuildinfo
+
+# foreign lockfiles — this app is pnpm; commit pnpm-lock.yaml, not these
+package-lock.json
+yarn.lock
+
+.DS_Store
+.env
+.env.local

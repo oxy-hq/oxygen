@@ -376,6 +376,27 @@ describe("parseOxyAppManifest — functions", () => {
       /timeoutSeconds.*\[1, 300\]/
     );
   });
+
+  it("parses check: true", async () => {
+    mockFetchReturning({
+      schemaVersion: 2,
+      slug: "demo",
+      functions: { smoke: { check: true, schedule: "*/15 * * * *" } }
+    });
+    const resolved = await loadCustomAppManifest({ manifestUrl: "/oxy-app.json" });
+    expect(resolved.manifest.functions?.smoke.check).toBe(true);
+  });
+
+  it("rejects a non-boolean check", async () => {
+    mockFetchReturning({
+      schemaVersion: 2,
+      slug: "demo",
+      functions: { smoke: { check: "yes", route: true } }
+    });
+    await expect(loadCustomAppManifest({ manifestUrl: "/oxy-app.json" })).rejects.toThrow(
+      /function "smoke" `check` must be a boolean/
+    );
+  });
 });
 
 describe("webhook declarations", () => {
