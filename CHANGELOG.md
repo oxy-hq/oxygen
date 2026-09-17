@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.148] - 2026-09-17
+
+### 🚀 Features
+
+- Custom-app checks — the manifest flag, oxyc checks run, and the platform canary (#3236)
+- Kiosk login shows only crew sign-in, with account sign-in behind an admin modal (#3243)
+- Crew kiosk enroll link as a QR code, and a new link when it's lost (#3242)
+
+### 🐛 Bug Fixes
+
+- Settings can set the external_id an app keys a location by (#3225)
+- Sentry logs from the data plane keep their shape only, and every gated spawn carries the hub (#3239)
+- Web-app sentry records only errors, and the release build uploads sourcemaps (#3234)
+- *(cameras)* Bound each airhouse connect attempt, so a rollout can't wedge ingest for an hour (#3240)
+- Custom-app functions page on a caught host-call failure (#3223)
+
+### 🧪 Testing
+
+- Custom-app functions and the shape zoo run end to end through a published app (#3233)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release checks gate the prod bump on staging, with the sentry signal (#3237)
+
 ## [0.5.147] - 2026-09-17
 
 ### 🚀 Features
@@ -39,6 +63,10 @@ All notable changes to this project will be documented in this file.
 ### ⚡ Performance
 
 - Semantic scan materialises each revision once per process, not per request (#3185)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.5.147 (#3186)
 
 ## [0.5.146] - 2026-09-13
 
