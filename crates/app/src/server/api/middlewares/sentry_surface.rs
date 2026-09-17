@@ -546,13 +546,21 @@ mod tests {
     /// `tests/authz/authz_boundaries.rs`. In scope: every module that calls
     /// `check_custom_app_gates` — reaching that gate *is* the custom-app
     /// identity ([`mark_custom_app_surface`]), so the set grows with the data
-    /// plane instead of being a list someone must remember to extend.
+    /// plane instead of being a list someone must remember to extend — plus the
+    /// two places a hub is *made* rather than inherited from a request: the
+    /// function runtime (`custom_apps_functions/`: the isolate thread, the
+    /// host-call reply tasks, the blocking-pool hops in `host.rs`) and the job
+    /// executor (`app_function_executor.rs`, which mints [`custom_app_hub`] for
+    /// a scheduled run). Those are the carries the design names by hand, and
+    /// they had no remove-it test until this walk reached them.
     ///
     /// Counting per file, rather than pairing each spawn with its own binding,
     /// is deliberate: a binding sits at the end of the spawned block, tens of
     /// lines from its `tokio::spawn(`, and a proximity rule there would be a
     /// guess. A count still fails on both moves that matter — a binding
-    /// removed, or a new unbound spawn added.
+    /// removed, or a new unbound spawn added. A file's trailing `#[cfg(test)]
+    /// mod` is cut before counting: a spawn inside a test runs under the test's
+    /// own hub, and demanding a binding there would prove nothing.
     #[test]
     fn every_custom_app_data_plane_spawn_carries_a_hub() {
         use std::fs;
@@ -576,10 +584,29 @@ mod tests {
                   here would hide it.",
         }];
 
-        /// A spawn or stream that outlives the hub it was created under.
-        const DETECTORS: [&str; 2] = ["tokio::spawn(", "async_stream::stream!"];
-        /// The two ways to carry the hub across one.
-        const BINDINGS: [&str; 2] = [".bind_hub(sentry::Hub::current())", "bind_hub_stream("];
+        /// A spawn, blocking-pool hop, thread or stream that outlives the hub
+        /// it was created under. `spawn_blocking(` is matched bare so the
+        /// `tokio::task::` spelling and a `use`d one both count; `thread::spawn(`
+        /// likewise covers `std::thread::spawn(`.
+        const DETECTORS: [&str; 6] = [
+            "tokio::spawn(",
+            "tokio::task::spawn(",
+            "spawn_blocking(",
+            "async_stream::stream!",
+            "std::thread::Builder",
+            "thread::spawn(",
+        ];
+        /// The ways to carry the hub across one: `bind_hub` on a future (the
+        /// request's hub, or the one [`custom_app_hub`] mints for a job),
+        /// [`bind_hub_stream`] on a stream, and `Hub::run` around a blocking
+        /// closure or a thread body. The `bind_hub` forms are spelled out in
+        /// full so a `.bind_hub(..)` of some other hub is not taken for a carry.
+        const BINDINGS: [&str; 4] = [
+            ".bind_hub(sentry::Hub::current())",
+            ".bind_hub(crate::server::api::middlewares::sentry_surface::custom_app_hub())",
+            "bind_hub_stream(",
+            "Hub::run(",
+        ];
 
         fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
             let Ok(entries) = fs::read_dir(dir) else {
@@ -614,9 +641,22 @@ mod tests {
             let Ok(text) = fs::read_to_string(&path) else {
                 continue;
             };
-            if !text.contains("check_custom_app_gates") {
+            let relative = path
+                .strip_prefix(crate_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let makes_its_own_hub = relative.starts_with("src/server/api/custom_apps_functions/")
+                || relative == "src/server/app_function_executor.rs";
+            if !text.contains("check_custom_app_gates") && !makes_its_own_hub {
                 continue;
             }
+            // Production code only: a trailing `#[cfg(test)] mod tests` spawns
+            // under the test's own hub.
+            let text = match text.rfind("#[cfg(test)]\nmod ") {
+                Some(cut) => &text[..cut],
+                None => text.as_str(),
+            };
             let count = |needles: &[&str]| -> usize {
                 needles.iter().map(|n| text.matches(n).count()).sum()
             };
@@ -627,11 +667,6 @@ mod tests {
             scanned += 1;
             sites += detected;
 
-            let relative = path
-                .strip_prefix(crate_root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
             let exempt: Vec<&Unhubbed> = UNHUBBED
                 .iter()
                 .filter(|entry| entry.file == relative)
@@ -641,15 +676,17 @@ mod tests {
             assert_eq!(
                 detected,
                 bound + exempt.len(),
-                "{relative}: {detected} spawn/stream site(s), {bound} hub binding(s), \
-                 {} documented exemption(s) ({}).\n\n\
+                "{relative}: {detected} spawn/blocking/thread/stream site(s), {bound} hub \
+                 binding(s), {} documented exemption(s) ({}).\n\n\
                  Work started here outlives the request hub `tag_custom_app_surface` \
                  tagged, so `sentry_config::before_send` can no longer tell it is a \
                  custom app's — and barrier 1 will not catch it either, since a callee's \
                  `error!` and a panic carry no `custom_apps` target. Read \
                  `sentry::Hub::current()` on the spawning task and bind it: \
-                 `.bind_hub(..)` on a future, `bind_hub_stream(..)` on a stream. If this \
-                 site genuinely has no request hub, add it to `UNHUBBED` with the reason.",
+                 `.bind_hub(..)` on a future, `bind_hub_stream(..)` on a stream, \
+                 `sentry::Hub::run(hub, ..)` around a blocking closure or a thread body. \
+                 If this site genuinely has no request hub, add it to `UNHUBBED` with \
+                 the reason.",
                 exempt.len(),
                 exempt
                     .iter()
@@ -669,10 +706,11 @@ mod tests {
             }
         }
 
-        // The walk itself has to be load-bearing: a bad root or a renamed gate
-        // would scan nothing and pass.
+        // The walk itself has to be load-bearing: a bad root, a renamed gate or
+        // a moved runtime directory would scan nothing and pass. 11 files and
+        // 17 sites when this floor was set.
         assert!(
-            scanned >= 3 && sites >= 4,
+            scanned >= 9 && sites >= 14,
             "expected the data-plane walk to find at least the known sites, \
              scanned {scanned} file(s) / {sites} site(s)"
         );

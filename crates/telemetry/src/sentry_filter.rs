@@ -33,7 +33,12 @@
 //!    than by `before_send` — so barrier 2 has a second half, [`drop_log`], or a
 //!    line kept out of the issue stream stays searchable in Sentry anyway. It
 //!    judges by module path, because a `Log` carries no tags; read its docs for
-//!    what that does and does not cover.
+//!    what that does and does not cover. What it cannot cover — a *platform*
+//!    module's line raised while serving a custom-app request — is narrowed by
+//!    a third rule on the same callback, [`is_data_plane_module`] and
+//!    [`keep_log_shape_only`]: a line from a module that runs warehouse queries
+//!    keeps its level, its location and the client's release/environment
+//!    stamps, and loses its text and every field value, whoever the caller was.
 
 use std::collections::BTreeMap;
 
@@ -93,6 +98,44 @@ fn is_custom_app_namespace(name: &str) -> bool {
         .iter()
         .any(|prefix| name.starts_with(prefix))
         || name.contains(CUSTOM_APPS_MODULE_MARKER)
+}
+
+/// Modules that run warehouse queries on a tenant's behalf: the data plane and
+/// the connectors under it. A `warn!`/`error!` from one of these routinely
+/// carries the warehouse's own error text (`msg = %e` in `projects::query`, the
+/// DuckDB or Postgres message in `agentic_connector`) and the fields around it,
+/// and a `Log` cannot say which request it served (see [`drop_log`]). So
+/// [`keep_log_shape_only`] applies to every line from them, for every caller.
+///
+/// Verified against the code rather than guessed from crate names:
+/// `oxy_semantic` and `oxy_airlayer_compat` parse and build the model and
+/// execute nothing, so they are not listed; `oxy::database` is Oxy's own
+/// Postgres, not a tenant warehouse. Prefixes, matched a path segment at a time
+/// by [`is_data_plane_module`].
+const DATA_PLANE_MODULE_PREFIXES: [&str; 5] = [
+    // `/query`, `/semantic-query`, agent ask, automation run, cohort, metric
+    // tree, world model — every handler behind `check_custom_app_gates`.
+    "oxy_app::server::api::projects",
+    // The connector those handlers and `ctx.warehouse` host calls execute through.
+    "agentic_connector",
+    // Compiles semantic queries and reads pre-aggregations (`execute_preagg_sql`).
+    "agentic_semantic",
+    // Core's own connectors: duckdb, clickhouse, snowflake, connectorx/bigquery,
+    // motherduck, domo.
+    "oxy::connector",
+    // The Airhouse warehouse connector.
+    "airhouse::connector",
+];
+
+/// Whether a Rust module path is one of [`DATA_PLANE_MODULE_PREFIXES`] or
+/// nested under one. Segment-aware, so `oxy::connector` does not claim
+/// `oxy::connectors_admin`.
+pub fn is_data_plane_module(module_path: &str) -> bool {
+    DATA_PLANE_MODULE_PREFIXES.iter().any(|prefix| {
+        module_path
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
 }
 
 /// The `tracing` target of [`crate::http_trace`]'s `OxyOnFailure` STATUS-CODE
@@ -292,12 +335,75 @@ pub const LOG_MODULE_ATTRIBUTE: &str = "code.module.name";
 /// What is reachable is the module path, which is enough for every line
 /// custom-app code itself emits. The residual gap is a **platform** module's
 /// `error!` raised while serving a custom-app request: its issue is dropped by
-/// the tag, its log line is not. Closing that needs either a tag on the log
-/// (an SDK change) or `enable_logs(false)`, which would undo #3204's deliberate
-/// use of Sentry Logs for the 5xx line. Deliberately not papered over with a
-/// proxy signal here.
+/// the tag, its log line is not. Closing that outright needs either a tag on
+/// the log (an SDK change) or `enable_logs(false)`, which would undo #3204's
+/// deliberate use of Sentry Logs for the 5xx line. It is narrowed instead, by
+/// module again: the platform modules that run a tenant's warehouse queries —
+/// where such a line carries the warehouse's error text — keep only their
+/// shape, whoever the caller was ([`is_data_plane_module`],
+/// [`keep_log_shape_only`]). The proxy signal is the module, never the request.
 pub fn drop_log(module_path: Option<&str>) -> bool {
     module_path.is_some_and(is_custom_app_namespace)
+}
+
+/// The `Log` attributes that carry identity rather than a value from the log
+/// call. Two kinds:
+///
+/// - **Where in the code.** The three `code.*` location keys `sentry-tracing`
+///   writes from the event's metadata, the SDK's own origin marker, and the
+///   message *template* Sentry's `logger_*!` macros record (a source literal,
+///   never a value).
+/// - **Which deployment.** The stamps the *client* puts on every log before
+///   `before_send_log` sees it (sentry-core 0.49.1 `prepare_log`, after
+///   `Scope::apply_to_log`): `sentry.environment`, `sentry.release`,
+///   `sentry.sdk.*`, `server.address` and the `os.*` pair. They are Oxy's own,
+///   and Sentry Logs filters on the first two — a line without them is absent
+///   from a production-scoped view and joins no release, which would defeat
+///   the point of keeping the line at all.
+///
+/// Everything else on a log is a value — the call's own fields, and the fields
+/// of every enclosing span, which sentry-tracing 0.49.1 copies onto a log as
+/// `span_name:field` (`converters.rs`, `extract_event_data_with_context`). A
+/// span's `oxy.sql` arrives that way. `apply_to_log`'s own copies (`user.*`,
+/// `parent_span_id`) are values about the caller and go with them; the
+/// `trace_id` is a field of the `Log`, not an attribute, and survives.
+const LOG_SHAPE_ATTRIBUTES: [&str; 12] = [
+    LOG_MODULE_ATTRIBUTE,
+    "code.file.path",
+    "code.line.number",
+    "sentry.origin",
+    "sentry.message.template",
+    "sentry.environment",
+    "sentry.release",
+    "sentry.sdk.name",
+    "sentry.sdk.version",
+    "server.address",
+    "os.name",
+    "os.version",
+];
+
+/// What stands in for a data-plane log's body once [`keep_log_shape_only`] has
+/// run. Fixed text, so nothing of the original line can survive in it.
+pub const LOG_BODY_WITHHELD: &str = "[body withheld: data-plane log; see code.file.path]";
+
+/// Barrier 2's third rule, for Sentry Logs: reduce a data-plane line to its
+/// **shape** — level, module, file, line, and the client's own deployment
+/// stamps — by dropping everything that could carry data: the body, and every
+/// attribute that is not one of [`LOG_SHAPE_ATTRIBUTES`].
+///
+/// Shape rather than drop, because the line is still a signal that something
+/// failed at that location, and "how many warehouse errors did
+/// `projects::query` raise this hour" is exactly what Sentry Logs is good for.
+/// The body is replaced rather than reduced to its message *template*: a
+/// `tracing` line arrives here already rendered — sentry-tracing's
+/// `log_from_event` puts the formatted message in `body` and records no
+/// template — so `"query failed: {e}"` and the warehouse's text are one string
+/// by now. The template attribute is kept for a line emitted through Sentry's
+/// own `logger_*!` macros, which do record one.
+pub fn keep_log_shape_only(log: &mut sentry::protocol::Log) {
+    log.body = LOG_BODY_WITHHELD.to_string();
+    log.attributes
+        .retain(|key, _| LOG_SHAPE_ATTRIBUTES.contains(&key.as_str()));
 }
 
 #[cfg(test)]
@@ -688,6 +794,145 @@ mod tests {
             "not a url",
         ] {
             assert!(!drop_event(&BTreeMap::new(), Some(url)), "{url}");
+        }
+    }
+
+    /// A line from a module that runs a tenant's warehouse queries, as it
+    /// reaches `before_send_log`: the attributes sentry-tracing 0.49.1 attaches
+    /// (the call's own fields `msg` and `sql`, an enclosing span's field copied
+    /// as `span:field`, the three `code.*` location keys, the origin marker),
+    /// then what the client stamps on before the callback runs — its
+    /// `sentry.environment`, `sentry.release`, `sentry.sdk.*`, `server.address`
+    /// and `os.*` — and a scope's `user.id`.
+    fn data_plane_log() -> sentry::protocol::Log {
+        let mut log = sentry::protocol::Log {
+            level: sentry::protocol::LogLevel::Warn,
+            body: "warehouse query failed: relation \"orders\" does not exist".to_string(),
+            trace_id: None,
+            timestamp: std::time::SystemTime::now(),
+            severity_number: None,
+            attributes: Default::default(),
+        };
+        for (key, value) in [
+            (
+                LOG_MODULE_ATTRIBUTE,
+                serde_json::json!("oxy_app::server::api::projects::query"),
+            ),
+            (
+                "code.file.path",
+                serde_json::json!("crates/app/src/server/api/projects/query.rs"),
+            ),
+            ("code.line.number", serde_json::json!(295)),
+            ("sentry.origin", serde_json::json!("auto.tracing")),
+            ("sentry.environment", serde_json::json!("production")),
+            ("sentry.release", serde_json::json!("oxy@1.2.3")),
+            ("sentry.sdk.name", serde_json::json!("sentry.rust")),
+            ("sentry.sdk.version", serde_json::json!("0.49.1")),
+            ("server.address", serde_json::json!("oxy-serve-0")),
+            ("os.name", serde_json::json!("Linux")),
+            ("os.version", serde_json::json!("6.8.0")),
+            ("user.id", serde_json::json!("u_42")),
+            (
+                "msg",
+                serde_json::json!("relation \"orders\" does not exist"),
+            ),
+            ("sql", serde_json::json!("select * from orders")),
+            (
+                "semantic_query:oxy.sql",
+                serde_json::json!("select count(*) from orders"),
+            ),
+        ] {
+            log.attributes
+                .insert(key.to_string(), sentry::protocol::LogAttribute(value));
+        }
+        log
+    }
+
+    /// The shape rule: level, location and the client's own stamps stay, the
+    /// body and every value go — the call's fields, the span copy and the
+    /// scope's user alike. Asserted by key and by content: no attribute value
+    /// that remains may still mention the tenant's table.
+    #[test]
+    fn a_data_plane_log_keeps_only_its_shape() {
+        let mut log = data_plane_log();
+        let original = log.clone();
+        keep_log_shape_only(&mut log);
+
+        assert_eq!(log.body, LOG_BODY_WITHHELD);
+        assert_eq!(log.level, original.level);
+        let mut kept: Vec<&str> = log.attributes.keys().map(String::as_str).collect();
+        kept.sort_unstable();
+        assert_eq!(
+            kept,
+            [
+                "code.file.path",
+                "code.line.number",
+                LOG_MODULE_ATTRIBUTE,
+                "os.name",
+                "os.version",
+                "sentry.environment",
+                "sentry.origin",
+                "sentry.release",
+                "sentry.sdk.name",
+                "sentry.sdk.version",
+                "server.address",
+            ],
+            "the location keys and the client's own stamps remain, nothing else"
+        );
+        for key in [
+            "code.file.path",
+            "code.line.number",
+            LOG_MODULE_ATTRIBUTE,
+            "sentry.environment",
+            "sentry.release",
+        ] {
+            assert_eq!(
+                log.attributes.get(key),
+                original.attributes.get(key),
+                "{key}"
+            );
+        }
+        let leaked: Vec<String> = log
+            .attributes
+            .values()
+            .map(|attribute| attribute.0.to_string())
+            .filter(|value| value.contains("orders"))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "values still carry the tenant's table: {leaked:?}"
+        );
+    }
+
+    /// The list is by module, matched a segment at a time: a child module is
+    /// in, a sibling that merely shares the prefix's letters is not, and the
+    /// crates verified to execute nothing (`oxy_semantic`, `oxy_airlayer_compat`)
+    /// and Oxy's own Postgres are out. Remove a prefix from
+    /// `DATA_PLANE_MODULE_PREFIXES` and the first loop fails.
+    #[test]
+    fn data_plane_modules_are_matched_a_segment_at_a_time() {
+        for module in [
+            "oxy_app::server::api::projects",
+            "oxy_app::server::api::projects::query",
+            "oxy_app::server::api::projects::semantic_query",
+            "agentic_connector",
+            "agentic_connector::duckdb",
+            "agentic_semantic::preagg",
+            "oxy::connector::snowflake",
+            "airhouse::connector",
+        ] {
+            assert!(is_data_plane_module(module), "{module}");
+        }
+        for module in [
+            "oxy_app::server::api::threads",
+            "oxy_app::server::api::projects_admin",
+            "oxy::connectors_admin",
+            "oxy::database::client",
+            "oxy_semantic::parser",
+            "oxy_airlayer_compat::engine",
+            "agentic_connector_probe",
+        ] {
+            assert!(!is_data_plane_module(module), "{module}");
         }
     }
 }

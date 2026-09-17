@@ -456,16 +456,22 @@ pub async fn run_semantic_query(
     let pre_loaded_layer = scoped_layer
         .filter(|_| engine_cache.lookup(&engine_key).is_none())
         .map(|layer| (*layer).clone());
+    // Sentry hubs are per thread: carry the request's onto the blocking pool,
+    // so a panic in the compile is captured under the custom-app surface tag
+    // (`middlewares::sentry_surface`) and not on the pool thread's bare hub.
+    let hub = sentry::Hub::current();
     let compiled = match tokio::task::spawn_blocking(move || {
-        agentic_semantic::compile::resolve_and_compile_cached(
-            &engine_cache,
-            engine_key,
-            &scan_path,
-            &databases,
-            &req_clone,
-            preagg.as_ref(),
-            pre_loaded_layer,
-        )
+        sentry::Hub::run(hub, || {
+            agentic_semantic::compile::resolve_and_compile_cached(
+                &engine_cache,
+                engine_key,
+                &scan_path,
+                &databases,
+                &req_clone,
+                preagg.as_ref(),
+                pre_loaded_layer,
+            )
+        })
     })
     .await
     {
@@ -522,8 +528,12 @@ pub async fn run_semantic_query(
             // path answered.
             let executed_preagg_sql = preagg_sql.clone();
             let src = source.clone();
+            // The request's hub, not the blocking pool's — as for the compile above.
+            let hub = sentry::Hub::current();
             match tokio::task::spawn_blocking(move || {
-                agentic_semantic::preagg::execute_preagg_sql(&read_sql, &src)
+                sentry::Hub::run(hub, || {
+                    agentic_semantic::preagg::execute_preagg_sql(&read_sql, &src)
+                })
             })
             .await
             {

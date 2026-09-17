@@ -146,15 +146,21 @@ fn filter_event(
 /// Sentry's last look at every **log**, the surface `before_send` cannot reach.
 ///
 /// Judged on the emitting module path, which is what a `Log` carries; the
-/// custom-app surface tag is not on it. `oxy_telemetry::sentry_filter::drop_log`
-/// holds the rule and documents exactly what that covers.
-fn filter_log(log: sentry::protocol::Log) -> Option<sentry::protocol::Log> {
+/// custom-app surface tag is not on it. Two rules, both held and documented in
+/// `oxy_telemetry::sentry_filter`: `drop_log` drops a custom-app module's line
+/// outright, and `is_data_plane_module` / `keep_log_shape_only` strip a
+/// query-running platform module's line to its shape, since its text is the
+/// warehouse's and the request it served cannot be told here.
+fn filter_log(mut log: sentry::protocol::Log) -> Option<sentry::protocol::Log> {
     let module = log
         .attributes
         .get(oxy_telemetry::sentry_filter::LOG_MODULE_ATTRIBUTE)
         .and_then(|attribute| attribute.0.as_str());
     if oxy_telemetry::sentry_filter::drop_log(module) {
         return None;
+    }
+    if module.is_some_and(oxy_telemetry::sentry_filter::is_data_plane_module) {
+        oxy_telemetry::sentry_filter::keep_log_shape_only(&mut log);
     }
     Some(log)
 }
@@ -546,6 +552,127 @@ mod tests {
             before_send_log(tracing_log(Some("oxy_app::server::api::threads"))).is_some(),
             "and must keep an ordinary platform log"
         );
+    }
+
+    /// A line as sentry-tracing 0.49.1 hands it to `before_send_log`: the
+    /// rendered message in `body`, the call's own fields and an enclosing
+    /// span's `span:field` copy in `attributes`, the `code.*` location keys
+    /// beside them.
+    fn data_bearing_log(module: &str) -> sentry::protocol::Log {
+        let mut log = tracing_log(Some(module));
+        log.body = "query failed: relation \"orders\" does not exist".to_string();
+        for (key, value) in [
+            (
+                "code.file.path",
+                serde_json::json!("crates/app/src/server/api/projects/query.rs"),
+            ),
+            ("code.line.number", serde_json::json!(295)),
+            (
+                "msg",
+                serde_json::json!("relation \"orders\" does not exist"),
+            ),
+            (
+                "semantic_query:oxy.sql",
+                serde_json::json!("select count(*) from orders"),
+            ),
+        ] {
+            log.attributes
+                .insert(key.to_string(), sentry::protocol::LogAttribute(value));
+        }
+        log
+    }
+
+    /// Review I1, through the client `init_sentry` really builds, not just the
+    /// callback read back off it. The client stamps its own attributes on a
+    /// log *before* `before_send_log` runs (sentry-core 0.49.1 `prepare_log`:
+    /// `Scope::apply_to_log`, then `sentry.environment`, `sentry.release`,
+    /// `sentry.sdk.*`, then the callback), so a shape rule that kept only the
+    /// `code.*` keys threw the environment and release out with the tenant's
+    /// values — and Sentry Logs filters on exactly those two, so the shaped
+    /// line vanished from a production-scoped view and joined no release.
+    /// Asserted on the line as it leaves the client: level and location kept,
+    /// deployment identity kept, body and every field value gone. Delete the
+    /// `is_data_plane_module` branch of `filter_log` and the body assertion
+    /// fails; drop `sentry.environment` from `LOG_SHAPE_ATTRIBUTES` and the
+    /// identity one does.
+    ///
+    /// `init_sentry`'s `sentry::init` also stamps `server.address` and `os.*`
+    /// through `apply_defaults`; the test client skips those defaults, so they
+    /// are pinned on the keep-list in `oxy_telemetry::sentry_filter` instead.
+    #[test]
+    fn a_data_plane_log_leaves_with_its_shape_only() {
+        use oxy_telemetry::sentry_filter::{LOG_BODY_WITHHELD, LOG_MODULE_ATTRIBUTE};
+        use sentry::protocol::{EnvelopeItem, ItemContainer};
+
+        let envelopes = sentry::test::with_captured_envelopes_options(
+            || {
+                sentry::Hub::current()
+                    .capture_log(data_bearing_log("oxy_app::server::api::projects::query"));
+            },
+            client_options("test".to_string(), "oxy@test".to_string()),
+        );
+        let sent: Vec<&sentry::protocol::Log> = envelopes
+            .iter()
+            .flat_map(|envelope| envelope.items())
+            .filter_map(|item| match item {
+                EnvelopeItem::ItemContainer(ItemContainer::Logs(logs)) => Some(logs.iter()),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        let [sent] = sent[..] else {
+            panic!(
+                "a data-plane log is shaped, not dropped: the count is still signal; got {sent:?}"
+            );
+        };
+
+        assert_eq!(sent.body, LOG_BODY_WITHHELD);
+        let mut kept: Vec<&str> = sent.attributes.keys().map(String::as_str).collect();
+        kept.sort_unstable();
+        assert_eq!(
+            kept,
+            [
+                "code.file.path",
+                "code.line.number",
+                LOG_MODULE_ATTRIBUTE,
+                "sentry.environment",
+                "sentry.release",
+                "sentry.sdk.name",
+                "sentry.sdk.version",
+            ],
+            "the location keys and the client's own stamps leave; every value from the call stays behind"
+        );
+        assert_eq!(
+            sent.attributes["sentry.environment"].0,
+            serde_json::json!("test")
+        );
+        assert_eq!(
+            sent.attributes["sentry.release"].0,
+            serde_json::json!("oxy@test")
+        );
+        assert!(
+            !sent
+                .attributes
+                .values()
+                .any(|attribute| attribute.0.to_string().contains("orders")),
+            "no value may still name the tenant's table: {:?}",
+            sent.attributes
+        );
+    }
+
+    /// The other side of the same rule: a platform module that runs no
+    /// warehouse query keeps its line whole — body, fields and all — because
+    /// its text is Oxy's own. Compared as a whole `Log`, so a future "just
+    /// trim this one attribute" cannot creep in unasserted.
+    #[test]
+    fn a_platform_log_from_elsewhere_is_untouched() {
+        let before_send_log = client_options("test".to_string(), "oxy@test".to_string())
+            .before_send_log
+            .clone()
+            .expect("init_sentry must install a before_send_log callback");
+        let log = data_bearing_log("oxy_app::server::api::threads");
+
+        assert_eq!(before_send_log(log.clone()), Some(log));
     }
 
     /// Why [`filter_log`] judges by module path and not by the custom-app

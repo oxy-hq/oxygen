@@ -187,8 +187,14 @@ pub(crate) async fn enter_semantic_boundary(
 pub(crate) async fn load_layer(
     scan_path: PathBuf,
 ) -> Result<oxy_airlayer_compat::SemanticLayer, Response> {
-    match tokio::task::spawn_blocking(move || oxy_airlayer_compat::load_layer_from_dir(&scan_path))
-        .await
+    // Sentry hubs are per thread: carry the request's onto the blocking pool so
+    // a panic while parsing the model is captured under the custom-app surface
+    // tag (`middlewares::sentry_surface`), not on the pool thread's bare hub.
+    let hub = sentry::Hub::current();
+    match tokio::task::spawn_blocking(move || {
+        sentry::Hub::run(hub, || oxy_airlayer_compat::load_layer_from_dir(&scan_path))
+    })
+    .await
     {
         Ok(Ok(layer)) => Ok(layer),
         Ok(Err(e)) => Err(err_with_code(
