@@ -10,6 +10,7 @@
 mod airway_config_test;
 mod airway_reset_in_place_resume_test;
 mod airway_retry_count_test;
+mod airway_run_history_scope_test;
 mod airway_run_test;
 mod automation_airway_admission_test;
 mod automation_cache_resume_test;

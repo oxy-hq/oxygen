@@ -649,14 +649,22 @@ async fn find_coalescible_run(
     Ok(Some(row.id))
 }
 
-/// List recent airway runs for a `pipeline_ref`, newest first, capped
-/// at `limit`. Backs the run-history dropdown.
+/// List recent airway runs for a `pipeline_ref` in `workspace_id`, newest
+/// first, capped at `limit`. Backs the run-history dropdown.
 ///
-/// Filters `agentic_runs` on `source_type = 'airway'` and the
-/// `metadata->>'pipeline_ref'` that `start_airway_run` stamps — no
+/// Filters `agentic_runs` on `source_type = 'airway'`, the `workspace_id`
+/// and the `metadata->>'pipeline_ref'` that `start_airway_run` stamps — no
 /// join needed since the ref lives in the run row's metadata.
+///
+/// `workspace_id` is not optional. A ref is a workspace-relative path
+/// (`pipelines/toast.airway.yml`), so the same ref names a different pipeline
+/// in every workspace that has one; filtering on the ref alone handed each
+/// workspace every other workspace's run history for that path. Pass the same
+/// id `start_airway_run` stamps — `PlatformContext::workspace_id()`, which is
+/// the nil UUID in local mode — so the two agree in every serve mode.
 pub async fn list_airway_runs(
     db: &DatabaseConnection,
+    workspace_id: Uuid,
     pipeline_ref: &str,
     limit: u64,
 ) -> Result<Vec<AirwayRunSummary>, AirwayRunError> {
@@ -681,12 +689,14 @@ pub async fn list_airway_runs(
         FROM agentic_runs
         WHERE source_type = $1
           AND parent_run_id IS NULL
-          AND metadata->>'pipeline_ref' = $2
+          AND workspace_id = $2
+          AND metadata->>'pipeline_ref' = $3
         ORDER BY created_at DESC
-        LIMIT $3
+        LIMIT $4
         "#,
         [
             agentic_airway::SOURCE_TYPE.into(),
+            workspace_id.into(),
             pipeline_ref.into(),
             (limit as i64).into(),
         ],

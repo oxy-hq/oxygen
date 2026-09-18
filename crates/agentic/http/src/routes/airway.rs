@@ -84,12 +84,17 @@ pub struct ListRunsQuery {
 
 // ── GET /agentic-airway/runs?pipeline_ref=... ──────────────────────────────
 
+/// Workspace-scoped: `pipeline_ref` is a workspace-relative path, so it is
+/// only unique together with the workspace. `platform.workspace_id()` is the
+/// id `start_and_drive` stamps on the run, so the filter matches it in every
+/// serve mode (the nil UUID in local mode included).
 pub async fn list_runs_for_pipeline(
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     axum::extract::Query(q): axum::extract::Query<ListRunsQuery>,
 ) -> Response {
     let limit = q.limit.unwrap_or(50).min(200);
-    match list_airway_runs(&state.db, &q.pipeline_ref, limit).await {
+    match list_airway_runs(&state.db, platform.workspace_id(), &q.pipeline_ref, limit).await {
         Ok(runs) => Json(runs).into_response(),
         Err(e) => {
             tracing::error!(%e, "list_runs_for_pipeline failed");

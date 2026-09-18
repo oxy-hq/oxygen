@@ -273,17 +273,24 @@ resources:
     }
 
     // ── run-history list surfaces this run ───────────────────────────────
-    let runs = agentic_pipeline::airway_run::list_airway_runs(&db, "p.airway.yml", 50)
-        .await
-        .expect("list_airway_runs");
+    // Same workspace id the run was started under (nil, as in local mode).
+    let runs =
+        agentic_pipeline::airway_run::list_airway_runs(&db, uuid::Uuid::nil(), "p.airway.yml", 50)
+            .await
+            .expect("list_airway_runs");
     assert!(
         runs.iter().any(|r| r.run_id == run_id),
         "started run must appear in the pipeline's run history"
     );
     // A different pipeline_ref must not match.
-    let other = agentic_pipeline::airway_run::list_airway_runs(&db, "nope.airway.yml", 50)
-        .await
-        .expect("list_airway_runs other");
+    let other = agentic_pipeline::airway_run::list_airway_runs(
+        &db,
+        uuid::Uuid::nil(),
+        "nope.airway.yml",
+        50,
+    )
+    .await
+    .expect("list_airway_runs other");
     assert!(
         !other.iter().any(|r| r.run_id == run_id),
         "run must not leak into an unrelated pipeline's history"
