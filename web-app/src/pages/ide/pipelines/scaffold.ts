@@ -58,7 +58,7 @@ export const SOURCE_OPTIONS: SourceOption[] = [
     id: "sp_api",
     label: "Amazon Selling Partner",
     description:
-      "Seller or Vendor Central reports (ledger, FBA inventory, shipments, vendor sales)",
+      "Seller or Vendor Central reports (FBA inventory, shipments, orders, listings, vendor sales)",
     airwayKind: "sp_api"
   },
   {

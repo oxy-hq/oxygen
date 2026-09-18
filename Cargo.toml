@@ -1009,13 +1009,24 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # the existing `transaction_lines` (which is `Merge` and never dropped), but
 # it is lazy — existing Parquet keeps its layout until compaction rewrites it.
 # The benefit accrues, it does not switch on.
-# Pinned at 0.1.35 (main's bump for keyless children + employee propagation,
-# #3000). It carries the 0.1.34 TLS fix (oxy-hq/airway-internal#141) the OLTP
+# Pinned at 0.1.48 — the SP-API merchant-fulfilled channel: `merchant_listings`
+# (airway-internal#201) and `orders` (#203), which are the only resources that
+# see Amazon's FBM side at all. Also carries 0.1.47's `vendor_orders` and the
+# Uber Eats "Chargeback Amount" rename, without which every Uber report
+# generated since ~2026-09-07 failed upload validation.
+#
+# NOTE for whoever bumps this next: a seller `sp_api` pipeline that omits
+# `resources:` extracts EVERY resource the source advertises, so adding one to
+# airway's roster widens what existing pipelines pull on their next run.
+#
+# It still carries the 0.1.34 TLS fix (oxy-hq/airway-internal#141) the OLTP
 # feature relies on: the eight `tokio_postgres` call sites route through one
 # connector, so a pipeline can write to a managed Postgres — Neon, Supabase, RDS
 # with `rds.force_ssl` — instead of failing the handshake. (0.1.33 and earlier
-# connected `NoTls` and could not.)
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.46", default-features = false, features = [
+# connected `NoTls` and could not.) That note said "Pinned at 0.1.35" through
+# every bump since, which is how a running log goes stale: the surrounding prose
+# stayed true and only the version was wrong.
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.48", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }

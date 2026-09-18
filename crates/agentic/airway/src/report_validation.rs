@@ -311,6 +311,36 @@ mod tests {
         );
     }
 
+    /// A report in the spelling Uber has shipped since about 2026-09-07 validates.
+    ///
+    /// Uber renamed the order-error columns to "Chargeback Amount"
+    /// (airway-internal#199). Until airway 0.1.47 every report generated after
+    /// that was refused here for lacking the JE-critical "Order Error
+    /// Adjustments". The fix is an alias inside airway, so this pins that the
+    /// upload path receives it. The old spelling stays canonical, which is why
+    /// `report()` keeps passing alongside this.
+    #[tokio::test]
+    async fn a_report_in_ubers_chargeback_spelling_validates() {
+        let renamed = String::from_utf8(report("Poke House SF"))
+            .expect("the helper emits UTF-8")
+            .replacen("Order Error Adjustments", "Chargeback Amount", 1);
+        assert!(
+            renamed.contains("Chargeback Amount") && !renamed.contains("Order Error"),
+            "the helper's header must carry the renamed column and not the old one: {renamed}"
+        );
+        let out = validate_ubereats_report(renamed.as_bytes(), "2026.09 SF.csv", None, None)
+            .await
+            .expect("a report in Uber's current spelling validates");
+        assert_eq!(
+            out,
+            ValidatedReport {
+                report_year: 2026,
+                report_month: 9,
+                rows: 1
+            }
+        );
+    }
+
     /// Where the period comes from, in precedence order: the filename supplies
     /// it when none is passed, an explicit one rescues a file that names none,
     /// and an explicit one BEATS a filename that disagrees.

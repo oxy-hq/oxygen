@@ -44,6 +44,7 @@
 use agentic_airway::config::SourceConfig;
 use agentic_airway::source_factory::build_source_connector;
 use airway::connector::Environment;
+use airway::types::WriteDisposition;
 use serde_json::{Value, json};
 
 /// The config an sp_api pipeline carries, minus whatever the test varies.
@@ -91,11 +92,87 @@ fn an_absent_partner_type_pulls_the_seller_reports() {
     );
 }
 
-/// A vendor credential reaches the vendor reports, and only those.
+/// Both RESOURCES airway 0.1.48 adds reach a seller pipeline, and `orders`
+/// brings its merge key with it.
+///
+/// Two, not three: 0.1.48 also carries airway-internal#204, but that release is
+/// comment-only — corrections to the roster's own documentation, with no
+/// resource attached. Spelled out because the bump commit lists three items and
+/// a reader counting them here would find one missing.
+///
+/// Both are SELLER resources, so they arrive through the same absent-partner
+/// path the test above pins and need no config of their own — which is exactly
+/// why they are worth asserting here. Nothing in oxy names them; if the roster
+/// stopped publishing them the pipelines reading `amazon_sp.orders` and
+/// `amazon_sp.merchant_listings` would simply stop being offered the data, with
+/// no error anywhere.
+///
+/// THE MERGE KEY IS THE HALF THAT CAN BREAK QUIETLY. `orders` is only the
+/// second merging resource on the roster, and the disposition and key travel
+/// from airway through `ResourceInfo` into the pipeline. A key that arrived
+/// empty would downgrade the resource to append, and appending is not visibly
+/// wrong here: airway rewinds `PULL_OVERLAP_DAYS` on every pull, so the table
+/// would just accumulate a week of duplicate order lines per run. Asserted in
+/// the LANDED spelling — `order_item_id`, underscores — because that is what a
+/// destination looks up, and the document spells it `order-item-id`.
 #[test]
-fn a_vendor_partner_type_pulls_the_vendor_reports() {
+fn the_seller_roster_carries_the_0_1_48_resources_with_their_dispositions() {
+    let resources = build_source_connector(&sp_api_config(None), None, Environment::Production)
+        .expect("sp_api config builds")
+        .resources();
+
+    for expected in ["orders", "merchant_listings"] {
+        assert!(
+            resources.iter().any(|r| r.name == expected),
+            "{expected} must reach a seller pipeline: {:?}",
+            resources.iter().map(|r| &r.name).collect::<Vec<_>>()
+        );
+    }
+
+    let orders = resources
+        .iter()
+        .find(|r| r.name == "orders")
+        .expect("checked above");
+    assert_eq!(
+        orders.write_disposition,
+        WriteDisposition::Merge,
+        "orders merges; appending would re-land the pull overlap every run"
+    );
+    assert_eq!(
+        orders.primary_key.as_deref(),
+        Some(["order_item_id".to_string()].as_slice()),
+        "the LANDED spelling, not the document's `order-item-id`"
+    );
+
+    let listings = resources
+        .iter()
+        .find(|r| r.name == "merchant_listings")
+        .expect("checked above");
+    assert_eq!(
+        listings.write_disposition,
+        WriteDisposition::Append,
+        "merchant_listings is a snapshot: each pull is the catalogue as of that \
+         moment, and merging on seller_sku would erase the delisting history"
+    );
+}
+
+/// A vendor credential reaches the vendor reports, and only those.
+///
+/// `vendor_orders` is not a report: since airway 0.1.47 it reads purchase-order
+/// lines from the Vendor Orders API, and it reaches a pipeline through the same
+/// partner gate. Pinned here because that gate is the only thing standing between
+/// a vendor pipeline and the resource — oxy passes no config of its own for it —
+/// and the seller test's `vendor_` prefix check already keeps it off seller
+/// pipelines.
+#[test]
+fn a_vendor_partner_type_pulls_the_vendor_resources() {
     let names = resource_names(Some("vendor"));
-    for expected in ["vendor_forecasting", "vendor_sales", "vendor_inventory"] {
+    for expected in [
+        "vendor_forecasting",
+        "vendor_sales",
+        "vendor_inventory",
+        "vendor_orders",
+    ] {
         assert!(names.iter().any(|n| n == expected), "{expected}: {names:?}");
     }
     assert!(
