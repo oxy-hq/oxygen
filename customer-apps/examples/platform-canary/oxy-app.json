@@ -7,8 +7,7 @@
       "description": "Comma list of steps to run; absent means all. Naming fewer is the recorded decision to skip the rest here."
     },
     "CANARY_CHECKIN_URL": {
-      "required": true,
-      "description": "All Quiet cron check-in URL. Required while check_in runs."
+      "description": "All Quiet cron check-in URL. check_in fails closed without it; staging runs without check_in, so the manifest does not require it."
     },
     "CANARY_SECRET_ROUNDTRIP": {
       "description": "Written by the canary on every run (secrets_roundtrip). Never set by hand."

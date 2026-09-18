@@ -92,7 +92,12 @@ export async function checkZoo(
   }
 }
 
-/** ClickHouse cases through `ctx.warehouse` on `database`, then Postgres cases through `ctx.oltp`. */
+/**
+ * ClickHouse cases through `ctx.warehouse` on `database`, then Postgres cases through `ctx.oltp`.
+ * A passing run logs one line, `shape_zoo: <cases> cases in <ms> ms`, so the invocation's log
+ * reads against `canary`'s 180-second budget. No case value is logged. The line is `info`, so
+ * it is in the app's `/logs` and the job's `/function-runs/<run_id>`, not in the pod logs.
+ */
 export async function runShapeZoo(
   ctx: OxyFunctionContext,
   database: string,
@@ -100,6 +105,7 @@ export async function runShapeZoo(
   sha256: string = ZOO_SHA256
 ): Promise<void> {
   if (zoo.version !== 1) throw new Error(`shape zoo version ${zoo.version} is not 1`);
+  const started = Date.now();
   const table = zooTableName(sha256);
   const warehouse: ZooPlane = {
     exec: (sql) => ctx.warehouse.exec(database, sql),
@@ -115,6 +121,8 @@ export async function runShapeZoo(
   const postgres = zoo.engines.postgres.cases;
   await loadZoo(oltp, "postgres", table, postgres);
   await checkZoo(oltp, "oltp", table, postgres);
+  const cases = clickhouse.length + postgres.length;
+  ctx.log(`shape_zoo: ${cases} cases in ${Date.now() - started} ms`);
 }
 
 /** `undefined` when the read matches; otherwise `<key> (<class>): expected <json> got <json>`. */

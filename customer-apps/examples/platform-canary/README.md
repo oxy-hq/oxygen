@@ -53,7 +53,12 @@ and a count on each plane — all sequential. That is what `canary`'s
 180-second `timeoutSeconds` is sized for; at the 60 seconds the other steps
 need, the step times out rather than failing on a case. A deployment that has
 not timed the zoo against its own warehouse should list `CANARY_STEPS` **without**
-`shape_zoo` until it has, and note why next to it.
+`shape_zoo` until it has, and note why next to it. Timing it needs no stopwatch:
+a passing step logs one line, `shape_zoo: <cases> cases in <ms> ms` (no values),
+in the invocation's log. The line is `info`, so it is **not** in the pod logs —
+the platform filter holds an app's `ctx.log()` lines at `warn`. Read it from
+`oxyc api "/api/customer-apps/$ORG/$APP/logs"` (app-admin standing) or from the
+job's `/function-runs/<run_id>`.
 
 ### Tags and cleanup
 
@@ -122,7 +127,7 @@ Both are app secrets (the app's Secrets panel):
 | Secret | Meaning |
 | --- | --- |
 | `CANARY_STEPS` | Comma list of steps to run. Absent means all. An unknown name fails the run. |
-| `CANARY_CHECKIN_URL` | The All Quiet cron check-in URL. Required while `check_in` runs. Prod only. |
+| `CANARY_CHECKIN_URL` | The All Quiet cron check-in URL. Needed while `check_in` runs: the step fails closed without it. Not declared `required` in the manifest. Prod only. |
 
 `CANARY_SECRET_ROUNDTRIP` also appears on the panel. The canary writes it; never
 set it by hand.
@@ -150,8 +155,10 @@ that step fails.
   ```
 
   The reason to note next to it: no staging monitor. Two things follow:
-  - The manifest declares `CANARY_CHECKIN_URL` required, so staging's Secrets
-    panel lists it as missing. That listing is only a flag and blocks no run.
+  - The manifest does not declare `CANARY_CHECKIN_URL` required, so staging's
+    Secrets panel does not list it as missing: an unset URL is staging's normal
+    state, not a gap. The panel's "missing" flag is for secrets a run cannot
+    do without.
   - `check_in` still fails closed. Put it back in the list without the URL
     and every run fails with `CANARY_CHECKIN_URL is not set`.
 

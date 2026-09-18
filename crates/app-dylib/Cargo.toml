@@ -15,6 +15,12 @@ edition = "2024"
 publish = false
 rust-version = "1.97.1"
 
+# Own (empty) workspace root, so cargo stops walking up here. From a worktree
+# under `.claude/worktrees/` the walk reached the outer checkout's Cargo.toml,
+# and `cargo fmt --all` died in `cargo metadata`. A cargo call made inside this
+# directory therefore writes its own Cargo.lock and target/ — both gitignored.
+[workspace]
+
 [lib]
 # The whole point: emit a dylib that statically absorbs oxy-app + its heavy deps,
 # so the binary links against it dynamically instead of re-doing a ~1 GB static

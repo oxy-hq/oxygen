@@ -1,5 +1,8 @@
 /target
 *.rlib
+# crates/app-dylib is its own workspace root, so a cargo call inside it writes these.
+/crates/app-dylib/Cargo.lock
+/crates/app-dylib/target/
 
 # Local-only development coordination artifacts
 SESSION_HANDOFF.md

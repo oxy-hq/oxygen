@@ -1,6 +1,6 @@
 // The shape_zoo step against fake planes. The load is idempotent; a mismatch names the case key
-// and class; a `$error` case passes only on a refusal carrying its text; and a failure surfaces
-// through runCanary under the step's own name.
+// and class; a `$error` case passes only on a refusal carrying its text; a passing run logs its
+// case count and elapsed time; and a failure surfaces through runCanary under the step's own name.
 
 import type { OxyFunctionContext, OxyFunctionRow } from "@oxy-hq/sdk";
 import { describe, expect, it } from "vitest";
@@ -72,12 +72,19 @@ function fakePlane(
   return { plane, execs };
 }
 
-/** A ctx whose warehouse and oltp are fake planes, recording which database each call named. */
+/**
+ * A ctx whose warehouse and oltp are fake planes, recording which database each call named and
+ * every `ctx.log` call's arguments.
+ */
 function fakeCtx(warehouseValues: Record<string, unknown>, fallback: unknown = null) {
   const databases: string[] = [];
+  const logs: unknown[][] = [];
   const warehouse = fakePlane(warehouseValues, {}, fallback);
   const oltp = fakePlane({}, { c001: REFUSAL }, fallback);
   const ctx = {
+    log: (...args: unknown[]) => {
+      logs.push(args);
+    },
     warehouse: {
       exec: async (database: string, sql: string) => {
         databases.push(database);
@@ -93,7 +100,7 @@ function fakeCtx(warehouseValues: Record<string, unknown>, fallback: unknown = n
       query: (sql: string) => oltp.plane.query(sql)
     }
   } as unknown as OxyFunctionContext;
-  return { ctx, databases, warehouseExecs: warehouse.execs, oltpExecs: oltp.execs };
+  return { ctx, databases, logs, warehouseExecs: warehouse.execs, oltpExecs: oltp.execs };
 }
 
 describe("loadZoo", () => {
@@ -146,6 +153,18 @@ describe("runShapeZoo", () => {
       "CREATE TABLE IF NOT EXISTS oxy_shape_zoo_435b9f1e (c001 numeric)",
       "INSERT INTO oxy_shape_zoo_435b9f1e VALUES (-1.25)"
     ]);
+  });
+
+  it("logs one line with the case count and elapsed milliseconds, and no values", async () => {
+    const fake = fakeCtx({ c001: "1234.5678", c002: null });
+    await runShapeZoo(fake.ctx, "canary_warehouse", ZOO, SHA256);
+    expect(fake.logs).toEqual([[expect.stringMatching(/^shape_zoo: 3 cases in \d+ ms$/)]]);
+  });
+
+  it("logs nothing when a case fails", async () => {
+    const fake = fakeCtx({}, "wrong");
+    await expect(runShapeZoo(fake.ctx, "canary_warehouse", ZOO, SHA256)).rejects.toThrow();
+    expect(fake.logs).toEqual([]);
   });
 
   it("fails the canary as `canary step shape_zoo failed: <key> (<class>): …`", async () => {

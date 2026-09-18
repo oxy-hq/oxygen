@@ -713,8 +713,8 @@ jobs:
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
     # Warp arm64, like every other job in this repo that runs tests.
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
-    # 81 vitest cases and two tsc projects finish in seconds; 15m covers a
-    # cold pnpm store.
+    # The canary's vitest cases and two tsc projects finish in seconds; 15m
+    # covers a cold pnpm store.
     timeout-minutes: 15
     defaults:
       run:
