@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.149] - 2026-09-18
+
+### 🚀 Features
+
+- Custom-apps admin — one status column and real filters; v0 and local sources removed (#3244)
+
+### 🐛 Bug Fixes
+
+- Agentic run routes acted on runs from any workspace, given the id (#3201)
+- Key Airway's cursor and audit state by workspace, not name alone (#3206)
+- Agentic-airway run history leaked across workspaces with the same pipeline path (#3193)
+
+### 🚜 Refactor
+
+- Consolidate LLM stack onto agentic-llm (part 1: config relocation + eval judge) (#3190)
+
+### 📚 Documentation
+
+- What the prod check found for the shared Airway cursor (#3205)
+
 ## [0.5.148] - 2026-09-17
 
 ### 🚀 Features
@@ -25,6 +45,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - Release checks gate the prod bump on staging, with the sentry signal (#3237)
+- Release 0.5.148 (#3241)
 
 ## [0.5.147] - 2026-09-17
 
