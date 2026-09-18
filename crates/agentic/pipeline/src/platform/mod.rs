@@ -27,7 +27,7 @@ use agentic_builder::{
     BuilderSecretsProvider, BuilderSemanticCompiler,
 };
 use agentic_connector::{ConnectorConfig, DatabaseConnector};
-use agentic_llm::{LlmClient, OpenAiCompatProvider, OpenAiProvider};
+use agentic_llm::{AnthropicProvider, LlmClient, OpenAiCompatProvider, OpenAiProvider};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -330,18 +330,22 @@ pub async fn resolve_connectors(
 /// deployment URL, bypassing the Responses API used by [`OpenAiProvider`].
 pub fn build_llm_client(info: &ResolvedModelInfo) -> LlmClient {
     let api_key = info.api_key.as_deref().unwrap_or("");
+    let extra_headers = || info.headers.clone().unwrap_or_default();
     if let (Some(deployment_id), Some(api_version), Some(base_url)) = (
         info.azure_deployment_id.as_deref(),
         info.azure_api_version.as_deref(),
         info.base_url.as_deref(),
     ) {
-        return LlmClient::with_provider(OpenAiCompatProvider::for_azure(
-            api_key,
-            &info.model,
-            base_url,
-            deployment_id,
-            api_version,
-        ));
+        return LlmClient::with_provider(
+            OpenAiCompatProvider::for_azure(
+                api_key,
+                &info.model,
+                base_url,
+                deployment_id,
+                api_version,
+            )
+            .with_headers(extra_headers()),
+        );
     }
     if info.azure_deployment_id.is_some()
         && info.azure_api_version.is_some()
@@ -357,22 +361,34 @@ pub fn build_llm_client(info: &ResolvedModelInfo) -> LlmClient {
              be set together. Falling back to standard OpenAI."
         );
     }
+    // `base_url` and `headers` are honored on every branch. Dropping `base_url`
+    // on the Anthropic arm would silently route a `vendor: anthropic` model with
+    // a custom `api_url` to api.anthropic.com (leaking the key), and dropping
+    // `headers` 401s a judge/agent behind a header-auth gateway (Portkey/Helicone).
+    // Kept in lockstep with `agentic_analytics::config::build_llm_client`.
     match &info.vendor {
-        LlmVendor::Anthropic => LlmClient::with_model(api_key, &info.model),
-        LlmVendor::OpenAi => {
-            let provider = if let Some(url) = &info.base_url {
-                OpenAiProvider::with_base_url(api_key, &info.model, url)
-            } else {
-                OpenAiProvider::new(api_key, &info.model)
+        LlmVendor::Anthropic => {
+            let provider = match info.base_url.as_deref() {
+                Some(url) => AnthropicProvider::with_base_url(api_key, &info.model, url),
+                None => AnthropicProvider::new(api_key, &info.model),
             };
-            LlmClient::with_provider(provider)
+            LlmClient::with_provider(provider.with_headers(extra_headers()))
+        }
+        LlmVendor::OpenAi => {
+            let provider = match info.base_url.as_deref() {
+                Some(url) => OpenAiProvider::with_base_url(api_key, &info.model, url),
+                None => OpenAiProvider::new(api_key, &info.model),
+            };
+            LlmClient::with_provider(provider.with_headers(extra_headers()))
         }
         LlmVendor::OpenAiCompat => {
             let url = info
                 .base_url
                 .as_deref()
                 .unwrap_or("http://localhost:11434/v1");
-            LlmClient::with_provider(OpenAiCompatProvider::new(api_key, &info.model, url))
+            LlmClient::with_provider(
+                OpenAiCompatProvider::new(api_key, &info.model, url).with_headers(extra_headers()),
+            )
         }
     }
 }

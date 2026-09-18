@@ -4,34 +4,30 @@ use oxy::exec_runtime::ExecutionContext;
 use oxy::exec_types::{Output, TargetOutput};
 use oxy_shared::errors::OxyError;
 
-use super::{one_shot::OneShotInput, types::Record};
+use super::types::Record;
 
 /// Render the LLM-as-judge prompt for one correctness case: the agent's actual
 /// answer vs the case's expected answer, plus the case prompt (from the expected
-/// side's `task_description`).
-pub(super) fn build_correctness_input(
+/// side's `task_description`). The rendered prompt is self-contained — it is sent
+/// as the single user turn of a one-shot completion.
+pub(super) fn render_correctness_prompt(
     execution_context: &ExecutionContext,
     prompt_template: &str,
     actual: &TargetOutput,
     expected: &TargetOutput,
-) -> Result<OneShotInput, OxyError> {
+) -> Result<String, OxyError> {
     let prompt = expected.task_description.as_deref().unwrap_or("");
     let ctx = context! {
         actual => Value::from_safe_string(actual.output.to_string()),
         expected => Value::from_safe_string(expected.output.to_string()),
         prompt => Value::from_safe_string(prompt.to_string()),
     };
-    let system_instructions = execution_context
+    execution_context
         .renderer
         .render_once(prompt_template, ctx)
         .map_err(|_| {
             OxyError::RuntimeError("Failed to render correctness evaluation prompt".to_string())
-        })?;
-    Ok(OneShotInput {
-        system_instructions,
-        user_input: None,
-        memory: vec![],
-    })
+        })
 }
 
 /// Parse a correctness judge response into a Record.

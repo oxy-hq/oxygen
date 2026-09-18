@@ -1,10 +1,13 @@
 //! LLM model configuration types for Oxy
 //!
-//! This crate provides the core data types for configuring LLM providers.
-//! Model-specific configuration is defined in the respective provider crates
-//! (oxy-openai, oxy-anthropic, oxy-gemini, oxy-ollama) and re-exported here.
-//! Validation and secret resolution are handled separately in the core crate.
+//! This crate owns the model config schema types for every supported LLM vendor
+//! — [`OpenAIModelConfig`], [`AnthropicModelConfig`], [`GeminiModelConfig`],
+//! [`OllamaModelConfig`] (the `model:` YAML wire contract) — plus the unified
+//! [`Model`] enum that composes them. Runtime provider clients live in the
+//! per-vendor crates (being consolidated onto `agentic-llm`); validation and
+//! secret resolution are handled separately in the core crate.
 
+mod configs;
 mod model;
 mod traits;
 mod validation;
@@ -17,8 +20,8 @@ pub use model::{
 
 pub use traits::ModelConfig;
 
-// Re-export Anthropic's default API URL function
-pub use oxy_anthropic::default_api_url as default_anthropic_api_url;
+// Default Anthropic API URL function (kept as a public entry point).
+pub use configs::default_anthropic_api_url;
 
 // API-key validation entry points. Provider-specific probes live in their
 // respective crates; `validate_provider_key` dispatches by name so HTTP

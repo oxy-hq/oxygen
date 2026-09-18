@@ -1,10 +1,5 @@
-mod config;
-
 use async_openai::config::OpenAIConfig;
 use oxy_shared::ConfigType;
-
-// Export model configuration types
-pub use config::GeminiModelConfig;
 
 /// The Gemini API URL (OpenAI-compatible endpoint)
 pub const GEMINI_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";

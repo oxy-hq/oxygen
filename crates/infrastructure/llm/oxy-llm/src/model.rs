@@ -2,11 +2,11 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Re-export provider config types
-pub use oxy_anthropic::AnthropicModelConfig;
-pub use oxy_gemini::GeminiModelConfig;
-pub use oxy_ollama::OllamaModelConfig;
-pub use oxy_openai::{HeaderValue, OPENAI_API_URL, OpenAIModelConfig, default_openai_api_url};
+// Config schema types now live in this crate (see `configs`).
+pub use crate::configs::{
+    AnthropicModelConfig, GeminiModelConfig, HeaderValue, OPENAI_API_URL, OllamaModelConfig,
+    OpenAIModelConfig, default_openai_api_url,
+};
 
 // Re-export from dependencies for convenience
 pub use oxy_shared::AzureModel;

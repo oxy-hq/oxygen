@@ -76,12 +76,11 @@ omni = { workspace = true }
 oxy-looker = { workspace = true }
 oxy-observability = { workspace = true }
 # oxy-config moved back into core/src/config to avoid circular dependency
-oxy-anthropic = { workspace = true }
-oxy-gemini = { workspace = true }
+# The concrete LLM provider crates (anthropic/gemini/ollama/openai) are no longer
+# a direct dependency: the eval judge now reaches the agentic LLM stack through
+# agentic-pipeline, and the config schema types live in oxy-llm.
 oxy-git = { workspace = true }
 oxy-llm = { workspace = true }
-oxy-ollama = { workspace = true }
-oxy-openai = { workspace = true }
 oxy-semantic = { workspace = true }
 oxy-shared = { workspace = true }
 oxy-telemetry = { workspace = true }

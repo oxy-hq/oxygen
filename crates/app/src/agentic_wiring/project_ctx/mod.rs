@@ -17,7 +17,7 @@ use agentic_pipeline::platform::ProjectContext;
 use entity::workspace_members::WorkspaceRole;
 // Same trait the classic `.agent.yml` path uses to turn a `{ env_var: … }`
 // header reference into a literal, so both paths resolve headers identically.
-use oxy::adapters::openai::HeaderValueExt;
+use oxy::adapters::header_value::HeaderValueExt;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::config::WorkingCopy;
 use oxy::config::model::{DatabaseType, DuckDBOptions, Model, SnowflakeAuthType};

@@ -49,15 +49,12 @@
 //! thinking or prompt caching becomes a product requirement and a mature SDK supports it.
 //! All Anthropic-specific logic is isolated in this crate, so migration is contained.
 
-mod config;
 mod validation;
 
 use async_openai::config::OpenAIConfig;
 use oxy_shared::{ConfigType, CustomOpenAIConfig};
 use std::collections::HashMap;
 
-// Export model configuration types
-pub use config::AnthropicModelConfig;
 pub use validation::validate_api_key;
 
 /// The default Anthropic API URL
@@ -69,14 +66,6 @@ pub const VENDOR_LABEL: &str = "Anthropic";
 /// Anthropic API version header value sent with native-protocol requests
 /// (e.g. the `/v1/models` listing used by `validate_api_key`).
 pub const ANTHROPIC_API_VERSION: &str = "2023-06-01";
-
-/// Returns the default Anthropic API URL wrapped in Option for serde defaults
-///
-/// # Returns
-/// `Some(ANTHROPIC_API_URL)` for use in serde default attributes
-pub fn default_api_url() -> Option<String> {
-    Some(ANTHROPIC_API_URL.to_string())
-}
 
 /// Creates an OpenAI-compatible config for Anthropic API
 ///

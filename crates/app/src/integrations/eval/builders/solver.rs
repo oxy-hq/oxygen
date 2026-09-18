@@ -1,19 +1,17 @@
 use futures::stream::StreamExt;
 
 use oxy::{
-    adapters::openai::{IntoOpenAIConfig, OpenAIClient},
     config::{
         constants::{EVAL_METRICS_POSTFIX, EVAL_SOURCE},
         model::SolverKind,
     },
     exec_runtime::ExecutionContext,
-    exec_types::{ProgressType, TargetOutput},
+    exec_types::{Output, ProgressType, TargetOutput},
 };
 use oxy_shared::errors::OxyError;
 
 use super::{
-    correctness_solver::{build_correctness_input, parse_correctness_record},
-    one_shot::OneShotJudge,
+    correctness_solver::{parse_correctness_record, render_correctness_prompt},
     types::{Correctness, MetricKind, Record},
 };
 
@@ -40,18 +38,20 @@ pub(super) async fn run_solver(
         format!("{}-{}", execution_context.source.id, EVAL_METRICS_POSTFIX),
         EVAL_SOURCE.to_string(),
     );
-    let config_manager = &execution_context.workspace.config_manager;
-    let secret_manager = &execution_context.workspace.secrets_manager;
-
-    let model_ref = match &correctness_solver.model_ref {
-        Some(model_ref) => model_ref,
-        None => config_manager
-            .default_model()
-            .ok_or_else(|| OxyError::ConfigurationError("No default model found".to_string()))?,
-    };
-    let model = config_manager.resolve_model(model_ref)?;
-    let client = OpenAIClient::with_config(model.into_openai_config(secret_manager).await?);
-    let judge = OneShotJudge::new(client, model.model_name().to_string());
+    // The judge reaches the agentic LLM stack through the pipeline's one-shot
+    // completer rather than building a provider client directly. Resolve the
+    // model (explicit `model_ref`, else the project default) ONCE up front — so
+    // a missing model/key fails fast before any judging, and the client is built
+    // once and reused across pairs instead of per pair.
+    let project_ctx =
+        crate::agentic_wiring::OxyProjectContext::new(execution_context.workspace.clone());
+    let judge = agentic_pipeline::prepare_one_shot(
+        &project_ctx,
+        correctness_solver.model_ref.as_deref(),
+        "eval-judge",
+    )
+    .await
+    .map_err(OxyError::RuntimeError)?;
     let prompt_template = correctness_solver.prompt.to_string();
 
     // Judge each (actual, expected) pair concurrently. `buffered` preserves
@@ -73,10 +73,19 @@ pub(super) async fn run_solver(
             let prompt_template = prompt_template.clone();
             let metric_context = metric_context.clone();
             async move {
-                let input =
-                    build_correctness_input(&metric_context, &prompt_template, &actual, &expected)?;
-                let output = judge.run(input).await?;
-                let mut record = parse_correctness_record(output.content)?;
+                let prompt = render_correctness_prompt(
+                    &metric_context,
+                    &prompt_template,
+                    &actual,
+                    &expected,
+                )?;
+                // The rendered prompt is self-contained; send it as the single
+                // user turn (empty system) so every vendor gets a user message.
+                let response = judge
+                    .complete("", &prompt)
+                    .await
+                    .map_err(OxyError::RuntimeError)?;
+                let mut record = parse_correctness_record(Output::Text(response))?;
                 record.prompt = expected.task_description.clone();
                 record.expected = Some(expected.output.clone());
                 record.actual_output = Some(actual.output.clone());

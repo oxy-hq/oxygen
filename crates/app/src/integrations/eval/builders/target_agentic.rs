@@ -9,7 +9,7 @@
 //!   1. The agent runs via `agentic_pipeline::run_agentic_streaming` directly.
 //!   2. For a `.test.yml` agentic target `eval.rs` sets `task_ref: None`, and a
 //!      single text answer carries no `relevant_contexts` / `references`.
-//!   3. The correctness judge (`solver::run_solver` via `build_correctness_input`)
+//!   3. The correctness judge (`solver::run_solver` via `render_correctness_prompt`)
 //!      reads only `TargetOutput.output` (+ `task_description` on the *expected*
 //!      side) — it never touches `relevant_contexts` / `references`.
 //!

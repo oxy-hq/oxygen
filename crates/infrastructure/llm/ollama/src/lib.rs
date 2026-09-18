@@ -1,10 +1,5 @@
-mod config;
-
 use async_openai::config::OpenAIConfig;
 use oxy_shared::ConfigType;
-
-// Export model configuration types
-pub use config::OllamaModelConfig;
 
 /// The default Ollama API URL
 pub const DEFAULT_OLLAMA_API_URL: &str = "http://localhost:11434/v1";

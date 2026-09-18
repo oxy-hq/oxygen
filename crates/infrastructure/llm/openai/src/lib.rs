@@ -1,4 +1,3 @@
-mod config;
 mod validation;
 
 use async_openai::{
@@ -32,9 +31,11 @@ use oxy_shared::errors::OxyError;
 // Re-export config types from oxy-shared for backward compatibility
 pub use oxy_shared::{AzureModel, ConfigType, CustomOpenAIConfig};
 
-// Export model configuration types
-pub use config::{HeaderValue, OPENAI_API_URL, OpenAIModelConfig, default_openai_api_url};
 pub use validation::validate_api_key;
+
+/// Default OpenAI API URL (used by the key-validation probe in `validation.rs`).
+/// The `OpenAIModelConfig` schema type + its serde default now live in `oxy-llm`.
+pub const OPENAI_API_URL: &str = "https://api.openai.com/v1";
 
 /// Vendor label used in user-facing messages (e.g. validation errors).
 pub const VENDOR_LABEL: &str = "OpenAI";

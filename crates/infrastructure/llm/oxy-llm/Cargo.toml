@@ -9,9 +9,10 @@ publish.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# oxy-anthropic / oxy-openai are still needed for the key-validation probes
+# (validation.rs). Config schema types now live in this crate (configs.rs), so
+# oxy-gemini / oxy-ollama are no longer dependencies.
 oxy-anthropic = { workspace = true }
-oxy-gemini = { workspace = true }
-oxy-ollama = { workspace = true }
 oxy-openai = { workspace = true }
 oxy-shared = { workspace = true }
 schemars = { workspace = true, features = ["derive"] }
