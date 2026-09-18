@@ -112,6 +112,10 @@ const TABLES: &[(&str, Placement)] = &[
         Control("per-source admission policy"),
     ),
     (
+        "airway_workspace_pipeline_state",
+        Control("incremental cursor and schema, per workspace"),
+    ),
+    (
         "analytics_run_extensions",
         Control("agent id and spec hint per run"),
     ),

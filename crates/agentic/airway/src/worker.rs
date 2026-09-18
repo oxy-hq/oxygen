@@ -24,6 +24,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::boxed::{BoxedDestination, BoxedSourceConnector};
 use crate::config::AirwayPipelineSpec;
@@ -154,11 +155,18 @@ impl AirwayWorker {
     /// engine-generated `load_id` onto the run extension once the load
     /// finishes. Distinct from `resume_run_id`, which is only `Some` for
     /// resumable backfills and selects the state store.
+    ///
+    /// `workspace_id` keys the cursor row the state store reads and writes. It
+    /// must be the same id the caller used to take the single-flight lease —
+    /// otherwise a run holds one workspace's lease while advancing another's
+    /// cursor. `Uuid::nil()` in local mode and for `oxy airway run`, matching
+    /// what the lease and the run row carry there.
     pub fn execute(
         &self,
         spec: AirwayPipelineSpec,
         resume_run_id: Option<String>,
         run_id: String,
+        workspace_id: Uuid,
     ) -> ExecutingTask {
         let (event_tx, event_rx) = mpsc::channel::<(String, Value)>(EVENT_BUFFER);
         let (outcome_tx, outcome_rx) = mpsc::channel::<TaskOutcome>(OUTCOME_BUFFER);
@@ -186,6 +194,7 @@ impl AirwayWorker {
                 spec,
                 resume_run_id,
                 run_id,
+                workspace_id,
                 db,
                 tokens,
                 credential_provider,
@@ -239,6 +248,7 @@ async fn drive(
     spec: AirwayPipelineSpec,
     resume_run_id: Option<String>,
     run_id: String,
+    workspace_id: Uuid,
     db: Arc<DatabaseConnection>,
     tokens: Option<crate::QuickBooksTokens>,
     credential_provider: Option<Arc<dyn crate::CredentialProvider>>,
@@ -259,6 +269,7 @@ async fn drive(
     let outcome = match run_pipeline(
         spec,
         resume_run_id,
+        workspace_id,
         db,
         tokens,
         credential_provider,
@@ -333,6 +344,7 @@ async fn drive(
 async fn run_pipeline(
     spec: AirwayPipelineSpec,
     resume_run_id: Option<String>,
+    workspace_id: Uuid,
     db: Arc<DatabaseConnection>,
     tokens: Option<crate::QuickBooksTokens>,
     credential_provider: Option<Arc<dyn crate::CredentialProvider>>,
@@ -410,9 +422,10 @@ async fn run_pipeline(
         Some(run_id) => Arc::new(AirwayRunScopedStateStore::new(
             db,
             run_id,
+            workspace_id,
             spec.name.clone(),
         )),
-        None => Arc::new(AirwayPgStateStore::new(db, spec.name.clone())),
+        None => Arc::new(AirwayPgStateStore::new(db, workspace_id, spec.name.clone())),
     };
 
     // ── Event bridge ──────────────────────────────────────────────────────

@@ -741,9 +741,15 @@ impl PipelineTaskExecutor {
         // serializes instead of erroring — which is the whole point of the
         // redesign. `TaskOutcome::Deferred` is how a domain says that; the
         // worker turns it into the queue write.
+
+        // The one id this run is scoped by: it keys the single-flight lease
+        // below AND the cursor row the state store reads and writes. Read once
+        // and reused so the two can never name different things — a run holding
+        // one workspace's lease while advancing another's cursor is exactly the
+        // collision the per-workspace state table exists to end.
+        let workspace_id = self.platform.workspace_id();
         if !spec.allow_concurrent_runs {
             use agentic_airway::extension::pipeline_lease;
-            let workspace_id = self.platform.workspace_id();
             match pipeline_lease::try_acquire(
                 &self.db,
                 workspace_id,
@@ -855,12 +861,13 @@ impl PipelineTaskExecutor {
         // A resumable backfill drives the run-scoped state store keyed by run_id
         // (cursor → resume_state); everything else uses the pipeline-global store.
         let resume_run_id = resumable_backfill.then(|| run_id.to_string());
-        Ok(worker.execute(spec, resume_run_id, run_id.to_string()))
+        Ok(worker.execute(spec, resume_run_id, run_id.to_string(), workspace_id))
     }
 
     /// Reset a pipeline's provisioned schema: drop its destination tables and
-    /// clear its stored `airway_pipeline_state` row so a later run re-infers a
-    /// fresh schema from scratch. Returns the dropped table names.
+    /// clear this workspace's stored cursor + schema row so a later run
+    /// re-infers a fresh schema from scratch. Returns the dropped table names.
+    /// A same-named pipeline in another workspace is untouched.
     ///
     /// Airhouse destinations only — the destination must resolve from a
     /// `config.yml` database reference so the ephemeral credential can be
@@ -889,20 +896,26 @@ impl PipelineTaskExecutor {
         let mut spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
             .map_err(|e| BadRequest(format!("airway: parse `{pipeline_ref}`: {e}")))?;
 
-        // The rendered spec `name` is the primary key of `airway_pipeline_state`.
+        // The rendered spec `name` plus this workspace's id is the key of
+        // `airway_workspace_pipeline_state` — the same pair the run's lease uses.
         let pipeline_name = spec.name.clone();
+        let workspace_id = self.platform.workspace_id();
 
         // Table names in the stored schema — the set to drop. A DB read failure
         // here is server-side → `Internal` (500).
-        let tables = agentic_airway::reset::stored_schema_table_names(&self.db, &pipeline_name)
-            .await
-            .map_err(|e| Internal(e.to_string()))?;
+        let tables = agentic_airway::reset::stored_schema_table_names(
+            &self.db,
+            workspace_id,
+            &pipeline_name,
+        )
+        .await
+        .map_err(|e| Internal(e.to_string()))?;
         if tables.is_empty() {
             // Never provisioned (nothing to drop). Still clear any stale state
             // row so the next run is guaranteed a clean slate — cheap and
             // idempotent, and it skips destination resolution (which would
             // otherwise demand an airhouse credential we don't need here).
-            agentic_airway::reset::clear_pipeline_state(&self.db, &pipeline_name)
+            agentic_airway::reset::clear_pipeline_state(&self.db, workspace_id, &pipeline_name)
                 .await
                 .map_err(|e| Internal(format!("reset clear-state: {e}")))?;
             return Ok(vec![]);
@@ -940,14 +953,17 @@ impl PipelineTaskExecutor {
         // state row now fails, the stored schema/cursors persist while the
         // tables don't — recoverable (drop is idempotent, a re-run re-infers),
         // but log this specific window so a post-mortem isn't guesswork.
-        if let Err(e) = agentic_airway::reset::clear_pipeline_state(&self.db, &pipeline_name).await
+        if let Err(e) =
+            agentic_airway::reset::clear_pipeline_state(&self.db, workspace_id, &pipeline_name)
+                .await
         {
             tracing::warn!(
                 pipeline = %pipeline_name,
+                workspace_id = %workspace_id,
                 dropped_tables = tables.len(),
                 error = %e,
-                "reset: destination tables dropped but clearing airway_pipeline_state failed; \
-                 stored schema/cursors persist until a retry — a backfill re-infers",
+                "reset: destination tables dropped but clearing the workspace's airway pipeline \
+                 state failed; stored schema/cursors persist until a retry — a backfill re-infers",
             );
             return Err(Internal(format!("reset clear-state: {e}")));
         }

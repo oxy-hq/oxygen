@@ -1,18 +1,31 @@
 //! `AirwayPgStateStore` — implements [`airway::StateStore`] against
 //! oxy's SeaORM-managed Postgres.
 //!
-//! Backs the airway engine's per-pipeline incremental state + schema
-//! + audit log with the same database that holds `agentic_runs` and
-//! the rest of the platform tables. One row per pipeline_name in
-//! [`crate::extension::pipeline_state`]; one row per load in
+//! Backs the airway engine's per-pipeline incremental state, schema and audit
+//! log with the same database that holds `agentic_runs` and the rest of the
+//! platform tables. One row per `(workspace_id, pipeline_name)` in
+//! [`crate::extension::workspace_pipeline_state`] — the same key the
+//! single-flight lease uses — and one row per load in
 //! [`crate::extension::load_audit`].
 //!
-//! Optimistic concurrency: `save` writes `version + 1` only if the
-//! row's current `version` matches `expected_version`. A concurrent
-//! writer that bumped the version first causes the second writer to
-//! see zero rows updated and surface `AirwayError::State` so airway
-//! can reload + retry. Mirrors `airway::state::postgres::PostgresStateStore`'s
-//! semantics, just via SeaORM instead of raw tokio-postgres.
+//! The legacy [`crate::extension::pipeline_state`] is keyed by name alone, so
+//! two workspaces running a pipeline of the same name shared one cursor. It is
+//! read exactly once per workspace, to adopt, and never written again.
+//!
+//! Optimistic concurrency: `save` writes `version + 1` only if the row's
+//! current `version` still matches `expected_version`. A concurrent writer that
+//! bumped it first leaves the second writer's UPDATE matching zero rows, which
+//! surfaces as `AirwayError::State`. Mirrors
+//! `airway::state::postgres::PostgresStateStore`'s semantics, just via SeaORM
+//! instead of raw tokio-postgres.
+//!
+//! **The engine does not retry that.** `Pipeline::persist` is best-effort: it
+//! logs the error and leaves its `state_version` where it was. So a losing
+//! writer's cursor is dropped, not reconciled, and the next run re-extracts
+//! that window — duplicates rather than gaps, which is the safe direction. It
+//! only arises where two runs of one pipeline share a workspace, which the
+//! single-flight lease prevents unless the pipeline sets
+//! `allow_concurrent_runs: true`.
 
 use std::sync::Arc;
 
@@ -25,27 +38,37 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, Statement,
 };
+use uuid::Uuid;
 
 use crate::extension::load_audit::{self, Entity as LoadAuditEntity, status as load_status};
-use crate::extension::pipeline_state::{
-    self, Column as PipelineStateColumn, Entity as PipelineStateEntity,
-};
+use crate::extension::pipeline_state::Entity as LegacyPipelineStateEntity;
 use crate::extension::run_extension::Entity as RunExtEntity;
+use crate::extension::workspace_pipeline_state::{
+    self as pipeline_state, Column as PipelineStateColumn, Entity as PipelineStateEntity,
+};
 
-/// SeaORM-backed [`StateStore`] for a single pipeline_name.
+/// SeaORM-backed [`StateStore`] for one pipeline **in one workspace**.
 ///
 /// Construct one per pipeline run; the worker hands this to airway via
-/// [`airway::Pipeline::with_state_store`].
+/// [`airway::Pipeline::with_state_store`]. `workspace_id` is the id the
+/// executor already used to take the single-flight lease, so a run's lease and
+/// its cursor always name the same thing.
 #[derive(Clone)]
 pub struct AirwayPgStateStore {
     db: Arc<DatabaseConnection>,
+    workspace_id: Uuid,
     pipeline_name: String,
 }
 
 impl AirwayPgStateStore {
-    pub fn new(db: Arc<DatabaseConnection>, pipeline_name: impl Into<String>) -> Self {
+    pub fn new(
+        db: Arc<DatabaseConnection>,
+        workspace_id: Uuid,
+        pipeline_name: impl Into<String>,
+    ) -> Self {
         Self {
             db,
+            workspace_id,
             pipeline_name: pipeline_name.into(),
         }
     }
@@ -53,26 +76,104 @@ impl AirwayPgStateStore {
     pub fn pipeline_name(&self) -> &str {
         &self.pipeline_name
     }
+
+    pub fn workspace_id(&self) -> Uuid {
+        self.workspace_id
+    }
+
+    /// This workspace's row, adopting the legacy shared row the first time the
+    /// workspace runs this pipeline.
+    ///
+    /// `airway_pipeline_state` is keyed by name alone, so before this change
+    /// every workspace ran off one row. Copying it once — rather than starting
+    /// from an empty cursor — means the first run after the deploy continues
+    /// from exactly the position it would have used, so no cursor is lost.
+    /// `ON CONFLICT DO NOTHING` makes a concurrent second adoption a no-op, and
+    /// after this the workspaces diverge.
+    ///
+    /// One window can still be re-read, but only mid-deploy: if an old pod runs
+    /// after a new pod has adopted, it advances the legacy row, and that
+    /// progress never reaches the adopted one. Bounded to the deploy, and it
+    /// yields duplicates rather than gaps — the safe direction.
+    ///
+    /// A **tombstone** (a row whose `schema_json` is NULL) is a real row, so a
+    /// reset is never undone by re-adopting the legacy cursor.
+    async fn current_row(&self) -> Result<Option<pipeline_state::Model>, AirwayError> {
+        let key = (self.workspace_id, self.pipeline_name.clone());
+        if let Some(row) = PipelineStateEntity::find_by_id(key.clone())
+            .one(self.db.as_ref())
+            .await
+            .map_err(|e| AirwayError::State(format!("load pipeline_state: {e}")))?
+        {
+            return Ok(Some(row));
+        }
+
+        let Some(legacy) = LegacyPipelineStateEntity::find_by_id(self.pipeline_name.clone())
+            .one(self.db.as_ref())
+            .await
+            .map_err(|e| AirwayError::State(format!("load legacy pipeline_state: {e}")))?
+        else {
+            return Ok(None);
+        };
+
+        tracing::info!(
+            target: "airway_state",
+            workspace_id = %self.workspace_id,
+            pipeline = %self.pipeline_name,
+            version = legacy.version,
+            "adopting the legacy shared pipeline state for this workspace"
+        );
+        let adopted = pipeline_state::ActiveModel {
+            workspace_id: ActiveValue::Set(self.workspace_id),
+            pipeline_name: ActiveValue::Set(self.pipeline_name.clone()),
+            state: ActiveValue::Set(legacy.state),
+            schema_json: ActiveValue::Set(Some(legacy.schema_json)),
+            version: ActiveValue::Set(legacy.version),
+            updated_at: ActiveValue::Set(Utc::now()),
+        };
+        PipelineStateEntity::insert(adopted)
+            .on_conflict(
+                OnConflict::columns([
+                    PipelineStateColumn::WorkspaceId,
+                    PipelineStateColumn::PipelineName,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            // `exec_without_returning` rather than `exec`: a conflict here is
+            // the expected concurrent-adoption case, and `exec` reports zero
+            // inserted rows as an error.
+            .exec_without_returning(self.db.as_ref())
+            .await
+            .map_err(|e| AirwayError::State(format!("adopt legacy pipeline_state: {e}")))?;
+
+        // Re-read rather than trust the copy: whoever won the insert owns the
+        // row, and its version is what `save` must match.
+        PipelineStateEntity::find_by_id(key)
+            .one(self.db.as_ref())
+            .await
+            .map_err(|e| AirwayError::State(format!("load pipeline_state after adopt: {e}")))
+    }
 }
 
 #[async_trait]
 impl StateStore for AirwayPgStateStore {
     async fn load(&self) -> Result<StateSnapshot, AirwayError> {
-        let row = PipelineStateEntity::find_by_id(self.pipeline_name.clone())
-            .one(self.db.as_ref())
-            .await
-            .map_err(|e| AirwayError::State(format!("load pipeline_state: {e}")))?;
-
-        match row {
+        match self.current_row().await? {
             None => Ok(StateSnapshot::default()),
             Some(model) => {
                 let state: PipelineState = serde_json::from_value(model.state)
                     .map_err(|e| AirwayError::State(format!("deserialize PipelineState: {e}")))?;
-                let schema: Schema = serde_json::from_value(model.schema_json)
+                // NULL schema is a tombstone from a reset, or a row that never
+                // provisioned: the same "no schema" an absent row used to mean.
+                let schema: Option<Schema> = model
+                    .schema_json
+                    .map(serde_json::from_value)
+                    .transpose()
                     .map_err(|e| AirwayError::State(format!("deserialize Schema: {e}")))?;
                 Ok(StateSnapshot {
                     state,
-                    schema: Some(schema),
+                    schema,
                     version: model.version,
                 })
             }
@@ -95,58 +196,68 @@ impl StateStore for AirwayPgStateStore {
         // Use INSERT ... ON CONFLICT DO UPDATE WHERE version = expected.
         // That single round-trip handles both insert and version-checked update.
         let model = pipeline_state::ActiveModel {
+            workspace_id: ActiveValue::Set(self.workspace_id),
             pipeline_name: ActiveValue::Set(self.pipeline_name.clone()),
             state: ActiveValue::Set(state_json),
-            schema_json: ActiveValue::Set(schema_json),
+            schema_json: ActiveValue::Set(Some(schema_json)),
             version: ActiveValue::Set(new_version),
             updated_at: ActiveValue::Set(Utc::now()),
         };
 
-        // `update_columns` + `target_condition` lets us enforce
-        // `version = expected_version` as part of the upsert.
-        let exec = PipelineStateEntity::insert(model)
+        // `update_columns` + `action_and_where` enforces `version =
+        // expected_version` as part of the upsert — `DO UPDATE SET … WHERE
+        // version = $n`. That WHERE is what makes a reset stick: a tombstone
+        // bumps the version, so a run still holding the pre-reset one writes
+        // nothing here instead of restoring the cursor the reset discarded.
+        //
+        // NOT `target_and_where`, which was here before and guarded nothing:
+        // it emits `ON CONFLICT (cols) WHERE …`, a *partial-index predicate*
+        // for inferring the arbiter index, which Postgres simply ignores
+        // against the non-partial primary key. Every save therefore wrote
+        // unconditionally, and the re-read that followed compared the version
+        // against the one this same statement had just written — so it always
+        // matched. Optimistic concurrency was dark on oxy's path; the
+        // single-flight lease is what has actually been serializing writers.
+        let written = PipelineStateEntity::insert(model)
             .on_conflict(
-                OnConflict::column(PipelineStateColumn::PipelineName)
-                    .update_columns([
-                        PipelineStateColumn::State,
-                        PipelineStateColumn::SchemaJson,
-                        PipelineStateColumn::Version,
-                        PipelineStateColumn::UpdatedAt,
-                    ])
-                    .target_and_where(PipelineStateColumn::Version.eq(expected_version))
-                    .to_owned(),
+                OnConflict::columns([
+                    PipelineStateColumn::WorkspaceId,
+                    PipelineStateColumn::PipelineName,
+                ])
+                .update_columns([
+                    PipelineStateColumn::State,
+                    PipelineStateColumn::SchemaJson,
+                    PipelineStateColumn::Version,
+                    PipelineStateColumn::UpdatedAt,
+                ])
+                .action_and_where(PipelineStateColumn::Version.eq(expected_version))
+                .to_owned(),
             )
-            .exec(self.db.as_ref())
-            .await;
+            // `exec_without_returning` gives us the row count. `exec` turns the
+            // unmet-WHERE case — the conflict we specifically want to report —
+            // into an opaque "no records inserted" error.
+            .exec_without_returning(self.db.as_ref())
+            .await
+            .map_err(|e| AirwayError::State(format!("save pipeline_state: {e}")))?;
 
-        match exec {
-            Ok(_) => {
-                // Insert path returns Ok; the conflict-update path also
-                // returns Ok when at least one row matched. But sea-orm
-                // doesn't surface "0 rows updated" as an error, so we
-                // re-read to confirm the version actually advanced. This
-                // matches airway::PostgresStateStore's defensive check.
-                let cur = PipelineStateEntity::find_by_id(self.pipeline_name.clone())
+        if written == 0 {
+            // Someone advanced the row first. Re-read so the message names the
+            // version airway must reload from. Mirrors
+            // `airway::PostgresStateStore`'s defensive check.
+            let current =
+                PipelineStateEntity::find_by_id((self.workspace_id, self.pipeline_name.clone()))
                     .one(self.db.as_ref())
                     .await
                     .map_err(|e| AirwayError::State(format!("verify save: {e}")))?
-                    .ok_or_else(|| {
-                        AirwayError::State(format!(
-                            "pipeline_state row vanished after save for `{}`",
-                            self.pipeline_name
-                        ))
-                    })?;
-                if cur.version != new_version {
-                    return Err(AirwayError::State(format!(
-                        "optimistic concurrency conflict for pipeline `{}`: \
-                         expected version {expected_version}, current is {}",
-                        self.pipeline_name, cur.version,
-                    )));
-                }
-                Ok(())
-            }
-            Err(e) => Err(AirwayError::State(format!("save pipeline_state: {e}"))),
+                    .map(|row| row.version.to_string())
+                    .unwrap_or_else(|| "absent".to_string());
+            return Err(AirwayError::State(format!(
+                "optimistic concurrency conflict for pipeline `{}` in workspace {}: \
+                 expected version {expected_version}, current is {current}",
+                self.pipeline_name, self.workspace_id,
+            )));
         }
+        Ok(())
     }
 
     async fn record_load_start(
@@ -166,6 +277,7 @@ impl StateStore for AirwayPgStateStore {
         };
         let model = load_audit::ActiveModel {
             load_id: ActiveValue::Set(load_id.to_string()),
+            workspace_id: ActiveValue::Set(Some(self.workspace_id)),
             pipeline_name: ActiveValue::Set(pipeline_name.to_string()),
             schema_hash: ActiveValue::Set(schema_hash),
             status: ActiveValue::Set(load_status::IN_PROGRESS.to_string()),
@@ -283,9 +395,10 @@ impl AirwayRunScopedStateStore {
     pub fn new(
         db: Arc<DatabaseConnection>,
         run_id: impl Into<String>,
+        workspace_id: Uuid,
         pipeline_name: impl Into<String>,
     ) -> Self {
-        let global = AirwayPgStateStore::new(Arc::clone(&db), pipeline_name);
+        let global = AirwayPgStateStore::new(Arc::clone(&db), workspace_id, pipeline_name);
         Self {
             db,
             run_id: run_id.into(),

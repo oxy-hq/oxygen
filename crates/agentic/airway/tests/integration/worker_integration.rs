@@ -14,86 +14,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agentic_airway::config::AirwayPipelineSpec;
-use agentic_airway::extension::{AirwayMigrator, load_audit, pipeline_state};
+use agentic_airway::extension::{load_audit, workspace_pipeline_state};
 use agentic_airway::worker::AirwayWorker;
 use agentic_core::delegation::TaskOutcome;
-use agentic_runtime::migration::RuntimeMigrator;
-use sea_orm::{Database, DatabaseConnection, EntityTrait};
+use sea_orm::EntityTrait;
 
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
-
-/// Real Postgres + the migrators the worker depends on. `None` when no
-/// DB is available (Docker down and `OXY_DATABASE_URL` unset) so the
-/// test self-skips rather than failing the suite.
-async fn test_db() -> Option<DatabaseConnection> {
-    let url = TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            // 64 MB (Docker default) is too small: a parallel plan wants a 32 MB
-                            // DSM segment and a REUSED container accumulates them.
-                            // Must match at every setup site — reuse hashes the config.
-                            // See internal-docs/workspace-source.md.
-                            .with_shm_size(1024 * 1024 * 1024)
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start Postgres testcontainer — is Docker running?"),
-                    )
-                })
-                .await;
-            let port = container
-                .get_host_port_ipv4(5432_u16)
-                .await
-                .expect("get Postgres port");
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
-
-    let mut db = None;
-    for attempt in 0..10 {
-        match Database::connect(&url).await {
-            Ok(conn) => {
-                db = Some(conn);
-                break;
-            }
-            Err(e) if attempt < 9 => {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                eprintln!("test_db: attempt {attempt} failed: {e}, retrying");
-            }
-            Err(e) => panic!("connect to test DB failed after 10 retries: {e}"),
-        }
-    }
-    let db = db?;
-
-    // Central then runtime (production order — see
-    // oxy_test_utils::migration), then AirwayMigrator: `airway_run_extensions.run_id`
-    // FKs to `agentic_runs.id`, so the runtime tables must exist before
-    // AirwayMigrator's third migration runs.
-    oxy_test_utils::migration::migrate_shared_test_db::<RuntimeMigrator>(&url, &db)
-        .await
-        .expect("shared migrations")
-        .then::<AirwayMigrator>()
-        .await
-        .expect("airway migrations")
-        .finish()
-        .await;
-    Some(db)
-}
+use crate::harness::test_db;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn worker_runs_filesystem_to_memory_end_to_end() {
@@ -102,8 +28,9 @@ async fn worker_runs_filesystem_to_memory_end_to_end() {
         return;
     };
 
-    // Unique pipeline name so concurrent test runs don't collide on the
-    // `airway_pipeline_state` primary key.
+    // Unique workspace + pipeline name so concurrent test runs don't collide on
+    // the `airway_workspace_pipeline_state` primary key.
+    let workspace_id = uuid::Uuid::new_v4();
     let pipeline_name = format!("it_fs_mem_{}", uuid::Uuid::new_v4().simple());
 
     // ── Temp JSONL source: three user records, one per line ───────────────
@@ -144,7 +71,7 @@ destination:
     // the owning run id used to stamp the engine load_id onto the run
     // extension; this test seeds no `agentic_runs`/extension row, so that
     // stamp is a best-effort no-op (matches `set_run_load_id`'s contract).
-    let mut task = worker.execute(spec, None, "it-worker-run".to_string());
+    let mut task = worker.execute(spec, None, "it-worker-run".to_string(), workspace_id);
 
     // Collect events until the task produces its terminal outcome.
     let mut event_types: Vec<String> = Vec::new();
@@ -191,13 +118,15 @@ destination:
         "missing load_completed; got {event_types:?}"
     );
 
-    // State store row was written by `AirwayPgStateStore::save` at the
-    // end of a successful run.
-    let state_row = pipeline_state::Entity::find_by_id(pipeline_name.clone())
-        .one(&db)
-        .await
-        .expect("query pipeline_state")
-        .expect("pipeline_state row exists after a successful run");
+    // State store row was written by `AirwayPgStateStore::save` at the end of a
+    // successful run — under THIS workspace's key, which is what makes the row
+    // the run's own rather than one shared with every workspace of that name.
+    let state_row =
+        workspace_pipeline_state::Entity::find_by_id((workspace_id, pipeline_name.clone()))
+            .one(&db)
+            .await
+            .expect("query airway_workspace_pipeline_state")
+            .expect("a state row exists for this workspace after a successful run");
     assert!(
         state_row.version >= 1,
         "version should have advanced past the initial 0, got {}",
@@ -214,6 +143,12 @@ destination:
         .filter(|r| r.pipeline_name == pipeline_name)
         .collect();
     assert_eq!(ours.len(), 1, "exactly one audit row for this run");
+    assert_eq!(
+        ours[0].workspace_id,
+        Some(workspace_id),
+        "the audit row must be attributed to the workspace that ran the load — \
+         `pipeline_name` alone is not unique across workspaces"
+    );
     assert_eq!(
         ours[0].status,
         load_audit::status::COMPLETED,

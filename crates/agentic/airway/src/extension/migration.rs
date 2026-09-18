@@ -21,6 +21,8 @@ impl MigratorTrait for AirwayMigrator {
             Box::new(AddRetryStateToRunExtensions),
             Box::new(CreatePipelineLeases),
             Box::new(AddAdmissionToRunExtensions),
+            Box::new(CreateWorkspacePipelineState),
+            Box::new(AddWorkspaceToLoadAudit),
         ]
     }
 
@@ -47,6 +49,7 @@ enum AirwayLoadAudit {
     #[iden = "airway_load_audit"]
     Table,
     LoadId,
+    WorkspaceId,
     PipelineName,
     SchemaHash,
     Status,
@@ -70,6 +73,18 @@ enum AirwayRunExtensions {
     ResumeState,
     ContractPolicy,
     Environment,
+}
+
+#[derive(Iden)]
+enum AirwayWorkspacePipelineState {
+    #[iden = "airway_workspace_pipeline_state"]
+    Table,
+    WorkspaceId,
+    PipelineName,
+    State,
+    SchemaJson,
+    Version,
+    UpdatedAt,
 }
 
 #[derive(Iden)]
@@ -576,6 +591,186 @@ impl MigrationTrait for AddAdmissionToRunExtensions {
                 Table::alter()
                     .table(AirwayRunExtensions::Table)
                     .drop_column(AirwayRunExtensions::Environment)
+                    .to_owned(),
+            )
+            .await
+    }
+}
+
+// ── Migration 8: airway_workspace_pipeline_state ────────────────────────────
+//
+// `airway_pipeline_state` is keyed by `pipeline_name` alone, so two workspaces
+// running a pipeline of the same name share one cursor and one stored schema:
+// the second resumes from the first's position and skips rows, and a reset in
+// either wipes both. A NEW table rather than a re-key of the old one, because
+// an old pod's `ON CONFLICT (pipeline_name)` needs the name to stay unique
+// while a rolling deploy is in flight. The store adopts the legacy row on
+// first read, so no cursor is lost; the legacy table is retired once no
+// adoption has been logged (target `airway_state`) for a full scheduling cycle
+// across the fleet.
+// Design: internal-docs/airway-single-flight.md.
+
+struct CreateWorkspacePipelineState;
+
+impl MigrationName for CreateWorkspacePipelineState {
+    fn name(&self) -> &str {
+        "m20260916_000001_create_airway_workspace_pipeline_state"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for CreateWorkspacePipelineState {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .create_table(
+                Table::create()
+                    .table(AirwayWorkspacePipelineState::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::WorkspaceId)
+                            .uuid()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::PipelineName)
+                            .text()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::State)
+                            .json_binary()
+                            .not_null(),
+                    )
+                    // Nullable, unlike the legacy table: a reset writes a
+                    // tombstone row (default state, no schema) instead of
+                    // deleting, so the next load does not adopt the legacy
+                    // cursor back. NULL here means "no schema provisioned",
+                    // which is exactly what an absent row used to mean.
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::SchemaJson)
+                            .json_binary()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::Version)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(AirwayWorkspacePipelineState::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .primary_key(
+                        Index::create()
+                            .col(AirwayWorkspacePipelineState::WorkspaceId)
+                            .col(AirwayWorkspacePipelineState::PipelineName),
+                    )
+                    .to_owned(),
+            )
+            .await
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(AirwayWorkspacePipelineState::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await
+    }
+}
+
+// ── Migration 9: airway_load_audit.workspace_id ─────────────────────────────
+//
+// Append-only and keyed by `load_id`, so the audit needs a column rather than
+// a new table. New rows always set it.
+//
+// Old rows are backfilled best-effort through `airway_run_extensions.load_id`,
+// which is indexed on both sides and covers successful loads since 2026-07-22.
+// Everything else stays NULL, and that is deliberate: the other route to a
+// workspace is the run's `load_started` event, and matching it needs
+// `event_type = 'load_started' AND payload->>'load_id' = …` against
+// `agentic_run_events`, whose only unique index is `(run_id, seq)`. That is a
+// full scan of every event of every agentic run in the deployment, run by
+// `AirwayMigrator::up` *before* serve binds its listener — a boot stall
+// proportional to the whole product's event history, to populate a nullable
+// column nothing reads yet. If those rows are ever wanted, backfill them from
+// an ops command against a live database, not from the boot path.
+
+struct AddWorkspaceToLoadAudit;
+
+impl MigrationName for AddWorkspaceToLoadAudit {
+    fn name(&self) -> &str {
+        "m20260916_000002_add_workspace_to_airway_load_audit"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for AddWorkspaceToLoadAudit {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(AirwayLoadAudit::Table)
+                    .add_column(ColumnDef::new(AirwayLoadAudit::WorkspaceId).uuid().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .if_not_exists()
+                    .name("idx_airway_load_audit_workspace_pipeline")
+                    .table(AirwayLoadAudit::Table)
+                    .col(AirwayLoadAudit::WorkspaceId)
+                    .col(AirwayLoadAudit::PipelineName)
+                    .col(AirwayLoadAudit::StartedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Best-effort backfill through the run that owns each load. The runtime
+        // migrator owns `agentic_runs` and runs before this one, so the join is
+        // safe. Bounded by the SIZE of what it touches, not by indexes: this
+        // scans `airway_run_extensions` (one row per airway run) and probes two
+        // primary keys, `airway_load_audit.load_id` and `agentic_runs.id`.
+        // `airway_run_extensions.load_id` carries no index — that is fine at one
+        // row per airway run, and is the whole difference from the event-log
+        // route declined above, which would scan every event of every agentic
+        // run in the deployment. Rows with no extension row keep a NULL
+        // workspace — see the note above.
+        let db = manager.get_connection();
+        db.execute_unprepared(
+            "UPDATE airway_load_audit a
+                SET workspace_id = r.workspace_id
+               FROM airway_run_extensions e
+               JOIN agentic_runs r ON r.id = e.run_id
+              WHERE e.load_id = a.load_id
+                AND a.workspace_id IS NULL",
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_airway_load_audit_workspace_pipeline")
+                    .table(AirwayLoadAudit::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(AirwayLoadAudit::Table)
+                    .drop_column(AirwayLoadAudit::WorkspaceId)
                     .to_owned(),
             )
             .await

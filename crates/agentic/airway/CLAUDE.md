@@ -26,10 +26,15 @@ coordinator. Resource-level fan-out happens inside
 
 ## Aggregates owned
 
-- **PipelineState** (`airway_pipeline_state`) — incremental cursor +
-  schema state, keyed by `pipeline_name`.
+- **WorkspacePipelineState** (`airway_workspace_pipeline_state`) —
+  incremental cursor + schema state, keyed by
+  `(workspace_id, pipeline_name)`: the same key the lease takes, so a
+  run's lease and its cursor can never name different things.
+- **PipelineState** (`airway_pipeline_state`) — the legacy row, keyed by
+  `pipeline_name` alone. Read once per workspace to adopt, then never
+  written again. Retained until every workspace has adopted.
 - **LoadAudit** (`airway_load_audit`) — per-extraction audit row,
-  keyed by `load_id`.
+  keyed by `load_id`, attributed to a workspace.
 - **AirwayRunExtension** (`airway_run_extensions`) — per-run metadata
   extending `agentic_runs`.
 

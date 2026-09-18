@@ -5,85 +5,13 @@
 //! test the mock rather than the guarantee. Uses testcontainers (never the dev
 //! DB) — set `OXY_DATABASE_URL` to point at a throwaway instance instead.
 
-use std::sync::Arc;
-use std::time::Duration;
-
-use agentic_airway::extension::AirwayMigrator;
 use agentic_airway::extension::pipeline_lease::{
     LEASE_TTL_SECS, LeaseAcquisition, release_by_run, release_counted, try_acquire,
 };
-use agentic_runtime::migration::RuntimeMigrator;
-use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use uuid::Uuid;
 
-static TEST_DB_URL: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
-static TEST_CONTAINER: tokio::sync::OnceCell<
-    Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
-> = tokio::sync::OnceCell::const_new();
-
-async fn test_db() -> Option<DatabaseConnection> {
-    let url = TEST_DB_URL
-        .get_or_init(|| async {
-            if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
-                return url;
-            }
-            use testcontainers::runners::AsyncRunner;
-            use testcontainers::{ImageExt, ReuseDirective};
-            use testcontainers_modules::postgres::Postgres;
-            let container = TEST_CONTAINER
-                .get_or_init(|| async {
-                    Arc::new(
-                        Postgres::default()
-                            .with_tag("18-alpine")
-                            .with_reuse(ReuseDirective::Always)
-                            .start()
-                            .await
-                            .expect("start Postgres testcontainer — is Docker running?"),
-                    )
-                })
-                .await;
-            let port = container.get_host_port_ipv4(5432_u16).await.unwrap();
-            format!("postgresql://postgres:postgres@127.0.0.1:{port}/postgres")
-        })
-        .await
-        .clone();
-
-    let mut db = None;
-    for attempt in 0..10 {
-        match Database::connect(&url).await {
-            Ok(conn) => {
-                db = Some(conn);
-                break;
-            }
-            Err(e) if attempt < 9 => {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                eprintln!("test_db: attempt {attempt} failed: {e}, retrying");
-            }
-            Err(e) => panic!("connect to test DB failed after 10 retries: {e}"),
-        }
-    }
-    let db = db?;
-    // Central -> runtime -> airway, like the other three modules in this
-    // binary. This fixture used to run `RuntimeMigrator` alone, which is the
-    // one shape the shared database cannot survive: runtime creates
-    // `agentic_runs` *with* `thread_id`, so whichever module's helper ran next
-    // brought central in second and hit `42701 column "thread_id" ... already
-    // exists` — central has no `.if_not_exists()` guard there because
-    // production always leads. Since sea-orm wraps a whole `up()` in one
-    // transaction, that rollback left the database with no `seaql_migrations`
-    // at all, permanently, for every other binary: on a fresh DB it poisoned
-    // 174 of 432 tests. Nothing ordered these modules, so which case ran first
-    // decided whether the run passed.
-    oxy_test_utils::migration::migrate_shared_test_db::<RuntimeMigrator>(&url, &db)
-        .await
-        .expect("shared migrations failed")
-        .then::<AirwayMigrator>()
-        .await
-        .expect("airway migrations failed")
-        .finish()
-        .await;
-    Some(db)
-}
+use crate::harness::test_db;
 
 /// Every test uses a fresh workspace uuid, so cases stay independent without
 /// truncating a table other tests may be using concurrently.

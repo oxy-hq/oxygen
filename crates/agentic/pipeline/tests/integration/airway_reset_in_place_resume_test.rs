@@ -183,8 +183,10 @@ async fn seed_crashed_backfill(db: &Arc<DatabaseConnection>) -> String {
     .await
     .unwrap();
 
-    // The cursor run 1 committed mid-window, persisted exactly as the worker would.
-    let store = AirwayRunScopedStateStore::new(Arc::clone(db), run_id.clone(), "p");
+    // The cursor run 1 committed mid-window, persisted exactly as the worker
+    // would — under the seeded run's own workspace (nil, as `insert_run` above).
+    let store =
+        AirwayRunScopedStateStore::new(Arc::clone(db), run_id.clone(), uuid::Uuid::nil(), "p");
     let mut state = PipelineState::default();
     state.resource_states.insert(
         "orders".to_string(),
@@ -354,7 +356,8 @@ async fn reset_in_place_retry_preserves_resume_state_for_resume() {
     // THE POINT: resume_state survived the retry, and the run-scoped store reloads
     // it — this is exactly what the re-driven run's source receives as prior_state,
     // so it resumes from 2026-06-15 rather than re-extracting the whole window.
-    let store = AirwayRunScopedStateStore::new(Arc::clone(&db), run_id.clone(), "p");
+    let store =
+        AirwayRunScopedStateStore::new(Arc::clone(&db), run_id.clone(), uuid::Uuid::nil(), "p");
     let snap = store.load().await.unwrap();
     assert_eq!(
         snap.state
