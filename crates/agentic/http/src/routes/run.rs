@@ -24,6 +24,7 @@ use crate::{
     state::{AgenticState, RunStatus},
 };
 
+use super::run_scope::run_in_workspace;
 use super::{AnswerRequest, CreateRunRequest, CreateRunResponse, RunIdPath, ThinkingMode};
 
 /// Cap on the number of tables an onboarding request may supply — guards
@@ -486,7 +487,13 @@ pub async fn stream_events(
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     headers: HeaderMap,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
 ) -> Response {
+    // The event log carries the run's payloads — LLM output, tool and SQL
+    // results — so it is the workspace's to read, and no one else's.
+    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        return resp;
+    }
     let last_seq = headers
         .get("Last-Event-ID")
         .and_then(|v| v.to_str().ok())
@@ -814,6 +821,9 @@ pub async fn answer_run(
     Extension(bridges): Extension<BuilderBridges>,
     Json(body): Json<AnswerRequest>,
 ) -> Response {
+    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        return resp;
+    }
     // Hot path: the coordinator is still alive in memory — deliver the
     // answer through the answer channel. The coordinator receives it via
     // answer_rxs and handles resume via TaskSpec::Resume (spawning a fresh
@@ -1093,6 +1103,9 @@ pub async fn revert_file_changes(
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Json(body): Json<RevertFileChangesRequest>,
 ) -> Response {
+    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        return resp;
+    }
     match agentic_pipeline::revert_builder_file_changes(
         &state.db,
         &platform,
@@ -1116,7 +1129,11 @@ pub async fn revert_file_changes(
 pub async fn cancel_run(
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
 ) -> Response {
+    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        return resp;
+    }
     // Durable cross-process cancel signal — set before the in-memory
     // fast path: a recovered run has a registered cancel_tx (so
     // `state.cancel` returns true) but is driven out-of-process where
@@ -1166,8 +1183,12 @@ pub struct UpdateThinkingModeRequest {
 pub async fn update_thinking_mode(
     Path(RunIdPath { id: run_id }): Path<RunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Json(body): Json<UpdateThinkingModeRequest>,
 ) -> Response {
+    if let Err(resp) = run_in_workspace(&state.db, &run_id, platform.workspace_id()).await {
+        return resp;
+    }
     let db = state.db.clone();
     let thinking_mode = body.thinking_mode.unwrap_or(ThinkingMode::Auto);
     match db::update_run_thinking_mode(&db, &run_id, thinking_mode.to_db()).await {

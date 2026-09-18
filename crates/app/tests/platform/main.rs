@@ -77,6 +77,7 @@ mod operating_graph;
 mod org_default_workspace;
 mod projects_query;
 mod run;
+mod run_routes_workspace_scope;
 mod simulation_lifecycle;
 mod simulation_router;
 mod simulation_routes;

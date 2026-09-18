@@ -41,6 +41,7 @@ use agentic_pipeline::platform::{BuilderBridges, PlatformContext};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
+use super::run_scope::ensure_run_access;
 use crate::state::AgenticState;
 
 // ── Response types (request shape comes from agentic_pipeline) ─────────────
@@ -143,9 +144,10 @@ pub async fn create_automation_run(
 pub async fn get_automation_run(
     Path(AutomationRunIdPath { id: run_id }): Path<AutomationRunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Response {
-    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id).await {
+    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id, platform.workspace_id()).await {
         return resp;
     }
     match get_automation_snapshot(&state.db, &run_id).await {
@@ -168,12 +170,16 @@ pub struct ListRunsQuery {
     pub limit: Option<u64>,
 }
 
+/// Workspace-scoped: `workflow_ref` is a workspace-relative path, so it is
+/// only unique together with the workspace. `platform.workspace_id()` is the
+/// id `start_automation_run` stamps on the run (the nil UUID in local mode).
 pub async fn list_runs_for_automation(
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     axum::extract::Query(q): axum::extract::Query<ListRunsQuery>,
 ) -> Response {
     let limit = q.limit.unwrap_or(50).min(200);
-    match list_automation_runs(&state.db, &q.workflow_ref, limit).await {
+    match list_automation_runs(&state.db, platform.workspace_id(), &q.workflow_ref, limit).await {
         Ok(runs) => Json(runs).into_response(),
         Err(e) => {
             tracing::error!(%e, "list_runs_for_automation failed");
@@ -255,9 +261,10 @@ pub async fn latest_run_for_thread(
 pub async fn cancel_automation_run(
     Path(AutomationRunIdPath { id: run_id }): Path<AutomationRunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Response {
-    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id).await {
+    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id, platform.workspace_id()).await {
         return resp;
     }
     // Durable, cross-process cancel signal: a recovered / Global run is
@@ -312,47 +319,6 @@ pub async fn cancel_automation_run(
         tracing::debug!(%run_id, already_terminal, "cancel: no live channel; closed SSE");
     }
     StatusCode::NO_CONTENT.into_response()
-}
-
-/// Verify that `user_id` may operate on `run_id`. Returns `Err(response)`
-/// with the appropriate status code when the caller must be rejected:
-///
-/// - `404` if the run does not exist
-/// - `403` if the run is linked to a thread owned by another user
-/// - `500` on a lookup failure
-///
-/// Runs without a `thread_id` (system/background runs not attached to a
-/// thread) are allowed through, matching the analytics handlers' policy
-/// today. If that changes, this is the single chokepoint to revisit.
-async fn ensure_run_access(
-    state: &AgenticState,
-    user_id: &Uuid,
-    run_id: &str,
-) -> Result<(), Response> {
-    let run = match agentic_runtime::crud::get_run(&state.db, run_id).await {
-        Ok(Some(run)) => run,
-        Ok(None) => return Err((StatusCode::NOT_FOUND, "run not found").into_response()),
-        Err(e) => {
-            return Err(
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response(),
-            );
-        }
-    };
-    let Some(thread_uuid) = run.thread_id else {
-        return Ok(());
-    };
-    match state.thread_owner.thread_owner(thread_uuid).await {
-        // Run references a thread that has been deleted out from under it.
-        // Treat as missing rather than leaking the run row.
-        Ok(None) => Err((StatusCode::NOT_FOUND, "run not found").into_response()),
-        Ok(Some(Some(owner_id))) if &owner_id != user_id => {
-            Err((StatusCode::FORBIDDEN, "access denied").into_response())
-        }
-        Ok(_) => Ok(()),
-        Err(e) => {
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response())
-        }
-    }
 }
 
 // ── GET /agentic-workflows/files ───────────────────────────────────────────────────

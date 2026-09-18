@@ -60,6 +60,7 @@ use agentic_pipeline::platform::PlatformContext;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
+use super::run_scope::ensure_run_access;
 use crate::state::AgenticState;
 
 #[derive(Serialize)]
@@ -536,9 +537,10 @@ pub async fn airway_coverage(
 pub async fn cancel_airway_run(
     Path(AirwayRunIdPath { id: run_id }): Path<AirwayRunIdPath>,
     Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Response {
-    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id).await {
+    if let Err(resp) = ensure_run_access(&state, &user.id, &run_id, platform.workspace_id()).await {
         return resp;
     }
     // Durable cross-process cancel signal (see cancel_automation_run).
@@ -652,39 +654,6 @@ pub async fn cancel_airway_run(
         }
     }
     StatusCode::NO_CONTENT.into_response()
-}
-
-/// Verify `user_id` may operate on `run_id`. Runs not linked to a
-/// thread (the common case for airway — pipelines are usually not
-/// chat-scoped) are allowed through, matching the automation handler's
-/// policy. Single chokepoint if that policy changes.
-async fn ensure_run_access(
-    state: &AgenticState,
-    user_id: &Uuid,
-    run_id: &str,
-) -> Result<(), Response> {
-    let run = match agentic_runtime::crud::get_run(&state.db, run_id).await {
-        Ok(Some(run)) => run,
-        Ok(None) => return Err((StatusCode::NOT_FOUND, "run not found").into_response()),
-        Err(e) => {
-            return Err(
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response(),
-            );
-        }
-    };
-    let Some(thread_uuid) = run.thread_id else {
-        return Ok(());
-    };
-    match state.thread_owner.thread_owner(thread_uuid).await {
-        Ok(None) => Err((StatusCode::NOT_FOUND, "run not found").into_response()),
-        Ok(Some(Some(owner_id))) if &owner_id != user_id => {
-            Err((StatusCode::FORBIDDEN, "access denied").into_response())
-        }
-        Ok(_) => Ok(()),
-        Err(e) => {
-            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response())
-        }
-    }
 }
 
 // ── GET /agentic-airway/files ─────────────────────

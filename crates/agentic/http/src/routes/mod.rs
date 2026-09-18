@@ -72,6 +72,7 @@ pub struct RunSummary {
 pub mod airway;
 pub mod automation;
 pub mod run;
+mod run_scope;
 pub mod thread;
 
 pub use airway::{

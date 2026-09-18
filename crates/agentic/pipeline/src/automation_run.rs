@@ -469,13 +469,21 @@ pub fn spawn_automation_run_drive(
     });
 }
 
-/// List recent runs for a given `workflow_ref`, newest first.
+/// List recent runs for a given `workflow_ref` in `workspace_id`, newest first.
 ///
-/// Filters `agentic_runs` on `source_type = 'workflow'` and
-/// `metadata->>'workflow_ref' = $workflow_ref`. The dropdown UI calls this
+/// Filters `agentic_runs` on `source_type = 'workflow'`, the `workspace_id`
+/// and `metadata->>'workflow_ref' = $workflow_ref`. The dropdown UI calls this
 /// to populate its run-history list.
+///
+/// `workspace_id` is not optional. A ref is a workspace-relative path
+/// (`automations/daily.automation.yml`), so the same ref names a different
+/// automation in every workspace that has one; filtering on the ref alone
+/// handed each workspace every other workspace's run ids for that path. Pass
+/// the id `start_automation_run` stamps — `PlatformContext::workspace_id()`,
+/// the nil UUID in local mode.
 pub async fn list_automation_runs(
     db: &DatabaseConnection,
+    workspace_id: Uuid,
     workflow_ref: &str,
     limit: u64,
 ) -> Result<Vec<AutomationRunSummary>, AutomationRunError> {
@@ -498,12 +506,14 @@ pub async fn list_automation_runs(
         FROM agentic_runs
         WHERE source_type = $1
           AND parent_run_id IS NULL
-          AND metadata->>'workflow_ref' = $2
+          AND workspace_id = $2
+          AND metadata->>'workflow_ref' = $3
         ORDER BY created_at DESC
-        LIMIT $3
+        LIMIT $4
         "#,
         [
             agentic_automation::SOURCE_TYPE.into(),
+            workspace_id.into(),
             workflow_ref.into(),
             (limit as i64).into(),
         ],
