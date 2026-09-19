@@ -140,3 +140,7 @@ docs/superpowers/
 
 # Playwright MCP scratch output (snapshots, screenshots, console logs)
 .playwright-mcp/
+
+# Weekly Sentry triage scratch: the brief the job hands the agent, and the
+# report it writes back. Dot-prefixed so the workspace walker prunes it too.
+.sentry-triage/

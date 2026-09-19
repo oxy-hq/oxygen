@@ -1,0 +1,290 @@
+name: Weekly Sentry Production Triage
+
+# Monday morning: one issue saying what production actually broke last week, plus
+# a draft PR for anything the agent can fix in one file with high confidence.
+#
+# The triage is NOT the agent's job. `.github/scripts/sentry-triage.mjs` does the
+# querying, grouping, ranking and redaction, so what reaches Claude is a short
+# ranked brief that already names a repo-relative `file:line` per finding. The
+# agent starts at "why does this line fire, and what is the fix" — the part a
+# model is actually better at than a script. That split is also what keeps the
+# Sentry token inside one process instead of in an agent's shell history.
+
+on:
+  schedule:
+    - cron: "0 2 * * 1" # Mondays 02:00 UTC (09:00 Vietnam time)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Sentry environment to scan
+        required: false
+        default: production
+      stats_period:
+        description: Look-back window (Sentry statsPeriod — 24h, 7d, 14d)
+        required: false
+        default: 7d
+      top:
+        description: How many distinct faults to triage
+        required: false
+        default: "8"
+      open_pr:
+        description: Open a draft PR for high-confidence single-file fixes
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+# One triage at a time. Two overlapping runs would file two issues describing the
+# same week, and `cancel-in-progress` would let a manual run kill the scheduled
+# one halfway through — losing the week rather than duplicating it.
+concurrency:
+  group: sentry-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    if: ${{ github.repository == 'oxy-hq/oxygen-internal' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Create GitHub App Token
+        id: app-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: code-review-graph diffs against a base, and a shallow
+          # clone makes it report no changes rather than fail.
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      # "What else calls this, and what breaks if I change it" is most of root
+      # cause, and it is the question text search answers worst.
+      - uses: ./.github/actions/claude-search-tools
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      # No dependencies and no install step — the script is stdlib-only `fetch`.
+      - name: Scan Sentry
+        id: scan
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.ADMIN_SENTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/sentry-triage.mjs \
+            --org oxygen-intelligence \
+            --environment "${{ inputs.environment || 'production' }}" \
+            --stats-period "${{ inputs.stats_period || '7d' }}" \
+            --top "${{ inputs.top || '8' }}" \
+            --out .sentry-triage
+          count=$(jq '.candidates | length' .sentry-triage/brief.json)
+          echo "candidates=$count" >> "$GITHUB_OUTPUT"
+          echo "### Sentry scan: $count fix candidates" >> "$GITHUB_STEP_SUMMARY"
+
+      # A quiet week is a success. Skipping the agent here is the difference
+      # between "nothing broke" and an issue asserting that at model prices.
+      - name: Nothing to triage
+        if: steps.scan.outputs.candidates == '0'
+        run: echo "No fix candidates — every unresolved issue was expected client behaviour." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Claude — root-cause each finding, fix what is clear-cut
+        if: steps.scan.outputs.candidates != '0'
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          show_full_output: false
+          prompt: |
+            `.sentry-triage/brief.md` is this week's production Sentry brief. It is
+            already deduplicated, ranked and redacted — do not re-rank it, and do
+            not go looking for more issues. Every finding names the exact
+            `file:line` in this repo that emitted it.
+
+            Write `.sentry-triage/report.md`: the brief, with your analysis folded
+            in. It is filed verbatim as a GitHub issue, so write it for an engineer
+            who has not seen the brief.
+
+            For each finding, in order:
+
+            1. Open the named `file:line` and read enough around it to know what
+               that code path does. Use the knowledge graph to find callers when
+               the emitting line is only where the error surfaced.
+            2. Say what the root cause is — in terms of this code, not in general.
+            3. Classify it as exactly one of:
+               - **Defect** — our code is wrong. Propose the fix.
+               - **Mis-levelled** — the code is right, the logging is not. Say what
+                 level it should be and why.
+               - **Environmental** — an infra or upstream fault. Say what would
+                 have to change, and where (it is probably not this repo).
+               - **Needs investigation** — the code does not settle it. Say what
+                 evidence would, and do not guess.
+            4. If you propose a fix, give the patch inline in the report.
+
+            Judgement calls this data demands — the brief is built around them, so
+            do not undo them:
+
+            - **`level` does not rank severity in this codebase.** Last run's
+              highest-count `error` was a compile-boundary "retry shortly" that
+              resolves itself, while an actual data-loss bug was logged at `info`.
+              Read what the message says happened, never the level.
+            - **A high count is not importance.** One workspace in a retry loop
+              produces hundreds of identical events. Check whether the fields show
+              one workspace or many before calling anything widespread.
+            - A finding whose fix belongs in another repo (airhouse, infrastructure)
+              is still worth reporting. Say so plainly and stop there.
+
+            Then, optionally, fix at most ONE finding in the working tree. Only do
+            this when ALL of these hold — otherwise change no code at all, which is
+            the expected outcome most weeks:
+
+            - it is a **Defect** or a clear **Mis-levelled**, and you are confident;
+            - the fix is **one file**, and small;
+            - it cannot change behaviour for anything but the failing path — no
+              schema, no API shape, no auth, no control flow you have not read.
+
+            If you do, also write `.sentry-triage/fix.md`: what you changed, why it
+            is safe, and how a reviewer can verify it. Do NOT commit, and do NOT
+            edit `.github/`, `.claude/`, `crates/migration/`, or any lockfile — the
+            next step reverts those and your work there is simply lost.
+
+            Nothing is compiled in this job, so a fix you propose is unbuilt. Say
+            so in `fix.md`; CI on the pull request is what checks it.
+
+          claude_args: |
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(jq:*),Bash(ast-grep:*),Bash(git log:*),Bash(git blame:*),Bash(git diff:*),mcp__code-review-graph__query_graph_tool,mcp__code-review-graph__get_impact_radius_tool,mcp__code-review-graph__semantic_search_nodes_tool,mcp__code-review-graph__get_minimal_context_tool"
+
+      # The agent is allowed to edit source and nothing else. Reverting here rather
+      # than trusting the prompt matters for one reason above the rest: the
+      # search-tools step regenerates tracked skills under `.claude/`, so without
+      # this EVERY fix PR would carry unrelated skill churn and read as a much
+      # bigger change than it is.
+      - name: Separate the proposed fix from scratch and churn
+        id: fix
+        if: steps.scan.outputs.candidates != '0'
+        run: |
+          set -euo pipefail
+          # One path at a time, deliberately. `git checkout -- a b c` is atomic:
+          # a single pathspec that matches nothing aborts the whole command and
+          # restores NONE of the others — which, behind a `|| true`, is a guard
+          # that quietly stops guarding. Per-path, a missing one costs only itself.
+          for path in .github .claude crates/migration Cargo.lock pnpm-lock.yaml; do
+            git checkout -- "$path" 2>/dev/null || true
+          done
+          git clean -fdq .github .claude 2>/dev/null || true
+
+          # Tracked modifications only — `git diff --name-only`, not
+          # `git status --porcelain`. A Sentry fix edits code that already
+          # exists, so anything UNTRACKED here is something else that happened
+          # to land in the workspace, and counting it would both fake a fix on a
+          # week with none and let create-pull-request sweep it into the commit.
+          # The exact list is handed to `add-paths` below, so only these files
+          # can ever be committed.
+          mapfile -t changed < <(git diff --name-only)
+          echo "changed files: ${#changed[@]}"
+          if [ "${#changed[@]}" -gt 0 ]; then printf '  %s\n' "${changed[@]}"; fi
+
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "has_fix=false" >> "$GITHUB_OUTPUT"
+            echo "No code change proposed this run — issue only." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # "One file, small" was the instruction. A diff broader than that is the
+          # agent having talked itself into something; drop it and keep the issue,
+          # which still carries the analysis.
+          if [ "${#changed[@]}" -gt 3 ]; then
+            echo "has_fix=false" >> "$GITHUB_OUTPUT"
+            echo "Discarded a ${#changed[@]}-file diff — wider than a single-finding fix should be." >> "$GITHUB_STEP_SUMMARY"
+            git checkout -- .
+            exit 0
+          fi
+
+          echo "has_fix=true" >> "$GITHUB_OUTPUT"
+          {
+            echo 'paths<<PR_PATHS_EOF'
+            printf '%s\n' "${changed[@]}"
+            echo 'PR_PATHS_EOF'
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo 'body<<PR_BODY_EOF'
+            if [ -s .sentry-triage/fix.md ]; then
+              cat .sentry-triage/fix.md
+            else
+              echo "_The agent changed code but left no rationale in \`fix.md\`. Review this diff on its own merits._"
+            fi
+            echo
+            echo "---"
+            echo
+            echo "Proposed by the weekly Sentry production triage — run [\`${GITHUB_RUN_ID}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            echo "**Nothing was compiled in that job**, so this is unbuilt: CI on this PR is the first check it has had."
+            echo 'PR_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: File the triage issue
+        if: steps.scan.outputs.candidates != '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh label create sentry-triage \
+            --color 0E8A16 \
+            --description "Weekly production Sentry triage" \
+            --force >/dev/null 2>&1 || true
+
+          # Prefer the agent's report; fall back to the machine brief. The brief
+          # stands on its own — losing a week because the agent step failed would
+          # be worse than filing an issue with no analysis. Which one was used is
+          # logged, because a silent fallback and a success look identical.
+          body=.sentry-triage/report.md
+          if [ ! -s "$body" ]; then
+            body=.sentry-triage/brief.md
+            echo "::warning::Agent produced no report.md — filing the un-analysed brief."
+            echo "**Filed the raw brief** — the agent step produced no report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          url=$(gh issue create \
+            --title "Sentry production triage — $(date -u +'%Y-%m-%d')" \
+            --body-file "$body" \
+            --label sentry-triage)
+          echo "Filed $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open a draft PR for the proposed fix
+        if: steps.fix.outputs.has_fix == 'true' && inputs.open_pr != 'false'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: sentry-fix/${{ github.run_id }}
+          commit-message: "fix: production error surfaced by weekly Sentry triage"
+          title: "fix: production error surfaced by weekly Sentry triage"
+          body: ${{ steps.fix.outputs.body }}
+          # Commit exactly the files the guard vetted. Without this the action
+          # stages everything, and a stray untracked file rides along.
+          add-paths: ${{ steps.fix.outputs.paths }}
+          draft: true
+          delete-branch: true
+          labels: "automated,sentry-triage"
+
+      # Kept whether or not anything was filed: the brief is the only record of
+      # what production looked like that morning, and Sentry's own retention
+      # window will roll past it.
+      - name: Upload the brief
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry-brief-${{ github.run_id }}
+          path: .sentry-triage/
+          retention-days: 90
+          if-no-files-found: ignore
