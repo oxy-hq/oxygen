@@ -13,7 +13,7 @@ authors = ["oxy engineers"]
 description = "Dev-only dynamic-linking shim: re-exports oxy-app as a dylib so `oxy-server --features dev-dynamic` links the ~1.4 GB of heavy deps once and relinks the binary cheaply on each edit. Never built by normal/release builds."
 edition = "2024"
 publish = false
-rust-version = "1.97.1"
+rust-version = "1.98.1"
 
 # Own (empty) workspace root, so cargo stops walking up here. From a worktree
 # under `.claude/worktrees/` the walk reached the outer checkout's Cargo.toml,

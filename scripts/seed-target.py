@@ -42,7 +42,7 @@ version of this script excluded them on the belief that cargo derives a path
 package's `-C metadata` from its ABSOLUTE path. That is false for crates inside
 the workspace: `SourceId::stable_hash` strips the workspace-root prefix, so the
 hash is workspace-RELATIVE and two checkouts produce byte-identical artifact
-names. (Verified on cargo 1.97.1: the same workspace at two paths emits
+names. (Verified on cargo 1.98.1: the same workspace at two paths emits
 `-C metadata=36fa3f2e909640ae` from both. The absolute path only leaks in for a
 path dependency OUTSIDE the workspace root, where the strip_prefix fails — which
 is what the original experiment must have measured.)
@@ -101,7 +101,9 @@ LOCK_ENTRY = re.compile(r'name = "([^"]+)"\nversion = "([^"]+)"')
 def run_metadata(root):
     out = subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-        cwd=root, capture_output=True, text=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
     )
     if out.returncode != 0:
         sys.exit(f"cargo metadata failed in {root}:\n{out.stderr.strip()}")
@@ -153,7 +155,8 @@ def has_dynamic(checkout, profile):
     # `.dylib` on macOS, `.so` on Linux — check both so `--dynamic` works on either.
     deps = os.path.join(checkout, "target", profile, "deps")
     return any(
-        os.path.isfile(os.path.join(deps, f"liboxy_app_dylib{ext}")) for ext in (".dylib", ".so")
+        os.path.isfile(os.path.join(deps, f"liboxy_app_dylib{ext}"))
+        for ext in (".dylib", ".so")
     )
 
 
@@ -216,7 +219,9 @@ def built_since_seed(checkout, profile, marker, members):
         return ["<marker unreadable>"]
     out = []
     try:
-        units = list(os.scandir(os.path.join(checkout, "target", profile, ".fingerprint")))
+        units = list(
+            os.scandir(os.path.join(checkout, "target", profile, ".fingerprint"))
+        )
     except OSError:
         return out
     for unit in units:
@@ -224,8 +229,11 @@ def built_since_seed(checkout, profile, marker, members):
             continue
         try:
             newest = max(
-                (f.stat().st_mtime for f in os.scandir(unit.path)
-                 if f.name != "invoked.timestamp"),
+                (
+                    f.stat().st_mtime
+                    for f in os.scandir(unit.path)
+                    if f.name != "invoked.timestamp"
+                ),
                 default=0,
             )
         except OSError:
@@ -241,7 +249,9 @@ def first_party_differing(src, dst, rust_files):
     for rel in rust_files:
         s, d = os.path.join(src, rel), os.path.join(dst, rel)
         try:
-            if os.stat(s).st_size != os.stat(d).st_size or not filecmp.cmp(s, d, shallow=False):
+            if os.stat(s).st_size != os.stat(d).st_size or not filecmp.cmp(
+                s, d, shallow=False
+            ):
                 n += 1
         except OSError:
             n += 1
@@ -327,7 +337,9 @@ def repo_identity(checkout):
     """
     out = subprocess.run(
         ["git", "rev-list", "--max-parents=0", "HEAD"],
-        cwd=checkout, capture_output=True, text=True,
+        cwd=checkout,
+        capture_output=True,
+        text=True,
     )
     if out.returncode != 0:
         return None
@@ -414,15 +426,22 @@ def checkout_root(path):
     """
     out = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path,
+        capture_output=True,
+        text=True,
     )
     root = out.stdout.strip()
-    return os.path.abspath(root) if out.returncode == 0 and root else os.path.abspath(path)
+    return (
+        os.path.abspath(root) if out.returncode == 0 and root else os.path.abspath(path)
+    )
 
 
 def git_tracked(checkout):
     out = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=checkout, capture_output=True, text=True,
+        ["git", "ls-files", "-z"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
     )
     if out.returncode != 0:
         return None
@@ -521,7 +540,9 @@ class PathRewriter:
     def __init__(self, src, dst, profile):
         self.prefixes = self._prefixes(src, dst, profile)
         self.marker = f"/target/{profile}/".encode()
-        self.target_repl = os.path.join(os.path.abspath(dst), "target", profile).encode() + b"/"
+        self.target_repl = (
+            os.path.join(os.path.abspath(dst), "target", profile).encode() + b"/"
+        )
 
     @staticmethod
     def _prefixes(src, dst, profile):
@@ -531,8 +552,10 @@ class PathRewriter:
         resolved path rather than the one under the checkout root.
         """
         pairs = [(os.path.abspath(src), os.path.abspath(dst))]
-        real = (os.path.realpath(os.path.join(src, "target", profile)),
-                os.path.realpath(os.path.join(dst, "target", profile)))
+        real = (
+            os.path.realpath(os.path.join(src, "target", profile)),
+            os.path.realpath(os.path.join(dst, "target", profile)),
+        )
         if real[0] != pairs[0][0] and real[0] != real[1]:
             pairs.append(real)
         return [(a.encode(), b.encode()) for a, b in pairs]
@@ -620,17 +643,21 @@ def abort_partial(dst, profile, preexisting, path, err):
             removed.append(sub)
     hint = {
         errno.ENOENT: "the source looks like it is building right now, and seeding needs it "
-                      "settled — let its build finish first",
+        "settled — let its build finish first",
         errno.ENOSPC: "no room left for the copy — build/ alone is ~1.3G per checkout",
         errno.EXDEV: "source and destination are on different filesystems — hardlinks are "
-                     "impossible",
+        "impossible",
     }.get(err.errno)
     if removed:
-        state = (f"rolled back target/{profile}/{{{','.join(removed)}}} — this checkout is "
-                 f"cold again, so re-running the seed is the retry")
+        state = (
+            f"rolled back target/{profile}/{{{','.join(removed)}}} — this checkout is "
+            f"cold again, so re-running the seed is the retry"
+        )
     else:
-        state = (f"target/{profile} predates this run and is left as it is; it now mixes two "
-                 f"seeds — re-run to finish replacing it, or `cargo clean` to start over")
+        state = (
+            f"target/{profile} predates this run and is left as it is; it now mixes two "
+            f"seeds — re-run to finish replacing it, or `cargo clean` to start over"
+        )
     sys.exit(f"failed on {path}: {err}\n" + (f"{hint}\n" if hint else "") + state)
 
 
@@ -638,8 +665,11 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
     src_root = os.path.join(src, "target", profile)
     # Which trees the destination already had, so abort_partial() knows which of
     # them it may remove to undo a failure.
-    preexisting = {sub for sub in SUBTREES
-                   if os.path.exists(os.path.join(dst, "target", profile, sub))}
+    preexisting = {
+        sub
+        for sub in SUBTREES
+        if os.path.exists(os.path.join(dst, "target", profile, sub))
+    }
     rewriter = PathRewriter(src, dst, profile)
     linked = copied = rewritten = skipped = 0
     started = time.time()
@@ -659,19 +689,27 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
             continue
         for cur, dirs, files in os.walk(src_dir):
             # .fingerprint holds one directory per unit; drop workspace units wholesale
-            if sub == ".fingerprint" and not share_workspace and is_workspace_unit(
-                os.path.basename(cur), members
+            if (
+                sub == ".fingerprint"
+                and not share_workspace
+                and is_workspace_unit(os.path.basename(cur), members)
             ):
                 dirs[:] = []
                 skipped += 1
                 continue
-            dst_dir = os.path.join(dst, "target", profile, sub, os.path.relpath(cur, src_dir))
+            dst_dir = os.path.join(
+                dst, "target", profile, sub, os.path.relpath(cur, src_dir)
+            )
             try:
                 os.makedirs(dst_dir, exist_ok=True)
             except OSError as err:
                 abort_partial(dst, profile, preexisting, dst_dir, err)
             for name in files:
-                if sub == "deps" and not share_workspace and is_workspace_artifact(name, members):
+                if (
+                    sub == "deps"
+                    and not share_workspace
+                    and is_workspace_artifact(name, members)
+                ):
                     skipped += 1
                     continue
                 s, d = os.path.join(cur, name), os.path.join(dst_dir, name)
@@ -693,7 +731,9 @@ def seed(src, dst, profile, members, share_workspace, replace=False):
                     elif sub == "build" and rewriter.copy(s, d):
                         rewritten += 1
                     else:
-                        shutil.copy2(s, d)  # copy2 keeps mtime — cargo fingerprints need it
+                        shutil.copy2(
+                            s, d
+                        )  # copy2 keeps mtime — cargo fingerprints need it
                         copied += 1
                 except OSError as err:
                     abort_partial(dst, profile, preexisting, s, err)
@@ -723,26 +763,35 @@ def dst_target_device_path(dst, profile):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("source", nargs="?", help="warm checkout to seed from (default: auto-pick)")
-    ap.add_argument("--dest", default=os.getcwd(), help="checkout to seed (default: cwd)")
-    ap.add_argument("--profile", default="debug", help="target subdirectory (default: debug)")
     ap.add_argument(
-        "--no-workspace-crates", action="store_true",
+        "source", nargs="?", help="warm checkout to seed from (default: auto-pick)"
+    )
+    ap.add_argument(
+        "--dest", default=os.getcwd(), help="checkout to seed (default: cwd)"
+    )
+    ap.add_argument(
+        "--profile", default="debug", help="target subdirectory (default: debug)"
+    )
+    ap.add_argument(
+        "--no-workspace-crates",
+        action="store_true",
         help="seed third-party artifacts only, and skip mtime normalization (the pre-2026-08 "
-             "behaviour, kept for A/B measurement)",
+        "behaviour, kept for A/B measurement)",
     )
     ap.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="seed over a destination that compiled artifacts of its own, replacing them "
-             "(see the warning this bypasses — it can produce a stale build). Not needed to "
-             "re-seed a tree that only ever held seeded artifacts; that is automatic.",
+        "(see the warning this bypasses — it can produce a stale build). Not needed to "
+        "re-seed a tree that only ever held seeded artifacts; that is automatic.",
     )
     ap.add_argument(
-        "--dynamic", action="store_true",
+        "--dynamic",
+        action="store_true",
         help="prefer a source that has the dev-dynamic dylib built, so a "
-             "`cargo build --features dev-dynamic` (`just build-backend-dyn`) in the destination "
-             "reuses the seeded ~1.4 GB dylib instead of paying the ~20 min link. Warns if the "
-             "chosen source lacks it. Only a tie-break — never seeds a worse dep/source match.",
+        "`cargo build --features dev-dynamic` (`just build-backend-dyn`) in the destination "
+        "reuses the seeded ~1.4 GB dylib instead of paying the ~20 min link. Warns if the "
+        "chosen source lacks it. Only a tie-break — never seeds a worse dep/source match.",
     )
     args = ap.parse_args()
 
@@ -765,7 +814,9 @@ def main():
     marker = read_marker(dst, args.profile)
     replace = args.force
     if has_artifacts(dst, args.profile) and not args.force:
-        self_built = built_since_seed(dst, args.profile, marker, members) if marker else None
+        self_built = (
+            built_since_seed(dst, args.profile, marker, members) if marker else None
+        )
         if marker is None:
             sys.exit(
                 f"{dst} already has target/{args.profile} artifacts of its own.\n"
