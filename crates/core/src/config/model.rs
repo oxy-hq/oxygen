@@ -86,8 +86,23 @@ pub enum BuilderAgentConfig {
 pub struct Config {
     #[garde(dive)]
     pub defaults: Option<Defaults>,
+    // Both default to empty, like `integrations` below. Without it `serde`
+    // makes them REQUIRED keys, and because the struct is
+    // `deny_unknown_fields` a `config.yml` that simply has nothing to declare
+    // — a workspace with only integrations, or only databases — fails to parse
+    // as a whole. `storage.rs` then continues with `Config::default()`, so one
+    // absent key silently discards every integration, database and model the
+    // file DID declare, and it resurfaces downstream as "not configured",
+    // reading as the customer's mistake. Seen in production as
+    // "config.yml is present but does not parse" / missing field `models`.
+    //
+    // Empty is a valid value for both, not a placeholder: `validate_models`
+    // iterates and `#[garde(dive)]` descends, so neither validator has
+    // anything to object to.
+    #[serde(default)]
     #[garde(custom(validate_models))]
     pub models: Vec<Model>,
+    #[serde(default)]
     #[garde(dive)]
     pub databases: Vec<Database>,
     #[garde(skip)]
@@ -3088,6 +3103,31 @@ fn default_consistency_concurrency() -> usize {
 #[cfg(test)]
 mod tests {
     use schemars::schema_for;
+
+    /// A `config.yml` that declares neither models nor databases still parses.
+    ///
+    /// Both were REQUIRED keys until this test existed, and `Config` is
+    /// `deny_unknown_fields`, so their absence failed the whole document —
+    /// `storage.rs` then continued with an empty `Config`, silently ignoring
+    /// every integration the file DID declare, and the workspace resurfaced
+    /// downstream as "not configured". Production reported it as
+    /// "config.yml is present but does not parse": missing field `models`.
+    #[test]
+    fn a_config_without_models_or_databases_parses() {
+        use super::Config;
+        let yaml = r#"
+integrations:
+  - name: toast
+    type: toast
+    webhook_secret_var: TOAST_WEBHOOK_SECRET
+"#;
+        let config: Config =
+            serde_yaml::from_str(yaml).expect("a config declaring no models must still parse");
+        assert!(config.models.is_empty());
+        assert!(config.databases.is_empty());
+        // The whole point: what the file did declare survives.
+        assert_eq!(config.integrations.len(), 1);
+    }
 
     /// The webhook `toast` integration keeps its original shape — adding the
     /// separate `toast_analytics` type must not have touched it.

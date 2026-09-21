@@ -274,6 +274,16 @@ impl Coordinator {
                 error = %msg,
                 "agentic task stopped to ask the user for input"
             );
+        } else if is_pending_compile(&msg) {
+            tracing::warn!(
+                target: "coordinator",
+                task_id,
+                run_id,
+                task_kind = %task_kind,
+                parent_task_id,
+                error = %msg,
+                "agentic task failed while the workspace was still compiling"
+            );
         } else {
             tracing::error!(
                 target: "coordinator",
@@ -561,9 +571,29 @@ fn is_user_input_request(msg: &str) -> bool {
     msg.contains("NeedsUserInput {")
 }
 
+/// Is this failure a stateless replica answering "not compiled yet"?
+///
+/// `ScanUnavailable` (`oxy_app::server::api::semantic`) states this condition as
+/// explicitly retryable — every variant of its message ends "a (re)compile has
+/// been enqueued" — and that queued compile clears it with nobody touching
+/// anything. `router::recovery` already logs the very same `ScanUnavailable` at
+/// WARN for the health eval; the coordinator was the one place that called it an
+/// error.
+///
+/// Only the level changes. The run still failed, so `emit_task_failed` and the
+/// retry/fallback decision below are untouched — an outcome that heals itself is
+/// just not one to page on.
+///
+/// It was the loudest ERROR in production by a wide margin: 993 events in the
+/// week to 2026-09-21, ~4x the next distinct fault, and a single workspace
+/// retrying produced nearly all of them.
+fn is_pending_compile(msg: &str) -> bool {
+    msg.contains("a (re)compile has been enqueued")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_user_input_request;
+    use super::{is_pending_compile, is_user_input_request};
 
     #[test]
     fn a_needs_user_input_failure_is_recognised() {
@@ -576,5 +606,29 @@ mod tests {
     fn other_failures_are_not() {
         assert!(!is_user_input_request(r#"fatal: LlmError("rate limited")"#));
         assert!(!is_user_input_request("worker panicked"));
+    }
+
+    /// Both `ScanUnavailable` variants, verbatim from `semantic.rs` — the
+    /// working-copy-refused one wraps the marker across source lines there, so
+    /// only the built string proves the match holds.
+    #[test]
+    fn a_pending_compile_is_recognised() {
+        assert!(is_pending_compile(
+            "workspace 0effae8f-c261-4cd3-afb5-865867b8a999 has no compiled semantic model \
+             available on this stateless replica; a (re)compile has been enqueued — retry shortly"
+        ));
+        assert!(is_pending_compile(
+            "workspace 0effae8f-c261-4cd3-afb5-865867b8a999 has no compiled semantic model; \
+             this check reads the promoted revision only and will not fall back to a working \
+             copy — a (re)compile has been enqueued"
+        ));
+    }
+
+    #[test]
+    fn a_real_compile_failure_is_not_a_pending_compile() {
+        assert!(!is_pending_compile(
+            r#"fatal: CompileError("models/orders.view.yml: missing field `dimensions`")"#
+        ));
+        assert!(!is_pending_compile("worker panicked"));
     }
 }

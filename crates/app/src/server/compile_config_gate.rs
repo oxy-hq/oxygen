@@ -148,12 +148,38 @@ databases: []
         );
     }
 
-    /// A genuinely broken config (missing the required `models` key) is also
-    /// rejected — the gate is a faithful stand-in for the runtime parse.
+    /// A genuinely broken config is still rejected — the gate is a faithful
+    /// stand-in for the runtime parse.
+    ///
+    /// This used to prove that with an omitted `models` key, which stopped
+    /// being broken when `models` and `databases` gained `#[serde(default)]`:
+    /// a workspace that declares neither is valid now, and the gate is right to
+    /// accept it (pinned in the test below). The property here is unchanged —
+    /// a config the runtime cannot parse must fail the compile rather than 503
+    /// the fleet — so it needs an input that is still unparseable, and a
+    /// `models` that is not a sequence is one.
     #[test]
     fn gate_rejects_structurally_invalid_config() {
-        // `databases` present but `models` (no serde default) omitted.
-        let cfg = build_compiled_config(serde_json::json!({ "databases": [] }), None).unwrap();
-        assert!(RuntimeConfigGate.check(&cfg).is_err());
+        let cfg =
+            build_compiled_config(serde_json::json!({ "models": "not-a-sequence" }), None).unwrap();
+        assert!(
+            RuntimeConfigGate.check(&cfg).is_err(),
+            "a `models` that is not a sequence must fail the compile, not 503 the fleet"
+        );
+    }
+
+    /// The other half of that change: a `config.yml` declaring neither `models`
+    /// nor `databases` now parses, so the gate must NOT reject it.
+    ///
+    /// Worth its own test because the failure it guards is silent in both
+    /// directions — without it the serde defaults could be reverted and every
+    /// remaining test would still pass, while the workspaces this PR unbroke
+    /// would go back to compiling into an empty config.
+    #[test]
+    fn gate_accepts_a_config_declaring_neither_models_nor_databases() {
+        let cfg = build_compiled_config(serde_json::json!({}), None).unwrap();
+        RuntimeConfigGate
+            .check(&cfg)
+            .expect("a config with nothing to declare must compile");
     }
 }

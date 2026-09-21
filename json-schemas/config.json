@@ -2,10 +2,6 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Config",
   "type": "object",
-  "required": [
-    "databases",
-    "models"
-  ],
   "properties": {
     "base_branch": {
       "description": "Branch that new worktrees fork from when saving on a protected branch. Defaults to the currently checked-out branch (usually the default branch) when not set.  Use this when Oxy serves from a \"deployment\" branch but new work should fork from an \"integration\" branch (e.g. serve from `deploy`, fork new work from `main`).\n\nExample config.yml: base_branch: main",
@@ -25,6 +21,7 @@
       ]
     },
     "databases": {
+      "default": [],
       "type": "array",
       "items": {
         "$ref": "#/definitions/Database"
@@ -70,6 +67,7 @@
       ]
     },
     "models": {
+      "default": [],
       "type": "array",
       "items": {
         "$ref": "#/definitions/Model"

@@ -1091,4 +1091,33 @@ mod scan_source_tests {
              airlayer reports an empty layer and the caller blames the workspace"
         );
     }
+
+    /// Every variant of the message keeps the phrase the agentic coordinator
+    /// matches on.
+    ///
+    /// `agentic_runtime::…::coordinator::outcomes::is_pending_compile` demotes
+    /// this failure from ERROR to WARN by substring, because the formatted
+    /// string is all a domain-agnostic runtime ever receives — and
+    /// `agentic-runtime` may not depend on this crate, so the two cannot share
+    /// a const. That leaves the coupling invisible from the other side: reword
+    /// either arm without this phrase and nothing fails, while the coordinator
+    /// quietly goes back to reporting a self-healing retry as the loudest
+    /// ERROR in production (993 events in the week to 2026-09-21). This test is
+    /// the thing that fails instead.
+    #[test]
+    fn both_messages_carry_the_pending_compile_marker() {
+        const MARKER: &str = "a (re)compile has been enqueued";
+        for compiled_only in [false, true] {
+            let message = ScanUnavailable {
+                workspace_id: Uuid::nil(),
+                compiled_only,
+            }
+            .message();
+            assert!(
+                message.contains(MARKER),
+                "the compiled_only={compiled_only} message no longer contains {MARKER:?}, so \
+                 the coordinator will log it at ERROR again: {message}"
+            );
+        }
+    }
 }
