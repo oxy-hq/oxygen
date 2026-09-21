@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   Building2,
   FolderOpen,
   Handshake,
@@ -25,8 +26,10 @@ import { useExplorerRuns, useExplorerThreads } from "@/hooks/api/adminExplorer";
 import { useAdminOrgsList } from "@/hooks/api/adminTenants/useAdminOrgs";
 import { useAdminUsersList } from "@/hooks/api/adminTenants/useAdminUsers";
 import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
+import { ADMIN_APP_PAGE_SIZE, useAdminApps } from "@/hooks/api/customApps/useCustomApps";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import ROUTES from "@/libs/utils/routes";
+import { matchesQuery } from "@/pages/admin/AdminCustomApps/appStatus";
 import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable } from "../AdminLayout/adminNav";
 
 /**
@@ -40,6 +43,15 @@ import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable } from "../AdminLayout/admin
  * quickly distinguish entity types when results are crowded. The trigger
  * pill is the visible affordance; the dialog opens on click or on Cmd+K.
  */
+/**
+ * Event name a surface dispatches to open the one admin palette. Exported so the caller
+ * and the listener cannot drift on the string.
+ */
+export const ADMIN_PALETTE_OPEN = "admin-palette:open";
+
+/** Open the admin palette from anywhere, without a second ⌘K binding. */
+export const openAdminPalette = () => window.dispatchEvent(new CustomEvent(ADMIN_PALETTE_OPEN));
+
 export const AdminEntitySearch = () => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -72,6 +84,15 @@ export const AdminEntitySearch = () => {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // One palette, one shortcut. A surface that wants to offer its own "jump to…" button
+  // dispatches this instead of binding ⌘K a second time — the apps console did, and two
+  // dialogs opened stacked on one keypress, each filtering its own half of the results.
+  useEffect(() => {
+    const onOpenRequest = () => setOpen(true);
+    window.addEventListener(ADMIN_PALETTE_OPEN, onOpenRequest);
+    return () => window.removeEventListener(ADMIN_PALETTE_OPEN, onOpenRequest);
+  }, []);
+
   // Reset query on close so the next open starts clean.
   useEffect(() => {
     if (!open) setQuery("");
@@ -84,6 +105,27 @@ export const AdminEntitySearch = () => {
   const orgsQuery = useAdminOrgsList({ search: query }, { enabled: open });
   const usersQuery = useAdminUsersList({ search: query }, { enabled: open });
   const workspacesQuery = useAdminWorkspacesList({ search: query }, { enabled: open });
+  // Custom apps. The registry is small (dozens to low hundreds) and already cached by
+  // the apps console, which asks for the same page size — hence the shared constant:
+  // `pageSize` is part of the query key, so two call sites disagreeing by a digit would
+  // silently make this a second full fetch instead of a cache hit.
+  const appsQuery = useAdminApps(ADMIN_APP_PAGE_SIZE, { enabled: open });
+  // Walk the rest of the registry while the palette is open, like the fleet list and
+  // the access pane do. Without this the group held whatever the shared query key
+  // happened to have cached — the whole registry on /admin/apps*, where
+  // `useAdminAppRegistry` walks it, but only page 1 anywhere else. This palette is
+  // mounted in `AdminTopbar` on EVERY admin page, so from /admin/orgs the exact name of
+  // app 101 found nothing: the same failure the group comment below says it fixed,
+  // surviving at the page boundary instead of the 6-row slice.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, error: appsError } = appsQuery;
+  useEffect(() => {
+    // `!appsError` for the same reason the registry hook stops: `hasNextPage` is
+    // recomputed from the last successful page, so without it a failing page is retried
+    // in a loop for as long as the palette stays open.
+    if (open && hasNextPage && !isFetchingNextPage && !appsError) {
+      fetchNextPage({ cancelRefetch: false });
+    }
+  }, [open, hasNextPage, isFetchingNextPage, fetchNextPage, appsError]);
   // Only search threads/runs once the operator has typed something — an
   // unfiltered cross-tenant scan on every palette-open isn't worth the round
   // trip.
@@ -93,6 +135,16 @@ export const AdminEntitySearch = () => {
   const orgs = useMemo(() => orgsQuery.data?.slice(0, 6) ?? [], [orgsQuery.data]);
   const users = useMemo(() => usersQuery.data?.slice(0, 6) ?? [], [usersQuery.data]);
   const workspaces = useMemo(() => workspacesQuery.data?.slice(0, 6) ?? [], [workspacesQuery.data]);
+  // Filter BEFORE slicing. Every other group here passes `search` to its endpoint and
+  // gets back rows already narrowed; `useAdminApps` has no such param, so slicing first
+  // handed cmdk the six most-recently-updated apps and nothing else — typing the exact
+  // name of a seventh app found nothing, on a palette whose trigger reads "Switch app".
+  // `matchesQuery` is the registry's own matcher (name, slug, org, and `org/slug`), so
+  // the palette and the fleet's search agree on what counts as a match.
+  const apps = useMemo(() => {
+    const all = appsQuery.data?.pages.flatMap((p) => p.items) ?? [];
+    return (query ? all.filter((a) => matchesQuery(a, query)) : all).slice(0, 6);
+  }, [appsQuery.data, query]);
   const threads = useMemo(() => threadsQuery.data?.items.slice(0, 6) ?? [], [threadsQuery.data]);
   const runs = useMemo(() => runsQuery.data?.items.slice(0, 6) ?? [], [runsQuery.data]);
 
@@ -131,7 +183,11 @@ export const AdminEntitySearch = () => {
         description='Jump to a page, or find an org, user, workspace, thread or run across the deployment.'
       >
         <CommandInput
-          placeholder='Go to a page, or search orgs, users, workspaces…'
+          // Apps are named first because the apps console's own trigger reads
+          // "Switch app" and opens *this* palette — a placeholder that listed
+          // everything except apps left that button promising a thing the dialog
+          // it opened never mentioned.
+          placeholder='Go to a page, or search apps, orgs, users, workspaces…'
           value={query}
           onValueChange={setQuery}
         />
@@ -160,6 +216,29 @@ export const AdminEntitySearch = () => {
                     <span className='flex-1 truncate'>{item.label}</span>
                     <span className='text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
                       {ADMIN_NAV_GROUPS[item.group]}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+              <CommandSeparator />
+            </>
+          ) : null}
+
+          {apps.length > 0 ? (
+            <>
+              <CommandGroup heading='Custom apps'>
+                {apps.map((a) => (
+                  <CommandItem
+                    key={`app-${a.id}`}
+                    // Name alone does not identify an app — `oxy-starter` exists under
+                    // two orgs — so every way of referring to it is searchable.
+                    value={`app ${a.name} ${a.org_slug} ${a.slug} ${a.org_slug}/${a.slug}`}
+                    onSelect={() => go(`/admin/apps/${a.org_slug}/${a.slug}`)}
+                  >
+                    <AppWindow className='size-4 text-muted-foreground' />
+                    <span className='flex-1 truncate'>{a.name}</span>
+                    <span className='font-mono text-[11px] text-muted-foreground'>
+                      {a.org_slug}/{a.slug}
                     </span>
                   </CommandItem>
                 ))}

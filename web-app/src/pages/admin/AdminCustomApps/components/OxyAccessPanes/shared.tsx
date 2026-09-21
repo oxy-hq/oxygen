@@ -1,4 +1,3 @@
-import { isAxiosError } from "axios";
 import { Check, type LucideIcon, ShieldCheck, Terminal } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
@@ -11,7 +10,7 @@ import {
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
-import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AllowListError } from "@/pages/admin/AdminCustomApps/AllowListError";
 
 export function formatGrantedAt(iso: string): string {
   const d = new Date(iso);
@@ -215,32 +214,12 @@ export const EmptyHint = ({ title, body }: { title: string; body: string }) => (
 );
 
 /**
- * 403-aware error block matching the Apps tab's allow-list message.
+ * The allow-list error, for the Oxy-access panes.
  *
- * The allow-list case keeps its own copy — it names the one thing the operator can
- * fix themselves. Every other failure goes through `AdminAsync`, which prints the
- * server's own message and offers the Retry this block never had.
+ * Delegates to the one copy in `AdminCustomApps/AllowListError`. This used to be a
+ * second, hand-maintained copy whose doc claimed it matched "the Apps tab's allow-list
+ * message" — which was true until that message was deleted, and then quietly was not.
  */
-export const GrantsError = ({ error, onRetry }: { error: unknown; onRetry: () => void }) =>
-  isAxiosError(error) && error.response?.status === 403 ? (
-    <div className='mx-auto max-w-2xl p-6'>
-      <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
-        <p className='font-medium text-destructive text-xs'>
-          Your account isn't on the custom-apps allow list.
-        </p>
-        <p className='mt-2 text-muted-foreground text-xs'>
-          Add your email to the oxy backend's{" "}
-          <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> and
-          refresh.
-        </p>
-      </div>
-    </div>
-  ) : (
-    <AdminAsync
-      className='mx-auto max-w-2xl p-6'
-      query={{ isError: true, data: undefined, error, refetch: onRetry }}
-      noun='Oxy-access grants'
-    >
-      {() => null}
-    </AdminAsync>
-  );
+export const GrantsError = ({ error, onRetry }: { error: unknown; onRetry: () => void }) => (
+  <AllowListError error={error} onRetry={onRetry} noun='Oxy-access grants' />
+);

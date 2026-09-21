@@ -45,19 +45,42 @@ export const useUnpublishApp = () => {
 };
 
 /**
+ * The page size every admin surface asks for.
+ *
+ * `pageSize` is part of the query key, so two call sites differing by a digit are two
+ * separate caches and two separate walks of the registry. The apps console and the
+ * admin palette share this so that the palette is a cache hit rather than a second
+ * fetch — which the palette's comment claimed before the number was shared.
+ */
+export const ADMIN_APP_PAGE_SIZE = 100;
+
+/**
  * Paged admin list of custom apps, ordered by `updated_at` DESC so
  * the first page is the recently-active set — what staff usually
  * want when they open the admin. Additional pages walk back in time
- * via the server-returned `next_offset`; we only fetch more when the
- * user explicitly asks (no infinite-scroll auto-prefetch).
+ * via the server-returned `next_offset`.
+ *
+ * Every caller walks every page in an effect — the fleet list, the access pane and
+ * (while it is open) the admin palette all filter or sort across the whole registry, so
+ * a first page would give each of them a wrong answer rather than a partial one. The
+ * palette was the exception until it was not: it read whatever the shared key happened
+ * to hold, which is everything on /admin/apps* and page one elsewhere. (This doc also
+ * said "we only fetch more when the user explicitly asks" long after that stopped being
+ * true — a claim here is load-bearing, because it is what a new call site copies.)
+ * Callers must therefore treat `isLoading` as first-page-only and wait on
+ * `useAdminAppRegistry`'s `isWalking` before concluding an app does not exist.
  */
-export const useAdminApps = (pageSize = 50) =>
+export const useAdminApps = (pageSize = 50, options: { enabled?: boolean } = {}) =>
   useInfiniteQuery({
     queryKey: [...queryKeys.customApps.all(), { pageSize }],
     queryFn: ({ pageParam }) =>
       CustomAppsService.list({ limit: pageSize, offset: pageParam as number }),
     initialPageParam: 0,
-    getNextPageParam: (last) => last.next_offset
+    getNextPageParam: (last) => last.next_offset,
+    // The admin palette mounts on every admin page but only searches while open, so it
+    // gates the registry rather than fetching it behind nine surfaces that never show it.
+    // Defaulted on: every existing call site is unchanged.
+    enabled: options.enabled ?? true
   });
 
 /**

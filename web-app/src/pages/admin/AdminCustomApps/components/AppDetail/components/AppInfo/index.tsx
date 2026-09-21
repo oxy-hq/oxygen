@@ -11,7 +11,7 @@ import { cn } from "@/libs/shadcn/utils";
 import { resolveBundleUrl } from "@/pages/admin/AdminCustomApps/resolveBundleUrl";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { CustomApp } from "@/types/apps";
-import { CopyButton } from "../../../AppsTable/components/UrlActions";
+import { CopyButton } from "../../../UrlActions";
 
 /**
  * Diagnostics dossier for the selected app: what oxy currently resolves (the

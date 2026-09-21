@@ -113,7 +113,8 @@ export function readAppViewState(
  * Dropping matters more than it looks: without it, every visit accumulates
  * `?device=desktop&channel=published`, and the URL an operator copies is noise
  * around the one param they actually changed. It also keeps the *table's* own
- * params (filter, sort, group — `useAppsTable` owns those on the same string)
+ * params (filter, sort, group — which `useAppsTable` owned on the same string,
+ * until this surface stopped having a table at all)
  * untouched, so leaving the detail returns to the list the operator left.
  */
 export function writeAppViewState(

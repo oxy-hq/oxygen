@@ -8,7 +8,7 @@ import {
   SelectValue
 } from "@/components/ui/shadcn/select";
 import { useAllAdminOrgs } from "@/hooks/api/adminTenants/useAdminOrgs";
-import { useAdminApps } from "@/hooks/api/customApps/useCustomApps";
+import { ADMIN_APP_PAGE_SIZE, useAdminApps } from "@/hooks/api/customApps/useCustomApps";
 import { useOxyAccessGrants } from "@/hooks/api/customApps/useOxyAccessGrants";
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
@@ -73,11 +73,17 @@ export const AccessPane = () => {
     data: appPages,
     hasNextPage: hasMoreApps,
     isFetchingNextPage: fetchingApps,
-    fetchNextPage: fetchMoreApps
-  } = useAdminApps(100);
+    fetchNextPage: fetchMoreApps,
+    error: appsError
+  } = useAdminApps(ADMIN_APP_PAGE_SIZE);
   useEffect(() => {
-    if (hasMoreApps && !fetchingApps) fetchMoreApps();
-  }, [hasMoreApps, fetchingApps, fetchMoreApps]);
+    // `!appsError` for the same reason as the registry hook and the palette: once a page
+    // fails, `hasNextPage` is still true (recomputed from the last successful page), so
+    // an unguarded effect re-fires forever and retries a dead page in a loop. This one
+    // is pre-existing rather than introduced here, but it is the same bug in the same
+    // shape, in a file this change already touches.
+    if (hasMoreApps && !fetchingApps && !appsError) fetchMoreApps();
+  }, [hasMoreApps, fetchingApps, fetchMoreApps, appsError]);
   const appsByOrg = useMemo(() => {
     const map = new Map<string, CustomApp[]>();
     for (const a of appPages?.pages.flatMap((p) => p.items) ?? []) {

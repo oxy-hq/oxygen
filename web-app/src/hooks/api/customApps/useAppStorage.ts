@@ -9,10 +9,16 @@ import queryKeys from "../queryKey";
  * one sweep interval stale — the UI shows `measuredAt` rather than implying
  * these are live numbers.
  */
-export const useFleetStorage = (sort: "bytes" | "growth" | "untagged" = "bytes") =>
+export const useFleetStorage = (
+  sort: "bytes" | "growth" | "untagged" = "bytes",
+  options: { enabled?: boolean } = {}
+) =>
   useQuery({
     queryKey: queryKeys.customApps.storageFleet(sort),
-    queryFn: () => CustomAppStorageService.fleet(sort)
+    queryFn: () => CustomAppStorageService.fleet(sort),
+    // Gated because the fleet list wants this and a single app's console does not —
+    // an ungated fleet rollup fires a full sweeper read on every app page view.
+    enabled: options.enabled ?? true
   });
 
 /**

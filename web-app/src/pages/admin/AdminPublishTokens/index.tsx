@@ -38,7 +38,7 @@ const DESCRIPTION = (
   </>
 );
 
-export default function AdminPublishTokens({ embedded = false }: { embedded?: boolean } = {}) {
+export default function AdminPublishTokens() {
   // Deliberately the whole query, not `data: tokens = []`: that default made a failed
   // fetch render as "No publish tokens yet.", which reads as "your CI credential was
   // revoked" on the one page that would tell you otherwise.
@@ -141,19 +141,13 @@ export default function AdminPublishTokens({ embedded = false }: { embedded?: bo
 
   // Embedded, this page IS the "Tokens" tab inside Custom apps: that surface already
   // owns the frame and the heading, so no AdminPage here — the branch is unchanged.
-  if (embedded) {
-    return (
-      <div className='mx-auto max-w-3xl p-6'>
-        <div className='mb-6'>
-          <p className='text-muted-foreground text-xs'>{DESCRIPTION}</p>
-        </div>
-        {body}
-      </div>
-    );
-  }
-
-  // `space-y-0`: the create-token card and CiInstructions carry their own `mb-6`,
-  // which the embedded branch above depends on, so the kit's rhythm would stack.
+  // `space-y-0`: the create-token card and CiInstructions carry their own `mb-6`, so
+  // the kit's rhythm would stack on top of it.
+  //
+  // There used to be an `embedded` branch above this, for when these tokens rendered
+  // as a tab inside Custom apps. That tab is gone and nothing embeds this any more, so
+  // the prop went with it rather than staying as a dead branch that still runs in CI.
+  // The page is reached from the app console's Publishing & CI panel.
   return (
     <AdminPage
       width='narrow'

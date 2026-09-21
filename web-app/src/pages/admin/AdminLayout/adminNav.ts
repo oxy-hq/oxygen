@@ -146,8 +146,12 @@ export const ADMIN_NAV: AdminNavItem[] = [
     capability: "manage_apps",
     group: "operations"
   },
-  // Publish tokens now lives as a tab inside Custom apps (/admin/apps?view=tokens),
-  // not its own nav item — it's part of shipping apps, not a separate surface.
+  // Publish tokens has no nav item: it is part of shipping apps, not a separate
+  // surface. It used to be a tab inside Custom apps (`/admin/apps?view=tokens`); that
+  // tab is gone, and the path to `/admin/publish-tokens` is now the token count in the
+  // app console's Publishing & CI panel. If that link goes, so does the only way in —
+  // the rail and the ⌘K palette both build from this list, so an omission here is not
+  // "hidden", it is unreachable.
   {
     to: ROUTES.ADMIN.WORKSPACE_HEALTH,
     label: "Workspace health",
@@ -287,7 +291,8 @@ export function firstReachableAdminRoute(standing: Standing): string {
 
 /**
  * Pages that have a title but no rail entry: the flat directories the tenants surface
- * links down into, and Publish tokens, which lives as a tab inside Custom apps.
+ * links down into, and Publish tokens, which is reached from the app console's
+ * Publishing & CI panel.
  */
 const UNLISTED_TITLES: Record<string, string> = {
   // The console home. Deliberately not a rail entry — the rail's logo is its affordance.
@@ -359,7 +364,8 @@ export function adminPageGroup(pathname: string, search = ""): AdminNavGroup | n
   const unlisted = Object.keys(UNLISTED_TITLES)
     .filter((p) => p !== ROUTES.ADMIN.ROOT && within(p))
     .sort((a, b) => b.length - a.length)[0];
-  // Publish tokens is a tab inside Custom apps, not a tenant directory; the home is not
-  // a tenant page either, and being every path's prefix it would claim all of them.
+  // Publish tokens belongs to shipping apps, not to the tenant directories; the home is
+  // not a tenant page either, and being every path's prefix it would claim all of them.
+  // (The reason changed when the tab went; the exclusion did not.)
   return unlisted && unlisted !== ROUTES.ADMIN.PUBLISH_TOKENS ? "tenants" : null;
 }

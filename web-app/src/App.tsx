@@ -145,6 +145,9 @@ const AdminAppAdmins = React.lazy(() => import("./pages/admin/AdminAppAdmins"));
 const AdminPublishTokens = React.lazy(() => import("./pages/admin/AdminPublishTokens"));
 const AdminCustomApps = React.lazy(() => import("./pages/admin/AdminCustomApps"));
 const AppDossierWindow = React.lazy(() => import("./pages/admin/AdminCustomApps/AppDossierWindow"));
+const AppsStorageAudit = React.lazy(() => import("./pages/admin/AdminCustomApps/StorageAudit"));
+const AppsAccessAudit = React.lazy(() => import("./pages/admin/AdminCustomApps/AccessAudit"));
+const AppsPreviewStage = React.lazy(() => import("./pages/admin/AdminCustomApps/AppPreviewStage"));
 // Tenant-management admin surfaces (OXY_OWNER-only). Lazy-loaded alongside
 // the rest of admin since most users never visit /admin/* at all.
 const AdminTenants = React.lazy(() => import("./pages/admin/AdminTenants"));
@@ -630,13 +633,24 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/app-admins' element={<AdminAppAdmins />} />
             {/* ROUTES.ADMIN.PUBLISH_TOKENS — open to any Global Admin */}
             <Route path='admin/publish-tokens' element={<AdminPublishTokens />} />
-            {/* Customer-apps admin is mounted at /admin/apps (canonical
-                ROUTES.ADMIN.CUSTOMER_APPS in libs/utils/routes.ts) with an
-                optional master-detail tail. AdminCustomApps reads
-                :orgSlug + :appSlug from useParams to pre-select the detail
-                pane; the bare /admin/apps lands on the list-only state. */}
+            {/* Custom apps. `/admin/apps` is the fleet — every app, worst first;
+                `/admin/apps/:orgSlug/:appSlug` is one app's console. The bare
+                route briefly redirected to whichever app most needed a person,
+                which decided for the operator and hid everything it did not
+                choose; the ordering survived that, the redirect did not.
+
+                The three tails are escape hatches, deliberately routed rather than
+                made tabs: `storage` (retention across the whole fleet), `access`
+                (which orgs have locked Oxy staff out), and `preview` (the full
+                interactive stage — device frames, channel toggle, and the request
+                log that is the only place the product shows what a custom app
+                calls). Four tabs over four object types is the shape this
+                redesign removed; a tab is how it grew them. */}
             <Route path='admin/apps' element={<AdminCustomApps />} />
+            <Route path='admin/apps/storage' element={<AppsStorageAudit />} />
+            <Route path='admin/apps/access' element={<AppsAccessAudit />} />
             <Route path='admin/apps/:orgSlug/:appSlug' element={<AdminCustomApps />} />
+            <Route path='admin/apps/:orgSlug/:appSlug/preview' element={<AppsPreviewStage />} />
             {/* Tenant-management surfaces — list + master/detail via :id tail. */}
             <Route path='admin/tenants' element={<AdminTenantsCockpit />} />
             <Route path='admin/tenants/overview' element={<AdminTenants />} />

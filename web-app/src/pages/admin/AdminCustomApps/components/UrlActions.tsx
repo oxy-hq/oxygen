@@ -2,7 +2,16 @@ import { Check, Copy, ExternalLink, Link2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/libs/shadcn/utils";
-import { resolveBundleUrl } from "../../../resolveBundleUrl";
+import { resolveBundleUrl } from "../resolveBundleUrl";
+
+/**
+ * URL affordances — copy, open, the pretty domain label.
+ *
+ * Moved up out of `AppsTable/components/` when the registry table was deleted. It was
+ * never table-specific: `AppInfo` imported it across three directory levels, which is
+ * what made it survive its own folder. It sits beside the other shared app components
+ * now, where a second consumer is not a reach.
+ */
 
 /** Strip scheme + trailing slash for a compact, Vercel-style domain label. */
 export const prettyUrl = (absolute: string): string =>
