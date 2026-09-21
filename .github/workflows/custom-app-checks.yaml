@@ -27,6 +27,13 @@ name: Custom app checks
 # `custom-app-checks-staging` and `custom-app-checks-prod`. Setup order:
 # internal-docs/release-process.md, "Release checks".
 #
+# CUSTOM_APP_CHECKS_SCHEDULE is the last step of that setup, not one of the
+# first. `Require secrets` below is deliberately loud, so flipping the variable
+# before the environments hold their secrets fails both legs of every tick —
+# ~96 runs a day that check nothing and leave `main` permanently red. If the
+# secrets have to come out (a rotation, an environment rebuild), set the
+# variable to `false` for the duration rather than letting the ticks fail.
+#
 # Sentry, on a staging dispatch that names a version, and never a verdict. Two
 # more secrets in `custom-app-checks-staging`, both optional: a missing one
 # costs its step a warning and never fails the run.
