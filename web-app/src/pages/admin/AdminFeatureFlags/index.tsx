@@ -13,11 +13,13 @@ import {
 } from "@/components/ui/shadcn/alert-dialog";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Card, CardContent } from "@/components/ui/shadcn/card";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Switch } from "@/components/ui/shadcn/switch";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useFeatureFlags, useUpdateFeatureFlag } from "@/hooks/api/featureFlags";
 import { ADMIN_HEADER_ROW_CLASS, AdminTh } from "@/pages/admin/components/AdminTable";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 
 type PendingToggle = { key: string; nextValue: boolean };
 
@@ -27,7 +29,11 @@ function formatUpdatedAt(value: string | null): string {
 }
 
 export default function AdminFeatureFlags() {
-  const { data: flags = [], isLoading } = useFeatureFlags();
+  // Deliberately the whole query, not `data: flags = []`: that default made a failed
+  // fetch render as "No feature flags defined." — a server that is down and a server
+  // with nothing to report looked identical, on a page whose switches change behaviour
+  // for every organization.
+  const flags = useFeatureFlags();
   const updateFlag = useUpdateFeatureFlag();
   const [pending, setPending] = useState<PendingToggle | null>(null);
 
@@ -52,70 +58,73 @@ export default function AdminFeatureFlags() {
   };
 
   return (
-    <div className='mx-auto max-w-5xl p-6'>
-      <div className='mb-6'>
-        <h1 className='font-semibold text-xl tracking-tight'>Feature flags</h1>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          Toggle backend feature flags. Changes apply immediately on this server.
-        </p>
-      </div>
-
-      <Card>
-        <CardContent className='p-0'>
-          {isLoading ? (
-            <div className='flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs'>
-              <Spinner /> Loading…
-            </div>
-          ) : flags.length === 0 ? (
-            <div className='flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground'>
-              <Flag className='size-8' />
-              <p className='text-xs'>No feature flags defined.</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className={ADMIN_HEADER_ROW_CLASS}>
-                  <AdminTh>Flag</AdminTh>
-                  <AdminTh>Description</AdminTh>
-                  <AdminTh>Default</AdminTh>
-                  <AdminTh>Updated</AdminTh>
-                  <AdminTh align='right'>Enabled</AdminTh>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {flags.map((flag) => (
-                  <TableRow
-                    key={flag.key}
-                    className='border-border/60 transition-colors hover:bg-muted/40'
-                  >
-                    <TableCell>
-                      <span className='font-mono text-xs'>{flag.key}</span>
-                    </TableCell>
-                    <TableCell className='whitespace-normal break-words text-muted-foreground text-xs'>
-                      {flag.description}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={flag.default ? "default" : "outline"}>
-                        {flag.default ? "On" : "Off"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {formatUpdatedAt(flag.updated_at)}
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <Switch
-                        checked={flag.enabled}
-                        onCheckedChange={(next) => setPending({ key: flag.key, nextValue: next })}
-                        disabled={updateFlag.isPending}
-                      />
-                    </TableCell>
+    <AdminPage
+      width='default'
+      description='Toggle backend feature flags. Changes apply immediately on this server.'
+      data-testid='admin-feature-flags'
+    >
+      <AdminAsync
+        query={flags}
+        noun='feature flags'
+        rows={5}
+        isEmpty={(rows) => rows.length === 0}
+        empty={
+          <AdminEmptyState
+            icon={Flag}
+            title='No feature flags defined.'
+            description='Flags are declared in the backend; none are registered on this build.'
+          />
+        }
+      >
+        {(rows) => (
+          <Card>
+            <CardContent className='p-0'>
+              <Table>
+                <TableHeader>
+                  <TableRow className={ADMIN_HEADER_ROW_CLASS}>
+                    <AdminTh>Flag</AdminTh>
+                    <AdminTh>Description</AdminTh>
+                    <AdminTh>Default</AdminTh>
+                    <AdminTh>Updated</AdminTh>
+                    <AdminTh align='right'>Enabled</AdminTh>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((flag) => (
+                    <TableRow
+                      key={flag.key}
+                      className='border-border/60 transition-colors hover:bg-muted/40'
+                      data-testid={`admin-feature-flags-row-${flag.key}`}
+                    >
+                      <TableCell>
+                        <span className='font-mono text-xs'>{flag.key}</span>
+                      </TableCell>
+                      <TableCell className='whitespace-normal break-words text-muted-foreground text-xs'>
+                        {flag.description}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={flag.default ? "default" : "outline"}>
+                          {flag.default ? "On" : "Off"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {formatUpdatedAt(flag.updated_at)}
+                      </TableCell>
+                      <TableCell className='text-right'>
+                        <Switch
+                          checked={flag.enabled}
+                          onCheckedChange={(next) => setPending({ key: flag.key, nextValue: next })}
+                          disabled={updateFlag.isPending}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+      </AdminAsync>
 
       <AlertDialog
         open={pending !== null}
@@ -146,6 +155,6 @@ export default function AdminFeatureFlags() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </AdminPage>
   );
 }

@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/shadcn/button";
 import { ROLE_LABELS, useAppAdmins, useRemoveAppAdmin } from "@/hooks/api/access/useAppAdmins";
 import { useDelegationBound } from "@/hooks/api/access/useDelegationBound";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import { platformRoleKind, RoleBadge } from "@/pages/admin/components/RoleBadge";
 import { GrantDialog } from "./components/GrantDialog";
 
@@ -42,14 +43,17 @@ const ROLE_BLURB: Record<string, string> = {
 export function PlatformAccessCard({ userEmail }: { userEmail: string }) {
   const bound = useDelegationBound();
   // Gated on the capability: this query is the grant console's, and 403s for anyone else.
-  const { data: admins = [], isPending } = useAppAdmins(bound.canGrant);
+  // The whole query, not `data: admins = []`: that default made a failed fetch render
+  // "No staff access." — the card asserting the opposite of what it knows, on the one
+  // surface an operator checks before handing someone the console.
+  const appAdmins = useAppAdmins(bound.canGrant);
   const remove = useRemoveAppAdmin();
   const [granting, setGranting] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   if (!bound.canGrant) return null;
 
-  const grant = admins.find((a) => a.email.toLowerCase() === userEmail.toLowerCase());
+  const grant = appAdmins.data?.find((a) => a.email.toLowerCase() === userEmail.toLowerCase());
   const kind = platformRoleKind(grant?.role);
   // The delegation bound decides both directions: whether this person's EXISTING grant
   // may be touched, and — when they have none — whether the operator has any role left
@@ -64,33 +68,39 @@ export function PlatformAccessCard({ userEmail }: { userEmail: string }) {
       <div className='flex items-start justify-between gap-3'>
         <div className='min-w-0 space-y-1'>
           <h3 className='font-semibold text-sm'>Staff access</h3>
-          {isPending ? (
-            <p className='text-muted-foreground text-xs'>Checking…</p>
-          ) : grant ? (
-            <div className='space-y-1'>
-              <div className='flex flex-wrap items-center gap-2'>
-                {kind ? (
-                  <RoleBadge kind={kind} />
-                ) : (
-                  // A role this build cannot name. The server treats it as
-                  // undelegatable rather than guessing, and so does this.
-                  <span className='font-mono text-[10px] text-muted-foreground'>{grant.role}</span>
-                )}
-                <span className='text-muted-foreground text-xs'>
-                  {grant.scope_all
-                    ? "All organizations"
-                    : `${grant.scope_org_ids.length} organization${grant.scope_org_ids.length === 1 ? "" : "s"}`}
-                </span>
-              </div>
-              <p className='text-muted-foreground text-xs'>
-                {ROLE_BLURB[grant.role] ?? "Capabilities are derived from the stored role."}
-              </p>
-            </div>
-          ) : (
-            <p className='text-muted-foreground text-xs'>
-              No staff access. This person reaches only the organizations they belong to.
-            </p>
-          )}
+          {/* `grant` is derived from the same query, so it is only ever read inside the
+              success branch. */}
+          <AdminAsync query={appAdmins} noun='staff access' rows={1}>
+            {() =>
+              grant ? (
+                <div className='space-y-1'>
+                  <div className='flex flex-wrap items-center gap-2'>
+                    {kind ? (
+                      <RoleBadge kind={kind} />
+                    ) : (
+                      // A role this build cannot name. The server treats it as
+                      // undelegatable rather than guessing, and so does this.
+                      <span className='font-mono text-[10px] text-muted-foreground'>
+                        {grant.role}
+                      </span>
+                    )}
+                    <span className='text-muted-foreground text-xs'>
+                      {grant.scope_all
+                        ? "All organizations"
+                        : `${grant.scope_org_ids.length} organization${grant.scope_org_ids.length === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                  <p className='text-muted-foreground text-xs'>
+                    {ROLE_BLURB[grant.role] ?? "Capabilities are derived from the stored role."}
+                  </p>
+                </div>
+              ) : (
+                <p className='text-muted-foreground text-xs'>
+                  No staff access. This person reaches only the organizations they belong to.
+                </p>
+              )
+            }
+          </AdminAsync>
         </div>
 
         <div

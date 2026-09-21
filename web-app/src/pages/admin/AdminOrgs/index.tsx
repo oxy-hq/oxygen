@@ -1,9 +1,8 @@
 import { Building2, RefreshCw, Search } from "lucide-react";
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useAdminOrgsList } from "@/hooks/api/adminTenants/useAdminOrgs";
 import { cn } from "@/libs/shadcn/utils";
@@ -11,7 +10,9 @@ import ROUTES from "@/libs/utils/routes";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import { OrgLogo } from "@/pages/admin/components/OrgLogo";
 import PartnerChip from "../AdminTenantsCockpit/components/PartnerChip";
+import { AdminAsync } from "../components/AdminAsync";
 import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { AdminStatusPill } from "../components/AdminStatusPill";
 import { ADMIN_HEADER_ROW_CLASS, ADMIN_ROW_CLASS, AdminTh } from "../components/AdminTable";
 
@@ -28,25 +29,17 @@ export default function AdminOrgs() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const { data: orgs = [], isLoading, isFetching, refetch } = useAdminOrgsList({ search });
+  // The whole query, not `data: orgs = []`: that default rendered a failed fetch as
+  // "No organizations yet", so an outage read as an empty deployment.
+  const orgs = useAdminOrgsList({ search });
+  const { isLoading, isFetching, refetch } = orgs;
 
   return (
-    <div className='mx-auto max-w-7xl space-y-6 p-6 lg:px-10 lg:py-10'>
-      <header className='space-y-2'>
-        <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
-          Admin · Tenants ·{" "}
-          <Link to={ROUTES.ADMIN.TENANTS} className='hover:text-foreground'>
-            Directory
-          </Link>{" "}
-          / Organizations
-        </p>
-        <h1 className='font-semibold text-xl tracking-tight'>Organizations</h1>
-        <p className='max-w-2xl text-muted-foreground text-xs'>
-          Every organization on this deployment. Select a row to inspect, rename, or transfer
-          ownership. Use the overview hub for fleet-wide health.
-        </p>
-      </header>
-
+    <AdminPage
+      width='wide'
+      description='Every organization on this deployment. Select a row to inspect, rename, or transfer ownership. Use the overview hub for fleet-wide health.'
+      data-testid='admin-orgs'
+    >
       <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
         {/* Filter strip */}
         <div className='flex items-center justify-between gap-3 border-border/60 border-b px-4 py-3'>
@@ -67,9 +60,9 @@ export default function AdminOrgs() {
           </form>
           <div className='flex items-center gap-3'>
             <span className='font-medium text-[10px] text-muted-foreground uppercase tabular-nums tracking-[0.14em]'>
-              {isLoading
+              {isLoading || !orgs.data
                 ? "…"
-                : `${orgs.length.toLocaleString()} org${orgs.length === 1 ? "" : "s"}`}
+                : `${orgs.data.length.toLocaleString()} org${orgs.data.length === 1 ? "" : "s"}`}
             </span>
             <Button
               variant='ghost'
@@ -85,12 +78,13 @@ export default function AdminOrgs() {
         </div>
 
         {/* Body */}
-        {isLoading ? (
-          <div className='flex items-center justify-center gap-2 py-20 text-muted-foreground text-xs'>
-            <Spinner /> Loading organizations…
-          </div>
-        ) : orgs.length === 0 ? (
-          <div className='p-6'>
+        <AdminAsync
+          query={orgs}
+          noun='organizations'
+          rows={6}
+          className='p-6'
+          isEmpty={(rows) => rows.length === 0}
+          empty={
             <AdminEmptyState
               icon={Building2}
               title={search ? `No organizations match "${search}".` : "No organizations yet"}
@@ -100,78 +94,81 @@ export default function AdminOrgs() {
                   : "Organizations are created via the signup flow or by an admin from /admin/orgs."
               }
             />
-          </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className={ADMIN_HEADER_ROW_CLASS}>
-                <AdminTh>Organization</AdminTh>
-                <AdminTh>Owner</AdminTh>
-                <AdminTh>Partner</AdminTh>
-                <AdminTh>Status</AdminTh>
-                <AdminTh align='right'>Members</AdminTh>
-                <AdminTh align='right'>Workspaces</AdminTh>
-                <AdminTh>Created</AdminTh>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {orgs.map((org) => (
-                <TableRow
-                  key={org.id}
-                  className={ADMIN_ROW_CLASS}
-                  onClick={() => navigate(ROUTES.ADMIN.ORG_DETAIL(org.id))}
-                >
-                  <TableCell>
-                    <div className='flex items-center gap-3'>
-                      <OrgLogo orgId={org.id} name={org.name} />
-                      <div className='flex min-w-0 flex-col'>
-                        <span className='truncate font-medium'>{org.name}</span>
-                        <div className='flex items-center gap-1'>
-                          <span className='truncate font-mono text-[10px] text-muted-foreground'>
-                            /{org.slug}
-                          </span>
-                          <CopyableId value={org.id} className='text-[10px]' />
+          }
+        >
+          {(rows) => (
+            <Table>
+              <TableHeader>
+                <TableRow className={ADMIN_HEADER_ROW_CLASS}>
+                  <AdminTh>Organization</AdminTh>
+                  <AdminTh>Owner</AdminTh>
+                  <AdminTh>Partner</AdminTh>
+                  <AdminTh>Status</AdminTh>
+                  <AdminTh align='right'>Members</AdminTh>
+                  <AdminTh align='right'>Workspaces</AdminTh>
+                  <AdminTh>Created</AdminTh>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((org) => (
+                  <TableRow
+                    key={org.id}
+                    className={ADMIN_ROW_CLASS}
+                    data-testid={`admin-orgs-row-${org.id}`}
+                    onClick={() => navigate(ROUTES.ADMIN.ORG_DETAIL(org.id))}
+                  >
+                    <TableCell>
+                      <div className='flex items-center gap-3'>
+                        <OrgLogo orgId={org.id} name={org.name} />
+                        <div className='flex min-w-0 flex-col'>
+                          <span className='truncate font-medium'>{org.name}</span>
+                          <div className='flex items-center gap-1'>
+                            <span className='truncate font-mono text-[10px] text-muted-foreground'>
+                              /{org.slug}
+                            </span>
+                            <CopyableId value={org.id} className='text-[10px]' />
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className='font-mono text-[11px] text-muted-foreground'>
-                    {org.owner_email ?? "—"}
-                  </TableCell>
-                  {/* Who ELSE administers this tenant. A partner is a delegated
+                    </TableCell>
+                    <TableCell className='font-mono text-[11px] text-muted-foreground'>
+                      {org.owner_email ?? "—"}
+                    </TableCell>
+                    {/* Who ELSE administers this tenant. A partner is a delegated
                       cross-org authority — invisible from owner/member counts. */}
-                  <TableCell>
-                    {org.partner ? (
-                      <PartnerChip name={org.partner.name} size='xs' />
-                    ) : (
-                      <span className='text-muted-foreground/50 text-xs'>—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <AdminStatusPill
-                      tone={org.member_count > 0 ? "ok" : "muted"}
-                      label={org.member_count > 0 ? "Active" : "Empty"}
-                    />
-                  </TableCell>
-                  <TableCell className='text-right font-medium text-xs tabular-nums'>
-                    {org.member_count.toLocaleString()}
-                  </TableCell>
-                  <TableCell className='text-right font-medium text-xs tabular-nums'>
-                    {org.workspace_count.toLocaleString()}
-                  </TableCell>
-                  <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                    {new Date(org.created_at).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "short",
-                      day: "numeric"
-                    })}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+                    <TableCell>
+                      {org.partner ? (
+                        <PartnerChip name={org.partner.name} size='xs' />
+                      ) : (
+                        <span className='text-muted-foreground/50 text-xs'>—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <AdminStatusPill
+                        tone={org.member_count > 0 ? "ok" : "muted"}
+                        label={org.member_count > 0 ? "Active" : "Empty"}
+                      />
+                    </TableCell>
+                    <TableCell className='text-right font-medium text-xs tabular-nums'>
+                      {org.member_count.toLocaleString()}
+                    </TableCell>
+                    <TableCell className='text-right font-medium text-xs tabular-nums'>
+                      {org.workspace_count.toLocaleString()}
+                    </TableCell>
+                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                      {new Date(org.created_at).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric"
+                      })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </AdminAsync>
       </div>
-    </div>
+    </AdminPage>
   );
 }

@@ -12,15 +12,20 @@ export const AdminEmptyState = ({
   title,
   description,
   action,
-  className
+  className,
+  "data-testid": dataTestId
 }: {
   icon: ComponentType<{ className?: string }>;
   title: string;
   description?: string;
   action?: React.ReactNode;
   className?: string;
+  /** Key it off the page's own id — `AdminAsync`'s generic `admin-async-empty` cannot
+   *  tell one page's empty state from another's. */
+  "data-testid"?: string;
 }) => (
   <div
+    data-testid={dataTestId}
     className={cn(
       "flex flex-col items-center justify-center gap-3 rounded-lg border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center",
       className

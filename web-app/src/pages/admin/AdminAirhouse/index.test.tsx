@@ -2,6 +2,7 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AirhouseFleet, AirhouseFleetRow } from "@/services/api/airhouseAdmin";
 
@@ -45,7 +46,15 @@ const mount = (rows: AirhouseFleetRow[]) => {
     isError: false,
     error: null
   });
-  render(<AdminAirhouse />);
+  // Routed: since the migration onto `AdminPage` the page takes its `<h1>` from
+  // the admin route map, which is keyed off `useLocation()`. The real path is
+  // passed so the heading resolves the way it does in the app rather than
+  // falling back to "Admin".
+  render(
+    <MemoryRouter initialEntries={["/admin/airhouse"]}>
+      <AdminAirhouse />
+    </MemoryRouter>
+  );
 };
 
 /**

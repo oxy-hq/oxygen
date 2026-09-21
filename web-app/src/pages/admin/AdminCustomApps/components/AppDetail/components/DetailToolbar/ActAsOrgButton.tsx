@@ -4,7 +4,9 @@ import { AssumeRoleDialog } from "@/components/admin/AssumeRoleDialog";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
+import { cn } from "@/libs/shadcn/utils";
 import { clearAssumeDestination, rememberAssumeDestination } from "@/libs/utils/assumeDestination";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { CustomApp } from "@/types/apps";
 
 /**
@@ -59,7 +61,7 @@ export function ActAsOrgButton({ app }: { app: CustomApp }) {
               onClick={openDialog}
               data-testid='admin-app-act-as-org'
             >
-              <ShieldAlert className='size-3 text-amber-600 dark:text-amber-400' />
+              <ShieldAlert className={cn("size-3", ADMIN_TONE.warn.text)} />
               Act as org
             </Button>
           </span>

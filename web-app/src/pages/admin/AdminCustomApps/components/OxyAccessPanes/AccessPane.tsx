@@ -47,7 +47,11 @@ type AccessView = "list" | "gallery";
  * up front and join client-side — admin scale is dozens to low hundreds.
  */
 export const AccessPane = () => {
-  const { data: grants = [], isLoading: grantsLoading, error } = useOxyAccessGrants();
+  const grantsQuery = useOxyAccessGrants();
+  // The `?? []` is gated, not a swallow: the failure returns at `GrantsError`
+  // below before anything reads `grants`. It is here only because the memos
+  // that derive from it run above that gate, as hooks must.
+  const grants = useMemo(() => grantsQuery.data ?? [], [grantsQuery.data]);
   const {
     data: orgPages,
     isLoading: orgsLoading,
@@ -103,8 +107,9 @@ export const AccessPane = () => {
   const selected = accessOrgs.find((o) => o.orgId === selectedId) ?? filtered[0] ?? null;
   const lockedOrgs = useMemo(() => accessOrgs.filter((o) => o.hasLockdown).length, [accessOrgs]);
 
-  if (error) return <GrantsError error={error} />;
-  if (grantsLoading || orgsLoading) return <GrantsLoading />;
+  if (grantsQuery.error)
+    return <GrantsError error={grantsQuery.error} onRetry={grantsQuery.refetch} />;
+  if (grantsQuery.isLoading || orgsLoading) return <GrantsLoading />;
   if (accessOrgs.length === 0) {
     return (
       <EmptyHint

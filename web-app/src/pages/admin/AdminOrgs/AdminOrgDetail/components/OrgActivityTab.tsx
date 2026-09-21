@@ -26,6 +26,7 @@ import {
   THREAD_STATUSES
 } from "@/pages/admin/AdminExplorer/constants";
 import { useDebounced } from "@/pages/admin/AdminExplorer/useDebounced";
+import { AdminAsync } from "../../../components/AdminAsync";
 
 const PAGE_SIZE = 15;
 type Resource = "runs" | "threads";
@@ -102,7 +103,7 @@ export const OrgActivityTab = ({ orgId }: { orgId: string }) => {
           ))}
         </div>
         <div className='flex flex-wrap items-center gap-2'>
-          {!active.isPending ? (
+          {!active.isPending && active.data ? (
             <span className='text-muted-foreground text-xs tabular-nums'>
               {total} {total === 1 ? "result" : "results"}
             </span>
@@ -144,29 +145,42 @@ export const OrgActivityTab = ({ orgId }: { orgId: string }) => {
         </div>
       </div>
 
-      {active.isPending ? (
-        <Skeleton className='h-64 w-full' />
-      ) : active.isError ? (
-        <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-          Failed to load {resource}.
-        </div>
-      ) : (
-        <>
-          {resource === "threads" ? (
-            <ThreadsTable rows={threads.data?.items ?? []} />
-          ) : (
-            <RunsTable rows={runs.data?.items ?? []} />
-          )}
-          <TablePagination
-            currentPage={page}
-            totalPages={totalPages}
-            totalItems={total}
-            pageSize={PAGE_SIZE}
-            onPageChange={setPage}
-            itemLabel={resource}
-          />
-        </>
-      )}
+      {/* Two queries behind one region, only one of them enabled at a time — so the
+          gate is handed the ACTIVE one's three states explicitly, which is the shape
+          `AdminAsync` documents for a composed source. The tables still read their own
+          query, so the render callback ignores the data it is passed. */}
+      <AdminAsync
+        query={{
+          isPending: active.isPending,
+          isError: active.isError,
+          data: active.data,
+          refetch: active.refetch,
+          // `error` too: leaving it off is what made this the one call site that showed
+          // the generic failure without the server's own message — the detail the kit
+          // exists to surface.
+          error: active.error
+        }}
+        noun={resource}
+        skeleton={<Skeleton className='h-64 w-full' />}
+      >
+        {() => (
+          <>
+            {resource === "threads" ? (
+              <ThreadsTable rows={threads.data?.items ?? []} />
+            ) : (
+              <RunsTable rows={runs.data?.items ?? []} />
+            )}
+            <TablePagination
+              currentPage={page}
+              totalPages={totalPages}
+              totalItems={total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              itemLabel={resource}
+            />
+          </>
+        )}
+      </AdminAsync>
     </div>
   );
 };

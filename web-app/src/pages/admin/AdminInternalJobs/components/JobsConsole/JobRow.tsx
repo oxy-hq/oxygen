@@ -42,7 +42,10 @@ export const JobRow = ({
   const tenant = tenantLabel(row);
 
   return (
-    <div className={cn("border-border/50 border-l-2", borderForStatus(row.queue_status))}>
+    <div
+      className={cn("border-border/50 border-l-2", borderForStatus(row.queue_status))}
+      data-testid={`admin-internal-jobs-row-${row.task_id}`}
+    >
       <div
         className={cn(
           "grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3 px-3 py-1.5 transition-colors",
@@ -147,7 +150,7 @@ function borderForStatus(status: string): string {
     case "dead":
       return "border-l-destructive";
     case "failed":
-      return "border-l-amber-500";
+      return "border-l-warning";
     default:
       return "border-l-transparent";
   }

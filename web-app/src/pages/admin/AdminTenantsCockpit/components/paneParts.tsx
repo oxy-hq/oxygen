@@ -135,7 +135,3 @@ export function PaneLoading() {
     </div>
   );
 }
-
-export function PaneError({ what }: { what: string }) {
-  return <p className='p-4 text-destructive text-xs'>Failed to load {what}.</p>;
-}

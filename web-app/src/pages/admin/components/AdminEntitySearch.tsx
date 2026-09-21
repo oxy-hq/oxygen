@@ -25,7 +25,9 @@ import { useExplorerRuns, useExplorerThreads } from "@/hooks/api/adminExplorer";
 import { useAdminOrgsList } from "@/hooks/api/adminTenants/useAdminOrgs";
 import { useAdminUsersList } from "@/hooks/api/adminTenants/useAdminUsers";
 import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
+import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import ROUTES from "@/libs/utils/routes";
+import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable } from "../AdminLayout/adminNav";
 
 /**
  * Cmd+K / Ctrl+K universal search across orgs, users, and workspaces.
@@ -47,6 +49,16 @@ export const AdminEntitySearch = () => {
   // ⌘K, type three letters, act.
   const [actOn, setActOn] = useState<{ id: string; name: string } | null>(null);
   const navigate = useNavigate();
+
+  // Only the rooms this operator can actually enter, by the same rule the rail applies.
+  const { data: user } = useCurrentUser();
+  const pages = useMemo(() => {
+    const standing = {
+      isOwner: user?.is_owner ?? false,
+      capabilities: user?.platform_capabilities ?? []
+    };
+    return ADMIN_NAV.filter((item) => itemReachable(item, standing));
+  }, [user]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -106,7 +118,7 @@ export const AdminEntitySearch = () => {
         className='h-8 gap-2 px-2.5 text-muted-foreground'
       >
         <Search className='size-3.5' />
-        <span className='hidden text-xs sm:inline'>Search tenants</span>
+        <span className='hidden text-xs sm:inline'>Search</span>
         <kbd className='ml-1 hidden items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-flex'>
           <span className='text-xs'>⌘</span>K
         </kbd>
@@ -115,11 +127,11 @@ export const AdminEntitySearch = () => {
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
-        title='Tenant search'
-        description='Find orgs, users, and workspaces across the deployment.'
+        title='Admin search'
+        description='Jump to a page, or find an org, user, workspace, thread or run across the deployment.'
       >
         <CommandInput
-          placeholder='Search orgs, users, workspaces…'
+          placeholder='Go to a page, or search orgs, users, workspaces…'
           value={query}
           onValueChange={setQuery}
         />
@@ -127,8 +139,34 @@ export const AdminEntitySearch = () => {
           <CommandEmpty>
             {query.length === 0
               ? "Start typing to search across the tenant graph."
-              : "No matches across orgs, users, or workspaces."}
+              : "No matches across pages, orgs, users, or workspaces."}
           </CommandEmpty>
+
+          {/* Pages first, and listed even with an empty query. Navigation is the most
+              common reason to open a palette, and until now this one could not do it —
+              reaching Compile revisions meant finding it in the rail by eye. Driven by
+              the same route map the rail renders, filtered by the same capability rule,
+              so it can never offer a room the server will refuse. */}
+          {pages.length > 0 ? (
+            <>
+              <CommandGroup heading='Pages'>
+                {pages.map((item) => (
+                  <CommandItem
+                    key={`page-${item.to}`}
+                    value={`page ${item.label} ${ADMIN_NAV_GROUPS[item.group]}`}
+                    onSelect={() => go(item.to)}
+                  >
+                    <item.icon className='size-4 text-muted-foreground' />
+                    <span className='flex-1 truncate'>{item.label}</span>
+                    <span className='text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
+                      {ADMIN_NAV_GROUPS[item.group]}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+              <CommandSeparator />
+            </>
+          ) : null}
 
           {orgs.length > 0 ? (
             <>

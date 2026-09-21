@@ -28,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import {
   useAdminUserDetail,
   useRemoveUserFromOrg,
@@ -38,12 +37,14 @@ import {
 } from "@/hooks/api/adminTenants/useAdminUsers";
 import ROUTES from "@/libs/utils/routes";
 import type { OrgRoleId } from "@/services/api/adminTenants";
+import { AdminAsync } from "../../components/AdminAsync";
 import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../components/AdminLinkedRow";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 import { AdminStatusPill } from "../../components/AdminStatusPill";
+import { ADMIN_TONE } from "../../components/adminTone";
 import { AssignToOrgDialog } from "./components/AssignToOrgDialog";
 import { PlatformAccessCard } from "./components/PlatformAccessCard";
 
@@ -81,16 +82,24 @@ export default function AdminUserDetail({
     orgName: string;
   } | null>(null);
 
-  const { data: detail, isLoading } = useAdminUserDetail(userId);
+  const user = useAdminUserDetail(userId);
+  const detail = user.data;
   const setStatus = useSetUserStatus();
   const updateRole = useUpdateUserOrgRole();
   const removeFromOrg = useRemoveUserFromOrg();
   const revokeInvitation = useRevokeUserInvitation();
 
-  if (isLoading || !detail) {
+  // Nothing below renders without the user, so the gate is the whole page. It used to be
+  // `isLoading || !detail` around a spinner, which meant a *failed* fetch span forever —
+  // an outage and a slow network looked identical, with no way back but a page reload.
+  // `AdminAsync` tells them apart and offers a Retry; the guard covers every non-success
+  // state, so its render callback is unreachable.
+  if (!detail) {
     return (
-      <div className='flex min-h-[60vh] items-center justify-center gap-2 text-muted-foreground text-xs'>
-        <Spinner /> Loading user…
+      <div className={embedded ? "p-4" : "mx-auto max-w-7xl p-6 lg:px-10 lg:py-10"}>
+        <AdminAsync query={user} noun='this user' rows={4}>
+          {() => null}
+        </AdminAsync>
       </div>
     );
   }
@@ -309,7 +318,7 @@ export default function AdminUserDetail({
                     <span
                       className={
                         inv.is_expired
-                          ? "text-amber-600 text-xs dark:text-amber-500"
+                          ? `${ADMIN_TONE.warn.text} text-xs`
                           : "text-muted-foreground text-xs"
                       }
                     >

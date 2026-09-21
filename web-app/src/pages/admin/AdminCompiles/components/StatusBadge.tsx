@@ -5,9 +5,9 @@ import { statusAccent } from "../utils";
 
 /**
  * Compile status pill. Colour maps to the FailureKind taxonomy via the
- * shared `statusAccent` token convention (emerald=ready, destructive=
- * failed, amber=compiling) so the flat list and the workspace rollup
- * read identically.
+ * shared `statusAccent` tone convention (ok=ready, danger=failed,
+ * warn=compiling) so the flat list and the workspace rollup read
+ * identically.
  */
 export const StatusBadge = ({
   status,

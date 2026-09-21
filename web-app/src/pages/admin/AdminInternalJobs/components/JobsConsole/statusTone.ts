@@ -1,8 +1,10 @@
+import { ADMIN_TONE, type AdminTone } from "@/pages/admin/components/adminTone";
+
 /**
- * Cockpit status palette. Status is carried by a small left-border accent +
- * glyph rather than a big badge, so these return the Tailwind classes the
- * row/debug panel apply. Tones reuse the admin surface's established
- * emerald / amber / destructive convention.
+ * Cockpit status palette. Status is carried by a small left-accent + dot rather
+ * than a big badge, so this returns the Tailwind classes the row/debug panel
+ * apply. The five console tones replace the bespoke emerald / amber /
+ * destructive triples this file used to spell out in raw palette colours.
  */
 export interface StatusTone {
   /** Dot / left-accent background. */
@@ -11,22 +13,29 @@ export interface StatusTone {
   text: string;
 }
 
-export function statusTone(status: string): StatusTone {
+/** Which of the console's five tones a queue status reads as. */
+export function queueStatusTone(status: string): AdminTone | null {
   switch (status) {
     case "dead":
-      return { accent: "bg-destructive", text: "text-destructive" };
+      return "danger";
     case "failed":
-      return { accent: "bg-amber-500", text: "text-amber-700 dark:text-amber-400" };
+      return "warn";
     case "claimed":
-      return { accent: "bg-primary", text: "text-primary" };
+      return "info";
     case "completed":
-      return {
-        accent: "bg-emerald-500",
-        text: "text-emerald-700 dark:text-emerald-400"
-      };
+      return "ok";
     case "cancelled":
-      return { accent: "bg-muted-foreground/60", text: "text-muted-foreground" };
+      return "muted";
     default:
-      return { accent: "bg-foreground/60", text: "text-foreground" };
+      // No tone: an unrecognised status stays in the plain foreground rather
+      // than borrowing a colour that would read as a verdict.
+      return null;
   }
+}
+
+export function statusTone(status: string): StatusTone {
+  const tone = queueStatusTone(status);
+  if (!tone) return { accent: "bg-foreground/60", text: "text-foreground" };
+  const v = ADMIN_TONE[tone];
+  return { accent: v.dot, text: v.text };
 }

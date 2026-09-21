@@ -218,9 +218,12 @@ export const DetailToolbar = ({
         {/* Channel pills — visible on every tab because the underlying
             cookie is session-wide. Clicking triggers a confirmation
             dialog rather than flipping immediately, so a stray click
-            doesn't accidentally expose draft content. The active dot
-            takes the channel's color (emerald/amber) for peripheral
-            recognition.
+            doesn't accidentally expose draft content. The active
+            segment takes the channel's tone (ok / warn) for peripheral
+            recognition — spelled out as the `status-*` tokens `ADMIN_TONE`
+            is built from, because a `data-[state=on]:` variant has to be a
+            literal class for Tailwind to emit it; it cannot be composed
+            from the constant at runtime.
 
             Published segment is disabled when the app has never been
             published — the cookie would do nothing, the iframe would
@@ -240,7 +243,7 @@ export const DetailToolbar = ({
                 value='published'
                 aria-label='Show published bundle'
                 disabled={!app.published_at}
-                className='h-7 gap-1.5 px-2 data-[state=on]:bg-emerald-500/10 data-[state=on]:text-emerald-600 dark:data-[state=on]:text-emerald-400'
+                className='h-7 gap-1.5 px-2 data-[state=on]:bg-status-success-bg data-[state=on]:text-status-success-text'
               >
                 <Eye className='size-3.5' />
                 <span className='text-xs'>Published</span>
@@ -253,7 +256,7 @@ export const DetailToolbar = ({
           <ToggleGroupItem
             value='draft'
             aria-label='Preview draft bundle'
-            className='h-7 gap-1.5 px-2 data-[state=on]:bg-amber-500/10 data-[state=on]:text-amber-600 dark:data-[state=on]:text-amber-400'
+            className='h-7 gap-1.5 px-2 data-[state=on]:bg-status-warning-bg data-[state=on]:text-status-warning-text'
           >
             <EyeOff className='size-3.5' />
             <span className='text-xs'>Draft</span>

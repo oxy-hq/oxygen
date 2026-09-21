@@ -5,6 +5,9 @@ import queryKeys from "./queryKey";
 interface PollOptions {
   paused?: boolean;
   intervalMs?: number;
+  /** Off entirely. The console home gates each source on the standing that decides
+   *  whether its section renders, so a narrow staff grant never fires the request. */
+  enabled?: boolean;
 }
 
 const DEFAULT_INTERVAL_MS = 5_000;
@@ -35,11 +38,12 @@ export const useCompileWorkspaces = (
   params: { limit?: number; offset?: number; q?: string; status?: string } = {},
   options: PollOptions = {}
 ) => {
-  const { paused = false, intervalMs = DEFAULT_INTERVAL_MS } = options;
+  const { paused = false, intervalMs = DEFAULT_INTERVAL_MS, enabled = true } = options;
   return useQuery({
     queryKey: queryKeys.compiles.workspaces(params),
     queryFn: () => CompilesService.listWorkspaces(params),
-    refetchInterval: paused ? false : intervalMs
+    refetchInterval: paused ? false : intervalMs,
+    enabled
   });
 };
 

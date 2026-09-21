@@ -1,4 +1,4 @@
-import { AlertCircle, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Collapsible,
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAppDebug } from "@/hooks/api/customApps/useCustomApps";
 import { cn } from "@/libs/shadcn/utils";
 import { resolveBundleUrl } from "@/pages/admin/AdminCustomApps/resolveBundleUrl";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { CustomApp } from "@/types/apps";
 import { CopyButton } from "../../../AppsTable/components/UrlActions";
 
@@ -23,87 +24,88 @@ import { CopyButton } from "../../../AppsTable/components/UrlActions";
  * admin row (`app`), not the bundle-public debug snapshot.
  */
 export const AppInfo = ({ app }: { app: CustomApp }) => {
-  const { data, isLoading, error } = useAppDebug(app.org_slug, app.slug);
-
-  if (isLoading) {
-    return (
-      <div className='space-y-4 p-4'>
-        <Skeleton className='h-20 w-full' />
-        <Skeleton className='h-40 w-full' />
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className='flex items-center gap-2 p-4 text-destructive text-xs'>
-        <AlertCircle className='size-4' />
-        <span>Failed to load diagnostic snapshot.</span>
-      </div>
-    );
-  }
-
-  const manifestOk = !!data.manifest && !data.manifest_error;
-  // The bundle is the build the resolved channel points at. There is no
-  // directory to look for: every app serves from the build store.
-  const bundleOk = data.build !== null;
+  const debug = useAppDebug(app.org_slug, app.slug);
 
   return (
-    <div className='space-y-4 p-4 pt-0'>
-      {/* Health readout — the two things that can actually be broken. */}
-      <div className='grid grid-cols-2 gap-2'>
-        <HealthChip
-          label='Bundle'
-          ok={bundleOk}
-          // The channel it read, or `missing` — short enough not to truncate in
-          // the narrow details column.
-          value={bundleOk ? data.channel : "missing"}
-        />
-        <HealthChip
-          label='Manifest'
-          ok={manifestOk}
-          value={
-            !manifestOk
-              ? "error"
-              : data.manifest_source === "db_override"
-                ? "DB override"
-                : "bundled"
-          }
-        />
-      </div>
+    <AdminAsync
+      query={debug}
+      noun='the diagnostic snapshot'
+      className='p-4'
+      // Two blocks, not bars: the readout is a health row above a manifest panel,
+      // and equal-height bars would misstate what is coming.
+      skeleton={
+        <div className='space-y-4'>
+          <Skeleton className='h-20 w-full' />
+          <Skeleton className='h-40 w-full' />
+        </div>
+      }
+    >
+      {(data) => {
+        const manifestOk = !!data.manifest && !data.manifest_error;
+        // The bundle is the build the resolved channel points at. There is no
+        // directory to look for: every app serves from the build store.
+        const bundleOk = data.build !== null;
+        return (
+          <div className='space-y-4 p-4 pt-0'>
+            {/* Health readout — the two things that can actually be broken. */}
+            <div className='grid grid-cols-2 gap-2'>
+              <HealthChip
+                label='Bundle'
+                ok={bundleOk}
+                // The channel it read, or `missing` — short enough not to truncate in
+                // the narrow details column.
+                value={bundleOk ? data.channel : "missing"}
+              />
+              <HealthChip
+                label='Manifest'
+                ok={manifestOk}
+                value={
+                  !manifestOk
+                    ? "error"
+                    : data.manifest_source === "db_override"
+                      ? "DB override"
+                      : "bundled"
+                }
+              />
+            </div>
 
-      {/* URLs — what to share with the customer or use in iframes. */}
-      <Section title='URLs'>
-        <UrlRow label='Subpath' url={app.url} />
-        {app.url_subdomain && (
-          <UrlRow label='Subdomain' url={app.url_subdomain} recommended absolute />
-        )}
-      </Section>
+            {/* URLs — what to share with the customer or use in iframes. */}
+            <Section title='URLs'>
+              <UrlRow label='Subpath' url={app.url} />
+              {app.url_subdomain && (
+                <UrlRow label='Subdomain' url={app.url_subdomain} recommended absolute />
+              )}
+            </Section>
 
-      {/* Identity + what oxy resolved. Ids are shortened, not wrapped: nobody
+            {/* Identity + what oxy resolved. Ids are shortened, not wrapped: nobody
           reads a UUID, they copy it, and two full ids wrapping across four lines
           were most of this block's height. */}
-      <Section title='Identity'>
-        <KVId k='App ID' id={data.app.id} />
-        <KVId k='Workspace' id={app.project_id} />
-        <KV k='Branch' v={app.branch} mono />
-        <KV k='Status' v={data.app.status} />
-        {/* Only a row left over from a removed source kind says anything here —
+            <Section title='Identity'>
+              <KVId k='App ID' id={data.app.id} />
+              <KVId k='Workspace' id={app.project_id} />
+              <KV k='Branch' v={app.branch} mono />
+              <KV k='Status' v={data.app.status} />
+              {/* Only a row left over from a removed source kind says anything here —
             and what it says is why the app fails. */}
-        {data.app.source_type !== "s3" && <KV k='Source' v={`${data.app.source_type} (removed)`} />}
-      </Section>
+              {data.app.source_type !== "s3" && (
+                <KV k='Source' v={`${data.app.source_type} (removed)`} />
+              )}
+            </Section>
 
-      {data.manifest_error && (
-        <Section title='Manifest error' tone='destructive'>
-          <pre className='whitespace-pre-wrap rounded-md bg-destructive/10 p-3 text-destructive text-xs'>
-            {data.manifest_error}
-          </pre>
-        </Section>
-      )}
+            {data.manifest_error && (
+              <Section title='Manifest error' tone='destructive'>
+                <pre className='whitespace-pre-wrap rounded-md bg-destructive/10 p-3 text-destructive text-xs'>
+                  {data.manifest_error}
+                </pre>
+              </Section>
+            )}
 
-      {/* Raw manifest — collapsed by default so it stops dominating; copyable. */}
-      {manifestOk && <ManifestBlock manifest={data.manifest} />}
-    </div>
+            {/* Raw manifest — collapsed by default so it stops dominating; copyable. */}
+            {manifestOk && <ManifestBlock manifest={data.manifest} />}
+          </div>
+        );
+      }}
+    </AdminAsync>
   );
 };
 

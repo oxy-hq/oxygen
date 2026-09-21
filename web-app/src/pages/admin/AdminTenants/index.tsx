@@ -4,6 +4,7 @@ import { useAdminOrgsList } from "@/hooks/api/adminTenants/useAdminOrgs";
 import { useAdminUsersList } from "@/hooks/api/adminTenants/useAdminUsers";
 import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import ROUTES from "@/libs/utils/routes";
+import { AdminPage } from "../components/AdminPage";
 import { AdminStatCard } from "../components/AdminStatCard";
 import { LlmCostSection } from "./components/LlmCostSection";
 import { ATTENTION_ICONS, attentionLink, NeedsAttention } from "./components/NeedsAttention";
@@ -79,16 +80,11 @@ export default function AdminTenants() {
   const isPending = orgs.isPending || users.isPending || workspaces.isPending;
 
   return (
-    <div className='mx-auto max-w-7xl space-y-8 p-6 lg:px-10 lg:py-8'>
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <header className='flex items-baseline gap-3'>
-        <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.18em]'>
-          Tenants
-        </p>
-        <span className='text-muted-foreground/40'>/</span>
-        <h1 className='font-semibold text-xl tracking-tight'>Operator overview</h1>
-      </header>
-
+    <AdminPage
+      description='Cross-tenant triage: what grew, what is costing, and what is stuck. The console home covers the operational side.'
+      bodyClassName='space-y-8'
+      data-testid='admin-tenants-overview'
+    >
       {/* ── Headline stats ──────────────────────────────────────────── */}
       <section aria-label='Headline counts' className='grid gap-4 md:grid-cols-3'>
         <AdminStatCard
@@ -193,6 +189,6 @@ export default function AdminTenants() {
           }))}
         />
       </section>
-    </div>
+    </AdminPage>
   );
 }

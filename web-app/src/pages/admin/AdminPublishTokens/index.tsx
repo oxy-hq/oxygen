@@ -3,13 +3,15 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent } from "@/components/ui/shadcn/card";
 import { Input } from "@/components/ui/shadcn/input";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import {
   useCreatePublishToken,
   usePublishTokens,
   useRevokePublishToken
 } from "@/hooks/api/publishTokens/usePublishTokens";
 import type { CreatedPublishToken, PublishToken } from "@/types/publishTokens";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import CiInstructions from "./components/CiInstructions";
 import { CreatedTokenDialog } from "./components/CreatedTokenDialog";
 import { PublishTokenRow } from "./components/PublishTokenRow";
@@ -26,8 +28,21 @@ import { RevokeTokenDialog } from "./components/RevokeTokenDialog";
  * `app_publish_token_scope` middleware). Tokens are managed across admins:
  * anyone here can revoke anyone's token.
  */
+const DESCRIPTION = (
+  <>
+    Long-lived bearer tokens for machine auth — set one as the{" "}
+    <span className='font-mono'>OXY_TOKEN</span> secret so{" "}
+    <span className='font-mono'>oxyc publish</span> works in CI without an expiring login. A token
+    can publish and read the custom-apps surface only; it can't delete apps, mint app API keys, or
+    manage tokens.
+  </>
+);
+
 export default function AdminPublishTokens({ embedded = false }: { embedded?: boolean } = {}) {
-  const { data: tokens = [], isPending } = usePublishTokens();
+  // Deliberately the whole query, not `data: tokens = []`: that default made a failed
+  // fetch render as "No publish tokens yet.", which reads as "your CI credential was
+  // revoked" on the one page that would tell you otherwise.
+  const tokens = usePublishTokens();
   const create = useCreatePublishToken();
   const revoke = useRevokePublishToken();
   const [name, setName] = useState("");
@@ -52,23 +67,8 @@ export default function AdminPublishTokens({ embedded = false }: { embedded?: bo
     });
   };
 
-  return (
-    <div className='mx-auto max-w-3xl p-6'>
-      <div className='mb-6'>
-        {!embedded && <h1 className='font-semibold text-xl tracking-tight'>Publish tokens</h1>}
-        <p
-          className={
-            embedded ? "text-muted-foreground text-xs" : "mt-1 text-muted-foreground text-xs"
-          }
-        >
-          Long-lived bearer tokens for machine auth — set one as the{" "}
-          <span className='font-mono'>OXY_TOKEN</span> secret so{" "}
-          <span className='font-mono'>oxyc publish</span> works in CI without an expiring login. A
-          token can publish and read the custom-apps surface only; it can't delete apps, mint app
-          API keys, or manage tokens.
-        </p>
-      </div>
-
+  const body = (
+    <>
       <Card className='mb-6'>
         <CardContent className='p-4'>
           <form onSubmit={onSubmit} className='flex flex-col gap-3 sm:flex-row sm:items-center'>
@@ -100,27 +100,31 @@ export default function AdminPublishTokens({ embedded = false }: { embedded?: bo
 
       <CiInstructions />
 
-      <Card>
-        <CardContent className='p-0'>
-          {isPending ? (
-            <div className='flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs'>
-              <Spinner /> Loading…
-            </div>
-          ) : tokens.length === 0 ? (
-            <div className='flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground'>
-              <KeyRound className='size-8' />
-              <p className='text-xs'>No publish tokens yet.</p>
-              <p className='text-xs'>Create one above to authenticate `oxyc publish` from CI.</p>
-            </div>
-          ) : (
-            <ul className='divide-y divide-border'>
-              {tokens.map((token) => (
-                <PublishTokenRow key={token.id} token={token} onRevoke={setPendingRevoke} />
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      <AdminAsync
+        query={tokens}
+        noun='publish tokens'
+        rows={3}
+        isEmpty={(rows) => rows.length === 0}
+        empty={
+          <AdminEmptyState
+            icon={KeyRound}
+            title='No publish tokens yet.'
+            description='Create one above to authenticate `oxyc publish` from CI.'
+          />
+        }
+      >
+        {(rows) => (
+          <Card>
+            <CardContent className='p-0'>
+              <ul className='divide-y divide-border'>
+                {rows.map((token) => (
+                  <PublishTokenRow key={token.id} token={token} onRevoke={setPendingRevoke} />
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+      </AdminAsync>
 
       <CreatedTokenDialog token={created} onClose={() => setCreated(null)} />
 
@@ -132,6 +136,32 @@ export default function AdminPublishTokens({ embedded = false }: { embedded?: bo
         }}
         onConfirm={confirmRevoke}
       />
-    </div>
+    </>
+  );
+
+  // Embedded, this page IS the "Tokens" tab inside Custom apps: that surface already
+  // owns the frame and the heading, so no AdminPage here — the branch is unchanged.
+  if (embedded) {
+    return (
+      <div className='mx-auto max-w-3xl p-6'>
+        <div className='mb-6'>
+          <p className='text-muted-foreground text-xs'>{DESCRIPTION}</p>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  // `space-y-0`: the create-token card and CiInstructions carry their own `mb-6`,
+  // which the embedded branch above depends on, so the kit's rhythm would stack.
+  return (
+    <AdminPage
+      width='narrow'
+      bodyClassName='space-y-0'
+      description={DESCRIPTION}
+      data-testid='admin-publish-tokens'
+    >
+      {body}
+    </AdminPage>
   );
 }

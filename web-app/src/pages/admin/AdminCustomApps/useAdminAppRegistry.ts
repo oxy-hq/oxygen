@@ -18,7 +18,7 @@ import type { CustomApp } from "@/types/apps";
  * this list targets; a by-slug lookup would avoid the walk if it ever isn't).
  */
 export function useAdminAppRegistry(orgSlug?: string, appSlug?: string) {
-  const { data, isLoading, error, hasNextPage, isFetchingNextPage, fetchNextPage } =
+  const { data, isLoading, error, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
     useAdminApps(100);
 
   const apps = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
@@ -45,6 +45,7 @@ export function useAdminAppRegistry(orgSlug?: string, appSlug?: string) {
     selectedKey,
     isLoading,
     isLoadingMore: isFetchingNextPage,
-    error
+    error,
+    refetch
   };
 }

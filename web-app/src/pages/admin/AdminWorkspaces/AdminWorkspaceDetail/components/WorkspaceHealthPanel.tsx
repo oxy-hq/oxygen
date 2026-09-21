@@ -1,6 +1,5 @@
 import { AlertTriangle, CheckCircle2, CircleAlert, HeartPulse, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useTriggerWorkspaceHealthEval } from "@/hooks/api/workspaceHealth/useTriggerWorkspaceHealthEval";
 import { useWorkspaceHealthEntry } from "@/hooks/api/workspaceHealth/useWorkspaceHealthEntry";
 import { timeAgo } from "@/libs/utils/date";
@@ -10,10 +9,12 @@ import type {
   WorkspaceHealthSignals,
   WorkspaceHealthStatus
 } from "@/services/api/workspaceHealth";
+import { AdminAsync } from "../../../components/AdminAsync";
 import { AdminDetailTabPanel } from "../../../components/AdminDetailTabs";
 import { AdminEmptyState } from "../../../components/AdminEmptyState";
 import { AdminSectionLabel } from "../../../components/AdminSectionLabel";
 import { AdminStatusPill } from "../../../components/AdminStatusPill";
+import { ADMIN_TONE } from "../../../components/adminTone";
 import { workspaceHealthTone } from "../../../components/workspaceHealthTone";
 import { SmokeTestSection } from "./SmokeTestSection";
 
@@ -36,18 +37,19 @@ const SIGNAL_ROWS: { key: keyof WorkspaceHealthSignals; label: string }[] = [
   { key: "dead_letter_count", label: "Dead-letter tasks" }
 ];
 
-// Shades mirror `AdminStatusPill`'s tones so the icon and the status pill read
-// as one unit. emerald/amber are sanctioned on the admin operator console (see
-// `workspaceHealthTone` — the customer-facing "emerald = workflow-node success
-// only" rule does not apply to this surface).
+// The icon takes its colour from the same tone the status pill beside it does, via
+// `workspaceHealthTone` → `ADMIN_TONE`, so the two read as one unit and neither can
+// drift. (This used to spell the shades out as raw emerald/amber, which the repo's
+// style rule forbids and which carried its own hand-written `dark:` variants.)
 const HealthIcon = ({ status }: { status: WorkspaceHealthStatus }) => {
+  const tone = ADMIN_TONE[workspaceHealthTone(status)].text;
   switch (status) {
     case "healthy":
-      return <CheckCircle2 className='size-4 text-emerald-700 dark:text-emerald-400' />;
+      return <CheckCircle2 className={`size-4 ${tone}`} />;
     case "degraded":
-      return <AlertTriangle className='size-4 text-amber-700 dark:text-amber-400' />;
+      return <AlertTriangle className={`size-4 ${tone}`} />;
     case "unhealthy":
-      return <CircleAlert className='size-4 text-destructive' />;
+      return <CircleAlert className={`size-4 ${tone}`} />;
   }
 };
 
@@ -58,7 +60,7 @@ const HealthIcon = ({ status }: { status: WorkspaceHealthStatus }) => {
  * transition time, and the raw signal counts behind each dimension.
  */
 export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: string }) {
-  const { data: health, isLoading } = useWorkspaceHealthEntry(workspaceId);
+  const health = useWorkspaceHealthEntry(workspaceId);
   const triggerEval = useTriggerWorkspaceHealthEval();
 
   return (
@@ -80,111 +82,126 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
         Health
       </AdminSectionLabel>
 
-      {isLoading ? (
-        <div className='flex items-center gap-2 text-muted-foreground text-xs'>
-          <Spinner /> Loading health…
-        </div>
-      ) : !health ? (
-        <AdminEmptyState
-          icon={HeartPulse}
-          title='No health data'
-          description='This workspace does not appear in the current health rollup.'
-        />
-      ) : (
-        <div className='space-y-6'>
-          <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
-            <div className='flex flex-wrap items-center gap-3'>
-              <HealthIcon status={health.status} />
-              <AdminStatusPill tone={workspaceHealthTone(health.status)} label={health.status} />
-              {health.changed_at ? (
-                <span className='text-muted-foreground text-xs'>
-                  in this state since {new Date(health.changed_at).toLocaleString()}
-                </span>
-              ) : null}
-              {health.checked_at ? (
-                <span
-                  className='text-muted-foreground/70 text-xs'
-                  title={new Date(health.checked_at).toLocaleString()}
-                >
-                  · last checked {timeAgo(health.checked_at)}
-                </span>
-              ) : (
-                <span className='text-muted-foreground/70 text-xs'>· awaiting first check</span>
-              )}
-            </div>
-
-            <div className='space-y-2'>
-              <AdminSectionLabel>Dimensions</AdminSectionLabel>
-              <ul className='space-y-1.5'>
-                {health.dimensions.map((d) => (
-                  <li
-                    key={d.dimension}
-                    className='flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2'
-                  >
-                    <span className='font-medium text-xs'>
-                      {DIMENSION_LABELS[d.dimension] ?? d.dimension}
+      {/* The hook resolves to `null` — never `undefined` — for a workspace absent from
+          the rollup, which is the ordinary case for a workspace with no `health_check:`
+          block. So "not evaluated" is the EMPTY state here, and `undefined` is left to
+          mean what it should: the rollup itself failed to load. */}
+      <AdminAsync
+        query={health}
+        noun='workspace health'
+        rows={3}
+        isEmpty={(entry) => entry === null}
+        empty={
+          <AdminEmptyState
+            icon={HeartPulse}
+            title='No health data'
+            description='This workspace does not appear in the current health rollup.'
+          />
+        }
+      >
+        {(health) =>
+          health && (
+            <div className='space-y-6'>
+              <section className='space-y-4 rounded-lg border border-border/60 bg-card p-6'>
+                <div className='flex flex-wrap items-center gap-3'>
+                  <HealthIcon status={health.status} />
+                  <AdminStatusPill
+                    tone={workspaceHealthTone(health.status)}
+                    label={health.status}
+                  />
+                  {health.changed_at ? (
+                    <span className='text-muted-foreground text-xs'>
+                      in this state since {new Date(health.changed_at).toLocaleString()}
                     </span>
-                    <div className='flex min-w-0 items-center gap-2'>
-                      {d.reason ? (
-                        <span className='truncate text-muted-foreground text-xs'>{d.reason}</span>
-                      ) : null}
-                      <AdminStatusPill tone={workspaceHealthTone(d.status)} label={d.status} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-
-          <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
-            <AdminSectionLabel>Signals (recent window)</AdminSectionLabel>
-            <dl className='grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2'>
-              {SIGNAL_ROWS.map((row) => (
-                <div key={row.key} className='flex items-center justify-between gap-3 text-xs'>
-                  <dt className='text-muted-foreground'>{row.label}</dt>
-                  <dd className='tabular-nums'>
-                    {health.signals ? (health.signals[row.key] as number) : "—"}
-                  </dd>
+                  ) : null}
+                  {health.checked_at ? (
+                    <span
+                      className='text-muted-foreground/70 text-xs'
+                      title={new Date(health.checked_at).toLocaleString()}
+                    >
+                      · last checked {timeAgo(health.checked_at)}
+                    </span>
+                  ) : (
+                    <span className='text-muted-foreground/70 text-xs'>· awaiting first check</span>
+                  )}
                 </div>
-              ))}
-              <div className='flex items-center justify-between gap-3 text-xs'>
-                <dt className='text-muted-foreground'>Latest Airway run</dt>
-                <dd>{health.signals ? airwayLabel(health.signals) : "—"}</dd>
-              </div>
-            </dl>
-            <p className='text-[11px] text-muted-foreground'>
-              Anomaly counts are informational — they do not affect the health status. Severity
-              measures how far a value sits past its seasonal band, so a campaign or a holiday
-              scores high while nothing is broken. Data-correctness failures surface under
-              Reconciliation.
-            </p>
-          </section>
 
-          {health.reconciliation.length > 0 ? (
-            <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
-              <AdminSectionLabel>Reconciliation</AdminSectionLabel>
-              <ul className='space-y-1.5'>
-                {health.reconciliation.map((check) => (
-                  <ReconciliationRow key={check.check} check={check} />
-                ))}
-              </ul>
-            </section>
-          ) : null}
+                <div className='space-y-2'>
+                  <AdminSectionLabel>Dimensions</AdminSectionLabel>
+                  <ul className='space-y-1.5'>
+                    {health.dimensions.map((d) => (
+                      <li
+                        key={d.dimension}
+                        className='flex items-center justify-between gap-3 rounded-md border border-border/50 px-3 py-2'
+                      >
+                        <span className='font-medium text-xs'>
+                          {DIMENSION_LABELS[d.dimension] ?? d.dimension}
+                        </span>
+                        <div className='flex min-w-0 items-center gap-2'>
+                          {d.reason ? (
+                            <span className='truncate text-muted-foreground text-xs'>
+                              {d.reason}
+                            </span>
+                          ) : null}
+                          <AdminStatusPill tone={workspaceHealthTone(d.status)} label={d.status} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </section>
 
-          {health.smoke.length > 0 || health.smoke_probes.length > 0 ? (
-            <SmokeTestSection
-              checks={health.smoke}
-              probes={health.smoke_probes}
-              lastRunAt={health.last_smoke_at}
-              // Both buttons drive the same eval pass; only this one forces the
-              // probes past their cadence, so they share `isPending` and neither
-              // can be double-fired while the other is in flight.
-              onRun={() => triggerEval.mutate({ workspaceId, smoke: true })}
-              isRunning={triggerEval.isPending}
-            />
-          ) : null}
-        </div>
-      )}
+              <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
+                <AdminSectionLabel>Signals (recent window)</AdminSectionLabel>
+                <dl className='grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2'>
+                  {SIGNAL_ROWS.map((row) => (
+                    <div key={row.key} className='flex items-center justify-between gap-3 text-xs'>
+                      <dt className='text-muted-foreground'>{row.label}</dt>
+                      <dd className='tabular-nums'>
+                        {health.signals ? (health.signals[row.key] as number) : "—"}
+                      </dd>
+                    </div>
+                  ))}
+                  <div className='flex items-center justify-between gap-3 text-xs'>
+                    <dt className='text-muted-foreground'>Latest Airway run</dt>
+                    <dd>{health.signals ? airwayLabel(health.signals) : "—"}</dd>
+                  </div>
+                </dl>
+                <p className='text-[11px] text-muted-foreground'>
+                  Anomaly counts are informational — they do not affect the health status. Severity
+                  measures how far a value sits past its seasonal band, so a campaign or a holiday
+                  scores high while nothing is broken. Data-correctness failures surface under
+                  Reconciliation.
+                </p>
+              </section>
+
+              {health.reconciliation.length > 0 ? (
+                <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
+                  <AdminSectionLabel>Reconciliation</AdminSectionLabel>
+                  <ul className='space-y-1.5'>
+                    {health.reconciliation.map((check) => (
+                      <ReconciliationRow key={check.check} check={check} />
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {health.smoke.length > 0 || health.smoke_probes.length > 0 ? (
+                <SmokeTestSection
+                  checks={health.smoke}
+                  probes={health.smoke_probes}
+                  lastRunAt={health.last_smoke_at}
+                  // Both buttons drive the same eval pass; only this one forces the
+                  // probes past their cadence, so they share `isPending` and neither
+                  // can be double-fired while the other is in flight.
+                  onRun={() => triggerEval.mutate({ workspaceId, smoke: true })}
+                  isRunning={triggerEval.isPending}
+                />
+              ) : null}
+            </div>
+          )
+        }
+      </AdminAsync>
     </AdminDetailTabPanel>
   );
 }

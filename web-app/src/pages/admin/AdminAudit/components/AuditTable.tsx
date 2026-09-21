@@ -1,8 +1,8 @@
 import { ShieldAlert } from "lucide-react";
-import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_HEADER_ROW_CLASS, AdminTh } from "@/pages/admin/components/AdminTable";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AuditEvent } from "@/types/audit";
 
 /** Compact "2h" / "3d"; full timestamp on hover. */
@@ -29,22 +29,13 @@ function actionTone(action: string): string {
   return "text-foreground";
 }
 
-export default function AuditTable({
-  events,
-  isPending,
-  isError,
-  limit
-}: {
-  events: AuditEvent[] | undefined;
-  isPending: boolean;
-  isError: boolean;
-  limit: number;
-}) {
-  if (isPending) return <Skeleton className='h-64 w-full' />;
-  if (isError) return <p className='text-destructive text-xs'>Failed to load the audit log.</p>;
-  if (!events?.length)
-    return <p className='text-muted-foreground text-xs'>No events match these filters.</p>;
-
+/**
+ * The loaded stream. Loading, failure and "nothing matched" are no longer this
+ * component's business — the page gates all three through `AdminAsync`, which
+ * is also where the retry the old inline error block never offered now lives.
+ * So `events` arrives already resolved and non-empty.
+ */
+export default function AuditTable({ events, limit }: { events: AuditEvent[]; limit: number }) {
   return (
     <div className='space-y-2'>
       <div className='overflow-x-auto rounded-md border border-border/60'>
@@ -67,6 +58,7 @@ export default function AuditTable({
                   key={e.id}
                   className={cn("border-border/50", failed && "bg-destructive/5")}
                   title={e.reason ?? undefined}
+                  data-testid={`admin-audit-row-${e.id}`}
                 >
                   <TableCell
                     className='whitespace-nowrap py-1 text-muted-foreground tabular-nums'
@@ -87,7 +79,11 @@ export default function AuditTable({
                       <span className={cn("font-mono", actionTone(e.action))}>{e.action}</span>
                       {e.via_global_override && (
                         <span
-                          className='inline-flex items-center gap-0.5 rounded-sm bg-amber-500/15 px-1 font-medium text-[10px] text-amber-700 dark:text-amber-400'
+                          className={cn(
+                            "inline-flex items-center gap-0.5 rounded-sm px-1 font-medium text-[10px]",
+                            ADMIN_TONE.warn.bg,
+                            ADMIN_TONE.warn.text
+                          )}
                           title='Taken through the assume-role / global override'
                         >
                           <ShieldAlert className='size-3' />

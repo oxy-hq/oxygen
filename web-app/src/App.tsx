@@ -124,6 +124,7 @@ const TracesPage = React.lazy(() => import("./pages/ide/observability/traces"));
 
 // Admin and Stripe return URLs are visited rarely; defer their bundles too.
 const AdminLayout = React.lazy(() => import("./pages/admin/AdminLayout"));
+const AdminHome = React.lazy(() => import("./pages/admin/AdminHome"));
 // Partner console — same shell as admin, fewer capabilities.
 const PartnerLayout = React.lazy(() => import("./pages/partners/PartnerLayout"));
 const PartnerClients = React.lazy(() => import("./pages/partners/PartnerClients"));
@@ -612,7 +613,11 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 redirect already runs above this so app-admins reach it
                 cleanly, owners reach it cleanly, and unauthorized users
                 get bounced before the Navigate even runs. */}
-            <Route path='admin' element={<Navigate to={ROUTES.ADMIN.CUSTOMER_APPS} replace />} />
+            {/* The console's landing page. It used to redirect straight to Custom apps,
+                which answered a question nobody arrives with — the operator's first
+                question is "does anything need me?", and answering it meant visiting
+                four pages. AdminHome asks all four sources at once. */}
+            <Route path='admin' element={<AdminHome />} />
             <Route path='admin/billing/queue' element={<AdminBillingQueue />} />
             <Route path='admin/feature-flags' element={<AdminFeatureFlags />} />
             <Route path='admin/internal-jobs' element={<AdminInternalJobs />} />

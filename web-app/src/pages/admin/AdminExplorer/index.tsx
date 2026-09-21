@@ -12,6 +12,8 @@ import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import TablePagination from "@/components/ui/TablePagination";
 import { useExplorerRuns, useExplorerThreads } from "@/hooks/api/adminExplorer";
 import { cn } from "@/libs/utils/cn";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminPage } from "../components/AdminPage";
 import { RunsTable } from "./components/RunsTable";
 import { ThreadsTable } from "./components/ThreadsTable";
 import {
@@ -73,16 +75,21 @@ export default function AdminExplorer() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  return (
-    <div className='mx-auto max-w-7xl space-y-5 p-6 lg:px-10 lg:py-8'>
-      <header className='flex items-baseline gap-3'>
-        <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.18em]'>
-          Operations
-        </p>
-        <span className='text-muted-foreground/40'>/</span>
-        <h1 className='font-semibold text-xl tracking-tight'>Explorer</h1>
-      </header>
+  // Rendered inside whichever resource's gate resolved, so the page count and the
+  // rows it pages through always come from the same response.
+  const pagination = (
+    <TablePagination
+      currentPage={page}
+      totalPages={totalPages}
+      totalItems={total}
+      pageSize={PAGE_SIZE}
+      onPageChange={setPage}
+      itemLabel={resource}
+    />
+  );
 
+  return (
+    <AdminPage width='wide' data-testid='admin-explorer'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex items-center gap-1'>
           {RESOURCES.map((r) => (
@@ -152,29 +159,28 @@ export default function AdminExplorer() {
         </div>
       </div>
 
-      {active.isPending ? (
-        <Skeleton className='h-64 w-full' />
-      ) : active.isError ? (
-        <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-          Failed to load {resource}.
-        </div>
-      ) : (
-        <>
-          {resource === "threads" ? (
-            <ThreadsTable rows={threads.data?.items ?? []} />
-          ) : (
-            <RunsTable rows={runs.data?.items ?? []} />
+      {/* One gate per resource rather than one over `active`: the two queries return
+          different row types, so gating them apart keeps each table's rows narrowed
+          to its own shape. */}
+      {resource === "threads" ? (
+        <AdminAsync query={threads} noun='threads' skeleton={<Skeleton className='h-64 w-full' />}>
+          {(data) => (
+            <>
+              <ThreadsTable rows={data.items} />
+              {pagination}
+            </>
           )}
-          <TablePagination
-            currentPage={page}
-            totalPages={totalPages}
-            totalItems={total}
-            pageSize={PAGE_SIZE}
-            onPageChange={setPage}
-            itemLabel={resource}
-          />
-        </>
+        </AdminAsync>
+      ) : (
+        <AdminAsync query={runs} noun='runs' skeleton={<Skeleton className='h-64 w-full' />}>
+          {(data) => (
+            <>
+              <RunsTable rows={data.items} />
+              {pagination}
+            </>
+          )}
+        </AdminAsync>
       )}
-    </div>
+    </AdminPage>
   );
 }

@@ -13,6 +13,8 @@ import {
 import { Separator } from "@/components/ui/shadcn/separator";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useAdminSubscription } from "@/hooks/api/billing";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type {
   AdminOrgRow,
   AdminSubscriptionDetail,
@@ -183,7 +185,14 @@ function LatestInvoiceSection({
         ) : null}
 
         {isDeferredDraft ? (
-          <div className='rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900 text-xs leading-relaxed dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200'>
+          <div
+            className={cn(
+              "rounded-md p-2 text-xs leading-relaxed ring-1 ring-inset",
+              ADMIN_TONE.warn.bg,
+              ADMIN_TONE.warn.text,
+              ADMIN_TONE.warn.ring
+            )}
+          >
             Stripe holds new subscription invoices in <strong>draft</strong> for ~1 hour, then
             auto-finalizes and emails them to the customer. Open the invoice in Stripe if you want
             to finalize and send it now.

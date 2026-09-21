@@ -10,11 +10,14 @@ const DEFAULT_INTERVAL_MS = 5_000;
  * accept a paused flag from the LiveIndicator so the user can stop
  * background fetches without unmounting the page.
  */
-export const useQueueStats = (options: { paused?: boolean; intervalMs?: number } = {}) => {
-  const { paused = false, intervalMs = DEFAULT_INTERVAL_MS } = options;
+export const useQueueStats = (
+  options: { paused?: boolean; intervalMs?: number; enabled?: boolean } = {}
+) => {
+  const { paused = false, intervalMs = DEFAULT_INTERVAL_MS, enabled = true } = options;
   return useQuery({
     queryKey: queryKeys.internalJobs.queueStats(),
     queryFn: () => InternalJobsService.queueStats(),
-    refetchInterval: paused ? false : intervalMs
+    refetchInterval: paused ? false : intervalMs,
+    enabled
   });
 };

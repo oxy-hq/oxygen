@@ -2,6 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useQueueStats } from "@/hooks/api/internalJobs";
 import queryKeys from "@/hooks/api/queryKey";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminPage } from "../components/AdminPage";
 import { HealthRibbon } from "./components/HealthRibbon";
 import { JobsConsole } from "./components/JobsConsole";
 import { LiveIndicator } from "./components/LiveIndicator";
@@ -40,15 +42,9 @@ function PageBody() {
   };
 
   return (
-    <div className='mx-auto max-w-7xl space-y-5 p-6 lg:px-10 lg:py-8'>
-      <header className='flex items-center justify-between gap-4'>
-        <div className='flex items-baseline gap-3'>
-          <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.18em]'>
-            Operations
-          </p>
-          <span className='text-muted-foreground/40'>/</span>
-          <h1 className='font-semibold text-xl tracking-tight'>Internal jobs</h1>
-        </div>
+    <AdminPage
+      width='wide'
+      actions={
         <LiveIndicator
           updatedAt={queueStats.dataUpdatedAt || undefined}
           paused={paused}
@@ -56,17 +52,19 @@ function PageBody() {
           onRefresh={onRefresh}
           isFetching={queueStats.isFetching}
         />
-      </header>
-
-      {queueStats.isLoading ? (
-        <Skeleton className='h-16 w-full' />
-      ) : queueStats.isError || !queueStats.data ? (
-        <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-          Failed to load queue stats.
-        </div>
-      ) : (
-        <HealthRibbon total={queueStats.data.total} history={history} />
-      )}
+      }
+      data-testid='admin-internal-jobs'
+    >
+      {/* Four independent regions, four gates: the ribbon, the console, the fleet
+          and the schedule each poll their own endpoint, so one being down must not
+          blank the other three. */}
+      <AdminAsync
+        query={queueStats}
+        noun='queue stats'
+        skeleton={<Skeleton className='h-16 w-full' />}
+      >
+        {(stats) => <HealthRibbon total={stats.total} history={history} />}
+      </AdminAsync>
 
       <JobsConsole />
 
@@ -74,6 +72,6 @@ function PageBody() {
         <WorkerFleetPanel />
         <ScheduledJobsPanel />
       </div>
-    </div>
+    </AdminPage>
   );
 }

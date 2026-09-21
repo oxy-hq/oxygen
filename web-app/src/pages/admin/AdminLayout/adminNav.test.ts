@@ -1,10 +1,12 @@
-// @vitest-environment jsdom
-// Needed only because this module is reached through the sidebar component, which pulls
-// in `services/env` and reads `window.location`. The function under test touches neither.
 import { describe, expect, it } from "vitest";
 import ROUTES from "@/libs/utils/routes";
 import type { PlatformCapability } from "@/types/auth";
-import { canReachAdminRoute, firstReachableAdminRoute } from "./index";
+import {
+  adminPageGroup,
+  adminPageTitle,
+  canReachAdminRoute,
+  firstReachableAdminRoute
+} from "./adminNav";
 
 /**
  * The route guard, tested by **behaviour on real pathnames** rather than by inspecting
@@ -143,5 +145,100 @@ describe("firstReachableAdminRoute", () => {
 
   it("sends a principal with no admin surface home rather than into the console", () => {
     expect(firstReachableAdminRoute(nobody)).toBe("/");
+  });
+});
+
+describe("adminPageTitle", () => {
+  it("names a page by its rail label", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.COMPILES)).toBe("Compile revisions");
+    expect(adminPageTitle(ROUTES.ADMIN.AIRWAY)).toBe("Airway");
+  });
+
+  it("lets a nested route inherit its parent's name", () => {
+    expect(adminPageTitle(`${ROUTES.ADMIN.CUSTOMER_APPS}/acme/oxy-starter`)).toBe("Custom apps");
+  });
+
+  it("stops at a segment boundary", () => {
+    expect(adminPageTitle(`${ROUTES.ADMIN.CUSTOMER_APPS}-registry`)).toBe("Admin");
+  });
+
+  it("tells the three tenants entries apart by ?type=, defaulting to organizations", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.TENANTS, "?type=partners")).toBe("Partners");
+    expect(adminPageTitle(ROUTES.ADMIN.TENANTS, "?type=users")).toBe("Users");
+    expect(adminPageTitle(ROUTES.ADMIN.TENANTS)).toBe("Organizations");
+  });
+
+  it("names the directories that have no rail entry, and their detail pages", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.WORKSPACES)).toBe("Workspaces");
+    expect(adminPageTitle(ROUTES.ADMIN.ORG_DETAIL("some-org"))).toBe("Organizations");
+    expect(adminPageTitle(ROUTES.ADMIN.USER_DETAIL("some-user"))).toBe("Users");
+  });
+
+  it("falls back for a path it has never heard of", () => {
+    expect(adminPageTitle("/admin/nowhere")).toBe("Admin");
+  });
+});
+
+describe("adminPageGroup", () => {
+  it("places a page in the group its rail entry sits in", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.COMPILES)).toBe("operations");
+    expect(adminPageGroup(ROUTES.ADMIN.AIRHOUSE)).toBe("tenants");
+  });
+
+  it("tells the three tenants entries apart by ?type=", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.TENANTS, "?type=users")).toBe("tenants");
+  });
+
+  it("places the flat directories with the tenants, and their detail pages too", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.ORGS)).toBe("tenants");
+    expect(adminPageGroup(ROUTES.ADMIN.WORKSPACE_DETAIL("w1"))).toBe("tenants");
+  });
+
+  it("does not call publish tokens a tenant page just because it has no rail entry", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.PUBLISH_TOKENS)).toBeNull();
+  });
+
+  it("has no opinion about a path outside the console", () => {
+    expect(adminPageGroup("/admin/nowhere")).toBeNull();
+  });
+});
+
+describe("the console home", () => {
+  it("is named by the map, like every other page", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.ROOT)).toBe("Operations");
+  });
+
+  it("does not claim every admin path just by being their prefix", () => {
+    expect(adminPageTitle("/admin/nowhere")).toBe("Admin");
+    expect(adminPageTitle(`${ROUTES.ADMIN.CUSTOMER_APPS}-registry`)).toBe("Admin");
+    expect(adminPageTitle(ROUTES.ADMIN.COMPILES)).toBe("Compile revisions");
+  });
+
+  it("belongs to no rail group, and does not drag other pages into one", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.ROOT)).toBeNull();
+    expect(adminPageGroup("/admin/nowhere")).toBeNull();
+  });
+});
+
+describe("pages registered exactly", () => {
+  /**
+   * Two pages sit *under* another entry's path — the home is a prefix of every admin
+   * route, and the overview lives beneath `/admin/tenants`. A prefix scan named both
+   * after their parent, so the overview's breadcrumb read "Organizations".
+   */
+  it("names the tenants overview itself, not its parent directory", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.TENANTS_OVERVIEW)).toBe("Operator overview");
+  });
+
+  it("still names the directory the overview sits under", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.TENANTS, "?type=partners")).toBe("Partners");
+  });
+
+  it("puts the overview with the tenants in the rail groups", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.TENANTS_OVERVIEW)).toBe("tenants");
+  });
+
+  it("is reachable by anyone the tenants directory admits", () => {
+    expect(canReachAdminRoute(ROUTES.ADMIN.TENANTS_OVERVIEW, staff("manage_members"))).toBe(true);
   });
 });

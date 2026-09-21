@@ -2,6 +2,7 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "./adminTone";
 
 /**
  * Operator-grade stat tile. One number, one label, one optional delta.
@@ -80,7 +81,7 @@ const Delta = ({ value, suffix }: { value: number; suffix?: string }) => {
     <span
       className={cn(
         "inline-flex items-center gap-0.5 font-medium text-xs tabular-nums",
-        positive ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"
+        positive ? ADMIN_TONE.ok.text : ADMIN_TONE.warn.text
       )}
     >
       <Icon className='size-3' />

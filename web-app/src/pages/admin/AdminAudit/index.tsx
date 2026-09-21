@@ -1,3 +1,4 @@
+import { ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
@@ -8,7 +9,11 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
+import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAuditSearch } from "@/hooks/api/audit";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import AuditTable from "./components/AuditTable";
 
 const LIMIT = 200;
@@ -35,7 +40,11 @@ export default function AdminAudit() {
   const q = useDebounced(qInput);
   const action = useDebounced(actionInput);
 
-  const { data, isPending, isError } = useAuditSearch({
+  // The whole query: an audit search that failed and one that legitimately
+  // matched nothing must not read the same on a console used for incident
+  // triage. `keepPreviousData` on the hook means a filter change keeps the old
+  // page on screen rather than flashing the skeleton, exactly as before.
+  const events = useAuditSearch({
     q: q || undefined,
     action: action || undefined,
     outcome: outcome === "all" ? undefined : outcome,
@@ -50,15 +59,18 @@ export default function AdminAudit() {
   };
 
   return (
-    <div className='mx-auto w-full max-w-[100rem] space-y-4 p-6'>
-      <div>
-        <h1 className='font-semibold text-xl tracking-tight'>Audit log</h1>
-        <p className='text-muted-foreground text-xs'>
+    <AdminPage
+      // Was `max-w-[100rem]`, an arbitrary width off the kit's scale; `full` is
+      // the closest role — this is a six-column stream an operator scans wide.
+      width='full'
+      description={
+        <>
           Every privileged action across the platform — partner grants, member changes, custom-app
           deploys — newest first.
-        </p>
-      </div>
-
+        </>
+      }
+      data-testid='admin-audit'
+    >
       <div className='flex flex-wrap items-center gap-2'>
         <Input
           placeholder='Search action, actor, or target…'
@@ -89,7 +101,16 @@ export default function AdminAudit() {
         )}
       </div>
 
-      <AuditTable events={data} isPending={isPending} isError={isError} limit={LIMIT} />
-    </div>
+      <AdminAsync
+        query={events}
+        noun='the audit log'
+        // One block, matching the table it replaces.
+        skeleton={<Skeleton className='h-64 w-full' />}
+        isEmpty={(rows) => rows.length === 0}
+        empty={<AdminEmptyState icon={ScrollText} title='No events match these filters.' />}
+      >
+        {(rows) => <AuditTable events={rows} limit={LIMIT} />}
+      </AdminAsync>
+    </AdminPage>
   );
 }

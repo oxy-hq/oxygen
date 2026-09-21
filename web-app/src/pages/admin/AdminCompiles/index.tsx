@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Hammer, Loader2 } from "lucide-react";
+import { FileCheck, Hammer, Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +9,9 @@ import { useBackfillUncompiled } from "@/hooks/api/compiles";
 import queryKeys from "@/hooks/api/queryKey";
 import { useRowSelection } from "@/hooks/useRowSelection";
 import { LiveIndicator } from "../AdminInternalJobs/components/LiveIndicator";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { BulkActionBar } from "./components/BulkActionBar";
 import { CompileFilters, type CompileView } from "./components/CompileFilters";
 import { RevisionTable } from "./components/RevisionTable";
@@ -92,21 +95,25 @@ export default function AdminCompilesPage() {
         ? ({ mode: "revisions", sel: wsRevSelection } as const)
         : ({ mode: "workspace", sel: wsSelection } as const);
 
+  // The table is tall, so bars would misrepresent it — keep the single block the
+  // page already showed while loading.
+  const tableSkeleton = <Skeleton className='h-40 w-full' />;
+
   return (
-    <div className='mx-auto max-w-7xl space-y-4 p-6 pb-20 lg:px-10 lg:py-8'>
-      <header className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-        <div className='space-y-1'>
-          <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
-            Admin · Compile boundary
-          </p>
-          <h1 className='font-semibold text-xl tracking-tight'>Compiles</h1>
-          <p className='max-w-2xl text-muted-foreground text-xs'>
-            One row per workspace, expandable to its full revision history. GitHub pushes
-            auto-enqueue compiles with <code className='font-mono'>promote=true</code>; use the
-            tools here for ad-hoc, batch, and rollback operations.
-          </p>
-        </div>
-        <div className='flex shrink-0 items-center gap-2'>
+    // `pb-20` survives the frame swap: the BulkActionBar is `fixed bottom-4`, and
+    // without the clearance it covers the last row of a full table.
+    <AdminPage
+      width='wide'
+      className='pb-20'
+      description={
+        <>
+          One row per workspace, expandable to its full revision history. GitHub pushes auto-enqueue
+          compiles with <code className='font-mono'>promote=true</code>; use the tools here for
+          ad-hoc, batch, and rollback operations.
+        </>
+      }
+      actions={
+        <>
           <RunCompileSheet />
           <Button
             size='sm'
@@ -129,10 +136,11 @@ export default function AdminCompilesPage() {
             onRefresh={onRefresh}
             isFetching={c.active.isFetching}
           />
-        </div>
-      </header>
-
-      <section className='space-y-3'>
+        </>
+      }
+      data-testid='admin-compiles'
+    >
+      <section className='space-y-3' data-testid='admin-compiles-results'>
         <CompileFilters
           view={c.view}
           onViewChange={onViewChange}
@@ -143,37 +151,52 @@ export default function AdminCompilesPage() {
           totalLabel={c.totalLabel}
         />
 
-        {c.active.isLoading ? (
-          <Skeleton className='h-40 w-full' />
-        ) : c.active.isError ? (
-          <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-            Failed to load compiles.
-          </div>
-        ) : c.view === "workspace" ? (
-          c.workspaceRows.length === 0 ? (
-            <EmptyState message='No workspaces have compiled yet. Run a compile or backfill to populate this view.' />
-          ) : (
-            <WorkspaceTable
-              rows={c.workspaceRows}
-              paused={c.paused}
-              selection={wsSelection}
-              revisionSelection={wsRevSelection}
-            />
-          )
-        ) : c.revisionRows.length === 0 ? (
-          <EmptyState message='No revisions yet. The first compile will appear here once it runs.' />
+        {/* One AdminAsync per view rather than one over `c.active`: the two queries
+            return different row types, and gating them separately keeps each
+            branch's rows narrowed to its own table. */}
+        {c.view === "workspace" ? (
+          <AdminAsync
+            query={c.workspaces}
+            noun='compiles'
+            skeleton={tableSkeleton}
+            isEmpty={(d) => d.rows.length === 0}
+            empty={
+              <AdminEmptyState
+                icon={FileCheck}
+                title='No workspaces have compiled yet.'
+                description='Run a compile or backfill to populate this view.'
+              />
+            }
+          >
+            {(d) => (
+              <WorkspaceTable
+                rows={d.rows}
+                paused={c.paused}
+                selection={wsSelection}
+                revisionSelection={wsRevSelection}
+              />
+            )}
+          </AdminAsync>
         ) : (
-          <RevisionTable rows={c.revisionRows} selection={flatSelection} />
+          <AdminAsync
+            query={c.revisions}
+            noun='compiles'
+            skeleton={tableSkeleton}
+            isEmpty={(d) => d.rows.length === 0}
+            empty={
+              <AdminEmptyState
+                icon={FileCheck}
+                title='No revisions yet.'
+                description='The first compile will appear here once it runs.'
+              />
+            }
+          >
+            {(d) => <RevisionTable rows={d.rows} selection={flatSelection} />}
+          </AdminAsync>
         )}
       </section>
 
       <BulkActionBar mode={bulk.mode} selectedIds={bulk.sel.selectedIds} onClear={bulk.sel.clear} />
-    </div>
+    </AdminPage>
   );
 }
-
-const EmptyState = ({ message }: { message: string }) => (
-  <div className='rounded-lg border border-border/60 border-dashed bg-muted/30 p-6 text-center text-muted-foreground text-xs'>
-    {message}
-  </div>
-);

@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useDeleteDead, useRecentFailures, useReenqueueDead } from "@/hooks/api/internalJobs";
 import queryKeys from "@/hooks/api/queryKey";
 import { cn } from "@/libs/utils/cn";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
+import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { InternalJobsService } from "@/services/api/internalJobs";
 import { useLive } from "../../LiveContext";
 import { BulkActionBar } from "./BulkActionBar";
@@ -33,7 +35,8 @@ const FILTERS: { id: Filter; label: string }[] = [
 export const JobsConsole = () => {
   const { paused } = useLive();
   const qc = useQueryClient();
-  const { data, isLoading, isError } = useRecentFailures(LIMIT, { paused });
+  const failures = useRecentFailures(LIMIT, { paused });
+  const data = failures.data;
   const reenqueue = useReenqueueDead();
   const remove = useDeleteDead();
 
@@ -148,7 +151,7 @@ export const JobsConsole = () => {
   };
 
   return (
-    <section className='space-y-3'>
+    <section className='space-y-3' data-testid='admin-internal-jobs-console'>
       <header className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex items-center gap-3'>
           <h3 className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
@@ -197,55 +200,58 @@ export const JobsConsole = () => {
         </div>
       </header>
 
-      {isLoading ? (
-        <Skeleton className='h-48 w-full' />
-      ) : isError || !data ? (
-        <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-          Failed to load jobs.
-        </div>
-      ) : rows.length === 0 ? (
-        <div className='flex flex-col items-center justify-center gap-2 rounded-lg border border-border/60 border-dashed bg-muted/20 px-6 py-12 text-center'>
-          <CheckCircle2 className='size-6 text-emerald-600' />
-          <p className='font-medium text-xs'>
-            {query.trim()
-              ? `No jobs match "${query.trim()}".`
-              : filter === "all"
-                ? "No failed or dead jobs."
-                : `No ${filter} jobs.`}
-          </p>
-          <p className='text-muted-foreground text-xs'>
-            {query.trim() ? "Try a broader filter." : "The worker fleet is healthy."}
-          </p>
-        </div>
-      ) : (
-        <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
-          <div className='grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 border-border/60 border-b bg-muted/30 px-3 py-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
-            <span className='w-4' aria-hidden />
-            <span>Type · Status</span>
-            <span>Workspace · Org</span>
-            <span className='max-w-40'>Worker</span>
-            <span>Claims</span>
-            <span className='w-14 text-right'>Age</span>
-            <span className='w-12' aria-hidden />
+      {/* `isEmpty` reads `rows`, not the fetched array: the filter and the search
+          box narrow client-side, so "nothing to show" is a property of the view,
+          not of the response. */}
+      <AdminAsync
+        query={failures}
+        noun='jobs'
+        skeleton={<Skeleton className='h-48 w-full' />}
+        isEmpty={() => rows.length === 0}
+        empty={
+          <AdminEmptyState
+            icon={CheckCircle2}
+            title={
+              query.trim()
+                ? `No jobs match "${query.trim()}".`
+                : filter === "all"
+                  ? "No failed or dead jobs."
+                  : `No ${filter} jobs.`
+            }
+            description={query.trim() ? "Try a broader filter." : "The worker fleet is healthy."}
+          />
+        }
+      >
+        {() => (
+          <div className='overflow-hidden rounded-lg border border-border/60 bg-card'>
+            <div className='grid grid-cols-[auto_auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 border-border/60 border-b bg-muted/30 px-3 py-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
+              <span className='w-4' aria-hidden />
+              <span>Type · Status</span>
+              <span>Workspace · Org</span>
+              <span className='max-w-40'>Worker</span>
+              <span>Claims</span>
+              <span className='w-14 text-right'>Age</span>
+              <span className='w-12' aria-hidden />
+            </div>
+            <div className='divide-y divide-border/50'>
+              {rows.map((row) => (
+                <JobRow
+                  key={row.task_id}
+                  row={row}
+                  selected={selected.has(row.task_id)}
+                  onToggleSelect={() => toggleSelect(row.task_id)}
+                  expanded={expanded.has(row.task_id)}
+                  onToggleExpand={() => toggleExpand(row.task_id)}
+                  onRetry={() => reenqueue.mutate(row.task_id)}
+                  onDelete={() => deleteOne(row.task_id)}
+                  retrying={reenqueue.isPending && reenqueue.variables === row.task_id}
+                  deleting={remove.isPending && remove.variables === row.task_id}
+                />
+              ))}
+            </div>
           </div>
-          <div className='divide-y divide-border/50'>
-            {rows.map((row) => (
-              <JobRow
-                key={row.task_id}
-                row={row}
-                selected={selected.has(row.task_id)}
-                onToggleSelect={() => toggleSelect(row.task_id)}
-                expanded={expanded.has(row.task_id)}
-                onToggleExpand={() => toggleExpand(row.task_id)}
-                onRetry={() => reenqueue.mutate(row.task_id)}
-                onDelete={() => deleteOne(row.task_id)}
-                retrying={reenqueue.isPending && reenqueue.variables === row.task_id}
-                deleting={remove.isPending && remove.variables === row.task_id}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+        )}
+      </AdminAsync>
 
       <BulkActionBar
         selectedCount={selected.size}

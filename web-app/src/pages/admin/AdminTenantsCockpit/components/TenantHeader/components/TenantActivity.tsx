@@ -1,6 +1,8 @@
 import { History, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AuditEvent } from "@/types/audit";
 
 /** `member.role.updated` → "member role updated". The stored ids are versioned and
@@ -93,7 +95,12 @@ export function TenantActivity({
                       cares about most, so it is marked rather than left to be inferred
                       from the actor's address. */}
                   {e.via_global_override && (
-                    <span className='ml-auto flex shrink-0 items-center gap-0.5 text-amber-600 dark:text-amber-400'>
+                    <span
+                      className={cn(
+                        "ml-auto flex shrink-0 items-center gap-0.5",
+                        ADMIN_TONE.warn.text
+                      )}
+                    >
                       <ShieldAlert className='size-3' />
                       acting
                     </span>

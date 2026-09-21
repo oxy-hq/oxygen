@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
 import AdminPublishTokens from "@/pages/admin/AdminPublishTokens";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { CustomApp } from "@/types/apps";
 import { AppCockpit } from "./components/AppCockpit";
 import { AppsTable } from "./components/AppsTable";
@@ -123,10 +124,8 @@ const AppsPane = () => {
   const location = useLocation();
   const params = useParams<{ orgSlug?: string; appSlug?: string }>();
   const [createOpen, setCreateOpen] = useState(false);
-  const { apps, selected, selectedKey, isLoading, isLoadingMore, error } = useAdminAppRegistry(
-    params.orgSlug,
-    params.appSlug
-  );
+  const { apps, selected, selectedKey, isLoading, isLoadingMore, error, refetch } =
+    useAdminAppRegistry(params.orgSlug, params.appSlug);
 
   // If the URL referenced an app that no longer exists, drop the phantom
   // selection once loading settles. Preserve the table's query state.
@@ -144,7 +143,7 @@ const AppsPane = () => {
 
   const closeDetail = () => navigate({ pathname: "/admin/apps", search: location.search });
 
-  if (error && !isLoading) return <ErrorState error={error} />;
+  if (error && !isLoading) return <ErrorState error={error} onRetry={refetch} />;
 
   // A selected app enters the cockpit: a persistent registry rail beside the
   // live detail, so the operator walks the fleet without bouncing back to the
@@ -171,23 +170,33 @@ const AppsPane = () => {
   );
 };
 
-const ErrorState = ({ error }: { error: unknown }) => (
-  <div className='mx-auto max-w-2xl p-6'>
-    <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
-      {isAxiosError(error) && error.response?.status === 403 ? (
-        <>
-          <p className='font-medium text-destructive text-xs'>
-            Your account isn't on the custom-apps allow list.
-          </p>
-          <p className='mt-2 text-muted-foreground text-xs'>
-            Add your email to the oxy backend's{" "}
-            <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> env
-            var (comma-separated) and restart the server, then refresh.
-          </p>
-        </>
-      ) : (
-        <p className='text-destructive text-xs'>Failed to load apps.</p>
-      )}
+/**
+ * A 403 keeps its own copy: it names the one thing the operator can fix without
+ * paging anyone, which the generic failure cannot. Everything else goes through
+ * `AdminAsync`, so it prints the server's own message and offers the Retry this
+ * block never had. Only the failure is routed through the kit — loading stays
+ * with `AppsTable`, which renders it inside the full-viewport browser frame.
+ */
+const ErrorState = ({ error, onRetry }: { error: unknown; onRetry: () => void }) =>
+  isAxiosError(error) && error.response?.status === 403 ? (
+    <div className='mx-auto max-w-2xl p-6'>
+      <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
+        <p className='font-medium text-destructive text-xs'>
+          Your account isn't on the custom-apps allow list.
+        </p>
+        <p className='mt-2 text-muted-foreground text-xs'>
+          Add your email to the oxy backend's{" "}
+          <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> env var
+          (comma-separated) and restart the server, then refresh.
+        </p>
+      </div>
     </div>
-  </div>
-);
+  ) : (
+    <AdminAsync
+      className='mx-auto max-w-2xl p-6'
+      query={{ isError: true, data: undefined, error, refetch: onRetry }}
+      noun='apps'
+    >
+      {() => null}
+    </AdminAsync>
+  );

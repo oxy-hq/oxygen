@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowRight, Building2, FolderOpen, Users } from "lucide-
 import { Link } from "react-router-dom";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 
@@ -71,10 +72,10 @@ export const NeedsAttention = ({
                   className={cn(
                     "size-4 shrink-0",
                     row.severity === "danger"
-                      ? "text-destructive"
+                      ? ADMIN_TONE.danger.text
                       : row.severity === "warn"
-                        ? "text-amber-600 dark:text-amber-400"
-                        : "text-muted-foreground"
+                        ? ADMIN_TONE.warn.text
+                        : ADMIN_TONE.muted.text
                   )}
                 />
                 <span className='font-semibold text-xs tabular-nums'>{row.count}</span>

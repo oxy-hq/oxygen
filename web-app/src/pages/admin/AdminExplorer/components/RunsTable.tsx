@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/shadcn/table";
 import { cn } from "@/libs/utils/cn";
 import ROUTES from "@/libs/utils/routes";
+import { ADMIN_TONE, type AdminTone } from "@/pages/admin/components/adminTone";
 import type { ExplorerRun } from "@/services/api/adminExplorer";
 import { ago, tenantLabel } from "../format";
 
@@ -89,6 +90,7 @@ const RunRow = ({
         role='button'
         tabIndex={0}
         aria-expanded={expanded}
+        data-testid={`admin-explorer-run-row-${run.id}`}
         onClick={onToggle}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -170,21 +172,31 @@ const RunRow = ({
   );
 };
 
+/** Run status → one of the console's five tones, so a run reads the same way a
+ *  job or a compile does. `null` keeps an unrecognised status in the plain
+ *  foreground rather than borrowing a colour that would read as a verdict. */
 function statusAccent(status: string): { dot: string; text: string } {
+  const tone = runTone(status);
+  if (!tone) return { dot: "bg-foreground/50", text: "text-foreground" };
+  const v = ADMIN_TONE[tone];
+  return { dot: v.dot, text: v.text };
+}
+
+function runTone(status: string): AdminTone | null {
   switch (status) {
     case "failed":
     case "dead":
-      return { dot: "bg-destructive", text: "text-destructive" };
+      return "danger";
     case "running":
     case "delegating":
     case "awaiting_input":
-      return { dot: "bg-primary", text: "text-primary" };
+      return "info";
     case "done":
-      return { dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-400" };
+      return "ok";
     case "cancelled":
-      return { dot: "bg-muted-foreground/60", text: "text-muted-foreground" };
+      return "muted";
     default:
-      return { dot: "bg-foreground/50", text: "text-foreground" };
+      return null;
   }
 }
 

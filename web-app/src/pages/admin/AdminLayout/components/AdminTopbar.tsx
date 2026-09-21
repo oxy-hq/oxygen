@@ -14,11 +14,14 @@ import { SidebarTrigger } from "@/components/ui/shadcn/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import ROUTES from "@/libs/utils/routes";
 import { AdminEntitySearch } from "../../components/AdminEntitySearch";
+import { ADMIN_NAV_GROUPS, type AdminNavGroup } from "../adminNav";
 import { AdminIdentity } from "./AdminIdentity";
 import { SystemStatus } from "./SystemStatus";
 
 interface AdminTopbarProps {
   title: string;
+  /** The rail group this page sits under, or null for a page outside the rail. */
+  group: AdminNavGroup | null;
 }
 
 /**
@@ -29,7 +32,7 @@ interface AdminTopbarProps {
  * one-glance "which oxy build am I on?" answer when triaging staging vs prod), and
  * the operator's own identity + platform role — see AdminIdentity.
  */
-export function AdminTopbar({ title }: AdminTopbarProps) {
+export function AdminTopbar({ title, group }: AdminTopbarProps) {
   return (
     <header className='flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2'>
       <SidebarTrigger className='-ml-0.5 size-7' />
@@ -48,6 +51,17 @@ export function AdminTopbar({ title }: AdminTopbarProps) {
         <BreadcrumbList className='gap-1 sm:gap-1'>
           <BreadcrumbItem className='text-muted-foreground text-xs'>Admin</BreadcrumbItem>
           <BreadcrumbSeparator />
+          {/* The group, so the breadcrumb states the whole position. The pages used to
+              print it themselves as an eyebrow — a third copy of the title line, in a
+              third wording. */}
+          {group ? (
+            <>
+              <BreadcrumbItem className='hidden text-muted-foreground text-xs sm:block'>
+                {ADMIN_NAV_GROUPS[group]}
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className='hidden sm:block' />
+            </>
+          ) : null}
           <BreadcrumbItem>
             <BreadcrumbPage className='font-medium text-xs'>{title}</BreadcrumbPage>
           </BreadcrumbItem>

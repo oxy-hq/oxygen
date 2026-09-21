@@ -13,7 +13,6 @@ import {
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent } from "@/components/ui/shadcn/card";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import {
   Table,
   TableBody,
@@ -25,6 +24,9 @@ import {
 import { ROLE_LABELS, useAppAdmins, useRemoveAppAdmin } from "@/hooks/api/access/useAppAdmins";
 import { useDelegationBound } from "@/hooks/api/access/useDelegationBound";
 import type { AppAdmin } from "@/types/access";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { GrantForm } from "./components/GrantForm";
 
 function formatGrantedAt(value: string): string {
@@ -52,7 +54,10 @@ function formatGrantedAt(value: string): string {
  * the source of truth.
  */
 export default function AdminAppAdmins() {
-  const { data: admins = [], isPending } = useAppAdmins();
+  // Deliberately the whole query, not `data: admins = []`: that default made a failed
+  // fetch render as "No staff access granted yet." — a page where an empty table is a
+  // claim that nobody holds platform standing.
+  const appAdmins = useAppAdmins();
   const bound = useDelegationBound();
   const remove = useRemoveAppAdmin();
   const [pendingDelete, setPendingDelete] = useState<AppAdmin | null>(null);
@@ -91,132 +96,138 @@ export default function AdminAppAdmins() {
   };
 
   return (
-    <div className='mx-auto max-w-5xl p-6'>
-      <div className='mb-6'>
-        <h1 className='font-semibold text-xl tracking-tight'>Staff access</h1>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          Each grant is a role plus the organizations it reaches. You can issue a grant weaker than
-          your own, never one equal to it — so a grant can never widen itself, and only a Global
-          Owner can add another Global Admin.
-        </p>
-      </div>
-
+    // `space-y-0`: the GrantForm card carries its own `mb-6`, so the kit's rhythm
+    // would stack on top of it.
+    <AdminPage
+      width='default'
+      bodyClassName='space-y-0'
+      description='Each grant is a role plus the organizations it reaches. You can issue a grant weaker than your own, never one equal to it — so a grant can never widen itself, and only a Global Owner can add another Global Admin.'
+      data-testid='admin-app-admins'
+    >
       <GrantForm key={editNonce} editing={editing} onCancel={closeEditor} bound={bound} />
 
-      <Card>
-        <CardContent className='p-0'>
-          {isPending ? (
-            <div className='flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs'>
-              <Spinner /> Loading…
-            </div>
-          ) : admins.length === 0 ? (
-            <div className='flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground'>
-              <ShieldCheck className='size-8' />
-              <p className='text-xs'>No staff access granted yet.</p>
-              <p className='text-xs'>Grant one above to let someone into the admin console.</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Reaches</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Added</TableHead>
-                  <TableHead>Changed</TableHead>
-                  <TableHead className='w-12'></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {admins.map((admin) => (
-                  <TableRow key={admin.id} className='hover:bg-muted/40'>
-                    <TableCell className='font-mono text-xs'>
-                      {admin.email}
-                      {/* Naming it beats leaving the operator to work out why their own
+      <AdminAsync
+        query={appAdmins}
+        noun='staff access'
+        rows={4}
+        isEmpty={(rows) => rows.length === 0}
+        empty={
+          <AdminEmptyState
+            icon={ShieldCheck}
+            title='No staff access granted yet.'
+            description='Grant one above to let someone into the admin console.'
+          />
+        }
+      >
+        {(admins) => (
+          <Card>
+            <CardContent className='p-0'>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Reaches</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead>Changed</TableHead>
+                    <TableHead className='w-12'></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {admins.map((admin) => (
+                    <TableRow
+                      key={admin.id}
+                      className='hover:bg-muted/40'
+                      data-testid={`admin-app-admins-row-${admin.id}`}
+                    >
+                      <TableCell className='font-mono text-xs'>
+                        {admin.email}
+                        {/* Naming it beats leaving the operator to work out why their own
                           row is the one they cannot touch. */}
-                      {bound.own?.id === admin.id && (
-                        <span className='ml-1.5 text-[10px] text-muted-foreground'>You</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={admin.role === "global_admin" ? "default" : "outline"}
-                        title={admin.capabilities.join(", ")}
-                      >
-                        {ROLE_LABELS[admin.role] ?? admin.role}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className='text-xs'>
-                      {admin.scope_all ? (
-                        <span className='text-muted-foreground'>All organizations</span>
-                      ) : (
-                        <span className='tabular-nums'>
-                          {admin.scope_org_ids.length} organization
-                          {admin.scope_org_ids.length === 1 ? "" : "s"}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {admin.granted_by ? (
-                        <Badge variant='outline'>Manual</Badge>
-                      ) : (
-                        <Badge variant='outline' className='text-muted-foreground'>
-                          Env seed
+                        {bound.own?.id === admin.id && (
+                          <span className='ml-1.5 text-[10px] text-muted-foreground'>You</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={admin.role === "global_admin" ? "default" : "outline"}
+                          title={admin.capabilities.join(", ")}
+                        >
+                          {ROLE_LABELS[admin.role] ?? admin.role}
                         </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {formatGrantedAt(admin.created_at)}
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {/* A grant is upserted in place, so "Added" alone leaves the role
+                      </TableCell>
+                      <TableCell className='text-xs'>
+                        {admin.scope_all ? (
+                          <span className='text-muted-foreground'>All organizations</span>
+                        ) : (
+                          <span className='tabular-nums'>
+                            {admin.scope_org_ids.length} organization
+                            {admin.scope_org_ids.length === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {admin.granted_by ? (
+                          <Badge variant='outline'>Manual</Badge>
+                        ) : (
+                          <Badge variant='outline' className='text-muted-foreground'>
+                            Env seed
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {formatGrantedAt(admin.created_at)}
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {/* A grant is upserted in place, so "Added" alone leaves the role
                           beside it unexplained. Em-dash when it has never changed. */}
-                      {admin.updated_at === admin.created_at
-                        ? "—"
-                        : formatGrantedAt(admin.updated_at)}
-                    </TableCell>
-                    <TableCell>
-                      {/* Disabled, not hidden. An operator who cannot find the Edit
+                        {admin.updated_at === admin.created_at
+                          ? "—"
+                          : formatGrantedAt(admin.updated_at)}
+                      </TableCell>
+                      <TableCell>
+                        {/* Disabled, not hidden. An operator who cannot find the Edit
                           button assumes the console is broken; one that is present and
                           explains itself teaches the rule in the place it applies. */}
-                      <div
-                        className='flex items-center gap-1'
-                        title={
-                          admin.can_manage
-                            ? undefined
-                            : `${admin.email} holds a grant at or above your own. Only a Global Owner can change it.`
-                        }
-                      >
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          disabled={!admin.can_manage}
-                          onClick={() => openEditor(admin)}
-                          aria-label={`Edit ${admin.email}`}
-                          data-testid='admin-app-admins-edit'
+                        <div
+                          className='flex items-center gap-1'
+                          title={
+                            admin.can_manage
+                              ? undefined
+                              : `${admin.email} holds a grant at or above your own. Only a Global Owner can change it.`
+                          }
                         >
-                          <Pencil className='size-4 text-muted-foreground' />
-                        </Button>
-                        <Button
-                          variant='ghost'
-                          size='icon'
-                          disabled={!admin.can_manage}
-                          onClick={() => setPendingDelete(admin)}
-                          aria-label={`Remove ${admin.email}`}
-                          data-testid='admin-app-admins-remove'
-                        >
-                          <Trash2 className='size-4 text-muted-foreground' />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            disabled={!admin.can_manage}
+                            onClick={() => openEditor(admin)}
+                            aria-label={`Edit ${admin.email}`}
+                            data-testid='admin-app-admins-edit'
+                          >
+                            <Pencil className='size-4 text-muted-foreground' />
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            disabled={!admin.can_manage}
+                            onClick={() => setPendingDelete(admin)}
+                            aria-label={`Remove ${admin.email}`}
+                            data-testid='admin-app-admins-remove'
+                          >
+                            <Trash2 className='size-4 text-muted-foreground' />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+      </AdminAsync>
 
       <AlertDialog
         open={pendingDelete !== null}
@@ -246,6 +257,6 @@ export default function AdminAppAdmins() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </AdminPage>
   );
 }

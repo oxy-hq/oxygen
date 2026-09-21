@@ -8,6 +8,7 @@ import { ago } from "@/pages/admin/AdminExplorer/format";
 import type { ExplorerRun } from "@/services/api/adminExplorer";
 import type { OrgUsageDetail } from "@/services/api/adminMetrics";
 import type { AdminOrgDetail } from "@/services/api/adminTenants";
+import { AdminAsync } from "../../../components/AdminAsync";
 import { AdminEmptyState } from "../../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../../components/AdminLinkedRow";
 import { AdminSectionLabel } from "../../../components/AdminSectionLabel";
@@ -98,21 +99,29 @@ export const OrgOverviewTab = ({
           >
             Recent activity
           </AdminSectionLabel>
-          {recentRuns.isPending ? (
-            <PreviewSkeleton />
-          ) : runs.length === 0 ? (
-            <AdminEmptyState
-              icon={Play}
-              title='No runs yet'
-              description='Agent runs for this organization appear here.'
-            />
-          ) : (
-            <ul className='divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-card'>
-              {runs.map((r) => (
-                <RecentRunRow key={r.id} run={r} />
-              ))}
-            </ul>
-          )}
+          {/* The failed state used to fall through to "No runs yet" — a triage screen
+              claiming the tenant is idle when it simply could not ask. */}
+          <AdminAsync
+            query={recentRuns}
+            noun='recent activity'
+            skeleton={<PreviewSkeleton />}
+            isEmpty={(d) => d.items.length === 0}
+            empty={
+              <AdminEmptyState
+                icon={Play}
+                title='No runs yet'
+                description='Agent runs for this organization appear here.'
+              />
+            }
+          >
+            {(d) => (
+              <ul className='divide-y divide-border/60 overflow-hidden rounded-md border border-border/60 bg-card'>
+                {d.items.map((r) => (
+                  <RecentRunRow key={r.id} run={r} />
+                ))}
+              </ul>
+            )}
+          </AdminAsync>
         </section>
 
         <section className='space-y-3'>

@@ -2,6 +2,7 @@ import { Plus, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAppSecrets } from "@/hooks/api/customApps/useAppSecrets";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import { SecretRow } from "./SecretRow";
 import { SetSecretDialog } from "./SetSecretDialog";
 
@@ -22,30 +23,31 @@ import { SetSecretDialog } from "./SetSecretDialog";
  * broken one from standing out.
  */
 export const Secrets = ({ appId }: { appId: string }) => {
-  const { data, isLoading, error } = useAppSecrets(appId);
+  const secrets = useAppSecrets(appId);
   /** The key being set. `""` = a new one; a name = rotating that one. */
   const [editing, setEditing] = useState<string | null>(null);
 
-  if (isLoading) {
-    return <p className='text-muted-foreground text-xs'>Loading secrets…</p>;
-  }
-  if (error || !data) {
-    return <p className='text-destructive text-xs'>Couldn't load secrets.</p>;
-  }
-
   return (
     <div className='flex flex-col gap-2' data-testid='admin-app-secrets'>
-      {data.declaration_error && <DeclarationError message={data.declaration_error} />}
-
-      {data.entries.length === 0 ? (
-        <EmptyState />
-      ) : (
-        <ul className='flex flex-col gap-1.5' data-testid='admin-app-secrets-list'>
-          {data.entries.map((entry) => (
-            <SecretRow key={entry.key} appId={appId} entry={entry} onSet={setEditing} />
-          ))}
-        </ul>
-      )}
+      {/* The gate wraps only the list. "Add secret" stays reachable when the fetch
+          fails: setting a key is exactly what an operator may be here to do, and the
+          declaration list is not needed to do it. */}
+      <AdminAsync query={secrets} noun='this app&rsquo;s secrets' rows={2}>
+        {(data) => (
+          <>
+            {data.declaration_error && <DeclarationError message={data.declaration_error} />}
+            {data.entries.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <ul className='flex flex-col gap-1.5' data-testid='admin-app-secrets-list'>
+                {data.entries.map((entry) => (
+                  <SecretRow key={entry.key} appId={appId} entry={entry} onSet={setEditing} />
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </AdminAsync>
 
       <div>
         <Button

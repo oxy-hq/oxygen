@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, Clock, Code2, KeyRound } from "lucide-react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { useAppFunctions } from "@/hooks/api/customApps/useAppFunctions";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { AppFunctionSummary } from "@/types/apps";
 import { FunctionDetail } from "./FunctionDetail";
 
@@ -20,29 +21,35 @@ export const Functions = ({
   selected: string | null;
   onSelect: (name: string | null) => void;
 }) => {
-  const { data: functions, isLoading, error } = useAppFunctions(appId);
-
-  if (isLoading) {
-    return <p className='text-muted-foreground text-xs'>Loading functions…</p>;
-  }
-  if (error) {
-    return <p className='text-destructive text-xs'>Couldn't load functions.</p>;
-  }
-  if (!functions || functions.length === 0) {
-    return (
-      <p className='text-muted-foreground text-xs' data-testid='admin-app-functions-empty'>
-        This app ships no Oxy Functions. Add a <code>functions/&lt;name&gt;.ts</code> to the bundle
-        and <code>oxyc publish</code>.
-      </p>
-    );
-  }
+  const functions = useAppFunctions(appId);
 
   return (
-    <ul className='flex flex-col gap-1.5' data-testid='admin-app-functions-list'>
-      {functions.map((fn) => (
-        <FunctionRow key={fn.name} appId={appId} fn={fn} selected={selected} onSelect={onSelect} />
-      ))}
-    </ul>
+    <AdminAsync
+      query={functions}
+      noun='this app&rsquo;s functions'
+      rows={2}
+      isEmpty={(fns) => fns.length === 0}
+      empty={
+        <p className='text-muted-foreground text-xs' data-testid='admin-app-functions-empty'>
+          This app ships no Oxy Functions. Add a <code>functions/&lt;name&gt;.ts</code> to the
+          bundle and <code>oxyc publish</code>.
+        </p>
+      }
+    >
+      {(fns) => (
+        <ul className='flex flex-col gap-1.5' data-testid='admin-app-functions-list'>
+          {fns.map((fn) => (
+            <FunctionRow
+              key={fn.name}
+              appId={appId}
+              fn={fn}
+              selected={selected}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      )}
+    </AdminAsync>
   );
 };
 

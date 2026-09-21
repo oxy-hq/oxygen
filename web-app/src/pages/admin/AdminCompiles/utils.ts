@@ -1,3 +1,6 @@
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE, type AdminTone } from "@/pages/admin/components/adminTone";
+
 /** Slice a possibly-undefined string. Lets rows render without crashing
  *  on a malformed row from a misconfigured deployment. */
 export function safeSlice(value: string | null | undefined, end: number): string {
@@ -24,18 +27,31 @@ export function formatRelative(iso: string | null | undefined): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-/** Tailwind classes for a compile status accent, reusing the page's
- *  existing token convention (emerald=ready, destructive=failed,
- *  amber=compiling). */
-export function statusAccent(status: string | null | undefined): string {
+/** Which admin tone a compile status reads as. Was spelled in raw palette
+ *  colours here (emerald=ready, destructive=failed, amber=compiling); the
+ *  console now has one status vocabulary, so the mapping names a tone and
+ *  `adminTone.ts` owns the colour. */
+export function compileTone(status: string | null | undefined): AdminTone {
   switch (status) {
     case "ready":
-      return "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return "ok";
     case "failed":
-      return "border-destructive/40 bg-destructive/10 text-destructive";
+      return "danger";
     case "compiling":
-      return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return "warn";
     default:
-      return "border-border/60 bg-muted/40 text-muted-foreground";
+      return "muted";
   }
+}
+
+/** `<Badge>` classes for a tone. `border-transparent` because the hairline is
+ *  the tone's ring, the way `AdminStatusPill` draws one. */
+export function toneBadgeClass(tone: AdminTone): string {
+  const v = ADMIN_TONE[tone];
+  return cn("border-transparent ring-1 ring-inset", v.bg, v.text, v.ring);
+}
+
+/** Badge classes for a compile status accent. */
+export function statusAccent(status: string | null | undefined): string {
+  return toneBadgeClass(compileTone(status));
 }

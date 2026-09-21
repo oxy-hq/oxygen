@@ -1,5 +1,9 @@
+import { Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAirwayConfig } from "@/hooks/api/airwayConfig/useAirwayConfig";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { DeploymentConfig } from "./DeploymentConfig";
 import { SourceKindCard } from "./SourceKindCard";
 
@@ -25,53 +29,57 @@ import { SourceKindCard } from "./SourceKindCard";
  * for how a preview is invalidated the moment a select changes.
  */
 export default function AdminAirway() {
-  const { data, isLoading, isError } = useAirwayConfig();
+  // The whole query, not its `data`: loading, a failed read and "airway reports
+  // no source kinds" are three different answers for an operator about to
+  // tighten a policy, and only `AdminAsync` keeps them apart.
+  const config = useAirwayConfig();
 
   return (
-    <div className='mx-auto max-w-5xl space-y-4 p-6 pb-20 lg:px-10 lg:py-8'>
-      <header className='space-y-1'>
-        <p className='font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]'>
-          Admin · Airway
-        </p>
-        <h1 className='font-semibold text-xl tracking-tight'>Airway configuration</h1>
-        <p className='max-w-2xl text-muted-foreground text-xs'>
+    <AdminPage
+      width='default'
+      description={
+        <>
           The contract policy each source kind admits pipelines under, plus the deployment-wide
           operational settings airway installs at worker startup. Tightening a kind's policy can
           halt every pipeline whose resources don't satisfy it — preview before saving.
-        </p>
-      </header>
-
-      {isLoading ? (
-        <div className='space-y-4' data-testid='admin-airway-loading'>
-          <Skeleton className='h-48 w-full' />
-          <Skeleton className='h-48 w-full' />
-        </div>
-      ) : isError ? (
-        <div
-          className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'
-          data-testid='admin-airway-error'
-        >
-          Failed to load airway admission config.
-        </div>
-      ) : !data || data.kinds.length === 0 ? (
-        <div
-          className='rounded-lg border border-border/60 border-dashed bg-muted/30 p-6 text-center text-muted-foreground text-xs'
-          data-testid='admin-airway-empty'
-        >
-          No known source kinds.
-        </div>
-      ) : (
-        <div className='space-y-4' data-testid='admin-airway-source-kind-list'>
-          {data.kinds.map((kind) => (
-            <SourceKindCard key={kind.source_kind} kind={kind} />
-          ))}
-        </div>
-      )}
+        </>
+      }
+      data-testid='admin-airway'
+    >
+      <AdminAsync
+        query={config}
+        noun='the airway admission config'
+        // Cards, not rows: the real content is two tall policy panels, so
+        // row-height bars would promise a table that never arrives.
+        skeleton={
+          <div className='space-y-4'>
+            <Skeleton className='h-48 w-full' />
+            <Skeleton className='h-48 w-full' />
+          </div>
+        }
+        isEmpty={(data) => data.kinds.length === 0}
+        empty={
+          <AdminEmptyState
+            icon={Layers}
+            title='No known source kinds.'
+            description='Airway reports no source kinds on this build, so there is no admission policy to configure.'
+          />
+        }
+      >
+        {(data) => (
+          <div className='space-y-4' data-testid='admin-airway-source-kind-list'>
+            {data.kinds.map((kind) => (
+              <SourceKindCard key={kind.source_kind} kind={kind} />
+            ))}
+          </div>
+        )}
+      </AdminAsync>
 
       {/* Its own query, so a failure in the policy tier does not take the
           operational tier down with it (and vice versa) — two tiers, two
-          tables, two independent reads. */}
+          tables, two independent reads. That is also why it sits outside the
+          `AdminAsync` above rather than inside its render callback. */}
       <DeploymentConfig />
-    </div>
+    </AdminPage>
   );
 }

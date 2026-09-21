@@ -14,9 +14,10 @@ import {
 } from "@/components/ui/shadcn/table";
 import { useWorkspaceRevisions } from "@/hooks/api/compiles";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import type { WorkspaceCompileRow } from "@/services/api/compiles";
-import { formatRelative } from "../utils";
+import { formatRelative, toneBadgeClass } from "../utils";
 import { RevisionRow } from "./RevisionRow";
 import { StatusBadge } from "./StatusBadge";
 
@@ -49,11 +50,13 @@ export const WorkspaceRow = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const revisions = useWorkspaceRevisions(row.workspace_id, { enabled: expanded, paused });
-  const revRows = revisions.data?.rows ?? [];
 
   return (
     <Fragment>
-      <TableRow data-state={selected ? "selected" : undefined}>
+      <TableRow
+        data-state={selected ? "selected" : undefined}
+        data-testid={`admin-compiles-workspace-row-${row.workspace_id}`}
+      >
         <TableCell className='pl-3'>
           <Checkbox
             checked={selected}
@@ -84,7 +87,7 @@ export const WorkspaceRow = ({
           <div className='flex items-center gap-1.5'>
             <StatusBadge status={row.current_status} />
             {row.current_is_latest_ready ? (
-              <Badge className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'>
+              <Badge className={cn(toneBadgeClass("ok"), "px-1.5 py-0 text-[10px]")}>
                 up to date
               </Badge>
             ) : row.latest_status && row.latest_status !== row.current_status ? (
@@ -115,42 +118,49 @@ export const WorkspaceRow = ({
       {expanded ? (
         <TableRow className='hover:bg-transparent'>
           <TableCell colSpan={8} className='bg-muted/10 p-0'>
-            {revisions.isLoading ? (
-              <Skeleton className='m-2 h-16' />
-            ) : revisions.isError ? (
-              <p className='p-3 text-destructive text-xs'>Failed to load revisions.</p>
-            ) : revRows.length === 0 ? (
-              <p className='p-3 text-muted-foreground text-xs'>No revisions for this workspace.</p>
-            ) : (
-              <div className='border-border/40 border-t'>
-                <Table className='text-xs'>
-                  <TableHeader>
-                    <TableRow className='hover:bg-transparent'>
-                      <TableHead className={`${SUB_HEAD} w-9 pl-3`} />
-                      <TableHead className={SUB_HEAD}>Status</TableHead>
-                      <TableHead className={SUB_HEAD}>Revision</TableHead>
-                      <TableHead className={SUB_HEAD}>Git</TableHead>
-                      <TableHead className={SUB_HEAD}>Files</TableHead>
-                      <TableHead className={SUB_HEAD}>Duration</TableHead>
-                      <TableHead className={SUB_HEAD}>Started</TableHead>
-                      <TableHead className={SUB_HEAD}>Compiler</TableHead>
-                      <TableHead className={`${SUB_HEAD} pr-3 text-right`}>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {revRows.map((rev) => (
-                      <RevisionRow
-                        key={rev.revision_id}
-                        row={rev}
-                        nested
-                        selected={isRevisionSelected(rev.revision_id)}
-                        onToggle={onToggleRevision}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+            {/* Its own gate: each expanded workspace fetches its own history, so a
+                failure here is about this row, not the page. */}
+            <AdminAsync
+              query={revisions}
+              noun='revisions'
+              className='m-2'
+              skeleton={<Skeleton className='h-16' />}
+              isEmpty={(d) => d.rows.length === 0}
+              empty={
+                <p className='text-muted-foreground text-xs'>No revisions for this workspace.</p>
+              }
+            >
+              {(d) => (
+                <div className='border-border/40 border-t'>
+                  <Table className='text-xs'>
+                    <TableHeader>
+                      <TableRow className='hover:bg-transparent'>
+                        <TableHead className={`${SUB_HEAD} w-9 pl-3`} />
+                        <TableHead className={SUB_HEAD}>Status</TableHead>
+                        <TableHead className={SUB_HEAD}>Revision</TableHead>
+                        <TableHead className={SUB_HEAD}>Git</TableHead>
+                        <TableHead className={SUB_HEAD}>Files</TableHead>
+                        <TableHead className={SUB_HEAD}>Duration</TableHead>
+                        <TableHead className={SUB_HEAD}>Started</TableHead>
+                        <TableHead className={SUB_HEAD}>Compiler</TableHead>
+                        <TableHead className={`${SUB_HEAD} pr-3 text-right`}>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {d.rows.map((rev) => (
+                        <RevisionRow
+                          key={rev.revision_id}
+                          row={rev}
+                          nested
+                          selected={isRevisionSelected(rev.revision_id)}
+                          onToggle={onToggleRevision}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </AdminAsync>
           </TableCell>
         </TableRow>
       ) : null}

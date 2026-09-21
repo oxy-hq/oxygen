@@ -144,3 +144,7 @@ docs/superpowers/
 # Weekly Sentry triage scratch: the brief the job hands the agent, and the
 # report it writes back. Dot-prefixed so the workspace walker prunes it too.
 .sentry-triage/
+
+# Local scratch: screenshots, captured output, throwaway fixtures. Untracked but not
+# ignored meant a stray `git add -A` swept it into a commit.
+.tmp/

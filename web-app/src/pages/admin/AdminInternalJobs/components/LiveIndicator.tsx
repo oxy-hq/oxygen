@@ -2,6 +2,7 @@ import { Pause, Play, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { cn } from "@/libs/utils/cn";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 
 /**
  * Topbar "live" affordance — a colored heartbeat dot, a relative
@@ -45,14 +46,14 @@ export const LiveIndicator = ({
           <span
             className={cn(
               "absolute inset-0 inline-flex size-full rounded-full",
-              paused ? "bg-muted-foreground/40" : "animate-ping bg-emerald-500/60"
+              paused ? "bg-muted-foreground/40" : "animate-ping bg-success/60"
             )}
             aria-hidden
           />
           <span
             className={cn(
               "relative inline-flex size-2 rounded-full",
-              paused ? "bg-muted-foreground/60" : "bg-emerald-500"
+              paused ? ADMIN_TONE.muted.dot : ADMIN_TONE.ok.dot
             )}
             aria-hidden
           />

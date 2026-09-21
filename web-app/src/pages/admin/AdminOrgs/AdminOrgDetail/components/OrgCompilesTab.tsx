@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/shadcn/table";
 import { useCompiles } from "@/hooks/api/compiles";
 import { ago } from "@/pages/admin/AdminExplorer/format";
+import type { CompileRow } from "@/services/api/compiles";
+import { AdminAsync } from "../../../components/AdminAsync";
 import { AdminEmptyState } from "../../../components/AdminEmptyState";
 import { AdminStatusPill } from "../../../components/AdminStatusPill";
 
@@ -33,31 +35,38 @@ export const OrgCompilesTab = ({
   orgId: string;
   workspaceNames: Record<string, string>;
 }) => {
-  const { data, isPending, isError } = useCompiles({ org_id: orgId, limit: 100 });
-  const rows = data?.rows ?? [];
+  const compiles = useCompiles({ org_id: orgId, limit: 100 });
+
+  return (
+    <AdminAsync
+      query={compiles}
+      noun='compiles'
+      skeleton={<Skeleton className='h-64 w-full' />}
+      isEmpty={(d) => d.rows.length === 0}
+      empty={
+        <AdminEmptyState
+          icon={FileCheck}
+          title='No compiles yet'
+          description="Revisions appear here once this org's workspaces are compiled."
+        />
+      }
+    >
+      {(data) => <CompilesTable rows={data.rows} workspaceNames={workspaceNames} />}
+    </AdminAsync>
+  );
+};
+
+/** The loaded table: rollup pills, then a row per revision, newest first. */
+const CompilesTable = ({
+  rows,
+  workspaceNames
+}: {
+  rows: CompileRow[];
+  workspaceNames: Record<string, string>;
+}) => {
   const ready = rows.filter((r) => r.status === "ready").length;
   const failed = rows.filter((r) => r.status === "failed").length;
   const compiling = rows.filter((r) => r.status === "compiling").length;
-
-  if (isPending) {
-    return <Skeleton className='h-64 w-full' />;
-  }
-  if (isError) {
-    return (
-      <div className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'>
-        Failed to load compiles.
-      </div>
-    );
-  }
-  if (rows.length === 0) {
-    return (
-      <AdminEmptyState
-        icon={FileCheck}
-        title='No compiles yet'
-        description="Revisions appear here once this org's workspaces are compiled."
-      />
-    );
-  }
 
   return (
     <div className='space-y-4'>

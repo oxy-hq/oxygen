@@ -3,43 +3,20 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useActingSession } from "@/hooks/api/adminAssume/useActingSession";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
-import ROUTES from "@/libs/utils/routes";
 import {
-  AdminSidebar,
+  adminPageGroup,
+  adminPageTitle,
   canReachAdminRoute,
   firstReachableAdminRoute
-} from "./components/AdminSidebar";
+} from "./adminNav";
+import { AdminSidebar } from "./components/AdminSidebar";
 import { AdminTopbar } from "./components/AdminTopbar";
-
-const PAGE_TITLES: Record<string, string> = {
-  [ROUTES.ADMIN.BILLING_QUEUE]: "Billing queue",
-  [ROUTES.ADMIN.FEATURE_FLAGS]: "Feature flags",
-  [ROUTES.ADMIN.INTERNAL_JOBS]: "Internal jobs",
-  [ROUTES.ADMIN.COMPILES]: "Compile revisions",
-  [ROUTES.ADMIN.EXPLORER]: "Explorer",
-  [ROUTES.ADMIN.AUDIT]: "Audit log",
-  [ROUTES.ADMIN.APP_ADMINS]: "Staff access",
-  [ROUTES.ADMIN.PUBLISH_TOKENS]: "Publish tokens",
-  [ROUTES.ADMIN.CUSTOMER_APPS]: "Custom apps",
-  [ROUTES.ADMIN.WORKSPACE_HEALTH]: "Workspace health",
-  [ROUTES.ADMIN.TENANTS]: "Tenants overview",
-  [ROUTES.ADMIN.ORGS]: "Organizations",
-  [ROUTES.ADMIN.USERS]: "Users",
-  [ROUTES.ADMIN.WORKSPACES]: "Workspaces",
-  [ROUTES.ADMIN.AIRWAY]: "Airway"
-};
 
 export default function AdminLayout() {
   const location = useLocation();
   const { data: user, isPending } = useCurrentUser();
-  // Exact-match first, then prefix-match so `/admin/apps/:org/:slug` still
-  // shows "Customer apps" in the topbar instead of falling back to "Admin".
-  const title =
-    PAGE_TITLES[location.pathname] ??
-    Object.entries(PAGE_TITLES).find(([prefix]) =>
-      location.pathname.startsWith(`${prefix}/`)
-    )?.[1] ??
-    "Admin";
+  const title = adminPageTitle(location.pathname, location.search);
+  const group = adminPageGroup(location.pathname, location.search);
 
   const acting = useActingSession();
 
@@ -90,7 +67,7 @@ export default function AdminLayout() {
     <SidebarProvider>
       <AdminSidebar />
       <SidebarInset>
-        <AdminTopbar title={title} />
+        <AdminTopbar title={title} group={group} />
         <div className='min-h-0 flex-1 overflow-auto'>
           <Outlet />
         </div>

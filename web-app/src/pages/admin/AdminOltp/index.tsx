@@ -1,4 +1,4 @@
-import { Database, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/shadcn/input";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useOltpTenants } from "@/hooks/api/oltp/useAdminOltp";
 import { cn } from "@/libs/shadcn/utils";
-import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminPage } from "../components/AdminPage";
 import { AdminSectionLabel } from "../components/AdminSectionLabel";
 import { OltpTenantPanel } from "../components/OltpTenantPanel";
 import { OltpFleetRow } from "./components/OltpFleetRow";
@@ -36,7 +37,10 @@ import { OltpUnprovisionedRow } from "./components/OltpUnprovisionedRow";
  * line in the header now.
  */
 const AdminOltp = () => {
-  const { data, isPending, isError, error } = useOltpTenants();
+  // The whole query: a fleet that failed to load and a deployment with no
+  // tenants are different answers, and only `AdminAsync` keeps them apart.
+  const tenants = useOltpTenants();
+  const { data } = tenants;
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const selectedOrg = params.get("org");
@@ -67,7 +71,11 @@ const AdminOltp = () => {
 
     return {
       live: provisioned.filter(match),
-      empty: all.filter((r) => r.status === "none" && match),
+      // `&& match` — the function, not the call — read as permanently true, so typing in
+      // the search box filtered the provisioned list and left the unprovisioned one
+      // whole. It typechecks because `filter`'s predicate return is only required to be
+      // truthy, so nothing caught it.
+      empty: all.filter((r) => r.status === "none" && match(r)),
       summary: {
         provisioned: provisioned.length,
         total: all.length,
@@ -77,33 +85,20 @@ const AdminOltp = () => {
     };
   }, [data, query]);
 
-  if (isPending) return <Skeleton className='m-6 h-64' />;
-  if (isError) {
-    return (
-      <AdminEmptyState
-        icon={Database}
-        title='Could not list OLTP databases'
-        description={error instanceof Error ? error.message : undefined}
-      />
-    );
-  }
-
+  // Hoisted above the render gate so the page's width can depend on it: with a
+  // tenant open the detail panel needs the room, and the list narrows to
+  // compensate rather than the page growing a scrollbar. Undefined data means
+  // no selection, which is the same `wide` the unselected list wants anyway.
   const selectedRow = (data ?? []).find((r) => r.org_id === selectedOrg);
 
   return (
-    <div
-      className={cn(
-        "mx-auto flex flex-col gap-4 p-6 lg:px-10 lg:py-10",
-        // Full width with a tenant open: the panel needs the room, and the list
-        // narrows to compensate rather than the page growing a scrollbar.
-        selectedRow ? "max-w-none" : "max-w-7xl"
-      )}
-      data-testid='admin-oltp'
-    >
-      <div className='flex flex-wrap items-end justify-between gap-2'>
-        <div className='flex flex-col gap-0.5'>
-          <h1 className='font-semibold text-xl tracking-tight'>OLTP databases</h1>
-          <p className='text-muted-foreground text-xs'>
+    <AdminPage
+      width={selectedRow ? "full" : "wide"}
+      // Only once there is a fleet to summarise — "0 of 0 organizations
+      // provisioned · all healthy" is a false all-clear, not a placeholder.
+      description={
+        data ? (
+          <>
             {summary.provisioned} of {summary.total} organizations provisioned ·{" "}
             {summary.schemaCount} schema{summary.schemaCount === 1 ? "" : "s"} ·{" "}
             {summary.attention === 0 ? (
@@ -113,8 +108,10 @@ const AdminOltp = () => {
                 {summary.attention} need{summary.attention === 1 ? "s" : ""} attention
               </span>
             )}
-          </p>
-        </div>
+          </>
+        ) : undefined
+      }
+      actions={
         <div className='relative w-64'>
           <Search className='absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground' />
           <Input
@@ -125,67 +122,83 @@ const AdminOltp = () => {
             data-testid='admin-oltp-filter'
           />
         </div>
-      </div>
+      }
+      data-testid='admin-oltp'
+    >
+      <AdminAsync
+        query={tenants}
+        noun='the OLTP fleet'
+        // A master–detail page, not a row list: one block reads as the split
+        // pane that is about to arrive.
+        skeleton={<Skeleton className='h-64 w-full' />}
+      >
+        {() => (
+          <div className={cn("grid gap-6", selectedRow && "lg:grid-cols-[22rem_minmax(0,1fr)]")}>
+            <div className='flex min-w-0 flex-col gap-4'>
+              <div className='flex flex-col gap-2' data-testid='admin-oltp-provisioned'>
+                <AdminSectionLabel trailing={String(live.length)}>Provisioned</AdminSectionLabel>
+                {live.length === 0 ? (
+                  <p
+                    className='px-1 py-2 text-muted-foreground text-xs'
+                    data-testid='admin-oltp-provisioned-empty'
+                  >
+                    {query
+                      ? "No database matches that filter."
+                      : "No organization has a database yet."}
+                  </p>
+                ) : (
+                  <div className='flex flex-col'>
+                    {live.map((r) => (
+                      <OltpFleetRow
+                        key={r.org_id}
+                        row={r}
+                        compact={Boolean(selectedRow)}
+                        selected={r.org_id === selectedOrg}
+                        onSelect={() => setParam("org", r.org_id === selectedOrg ? null : r.org_id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
 
-      <div className={cn("grid gap-6", selectedRow && "lg:grid-cols-[22rem_minmax(0,1fr)]")}>
-        <div className='flex min-w-0 flex-col gap-4'>
-          <div className='flex flex-col gap-2' data-testid='admin-oltp-provisioned'>
-            <AdminSectionLabel trailing={String(live.length)}>Provisioned</AdminSectionLabel>
-            {live.length === 0 ? (
-              <p className='px-1 py-2 text-muted-foreground text-xs'>
-                {query ? "No database matches that filter." : "No organization has a database yet."}
-              </p>
-            ) : (
-              <div className='flex flex-col'>
-                {live.map((r) => (
-                  <OltpFleetRow
-                    key={r.org_id}
-                    row={r}
-                    compact={Boolean(selectedRow)}
-                    selected={r.org_id === selectedOrg}
-                    onSelect={() => setParam("org", r.org_id === selectedOrg ? null : r.org_id)}
-                  />
-                ))}
+              {empty.length > 0 && (
+                <div className='flex flex-col gap-2' data-testid='admin-oltp-unprovisioned'>
+                  <AdminSectionLabel trailing={String(empty.length)}>No database</AdminSectionLabel>
+                  {/* Two columns when nothing is selected: these rows hold one
+                      short name each, so one full-width column would leave most
+                      of the row empty and double the height of the section an
+                      operator cares least about. */}
+                  <div className={cn("grid gap-x-6", !selectedRow && "md:grid-cols-2")}>
+                    {empty.map((r) => (
+                      <OltpUnprovisionedRow key={r.org_id} row={r} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {selectedRow && (
+              <div className='flex min-w-0 flex-col gap-2' data-testid='admin-oltp-detail'>
+                <div className='flex items-center justify-between gap-2 border-border/60 border-b pb-2'>
+                  <h2 className='truncate font-semibold text-sm'>{selectedRow.org_name}</h2>
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-2'
+                    onClick={() => setParam("org", null)}
+                    data-testid='admin-oltp-detail-close'
+                  >
+                    <X className='size-3' />
+                    Close
+                  </Button>
+                </div>
+                <OltpTenantPanel orgId={selectedRow.org_id} />
               </div>
             )}
           </div>
-
-          {empty.length > 0 && (
-            <div className='flex flex-col gap-2' data-testid='admin-oltp-unprovisioned'>
-              <AdminSectionLabel trailing={String(empty.length)}>No database</AdminSectionLabel>
-              {/* Two columns when nothing is selected: these rows hold one short
-                  name each, so one full-width column would leave most of the row
-                  empty and double the height of the section an operator cares
-                  least about. */}
-              <div className={cn("grid gap-x-6", !selectedRow && "md:grid-cols-2")}>
-                {empty.map((r) => (
-                  <OltpUnprovisionedRow key={r.org_id} row={r} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {selectedRow && (
-          <div className='flex min-w-0 flex-col gap-2' data-testid='admin-oltp-detail'>
-            <div className='flex items-center justify-between gap-2 border-border/60 border-b pb-2'>
-              <h2 className='truncate font-semibold text-sm'>{selectedRow.org_name}</h2>
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-6 px-2'
-                onClick={() => setParam("org", null)}
-                data-testid='admin-oltp-detail-close'
-              >
-                <X className='size-3' />
-                Close
-              </Button>
-            </div>
-            <OltpTenantPanel orgId={selectedRow.org_id} />
-          </div>
         )}
-      </div>
-    </div>
+      </AdminAsync>
+    </AdminPage>
   );
 };
 

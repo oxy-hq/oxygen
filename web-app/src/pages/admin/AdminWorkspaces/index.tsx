@@ -11,12 +11,14 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useAdminWorkspacesList } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import ROUTES from "@/libs/utils/routes";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import type { WorkspaceStatusId } from "@/services/api/adminTenants";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { AdminStatusPill, type AdminStatusTone } from "../components/AdminStatusPill";
 import { ADMIN_HEADER_ROW_CLASS, ADMIN_ROW_CLASS, AdminTh } from "../components/AdminTable";
 
@@ -39,26 +41,20 @@ export default function AdminWorkspaces() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
 
-  const {
-    data: workspaces = [],
-    isLoading,
-    isFetching,
-    refetch
-  } = useAdminWorkspacesList({
+  // The whole query, not `data: workspaces = []`: that default rendered a failed fetch
+  // as "No workspaces yet.", so an outage and an empty deployment looked the same.
+  const workspaces = useAdminWorkspacesList({
     search,
     status: status === "all" ? undefined : status
   });
+  const { isLoading, isFetching, refetch } = workspaces;
 
   return (
-    <div className='mx-auto max-w-6xl p-6'>
-      <div className='mb-6'>
-        <h1 className='font-semibold text-xl tracking-tight'>Workspaces</h1>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          Every workspace across every organization. Search, filter by status, and operate on the
-          membership.
-        </p>
-      </div>
-
+    <AdminPage
+      width='wide'
+      description='Every workspace across every organization. Search, filter by status, and operate on the membership.'
+      data-testid='admin-workspaces'
+    >
       <Card>
         <CardHeader className='flex-row items-center justify-between gap-2 space-y-0 border-b py-4'>
           <div className='flex flex-1 items-center gap-3'>
@@ -93,9 +89,9 @@ export default function AdminWorkspaces() {
           </div>
 
           <div className='flex items-center gap-3'>
-            {!isLoading ? (
+            {!isLoading && workspaces.data ? (
               <span className='text-muted-foreground text-xs'>
-                {workspaces.length} {workspaces.length === 1 ? "workspace" : "workspaces"}
+                {workspaces.data.length} {workspaces.data.length === 1 ? "workspace" : "workspaces"}
               </span>
             ) : null}
             <Button variant='outline' size='sm' onClick={() => refetch()} disabled={isFetching}>
@@ -105,82 +101,80 @@ export default function AdminWorkspaces() {
           </div>
         </CardHeader>
         <CardContent className='p-0'>
-          {isLoading ? (
-            <div className='flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs'>
-              <Spinner /> Loading…
-            </div>
-          ) : workspaces.length === 0 ? (
-            <EmptyState search={search} />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className={ADMIN_HEADER_ROW_CLASS}>
-                  <AdminTh>Workspace</AdminTh>
-                  <AdminTh>Organization</AdminTh>
-                  <AdminTh>Status</AdminTh>
-                  <AdminTh align='right'>Members</AdminTh>
-                  <AdminTh>Last opened</AdminTh>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {workspaces.map((w) => (
-                  <TableRow
-                    key={w.id}
-                    className={ADMIN_ROW_CLASS}
-                    onClick={() => navigate(ROUTES.ADMIN.WORKSPACE_DETAIL(w.id))}
-                  >
-                    <TableCell>
-                      <div className='flex items-center gap-3'>
-                        <div className='flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground'>
-                          <FolderOpen className='size-4' />
-                        </div>
-                        <div className='flex flex-col'>
-                          <span className='font-medium'>{w.name}</span>
-                          <div className='flex items-center gap-1.5'>
-                            <CopyableId value={w.id} className='text-[10px]' />
-                            <span className='text-muted-foreground text-xs'>
-                              Created {new Date(w.created_at).toLocaleDateString()}
-                            </span>
+          <AdminAsync
+            query={workspaces}
+            noun='workspaces'
+            rows={6}
+            className='p-4'
+            isEmpty={(rows) => rows.length === 0}
+            empty={
+              <AdminEmptyState
+                icon={FolderOpen}
+                title={search ? `No workspaces match "${search}".` : "No workspaces yet."}
+                description={
+                  search
+                    ? "Try a different search term, or clear the filter."
+                    : "Workspaces appear here as organizations import or create projects."
+                }
+              />
+            }
+          >
+            {(rows) => (
+              <Table>
+                <TableHeader>
+                  <TableRow className={ADMIN_HEADER_ROW_CLASS}>
+                    <AdminTh>Workspace</AdminTh>
+                    <AdminTh>Organization</AdminTh>
+                    <AdminTh>Status</AdminTh>
+                    <AdminTh align='right'>Members</AdminTh>
+                    <AdminTh>Last opened</AdminTh>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((w) => (
+                    <TableRow
+                      key={w.id}
+                      className={ADMIN_ROW_CLASS}
+                      data-testid={`admin-workspaces-row-${w.id}`}
+                      onClick={() => navigate(ROUTES.ADMIN.WORKSPACE_DETAIL(w.id))}
+                    >
+                      <TableCell>
+                        <div className='flex items-center gap-3'>
+                          <div className='flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground'>
+                            <FolderOpen className='size-4' />
+                          </div>
+                          <div className='flex flex-col'>
+                            <span className='font-medium'>{w.name}</span>
+                            <div className='flex items-center gap-1.5'>
+                              <CopyableId value={w.id} className='text-[10px]' />
+                              <span className='text-muted-foreground text-xs'>
+                                Created {new Date(w.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs'>
-                      {w.org_slug ? `/${w.org_slug}` : <span className='italic'>orphaned</span>}
-                    </TableCell>
-                    <TableCell>
-                      <AdminStatusPill
-                        tone={STATUS_PILL[w.status].tone}
-                        label={STATUS_PILL[w.status].label}
-                      />
-                    </TableCell>
-                    <TableCell className='text-right tabular-nums'>{w.member_count}</TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {w.last_opened_at ? new Date(w.last_opened_at).toLocaleDateString() : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs'>
+                        {w.org_slug ? `/${w.org_slug}` : <span className='italic'>orphaned</span>}
+                      </TableCell>
+                      <TableCell>
+                        <AdminStatusPill
+                          tone={STATUS_PILL[w.status].tone}
+                          label={STATUS_PILL[w.status].label}
+                        />
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>{w.member_count}</TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {w.last_opened_at ? new Date(w.last_opened_at).toLocaleDateString() : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </AdminAsync>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function EmptyState({ search }: { search: string }) {
-  return (
-    <div className='flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground'>
-      <FolderOpen className='size-8' />
-      <p className='text-xs'>
-        {search ? `No workspaces match "${search}".` : "No workspaces yet."}
-      </p>
-      <p className='text-xs'>
-        {search
-          ? "Try a different search term, or clear the filter."
-          : "Workspaces appear here as organizations import or create projects."}
-      </p>
-    </div>
+    </AdminPage>
   );
 }

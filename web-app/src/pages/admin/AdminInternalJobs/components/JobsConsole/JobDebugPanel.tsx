@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/libs/utils/cn";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { QueueRow } from "@/services/api/internalJobs";
 import { relativeTime } from "../../../utils";
 import { summarizeSpec } from "./specSummary";
@@ -130,7 +131,11 @@ const CopyChip = ({ value }: { value: string }) => {
       className='shrink-0 text-muted-foreground transition-colors hover:text-foreground'
       aria-label={`Copy ${value}`}
     >
-      {copied ? <Check className='size-3 text-emerald-600' /> : <Copy className='size-3' />}
+      {copied ? (
+        <Check className={cn("size-3", ADMIN_TONE.ok.text)} />
+      ) : (
+        <Copy className='size-3' />
+      )}
     </button>
   );
 };

@@ -1,4 +1,5 @@
 import { cn } from "@/libs/utils/cn";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { QueueStatusCounts } from "@/services/api/internalJobs";
 import type { HistorySample } from "../useInternalJobsHistory";
 import { throughputSeries } from "../useInternalJobsHistory";
@@ -41,24 +42,14 @@ export const HealthRibbon = ({
             Throughput · 5m
           </span>
           <div className='flex items-center gap-2 text-[11px] tabular-nums'>
-            <span className='text-emerald-700 dark:text-emerald-400'>+{completedWin} done</span>
+            <span className={ADMIN_TONE.ok.text}>+{completedWin} done</span>
             <span className='text-muted-foreground/40'>/</span>
-            <span className='text-amber-700 dark:text-amber-400'>+{failedWin} failed</span>
+            <span className={ADMIN_TONE.warn.text}>+{failedWin} failed</span>
           </div>
         </div>
         <div className='flex items-center gap-1'>
-          <Sparkline
-            data={completedSeries}
-            toneClass='text-emerald-600 dark:text-emerald-400'
-            width={72}
-            height={26}
-          />
-          <Sparkline
-            data={failedSeries}
-            toneClass='text-amber-600 dark:text-amber-400'
-            width={72}
-            height={26}
-          />
+          <Sparkline data={completedSeries} toneClass={ADMIN_TONE.ok.text} width={72} height={26} />
+          <Sparkline data={failedSeries} toneClass={ADMIN_TONE.warn.text} width={72} height={26} />
         </div>
       </div>
     </div>
@@ -98,14 +89,9 @@ const CELLS: Array<{
   emphasize?: boolean;
 }> = [
   { key: "queued", label: "Queued", tone: "text-foreground" },
-  { key: "claimed", label: "Claimed", tone: "text-primary", emphasize: true },
-  { key: "completed", label: "Completed", tone: "text-emerald-700 dark:text-emerald-400" },
-  {
-    key: "failed",
-    label: "Failed",
-    tone: "text-amber-700 dark:text-amber-400",
-    emphasize: true
-  },
-  { key: "cancelled", label: "Cancelled", tone: "text-muted-foreground" },
-  { key: "dead", label: "Dead", tone: "text-destructive", emphasize: true }
+  { key: "claimed", label: "Claimed", tone: ADMIN_TONE.info.text, emphasize: true },
+  { key: "completed", label: "Completed", tone: ADMIN_TONE.ok.text },
+  { key: "failed", label: "Failed", tone: ADMIN_TONE.warn.text, emphasize: true },
+  { key: "cancelled", label: "Cancelled", tone: ADMIN_TONE.muted.text },
+  { key: "dead", label: "Dead", tone: ADMIN_TONE.danger.text, emphasize: true }
 ];

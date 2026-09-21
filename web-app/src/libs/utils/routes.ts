@@ -25,6 +25,8 @@ const ROUTES = {
   INVITE: (token: string) => `/invite/${token}`,
 
   ADMIN: {
+    /** The console home — the attention rollup every staff member can open. */
+    ROOT: "/admin",
     BILLING_QUEUE: "/admin/billing/queue",
     FEATURE_FLAGS: "/admin/feature-flags",
     INTERNAL_JOBS: "/admin/internal-jobs",
@@ -36,6 +38,8 @@ const ROUTES = {
     APP_ADMINS: "/admin/app-admins",
     PUBLISH_TOKENS: "/admin/publish-tokens",
     TENANTS: "/admin/tenants",
+    /** Tenant-side triage hub: stale orgs, org-less users, failed and orphan workspaces. */
+    TENANTS_OVERVIEW: "/admin/tenants/overview",
     ORGS: "/admin/orgs",
     OLTP: "/admin/oltp",
     ORG_DETAIL: (orgId: string) => `/admin/orgs/${orgId}`,

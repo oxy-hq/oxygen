@@ -2,6 +2,7 @@ import { ShieldAlert, ShieldCheck } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 
 /**
  * WHO is in the admin panel, and with WHAT authority.
@@ -36,7 +37,7 @@ export function AdminIdentity() {
             "flex h-6 max-w-[15rem] cursor-default items-center gap-1.5 rounded border px-1.5",
             // Owner is the higher-blast-radius tier — it reads hotter on purpose.
             isOwner
-              ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              ? cn("border-warning/40", ADMIN_TONE.warn.bg, ADMIN_TONE.warn.text)
               : "border-primary/30 bg-primary/5 text-primary"
           )}
         >

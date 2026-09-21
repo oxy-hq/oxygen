@@ -10,6 +10,7 @@ import {
   useUpsertAirwayDeploymentConfig
 } from "@/hooks/api/airwayConfig/useAirwayDeploymentConfig";
 import type { AirwayDeploymentConfigResponse } from "@/services/api/airwayConfig";
+import { AdminAsync } from "../../components/AdminAsync";
 import { formatUpdatedAt } from "../utils";
 import { DeploymentFieldRow } from "./DeploymentFieldRow";
 import { DeploymentStateBanner } from "./DeploymentStateBanner";
@@ -37,22 +38,21 @@ const GROUPS = ["transport", "retry", "extraction", "tls"] as const;
  * presented as the deployment's state.
  */
 export function DeploymentConfig() {
-  const { data, isLoading, isError } = useAirwayDeploymentConfig();
+  const config = useAirwayDeploymentConfig();
 
-  if (isLoading) {
-    return <Skeleton className='h-64 w-full' data-testid='admin-airway-deployment-loading' />;
-  }
-  if (isError || !data) {
-    return (
-      <div
-        className='rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-destructive text-xs'
-        data-testid='admin-airway-deployment-error'
-      >
-        Failed to load airway deployment config.
-      </div>
-    );
-  }
-  return <DeploymentForm data={data} />;
+  return (
+    <AdminAsync
+      query={config}
+      noun='the airway deployment config'
+      // One tall card, not a list of rows.
+      skeleton={<Skeleton className='h-64 w-full' />}
+    >
+      {/* Keyed on nothing: `DeploymentForm` seeds its draft from `data` once,
+          so it must not be reseeded by a background refetch mid-edit — the
+          same reason the form is a child component rather than this one. */}
+      {(data) => <DeploymentForm data={data} />}
+    </AdminAsync>
+  );
 }
 
 function DeploymentForm({ data }: { data: AirwayDeploymentConfigResponse }) {

@@ -26,7 +26,6 @@ import {
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useAdminOrgUsage } from "@/hooks/api/adminMetrics/useAdminOrgUsage";
 import {
   useAdminOrgDetail,
@@ -34,17 +33,20 @@ import {
   useRenameAdminOrg
 } from "@/hooks/api/adminTenants/useAdminOrgs";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
+import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import GrantPartnershipDialog from "@/pages/admin/AdminTenantsCockpit/components/GrantPartnershipDialog";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import { OltpTenantPanel } from "@/pages/admin/components/OltpTenantPanel";
 import { OrgLogoEditor } from "@/pages/admin/components/OrgLogoEditor";
+import { AdminAsync } from "../../components/AdminAsync";
 import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminEmptyState } from "../../components/AdminEmptyState";
 import { AdminLinkedList, AdminLinkedRow } from "../../components/AdminLinkedRow";
 import { AdminSectionLabel } from "../../components/AdminSectionLabel";
 import { AdminStatusPill } from "../../components/AdminStatusPill";
+import { ADMIN_TONE } from "../../components/adminTone";
 import { OrgActivityTab } from "./components/OrgActivityTab";
 import { OrgBillingTab } from "./components/OrgBillingTab";
 import { OrgCompilesTab } from "./components/OrgCompilesTab";
@@ -84,7 +86,8 @@ export default function AdminOrgDetail({
   const [assumeOpen, setAssumeOpen] = useState(false);
   const [grantOpen, setGrantOpen] = useState(false);
 
-  const { data: detail, isLoading } = useAdminOrgDetail(orgId);
+  const org = useAdminOrgDetail(orgId);
+  const detail = org.data;
   const { data: currentUser } = useCurrentUser();
   const usage = useAdminOrgUsage(orgId, USAGE_DAYS);
   const rename = useRenameAdminOrg();
@@ -127,10 +130,17 @@ export default function AdminOrgDetail({
     }
   }, [detail]);
 
-  if (isLoading || !detail) {
+  // Nothing below renders without the org, so the gate is the whole page. It used to be
+  // `isLoading || !detail` around a spinner, so a *failed* fetch spun forever — an
+  // outage and a slow network looked identical, with no way back but a page reload.
+  // `AdminAsync` tells them apart and offers a Retry; the guard covers every
+  // non-success state, so its render callback is unreachable.
+  if (!detail) {
     return (
-      <div className='flex min-h-[60vh] items-center justify-center gap-2 text-muted-foreground text-xs'>
-        <Spinner /> Loading organization…
+      <div className={embedded ? "p-4" : "mx-auto max-w-7xl p-6 lg:px-10 lg:py-10"}>
+        <AdminAsync query={org} noun='this organization' rows={4}>
+          {() => null}
+        </AdminAsync>
       </div>
     );
   }
@@ -208,7 +218,7 @@ export default function AdminOrgDetail({
             <Button
               variant='outline'
               size='sm'
-              className='border-amber-500/40 text-amber-700 dark:text-amber-400'
+              className={cn("border-warning/40", ADMIN_TONE.warn.text)}
               onClick={() => setAssumeOpen(true)}
             >
               <ShieldAlert className='size-3.5' />

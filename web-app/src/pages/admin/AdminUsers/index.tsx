@@ -11,11 +11,13 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useAdminUsersList } from "@/hooks/api/adminTenants/useAdminUsers";
 import ROUTES from "@/libs/utils/routes";
 import type { UserRoleFilter, UserStatusId } from "@/services/api/adminTenants";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminPage } from "../components/AdminPage";
 import { AdminStatusPill } from "../components/AdminStatusPill";
 import { ADMIN_HEADER_ROW_CLASS, ADMIN_ROW_CLASS, AdminTh } from "../components/AdminTable";
 import { orgRoleKind, platformRoleKind, RoleBadge } from "../components/RoleBadge";
@@ -37,27 +39,22 @@ export default function AdminUsers() {
   // real page rather than whatever survived a client-side pass over 50 rows.
   const [role, setRole] = useState<RoleFilter>("all");
 
-  const {
-    data: users = [],
-    isLoading,
-    isFetching,
-    refetch
-  } = useAdminUsersList({
+  // The whole query, not `data: users = []`: that default rendered a failed fetch as
+  // "No users yet." — a directory that is down and a deployment with no users looked
+  // identical. `AdminAsync` tells the three states apart.
+  const users = useAdminUsersList({
     search,
     status: status === "all" ? undefined : status,
     role: role === "all" ? undefined : role
   });
+  const { isLoading, isFetching, refetch } = users;
 
   return (
-    <div className='mx-auto max-w-6xl p-6'>
-      <div className='mb-6'>
-        <h1 className='font-semibold text-xl tracking-tight'>Users</h1>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          Every user across the deployment. Filter by role to find who holds staff access, inspect
-          org memberships, and deactivate accounts.
-        </p>
-      </div>
-
+    <AdminPage
+      width='wide'
+      description='Every user across the deployment. Filter by role to find who holds staff access, inspect org memberships, and deactivate accounts.'
+      data-testid='admin-users'
+    >
       <Card>
         <CardHeader className='flex-row items-center justify-between gap-2 space-y-0 border-b py-4'>
           <div className='flex flex-1 items-center gap-3'>
@@ -104,9 +101,9 @@ export default function AdminUsers() {
           </div>
 
           <div className='flex items-center gap-3'>
-            {!isLoading ? (
+            {!isLoading && users.data ? (
               <span className='text-muted-foreground text-xs'>
-                {users.length} {users.length === 1 ? "user" : "users"}
+                {users.data.length} {users.data.length === 1 ? "user" : "users"}
               </span>
             ) : null}
             <Button variant='outline' size='sm' onClick={() => refetch()} disabled={isFetching}>
@@ -116,97 +113,97 @@ export default function AdminUsers() {
           </div>
         </CardHeader>
         <CardContent className='p-0'>
-          {isLoading ? (
-            <div className='flex items-center justify-center gap-2 py-16 text-muted-foreground text-xs'>
-              <Spinner /> Loading…
-            </div>
-          ) : users.length === 0 ? (
-            <EmptyState search={search} />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className={ADMIN_HEADER_ROW_CLASS}>
-                  <AdminTh>User</AdminTh>
-                  <AdminTh align='right'>Orgs</AdminTh>
-                  <AdminTh>Status</AdminTh>
-                  <AdminTh>Last login</AdminTh>
-                  <AdminTh>Joined</AdminTh>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((u) => (
-                  <TableRow
-                    key={u.id}
-                    className={ADMIN_ROW_CLASS}
-                    onClick={() => navigate(ROUTES.ADMIN.USER_DETAIL(u.id))}
-                  >
-                    <TableCell>
-                      <div className='flex items-center gap-3'>
-                        <div className='flex size-8 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground text-xs uppercase'>
-                          {(u.name || u.email).slice(0, 1)}
-                        </div>
-                        <div className='flex flex-col'>
-                          <span className='flex flex-wrap items-center gap-1.5 font-medium'>
-                            {u.name || u.email}
-                            {/* The three authorities are different in KIND, so they
-                                stack rather than collapse into one label. */}
-                            {(() => {
-                              const kind = platformRoleKind(u.platform_role);
-                              return kind ? <RoleBadge kind={kind} /> : null;
-                            })()}
-                            {u.platform_role && !u.platform_scope_all && (
-                              <span className='text-[10px] text-muted-foreground'>
-                                {u.platform_scope_org_count} org
-                                {u.platform_scope_org_count === 1 ? "" : "s"}
-                              </span>
-                            )}
-                            {u.top_org_role && <RoleBadge kind={orgRoleKind(u.top_org_role)} />}
-                            {/* Delegated cross-org authority via a partner grant —
-                                one operator badge per partner they operate. */}
-                            {u.partners.map((p) => (
-                              <span key={p.id} title={`Partner access at ${p.name}`}>
-                                <RoleBadge kind='partner_operator' />
-                              </span>
-                            ))}
-                          </span>
-                          <span className='text-muted-foreground text-xs'>{u.email}</span>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className='text-right tabular-nums'>{u.org_count}</TableCell>
-                    <TableCell>
-                      <AdminStatusPill
-                        tone={u.status === "deleted" ? "muted" : "ok"}
-                        label={u.status === "deleted" ? "Deactivated" : "Active"}
-                      />
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {new Date(u.last_login_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className='text-muted-foreground text-xs tabular-nums'>
-                      {new Date(u.created_at).toLocaleDateString()}
-                    </TableCell>
+          <AdminAsync
+            query={users}
+            noun='users'
+            rows={6}
+            className='p-4'
+            isEmpty={(rows) => rows.length === 0}
+            empty={
+              <AdminEmptyState
+                icon={Users}
+                title={search ? `No users match "${search}".` : "No users yet."}
+                description={
+                  search
+                    ? "Try a different search term, or clear the filter."
+                    : "Users appear here after they sign in for the first time."
+                }
+              />
+            }
+          >
+            {(rows) => (
+              <Table>
+                <TableHeader>
+                  <TableRow className={ADMIN_HEADER_ROW_CLASS}>
+                    <AdminTh>User</AdminTh>
+                    <AdminTh align='right'>Orgs</AdminTh>
+                    <AdminTh>Status</AdminTh>
+                    <AdminTh>Last login</AdminTh>
+                    <AdminTh>Joined</AdminTh>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+                </TableHeader>
+                <TableBody>
+                  {rows.map((u) => (
+                    <TableRow
+                      key={u.id}
+                      className={ADMIN_ROW_CLASS}
+                      data-testid={`admin-users-row-${u.id}`}
+                      onClick={() => navigate(ROUTES.ADMIN.USER_DETAIL(u.id))}
+                    >
+                      <TableCell>
+                        <div className='flex items-center gap-3'>
+                          <div className='flex size-8 items-center justify-center rounded-full bg-muted font-medium text-muted-foreground text-xs uppercase'>
+                            {(u.name || u.email).slice(0, 1)}
+                          </div>
+                          <div className='flex flex-col'>
+                            <span className='flex flex-wrap items-center gap-1.5 font-medium'>
+                              {u.name || u.email}
+                              {/* The three authorities are different in KIND, so they
+                                stack rather than collapse into one label. */}
+                              {(() => {
+                                const kind = platformRoleKind(u.platform_role);
+                                return kind ? <RoleBadge kind={kind} /> : null;
+                              })()}
+                              {u.platform_role && !u.platform_scope_all && (
+                                <span className='text-[10px] text-muted-foreground'>
+                                  {u.platform_scope_org_count} org
+                                  {u.platform_scope_org_count === 1 ? "" : "s"}
+                                </span>
+                              )}
+                              {u.top_org_role && <RoleBadge kind={orgRoleKind(u.top_org_role)} />}
+                              {/* Delegated cross-org authority via a partner grant —
+                                one operator badge per partner they operate. */}
+                              {u.partners.map((p) => (
+                                <span key={p.id} title={`Partner access at ${p.name}`}>
+                                  <RoleBadge kind='partner_operator' />
+                                </span>
+                              ))}
+                            </span>
+                            <span className='text-muted-foreground text-xs'>{u.email}</span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className='text-right tabular-nums'>{u.org_count}</TableCell>
+                      <TableCell>
+                        <AdminStatusPill
+                          tone={u.status === "deleted" ? "muted" : "ok"}
+                          label={u.status === "deleted" ? "Deactivated" : "Active"}
+                        />
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {new Date(u.last_login_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className='text-muted-foreground text-xs tabular-nums'>
+                        {new Date(u.created_at).toLocaleDateString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </AdminAsync>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function EmptyState({ search }: { search: string }) {
-  return (
-    <div className='flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground'>
-      <Users className='size-8' />
-      <p className='text-xs'>{search ? `No users match "${search}".` : "No users yet."}</p>
-      <p className='text-xs'>
-        {search
-          ? "Try a different search term, or clear the filter."
-          : "Users appear here after they sign in for the first time."}
-      </p>
-    </div>
+    </AdminPage>
   );
 }

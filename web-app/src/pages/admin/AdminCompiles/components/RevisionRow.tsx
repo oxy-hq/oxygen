@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/shadcn/button";
 import { Checkbox } from "@/components/ui/shadcn/checkbox";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
 import { usePromoteCompile } from "@/hooks/api/compiles";
+import { cn } from "@/libs/shadcn/utils";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
 import type { CompileRow } from "@/services/api/compiles";
-import { formatMs, formatRelative } from "../utils";
+import { formatMs, formatRelative, toneBadgeClass } from "../utils";
 import { CompileDetailSheet } from "./CompileDetailSheet";
 import { StatusBadge } from "./StatusBadge";
 
@@ -52,6 +53,7 @@ export const RevisionRow = ({
     <TableRow
       data-state={selected ? "selected" : undefined}
       className={nested ? "bg-muted/10" : ""}
+      data-testid={`admin-compiles-revision-row-${row.revision_id}`}
     >
       <TableCell className='pl-3'>
         <Checkbox
@@ -64,9 +66,7 @@ export const RevisionRow = ({
         <div className='flex items-center gap-1.5'>
           <StatusBadge status={row.status} />
           {row.is_current_for_workspace ? (
-            <Badge className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'>
-              current
-            </Badge>
+            <Badge className={cn(toneBadgeClass("ok"), "px-1.5 py-0 text-[10px]")}>current</Badge>
           ) : null}
           {row.kind === "draft" ? (
             <Badge variant='outline' className='px-1.5 py-0 text-[10px]'>

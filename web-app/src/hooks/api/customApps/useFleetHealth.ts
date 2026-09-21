@@ -19,12 +19,15 @@ const REFRESH_MS = 60_000;
  * `staleTime` sits just under the interval so a tab switch repaints from cache
  * instead of flashing a skeleton at a table the operator was already reading.
  */
-export const useFleetHealth = (needsAttention = false) =>
+export const useFleetHealth = (needsAttention = false, options: { enabled?: boolean } = {}) =>
   useQuery({
     queryKey: queryKeys.customApps.fleetHealth(needsAttention),
     queryFn: () => CustomAppsService.fleetHealth({ needsAttention }),
     refetchInterval: REFRESH_MS,
-    staleTime: REFRESH_MS - 5_000
+    staleTime: REFRESH_MS - 5_000,
+    // Gated for the console home, which renders this section only for a standing that
+    // reaches Custom apps. Defaults to on, so every existing call site is unchanged.
+    enabled: options.enabled ?? true
   });
 
 /**

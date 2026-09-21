@@ -1,5 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 
 /**
  * Marks an app whose currently-serving build doesn't record both a git repo
@@ -26,7 +28,7 @@ export const SourceWarning = ({ unrecorded }: { unrecorded?: boolean }) => {
       <TooltipTrigger asChild>
         <span
           role='img'
-          className='inline-flex shrink-0 text-amber-600 dark:text-amber-400'
+          className={cn("inline-flex shrink-0", ADMIN_TONE.warn.text)}
           data-testid='admin-app-source-unrecorded'
           aria-label='Incomplete source for the running build'
         >

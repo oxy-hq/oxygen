@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/shadcn/collapsible";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import type { AirwayPolicyPreviewResponse } from "@/services/api/airwayConfig";
+import { AdminAsync } from "../../components/AdminAsync";
 import { PreviewResults } from "./components/PreviewResults";
 
 interface PolicyPreviewProps {
@@ -62,20 +63,20 @@ export function PolicyPreview({
         <ChevronDown className='size-3.5 text-muted-foreground transition-transform group-data-[state=open]:rotate-180' />
       </CollapsibleTrigger>
       <CollapsibleContent className='space-y-3 border-t px-3 py-3'>
-        {preview.isPending ? (
-          <div className='flex items-center justify-center gap-2 py-6 text-muted-foreground text-xs'>
-            <Spinner className='size-3.5' /> Scanning compiled pipelines…
-          </div>
-        ) : preview.isError ? (
-          <p
-            className='text-destructive text-xs'
-            data-testid={`admin-airway-preview-error-${sourceKind}`}
-          >
-            Failed to load preview.
-          </p>
-        ) : preview.data ? (
-          <PreviewResults data={preview.data} sourceKind={sourceKind} />
-        ) : null}
+        {/* Only mounted while `open`, so the lazy query is already running by
+            the time `AdminAsync` reads it — a disabled query would otherwise
+            sit in `isPending` forever and render as a permanent skeleton. */}
+        <AdminAsync
+          query={preview}
+          noun='the preview'
+          skeleton={
+            <div className='flex items-center justify-center gap-2 py-6 text-muted-foreground text-xs'>
+              <Spinner className='size-3.5' /> Scanning compiled pipelines…
+            </div>
+          }
+        >
+          {(data) => <PreviewResults data={data} sourceKind={sourceKind} />}
+        </AdminAsync>
       </CollapsibleContent>
     </Collapsible>
   );

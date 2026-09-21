@@ -11,6 +11,7 @@ import {
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 
 export function formatGrantedAt(iso: string): string {
   const d = new Date(iso);
@@ -213,24 +214,33 @@ export const EmptyHint = ({ title, body }: { title: string; body: string }) => (
   </div>
 );
 
-/** 403-aware error block matching the Apps tab's allow-list message. */
-export const GrantsError = ({ error }: { error: unknown }) => (
-  <div className='mx-auto max-w-2xl p-6'>
-    <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
-      {isAxiosError(error) && error.response?.status === 403 ? (
-        <>
-          <p className='font-medium text-destructive text-xs'>
-            Your account isn't on the custom-apps allow list.
-          </p>
-          <p className='mt-2 text-muted-foreground text-xs'>
-            Add your email to the oxy backend's{" "}
-            <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> and
-            refresh.
-          </p>
-        </>
-      ) : (
-        <p className='text-destructive text-xs'>Failed to load Oxy-access grants.</p>
-      )}
+/**
+ * 403-aware error block matching the Apps tab's allow-list message.
+ *
+ * The allow-list case keeps its own copy — it names the one thing the operator can
+ * fix themselves. Every other failure goes through `AdminAsync`, which prints the
+ * server's own message and offers the Retry this block never had.
+ */
+export const GrantsError = ({ error, onRetry }: { error: unknown; onRetry: () => void }) =>
+  isAxiosError(error) && error.response?.status === 403 ? (
+    <div className='mx-auto max-w-2xl p-6'>
+      <div className='rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center'>
+        <p className='font-medium text-destructive text-xs'>
+          Your account isn't on the custom-apps allow list.
+        </p>
+        <p className='mt-2 text-muted-foreground text-xs'>
+          Add your email to the oxy backend's{" "}
+          <code className='rounded bg-muted px-1 py-0.5 font-mono'>OXY_GLOBAL_ADMINS</code> and
+          refresh.
+        </p>
+      </div>
     </div>
-  </div>
-);
+  ) : (
+    <AdminAsync
+      className='mx-auto max-w-2xl p-6'
+      query={{ isError: true, data: undefined, error, refetch: onRetry }}
+      noun='Oxy-access grants'
+    >
+      {() => null}
+    </AdminAsync>
+  );

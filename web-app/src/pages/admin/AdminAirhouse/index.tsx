@@ -1,10 +1,11 @@
-import { Search, Warehouse } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/shadcn/input";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { Table, TableBody, TableHeader, TableRow } from "@/components/ui/shadcn/table";
 import { useAirhouseFleet } from "@/hooks/api/airhouse/useAdminAirhouse";
-import { AdminEmptyState } from "../components/AdminEmptyState";
+import { AdminAsync } from "../components/AdminAsync";
+import { AdminPage } from "../components/AdminPage";
 import { AdminSectionLabel } from "../components/AdminSectionLabel";
 import { ADMIN_HEADER_ROW_CLASS, AdminTh } from "../components/AdminTable";
 import { AirhouseFleetRow } from "./components/AirhouseFleetRow";
@@ -41,7 +42,10 @@ const UNPROVISIONED_INLINE_MAX = 8;
  * being discarded by the API.
  */
 const AdminAirhouse = () => {
-  const { data, isPending, isError, error } = useAirhouseFleet();
+  // The whole query: `AdminAsync` needs it to tell a fleet that is still
+  // loading from one that failed to load from one that is genuinely empty.
+  const fleet = useAirhouseFleet();
+  const { data } = fleet;
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
@@ -125,120 +129,133 @@ const AdminAirhouse = () => {
   // `FleetTruncation.any()` is a Rust method and does not cross the wire.
   const anyTruncated = Boolean(data?.truncated?.unprovisioned || data?.truncated?.provisioned);
 
-  if (isPending) return <Skeleton className='m-4 h-64' />;
-  if (isError) {
-    return (
-      <AdminEmptyState
-        icon={Warehouse}
-        title='Could not list Airhouse tenants'
-        description={error instanceof Error ? error.message : undefined}
-      />
-    );
-  }
-
   return (
-    <div className='flex flex-col gap-3 p-4' data-testid='admin-airhouse'>
-      <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2'>
-        <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
-          <h1 className='font-semibold text-xl tracking-tight'>Airhouse warehouses</h1>
-          <span className='text-muted-foreground text-xs tabular-nums'>
-            {provisionedTotal} of {anyTruncated ? `the first ${total}` : total} workspaces
-            provisioned
-          </span>
-        </div>
-        <div className='relative w-64'>
-          <Search className='absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            className='h-7 pl-7 text-xs'
-            placeholder='Workspace, org, tenant or bucket…'
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            data-testid='admin-airhouse-filter'
-          />
-          {!query && (
-            <kbd className='pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/60 px-1 font-mono text-[10px] text-muted-foreground'>
-              /
-            </kbd>
-          )}
-        </div>
-      </div>
+    <AdminPage
+      width='wide'
+      // The count goes in `actions`, not `description`: it is live data, and in
+      // the `description` slot it would have to render *something* before the
+      // fleet arrives — "0 of 0 workspaces provisioned" is a claim, not a
+      // placeholder. Here it is simply absent until there is a fleet to count.
+      // It also keeps the filter box in the top-right corner it already had.
+      actions={
+        <>
+          {data ? (
+            <span
+              className='text-muted-foreground text-xs tabular-nums'
+              data-testid='admin-airhouse-count'
+            >
+              {provisionedTotal} of {anyTruncated ? `the first ${total}` : total} workspaces
+              provisioned
+            </span>
+          ) : null}
+          <div className='relative w-64'>
+            <Search className='absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground' />
+            <Input
+              className='h-7 pl-7 text-xs'
+              placeholder='Workspace, org, tenant or bucket…'
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              data-testid='admin-airhouse-filter'
+            />
+            {!query && (
+              <kbd className='pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border/60 px-1 font-mono text-[10px] text-muted-foreground'>
+                /
+              </kbd>
+            )}
+          </div>
+        </>
+      }
+      data-testid='admin-airhouse'
+    >
+      <AdminAsync
+        query={fleet}
+        noun='the Airhouse fleet'
+        // One block, not bars: this page is a triage queue whose first paint is
+        // a summary strip plus a table, and row bars would mis-promise it.
+        skeleton={<Skeleton className='h-64 w-full' />}
+      >
+        {(loaded) => (
+          <div className='flex flex-col gap-3'>
+            {/* Report and act in one control — see FleetFilterChips. */}
+            <FleetFilterChips
+              counts={counts}
+              total={provisionedTotal}
+              active={severity}
+              onChange={setSeverity}
+            />
 
-      {/* Report and act in one control — see FleetFilterChips. */}
-      <FleetFilterChips
-        counts={counts}
-        total={provisionedTotal}
-        active={severity}
-        onChange={setSeverity}
-      />
+            {/* Which half was cut decides the words. The cap normally falls on
+                workspaces without a warehouse, so every provisioned tenant is on
+                the page — but when the provisioned half hits its own cap, a
+                warehouse may be missing, and the first sentence would assert the
+                opposite of what happened.
 
-      {/* Which half was cut decides the words. The cap normally falls on
-          workspaces without a warehouse, so every provisioned tenant is on the
-          page — but when the provisioned half hits its own cap, a warehouse may
-          be missing, and the first sentence would assert the opposite of what
-          happened.
+                The filter is client-side: it searches the rows already returned,
+                so telling an operator to "narrow it" would point them at the one
+                action that cannot reach a truncated row, and would look like it
+                worked. */}
+            {(loaded.truncated?.provisioned || loaded.truncated?.unprovisioned) && (
+              <p className='text-warning text-xs' data-testid='admin-airhouse-truncated'>
+                {loaded.truncated.provisioned
+                  ? "More rows exist than are shown, including workspaces that have a warehouse."
+                  : `Every provisioned workspace is shown; the ones without a warehouse are the first ${total - provisionedTotal} by name.`}
+              </p>
+            )}
 
-          The filter is client-side: it searches the rows already returned, so
-          telling an operator to "narrow it" would point them at the one action
-          that cannot reach a truncated row, and would look like it worked. */}
-      {(data?.truncated?.provisioned || data?.truncated?.unprovisioned) && (
-        <p className='text-warning text-xs' data-testid='admin-airhouse-truncated'>
-          {data.truncated.provisioned
-            ? "More rows exist than are shown, including workspaces that have a warehouse."
-            : `Every provisioned workspace is shown; the ones without a warehouse are the first ${total - provisionedTotal} by name.`}
-        </p>
-      )}
+            <div className='flex flex-col gap-2' data-testid='admin-airhouse-provisioned'>
+              <AdminSectionLabel trailing={String(live.length)}>Provisioned</AdminSectionLabel>
+              {live.length === 0 ? (
+                <p
+                  className='px-1 py-2 text-muted-foreground text-xs'
+                  data-testid='admin-airhouse-provisioned-empty'
+                >
+                  {severity || query
+                    ? "No warehouse matches that filter."
+                    : "No workspace has a warehouse yet."}
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className={ADMIN_HEADER_ROW_CLASS}>
+                      <AdminTh>Workspace</AdminTh>
+                      <AdminTh>Org</AdminTh>
+                      <AdminTh>Tenant</AdminTh>
+                      <AdminTh>Storage</AdminTh>
+                      <AdminTh align='right'>SA rotated</AdminTh>
+                      <AdminTh align='right'>Status</AdminTh>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {live.map((r) => (
+                      <AirhouseFleetRow
+                        key={r.workspace_id}
+                        row={r}
+                        expanded={openRow === r.workspace_id}
+                        onToggle={() =>
+                          setOpenRow((cur) => (cur === r.workspace_id ? null : r.workspace_id))
+                        }
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
 
-      <div className='flex flex-col gap-2' data-testid='admin-airhouse-provisioned'>
-        <AdminSectionLabel trailing={String(live.length)}>Provisioned</AdminSectionLabel>
-        {live.length === 0 ? (
-          <p
-            className='px-1 py-2 text-muted-foreground text-xs'
-            data-testid='admin-airhouse-provisioned-empty'
-          >
-            {severity || query
-              ? "No warehouse matches that filter."
-              : "No workspace has a warehouse yet."}
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className={ADMIN_HEADER_ROW_CLASS}>
-                <AdminTh>Workspace</AdminTh>
-                <AdminTh>Org</AdminTh>
-                <AdminTh>Tenant</AdminTh>
-                <AdminTh>Storage</AdminTh>
-                <AdminTh align='right'>SA rotated</AdminTh>
-                <AdminTh align='right'>Status</AdminTh>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {live.map((r) => (
-                <AirhouseFleetRow
-                  key={r.workspace_id}
-                  row={r}
-                  expanded={openRow === r.workspace_id}
-                  onToggle={() =>
-                    setOpenRow((cur) => (cur === r.workspace_id ? null : r.workspace_id))
-                  }
-                />
-              ))}
-            </TableBody>
-          </Table>
+            {/* Hidden entirely while a severity filter is on: severity is a
+                property of a provisioned tenant, so a list of workspaces that
+                have none is not an answer to "show me the broken ones" — it is
+                the rest of the page refusing to narrow. */}
+            {severity === null && empty.length > 0 && (
+              <UnprovisionedSection
+                rows={empty}
+                open={showUnprovisioned}
+                onToggle={() => setUnprovisionedOpen(!showUnprovisioned)}
+              />
+            )}
+          </div>
         )}
-      </div>
-
-      {/* Hidden entirely while a severity filter is on: severity is a property
-          of a provisioned tenant, so a list of workspaces that have none is not
-          an answer to "show me the broken ones" — it is the rest of the page
-          refusing to narrow. */}
-      {severity === null && empty.length > 0 && (
-        <UnprovisionedSection
-          rows={empty}
-          open={showUnprovisioned}
-          onToggle={() => setUnprovisionedOpen(!showUnprovisioned)}
-        />
-      )}
-    </div>
+      </AdminAsync>
+    </AdminPage>
   );
 };
 

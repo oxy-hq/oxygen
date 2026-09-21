@@ -25,7 +25,6 @@ import {
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import {
   useAdminWorkspaceDetail,
   useDeleteAdminWorkspace,
@@ -33,6 +32,7 @@ import {
 } from "@/hooks/api/adminTenants/useAdminWorkspaces";
 import ROUTES from "@/libs/utils/routes";
 import { CopyableId } from "@/pages/admin/components/CopyableId";
+import { AdminAsync } from "../../components/AdminAsync";
 import { AdminDetailEyebrow, AdminDetailHeader } from "../../components/AdminDetailHeader";
 import { AdminDetailStats } from "../../components/AdminDetailStats";
 import { AdminDetailTabPanel, AdminDetailTabs } from "../../components/AdminDetailTabs";
@@ -91,7 +91,8 @@ export default function AdminWorkspaceDetail({
   const [name, setName] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const { data: detail, isLoading } = useAdminWorkspaceDetail(workspaceId);
+  const workspace = useAdminWorkspaceDetail(workspaceId);
+  const detail = workspace.data;
   const rename = useRenameAdminWorkspace();
   const remove = useDeleteAdminWorkspace();
 
@@ -99,10 +100,16 @@ export default function AdminWorkspaceDetail({
     if (detail) setName(detail.name);
   }, [detail]);
 
-  if (isLoading || !detail) {
+  // Nothing below renders without the workspace, so the gate is the whole page. It used
+  // to be `isLoading || !detail` around a spinner, so a *failed* fetch spun forever with
+  // no way back but a page reload. `AdminAsync` tells loading from failure and offers a
+  // Retry; the guard covers every non-success state, so its callback is unreachable.
+  if (!detail) {
     return (
-      <div className='flex min-h-[60vh] items-center justify-center gap-2 text-muted-foreground text-xs'>
-        <Spinner /> Loading workspace…
+      <div className={embedded ? "p-4" : "mx-auto max-w-7xl p-6 lg:px-10 lg:py-10"}>
+        <AdminAsync query={workspace} noun='this workspace' rows={4}>
+          {() => null}
+        </AdminAsync>
       </div>
     );
   }

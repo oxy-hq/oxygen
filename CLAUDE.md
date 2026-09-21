@@ -139,9 +139,28 @@ notes: `internal-docs/oxy-api-cli.md`).
 
 ## Committing
 
+**Commit, push and open the PR without asking.** Finishing a piece of work means landing
+it on a branch, not leaving it in the working tree for someone to find — an agent that
+stops at "72 files are uncommitted" has handed back a liability. This is a standing
+instruction; it does not need re-confirming per session.
+
+The bounds it comes with, which are not optional:
+
+- **Never commit to `main`.** Branch first, always — `<type>/<short-area>`.
+- **Never force-push**, and never push to a branch you did not create without saying so.
+- **Verify before you commit**, not after: the checks that cover what you touched must
+  actually have run and passed. A green claim you did not watch happen is worse than no
+  claim.
+- **Stage only what you changed.** `git add -A` sweeps up other people's dirty files and
+  scratch directories; name your paths.
+- A change that is risky, destructive, or outward-facing beyond opening a PR — a release,
+  a force-push, anything touching production — still gets confirmed first.
+
 Conventional Commits, types `feat|fix|refactor|docs|test|build|chore|perf|style|ci`.
 Name the **area** after the colon (`fix: web-app chart rendering bug`) — this repo uses
-free-text areas, not scoped parens.
+free-text areas, not scoped parens. `commitlint` caps the header at 120 chars and rejects
+a capitalized subject, and it fails in a way that reads like success — **confirm the SHA
+moved** (`git log -1 --oneline`) rather than trusting the command's exit.
 
 ## Code Style
 

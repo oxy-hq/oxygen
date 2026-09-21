@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { useAppBuilds, useRollbackApp } from "@/hooks/api/customApps/useAppBuilds";
+import { cn } from "@/libs/shadcn/utils";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { AppBuild } from "@/types/apps";
 
 /** Normalize a git remote URL (`git@host:org/repo.git`, `https://…`, `ssh://…`)
@@ -95,7 +97,7 @@ const IncompleteSource = ({ repo, sha }: { repo?: string | null; sha?: string | 
     <Tooltip>
       <TooltipTrigger asChild>
         <span
-          className='inline-flex w-fit items-center gap-1 text-amber-600 text-xs dark:text-amber-400'
+          className={cn("inline-flex w-fit items-center gap-1 text-xs", ADMIN_TONE.warn.text)}
           data-testid='admin-app-build-no-source'
         >
           <AlertTriangle className='size-3 shrink-0' />

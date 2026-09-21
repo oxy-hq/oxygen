@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import { usePublishApp, useUnpublishApp } from "@/hooks/api/customApps/useCustomApps";
 import { useDeleteApp } from "@/hooks/api/customApps/useDeleteApp";
+import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
 import type { CustomApp } from "@/types/apps";
 
 function formatTimestamp(value: string): string {
@@ -129,10 +130,10 @@ const SettingRow = ({
     tone === "destructive"
       ? "border-destructive/30 bg-destructive/5"
       : tone === "success"
-        ? "border-emerald-500/30 bg-emerald-500/5"
+        ? "border-success/30 bg-success/5"
         : "bg-card";
   const titleToneClass =
-    tone === "destructive" ? "text-destructive" : tone === "success" ? "text-emerald-600" : "";
+    tone === "destructive" ? "text-destructive" : tone === "success" ? ADMIN_TONE.ok.text : "";
   return (
     // Stacked, not side-by-side: the dossier is a narrow resizable column (and
     // an overlay Sheet on narrow viewports), so a title|action row can't hold a

@@ -7,12 +7,12 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Switch } from "@/components/ui/shadcn/switch";
 import {
   useAdminOrgSubdomain,
   useSetAdminOrgSubdomain
 } from "@/hooks/api/adminTenants/useAdminOrgSubdomain";
+import { AdminAsync } from "../../components/AdminAsync";
 import { AdminStatusPill } from "../../components/AdminStatusPill";
 
 // Radix Select can't carry an empty-string value; sentinel maps back to null.
@@ -26,14 +26,19 @@ const NO_DEFAULT = "__none__";
  * settings. See internal-docs/org-subdomain-infra.md.
  */
 export function OrgSubdomainSettings({ orgId }: { orgId: string }) {
-  const { data, isLoading } = useAdminOrgSubdomain(orgId);
+  const subdomain = useAdminOrgSubdomain(orgId);
+  const data = subdomain.data;
   const setSub = useSetAdminOrgSubdomain();
 
-  if (isLoading || !data) {
+  // The controls below all read `data`, so the gate is the whole section. It used to be
+  // `isLoading || !data` around a spinner, which spun forever on a failed fetch.
+  // `AdminAsync` separates the two and offers a Retry; the guard covers every
+  // non-success state, so its render callback is unreachable.
+  if (!data) {
     return (
-      <section className='flex items-center gap-2 rounded-lg border border-border/60 bg-card p-6 text-muted-foreground text-xs'>
-        <Spinner /> Loading subdomain…
-      </section>
+      <AdminAsync query={subdomain} noun='the subdomain settings' rows={2}>
+        {() => null}
+      </AdminAsync>
     );
   }
 
