@@ -45,7 +45,7 @@ use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder,
+    QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -69,7 +69,7 @@ const DEVICE_COOKIE_MAX_AGE_SECS: i64 = 365 * 24 * 60 * 60;
 const NAME_MAX_CHARS: usize = 80;
 
 /// How long a kiosk may sit untouched before the app signs the shift session
-/// out — five minutes, unless the admin said otherwise.
+/// out — thirty minutes, unless the admin said otherwise.
 ///
 /// The shift session's own twelve hours (`frontline::SHIFT_HOURS`) is a
 /// ceiling sized for a closing shift, not a working rule: a tablet on a
@@ -78,7 +78,16 @@ const NAME_MAX_CHARS: usize = 80;
 /// number.** Nothing here watches a clock — the custom app in crew mode reads
 /// it from `GET /api/frontline/device` and closes its own session, which is
 /// the only place that can tell "idle" from "reading the screen".
-pub const DEFAULT_IDLE_TIMEOUT_SECONDS: u32 = 300;
+///
+/// Thirty rather than the five it shipped with: five minutes is a number a
+/// store notices as a nuisance — a closing shift puts the tablet down between
+/// tasks — and the tool these stores are moving off (Jolt) signs out at thirty,
+/// so it is the duration their crew already have a habit around. It is a
+/// DEFAULT, not a rule: a drive-thru tablet nobody stands at can still be
+/// enrolled with a shorter one, and a row that names its own number is
+/// untouched by this changing, because NULL — not a frozen copy of today's
+/// default — is what a kiosk enrolled without one stores.
+pub const DEFAULT_IDLE_TIMEOUT_SECONDS: u32 = 30 * 60;
 /// Below this a kiosk is unusable — a worker would be signed out mid-tap —
 /// and zero would read as "instantly" rather than "never", so it is refused
 /// rather than silently treated as one or the other.
@@ -161,6 +170,17 @@ fn effective_idle_timeout(stored: Option<i32>) -> u32 {
         .unwrap_or(DEFAULT_IDLE_TIMEOUT_SECONDS)
 }
 
+/// The admin's label, trimmed, or the refusal. One copy, because `create` and
+/// `update` have to agree on what a name is — a rename that accepted a blank
+/// would leave a kiosk nobody can pick out of the list.
+fn validate_name(name: &str) -> Result<String, DeviceError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > NAME_MAX_CHARS {
+        return Err(DeviceError::BadName);
+    }
+    Ok(name.to_string())
+}
+
 /// What an admin asked for, as the column stores it. `None` stays `None` —
 /// "use the default", not a copy of today's default frozen into the row.
 fn validate_idle_timeout(requested: Option<u32>) -> Result<Option<i32>, DeviceError> {
@@ -240,6 +260,13 @@ pub enum DeviceError {
     /// re-point a device a shift is already signing in on.
     #[error("only a kiosk still waiting for its tablet can get a new link")]
     NotPending,
+    /// A revoked row is the record of which tablet a shift was signed in on.
+    /// Renaming it, or moving its timeout, would make that record say something
+    /// that was never true of any shift — and neither number can ever apply
+    /// again, because the cookie is dead. Bringing a tablet back is enrolling
+    /// it, which is where a new name belongs.
+    #[error("a revoked kiosk cannot be changed — enroll the tablet again")]
+    Revoked,
     #[error("database error: {0}")]
     Db(#[from] DbErr),
 }
@@ -278,10 +305,7 @@ pub async fn create(
         idle_timeout_seconds,
         created_by,
     } = spec;
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > NAME_MAX_CHARS {
-        return Err(DeviceError::BadName);
-    }
+    let name = validate_name(name)?;
     let idle_timeout_seconds = validate_idle_timeout(idle_timeout_seconds)?;
     let return_to = match return_to.map(str::trim).filter(|s| !s.is_empty()) {
         None => None,
@@ -305,7 +329,7 @@ pub async fn create(
     let row = devices::ActiveModel {
         id: Set(Uuid::new_v4()),
         org_id: Set(org_id),
-        name: Set(name.to_string()),
+        name: Set(name),
         return_to: Set(return_to),
         enrol_token_hash: Set(Some(sha256_hex(&token))),
         enrol_expires_at: Set(Some((now + Duration::hours(ENROL_LINK_HOURS)).into())),
@@ -428,6 +452,112 @@ pub async fn reissue_link(
         .await?
         .ok_or(DeviceError::NotFound)?;
     Ok((fresh, token))
+}
+
+/// What an admin may change about a kiosk that is already on the counter.
+///
+/// Every field means "leave this alone" when it is `None`, so a caller sending
+/// one field cannot blank the others — the shape a PATCH body needs.
+///
+/// Deliberately narrow. `return_to` and `location_id` are NOT here: both decide
+/// what a *bound* tablet does next — which app it opens, whose names its crew
+/// picker shows — and moving them under a shift that is signed in is a
+/// different act from tuning a number, with its own questions (the roster the
+/// tablet is already displaying, the cached access verdict). Those stay
+/// revoke-and-enrol until someone asks for them.
+#[derive(Debug, Default, Clone)]
+pub struct DeviceUpdate<'a> {
+    /// The admin's label. Same 1..=[`NAME_MAX_CHARS`] rule as enrolment.
+    pub name: Option<&'a str>,
+    /// `Some(Some(secs))` sets it, within the same bounds `create` holds;
+    /// `Some(None)` clears the column back to NULL, which is how a kiosk goes
+    /// back to following [`DEFAULT_IDLE_TIMEOUT_SECONDS`] — including if the
+    /// default moves again. `None` leaves whatever is there.
+    ///
+    /// Three states rather than two, because "set it to 1800" and "follow the
+    /// platform" are different rows with the same effect today and different
+    /// effects the next time the default changes.
+    pub idle_timeout_seconds: Option<Option<u32>>,
+}
+
+/// Change a kiosk in place — the alternative to revoking a tablet and walking
+/// a new enrol link out to the counter because one number was wrong.
+///
+/// Answers the row **as it was and as it is**, so the caller can audit the
+/// difference without reading it again.
+///
+/// One transaction, and the first read takes the row lock (`FOR UPDATE`).
+/// Another admin's edit to the same kiosk therefore either committed before
+/// this read — and is part of "as it was" — or waits until this commits. As
+/// three free-standing statements the pair could straddle that other write,
+/// and the audit trail signed it with this admin's name. `after` is read inside
+/// the same transaction, so it is the row this write produced.
+///
+/// The org filter is the same fence `revoke` puts up: another tenant's device
+/// id is `NotFound`, not a silent no-op. Revoked rows are refused — see
+/// [`DeviceError::Revoked`]. An update naming no field at all is not an error;
+/// it reads the row back unchanged and writes nothing, so a client that
+/// submits an untouched form does not manufacture an audit entry. Every early
+/// return drops the transaction, which rolls it back and releases the lock.
+pub async fn update(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    id: Uuid,
+    spec: DeviceUpdate<'_>,
+) -> Result<(devices::Model, devices::Model), DeviceError> {
+    let txn = db.begin().await?;
+    let before = devices::Entity::find_by_id(id)
+        .filter(devices::Column::OrgId.eq(org_id))
+        .lock_exclusive()
+        .one(&txn)
+        .await?
+        .ok_or(DeviceError::NotFound)?;
+    if before.revoked_at.is_some() {
+        return Err(DeviceError::Revoked);
+    }
+    let Some(fields) = update_fields(spec)? else {
+        return Ok((before.clone(), before));
+    };
+    // Still filtered on the row being this org's and live. Under the lock a
+    // revoke can no longer land between the read and the write; the filter
+    // stays as a second fence, and it costs nothing.
+    let res = devices::Entity::update_many()
+        .set(fields)
+        .filter(devices::Column::Id.eq(id))
+        .filter(devices::Column::OrgId.eq(org_id))
+        .filter(devices::Column::RevokedAt.is_null())
+        .exec(&txn)
+        .await?;
+    if res.rows_affected != 1 {
+        return Err(DeviceError::Revoked);
+    }
+    let after = devices::Entity::find_by_id(id)
+        .one(&txn)
+        .await?
+        .ok_or(DeviceError::NotFound)?;
+    txn.commit().await?;
+    Ok((before, after))
+}
+
+/// The columns an update writes, validated — or `None` when it names none.
+///
+/// Everything is validated before anything is written: a body carrying a good
+/// name and an impossible timeout must leave the row exactly as it was, or the
+/// 400 the admin reads would be a lie about half of it.
+fn update_fields(spec: DeviceUpdate<'_>) -> Result<Option<devices::ActiveModel>, DeviceError> {
+    let mut fields = devices::ActiveModel {
+        ..Default::default()
+    };
+    let mut touched = false;
+    if let Some(name) = spec.name {
+        fields.name = Set(validate_name(name)?);
+        touched = true;
+    }
+    if let Some(requested) = spec.idle_timeout_seconds {
+        fields.idle_timeout_seconds = Set(validate_idle_timeout(requested)?);
+        touched = true;
+    }
+    Ok(touched.then_some(fields))
 }
 
 /// Switch a device off. `Ok(true)` when this call did it, `Ok(false)` when it
@@ -866,9 +996,35 @@ pub struct DeviceRow {
     pub location_id: Option<Uuid>,
     pub location_name: Option<String>,
     /// The effective value — never null, the default filled in — so an admin
-    /// can read back what they set at enrolment. There is no update route:
-    /// changing it means revoking the tablet and enrolling it again.
+    /// can read back what the tablet acts on.
+    ///
+    /// Because the default is resolved here, a kiosk storing NULL and one
+    /// storing exactly [`DEFAULT_IDLE_TIMEOUT_SECONDS`] are indistinguishable
+    /// on the wire. That is deliberate (a reader never needs a copy of the
+    /// default) and it is why `PATCH …/devices/{id}` takes `null` as "follow
+    /// the platform" rather than expecting a client to spell the number.
     pub idle_timeout_seconds: u32,
+}
+
+impl DeviceRow {
+    /// The one place a stored row becomes the shape the settings list reads,
+    /// so the list and the update response cannot drift on a field.
+    fn new(r: devices::Model, location_name: Option<String>) -> Self {
+        let rfc = |t: Option<chrono::DateTime<chrono::FixedOffset>>| t.map(|t| t.to_rfc3339());
+        Self {
+            id: r.id,
+            name: r.name,
+            return_to: r.return_to,
+            created_at: r.created_at.to_rfc3339(),
+            bound_at: rfc(r.bound_at),
+            last_seen_at: rfc(r.last_seen_at),
+            revoked_at: rfc(r.revoked_at),
+            enrol_expires_at: rfc(r.enrol_expires_at),
+            location_id: r.location_id,
+            location_name,
+            idle_timeout_seconds: effective_idle_timeout(r.idle_timeout_seconds),
+        }
+    }
 }
 
 /// `GET /api/orgs/{org_id}/frontline/devices` — org admin. Newest first; no
@@ -896,21 +1052,11 @@ pub async fn list_devices(OrgAdmin(_ctx): OrgAdmin, Path(org_id): Path<Uuid>) ->
                     Default::default()
                 }
             };
-            let rfc = |t: Option<chrono::DateTime<chrono::FixedOffset>>| t.map(|t| t.to_rfc3339());
             let devices: Vec<DeviceRow> = rows
                 .into_iter()
-                .map(|r| DeviceRow {
-                    id: r.id,
-                    name: r.name,
-                    return_to: r.return_to,
-                    created_at: r.created_at.to_rfc3339(),
-                    bound_at: rfc(r.bound_at),
-                    last_seen_at: rfc(r.last_seen_at),
-                    revoked_at: rfc(r.revoked_at),
-                    enrol_expires_at: rfc(r.enrol_expires_at),
-                    location_name: r.location_id.and_then(|l| places.get(&l).cloned()),
-                    location_id: r.location_id,
-                    idle_timeout_seconds: effective_idle_timeout(r.idle_timeout_seconds),
+                .map(|r| {
+                    let place = r.location_id.and_then(|l| places.get(&l).cloned());
+                    DeviceRow::new(r, place)
                 })
                 .collect();
             Json(serde_json::json!({ "devices": devices })).into_response()
@@ -920,6 +1066,116 @@ pub async fn list_devices(OrgAdmin(_ctx): OrgAdmin, Path(org_id): Path<Uuid>) ->
             json_error(StatusCode::INTERNAL_SERVER_ERROR, "list failed")
         }
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateDeviceRequest {
+    /// Absent leaves the label alone; a string renames the kiosk.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// **Absent**, `null` and a number are three different requests, which is
+    /// why this is a double option and not a plain one: absent leaves the row
+    /// alone, `null` clears the column so the kiosk follows the platform
+    /// default again, a number sets it (400 outside the same 30 s … `SHIFT_HOURS`
+    /// window enrolment holds). A negative or fractional number is not a `u32`,
+    /// so it is refused by the `Json` extractor before that check — 422, with
+    /// axum's plain-text body rather than `{"error": …}`.
+    ///
+    /// A plain `Option` would fold `null` into absent, and then "put this
+    /// tablet back on the default" would be a request nobody could make —
+    /// which is the hole that made changing a kiosk mean re-enrolling it.
+    #[serde(default, deserialize_with = "super::operating_graph::dto::patch")]
+    pub idle_timeout_seconds: Option<Option<u32>>,
+}
+
+/// `PATCH /api/orgs/{org_id}/frontline/devices/{id}` — org admin. Changes a
+/// kiosk's label and how long it may sit idle, without touching its binding:
+/// the cookie on the tablet keeps working, so nobody walks a new enrol link out
+/// to the counter to move one number.
+///
+/// `PATCH` because the body names only what changes — and because `null` has to
+/// stay distinguishable from absent (see [`UpdateDeviceRequest`]), which a PUT
+/// of the whole row would not have needed but also would not have offered.
+///
+/// Answers the updated [`DeviceRow`], the same shape the list serves, so the
+/// settings pane can drop it straight into the row it just edited.
+#[instrument(skip_all, fields(org = %org_id, device = %id))]
+pub async fn update_device(
+    OrgAdmin(_ctx): OrgAdmin,
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<UpdateDeviceRequest>,
+) -> Response {
+    let Ok(db) = establish_connection().await else {
+        return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
+    };
+    let spec = DeviceUpdate {
+        name: req.name.as_deref(),
+        idle_timeout_seconds: req.idle_timeout_seconds,
+    };
+    match update(&db, org_id, id, spec).await {
+        Ok((before, after)) => {
+            record_device_update(&db, &actor, org_id, &before, &after).await;
+            let place = place_name(&db, org_id, after.location_id).await;
+            Json(DeviceRow::new(after, place)).into_response()
+        }
+        Err(DeviceError::NotFound) => json_error(StatusCode::NOT_FOUND, "no such device"),
+        Err(e @ DeviceError::Revoked) => json_error(StatusCode::CONFLICT, e.to_string()),
+        Err(e @ (DeviceError::BadName | DeviceError::BadIdleTimeout)) => {
+            json_error(StatusCode::BAD_REQUEST, e.to_string())
+        }
+        Err(e) => {
+            warn!(error = %e, "kiosk device update failed");
+            json_error(StatusCode::INTERNAL_SERVER_ERROR, "update failed")
+        }
+    }
+}
+
+/// "Who changed this tablet's sign-out, and from what."
+///
+/// Only on a real change, for the reason `set_standing` gives: an audit log
+/// that records every idempotent resubmit is one nobody reads. Best-effort, so
+/// a trail that cannot be written does not undo a change that has happened.
+///
+/// The trail carries the **stored** value, null and all — not the effective one
+/// — because "cleared it back to the default" and "typed 1800" are the two
+/// states this route exists to tell apart, and `DeviceRow` resolves them into
+/// the same number.
+async fn record_device_update(
+    db: &DatabaseConnection,
+    actor: &oxy_auth::types::AuthenticatedUser,
+    org_id: Uuid,
+    before: &devices::Model,
+    after: &devices::Model,
+) {
+    if before.name == after.name && before.idle_timeout_seconds == after.idle_timeout_seconds {
+        return;
+    }
+    let state = |r: &devices::Model| serde_json::json!({ "name": r.name, "idle_timeout_seconds": r.idle_timeout_seconds });
+    audit::record_best_effort(
+        db,
+        audit::AuditEntry::new(actor.label().to_string(), "frontline.device.updated")
+            .actor(actor.id, audit::ActorType::User)
+            .org(org_id)
+            .target("frontline_device", after.id.to_string(), after.name.clone())
+            .change(state(before), state(after)),
+    )
+    .await;
+}
+
+/// The name of the place a kiosk sits at, held to this org. `None` for a kiosk
+/// with no location, one whose location was deleted, and one whose place
+/// belongs to another tenant — the list answers the same way, and none of the
+/// three is worth failing a write that already landed.
+async fn place_name(db: &DatabaseConnection, org_id: Uuid, id: Option<Uuid>) -> Option<String> {
+    let id = id?;
+    locations::Entity::find_by_id(id)
+        .filter(locations::Column::OrgId.eq(org_id))
+        .one(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|l| l.name)
 }
 
 /// `POST /api/orgs/{org_id}/frontline/devices/{id}/enrol-link` — org admin.
@@ -1051,9 +1307,31 @@ mod tests {
         assert_eq!(enrol_link_base(&HeaderMap::new()), "http://localhost:3000");
     }
 
+    /// The default is thirty minutes, and it has to be a value the writers
+    /// would accept — a default outside its own bounds is one an admin can
+    /// never type back in, and `effective_idle_timeout` would hand it out while
+    /// `validate_idle_timeout` refused it.
+    #[test]
+    fn the_default_is_thirty_minutes_inside_its_own_bounds() {
+        assert_eq!(
+            DEFAULT_IDLE_TIMEOUT_SECONDS, 1800,
+            "the stores' agreed idle sign-out is 30 minutes"
+        );
+        assert_eq!(
+            validate_idle_timeout(Some(DEFAULT_IDLE_TIMEOUT_SECONDS)).unwrap(),
+            Some(DEFAULT_IDLE_TIMEOUT_SECONDS as i32),
+            "an admin must be able to ask for the default explicitly"
+        );
+        assert_eq!(
+            effective_idle_timeout(Some(DEFAULT_IDLE_TIMEOUT_SECONDS as i32)),
+            DEFAULT_IDLE_TIMEOUT_SECONDS,
+            "and a row holding it must read back as itself, not be clamped away"
+        );
+    }
+
     /// NULL is the default, not "no timeout". Every kiosk enrolled before the
-    /// column existed reads as 300 s, which is what makes the column nullable
-    /// instead of a backfill.
+    /// column existed reads as the default, which is what makes the column
+    /// nullable instead of a backfill.
     #[test]
     fn an_unset_idle_timeout_reads_as_the_default() {
         assert_eq!(
@@ -1117,6 +1395,75 @@ mod tests {
             IDLE_TIMEOUT_MAX_SECONDS as i64,
             super::super::frontline::SHIFT_HOURS * 3600
         );
+    }
+
+    /// The PATCH body has to carry three states, not two.
+    ///
+    /// "Leave it alone", "put this tablet back on the platform default" and
+    /// "make it 900 seconds" are three different requests, and the middle one
+    /// is the whole reason a kiosk no longer has to be re-enrolled to change
+    /// its sign-out. A plain `Option` folds `null` into absent and quietly
+    /// deletes that request — which is why the field is a double option and
+    /// why this asserts on the wire form rather than on the struct.
+    #[test]
+    fn a_patch_body_tells_absent_from_null_from_a_number() {
+        let parse = |s: &str| {
+            serde_json::from_str::<UpdateDeviceRequest>(s)
+                .expect("a PATCH body")
+                .idle_timeout_seconds
+        };
+        assert_eq!(parse("{}"), None, "absent must leave the row alone");
+        assert_eq!(
+            parse(r#"{"idle_timeout_seconds":null}"#),
+            Some(None),
+            "null must be expressible, or nothing can go back to the default"
+        );
+        assert_eq!(parse(r#"{"idle_timeout_seconds":900}"#), Some(Some(900)));
+        // A body that only renames says nothing about the timeout.
+        assert_eq!(parse(r#"{"name":"Counter 1"}"#), None);
+    }
+
+    /// A number the wire type cannot hold never reaches the bounds check.
+    ///
+    /// `idle_timeout_seconds` is a `u32`, so `-1`, `1.5` and anything past
+    /// `u32::MAX` are refused inside axum's `Json` extractor: `422`, with
+    /// axum's own plain-text body rather than `{"error": …}`. The `400` and its
+    /// bounds sentence are for a whole number out of range. Pinned because the
+    /// route's docs (here, `types/frontline.ts`, `frontline-identity.md`) say
+    /// which is which.
+    #[tokio::test]
+    async fn a_timeout_the_wire_type_cannot_hold_is_the_extractors_422() {
+        use axum::extract::FromRequest;
+        for body in [
+            r#"{"idle_timeout_seconds":-1}"#,
+            r#"{"idle_timeout_seconds":1.5}"#,
+            r#"{"idle_timeout_seconds":4294967296}"#,
+        ] {
+            let req = axum::http::Request::builder()
+                .method("PATCH")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from(body))
+                .expect("request");
+            let refused = Json::<UpdateDeviceRequest>::from_request(req, &())
+                .await
+                .expect_err("not a u32, so not a body");
+            assert_eq!(
+                refused.into_response().status(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{body}"
+            );
+        }
+    }
+
+    /// One name rule, shared by enrolment and rename — a rename that accepted
+    /// what enrolment refuses would leave a kiosk nobody can pick out of a list.
+    #[test]
+    fn a_kiosk_name_is_trimmed_and_never_blank() {
+        assert_eq!(validate_name("  Front counter  ").unwrap(), "Front counter");
+        for bad in ["", "   ", &"x".repeat(NAME_MAX_CHARS + 1)] {
+            assert!(matches!(validate_name(bad), Err(DeviceError::BadName)));
+        }
+        assert!(validate_name(&"x".repeat(NAME_MAX_CHARS)).is_ok());
     }
 
     #[test]

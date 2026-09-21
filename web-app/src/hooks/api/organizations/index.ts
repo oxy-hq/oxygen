@@ -7,7 +7,8 @@ export {
   useResetWorkerPin,
   useRevokeDevice,
   useSetWorkerApps,
-  useSetWorkerStanding
+  useSetWorkerStanding,
+  useUpdateDevice
 } from "./useFrontline";
 export {
   useAssignments,

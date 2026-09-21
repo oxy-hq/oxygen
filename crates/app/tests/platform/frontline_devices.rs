@@ -10,13 +10,16 @@
 
 use axum::http::{HeaderMap, HeaderValue, header};
 use entity::{org_kiosk_devices, organizations, users};
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, Statement, TransactionTrait,
+};
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
 use oxy_app::server::api::frontline_devices::{
-    DEFAULT_IDLE_TIMEOUT_SECONDS, DeviceError, KIOSK_COOKIE_NAME, NewDevice, bind_with_token,
-    bound_device, create, reissue_link, revoke,
+    DEFAULT_IDLE_TIMEOUT_SECONDS, DeviceError, DeviceUpdate, KIOSK_COOKIE_NAME, NewDevice,
+    bind_with_token, bound_device, create, reissue_link, revoke, update,
 };
 
 async fn seed_org(db: &DatabaseConnection) -> Uuid {
@@ -331,4 +334,328 @@ async fn a_new_enrol_link_kills_the_old_one_and_only_while_unbound() {
         reissue_link(&db, org, waiting.id).await,
         Err(DeviceError::NotPending)
     ));
+}
+
+/// The store tunes the tablet after the first shift, and the tablet stays
+/// enrolled.
+///
+/// This is the case the module could not answer before: the idle sign-out was
+/// writable only at enrolment, so moving it meant revoking a counter tablet and
+/// walking a new link out to it. The assertion that matters is the LAST one of
+/// each pair — the same cookie, still resolving, now carrying the new number.
+#[tokio::test]
+async fn an_enrolled_kiosk_changes_in_place_and_clears_back_to_the_default() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+
+    let (row, token) = create(
+        &db,
+        org,
+        NewDevice {
+            name: "Front counter",
+            idle_timeout_seconds: Some(60),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create");
+    let (_, cookie) = bind_with_token(&db, &token).await.expect("bind");
+    assert_eq!(
+        bound_device(&db, &with_cookie(&cookie))
+            .await
+            .expect("bound")
+            .idle_timeout_seconds,
+        60
+    );
+
+    let (before, after) = update(
+        &db,
+        org,
+        row.id,
+        DeviceUpdate {
+            idle_timeout_seconds: Some(Some(900)),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("update");
+    assert_eq!(before.idle_timeout_seconds, Some(60), "the row as it was");
+    assert_eq!(after.idle_timeout_seconds, Some(900), "and as it is");
+    assert_eq!(
+        bound_device(&db, &with_cookie(&cookie))
+            .await
+            .expect("the tablet is still enrolled — that is the whole point")
+            .idle_timeout_seconds,
+        900
+    );
+
+    // Back to the default: the column must go to NULL rather than to a frozen
+    // copy of today's 1800, or this kiosk would sit out the next change of the
+    // default exactly as one enrolled with an explicit number does.
+    let (_, cleared) = update(
+        &db,
+        org,
+        row.id,
+        DeviceUpdate {
+            idle_timeout_seconds: Some(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("clear");
+    assert_eq!(
+        cleared.idle_timeout_seconds, None,
+        "clearing must store NULL, not the default's number"
+    );
+    assert_eq!(
+        bound_device(&db, &with_cookie(&cookie))
+            .await
+            .expect("bound")
+            .idle_timeout_seconds,
+        DEFAULT_IDLE_TIMEOUT_SECONDS
+    );
+
+    // A rename is trimmed like enrolment's, and touches nothing else.
+    let (_, renamed) = update(
+        &db,
+        org,
+        row.id,
+        DeviceUpdate {
+            name: Some("  Counter 1  "),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("rename");
+    assert_eq!(renamed.name, "Counter 1");
+    assert_eq!(
+        renamed.idle_timeout_seconds, None,
+        "a rename must not disturb the timeout it said nothing about"
+    );
+
+    // A body naming no field writes nothing and is not an error: a client
+    // submitting an untouched form must not manufacture an audit entry.
+    let (b, a) = update(&db, org, row.id, DeviceUpdate::default())
+        .await
+        .expect("an empty patch is a no-op, not a 400");
+    assert_eq!(
+        (b.name, b.idle_timeout_seconds),
+        (a.name, a.idle_timeout_seconds)
+    );
+}
+
+/// Until some statement in this database is waiting on a row lock.
+///
+/// How the race below is staged without a sleep that merely hopes: the other
+/// admin's write commits only once this update is observably blocked on it.
+async fn until_a_statement_waits_on_a_lock(db: &DatabaseConnection) {
+    for _ in 0..500 {
+        let row = db
+            .query_one_raw(Statement::from_string(
+                db.get_database_backend(),
+                "SELECT count(*)::bigint AS waiting FROM pg_stat_activity \
+                 WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            ))
+            .await
+            .expect("read pg_stat_activity")
+            .expect("count(*) answers a row");
+        let waiting: i64 = row.try_get("", "waiting").expect("waiting column");
+        if waiting > 0 {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("the update never waited on the other admin's row — the race was not staged");
+}
+
+/// The before/after pair an update answers is THIS update's change, and nobody
+/// else's.
+///
+/// `update_device` hands the pair to the audit trail as "who changed this
+/// tablet, and from what". As three separate statements — read, write, read —
+/// a second admin's edit committing between the first read and the write sat
+/// inside the pair and was signed with this admin's name. Staged exactly: the
+/// other admin's rename is written and held uncommitted, this timeout change
+/// starts, and the rename commits only once the change is seen waiting on it.
+#[tokio::test]
+async fn an_update_answers_only_its_own_change_when_another_admin_edits_the_same_kiosk() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+    let (row, _) = create(
+        &db,
+        org,
+        NewDevice {
+            name: "Front counter",
+            idle_timeout_seconds: Some(600),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create");
+
+    let other_admin = db.begin().await.expect("begin the other admin's edit");
+    org_kiosk_devices::Entity::update_many()
+        .col_expr(
+            org_kiosk_devices::Column::Name,
+            sea_orm::sea_query::Expr::value("Counter 1"),
+        )
+        .filter(org_kiosk_devices::Column::Id.eq(row.id))
+        .exec(&other_admin)
+        .await
+        .expect("the other admin's rename");
+
+    let (mine, ()) = tokio::join!(
+        update(
+            &db,
+            org,
+            row.id,
+            DeviceUpdate {
+                idle_timeout_seconds: Some(Some(900)),
+                ..Default::default()
+            },
+        ),
+        async {
+            until_a_statement_waits_on_a_lock(&db).await;
+            other_admin
+                .commit()
+                .await
+                .expect("commit the other admin's rename");
+        }
+    );
+    let (before, after) = mine.expect("update");
+
+    assert_eq!(
+        (before.name.as_str(), after.name.as_str()),
+        ("Counter 1", "Counter 1"),
+        "the other admin's rename is inside this update's before/after pair, so the \
+         trail would sign it with this admin's name"
+    );
+    assert_eq!(
+        (before.idle_timeout_seconds, after.idle_timeout_seconds),
+        (Some(600), Some(900)),
+        "and the pair still carries the change this update did make"
+    );
+}
+
+/// An update refuses exactly what enrolment refuses, and refuses it *before*
+/// writing anything — the row an admin is told about is the row they have.
+#[tokio::test]
+async fn an_update_refuses_what_enrolment_refuses_and_leaves_the_row_untouched() {
+    let (db, _url) = fresh_db(Schema::Central).await;
+    let org = seed_org(&db).await;
+    let other_org = seed_org(&db).await;
+
+    let (row, _) = create(
+        &db,
+        org,
+        NewDevice {
+            name: "Front counter",
+            idle_timeout_seconds: Some(600),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create");
+
+    // Zero is ambiguous, half a minute signs a worker out mid-tap, and past the
+    // shift length the timer could never fire. Same window as `create`.
+    for bad in [0u32, 1, 29, 12 * 3600 + 1, u32::MAX] {
+        assert!(
+            matches!(
+                update(
+                    &db,
+                    org,
+                    row.id,
+                    DeviceUpdate {
+                        idle_timeout_seconds: Some(Some(bad)),
+                        ..Default::default()
+                    }
+                )
+                .await,
+                Err(DeviceError::BadIdleTimeout)
+            ),
+            "{bad} should not be storable through an update either"
+        );
+    }
+    assert!(matches!(
+        update(
+            &db,
+            org,
+            row.id,
+            DeviceUpdate {
+                name: Some("   "),
+                ..Default::default()
+            }
+        )
+        .await,
+        Err(DeviceError::BadName)
+    ));
+
+    // A good name beside an impossible timeout writes NEITHER. A partial write
+    // here would leave the admin reading a 400 about a row that had already
+    // half-changed.
+    assert!(matches!(
+        update(
+            &db,
+            org,
+            row.id,
+            DeviceUpdate {
+                name: Some("Renamed"),
+                idle_timeout_seconds: Some(Some(0)),
+            }
+        )
+        .await,
+        Err(DeviceError::BadIdleTimeout)
+    ));
+
+    // Another org's admin cannot reach this device — the same fence `revoke`
+    // puts up, and not found rather than not allowed.
+    assert!(matches!(
+        update(
+            &db,
+            other_org,
+            row.id,
+            DeviceUpdate {
+                idle_timeout_seconds: Some(Some(900)),
+                ..Default::default()
+            }
+        )
+        .await,
+        Err(DeviceError::NotFound)
+    ));
+
+    let untouched = org_kiosk_devices::Entity::find_by_id(row.id)
+        .one(&db)
+        .await
+        .expect("query")
+        .expect("row");
+    assert_eq!(untouched.name, "Front counter");
+    assert_eq!(untouched.idle_timeout_seconds, Some(600));
+
+    // Revoked: the row is the record of which tablet a shift was signed in on,
+    // and neither number can apply again. Bringing it back is enrolling it.
+    assert!(revoke(&db, org, row.id).await.expect("revoke"));
+    assert!(matches!(
+        update(
+            &db,
+            org,
+            row.id,
+            DeviceUpdate {
+                name: Some("Recycled"),
+                ..Default::default()
+            }
+        )
+        .await,
+        Err(DeviceError::Revoked)
+    ));
+    assert_eq!(
+        org_kiosk_devices::Entity::find_by_id(row.id)
+            .one(&db)
+            .await
+            .expect("query")
+            .expect("row")
+            .name,
+        "Front counter",
+        "a revoked kiosk's label must stay what the shift was signed in on"
+    );
 }

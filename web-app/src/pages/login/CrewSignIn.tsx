@@ -14,6 +14,7 @@ import {
 } from "@/hooks/auth/useFrontline";
 import type { BoundKioskDevice, FrontlineStaff } from "@/types/frontline";
 import CrewRosterPicker, { CrewRosterSkeleton } from "./CrewRosterPicker";
+import { nobodyRosteredHere } from "./crewRoster";
 
 type CrewFormData = {
   identifier: string;
@@ -27,6 +28,11 @@ interface CrewSignInProps {
   device: BoundKioskDevice;
   staff: FrontlineStaff[];
   isRosterLoading: boolean;
+  /**
+   * The roster read failed. Not the same as a roster that came back empty: a
+   * failure says nothing about who works here, so the ID box stays.
+   */
+  isRosterError?: boolean;
   /**
    * The `return_to` the app sent the worker here with. Wins over the app the
    * kiosk was enrolled for; both are validated server-side before any redirect.
@@ -45,12 +51,40 @@ const KioskLine = ({ device }: { device: BoundKioskDevice }) => (
 );
 
 /**
- * Crew sign-in on an enrolled kiosk. Tap a name (or type an ID when the kiosk
- * has no roster), enter a PIN, land in the app. The session rides the cookie
- * the server sets, so success is a full navigation — never `AuthContext.login`:
- * the PIN response has no user object and a worker is not a platform user here.
+ * A store's tablet with nobody on its roster. Words for the crew member standing
+ * at it: nothing they type will work, and who can fix that.
  */
-const CrewSignIn = ({ device, staff, isRosterLoading, returnTo }: CrewSignInProps) => {
+const NobodyRosteredHere = ({ device }: { device: BoundKioskDevice }) => (
+  <div
+    role='status'
+    className='flex flex-col gap-1 text-center'
+    data-testid='login-crew-nobody-here'
+  >
+    <p className='font-medium'>
+      Nobody is set up to sign in at {device.location?.name || "this store"} yet.
+    </p>
+    <p className='text-muted-foreground text-sm'>
+      A manager has to add the crew to this store before anyone can sign in here. Let your manager
+      know.
+    </p>
+  </div>
+);
+
+/**
+ * Crew sign-in on an enrolled kiosk. Tap a name (or type an ID when a kiosk
+ * with no place has no roster), enter a PIN, land in the app. A store's tablet
+ * with nobody on its roster says so instead of offering a box nobody could get
+ * in through (`nobodyRosteredHere`). The session rides the cookie the server
+ * sets, so success is a full navigation — never `AuthContext.login`: the PIN
+ * response has no user object and a worker is not a platform user here.
+ */
+const CrewSignIn = ({
+  device,
+  staff,
+  isRosterLoading,
+  isRosterError = false,
+  returnTo
+}: CrewSignInProps) => {
   const hasRoster = staff.length > 0;
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState(false);
@@ -145,6 +179,15 @@ const CrewSignIn = ({ device, staff, isRosterLoading, returnTo }: CrewSignInProp
         <p className='text-muted-foreground text-sm'>
           This kiosk has no app to open — ask your manager.
         </p>
+      </div>
+    );
+  }
+
+  if (nobodyRosteredHere(device, staff, { isLoading: isRosterLoading, isError: isRosterError })) {
+    return (
+      <div className='flex flex-col gap-4' data-testid='login-crew'>
+        <KioskLine device={device} />
+        <NobodyRosteredHere device={device} />
       </div>
     );
   }

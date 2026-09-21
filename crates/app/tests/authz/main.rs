@@ -21,6 +21,7 @@ mod audit_append_only;
 mod authz_boundaries;
 mod authz_loader_differential;
 mod document_write_guards;
+mod frontline_device_guards;
 mod org_invitations;
 mod shared_db_registry;
 mod thread_role_guards;

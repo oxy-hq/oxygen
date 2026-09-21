@@ -10,6 +10,7 @@ import type {
   KioskDeviceRow,
   ListDevicesResponse,
   ListWorkersResponse,
+  UpdateKioskDeviceRequest,
   WorkerAppsResponse,
   WorkerStandingResponse
 } from "@/types/frontline";
@@ -131,6 +132,26 @@ export class FrontlineService {
   ): Promise<CreatedKioskDevice> {
     const response = await apiClient.post<CreatedKioskDevice>(
       `/orgs/${orgId}/frontline/devices/${deviceId}/enrol-link`
+    );
+    return response.data;
+  }
+
+  /**
+   * Changes an enrolled kiosk in place — the tablet keeps its cookie, so this
+   * is the alternative to revoke-and-enrol for a wrong number.
+   *
+   * Send only what changes: `idle_timeout_seconds: null` clears the kiosk back
+   * to the platform default, while leaving the field out keeps whatever is
+   * there. 409 when the kiosk has been revoked.
+   */
+  static async updateDevice(
+    orgId: string,
+    deviceId: KioskDeviceRow["id"],
+    request: UpdateKioskDeviceRequest
+  ): Promise<KioskDeviceRow> {
+    const response = await apiClient.patch<KioskDeviceRow>(
+      `/orgs/${orgId}/frontline/devices/${deviceId}`,
+      request
     );
     return response.data;
   }

@@ -26,6 +26,7 @@ import { useRequestMagicLink } from "@/hooks/auth/useMagicLink";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import CrewSignIn, { CrewSignInHint } from "./CrewSignIn";
+import { nobodyRosteredHere } from "./crewRoster";
 import LoginWithGitHubButton from "./LoginWithGitHubButton";
 import LoginWithGoogleButton from "./LoginWithGoogleButton";
 import LoginWithOktaButton from "./LoginWithOktaButton";
@@ -241,10 +242,19 @@ const ACCOUNT_COPY = {
   subtitle: "Sign in to your account to continue"
 };
 
+/** How the crew half of a kiosk's page lets somebody say who they are. */
+type KioskEntry = "pick" | "type" | "nobody";
+
 /** A kiosk speaks to whoever is standing at it, not to an account holder. */
-const kioskCopy = (tapToPick: boolean) => ({
+const KIOSK_SUBTITLE: Record<KioskEntry, string> = {
+  pick: "Tap your name and enter your PIN",
+  type: "Enter your ID and PIN",
+  nobody: "Crew sign-in isn't ready on this tablet yet"
+};
+
+const kioskCopy = (entry: KioskEntry) => ({
   title: "Who's on shift?",
-  subtitle: tapToPick ? "Tap your name and enter your PIN" : "Enter your ID and PIN"
+  subtitle: KIOSK_SUBTITLE[entry]
 });
 
 const LoginForm = () => {
@@ -255,7 +265,11 @@ const LoginForm = () => {
   const returnTo = searchParams.get("return_to") ?? undefined;
   const { data: device, isPending: isProbingKiosk } = useKioskDevice();
   const kiosk = device?.bound ? device : undefined;
-  const { data: staff = [], isLoading: isRosterLoading } = useFrontlineRoster(kiosk?.org);
+  const {
+    data: staff = [],
+    isLoading: isRosterLoading,
+    isError: isRosterError
+  } = useFrontlineRoster(kiosk?.org);
 
   const hasAccountSignIn = Boolean(
     authConfig.magic_link ||
@@ -278,7 +292,16 @@ const LoginForm = () => {
 
   // While the roster is still loading, assume the common case (there is one)
   // so the subtitle doesn't flip mid-read.
-  const copy = kiosk ? kioskCopy(isRosterLoading || staff.length > 0) : ACCOUNT_COPY;
+  let entry: KioskEntry = "type";
+  if (
+    kiosk &&
+    nobodyRosteredHere(kiosk, staff, { isLoading: isRosterLoading, isError: isRosterError })
+  ) {
+    entry = "nobody";
+  } else if (isRosterLoading || staff.length > 0) {
+    entry = "pick";
+  }
+  const copy = kiosk ? kioskCopy(entry) : ACCOUNT_COPY;
 
   return (
     <div className={cn("flex flex-col gap-6")}>
@@ -294,6 +317,7 @@ const LoginForm = () => {
               device={kiosk}
               staff={staff}
               isRosterLoading={isRosterLoading}
+              isRosterError={isRosterError}
               returnTo={returnTo}
             />
             {hasAccountSignIn && <AdminSignInDialog />}

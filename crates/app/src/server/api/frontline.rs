@@ -16,7 +16,10 @@
 //!   lockout is per worker and a caller walking a roster of 40 names gets 40
 //!   separate budgets;
 //! * every failure returns one response, so neither layer leaks which of the
-//!   two refused.
+//!   two refused — including a right PIN from someone not rostered at the
+//!   kiosk's store, which is charged and answered as a wrong one. A store with
+//!   NOBODY rostered answers every attempt the same way and charges no one,
+//!   because that refusal is the kiosk's and says nothing about the person.
 //!
 //! # Fleet role
 //!
@@ -146,16 +149,23 @@ pub struct RosterEntry {
 /// manager appeared on the Clovis tablet — a name picker of 127 strangers,
 /// and a wider guessing surface for anyone standing at the counter.
 ///
-/// **The picker narrows; sign-in does not.** `login` below checks the org, the
-/// kiosk's binding to it and the PIN — never `org_role_members`. A worker who
-/// knows their own identifier can still sign in on another store's tablet.
-/// This is disclosure hygiene, not a location check; the reach a signed-in
-/// worker then holds is the operating graph's business, not this route's.
+/// **The store narrows the read; it does not filter its result.** The store's
+/// rostered user ids are resolved first and the credential query is filtered by
+/// them, so [`ROSTER_LIMIT`] counts this store's people. Narrowing afterwards
+/// meant a tenant past 200 PIN credentials lost the names that sort late from
+/// the store's own picker — silently: no error, no empty list, the worker
+/// simply was not there.
+///
+/// **Sign-in admits exactly who the picker shows.** `login` asks the same
+/// scope the same rule ([`verify_at_kiosk`]), so a worker rostered only at
+/// another store is refused on this tablet — as a wrong PIN is. The reach a
+/// signed-in worker then holds is still the operating graph's business, not
+/// this route's.
 ///
 /// **Deleting a location re-widens its tablets.** `org_kiosk_devices.location_id`
 /// is `ON DELETE SET NULL`, and `NULL` here means org-wide, so a kiosk whose
-/// place was deleted falls back to the whole tenant's list. Re-bind or revoke
-/// such a kiosk rather than leaving it.
+/// place was deleted falls back to the whole tenant's list — and signs in the
+/// whole tenant. Re-bind or revoke such a kiosk rather than leaving it.
 ///
 /// # What it still does not carry
 ///
@@ -209,31 +219,201 @@ async fn roster_body(headers: &HeaderMap, q: RosterQuery) -> axum::response::Res
         return Json(serde_json::json!({ "staff": [] })).into_response();
     }
 
-    let rows = user_credentials::Entity::find()
-        .filter(user_credentials::Column::Kind.eq(KIND_PIN))
-        .filter(user_credentials::Column::OrgId.eq(Some(org.id)))
-        .order_by_asc(user_credentials::Column::Identifier)
-        // A roster is a screen, not a dataset. The cap is what stops a large
-        // tenant turning the picker into a slow query on every kiosk load.
-        .limit(200)
+    // WHERE the tablet is decides WHO the credential read may even return, and
+    // it is resolved BEFORE that read so the row cap below counts this store's
+    // people rather than the tenant's.
+    let location = device.and_then(|d| d.location_id);
+    // A failed read shows nobody, as an empty roster does: closed, never the
+    // tenant. Closed but not silent — the `warn` is what separates "nobody is
+    // rostered here" from "the query failed" for whoever is staring at an empty
+    // picker. The door does not fold the two together; see `verify_at_kiosk`.
+    let scope = roster_scope(&db, org.id, location)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, org_id = %org.id, location = ?location,
+                "roster assignment read failed; the picker will be empty");
+            RosterScope::Nobody
+        });
+    if scope == RosterScope::Nobody {
+        return Json(serde_json::json!({ "staff": [] })).into_response();
+    }
+
+    let rows = credential_query(org.id, &scope)
         .all(&db)
         .await
         .unwrap_or_default();
 
-    // Names come from `users`, and only for workers whose standing is active —
-    // a suspended worker must not appear on the picker at all.
-    //
-    // Two batched queries, not two per credential. The `.limit(200)` above caps
-    // the ROW count, not the QUERY count, and this route is public, unthrottled
-    // (`org_is_rate_limited` guards `login` only) and answers for any guessable
-    // slug — so the per-row shape made a trivial loop a 400x amplifier against
-    // the shared pool.
+    let candidates = active_named(&db, org.id, rows).await;
+
+    let candidates_in = candidates.len();
+    let staff = on_this_kiosk(candidates, &scope, location);
+    info!(org_id = %org.id, location = ?location, candidates = candidates_in, staff = staff.len(),
+        "frontline roster narrowed");
+    Json(serde_json::json!({ "staff": staff })).into_response()
+}
+
+/// How many names one picker may carry.
+///
+/// A roster is a screen, not a dataset: the cap is what stops a large tenant
+/// turning the picker into a slow query on every kiosk load. What it counts is
+/// [`RosterScope`]'s business.
+const ROSTER_LIMIT: u64 = 200;
+
+/// How many rostered people one store's narrowing may consider.
+///
+/// Deliberately larger than [`ROSTER_LIMIT`], because this read NARROWS the
+/// credential query rather than sizing the picker — the picker's own cap is the
+/// `LIMIT` on that query. Capping both at 200 would re-create the bug one level
+/// down: a store's full roster includes people who hold no PIN (a manager with
+/// an account, an office user), so cutting it at the picker's size could drop
+/// PIN holders before the credential read ever saw them. Still bounded, and
+/// still one column of uuids for one location — this route is public.
+///
+/// Past it the scope is TRUNCATED, and not to "the first N" of anything: the
+/// read orders by `user_id`, a random v4, so the cut is stable across loads but
+/// arbitrary. Sign-in shares this scope ([`verify_at_kiosk`]), so whoever falls
+/// past the ceiling is neither on that store's picker nor able to sign in on its
+/// tablet — refused as a wrong PIN is. [`roster_scope`] logs a `warn` when a
+/// read comes back at the ceiling, so a store that ever reaches it is
+/// diagnosable rather than silent.
+const STORE_ROSTER_SCAN_LIMIT: u64 = 2_000;
+
+/// What the credential read is narrowed to **before** [`ROSTER_LIMIT`] applies.
+///
+/// Until this existed the cap was org-wide and the store filter ran on whatever
+/// survived it, so a tenant past 200 PIN credentials silently lost the names
+/// that sort late from every store whose crew happened to be among them — no
+/// error, no empty list, the worker simply was not on their own tablet.
+/// Narrowing first makes the cap per store, which is the unit a picker is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RosterScope {
+    /// A kiosk enrolled without a place. There is no store to narrow to, so
+    /// the cap stays org-wide — today's behaviour for those, kept.
+    Org,
+    /// The user ids rostered at this tablet's store. Never empty: an empty
+    /// narrowing is [`RosterScope::Nobody`], because `IN ()` is not a filter.
+    Store(Vec<Uuid>),
+    /// Show nobody — nobody is rostered here. An empty picker, never the whole
+    /// tenant. A read that FAILED is not this: [`roster_scope`] answers `Err`
+    /// for it, because the picker and the door must not pay for a server
+    /// failure alike (see [`verify_at_kiosk`]).
+    Nobody,
+}
+
+/// The credential read, narrowed and capped in that order.
+///
+/// Built rather than run so the shape can be asserted in a unit test: the
+/// property this route lives or dies by is that the `user_id IN (…)` and the
+/// `LIMIT` land in the SAME statement.
+fn credential_query(
+    org_id: Uuid,
+    scope: &RosterScope,
+) -> sea_orm::Select<user_credentials::Entity> {
+    let base = user_credentials::Entity::find()
+        .filter(user_credentials::Column::Kind.eq(KIND_PIN))
+        .filter(user_credentials::Column::OrgId.eq(Some(org_id)));
+    let narrowed = match scope {
+        RosterScope::Store(ids) => base.filter(user_credentials::Column::UserId.is_in(ids.clone())),
+        // Nobody never reaches a query — the caller answers with an empty
+        // picker instead — but the match is exhaustive so adding a scope
+        // cannot silently inherit the org-wide read.
+        RosterScope::Org | RosterScope::Nobody => base,
+    };
+    narrowed
+        .order_by_asc(user_credentials::Column::Identifier)
+        .limit(ROSTER_LIMIT)
+}
+
+/// The scope read back as the `(user_id, location_id)` pairs
+/// [`narrow_to_location`] takes.
+///
+/// Redundant by construction — [`credential_query`] already asked the database
+/// for exactly these user ids — and kept anyway: `narrow_to_location` is the
+/// store rule in one pure, tested place, so an edit that widens the CREDENTIAL
+/// query cannot widen a store's picker without failing a test. It does not
+/// re-check [`roster_scope`]'s own filter: every pair is stamped with the
+/// tablet's location, because that is the only location the scope was read at,
+/// so a widened scope read would pass through here unnoticed.
+fn scope_assignments(scope: &RosterScope, location: Option<Uuid>) -> Vec<(Uuid, Option<Uuid>)> {
+    match scope {
+        RosterScope::Store(ids) => ids.iter().map(|id| (*id, location)).collect(),
+        RosterScope::Org | RosterScope::Nobody => Vec::new(),
+    }
+}
+
+/// Who is rostered at the tablet's store, as one bounded read of distinct user
+/// ids — and only when the tablet has a place to narrow to, so an org whose
+/// kiosks carry no location pays nothing for a rule that cannot apply to it.
+///
+/// `DISTINCT` on purpose: a worker holding two roles at one store is one name
+/// on the picker, and without it [`STORE_ROSTER_SCAN_LIMIT`] would count their
+/// rows twice and cut the tail of the store's own roster off again. Ordered so
+/// that a store big enough to reach that ceiling truncates to the same set on
+/// every load instead of a different one each time — the same set, not a
+/// meaningful one (see [`STORE_ROSTER_SCAN_LIMIT`]), which is why reaching it
+/// is a `warn`.
+///
+/// A failed read is `Err`, NOT [`RosterScope::Nobody`], and each caller decides
+/// what it costs. Both fail closed — nobody on the picker, nobody through the
+/// door, never the whole tenant's crew because a query blipped — but only the
+/// picker can treat it as "nobody". At the door `Nobody` is a `401`, true of the
+/// store until someone is assigned there; a failed read is ours, and says so
+/// with a `503` a tablet backs off from, rather than telling a worker that the
+/// right PIN did not match. Neither charges the worker (see [`verify_at_kiosk`]).
+async fn roster_scope(
+    db: &sea_orm::DatabaseConnection,
+    org_id: Uuid,
+    location: Option<Uuid>,
+) -> Result<RosterScope, sea_orm::DbErr> {
+    let Some(at) = location else {
+        return Ok(RosterScope::Org);
+    };
+    let rostered = org_role_members::Entity::find()
+        .select_only()
+        .column(org_role_members::Column::UserId)
+        .distinct()
+        .filter(org_role_members::Column::OrgId.eq(org_id))
+        .filter(org_role_members::Column::LocationId.eq(at))
+        .order_by_asc(org_role_members::Column::UserId)
+        .limit(STORE_ROSTER_SCAN_LIMIT)
+        .into_tuple::<Uuid>()
+        .all(db)
+        .await?;
+    if rostered.len() as u64 >= STORE_ROSTER_SCAN_LIMIT {
+        warn!(org_id = %org_id, location = %at, limit = STORE_ROSTER_SCAN_LIMIT,
+            "this store's roster reached the scan ceiling; people past it are neither on \
+             its picker nor able to sign in on its tablet");
+    }
+    if rostered.is_empty() {
+        info!(org_id = %org_id, location = %at, "nobody is rostered at this kiosk's store");
+        return Ok(RosterScope::Nobody);
+    }
+    Ok(RosterScope::Store(rostered))
+}
+
+/// The credentials that belong to an active worker, paired with the name to
+/// show — and in the `identifier` order the query asked for, because a picker
+/// whose order changes between loads is a picker people mis-tap.
+///
+/// Names come from `users`, and only for workers whose standing is active: a
+/// suspended worker must not appear on the picker at all.
+///
+/// Two batched queries, not two per credential. [`ROSTER_LIMIT`] caps the ROW
+/// count, not the QUERY count, and this route is public, unthrottled
+/// (`org_is_rate_limited` guards `login` only) and answers for any guessable
+/// slug — so the per-row shape made a trivial loop a 400x amplifier against the
+/// shared pool.
+async fn active_named(
+    db: &sea_orm::DatabaseConnection,
+    org_id: Uuid,
+    rows: Vec<user_credentials::Model>,
+) -> Vec<(Uuid, RosterEntry)> {
     let ids: Vec<Uuid> = rows.iter().map(|c| c.user_id).collect();
     let active: std::collections::HashSet<Uuid> = org_frontline_members::Entity::find()
-        .filter(org_frontline_members::Column::OrgId.eq(org.id))
+        .filter(org_frontline_members::Column::OrgId.eq(org_id))
         .filter(org_frontline_members::Column::UserId.is_in(ids.clone()))
         .filter(org_frontline_members::Column::Status.eq(org_frontline_members::STATUS_ACTIVE))
-        .all(&db)
+        .all(db)
         .await
         .unwrap_or_default()
         .into_iter()
@@ -241,17 +421,14 @@ async fn roster_body(headers: &HeaderMap, q: RosterQuery) -> axum::response::Res
         .collect();
     let names: std::collections::HashMap<Uuid, String> = users::Entity::find()
         .filter(users::Column::Id.is_in(ids))
-        .all(&db)
+        .all(db)
         .await
         .unwrap_or_default()
         .into_iter()
         .map(|u| (u.id, u.name))
         .collect();
 
-    // Built from `rows` so the `identifier` sort the query asked for survives —
-    // a picker whose order changes between loads is a picker people mis-tap.
-    let candidates: Vec<(Uuid, RosterEntry)> = rows
-        .into_iter()
+    rows.into_iter()
         .filter(|c| active.contains(&c.user_id))
         .filter_map(|c| {
             names.get(&c.user_id).map(|name| {
@@ -264,44 +441,7 @@ async fn roster_body(headers: &HeaderMap, q: RosterQuery) -> axum::response::Res
                 )
             })
         })
-        .collect();
-
-    // Where each of them is rostered. One more bounded read, and only when the
-    // tablet has a place to narrow to — an org whose kiosks carry no location
-    // pays nothing for a rule that cannot apply to it.
-    //
-    // `unwrap_or_default` on the read fails CLOSED, which is the direction this
-    // one has to fail in: no assignment rows means an empty picker, not the
-    // whole tenant's crew appearing on a store's tablet because a query blipped.
-    // Closed but not silent — the warn is what separates "nobody is rostered
-    // here" from "the query failed" for whoever is staring at an empty picker.
-    let location = device.and_then(|d| d.location_id);
-    let assignments: Vec<(Uuid, Option<Uuid>)> = match location {
-        None => Vec::new(),
-        Some(at) => org_role_members::Entity::find()
-            .filter(org_role_members::Column::OrgId.eq(org.id))
-            .filter(org_role_members::Column::LocationId.eq(at))
-            .filter(
-                org_role_members::Column::UserId
-                    .is_in(candidates.iter().map(|(id, _)| *id).collect::<Vec<_>>()),
-            )
-            .all(&db)
-            .await
-            .inspect_err(|e| {
-                warn!(error = %e, org_id = %org.id, location = %at,
-                    "roster assignment read failed; the picker will be empty")
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| (a.user_id, a.location_id))
-            .collect(),
-    };
-
-    let candidates_in = candidates.len();
-    let staff = narrow_to_location(candidates, location, &assignments);
-    info!(org_id = %org.id, location = ?location, candidates = candidates_in, staff = staff.len(),
-        "frontline roster narrowed");
-    Json(serde_json::json!({ "staff": staff })).into_response()
+        .collect()
 }
 
 /// The rule the picker exists to enforce: a kiosk at a place shows the people
@@ -316,11 +456,14 @@ async fn roster_body(headers: &HeaderMap, q: RosterQuery) -> axum::response::Res
 /// `Some(_)` matches on the location EXACTLY: an assignment carrying
 /// `location_id IS NULL` is an org-wide position and does not put its holder
 /// on a store's tablet.
-fn narrow_to_location(
-    candidates: Vec<(Uuid, RosterEntry)>,
+///
+/// Generic over what rides along with each user id, because the sign-in asks
+/// the same question of one person carrying nothing ([`kiosk_admits`]).
+fn narrow_to_location<T>(
+    candidates: Vec<(Uuid, T)>,
     location: Option<Uuid>,
     assignments: &[(Uuid, Option<Uuid>)],
-) -> Vec<RosterEntry> {
+) -> Vec<T> {
     let Some(location) = location else {
         return candidates.into_iter().map(|(_, entry)| entry).collect();
     };
@@ -334,6 +477,108 @@ fn narrow_to_location(
         .filter(|(user, _)| here.contains(user))
         .map(|(_, entry)| entry)
         .collect()
+}
+
+/// Who of `candidates` belongs on this kiosk: the ONE rule the picker keeps
+/// names by and the sign-in admits by, so the two cannot drift apart.
+///
+/// [`narrow_to_location`] over the scope's own assignment pairs, with a closed
+/// scope answering nobody before that rule is consulted. `Nobody` is only ever
+/// read at a place, but the guard means a kiosk with no place could never turn
+/// an empty or failed read into the whole org.
+fn on_this_kiosk<T>(
+    candidates: Vec<(Uuid, T)>,
+    scope: &RosterScope,
+    location: Option<Uuid>,
+) -> Vec<T> {
+    if *scope == RosterScope::Nobody {
+        return Vec::new();
+    }
+    narrow_to_location(candidates, location, &scope_assignments(scope, location))
+}
+
+/// May `user` sign in on this kiosk? [`on_this_kiosk`] asked about one person,
+/// so the door answers exactly as the picker does.
+fn kiosk_admits(scope: &RosterScope, location: Option<Uuid>, user: Uuid) -> bool {
+    !on_this_kiosk(vec![(user, ())], scope, location).is_empty()
+}
+
+/// What the door answered, before `login` decides what it is worth.
+#[derive(Debug)]
+enum KioskVerdict {
+    /// The credential layer's answer: admitted, or refused and charged as a
+    /// wrong PIN is.
+    Pin(PinVerdict),
+    /// Nobody is rostered at this kiosk's store, so nobody signs in on it. No
+    /// credential was read and none was charged.
+    NobodyHere,
+}
+
+/// Verify a PIN typed on this kiosk, admitting exactly the people its name
+/// picker shows.
+///
+/// **One rule for the picker and the door.** The scope is [`roster_scope`],
+/// the read `roster` narrows the picker with, and admission is
+/// [`kiosk_admits`], the rule the picker keeps names by. So a kiosk at a store
+/// signs in that store's crew; a kiosk with no place signs in the org, as its
+/// picker lists the org; and a store with nobody rostered signs in nobody, as
+/// its picker shows nobody. The picker's [`ROSTER_LIMIT`] is not shared: it
+/// sizes a screen. The scope read's own ceiling IS shared, so a store past
+/// [`STORE_ROSTER_SCAN_LIMIT`] refuses the people its truncation dropped —
+/// arbitrary ones, not the late sorters — and says so in a `warn`.
+///
+/// **A failed scope read is ours, not the worker's.** It returns `Err`, which
+/// `login` answers `503` without charging anything. Folded into "nobody" it was
+/// a charged refusal of every right PIN at the store, so a blip on that one
+/// query left the crew locked out for the lockout window after the database
+/// had recovered. The failure depends on neither the identifier nor the PIN, so
+/// answering it differently tells a caller nothing about either.
+///
+/// **No roaming allowance.** An org-wide position (`org_role_members.location_id
+/// IS NULL`) is on no store's picker, so it signs in on no store's tablet — on
+/// a kiosk with no place it is on the picker and signs in. If roaming staff are
+/// wanted, the allowance belongs in `roster_scope` / `narrow_to_location`,
+/// where the picker and the sign-in move together.
+///
+/// **Refused as a wrong PIN is.** The rule is handed INTO
+/// [`frontline::verify_pin_admitting`] rather than checked after it, so a right
+/// PIN at the wrong store is charged against the same lockout budget, is not
+/// stamped as used, and comes back a failed verdict that `login` answers through
+/// the wrong-PIN branch: the org brake, the same 401, the same bytes. The scope
+/// is read BEFORE the PIN on every attempt, so both cost the same work in the
+/// same order. Otherwise anyone who knew a person's PIN could learn from the
+/// tablet which stores they work at.
+///
+/// **A store with nobody rostered charges nobody.** [`RosterScope::Nobody`] is
+/// a fact about the KIOSK: every attempt there is refused, whatever identifier
+/// and PIN are typed, so there is no person for the refusal to say anything
+/// about and no guess for a charge to slow down. Charged, it was a trap. A
+/// tablet enrolled before its store's crew were assigned is a normal pre-go-live
+/// state, and each right PIN typed at it was a failed attempt, so five of them
+/// locked the worker out at their own store too. So it answers
+/// [`KioskVerdict::NobodyHere`] before any credential is read, for EVERY
+/// identifier alike (no lookup to be fast or slow on), after paying the verify's
+/// Argon2 cost ([`frontline::burn_verify_time`]); `login` still counts it
+/// against the org brake and sends the wrong-PIN bytes.
+async fn verify_at_kiosk(
+    db: &sea_orm::DatabaseConnection,
+    org_id: Uuid,
+    location: Option<Uuid>,
+    identifier: &str,
+    pin: &str,
+) -> Result<KioskVerdict, OxyError> {
+    let scope = roster_scope(db, org_id, location)
+        .await
+        .map_err(|e| OxyError::DBError(format!("kiosk roster scope: {e}")))?;
+    if scope == RosterScope::Nobody {
+        frontline::burn_verify_time(pin);
+        return Ok(KioskVerdict::NobodyHere);
+    }
+    frontline::verify_pin_admitting(db, org_id, identifier, pin, PinPolicy::default(), |user| {
+        kiosk_admits(&scope, location, user)
+    })
+    .await
+    .map(KioskVerdict::Pin)
 }
 
 #[derive(Debug, Deserialize)]
@@ -465,28 +710,27 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
         }
     };
 
-    let verdict = match frontline::verify_pin(
-        &db,
-        org.id,
-        &body.identifier,
-        &body.pin,
-        PinPolicy::default(),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            warn!(error = %e, "frontline verify failed");
-            return refuse(StatusCode::SERVICE_UNAVAILABLE);
-        }
-    };
+    // WHO may sign in here is who this tablet's picker shows — see
+    // `verify_at_kiosk` for why that check lives inside the verify.
+    let verdict =
+        match verify_at_kiosk(&db, org.id, device.location_id, &body.identifier, &body.pin).await {
+            Ok(v) => v,
+            // Ours, not the caller's — a failed roster read included — so
+            // nothing is charged, and a tablet backs off instead of having the
+            // worker retype.
+            Err(e) => {
+                warn!(error = %e, "frontline verify failed");
+                return refuse(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        };
 
-    let PinVerdict::Ok { user_id } = verdict else {
+    let KioskVerdict::Pin(PinVerdict::Ok { user_id }) = verdict else {
         record_org_attempt(org.id);
         // One response for every failure — wrong PIN, locked out, no such
-        // worker, malformed. `PinVerdict::public_message` exists for exactly
-        // this and the difference stays in the log.
-        info!(verdict = ?verdict, "frontline login refused");
+        // worker, malformed, not rostered at this kiosk's store, nobody
+        // rostered at it. `PinVerdict::public_message` exists for exactly this
+        // and the difference stays in the log.
+        info!(verdict = ?verdict, location = ?device.location_id, "frontline login refused");
         return refuse(StatusCode::UNAUTHORIZED);
     };
 
@@ -670,6 +914,141 @@ mod tests {
             names(&staff),
             ["Ana", "Cy"],
             "the assignment rows' order must not reorder the picker"
+        );
+    }
+
+    /// The bug this closes: the 200-row cap was applied org-wide and the store
+    /// filter ran on the survivors, so in a tenant past 200 PIN credentials a
+    /// store whose crew sorts late lost them from its own picker — with no
+    /// error, no empty list, the worker simply not there.
+    ///
+    /// The property is that the narrowing and the cap are in the SAME
+    /// statement, so the cap counts this store's people. Asserting on the built
+    /// SQL is asserting on the read the route actually issues: `roster_body`
+    /// runs this very query.
+    #[test]
+    fn the_row_cap_counts_the_stores_people_not_the_tenants() {
+        use sea_orm::QueryTrait;
+        let maria = Uuid::new_v4();
+        let sql = credential_query(Uuid::new_v4(), &RosterScope::Store(vec![maria]))
+            .build(sea_orm::DbBackend::Postgres)
+            .to_string();
+
+        let narrowed_at = sql
+            .find(&maria.to_string())
+            .unwrap_or_else(|| panic!("the store's people are not in the credential read: {sql}"));
+        let capped_at = sql
+            .rfind("LIMIT")
+            .unwrap_or_else(|| panic!("the credential read is not capped: {sql}"));
+        assert!(
+            narrowed_at < capped_at,
+            "the cap must apply to the narrowed read, not to the tenant: {sql}"
+        );
+        assert!(
+            sql.contains(&format!("LIMIT {ROSTER_LIMIT}")),
+            "the cap the picker is sized for must reach the database: {sql}"
+        );
+    }
+
+    /// The guard on the test above: prove the `IN` is not simply always there.
+    ///
+    /// It also pins the behaviour a placeless kiosk keeps — there is no store
+    /// to narrow to, so the cap is org-wide, exactly as it has always been.
+    #[test]
+    fn a_kiosk_with_no_place_reads_the_org() {
+        use sea_orm::QueryTrait;
+        let sql = credential_query(Uuid::new_v4(), &RosterScope::Org)
+            .build(sea_orm::DbBackend::Postgres)
+            .to_string();
+        assert!(
+            !sql.contains(" IN ("),
+            "a kiosk with no place has nothing to narrow to: {sql}"
+        );
+        assert!(
+            sql.contains(&format!("LIMIT {ROSTER_LIMIT}")),
+            "the org-wide read is still capped: {sql}"
+        );
+    }
+
+    /// The two halves compose: what the scope narrowed the READ to is what
+    /// `narrow_to_location` then keeps. A candidate the scope never asked for
+    /// — a stale row, a widened query — is still dropped.
+    #[test]
+    fn the_scope_is_the_store_rule_narrow_to_location_enforces() {
+        let clovis = Uuid::new_v4();
+        let (maria, maria_entry) = worker("Maria");
+        let (dev, dev_entry) = worker("Devon");
+        let scope = RosterScope::Store(vec![maria]);
+
+        let staff = narrow_to_location(
+            vec![(maria, maria_entry), (dev, dev_entry)],
+            Some(clovis),
+            &scope_assignments(&scope, Some(clovis)),
+        );
+        assert_eq!(names(&staff), ["Maria"]);
+    }
+
+    /// A store with nobody rostered is an empty picker — and so is a store whose
+    /// assignment read failed, which `roster_body` answers as this same scope.
+    /// Neither may fall through to the tenant's crew, so neither carries
+    /// assignment pairs for the rule to keep.
+    #[test]
+    fn a_closed_scope_carries_nobody() {
+        let clovis = Uuid::new_v4();
+        assert!(scope_assignments(&RosterScope::Nobody, Some(clovis)).is_empty());
+        let (ghost, ghost_entry) = worker("Ghost");
+        assert!(
+            narrow_to_location(
+                vec![(ghost, ghost_entry)],
+                Some(clovis),
+                &scope_assignments(&RosterScope::Nobody, Some(clovis)),
+            )
+            .is_empty(),
+            "a failed assignment read must not widen the picker to the tenant"
+        );
+    }
+
+    /// The door the picker's rule now guards: a store's tablet signs in its own
+    /// crew, and a right PIN from another store is refused there.
+    #[test]
+    fn a_store_kiosk_admits_its_own_crew_and_nobody_elses() {
+        let clovis = Uuid::new_v4();
+        let (maria, _) = worker("Maria");
+        let (dev, _) = worker("Devon");
+        // What `roster_scope` reads for Clovis: its own people, by location
+        // exactly — so neither Devon (Santa Rosa) nor an org-wide position.
+        let scope = RosterScope::Store(vec![maria]);
+        assert!(kiosk_admits(&scope, Some(clovis), maria));
+        assert!(
+            !kiosk_admits(&scope, Some(clovis), dev),
+            "a worker not rostered at this store must not sign in on its tablet"
+        );
+    }
+
+    /// A kiosk with no place lists the org, so it admits the org.
+    #[test]
+    fn a_kiosk_with_no_place_admits_the_org() {
+        let (anyone, _) = worker("Anyone");
+        assert!(kiosk_admits(&RosterScope::Org, None, anyone));
+    }
+
+    /// A closed scope — nobody rostered — admits nobody, wherever the tablet
+    /// is. The placeless half is the one the guard in `on_this_kiosk` exists
+    /// for: `narrow_to_location` alone would read a missing place as "the whole
+    /// org". (A FAILED read never becomes this scope at the door; it is an
+    /// uncharged 503 — `frontline_kiosk_signin` pins that against a real
+    /// database.)
+    #[test]
+    fn a_closed_scope_admits_nobody() {
+        let (maria, _) = worker("Maria");
+        assert!(!kiosk_admits(
+            &RosterScope::Nobody,
+            Some(Uuid::new_v4()),
+            maria
+        ));
+        assert!(
+            !kiosk_admits(&RosterScope::Nobody, None, maria),
+            "a closed scope must never fall through to the org"
         );
     }
 

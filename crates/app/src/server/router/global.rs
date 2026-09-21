@@ -539,9 +539,15 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             "/frontline/devices",
             get(frontline_devices::list_devices).post(frontline_devices::create_device),
         )
+        // PATCH is how a kiosk's sign-out is tuned after the first shift
+        // without walking a new enrol link out to the counter; DELETE revokes.
+        // `route_fleet` like the rest: it reads and writes one Postgres row and
+        // touches no working copy, so any replica may answer it — and an admin
+        // fixing a tablet mid-service must not need the singleton to be up.
         .route_fleet(
             "/frontline/devices/{id}",
-            axum::routing::delete(frontline_devices::revoke_device),
+            axum::routing::delete(frontline_devices::revoke_device)
+                .patch(frontline_devices::update_device),
         )
         // A lost or expired link for a tablet that never bound. Unbound only:
         // moving a bound kiosk is revoke-and-enrol, not a quiet re-point.

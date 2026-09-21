@@ -8,10 +8,12 @@
 //! stands at wants a shorter one than a back-office device.
 //!
 //! **Nullable, and the platform only carries the number.** NULL means "the
-//! default" (300 s), which is what lets every existing row acquire the
-//! behaviour without a backfill and without the column having to be rewritten
-//! when the default changes. The countdown itself lives in the custom app —
-//! nothing server-side watches a clock for this.
+//! default" (`frontline_devices::DEFAULT_IDLE_TIMEOUT_SECONDS` — 30 minutes
+//! today, 5 when this column was added), which is what lets every existing row
+//! acquire the behaviour without a backfill and without the column having to be
+//! rewritten when the default changes. That has since happened once, and no row
+//! moved. The countdown itself lives in the custom app — nothing server-side
+//! watches a clock for this.
 
 use sea_orm_migration::prelude::*;
 

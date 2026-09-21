@@ -118,6 +118,10 @@ pub enum PinVerdict {
     /// The submitted string is not PIN-shaped. Rejected before any database
     /// work, so a malformed request cannot be used to time the lookup.
     Malformed,
+    /// The PIN was right, and the caller's admission rule refused this worker
+    /// at this door ([`verify_pin_admitting`]). Charged exactly as a wrong PIN
+    /// is, so the caller learns the reason and the person at the screen does not.
+    NotAdmitted,
 }
 
 impl PinVerdict {
@@ -298,6 +302,27 @@ async fn charge_failed_attempt(
     })
 }
 
+/// Why a charged attempt was refused — for the log, never for the wire.
+///
+/// Suspension first: charged, then answered as if the worker does not exist. A
+/// suspended worker is a former employee, and confirming that their PIN is
+/// still the right one is exactly the wrong thing to tell whoever is holding
+/// the tablet. A right PIN that reached here was refused by the caller's
+/// admission rule; a wrong one stays a wrong one whoever was asking.
+fn refused_verdict(charged: Charged, policy: PinPolicy, active: bool, matched: bool) -> PinVerdict {
+    if !active {
+        PinVerdict::NoSuchWorker
+    } else if matched {
+        PinVerdict::NotAdmitted
+    } else if charged.locked {
+        PinVerdict::LockedOut
+    } else {
+        PinVerdict::WrongPin {
+            attempts_remaining: policy.max_attempts - charged.failed_attempts,
+        }
+    }
+}
+
 /// Verify a worker's PIN within one org.
 ///
 /// `identifier` is the login name the kiosk showed in its name picker — stable
@@ -309,6 +334,34 @@ pub async fn verify_pin(
     identifier: &str,
     pin: &str,
     policy: PinPolicy,
+) -> Result<PinVerdict, OxyError> {
+    verify_pin_admitting(db, org_id, identifier, pin, policy, |_| true).await
+}
+
+/// [`verify_pin`], with the caller's say over WHO may sign in at this door.
+///
+/// `admits` is asked about the worker the identifier names, and a `false`
+/// makes a right PIN count exactly as a wrong one does: the attempt is charged
+/// against the same lockout budget, the credential is not stamped as used, and
+/// the verdict is [`PinVerdict::NotAdmitted`].
+///
+/// It has to be decided in here rather than above. By the time `verify_pin`
+/// returns `Ok` the success path has already reset `failed_attempts` to zero,
+/// so a refusal layered on top would be the one failure that REFUNDS a
+/// guesser's budget — and a lockout that arrives later than it should is a
+/// channel telling that refusal apart from a wrong PIN.
+///
+/// Asked for every credential that is found and not locked, whether or not the
+/// PIN turns out to be right, so a wrong PIN and a refused right one do the
+/// same work in the same order. Synchronous on purpose: whatever the rule needs
+/// to read is read by the caller before the PIN is, on every attempt alike.
+pub async fn verify_pin_admitting(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    identifier: &str,
+    pin: &str,
+    policy: PinPolicy,
+    admits: impl FnOnce(Uuid) -> bool,
 ) -> Result<PinVerdict, OxyError> {
     if !policy.accepts(pin) {
         return Ok(PinVerdict::Malformed);
@@ -356,6 +409,7 @@ pub async fn verify_pin(
     let active = standing
         .as_ref()
         .is_some_and(|s| s.status == org_frontline_members::STATUS_ACTIVE);
+    let admitted = admits(cred.user_id);
 
     let Some(stored) = cred.secret_hash.as_deref() else {
         // A `pin` row with no secret is rejected at the schema level, so this
@@ -368,24 +422,10 @@ pub async fn verify_pin(
         return Ok(PinVerdict::NoSuchWorker);
     };
 
-    if !pin_matches(pin, stored)? || !active {
+    let matched = pin_matches(pin, stored)?;
+    if !matched || !active || !admitted {
         let charged = charge_failed_attempt(db, cred.id, policy).await?;
-        let lock = charged.locked;
-
-        if !active {
-            // Charged the attempt, then answer as if the worker does not exist.
-            // A suspended worker is a former employee, and confirming that
-            // their PIN is still the right one is exactly the wrong thing to
-            // tell whoever is holding the tablet.
-            return Ok(PinVerdict::NoSuchWorker);
-        }
-        return Ok(if lock {
-            PinVerdict::LockedOut
-        } else {
-            PinVerdict::WrongPin {
-                attempts_remaining: policy.max_attempts - charged.failed_attempts,
-            }
-        });
+        return Ok(refused_verdict(charged, policy, active, matched));
     }
 
     let mut update: user_credentials::ActiveModel = cred.clone().into();
@@ -667,6 +707,7 @@ mod tests {
             PinVerdict::LockedOut,
             PinVerdict::NoSuchWorker,
             PinVerdict::Malformed,
+            PinVerdict::NotAdmitted,
         ];
         let messages: Vec<_> = failures.iter().map(|v| v.public_message()).collect();
         assert!(
@@ -674,6 +715,45 @@ mod tests {
             "a caller must not be able to tell failures apart: {messages:?}"
         );
         assert!(failures.iter().all(|v| !v.is_ok()));
+    }
+
+    /// A charged refusal is named for the log in a fixed order: suspension
+    /// hides everything, a right PIN that reached the charge was the caller's
+    /// admission refusing it, and a wrong PIN stays a wrong PIN whoever asked.
+    #[test]
+    fn a_charged_refusal_names_its_reason_in_order() {
+        let p = PinPolicy::default();
+        let open = Charged {
+            failed_attempts: 2,
+            locked: false,
+        };
+        let locked = Charged {
+            failed_attempts: p.max_attempts,
+            locked: true,
+        };
+        assert_eq!(
+            refused_verdict(open, p, false, true),
+            PinVerdict::NoSuchWorker
+        );
+        assert_eq!(
+            refused_verdict(open, p, true, true),
+            PinVerdict::NotAdmitted
+        );
+        assert_eq!(
+            refused_verdict(locked, p, true, true),
+            PinVerdict::NotAdmitted,
+            "a right PIN refused at this door is logged as that, even as it locks"
+        );
+        assert_eq!(
+            refused_verdict(open, p, true, false),
+            PinVerdict::WrongPin {
+                attempts_remaining: p.max_attempts - 2
+            }
+        );
+        assert_eq!(
+            refused_verdict(locked, p, true, false),
+            PinVerdict::LockedOut
+        );
     }
 
     #[test]

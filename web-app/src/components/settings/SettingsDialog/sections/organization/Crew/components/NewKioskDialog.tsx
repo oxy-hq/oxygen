@@ -17,6 +17,13 @@ import {
   SelectValue
 } from "@/components/ui/shadcn/select";
 import { useCreateDevice, useLocations } from "@/hooks/api/organizations";
+import {
+  DEFAULT_IDLE_TIMEOUT_SECONDS,
+  IDLE_TIMEOUT_MAX_MINUTES,
+  IDLE_TIMEOUT_MIN_MINUTES,
+  idleTimeoutFromMinutes,
+  idleTimeoutLabel
+} from "@/libs/frontline";
 import type { AppAccessSummary } from "@/types/appAccess";
 import type { CreatedKioskDevice } from "@/types/frontline";
 import { LocationSelect, NO_LOCATION } from "../../shared/LocationSelect";
@@ -83,8 +90,10 @@ function NewKioskForm({
   const [name, setName] = useState("");
   const [appId, setAppId] = useState<string>(ORG_HOME);
   const [locationId, setLocationId] = useState<string>(NO_LOCATION);
+  const [idleMinutes, setIdleMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const canSubmit = name.trim().length > 0;
+  const idle = idleTimeoutFromMinutes(idleMinutes);
+  const canSubmit = name.trim().length > 0 && idle.kind !== "invalid";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +106,11 @@ function NewKioskForm({
         request: {
           name: name.trim(),
           ...(app ? { return_to: appReturnTo(orgSlug, app.slug) } : {}),
-          ...(locationId !== NO_LOCATION ? { location_id: locationId } : {})
+          ...(locationId !== NO_LOCATION ? { location_id: locationId } : {}),
+          // Omitted on purpose when the box is empty: the column stays NULL and
+          // the kiosk follows the platform default, rather than freezing
+          // today's number into its own row.
+          ...(idle.kind === "seconds" ? { idle_timeout_seconds: idle.seconds } : {})
         }
       });
       onCreated(device);
@@ -148,6 +161,33 @@ function NewKioskForm({
           testId='settings-crew-kiosk-location'
         />
         <p className='text-muted-foreground text-xs'>The place this tablet sits at. Optional.</p>
+      </div>
+      <div className='space-y-1.5'>
+        <Label htmlFor='kiosk-idle'>Signs itself out after</Label>
+        <div className='flex items-center gap-2'>
+          <Input
+            id='kiosk-idle'
+            type='number'
+            inputMode='numeric'
+            min={IDLE_TIMEOUT_MIN_MINUTES}
+            max={IDLE_TIMEOUT_MAX_MINUTES}
+            placeholder={String(DEFAULT_IDLE_TIMEOUT_SECONDS / 60)}
+            value={idleMinutes}
+            onChange={(e) => setIdleMinutes(e.target.value)}
+            className='w-24'
+            data-testid='settings-crew-kiosk-idle'
+          />
+          <span className='text-muted-foreground text-sm'>minutes</span>
+        </div>
+        <p
+          className={
+            idle.kind === "invalid" ? "text-destructive text-xs" : "text-muted-foreground text-xs"
+          }
+        >
+          {idle.kind === "invalid"
+            ? idle.message
+            : `Idle time before the tablet signs the crew out. Empty is ${idleTimeoutLabel(DEFAULT_IDLE_TIMEOUT_SECONDS)}.`}
+        </p>
       </div>
       {error && <p className='text-destructive text-sm'>{error}</p>}
       <div className='flex justify-end gap-2'>

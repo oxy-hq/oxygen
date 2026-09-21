@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { awaitingTablet } from "@/libs/frontline";
 import { FrontlineService } from "@/services/api/frontline";
-import type { CreateKioskDeviceRequest, EnrolWorkerRequest } from "@/types/frontline";
+import type {
+  CreateKioskDeviceRequest,
+  EnrolWorkerRequest,
+  UpdateKioskDeviceRequest
+} from "@/types/frontline";
 import queryKeys from "../queryKey";
 
 /**
@@ -91,6 +95,18 @@ export const useCreateDevice = () =>
 export const useReissueEnrolLink = () =>
   useDeviceMutation((vars: { orgId: string; deviceId: string }) =>
     FrontlineService.reissueEnrolLink(vars.orgId, vars.deviceId)
+  );
+
+/**
+ * Change a kiosk that is already on a counter. Invalidates the device list like
+ * its siblings, so the row an admin just edited re-reads from the server rather
+ * than from the response alone — the list is polled while any enrol link is
+ * live, and two sources for one row would race.
+ */
+export const useUpdateDevice = () =>
+  useDeviceMutation(
+    (vars: { orgId: string; deviceId: string; request: UpdateKioskDeviceRequest }) =>
+      FrontlineService.updateDevice(vars.orgId, vars.deviceId, vars.request)
   );
 
 export const useRevokeDevice = () =>

@@ -31,8 +31,8 @@ export interface BoundKioskDevice {
    * Seconds of inactivity after which a crew session should sign itself out.
    * The platform only carries the number — nothing server-side watches a clock,
    * so an app in crew mode has to arm its own timer with this. Always present
-   * (the server resolves an unset column to its default, 300); optional here
-   * only for servers older than 2026-09-11.
+   * (the server resolves an unset column to its default, 1800 — 30 minutes);
+   * optional here only for servers older than 2026-09-11.
    */
   idleTimeoutSeconds?: number;
   /**
@@ -151,7 +151,7 @@ export interface KioskDeviceRow {
   /** The place this tablet sits at, or null when it was enrolled without one. */
   location_id: string | null;
   location_name: string | null;
-  /** Seconds of inactivity before the app signs the shift out; the default (300) when unset. */
+  /** Seconds of inactivity before the app signs the shift out; the default (1800) when unset. */
   idle_timeout_seconds: number;
 }
 
@@ -166,10 +166,44 @@ export interface CreateKioskDeviceRequest {
   location_id?: string | null;
   /**
    * Seconds of inactivity before the app closes the shift session. Omit to
-   * leave it at the platform default (300); 30 s to 12 h, refused with a 400
-   * outside that.
+   * leave it at the platform default (1800 — 30 minutes), which is also what
+   * keeps the kiosk on the default if that ever changes again; 30 s to 12 h,
+   * refused with a 400 outside that. A negative or fractional number never
+   * reaches that check: the server's JSON extractor refuses it with a 422 and
+   * a plain-text body, so there is no `error` field to show.
    */
   idle_timeout_seconds?: number;
+}
+
+/**
+ * `PATCH /orgs/{orgId}/frontline/devices/{id}` — changing an enrolled kiosk
+ * without revoking the tablet and walking a new link out to the counter.
+ *
+ * Every field is optional and **absent means "leave it alone"**, so a body
+ * carrying one field cannot blank the others. Answers the updated
+ * `KioskDeviceRow`; 400 for a blank name or a whole-second timeout outside
+ * 30 s … 12 h, 404 for another org's device, 409 for a revoked one (its row is
+ * the record of which tablet a shift was signed in on, so bringing it back is
+ * enrolling it). A negative or fractional timeout is a 422 from the JSON
+ * extractor, with a plain-text body — no `error` field — so a client that
+ * shows `error` must not send one (`idleTimeoutFromMinutes` refuses anything
+ * but whole minutes in range before a request is made).
+ *
+ * Deliberately narrow: `return_to` and `location_id` are not editable here —
+ * both change what a bound tablet does next, which is a different act from
+ * tuning a number and stays revoke-and-enrol.
+ */
+export interface UpdateKioskDeviceRequest {
+  name?: string;
+  /**
+   * Seconds of inactivity before the app signs the shift out.
+   *
+   * **`null` is not the same as omitting this.** Omitted leaves the row alone;
+   * `null` clears the column so the kiosk follows the platform default (1800 —
+   * 30 minutes) again, including if that default ever moves. Sending 1800
+   * instead would freeze today's number into the row.
+   */
+  idle_timeout_seconds?: number | null;
 }
 
 /**

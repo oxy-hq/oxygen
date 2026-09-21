@@ -28,6 +28,7 @@ import type { AppAccessSummary } from "@/types/appAccess";
 import type { CreatedKioskDevice, KioskDeviceRow } from "@/types/frontline";
 import { appForReturnTo } from "../utils";
 import { EnrolLinkDialog } from "./EnrolLinkDialog";
+import { KioskIdleCell } from "./KioskIdleCell";
 import { KioskStateBadge } from "./KioskStateBadge";
 import { NewKioskDialog } from "./NewKioskDialog";
 
@@ -120,6 +121,7 @@ export function KiosksPane({
                 <TableHead className='px-4'>Location</TableHead>
                 <TableHead className='px-4'>State</TableHead>
                 <TableHead className='px-4'>Opens</TableHead>
+                <TableHead className='px-4'>Signs out</TableHead>
                 <TableHead className='w-12' />
               </TableRow>
             </TableHeader>
@@ -179,6 +181,17 @@ export function KiosksPane({
                       ) : (
                         <span className='text-muted-foreground text-xs'>Organization home</span>
                       )}
+                    </TableCell>
+                    {/* Editable in place: a store tunes this after the first
+                        shift, and the tablet keeps its binding through it. A
+                        revoked kiosk is not editable — the server 409s, because
+                        that row records which tablet a shift was signed in on. */}
+                    <TableCell
+                      data-label='Signs out'
+                      className='px-4 py-3 text-sm max-md:px-0 max-md:py-0'
+                      data-testid={`settings-crew-kiosk-idle-${device.id}`}
+                    >
+                      <KioskIdleCell orgId={orgId} device={device} editable={state !== "revoked"} />
                     </TableCell>
                     <TableCell className='w-12 px-2 py-3 text-right max-md:w-auto max-md:px-0 max-md:py-0'>
                       {state !== "revoked" && (

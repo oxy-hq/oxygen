@@ -147,3 +147,45 @@ fn the_session_store_stays_on_the_fleet_under_an_ide_only_route() {
         "and the route they sit under is still pinned",
     );
 }
+
+/// Every kiosk route answers from any replica, the new PATCH included.
+///
+/// A store fixes a counter tablet's sign-out during service. Classifying that
+/// write `IdeOnly` would put it behind the singleton — a self-routing proxy hop
+/// on a good day, a 421 while the ide restarts on a bad one — for a statement
+/// that touches one Postgres row and no working copy at all.
+///
+/// Asserted here rather than left to the mount for the reason this whole file
+/// exists: `route_role_derivation` reads `router/workspace.rs` only, and the
+/// type-level gate cannot see a handler that takes no working copy, so
+/// `route_ide(.., patch(update_device))` would compile and no test would care.
+/// The siblings are listed beside it so a future mount that drags the tree onto
+/// the ide fails on all five rather than on whichever one someone remembered.
+#[test]
+fn changing_a_kiosk_stays_on_the_fleet_like_the_rest_of_them() {
+    install_route_declarations_for_tests();
+
+    const DEVICE: &str = "33333333-3333-3333-3333-333333333333";
+    for (method, path) in [
+        (
+            "PATCH",
+            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}"),
+        ),
+        (
+            "DELETE",
+            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}"),
+        ),
+        ("GET", format!("/api/orgs/{ORG}/frontline/devices")),
+        ("POST", format!("/api/orgs/{ORG}/frontline/devices")),
+        (
+            "POST",
+            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}/enrol-link"),
+        ),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path} reads and writes one Postgres row",
+        );
+    }
+}

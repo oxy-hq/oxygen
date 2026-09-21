@@ -90,6 +90,55 @@ async fn an_enrolled_worker_signs_in_and_a_wrong_pin_does_not() {
     ));
 }
 
+/// A right PIN the caller does not admit costs what a wrong PIN costs: one
+/// charged attempt, no `last_used_at` stamp, no reset of the counter — and a
+/// wrong PIN stays a wrong PIN whoever is asking.
+#[tokio::test]
+async fn a_right_pin_the_caller_does_not_admit_is_charged_like_a_wrong_one() {
+    let db = setup_db().await;
+    let org = seed_org(&db).await;
+    let p = policy();
+    let user_id = frontline::enroll_worker(&db, org, "Maria S.", "maria.s", "4821", p)
+        .await
+        .expect("enrol");
+
+    let mut asked = None;
+    let refused = frontline::verify_pin_admitting(&db, org, "maria.s", "4821", p, |u| {
+        asked = Some(u);
+        false
+    })
+    .await
+    .expect("verify");
+    assert_eq!(refused, PinVerdict::NotAdmitted);
+    assert_eq!(
+        asked,
+        Some(user_id),
+        "the rule is asked about the worker the identifier names"
+    );
+    let cred = credential(&db, org).await;
+    assert_eq!(cred.failed_attempts, 1, "refused must be charged");
+    assert_eq!(
+        cred.last_used_at, None,
+        "refused must not be stamped as used"
+    );
+
+    assert!(matches!(
+        frontline::verify_pin_admitting(&db, org, "maria.s", "0000", p, |_| false)
+            .await
+            .expect("verify"),
+        PinVerdict::WrongPin { .. }
+    ));
+    assert_eq!(credential(&db, org).await.failed_attempts, 2);
+
+    // Admitted, the same PIN signs in — so the refusal above was the rule.
+    assert_eq!(
+        frontline::verify_pin_admitting(&db, org, "maria.s", "4821", p, |_| true)
+            .await
+            .expect("verify"),
+        PinVerdict::Ok { user_id }
+    );
+}
+
 #[tokio::test]
 async fn concurrent_wrong_pins_each_count_against_the_budget() {
     // THE regression test for the lost update. The original implementation read
