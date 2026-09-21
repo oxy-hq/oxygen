@@ -142,13 +142,25 @@
   --text-disabled: var(--zinc-400);
   --text-reverse: var(--zinc-50);
 
-  /* ─── Oxygen — Status (700 hues for AA contrast on white) ───────────── */
+  /* ─── Oxygen — Status ───────────────────────────────────────────────
+     The `-text` hues are 800, not 700, because they are read on the `-bg`
+     tint beside them — not on white. This block used to be labelled "700
+     hues for AA contrast on white", which was true and beside the point:
+     green-700 on white is 5.02:1, but on its own 14% tint it is 4.45:1, and
+     amber-700 on its 18% tint is 4.38:1. Both missed AA for small text
+     wherever the pair was used together, which is everywhere the pair
+     exists for. 800 gives 6.33:1 and 6.18:1 on the tints, and improves the
+     on-white case too (7.13 / 7.09).
+
+     The non-`-text` hues stay at 700: they colour dots, rings and borders,
+     which are non-text and answer to 3:1, and darkening them would only
+     make a status dot harder to see. ────────────────────────────────── */
   --status-success: var(--green-700);
   --status-success-bg: color-mix(in srgb, var(--green-500) 14%, transparent);
-  --status-success-text: var(--green-700);
+  --status-success-text: var(--green-800);
   --status-warning: var(--amber-700);
   --status-warning-bg: color-mix(in srgb, var(--amber-500) 18%, transparent);
-  --status-warning-text: var(--amber-700);
+  --status-warning-text: var(--amber-800);
   --status-error: var(--red-700);
   --status-error-bg: color-mix(in srgb, var(--red-500) 12%, transparent);
   --status-error-text: var(--red-700);
