@@ -11,16 +11,15 @@ import { useAllAdminOrgs } from "./useAdminOrgs";
  * got nothing, which reads as absent) and wrong for anything that makes a
  * deployment-wide claim.
  *
- * Four call sites had reached for the capped list before this existed: the tenant rail's
- * Managed / Direct / **Empty** chips, the header's selected-org lookup, the
- * assign-to-org picker, and the grant-scope picker. "Empty — provisioned but never used"
- * is the clearest case: its entire value is exhaustiveness, and an operator hunting
- * abandoned tenants past the 50th would be told there are none.
+ * Its six callers all make a claim that needs the whole set: the tenant rail's Managed /
+ * Direct / **Empty** chips, the header's selected-org lookup, the access pane's org
+ * directory, and three org pickers. "Empty — provisioned but never used" is the clearest
+ * case: its entire value is exhaustiveness, and an operator hunting abandoned tenants
+ * past the 50th would be told there are none.
  *
- * The drain loop was copy-pasted in `AccessPane` and nowhere else; this is that loop,
- * extracted, so a fifth caller gets it by default instead of by remembering. `AccessPane`
- * itself was finally migrated later — until then it kept its copy, and so missed the
- * error guard below, which is exactly the cost the extraction was meant to remove.
+ * This is the one drain loop. It was copy-pasted once, in `AccessPane`, which is why it
+ * was extracted — and that copy then sat un-migrated long enough to miss the `!error`
+ * guard below, which is precisely the cost the extraction existed to remove.
  */
 export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = {}): {
   orgs: AdminOrgMeta[];
@@ -30,11 +29,15 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
   isDraining: boolean;
   /**
    * The drain stopped on a failure, so `orgs` is missing an unknown number of pages.
-   * Any claim that depends on seeing every org must degrade rather than answer.
+   * Any claim that depends on seeing every org must degrade rather than answer — and
+   * `error` / `refetch` are returned so it can do that with the admin panel's standard
+   * treatment (the server's own message, and a Retry) instead of inventing one.
    */
   isIncomplete: boolean;
+  error: unknown;
+  refetch: () => void;
 } {
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage, error } =
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage, error, refetch } =
     useAllAdminOrgs(enabled);
 
   useEffect(() => {
@@ -66,6 +69,8 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
     orgs,
     isLoading,
     isDraining: hasNextPage === true && !error,
-    isIncomplete: Boolean(error)
+    isIncomplete: Boolean(error),
+    error,
+    refetch
   };
 }

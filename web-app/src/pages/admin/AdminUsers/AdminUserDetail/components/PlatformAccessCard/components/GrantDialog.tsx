@@ -21,6 +21,7 @@ import {
 import { ROLE_LABELS, useCreateAppAdmin } from "@/hooks/api/access/useAppAdmins";
 import type { DelegationBound } from "@/hooks/api/access/useDelegationBound";
 import { useDrainedAdminOrgs } from "@/hooks/api/adminTenants";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { AppAdmin, PlatformRoleId } from "@/types/access";
 
 const ROLE_BLURB: Record<PlatformRoleId, string> = {
@@ -64,7 +65,14 @@ export function GrantDialog({
   // Only once the operator chooses to bound the grant — most are unbounded, and opening
   // this dialog should not pull the org directory. Drained: a picker capped at 50
   // silently cannot reach the 51st org.
-  const { orgs: allOrgs, isLoading, isDraining } = useDrainedAdminOrgs({ enabled: bounded });
+  const {
+    orgs: allOrgs,
+    isLoading,
+    isDraining,
+    isIncomplete,
+    error,
+    refetch
+  } = useDrainedAdminOrgs({ enabled: bounded });
   const orgsLoading = isLoading || isDraining;
   // A bounded operator can only bound a grant to orgs inside their own reach; the server
   // refuses anything wider, so offering the rest would be offering a 403.
@@ -151,8 +159,21 @@ export function GrantDialog({
                 className='max-h-48 overflow-auto rounded-md border border-border p-2'
                 data-testid='admin-user-platform-scope-orgs'
               >
+                {/* A failed drain is a THIRD outcome, not an empty directory. `isDraining` goes
+                    false when the drain stops, so without the `isIncomplete` branch below a page-2
+                    failure renders the "no organizations" copy — telling an operator the org they
+                    want does not exist. Same rule and same renderer as the rest of the admin panel:
+                    the server's own message, and a Retry. */}
                 {orgsLoading ? (
                   <p className='p-2 text-muted-foreground text-xs'>Loading organizations…</p>
+                ) : isIncomplete ? (
+                  <AdminAsync
+                    className='m-2'
+                    query={{ isError: true, data: undefined, error, refetch }}
+                    noun='organizations'
+                  >
+                    {() => null}
+                  </AdminAsync>
                 ) : orgs.length === 0 ? (
                   <p className='p-2 text-muted-foreground text-xs'>
                     {bound.scopeAll

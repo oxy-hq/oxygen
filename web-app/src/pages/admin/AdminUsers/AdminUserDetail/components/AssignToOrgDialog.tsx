@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/shadcn/select";
 import { useAddUserToOrg, useDrainedAdminOrgs } from "@/hooks/api/adminTenants";
 import { cn } from "@/libs/shadcn/utils";
+import { AdminAsync } from "@/pages/admin/components/AdminAsync";
 import type { OrgRoleId } from "@/services/api/adminTenants";
 
 /** What each role actually grants, in the operator's words rather than the model's. */
@@ -65,7 +66,9 @@ export function AssignToOrgDialog({
 
   // Only fetched once the dialog opens — this list is the whole tenant directory.
   // Drained: a picker capped at 50 silently cannot assign the 51st org.
-  const { orgs, isLoading, isDraining } = useDrainedAdminOrgs({ enabled: open });
+  const { orgs, isLoading, isDraining, isIncomplete, error, refetch } = useDrainedAdminOrgs({
+    enabled: open
+  });
   // A picker must not say "no match" while pages are still arriving — an operator reads
   // that as "not there" and stops. `isLoading` alone was right for the rail (where the
   // alternative was a skeleton before you could type) and wrong here.
@@ -147,8 +150,21 @@ export function AssignToOrgDialog({
             className='max-h-56 overflow-auto rounded-md border border-border'
             data-testid='admin-user-assign-org-list'
           >
+            {/* A failed drain is a THIRD outcome, not an empty directory. `isDraining` goes
+                false when the drain stops, so without the `isIncomplete` branch below a page-2
+                failure renders the "no organizations" copy — telling an operator the org they
+                want does not exist. Same rule and same renderer as the rest of the admin panel:
+                the server's own message, and a Retry. */}
             {isPending ? (
               <p className='p-3 text-muted-foreground text-xs'>Loading organizations…</p>
+            ) : isIncomplete ? (
+              <AdminAsync
+                className='m-2'
+                query={{ isError: true, data: undefined, error, refetch }}
+                noun='organizations'
+              >
+                {() => null}
+              </AdminAsync>
             ) : filtered.length === 0 ? (
               <p className='p-3 text-muted-foreground text-xs'>No organizations match.</p>
             ) : (
