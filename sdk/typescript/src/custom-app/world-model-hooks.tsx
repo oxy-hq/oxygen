@@ -15,7 +15,7 @@ import type {
   WmMeasureBreakdownEvent,
   WorldModel
 } from "../worldModel";
-import { apiErrorFromResponse } from "./errors";
+import { apiErrorFromResponse, asReportableError } from "./errors";
 import { useOxyApp } from "./react";
 import { readJsonSseStream } from "./sse";
 
@@ -49,8 +49,9 @@ export function useWorldModelGraph(opts: { enabled?: boolean } = {}): UseWorldMo
   const [data, setData] = React.useState<WorldModel | null>(null);
   const [loading, setLoading] = React.useState<boolean>(enabled && !!projectId);
   const [error, setError] = React.useState<Error | null>(null);
-  const [_nonce, setNonce] = React.useState(0);
+  const [nonce, setNonce] = React.useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce is refetch's re-run trigger, not a value the effect reads
   React.useEffect(() => {
     if (!enabled || !projectId) {
       setLoading(false);
@@ -71,16 +72,19 @@ export function useWorldModelGraph(opts: { enabled?: boolean } = {}): UseWorldMo
         setLoading(false);
       })
       .catch((err: unknown) => {
+        // Only our own teardown is silent, and `cancelled` — set next to
+        // `ctrl.abort()` — marks it. Any other abort is a real failure, and
+        // matching it by name left the hook loading forever with no error.
         if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err : new Error(String(err)));
+        setError(asReportableError(err));
         setLoading(false);
       });
     return () => {
       cancelled = true;
       ctrl.abort();
     };
-  }, [enabled, projectId, fetcher]);
+    // `nonce` is what `refetch()` bumps; leaving it out made refetch a no-op.
+  }, [enabled, projectId, fetcher, nonce]);
 
   const refetch = React.useCallback(() => setNonce((n) => n + 1), []);
   return { data, loading, error, refetch };
@@ -126,8 +130,9 @@ export function useWorldModelInstances(
   const [data, setData] = React.useState<WmInstancesResponse | null>(null);
   const [loading, setLoading] = React.useState<boolean>(enabled && !!projectId && !!entityId);
   const [error, setError] = React.useState<Error | null>(null);
-  const [_nonce, setNonce] = React.useState(0);
+  const [nonce, setNonce] = React.useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce is refetch's re-run trigger, not a value the effect reads
   React.useEffect(() => {
     if (!enabled || !projectId || !entityId) {
       setLoading(false);
@@ -158,16 +163,19 @@ export function useWorldModelInstances(
         setLoading(false);
       })
       .catch((err: unknown) => {
+        // Only our own teardown is silent, and `cancelled` — set next to
+        // `ctrl.abort()` — marks it. Any other abort is a real failure, and
+        // matching it by name left the hook loading forever with no error.
         if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err : new Error(String(err)));
+        setError(asReportableError(err));
         setLoading(false);
       });
     return () => {
       cancelled = true;
       ctrl.abort();
     };
-  }, [enabled, projectId, entityId, search, limit, fetcher, scope, appId]);
+    // `nonce` is what `refetch()` bumps; leaving it out made refetch a no-op.
+  }, [enabled, projectId, entityId, search, limit, fetcher, scope, appId, nonce]);
 
   const refetch = React.useCallback(() => setNonce((n) => n + 1), []);
   return { data, loading, error, refetch };
@@ -256,9 +264,11 @@ export function useMeasureBreakdown(
         if (!cancelled) setLoading(false);
       })
       .catch((err: unknown) => {
+        // Only our own teardown is silent, and `cancelled` — set next to
+        // `ctrl.abort()` — marks it. Any other abort is a real failure, and
+        // matching it by name left the hook loading forever with no error.
         if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err : new Error(String(err)));
+        setError(asReportableError(err));
         setLoading(false);
       });
     return () => {

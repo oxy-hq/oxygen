@@ -76,6 +76,34 @@ export async function apiErrorFromResponse(resp: Response): Promise<OxyApiError>
 
 // ── Bundle-startup error interpretation ─────────────────────────────────────
 
+/**
+ * Normalize a rejected request into the `Error` a hook reports.
+ *
+ * An `AbortError` reaching a hook's `.catch` is by construction an abort the
+ * hook did NOT cause — its own teardown is marked separately — so it is a
+ * fetcher's request timeout, a dropped socket, or a navigation. The platform's
+ * wording for those ("The user aborted a request.") is wrong on its face by
+ * the time a bundle renders it, so rephrase and keep the original as `cause`.
+ *
+ * The name is used only to WORD an error already being reported. Whether to
+ * report at all is the caller's teardown flag, never the name — that
+ * conflation is what left hooks loading forever.
+ */
+export function asReportableError(err: unknown): Error {
+  // Read the name off the ORIGINAL value: a `DOMException` is not an `Error`
+  // in every realm (it is not under jsdom), and normalizing first would fold
+  // the name into a message string and lose it.
+  const name =
+    typeof err === "object" && err !== null && "name" in err
+      ? String((err as { name: unknown }).name)
+      : "";
+  const e = err instanceof Error ? err : new Error(String(err));
+  if (name !== "AbortError" && e.name !== "AbortError") return e;
+  return Object.assign(new Error("request was interrupted (the connection dropped or timed out)"), {
+    cause: e
+  });
+}
+
 export interface CustomAppErrorReport {
   title: string;
   message: string;

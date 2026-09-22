@@ -23,6 +23,7 @@
 import * as React from "react";
 import {
   apiErrorFromResponse,
+  asReportableError,
   type CustomAppErrorReport,
   interpretCustomAppError,
   OxyApiError
@@ -373,11 +374,7 @@ export function useQuery<Row = Record<string, unknown>>(
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setState((s) => ({
-          ...s,
-          loading: false,
-          error: err instanceof Error ? err : new Error(String(err))
-        }));
+        setState((s) => ({ ...s, loading: false, error: asReportableError(err) }));
       });
 
     return () => {
@@ -703,13 +700,14 @@ export function useSemanticQuery<Row = Record<string, unknown>>(
         });
       })
       .catch((err) => {
+        // `cancelled` is the only thing that buys silence: it is set in the
+        // cleanup, next to `ctrl.abort()`, so it marks exactly the runs WE
+        // tore down. An `AbortError` we did not cause — a fetcher with its
+        // own timeout, a dev-proxy socket drop, a navigation — is a real
+        // failure, and matching it by name left the hook on `loading: true`
+        // with `error: null` and no way out.
         if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setState((s) => ({
-          ...s,
-          loading: false,
-          error: err instanceof Error ? err : new Error(String(err))
-        }));
+        setState((s) => ({ ...s, loading: false, error: asReportableError(err) }));
       });
 
     return () => {
@@ -939,13 +937,17 @@ export function useProcedureRun(
             return;
           }
         } catch (e) {
-          if (e instanceof DOMException && e.name === "AbortError") return;
+          // Our own teardown (a re-entrant `run()`, `cancel()`, unmount) is
+          // the only silent abort — it always goes through `ctrl.abort()`.
+          // An `AbortError` from anywhere else is a failed run, not a
+          // superseded one, so it must not leave state on "running".
+          if (ctrl.signal.aborted) return;
           inflight.current.runId = undefined;
           setState({
             state: "failed",
             progress: null,
             result: null,
-            error: e instanceof Error ? e : new Error(String(e))
+            error: asReportableError(e)
           });
         }
       })();
@@ -1190,6 +1192,8 @@ export function useAgentRun(input: UseAgentRunInput): UseAgentRunResult {
             if (ctrl.signal.aborted) return;
             if (terminated) return;
             attempts += 1;
+            const idBeforeAttempt = lastEventId;
+            let windowError: unknown;
 
             try {
               await consumeSseStream({
@@ -1267,44 +1271,54 @@ export function useAgentRun(input: UseAgentRunInput): UseAgentRunResult {
               });
               // Stream closed cleanly. `terminated` was flipped by
               // the event handler iff a terminal event arrived —
-              // check it at loop head; otherwise fall through to
-              // reconnect.
+              // checked below; otherwise fall through to reconnect.
             } catch (err) {
-              if (err instanceof DOMException && err.name === "AbortError") return;
-              // Network / parse error. Reconnect up to 5x with
-              // 1s sleep before giving up.
-              if (attempts >= 5) {
-                inflight.current.runId = undefined;
-                setState((s) => ({
-                  ...s,
-                  state: "failed",
-                  error: err instanceof Error ? err : new Error(String(err))
-                }));
-                return;
-              }
+              if (ctrl.signal.aborted) return;
+              // Network / parse error — including an abort we did NOT cause,
+              // which is a dropped stream and exactly what reconnect is for.
+              // Held, not acted on: how the window ENDED decides the message,
+              // not whether we give up.
+              windowError = err;
             }
             if (terminated) return;
-            if (attempts >= 5) {
-              // Clean close without a terminal event hits the same
-              // ceiling as the error path — otherwise a server that
-              // keeps closing early spins the reconnect loop forever.
+
+            // One ceiling, one rule, both endings: the budget counts
+            // CONSECUTIVE windows that made NO progress. A window that
+            // delivered events proves the server is answering however it
+            // ended — a transport error, or a graceful EOF (an HTTP/2
+            // GOAWAY, a proxy with a max connection lifetime) — and starts
+            // the count over. The server resumes from `Last-Event-ID`, so a
+            // reconnect never re-delivers and progress always means new
+            // events. Reading the budget two ways is what made the verdict
+            // for an identical drop depend on which half of the transport
+            // reported it; counting every window instead lets a `fetcher`
+            // with its own request timeout (30s in `OxyClient`) chop a
+            // healthy run into five windows and call it failed.
+            if (lastEventId !== idBeforeAttempt) {
+              attempts = 0;
+            } else if (attempts >= 5) {
               inflight.current.runId = undefined;
               setState((s) => ({
                 ...s,
                 state: "failed",
-                error: new Error("run event stream closed without a terminal event")
+                error: windowError
+                  ? asReportableError(windowError)
+                  : new Error("run event stream closed without a terminal event")
               }));
               return;
             }
             await sleep(1000, ctrl.signal);
           }
         } catch (e) {
-          if (e instanceof DOMException && e.name === "AbortError") return;
+          // Same rule as the reconnect catch: only our own `ctrl.abort()`
+          // is silent. `sleep()` rejects with an AbortError off this very
+          // signal, so the check covers it.
+          if (ctrl.signal.aborted) return;
           inflight.current.runId = undefined;
           setState((s) => ({
             ...s,
             state: "failed",
-            error: e instanceof Error ? e : new Error(String(e))
+            error: asReportableError(e)
           }));
         }
       })();

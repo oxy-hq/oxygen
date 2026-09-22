@@ -5,6 +5,42 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.13.1] - 2026-09-22
+
+### Fixed
+
+- **An aborted request no longer strands a fetching hook on `loading: true`.**
+  `useSemanticQuery`, every metric-tree hook, `useWorldModelGraph`,
+  `useWorldModelInstances`, `useMeasureBreakdown`, `useProcedureRun` and
+  `useAgentRun` returned early on any `AbortError`, matched by name. Their own
+  teardown is already marked (the per-run `cancelled` flag, or the run's
+  `AbortController`), so the name check only ever fired for an abort the hook
+  did NOT cause — a fetcher carrying its own timeout, a dev-proxy socket drop,
+  a navigation. That read as `loading: true, error: null` for the rest of the
+  page's life: skeletons with nothing to explain them, and a runner parked on
+  `"running"`. Silence is now decided by whether we tore the run down; every
+  other abort is reported as the failure it is.
+- **An abort surfaced this way no longer reads as "The user aborted a
+  request."** — no user did. It is reported as "request was interrupted (the
+  connection dropped or timed out)", carrying the original as `cause`. The
+  error's name is used only to word an error already being reported; whether
+  to report at all is still decided by the hook's own teardown.
+- **`useAgentRun`'s reconnect budget counts consecutive dead windows, not
+  windows.** Five was the ceiling for the whole run, so a long stream that
+  reconnects — a `fetcher` with its own request timeout, a proxy recycling the
+  connection, an HTTP/2 `GOAWAY` — was reported `failed` after five windows
+  even though every one of them delivered events. A window that made progress
+  now starts the count over, whether it ended in a transport error or a
+  graceful EOF; five windows that deliver nothing still give up. The server
+  resumes from `Last-Event-ID`, so a reconnect never re-delivers and progress
+  always means new events.
+- **`refetch()` works on the metric-tree and world-model hooks.** The nonce it
+  bumps was missing from the effect's dependency list, so every metric-tree
+  hook plus `useWorldModelGraph` / `useWorldModelInstances` ignored it
+  entirely — a panel whose read had failed could not be retried at all.
+  `useMeasureBreakdown` has no `refetch` of its own: it is re-run by changing
+  its `entityId` / `keyValue` / `measure`.
+
 ## [2.13.0] - 2026-09-09
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "@oxy-hq/sdk",
-  "version": "2.13.0",
+  "version": "2.13.1",
   "description": "React SDK for building custom-app bundles on the Oxy platform",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -117,13 +117,16 @@
   "devDependencies": {
     "@types/node": "^26.5.1",
     "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "echarts": "^6.1.0",
     "eslint": "^10.10.0",
+    "jsdom": "^30.0.1",
     "preact": "^10.29.8",
     "preact-render-to-string": "^6.7.0",
     "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"

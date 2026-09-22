@@ -32,6 +32,7 @@ import type {
   SensitivityResult,
   TimeDimensionsResponse
 } from "../metricTree";
+import { asReportableError } from "./errors";
 import { getJson, metricTreePath, postJson } from "./metric-tree-fetch";
 import { useOxyApp } from "./react";
 
@@ -65,7 +66,7 @@ function useMetricTreeEndpoint<Data>(
   const [data, setData] = React.useState<Data | null>(null);
   const [loading, setLoading] = React.useState<boolean>(enabled && key !== null);
   const [error, setError] = React.useState<Error | null>(null);
-  const [_nonce, setNonce] = React.useState(0);
+  const [nonce, setNonce] = React.useState(0);
 
   // `run` is re-created each render; pin the latest in a ref so the effect
   // depends only on `key`/`enabled`/`nonce` and doesn't re-fire on every
@@ -73,6 +74,7 @@ function useMetricTreeEndpoint<Data>(
   const runRef = React.useRef(run);
   runRef.current = run;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce is refetch's re-run trigger, not a value the effect reads
   React.useEffect(() => {
     if (!enabled || key === null) {
       setLoading(false);
@@ -91,9 +93,12 @@ function useMetricTreeEndpoint<Data>(
         setLoading(false);
       })
       .catch((err: unknown) => {
+        // `cancelled` marks the runs WE tore down (it is set next to
+        // `ctrl.abort()`); nothing else earns silence. Matching `AbortError`
+        // by name also swallowed aborts we did not cause and pinned the hook
+        // on `loading: true` with no error.
         if (cancelled) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err : new Error(String(err)));
+        setError(asReportableError(err));
         setLoading(false);
       });
 
@@ -101,7 +106,9 @@ function useMetricTreeEndpoint<Data>(
       cancelled = true;
       ctrl.abort();
     };
-  }, [key, enabled]);
+    // `nonce` is what `refetch()` bumps — without it here the effect never
+    // re-ran and a failed analysis could not be retried at all.
+  }, [key, enabled, nonce]);
 
   const refetch = React.useCallback(() => setNonce((n) => n + 1), []);
   return { data, loading, error, refetch };
