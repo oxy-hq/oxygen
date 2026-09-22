@@ -16,6 +16,9 @@ use std::collections::HashMap;
 use std::default::Default;
 use tracing::{info, warn};
 
+mod ownership;
+pub use ownership::{ShutdownCleanup, cleanup_owned_containers};
+
 /// Docker PostgreSQL configuration constants
 const POSTGRES_CONTAINER_NAME: &str = "oxy-postgres";
 const POSTGRES_IMAGE: &str = "postgres:18-alpine";
@@ -235,11 +238,14 @@ pub async fn start_postgres_container() -> Result<String, OxyError> {
         ..Default::default()
     };
 
-    // Create and start the container
-    docker
+    // Create and start the container. It is claimed by the ID the runtime
+    // returned, never by its fixed name: a later `oxy start` can replace the
+    // container behind the name, and this process must not remove that one.
+    let created = docker
         .create_container(Some(options), config)
         .await
         .map_err(|e| OxyError::InitializationError(format!("Failed to create container: {}", e)))?;
+    ownership::OWNED.record(created.id);
 
     docker
         .start_container(POSTGRES_CONTAINER_NAME, None::<StartContainerOptions>)
@@ -424,10 +430,15 @@ pub async fn remove_postgres_container() -> Result<(), OxyError> {
     Ok(())
 }
 
-/// Cleanup all oxy-managed containers (stop and remove) in parallel.
-/// Called on startup and shutdown to ensure clean state.
+/// Remove every oxy-managed container BY NAME, whoever created it.
+///
+/// For `oxy start`'s startup only: it clears whatever an earlier run left
+/// behind before creating its own. Never call this on a shutdown path — the
+/// names are fixed, so it removes another server's containers too. Shutdown
+/// uses [`cleanup_owned_containers`], which removes only what this process
+/// created.
 /// Does NOT remove volumes or networks - use clean_all() for that.
-/// Errors are logged but not propagated (cleanup should not block shutdown).
+/// Errors are logged but not propagated (cleanup should not block startup).
 pub async fn cleanup_containers() {
     let docker = match get_docker_client().await {
         Ok(d) => d,
@@ -441,7 +452,9 @@ pub async fn cleanup_containers() {
     remove_container(&docker, CLICKHOUSE_CONTAINER_NAME).await;
 }
 
-/// Remove a container by name (force remove, handles non-existent containers gracefully)
+/// Remove a container by name or by ID — the runtime accepts either (force remove,
+/// handles non-existent containers gracefully). Startup cleanup passes the fixed
+/// name; shutdown passes the ID this process was given, so a stale claim is a 404.
 async fn remove_container(docker: &Docker, name: &str) {
     let remove_opts = RemoveContainerOptions {
         force: true,
@@ -567,12 +580,14 @@ pub async fn start_clickhouse_container() -> Result<(), OxyError> {
         ..Default::default()
     };
 
-    docker
+    // Claimed by ID, not by name — see `start_postgres_container`.
+    let created = docker
         .create_container(Some(options), config)
         .await
         .map_err(|e| {
             OxyError::InitializationError(format!("Failed to create ClickHouse container: {}", e))
         })?;
+    ownership::OWNED.record(created.id);
 
     docker
         .start_container(CLICKHOUSE_CONTAINER_NAME, None::<StartContainerOptions>)

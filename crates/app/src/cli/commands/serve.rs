@@ -1304,8 +1304,12 @@ async fn create_shutdown_signal() {
         std::process::exit(1);
     });
 
-    // Cleanup Docker containers (stop and remove all oxy-managed containers)
-    docker::cleanup_containers().await;
+    // Remove the database containers THIS process created through `oxy start`.
+    // A plain `oxy serve` created none, so this returns `NotOwned` without ever
+    // reaching Docker: the container names are fixed, and a by-name removal here
+    // once took down another server's Postgres and ClickHouse.
+    let cleanup = docker::cleanup_owned_containers().await;
+    tracing::debug!(?cleanup, "shutdown container cleanup");
 }
 
 /// The outer service stack that wraps the whole routed app, before routing.
@@ -1354,6 +1358,10 @@ fn wrap_outer_service(
         ))
         .service(main)
 }
+
+#[cfg(test)]
+#[path = "serve_shutdown_tests.rs"]
+mod shutdown_tests;
 
 #[cfg(test)]
 mod tests {
