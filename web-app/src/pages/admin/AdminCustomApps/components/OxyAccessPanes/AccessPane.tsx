@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
-import { useAllAdminOrgs } from "@/hooks/api/adminTenants/useAdminOrgs";
+import { useDrainedAdminOrgs } from "@/hooks/api/adminTenants/useDrainedAdminOrgs";
 import { ADMIN_APP_PAGE_SIZE, useAdminApps } from "@/hooks/api/customApps/useCustomApps";
 import { useOxyAccessGrants } from "@/hooks/api/customApps/useOxyAccessGrants";
 import { cn } from "@/libs/shadcn/utils";
@@ -52,19 +52,11 @@ export const AccessPane = () => {
   // below before anything reads `grants`. It is here only because the memos
   // that derive from it run above that gate, as hooks must.
   const grants = useMemo(() => grantsQuery.data ?? [], [grantsQuery.data]);
-  const {
-    data: orgPages,
-    isLoading: orgsLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage
-  } = useAllAdminOrgs();
-  // Drain every page so the org directory (and the "no access" set + strip
-  // counts) is exhaustive, not capped at the first server page.
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-  const adminOrgs = useMemo(() => orgPages?.pages.flat() ?? [], [orgPages]);
+  // The shared drain, not a sixth copy of the loop. `useDrainedAdminOrgs` was extracted
+  // *from this file* — its doc says "copy-pasted in AccessPane and nowhere else" — and
+  // five other call sites already use it; this one was never migrated, so it also missed
+  // the error guard the hook now carries.
+  const { orgs: adminOrgs, isLoading: orgsLoading } = useDrainedAdminOrgs();
   const accessOrgs = useMemo(() => buildAccessOrgs(adminOrgs, grants), [adminOrgs, grants]);
 
   // Join in each org's custom apps so its detail lists what it owns. Same

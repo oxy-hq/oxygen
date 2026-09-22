@@ -175,8 +175,16 @@ per-app console on one route. Three rules came out of that, and they generalise:
   surface.** The rail and the palette both build from `ADMIN_NAV`, so a page that is
   deliberately absent from it (because it *was* a tab) has exactly one path, and deleting
   that tab deletes the page. After removing any tab or list that linked somewhere, check
-  each static `admin/*` route for a nav entry or an inbound `to=`/`navigate(`. Known
-  pre-existing case, not from this work: `/admin/tenants` (added by #2710) has neither.
+  each static `admin/*` route for a nav entry or an inbound `to=`/`navigate(`.
+
+  **Grep for that by hand, carefully.** A first pass of this check reported
+  `/admin/tenants` as stranded; it is not. Three rail items point at it as
+  ``to: `${ROUTES.ADMIN.TENANTS}?type=orgs`​`` (and `…?type=partners`, `…?type=users`),
+  and a pattern looking for `to: ROUTES.ADMIN.TENANTS` matches none of them. A route can
+  be reached through a template literal, a query string, a `navigate()`, or a parent
+  route's `<Outlet/>`, so a negative result is a prompt to open the file, not a finding.
+  Confirm a real one the way the publish-tokens case was confirmed: click it in the
+  running app.
 
 ## Tests
 

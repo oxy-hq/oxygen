@@ -18,7 +18,9 @@ import { useAllAdminOrgs } from "./useAdminOrgs";
  * abandoned tenants past the 50th would be told there are none.
  *
  * The drain loop was copy-pasted in `AccessPane` and nowhere else; this is that loop,
- * extracted, so a fifth caller gets it by default instead of by remembering.
+ * extracted, so a fifth caller gets it by default instead of by remembering. `AccessPane`
+ * itself was finally migrated later — until then it kept its copy, and so missed the
+ * error guard below, which is exactly the cost the extraction was meant to remove.
  */
 export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = {}): {
   orgs: AdminOrgMeta[];
@@ -26,15 +28,27 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
   isLoading: boolean;
   /** Pages are still arriving: `orgs` is real but incomplete. */
   isDraining: boolean;
+  /**
+   * The drain stopped on a failure, so `orgs` is missing an unknown number of pages.
+   * Any claim that depends on seeing every org must degrade rather than answer.
+   */
+  isIncomplete: boolean;
 } {
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage, error } =
     useAllAdminOrgs(enabled);
 
   useEffect(() => {
     // Gated on `enabled` too: a disabled query reports `hasNextPage: false`, but a
     // caller that flips enabled mid-render should start draining, not sit on page one.
-    if (enabled && hasNextPage && !isFetchingNextPage) fetchNextPage();
-  }, [enabled, hasNextPage, isFetchingNextPage, fetchNextPage]);
+    //
+    // And gated on `!error`, or a failing page is retried forever: React Query gives up
+    // after its 3 retries, `isFetchingNextPage` drops to false, and `hasNextPage` is
+    // still true — it is recomputed from the last *successful* page, whose length still
+    // equals `ORGS_PAGE_SIZE` — so the effect re-fires and restarts the retry cycle.
+    // Measured on the sibling app-registry walk: 18 requests in 30 seconds, on a ~7s
+    // cycle, with no end, behind a UI that never stops looking busy.
+    if (enabled && hasNextPage && !isFetchingNextPage && !error) fetchNextPage();
+  }, [enabled, hasNextPage, isFetchingNextPage, fetchNextPage, error]);
 
   const orgs = useMemo(() => data?.pages.flat() ?? [], [data]);
   // Two states, not one. Collapsing them into `isLoading` meant a large deployment saw
@@ -42,5 +56,16 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
   // a first-paint regression for everyone who just wanted to type a name. Callers show
   // `orgs` as soon as `isLoading` clears, and use `isDraining` to disable the controls
   // whose correctness depends on the full set (the Empty / Managed / Direct chips).
-  return { orgs, isLoading, isDraining: hasNextPage === true };
+  //
+  // `isDraining` goes false once the drain has stopped, and a failed page stops it — so
+  // it must not stay true on error, or every control it gates would be disabled forever.
+  // That leaves `orgs` silently partial, which is why `isIncomplete` exists: a caller
+  // whose correctness depends on exhaustiveness ("Empty — provisioned but never used")
+  // must say it could not check rather than answer from the pages that did arrive.
+  return {
+    orgs,
+    isLoading,
+    isDraining: hasNextPage === true && !error,
+    isIncomplete: Boolean(error)
+  };
 }
