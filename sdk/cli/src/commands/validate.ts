@@ -22,6 +22,7 @@ import { dirname, extname, join, parse, relative, resolve } from "node:path";
 import { Ajv, type ErrorObject } from "ajv";
 import addFormats from "ajv-formats";
 import { parse as parseYaml } from "yaml";
+import { lintAppFunctions } from "../publish/function-lint.js";
 import { checkAppPlacement } from "../publish/placement.js";
 import { REINSTALL_REMEDY } from "../template/embedded.js";
 import { schemasDir } from "../template/locate.js";
@@ -616,7 +617,8 @@ function validateFile(
   root: string,
   rel: string,
   compiled: Map<string, ReturnType<Ajv["compile"]>>,
-  warnings: Finding[]
+  warnings: Finding[],
+  notes: Set<string>
 ): Finding[] | SkipCode {
   const schema = schemaFor(rel);
   const manifest = isAppManifest(rel);
@@ -706,7 +708,7 @@ function validateFile(
 
   // The manifest arm, past the same filesystem guards: `validate` is undefined
   // here only when `schema` was, which the guard above allows for `oxy-app.json`.
-  if (!validate) return validateAppManifest(root, rel, warnings);
+  if (!validate) return validateAppManifest(root, rel, warnings, notes);
 
   let parsed: unknown;
   try {
@@ -784,10 +786,11 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
 
   const findings: Finding[] = [];
   const warnings: Finding[] = [];
+  const notes = new Set<string>();
   const checked: string[] = [];
   const unchecked: SkippedFile<SkipCode>[] = [];
   for (const rel of files) {
-    const result = validateFile(root, rel, compiled, warnings);
+    const result = validateFile(root, rel, compiled, warnings, notes);
     if (typeof result === "string") {
       unchecked.push({ path: rel, code: result });
       continue;
@@ -817,6 +820,7 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
 
   if (flags.json) {
     reportWarnings(warnings);
+    reportNotes(notes);
     const report: ValidateReport = { checked: checked.length, unchecked, broken, findings };
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     if (findings.length > 0) throw silentFailure(findings.length, checked.length);
@@ -844,6 +848,7 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
   // FIFO or device named like a workspace file too, which is not one.
   listSkipped("could not read them", broken, whyUnreadable);
   reportWarnings(warnings);
+  reportNotes(notes);
 
   if (findings.length === 0) {
     // `0 file(s) valid` in green was the line a skimmer read when nothing had
@@ -873,14 +878,25 @@ export function runValidate(flags: ValidateFlags, cwd = process.cwd()): void {
 }
 
 /**
- * An `oxy-app.json`: where its data goes, not its schema.
+ * An `oxy-app.json`: where its data goes, and what its functions call — not
+ * its schema.
  *
  * Errors come back as findings and fail the run like a schema violation;
  * warnings are collected for `reportWarnings` and do not. Unparsable JSON is a
  * `(parse)` finding, the YAML arm's rule — not the throw `readAppManifest`
  * makes, which would end the walk at the first broken manifest.
+ *
+ * The function lint runs beside the placement check on the same manifest. Its
+ * offline half — capabilities, isolate globals, the `destinations` allowlist —
+ * is answered here; the half that needs the database's engine is `publish`'s,
+ * and `notes` says so once, rather than reporting a clean run as complete.
  */
-function validateAppManifest(root: string, rel: string, warnings: Finding[]): Finding[] {
+function validateAppManifest(
+  root: string,
+  rel: string,
+  warnings: Finding[],
+  notes: Set<string>
+): Finding[] {
   const full = join(root, rel);
   let parsed: unknown;
   try {
@@ -905,6 +921,23 @@ function validateAppManifest(root: string, rel: string, warnings: Finding[]): Fi
     const finding = { file: `${prefix}${issue.file}`, path: issue.path, message: issue.message };
     (issue.level === "error" ? findings : warnings).push(finding);
   }
+
+  const lint = lintAppFunctions(appDir, manifest);
+  for (const issue of lint.issues) {
+    findings.push({
+      file: `${prefix}${issue.file}`,
+      path: issue.path,
+      message: `[function-lint/${issue.rule}] ${issue.message}`
+    });
+  }
+  for (const line of lint.skipped) notes.add(`${prefix}${APP_MANIFEST}: ${line}`);
+  if (lint.writes.length > 0) {
+    notes.add(
+      `${prefix}${APP_MANIFEST}: the engine half of the function lint (\`upsert\` and ` +
+        "`ctx.tx` dialects, customer-warehouse writes) needs the server and is skipped offline — " +
+        "`oxyc publish` runs it before the upload"
+    );
+  }
   return findings;
 }
 
@@ -916,6 +949,17 @@ function validateAppManifest(root: string, rel: string, warnings: Finding[]): Fi
  */
 function reportWarnings(warnings: Finding[]): void {
   for (const w of warnings) log.warn(`${w.file} (${w.path}): ${w.message}`);
+}
+
+/**
+ * What the function lint did NOT do, once each.
+ *
+ * `info`, not `warn`: a skipped engine check is the ordinary offline case, not
+ * a degraded run — but it is said, because a clean `validate` on a function
+ * that upserts into ClickHouse is not a clean publish.
+ */
+function reportNotes(notes: Set<string>): void {
+  for (const note of notes) log.info(note);
 }
 
 /**

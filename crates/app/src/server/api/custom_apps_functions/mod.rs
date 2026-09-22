@@ -16,6 +16,12 @@
 //! call is an invocation only — no durable run, not in the coordinator. A job
 //! runs the SAME isolate, wrapped in the queue/monitoring/trigger machinery.
 
+/// Drift guard: `oxyc`'s copy of the capability gates
+/// (`sdk/cli/src/publish/capabilities.ts`) names exactly the fields of
+/// `FunctionCapabilities`. Text scans of `host.rs` and the TypeScript, so it
+/// runs whether or not the feature that compiles `host` is on.
+#[cfg(test)]
+mod cli_capabilities_drift;
 /// The audit record for every data-plane write a function makes (session
 /// tag, statement trailer, `audit_events` row).
 #[cfg(feature = "custom-app-functions")]

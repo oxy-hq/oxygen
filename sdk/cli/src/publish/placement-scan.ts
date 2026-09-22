@@ -22,7 +22,8 @@ function blank(text: string): string {
   return text.replace(/[^\n]/g, " ");
 }
 
-function lineAt(text: string, offset: number): number {
+/** 1-based line of `offset` in `text`; shared with `function-lint.ts`. */
+export function lineAt(text: string, offset: number): number {
   let line = 1;
   for (let i = 0; i < offset; i++) if (text.charCodeAt(i) === 10) line++;
   return line;
@@ -351,7 +352,10 @@ export function maskJs(source: string): string {
 }
 
 /** Top-level argument ranges of a call whose `(` ends just before `from`. */
-function splitArgs(code: string, from: number): Array<{ start: number; end: number }> | undefined {
+export function splitArgs(
+  code: string,
+  from: number
+): Array<{ start: number; end: number }> | undefined {
   const args: Array<{ start: number; end: number }> = [];
   let depth = 0;
   let start = from;
@@ -374,7 +378,7 @@ function splitArgs(code: string, from: number): Array<{ start: number; end: numb
 }
 
 /** The value of a plain string literal, or `undefined` for anything computed. */
-function literalString(text: string): string | undefined {
+export function literalString(text: string): string | undefined {
   const quoted = /^(['"])((?:\\.|(?!\1)[^\\])*)\1$/s.exec(text);
   if (quoted) return quoted[2];
   if (/^`[^`]*`$/.test(text) && !text.includes("${")) return text.slice(1, -1);

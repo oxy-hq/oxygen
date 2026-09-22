@@ -25,6 +25,17 @@ import { join, resolve, sep } from "node:path";
 import type { Context } from "../context/resolve.js";
 import { loadDotenv } from "../publish/dotenv.js";
 import {
+  checkEngines,
+  fetchDatabaseEngines,
+  functionLintFailure
+} from "../publish/function-engines.js";
+import {
+  describeLintIssue,
+  type FunctionLintIssue,
+  type FunctionLintResult,
+  lintAppFunctions
+} from "../publish/function-lint.js";
+import {
   bundleFunctions,
   enforceReservedFunctionsDir,
   requirePrebuiltFunctions,
@@ -72,6 +83,8 @@ export interface PublishFlags {
   buildOnly?: boolean;
   prebuilt?: boolean;
   json?: boolean;
+  /** Publish past a function lint finding, printing each as a warning that names its rule. */
+  allowFunctionLint?: boolean;
 }
 
 function envValue(name: string): string | undefined {
@@ -171,6 +184,55 @@ function prepareBundle(
   return bundleDir;
 }
 
+/**
+ * The lint's findings: fail closed, or — with `--allow-function-lint` — a
+ * warning each, naming the rule so a false positive can be reported by name.
+ *
+ * `skipped` lines are warnings either way: a function that was not read was
+ * not linted, and saying so is what keeps a clean run honest.
+ */
+function reportFunctionLint(
+  issues: FunctionLintIssue[],
+  skipped: string[],
+  allow: boolean | undefined
+): void {
+  for (const line of skipped) log.warn(`function lint: ${line}`);
+  if (issues.length === 0) return;
+  if (allow) {
+    for (const issue of issues) log.warn(describeLintIssue(issue));
+    return;
+  }
+  throw functionLintFailure(issues);
+}
+
+/**
+ * The engine half of the lint, once the project and a credential are known.
+ *
+ * ADVISORY: a lookup that fails prints one warning and the publish goes on —
+ * the host refuses every one of these at the first call anyway, and a publish
+ * must not fail on a request the upload itself does not make.
+ */
+async function lintEngines(
+  lint: FunctionLintResult,
+  manifest: PublishManifest,
+  target: string,
+  project: string,
+  token: string,
+  allow: boolean | undefined
+): Promise<void> {
+  if (lint.writes.length === 0) return;
+  const engines = await fetchDatabaseEngines(target, project, token);
+  if ("skipped" in engines) {
+    log.warn(
+      "function lint: the engine check (`upsert` and `ctx.tx` dialects, customer-warehouse " +
+        `writes) was skipped — could not list the project's databases: ${engines.skipped}`
+    );
+    return;
+  }
+  const issues = checkEngines(lint.writes, manifest as Record<string, unknown>, engines.databases);
+  reportFunctionLint(issues, [], allow);
+}
+
 interface Provenance {
   repo?: string;
   commit?: string;
@@ -252,8 +314,22 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
     identity.org = await fetchOrgForProject(ctx.target(), projectPin);
   }
 
+  // Before the build, like the credential: a capability the manifest lacks is
+  // a one-line fix, and learning about it after a two-minute install is how
+  // it used to be learned — in production, at the first call.
+  const lint = manifest
+    ? lintAppFunctions(ctx.cwd, manifest as Record<string, unknown>)
+    : undefined;
+  if (lint) reportFunctionLint(lint.issues, lint.skipped, flags.allowFunctionLint);
+
   const bundleDir = prepareBundle(ctx, flags, manifest, identity);
   if (flags.buildOnly || !credential) {
+    if (lint && lint.writes.length > 0) {
+      log.info(
+        "function lint: the engine check (`upsert` and `ctx.tx` dialects, customer-warehouse " +
+          "writes) needs the server — the publishing job runs it before the upload"
+      );
+    }
     if (flags.json) process.stdout.write(`${JSON.stringify({ bundle_dir: bundleDir }, null, 2)}\n`);
     else process.stdout.write(`${out.green("built")} ${bundleDir}\n`);
     return;
@@ -281,6 +357,9 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
   log.info(`publishing ${who} (${tarball.length} bytes) → ${target} [${channel}]`);
 
   const token = await uploadToken(ctx, credential, identity);
+  if (lint && manifest) {
+    await lintEngines(lint, manifest, target, project, token, flags.allowFunctionLint);
+  }
   let result: PublishResult;
   try {
     result = await uploadBundle({

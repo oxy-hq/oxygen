@@ -33,6 +33,12 @@ let target: string;
 let received: Received[] = [];
 /** What the fake answers the upload with. */
 let uploadStatus = 200;
+/** What the fake answers the project's database list with. */
+let databasesStatus = 200;
+const DATABASES = [
+  { name: "ch", dialect: "clickhouse", db_type: "clickhouse", datasets: null, synced: false },
+  { name: "ah", dialect: "duckdb", db_type: "airhouse_managed", datasets: null, synced: false }
+];
 
 async function body(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -53,6 +59,9 @@ beforeAll(async () => {
 
     if (path === "/api/apps/acme/sales/build-config") return reply(200, { project_id: "proj-1" });
     if (path.startsWith("/api/apps/")) return reply(404, { error: "not found" });
+    if (path === "/api/proj-1/databases") {
+      return databasesStatus === 200 ? reply(200, DATABASES) : reply(databasesStatus, {});
+    }
     if (path === "/api/org-for-project/proj-9") return reply(200, { org_slug: "acme" });
     if (path.startsWith("/github-oidc")) {
       return req.headers.authorization === "bearer gh-request-token" &&
@@ -106,6 +115,7 @@ beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), "oxyc-publish-"));
   received = [];
   uploadStatus = 200;
+  databasesStatus = 200;
 });
 afterEach(() => rmSync(work, { recursive: true, force: true }));
 
@@ -372,6 +382,117 @@ describe("oxyc publish", () => {
     it("--prebuilt needs --dir", async () => {
       const result = await publish(app(), ["--prebuilt"], { OXY_TOKEN: "good-token" });
       expect(result.status).toBe(ExitCode.USAGE);
+    });
+  });
+
+  describe("the Oxy Functions lint", () => {
+    /** An app with one function: its source in `functions/`, its bundle already in `out/`. */
+    function appWithFunction(
+      source: string,
+      spec: Record<string, unknown> = {},
+      manifest: Record<string, unknown> = {}
+    ): string {
+      const dir = app({
+        slug: "sales",
+        orgSlug: "acme",
+        functions: { refresh: spec },
+        ...manifest
+      });
+      // Recursive: a test that builds two apps reuses the one `app/` directory.
+      mkdirSync(join(dir, "functions"), { recursive: true });
+      writeFileSync(join(dir, "functions", "refresh.ts"), source);
+      mkdirSync(join(dir, "out", "functions"), { recursive: true });
+      writeFileSync(join(dir, "out", "functions", "refresh.js"), "export default () => 1");
+      return dir;
+    }
+    const PREBUILT = ["--dir", "out", "--prebuilt"];
+    // No pnpm on PATH: nothing here may need esbuild.
+    const ENV = { OXY_TOKEN: "good-token", PATH: dirname(process.execPath) };
+    const SEND =
+      "export default async (r: unknown, ctx: any) => ctx.email.send({ to: 'a@b.c' });\n";
+    const UPSERT =
+      'export default async (r: unknown, ctx: any) => ctx.warehouse.upsert("ch", "t", [], ["k"]);\n';
+
+    it("refuses a call whose capability the manifest lacks, before the build and the upload", async () => {
+      const dir = app({
+        slug: "sales",
+        orgSlug: "acme",
+        functions: { refresh: {} },
+        build: { install: "touch installed", command: "true" }
+      });
+      mkdirSync(join(dir, "functions"));
+      writeFileSync(join(dir, "functions", "refresh.ts"), SEND);
+      const result = await publish(dir, [], ENV);
+      expect(result.status).toBe(ExitCode.FAILURE);
+      expect(result.stderr).toContain("1 Oxy Function lint problem(s)");
+      expect(result.stderr).toContain(
+        "[function-lint/capability] functions/refresh.ts (line 1): `ctx.email.send(` needs the `email.send` capability"
+      );
+      expect(result.stderr).toContain(
+        'add "email": { "send": true } to functions.refresh in oxy-app.json'
+      );
+      expect(result.stderr).toContain("--allow-function-lint");
+      expect(existsSync(join(dir, "installed"))).toBe(false);
+      expect(uploads()).toHaveLength(0);
+    });
+
+    it("--allow-function-lint publishes anyway, each finding a warning that names its rule", async () => {
+      const dir = appWithFunction(SEND);
+      const result = await publish(dir, [...PREBUILT, "--allow-function-lint"], ENV);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain(
+        "warning: [function-lint/capability] functions/refresh.ts (line 1): `ctx.email.send(`"
+      );
+      expect(uploads()).toHaveLength(1);
+    });
+
+    it("asks the target which engine a write lands on, and refuses an upsert ClickHouse cannot parse", async () => {
+      const dir = appWithFunction(UPSERT, {
+        destinations: ["ch"],
+        customerWarehouseWrites: { ch: "legacy rollups" }
+      });
+      const result = await publish(dir, PREBUILT, ENV);
+      expect(result.status).toBe(ExitCode.FAILURE);
+      expect(result.stderr).toContain(
+        '[function-lint/engine] functions/refresh.ts (line 1): `ctx.warehouse.upsert("ch", …)` — `ch` is clickhouse'
+      );
+      expect(
+        received.some(
+          (r) => r.path === "/api/proj-1/databases" && r.authorization === "Bearer good-token"
+        )
+      ).toBe(true);
+      expect(uploads()).toHaveLength(0);
+    });
+
+    it("refuses a customer-warehouse write with no reason, and takes one into Airhouse", async () => {
+      const noReason = await publish(
+        appWithFunction(UPSERT, { destinations: ["ch"] }),
+        PREBUILT,
+        ENV
+      );
+      expect(noReason.status).toBe(ExitCode.FAILURE);
+      expect(noReason.stderr).toContain("[function-lint/customer-warehouse]");
+      expect(noReason.stderr).toContain("[function-lint/engine]");
+
+      const airhouse = appWithFunction(
+        'export default async (r: unknown, ctx: any) => ctx.warehouse.insert("ah", "t", []);\n',
+        { destinations: ["ah"] }
+      );
+      const result = await publish(airhouse, PREBUILT, ENV);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).not.toContain("function-lint");
+      expect(uploads()).toHaveLength(1);
+    });
+
+    it("skips the engine check with one warning when the target will not list the databases", async () => {
+      databasesStatus = 403;
+      const dir = appWithFunction(UPSERT, { destinations: ["ch"] });
+      const result = await publish(dir, PREBUILT, ENV);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain("function lint: the engine check");
+      expect(result.stderr).toContain("was skipped");
+      expect(result.stderr).toContain("answered 403");
+      expect(uploads()).toHaveLength(1);
     });
   });
 });

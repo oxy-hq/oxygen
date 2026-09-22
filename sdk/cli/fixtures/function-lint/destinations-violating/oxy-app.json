@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 2,
+  "slug": "lint-destinations",
+  "functions": {
+    "etl": { "route": true },
+    "other": { "route": true, "destinations": ["reports"] }
+  }
+}

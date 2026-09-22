@@ -12,6 +12,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -611,6 +612,89 @@ describe("oxyc validate on an oxy-app.json", () => {
     expect(report.findings).toEqual([
       expect.objectContaining({ file: "oxy-app.json", path: "(parse)" })
     ]);
+  });
+});
+
+describe("oxyc validate lints an app's functions", () => {
+  const LINT_FIXTURES = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "fixtures",
+    "function-lint"
+  );
+
+  /** A workspace holding one fixture app's files, so the run is on a copy. */
+  function fixtureWorkspace(name: string): string {
+    const files: Record<string, string> = {};
+    const walk = (dir: string, prefix: string) => {
+      for (const entry of readdirSync(join(dir, prefix), { withFileTypes: true })) {
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(dir, rel);
+        else files[rel] = readFileSync(join(dir, rel), "utf8");
+      }
+    };
+    walk(join(LINT_FIXTURES, name), "");
+    return workspace(files);
+  }
+
+  it("fails the run on a call whose capability the manifest lacks, naming file, line, call and fix", () => {
+    const root = fixtureWorkspace("capability-violating");
+    const human = oxycValidate(root, []);
+    expect(human.status).toBe(ExitCode.FAILURE);
+    expect(human.stdout).toContain("10 problem(s) in 1 file(s)");
+    expect(human.stdout).toContain("functions/sync.ts");
+    expect(human.stdout).toContain("line 3");
+    expect(human.stdout).toContain("`ctx.secrets.set(` needs the `secrets.write` capability");
+    expect(human.stdout).toContain(
+      'add "secrets": { "write": true } to functions.sync in oxy-app.json'
+    );
+
+    const r = oxycValidate(root, ["--json"]);
+    expect(r.status).toBe(ExitCode.FAILURE);
+    const report = JSON.parse(r.stdout);
+    expect(report.findings[0]).toEqual({
+      file: "functions/sync.ts",
+      path: "line 3",
+      message: expect.stringMatching(/^\[function-lint\/capability\] `ctx\.secrets\.set\(`/)
+    });
+  });
+
+  it("fails on a global the isolate does not have, and on a write outside destinations", () => {
+    const globals = oxycValidate(fixtureWorkspace("globals-violating"), ["--json"]);
+    expect(globals.status).toBe(ExitCode.FAILURE);
+    const rules = (JSON.parse(globals.stdout).findings as Array<{ message: string }>).map(
+      (f) => f.message.split("]")[0]
+    );
+    expect(new Set(rules)).toEqual(new Set(["[function-lint/isolate-global"]));
+
+    const destinations = oxycValidate(fixtureWorkspace("destinations-violating"), []);
+    expect(destinations.status).toBe(ExitCode.FAILURE);
+    expect(destinations.stdout).toContain("declares no `destinations`");
+    expect(destinations.stdout).toContain("not in `functions.other.destinations`");
+  });
+
+  it("passes a clean app, and says the engine half waits for publish", () => {
+    const r = oxycValidate(fixtureWorkspace("destinations-clean"), []);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain("1 file(s) valid");
+    expect(r.stderr).toContain("the engine half of the function lint");
+    expect(r.stderr).toContain("skipped offline");
+    expect(r.stderr).not.toContain("warning:");
+
+    // No write, no note: a function that never touches a warehouse has nothing waiting.
+    const quiet = oxycValidate(fixtureWorkspace("capability-clean"), []);
+    expect(quiet.status, quiet.stderr).toBe(0);
+    expect(quiet.stderr).not.toContain("engine half");
+  });
+
+  it("says which function it could not read, without failing the run", () => {
+    const root = app({ slug: "store-ops", functions: { ghost: {} } });
+    const r = oxycValidate(root, []);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(
+      "function `ghost` was not linted: functions/ghost.ts could not be read (ENOENT)"
+    );
   });
 });
 

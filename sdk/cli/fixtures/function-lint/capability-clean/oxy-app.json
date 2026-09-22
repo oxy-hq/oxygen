@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "slug": "lint-capability",
+  "functions": {
+    "sync": {
+      "route": true,
+      "secrets": { "write": true },
+      "email": { "send": true },
+      "org": { "read": true },
+      "storage": { "read": true, "write": true },
+      "oltp": { "enabled": true },
+      "airhouse": { "enabled": true }
+    }
+  }
+}

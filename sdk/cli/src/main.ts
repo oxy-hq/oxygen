@@ -591,13 +591,24 @@ function buildProgram(): Command {
         "with --dir: its functions are already bundled; check them, don't rebuild"
       )
       .option("--json", "print the server's result as JSON")
+      .option(
+        "--allow-function-lint",
+        "publish past an Oxy Function lint finding; each prints as a warning naming its rule"
+      )
       .addHelpText(
         "after",
         "\n--org takes a slug or a UUID (default: OXY_ORG, then oxy-app.json orgSlug, then\n" +
           "the apps/<org>/<app>/ directory). --project pins the workspace; otherwise it is\n" +
           "resolved from the target. .env.local and .env are loaded without overriding.\n" +
           "\nAuth: the --token-env variable, then `oxyc login`'s cache — or, in a GitHub\n" +
-          "Actions job with `id-token: write` and neither, trusted publishing via OIDC.\n"
+          "Actions job with `id-token: write` and neither, trusted publishing via OIDC.\n" +
+          "\nBefore the build, each Oxy Function's source is linted for what the host refuses\n" +
+          "at the first call: a `ctx.*` call whose capability the manifest lacks, a global\n" +
+          "the isolate does not have (Buffer, TextEncoder, process, …), a write outside\n" +
+          "`destinations`; before the upload, with the target's database list, an `upsert`\n" +
+          "or `ctx.tx` on an engine that refuses it and a customer-warehouse write with no\n" +
+          "`customerWarehouseWrites` reason. `--allow-function-lint` is the way past a\n" +
+          "false positive — please open an issue naming the rule.\n"
       )
   ).action(async (opts: Record<string, unknown>) => {
     await runPublish(createContext(globals(opts)), {
@@ -611,7 +622,8 @@ function buildProgram(): Command {
       branch: opts.branch as string | undefined,
       buildOnly: opts.buildOnly as boolean | undefined,
       prebuilt: opts.prebuilt as boolean | undefined,
-      json: opts.json as boolean | undefined
+      json: opts.json as boolean | undefined,
+      allowFunctionLint: opts.allowFunctionLint as boolean | undefined
     });
   });
 
@@ -645,7 +657,11 @@ function buildProgram(): Command {
         "types, so they cannot drift from it.\n" +
         "\nEach oxy-app.json is checked for where its data goes: customerWarehouseWrites,\n" +
         "airhouse, airhouseMigrations (DuckLake-safe, schema-qualified SQL) and secrets\n" +
-        "used as state. Warnings go to stderr; the server is the authority.\n"
+        "used as state. Its functions' sources are linted for a `ctx.*` call whose\n" +
+        "capability the manifest lacks, a global the isolate does not have (Buffer,\n" +
+        "TextEncoder, process, …) and a write outside `destinations`; the engine half\n" +
+        "(upsert / ctx.tx dialect, customer-warehouse writes) needs the server and runs\n" +
+        "in `oxyc publish`. Warnings go to stderr; the server is the authority.\n"
     )
     .action((opts: Record<string, unknown>) => {
       runValidate({

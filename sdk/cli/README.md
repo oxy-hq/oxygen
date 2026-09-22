@@ -225,7 +225,7 @@ the current directory while granting access to the customer's repo.
 ## Custom apps
 
 ```bash
-oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json]
+oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint]
 oxyc init-ci [--app <org>/<app>] [--environment <name>] [--force]
 oxyc proxy [--port <n>] [--allow-writes] [--allow-events] [--yes]
 ```
@@ -258,6 +258,17 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
 - `.env.local`, then `.env`, are read from the directory and its parents without
   overriding the environment. The server's warnings print on stderr; `--json`
   prints its result on stdout.
+- **Function lint**: before the build, each declared function's source (and the
+  relative imports it reaches) is checked for what the host refuses at the first
+  call — a `ctx.*` call whose capability the manifest lacks, a global the isolate
+  does not have, a `ctx.warehouse` / `ctx.tx` write outside `destinations`; before
+  the upload, with the target's database list, an `upsert` or `ctx.tx` on an
+  engine that refuses it and a customer-warehouse write with no
+  `customerWarehouseWrites` reason. The rules are `validate`'s, below. A finding
+  fails the publish with exit `1` and names the file, line, call and fix; if the
+  target will not list the databases, the engine half prints one warning and is
+  skipped. **`--allow-function-lint`** is the way past a false positive: every
+  finding becomes a warning that names its rule — please open an issue with it.
 
 **`init-ci`** writes `.github/workflows/oxy-publish.yml` at the repo root: a
 `build` job (no id-token) that runs `publish --build-only`, and an
@@ -341,6 +352,31 @@ Warnings print on stderr and do not fail: each customer-warehouse exception,
 `CREATE SCHEMA` in a migration, and `ctx.secrets.set` holding state (a
 `JSON.stringify` value, or a state-like key that is not a credential's). The SQL
 checks are lexical; the server's parser is the authority.
+
+Each declared **Oxy Function** is then linted — its entry and every relative
+import it reaches, comments and strings masked — for the mistakes that work
+locally and fail closed in production. These fail the run, each naming the
+file, the line, the call and the fix:
+
+- `capability` — a `ctx.<area>.<op>` call whose manifest capability the function
+  does not declare: `ctx.secrets.set` → `secrets.write`, `ctx.email.send` →
+  `email.send`, `ctx.org.*` → `org.read`, `ctx.storage.*` → `storage.read` /
+  `storage.write` (`copy` needs both), `ctx.oltp.*` → `oltp.enabled`,
+  `ctx.airhouse.*` → `airhouse.enabled`. The map is
+  `src/publish/capabilities.ts`, held to the host's `FunctionCapabilities` by a
+  Rust test.
+- `isolate-global` — a value use of `Buffer`, `TextEncoder`, `TextDecoder`,
+  `Blob`, `File`, `FormData`, `crypto.subtle` or `process.*`: the isolate is bare
+  `deno_core` and each is a `ReferenceError` at runtime. A name the file declares
+  itself (`const Buffer = …`, `import { TextEncoder } from "./polyfill"`) is not
+  one; nor is a `typeof` guard or a type annotation.
+- `destinations` — a `ctx.warehouse.insert` / `exec` / `upsert` or `ctx.tx` in a
+  function with no `destinations`, or naming a database not in them.
+
+The engine half — `upsert` off Postgres / DuckDB, `ctx.tx` off Postgres, a
+customer-warehouse write with no `customerWarehouseWrites` reason, a write to
+the org's OLTP store — needs the database list, which only the server has;
+`validate` says so and `oxyc publish` runs it before the upload.
 
 **`proxy`** forwards a local dev server's Oxy calls to a cloud target with your
 login token attached. Defaults: side-effecting calls are **held**, tracking

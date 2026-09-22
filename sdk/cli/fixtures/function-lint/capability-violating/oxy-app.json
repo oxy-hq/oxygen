@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 2,
+  "slug": "lint-capability",
+  "functions": {
+    "sync": { "route": true }
+  }
+}
