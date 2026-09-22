@@ -268,6 +268,13 @@ pub fn record_function(event: FunctionEvent<'_>) {
             }
         }
         "cancelled" => custom_app_outcome::OK,
+        // A shed is the platform declining to start the work for want of a
+        // concurrency permit. Charging it to the app's error rate would dent an
+        // availability verdict with a capacity decision the app had no part in
+        // — the same reasoning that keeps `cancelled` out of it. The platform
+        // counts sheds in `oxy_custom_app_admission_shed_total`, labelled by
+        // which limit bound.
+        "shed" => custom_app_outcome::OK,
         _ => custom_app_outcome::ERROR,
     };
     let (trace_id, span_id) = trace_ids();

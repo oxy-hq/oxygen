@@ -90,6 +90,14 @@ const HOST_CALL_BUCKETS: &[f64] = &[1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.
 /// have to be read together.
 const POOL_PROBE_BUCKETS: &[f64] = &[0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0];
 
+/// Seconds buckets for the admission queue.
+///
+/// Healthy is the bottom bucket — an uncontended permit is acquired in
+/// microseconds, so the resolution that matters is "did it wait at all". The
+/// top edge sits on the default queue budget so a wait that ended in a shed is
+/// distinguishable from one that merely came close.
+const ADMISSION_WAIT_BUCKETS: &[f64] = &[0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0];
+
 /// The instrument set, built once and reached through [`super::instruments`].
 ///
 /// Observable instruments are held here rather than dropped after
@@ -148,6 +156,27 @@ pub struct Instruments {
     /// the duration histogram's `_count` for successes, but an invocation that
     /// fails before it is timed still has to be counted somewhere.
     pub custom_app_function_invocations: Counter<u64>,
+
+    /// `oxy.custom_app.isolates.heap_terminations` — isolates killed for
+    /// breaching their heap ceiling.
+    ///
+    /// Deliberately its own series rather than an `outcome` label on the
+    /// invocation counter: the invocation row records this as a plain `error`
+    /// (adding a new status string would be a wire change for every consumer
+    /// of `app_function_invocations`), so this counter is the *only* place the
+    /// distinction survives. A non-zero value means a tenant is writing code
+    /// that would previously have OOM-killed the whole serve process.
+    pub custom_app_heap_terminations: Counter<u64>,
+
+    /// `oxy.custom_app.admission.wait` — how long an invocation queued for a
+    /// concurrency permit before running.
+    ///
+    /// Near-zero at healthy load. This rising is the early warning that the cap
+    /// is binding, and it rises well before anything is shed.
+    pub custom_app_admission_wait: Histogram<f64>,
+    /// `oxy.custom_app.admission.shed` — invocations rejected because no permit
+    /// came free within the queue budget, by `oxy.reason` (`global` / `org`).
+    pub custom_app_admission_shed: Counter<u64>,
 
     /// Observable handles. Never read; held so their callbacks stay registered.
     _observables: Vec<ObservableHandle>,
@@ -231,6 +260,33 @@ impl Instruments {
             custom_app_function_invocations: meter
                 .u64_counter("oxy.custom_app.function.invocations")
                 .with_description("Oxy Function invocations by outcome.")
+                .with_unit("{invocation}")
+                .build(),
+
+            custom_app_heap_terminations: meter
+                .u64_counter("oxy.custom_app.isolates.heap_terminations")
+                .with_description(
+                    "Isolates terminated for breaching their per-isolate heap ceiling. Before the \
+                     ceiling existed this was a process-wide OOM kill; a non-zero value here is a \
+                     tenant that would previously have taken the serve fleet down.",
+                )
+                .with_unit("{isolate}")
+                .build(),
+            custom_app_admission_wait: meter
+                .f64_histogram("oxy.custom_app.admission.wait")
+                .with_description(
+                    "Time an invocation queued for a concurrency permit. Rises well before \
+                     anything is shed, so it is the early warning that the cap is binding.",
+                )
+                .with_unit("s")
+                .with_boundaries(ADMISSION_WAIT_BUCKETS.to_vec())
+                .build(),
+            custom_app_admission_shed: meter
+                .u64_counter("oxy.custom_app.admission.shed")
+                .with_description(
+                    "Invocations rejected because no permit came free within the queue budget, by \
+                     whether the global or the per-org limit bound.",
+                )
                 .with_unit("{invocation}")
                 .build(),
 
@@ -343,6 +399,50 @@ fn observables(meter: &Meter) -> Vec<ObservableHandle> {
         ),
         ObservableHandle::I64(
             meter
+                .i64_observable_gauge("oxy.custom_app.admission.in_use")
+                .with_description(
+                    "Concurrency permits held by running invocations. Compare with \
+                     oxy.custom_app.isolates.live: the gap is isolates that were abandoned and so \
+                     hold a thread and a heap without holding a permit — the cap no longer \
+                     accounts for them.",
+                )
+                .with_unit("{permit}")
+                .with_callback(|observer| {
+                    observer.observe(sources::ADMISSION_IN_USE.load(Ordering::Relaxed), &[]);
+                })
+                .build(),
+        ),
+        ObservableHandle::I64(
+            meter
+                .i64_observable_gauge("oxy.custom_app.admission.queued")
+                .with_description(
+                    "Invocations parked waiting for a concurrency permit. Not free: each waiter \
+                     retains its function bundle, context and host for up to the queue budget, \
+                     so a deep queue consumes the same memory headroom the concurrency cap is \
+                     spending — while in_use and isolates.live both read healthy.",
+                )
+                .with_unit("{invocation}")
+                .with_callback(|observer| {
+                    observer.observe(sources::ADMISSION_QUEUED.load(Ordering::Relaxed), &[]);
+                })
+                .build(),
+        ),
+        ObservableHandle::I64(
+            meter
+                .i64_observable_gauge("oxy.custom_app.admission.limit")
+                .with_description(
+                    "The configured global permit ceiling; 0 when the cap is disabled. The \
+                     denominator of the saturation ratio, exported so it needs no out-of-band \
+                     constant.",
+                )
+                .with_unit("{permit}")
+                .with_callback(|observer| {
+                    observer.observe(sources::ADMISSION_LIMIT.load(Ordering::Relaxed), &[]);
+                })
+                .build(),
+        ),
+        ObservableHandle::I64(
+            meter
                 .i64_observable_gauge("oxy.custom_app.isolates.live_peak")
                 .with_description(
                     "High-water mark of live isolates since process start. The number to size a \
@@ -429,6 +529,7 @@ mod tests {
             ("init", INIT_DURATION_BUCKETS),
             ("host_calls", HOST_CALL_BUCKETS),
             ("pool_probe", POOL_PROBE_BUCKETS),
+            ("admission_wait", ADMISSION_WAIT_BUCKETS),
         ] {
             assert!(
                 buckets.windows(2).all(|w| w[0] < w[1]),

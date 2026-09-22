@@ -38,6 +38,10 @@ pub mod host;
 /// payload) — the helpers behind `runtime`'s per-op spans.
 #[cfg(feature = "custom-app-functions")]
 mod host_call_attrs;
+/// How many invocations may run at once, globally and per org. Bounds the
+/// thread and heap count the per-isolate ceiling cannot.
+#[cfg(feature = "custom-app-functions")]
+pub mod limits;
 mod result_cache;
 #[cfg(feature = "custom-app-functions")]
 pub mod runtime;
@@ -2195,6 +2199,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     let host_for_audit = host.clone();
     let result = runtime::run(
         args.artifact_js,
+        org_id,
         ctx,
         runtime::FnRequest {
             method: args.method,
@@ -2254,6 +2259,39 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             String::new(),
             // Not a function status: the isolate never returned one. The error
             // framing carries these, so the value is never read.
+            0,
+            host_call,
+        ),
+        // Both of the new platform-side refusals record as `error` on the
+        // invocation row rather than as new status strings. `status_label`
+        // reaches `app_function_invocations`, the operator logs UI and the
+        // outcome mapping in `custom_apps_telemetry`; adding a value there is a
+        // wire change for every one of them, to express something two
+        // dedicated metrics already carry exactly
+        // (`oxy_custom_app_isolates_heap_terminations_total` and
+        // `oxy_custom_app_admission_shed_total`). The message is what an
+        // engineer reading one row sees, so it has to name the cause.
+        // An OOM kill records as `error` — it IS the app failing, and
+        // `failure_signal::kind_of_error` gives it its own `error.type`
+        // (`exceeded_memory`) so on-call sees a tenant's runaway allocation
+        // rather than a platform fault. The dedicated counter is what makes it
+        // countable without a new invocation status.
+        Err(e @ runtime::RuntimeError::OutOfMemory) => {
+            oxy_telemetry::metrics::record::custom_app_heap_termination(&org_id.to_string());
+            ("error", Some(e.to_string()), String::new(), 0, host_call)
+        }
+        // A shed is the platform working as designed, so it gets its own status
+        // rather than falling through to `error`. Through the generic arm it
+        // would have: filled the app's own error slot with a capacity decision,
+        // charged the tenant's error rate, marked the invocation span ERROR
+        // with `error.type = platform`, and PAGED — reporting load shedding as
+        // the app failing, which is the one outcome the cap exists to avoid.
+        Err(e @ runtime::RuntimeError::Overloaded) => (
+            "shed",
+            Some(e.to_string()),
+            String::new(),
+            // Not a function status: no isolate ran. See `RuntimeError::Overloaded`
+            // for why this is not a 503.
             0,
             host_call,
         ),

@@ -1050,6 +1050,27 @@ async fn serve_application(
     // shutdown-hook wait can tell a signalled shutdown from an error unwind.
     let shutdown_observer = shutdown_token.clone();
 
+    // Resolve the function concurrency ceilings at boot so
+    // `oxy_custom_app_admission_limit` is published before the first scrape.
+    // They are `OnceLock`s filled on first use, and their only other caller is
+    // `admit` — so left lazy, the gauge reads 0 (the documented value for "the
+    // cap is disabled") for the whole window between a replica starting and its
+    // first function call, and the saturation ratio it is the denominator of
+    // divides by zero over exactly that window.
+    #[cfg(feature = "custom-app-functions")]
+    {
+        use crate::server::api::custom_apps_functions::limits;
+        tracing::info!(
+            target: "oxy.custom_app.admission",
+            max_concurrency = limits::max_concurrency(),
+            max_org_concurrency = limits::max_org_concurrency(),
+            max_queued = limits::max_queued(),
+            queue_budget_secs = limits::queue_budget().as_secs(),
+            heap_limit_bytes = ?crate::server::api::custom_apps_functions::runtime::heap_limit_bytes(),
+            "custom-app function limits"
+        );
+    }
+
     // `/metrics` on its own port, off unless OXY_METRICS_PORT says otherwise.
     // A bind failure is logged and stepped over rather than propagated: losing
     // observability is a degradation, and taking the serve fleet down over it

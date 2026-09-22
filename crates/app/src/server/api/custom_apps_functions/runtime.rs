@@ -214,6 +214,30 @@ pub enum RuntimeError {
     Cancelled,
     #[error("function execution timed out")]
     Timeout,
+    /// The isolate breached its heap ceiling and was terminated.
+    ///
+    /// Before the ceiling existed this case did not surface as an error at all:
+    /// V8's own default limit is far above the pod's cgroup limit, so the
+    /// kernel OOM killer reached the process first and took down every other
+    /// app it was serving. This variant is that failure, made survivable and
+    /// attributable to one invocation.
+    #[error("function exceeded its memory limit")]
+    OutOfMemory,
+    /// No concurrency permit came free within the queue budget.
+    ///
+    /// The platform declining to start the work, not the function failing. The
+    /// caller maps it to the `shed` invocation status, which
+    /// [`super::failure_signal::Failure::of`] treats like a cancellation: no
+    /// page, no `error.type`, and no dent in the app's availability. The count
+    /// lives in `oxy_custom_app_admission_shed_total`.
+    ///
+    /// **Not a 503.** The route path answers over SSE
+    /// (`mod.rs::sse_response`), so every outcome — success or failure — is a
+    /// 200 carrying an event. A shed surfaces as `{"error": "shed", …}` in
+    /// that stream; giving it a real status code would mean changing the
+    /// response contract for every invocation, not just this one.
+    #[error("too many functions are running; try again shortly")]
+    Overloaded,
     #[error("internal runtime error: {0}")]
     Internal(String),
 }
@@ -1563,6 +1587,63 @@ pub fn abandoned_isolates() -> u64 {
     oxy_telemetry::metrics::sources::abandoned_isolates()
 }
 
+/// Per-isolate heap ceiling, in bytes. Override with
+/// [`HEAP_LIMIT_MB_ENV`]; `0` disables the ceiling.
+///
+/// 128 MiB is Cloudflare Workers' per-isolate limit. Matching a published
+/// number is itself the argument: an app author who hits it can look up what it
+/// means and what to do, which is not true of a number we invented.
+///
+/// **Why any ceiling is strictly safer than none.** `create_params` was unset,
+/// so V8 used its own default — far above the pod's 2 GiB cgroup limit. The
+/// kernel OOM killer therefore always won the race, and it kills the *process*,
+/// which is serving 44 apps, every org subdomain and every `FleetOk` product
+/// route. With a ceiling, the same runaway allocation terminates one isolate
+/// and returns an error to one app. The only traffic this newly breaks is a
+/// function that legitimately holds >128 MiB of live JS objects — and that
+/// function was already one spike away from taking the fleet down.
+const DEFAULT_HEAP_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+
+/// Override for [`DEFAULT_HEAP_LIMIT_BYTES`], in megabytes. `0` disables.
+pub const HEAP_LIMIT_MB_ENV: &str = "OXY_FUNCTION_HEAP_LIMIT_MB";
+
+/// The ceiling in force for this process. `None` disables it.
+pub fn heap_limit_bytes() -> Option<usize> {
+    static VALUE: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        match std::env::var(HEAP_LIMIT_MB_ENV)
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+        {
+            Some(0) => None,
+            Some(mb) => Some(mb * 1024 * 1024),
+            None => Some(DEFAULT_HEAP_LIMIT_BYTES),
+        }
+    })
+}
+
+/// How much headroom the near-limit callback grants so V8 can finish unwinding.
+///
+/// The callback must return a limit **above** the current one. Returning the
+/// same value makes V8 abort the process immediately — the exact outcome the
+/// ceiling exists to prevent — because from V8's perspective the limit was
+/// raised to a value it has already exceeded. The grant is generous on purpose:
+/// it is only ever used for the few allocations between the callback firing and
+/// `terminate_execution` taking effect, and it is bounded because the isolate
+/// is already being torn down.
+const HEAP_LIMIT_GRACE_BYTES: usize = 32 * 1024 * 1024;
+
+/// What a **repeat** near-limit fire grants.
+///
+/// A second fire means the isolate breached the already-raised limit before
+/// `terminate_execution` landed — a tight allocation loop. Granting the full
+/// [`HEAP_LIMIT_GRACE_BYTES`] again would let it ratchet the ceiling upward
+/// 32 MiB at a time, which is the unbounded growth the ceiling exists to stop.
+/// This is the smallest grant that still satisfies V8's "must exceed the
+/// current limit" rule, so the loop buys almost nothing per fire while the
+/// termination continues to land.
+const HEAP_LIMIT_RATCHET_BYTES: usize = 1024 * 1024;
+
 /// How long to wait for the isolate thread to actually exit after a wall-clock
 /// timeout (or cancel) has terminated execution, before giving up and returning
 /// `Timeout` regardless. Bounds the worst case where the isolate is parked in a
@@ -1608,8 +1689,14 @@ impl FnRequest {
 /// wedged in a not-yet-returned host call (which `terminate_execution` cannot
 /// interrupt), we return `Timeout` after the grace period and let that thread
 /// unwind on its own once the (individually bounded) host op completes.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     artifact_js: String,
+    // Whose invocation this is, for the per-org concurrency ceiling. Not part
+    // of `InvocationCtx` on purpose: that struct is serialized into the isolate
+    // as `ctx`, and the org id is a platform fact the tenant has no business
+    // reading.
+    org_id: uuid::Uuid,
     ctx: InvocationCtx,
     req: FnRequest,
     host: std::sync::Arc<dyn FunctionHost>,
@@ -1626,6 +1713,44 @@ pub async fn run(
     // wrong thing here.
     isolate_span: tracing::Span,
 ) -> Result<FnResponse, RuntimeError> {
+    // Admission first, before anything is allocated. The cap exists to stop the
+    // OS thread and the V8 heap from being created at all, so it has to gate
+    // the spawn rather than the work after it — a permit taken later would
+    // limit concurrency while still paying for every thread.
+    let queued_at = std::time::Instant::now();
+    let org_label = org_id.to_string();
+    let _admission = match super::limits::admit(org_id, &mut cancel).await {
+        Ok(permit) => {
+            oxy_telemetry::metrics::record::custom_app_admission_wait(
+                &org_label,
+                super::limits::elapsed_since(queued_at),
+            );
+            permit
+        }
+        // The caller left while queued. Nothing was refused and nobody is
+        // waiting for an answer, so this is a cancellation like any other —
+        // counting it as a shed would make the shed rate track how impatient
+        // users are rather than how loaded the fleet is.
+        Err(reason) if !reason.is_shed() => {
+            tracing::debug!(
+                target: "oxy.custom_app.admission",
+                queued_ms = queued_at.elapsed().as_millis() as u64,
+                "caller went away while queued for a concurrency permit"
+            );
+            return Err(RuntimeError::Cancelled);
+        }
+        Err(reason) => {
+            oxy_telemetry::metrics::record::custom_app_admission_shed(&org_label, reason.as_str());
+            tracing::warn!(
+                target: "oxy.custom_app.admission",
+                reason = reason.as_str(),
+                queued_ms = queued_at.elapsed().as_millis() as u64,
+                "shed a function invocation: no concurrency permit came free"
+            );
+            return Err(RuntimeError::Overloaded);
+        }
+    };
+
     let (call_tx, mut call_rx) = mpsc::unbounded_channel::<HostCall>();
     let (done_tx, done_rx) = oneshot::channel::<Result<FnResponse, RuntimeError>>();
     let (handle_tx, handle_rx) = oneshot::channel::<deno_core::v8::IsolateHandle>();
@@ -2096,8 +2221,12 @@ fn record_host_call_outcome(kind: HostCallKind, result: &Result<serde_json::Valu
     }
 }
 
-/// Body that runs on the isolate thread. Loads + evaluates the module, calls
-/// the default export, and returns the parsed `FnResponse`.
+/// Body that runs on the isolate thread.
+///
+/// Wraps [`execute_isolate_inner`] only to translate a heap-limit kill. A
+/// terminated isolate surfaces as a generic "execution terminated" JS error,
+/// byte-identical to the one a cancel or a timeout produces — the flag the
+/// near-limit callback sets is the only thing that knows which it was.
 async fn execute_isolate(
     artifact_js: String,
     ctx: InvocationCtx,
@@ -2108,11 +2237,82 @@ async fn execute_isolate(
     logs: Arc<std::sync::Mutex<Vec<LogLine>>>,
     meters: InvocationMeters,
 ) -> Result<FnResponse, RuntimeError> {
+    let oom = Arc::new(AtomicBool::new(false));
+    let result = execute_isolate_inner(
+        artifact_js,
+        ctx,
+        req,
+        call_tx,
+        handle_tx,
+        cancelled,
+        logs,
+        meters,
+        Arc::clone(&oom),
+    )
+    .await;
+
+    // Checked on the error path only: a function that allocated hard, tripped
+    // the callback, and *still* returned a response has not failed, and
+    // rewriting its success into an error would be a lie about what the app saw.
+    if result.is_err() && oom.load(Ordering::Relaxed) {
+        return Err(RuntimeError::OutOfMemory);
+    }
+    result
+}
+
+/// Loads + evaluates the module, calls the default export, and returns the
+/// parsed `FnResponse`.
+#[allow(clippy::too_many_arguments)]
+async fn execute_isolate_inner(
+    artifact_js: String,
+    ctx: InvocationCtx,
+    req: FnRequest,
+    call_tx: mpsc::UnboundedSender<HostCall>,
+    handle_tx: oneshot::Sender<deno_core::v8::IsolateHandle>,
+    cancelled: Arc<AtomicBool>,
+    logs: Arc<std::sync::Mutex<Vec<LogLine>>>,
+    meters: InvocationMeters,
+    oom: Arc<AtomicBool>,
+) -> Result<FnResponse, RuntimeError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![oxy_functions_ext::init()],
+        // The ceiling. Initial is left at 0 so V8 sizes the young generation
+        // itself — pinning it would cost startup time on every invocation to
+        // constrain something that was never the problem.
+        create_params: heap_limit_bytes()
+            .map(|max| deno_core::v8::CreateParams::default().heap_limits(0, max)),
         ..Default::default()
     });
-    let _ = handle_tx.send(runtime.v8_isolate().thread_safe_handle());
+
+    let handle = runtime.v8_isolate().thread_safe_handle();
+    if heap_limit_bytes().is_some() {
+        let oom_flag = Arc::clone(&oom);
+        let terminate_handle = handle.clone();
+        runtime.add_near_heap_limit_callback(move |current, _initial| {
+            // Ordering matters: record the cause before terminating, so the
+            // error path cannot observe the termination without the reason.
+            // `swap` also tells us whether this is a REPEAT fire.
+            let already_terminating = oom_flag.swap(true, Ordering::Relaxed);
+            terminate_handle.terminate_execution();
+            // The return must exceed `current`, or V8 aborts the process right
+            // here rather than letting the termination unwind.
+            //
+            // The first fire grants real headroom for the unwind. A repeat fire
+            // means the isolate breached the *raised* limit before the
+            // termination landed — so granting another full 32 MiB each time
+            // would let a tight allocation loop ratchet the ceiling upward
+            // without bound, which is the failure the ceiling exists to
+            // prevent. Subsequent fires grant the minimum that keeps V8 from
+            // aborting.
+            if already_terminating {
+                current + HEAP_LIMIT_RATCHET_BYTES
+            } else {
+                current + HEAP_LIMIT_GRACE_BYTES
+            }
+        });
+    }
+
+    let _ = handle_tx.send(handle);
     runtime.op_state().borrow_mut().put(call_tx);
     runtime.op_state().borrow_mut().put(cancelled);
     runtime.op_state().borrow_mut().put(FunctionLogs(logs));
@@ -2746,6 +2946,9 @@ mod tests {
         let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         run(
             artifact.to_string(),
+            // A fresh org per helper call, so concurrent tests never contend on
+            // one org's admission semaphore and time each other out.
+            uuid::Uuid::new_v4(),
             ctx,
             FnRequest::from_body(b"{}".to_vec()),
             host,
@@ -2756,6 +2959,54 @@ mod tests {
             tracing::Span::none(),
         )
         .await
+    }
+
+    /// The whole premise of the heap ceiling, asserted end to end.
+    ///
+    /// Before it, `create_params` was unset and V8's own default limit sat far
+    /// above the pod's cgroup limit, so a runaway allocation was reaped by the
+    /// kernel OOM killer — which kills the **process**, taking down every other
+    /// app and every product route it was serving. This test allocates without
+    /// bound and asserts the isolate dies alone.
+    ///
+    /// The test process surviving to make the assertion *is* half the
+    /// assertion: without a working ceiling this test does not fail, it takes
+    /// the test binary with it.
+    #[tokio::test]
+    async fn a_runaway_allocation_kills_the_isolate_not_the_process() {
+        // Set before the first `heap_limit_bytes()` call in this process —
+        // nextest gives each test its own process, so the OnceLock is ours.
+        // 16 MiB rather than the 128 MiB default so it trips in well under the
+        // 10s helper timeout; the mechanism under test is identical.
+        unsafe { std::env::set_var(HEAP_LIMIT_MB_ENV, "16") };
+        assert_eq!(heap_limit_bytes(), Some(16 * 1024 * 1024));
+
+        let (result, _host) = run_with_mock_ctx(
+            r#"
+            export default async function () {
+              const held = [];
+              // Retained, so GC cannot reclaim any of it — an unretained loop
+              // would spin forever instead of breaching the ceiling.
+              for (;;) { held.push(new Array(1_000_000).fill(7)); }
+            }
+            "#,
+            test_ctx(),
+        )
+        .await;
+
+        assert!(
+            matches!(result, Err(RuntimeError::OutOfMemory)),
+            "a heap breach must be attributable, not a generic failure: {result:?}"
+        );
+    }
+
+    /// The ceiling must be switchable off, and `0` is the off switch. An
+    /// operator debugging a memory-hungry function needs a way to lift it
+    /// without a rebuild, and "unset" already means the default.
+    #[test]
+    fn a_zero_heap_limit_disables_the_ceiling() {
+        unsafe { std::env::set_var(HEAP_LIMIT_MB_ENV, "0") };
+        assert_eq!(heap_limit_bytes(), None);
     }
 
     /// A handler that catches a failed `ctx.*` call and answers 200 is the
@@ -2915,6 +3166,7 @@ mod tests {
                  }) };
                }"#
             .to_string(),
+            uuid::Uuid::new_v4(),
             test_ctx(),
             FnRequest {
                 method: "POST".to_string(),
@@ -3089,6 +3341,7 @@ mod tests {
                  }) };
                }"#
             .to_string(),
+            uuid::Uuid::new_v4(),
             {
                 let mut c = test_ctx();
                 c.env
@@ -3266,6 +3519,7 @@ mod tests {
         let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         let result = run(
             artifact.to_string(),
+            uuid::Uuid::new_v4(),
             test_ctx(),
             FnRequest::from_body(b"{}".to_vec()),
             Arc::new(MockHost::default()),
@@ -3301,6 +3555,7 @@ mod tests {
         let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         let resp = run(
             artifact.to_string(),
+            uuid::Uuid::new_v4(),
             test_ctx(),
             FnRequest::from_body(b"{}".to_vec()),
             host.clone(),
@@ -3455,6 +3710,7 @@ mod tests {
         let host = Arc::new(MockHost::default());
         let resp = run(
             artifact.to_string(),
+            uuid::Uuid::new_v4(),
             test_ctx(),
             FnRequest::from_body(b"{}".to_vec()),
             host.clone(),
@@ -3515,6 +3771,7 @@ mod tests {
         let host = Arc::new(MockHost::default());
         run(
             artifact.to_string(),
+            uuid::Uuid::new_v4(),
             test_ctx(),
             FnRequest::from_body(b"{}".to_vec()),
             host.clone(),

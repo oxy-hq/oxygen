@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Failure {
     /// `threw` (the app's code threw) | `internal` (the runtime failed) |
+    /// `exceeded_memory` (the app breached its isolate's heap ceiling) |
     /// `platform` (the invocation never reached the app's code) | `timeout` |
     /// `http_5xx` | `host_call` (the app answered below 500 after a `ctx.*`
     /// call failed). Bounded on purpose: a facet with one value per message is
@@ -146,6 +147,14 @@ impl Failure {
     ) -> Option<Self> {
         let (kind, fingerprint) = match status {
             "cancelled" => return None,
+            // A shed is the platform declining to start work it has no capacity
+            // for — the concurrency cap doing its job, not a failure of
+            // anything. Paging per shed would be a storm precisely when the
+            // fleet is busiest, and charging it to the app would make a
+            // capacity decision look like the tenant's bug.
+            // `oxy_custom_app_admission_shed_total` is where sheds are counted,
+            // and it carries which limit bound.
+            "shed" => return None,
             "success" if http_status < 500 => {
                 return host_call.map(|hc| Self {
                     kind: "host_call",
@@ -215,6 +224,14 @@ fn kind_of_error(message: &str) -> &'static str {
         "threw"
     } else if message.starts_with("internal runtime error") {
         "internal"
+    } else if message.starts_with("function exceeded its memory limit") {
+        // The app's fault, and the fallback below would have called it the
+        // platform's — inverting the attribution on exactly the failure the
+        // heap ceiling exists to make attributable. Its own value rather than
+        // folding into `threw`, because the remedy differs: `threw` is a bug in
+        // the handler, this is the app holding more live objects than an
+        // isolate may.
+        "exceeded_memory"
     } else {
         "platform"
     }
@@ -912,5 +929,56 @@ mod tests {
             "timeout"
         );
         assert_eq!(Failure::of("cancelled", 0, None, Some(&hc)), None);
+    }
+
+    /// Load shedding is the platform working as designed. Through the generic
+    /// `error` path it raised a `Failure`, which marks the invocation span
+    /// ERROR, writes a WARN on `oxy::app_function` and **pages** — reporting a
+    /// capacity decision as the app failing, precisely when the fleet is
+    /// busiest and a page storm is least welcome.
+    #[test]
+    fn a_shed_invocation_raises_no_failure_signal() {
+        assert_eq!(
+            Failure::of(
+                "shed",
+                0,
+                Some(&super::super::runtime::RuntimeError::Overloaded.to_string()),
+                None,
+            ),
+            None,
+            "a shed must not page, mark the span ERROR, or dent the app's rate"
+        );
+    }
+
+    /// The heap ceiling exists to make a tenant's runaway allocation
+    /// *attributable*. Falling through to the `platform` default inverted that
+    /// — on-call would see an Oxy fault for the one failure that is squarely
+    /// the app's.
+    ///
+    /// Driven from the real `Display` string rather than a copy of it: the
+    /// prefix match is coupled to that text, and a reworded error would
+    /// otherwise silently reclassify to `platform` with every test still green.
+    #[test]
+    fn an_out_of_memory_error_is_attributed_to_the_app() {
+        let message = super::super::runtime::RuntimeError::OutOfMemory.to_string();
+        let failure = Failure::of("error", 0, Some(&message), None).expect("an OOM is a failure");
+        assert_eq!(
+            failure.kind, "exceeded_memory",
+            "a heap breach must not read as a platform fault"
+        );
+    }
+
+    /// The other two prefixes keep working — this is a closed list an alert
+    /// facets on, so a new arm must not shadow an existing one.
+    #[test]
+    fn the_error_kinds_stay_distinct() {
+        for (message, expected) in [
+            ("function threw: TypeError", "threw"),
+            ("internal runtime error: boom", "internal"),
+            ("function exceeded its memory limit", "exceeded_memory"),
+            ("workspace not found", "platform"),
+        ] {
+            assert_eq!(kind_of_error(message), expected, "for {message:?}");
+        }
     }
 }

@@ -68,7 +68,8 @@ pub struct InvocationSummary {
     /// `"route"` (HTTP) | `"schedule"` (cron fire) | `"manual"` (run-now / API
     /// job) | `"airway"`.
     pub mode: String,
-    /// `"running"` | `"success"` | `"error"` | `"cancelled"` | `"timeout"`.
+    /// `"running"` | `"success"` | `"error"` | `"cancelled"` | `"timeout"` |
+    /// `"shed"` (the platform declined to start it — no concurrency permit).
     pub status: String,
     pub duration_ms: Option<i64>,
     pub error: Option<String>,

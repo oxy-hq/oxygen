@@ -16,7 +16,13 @@ pub struct Model {
     pub mode: String,
     /// `None` for system (schedule/airway) invocations.
     pub user_id: Option<Uuid>,
-    /// `"running"` | `"success"` | `"error"` | `"cancelled"` | `"timeout"`.
+    /// `"running"` | `"success"` | `"error"` | `"cancelled"` | `"timeout"` |
+    /// `"shed"`.
+    ///
+    /// `shed` means the platform declined to start the invocation for want of
+    /// a concurrency permit (`custom_apps_functions::limits`). It is not a
+    /// failure of the app: it raises no failure signal, pages nothing, and does
+    /// not count against the app's availability.
     pub status: String,
     pub duration_ms: Option<i64>,
     pub error: Option<String>,

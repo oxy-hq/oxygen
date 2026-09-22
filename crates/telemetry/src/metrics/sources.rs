@@ -141,6 +141,89 @@ impl Drop for IsolateGuard {
     }
 }
 
+/// Admission permits currently held by running invocations.
+///
+/// The numerator of the saturation ratio for the function concurrency cap.
+/// Distinct from [`ISOLATES_LIVE`] and the gap between them is informative: a
+/// permit is released when the invocation returns, but an **abandoned** isolate
+/// keeps its thread and heap without holding a permit. `live > in_use` is
+/// therefore the count of isolates the cap is no longer accounting for, which
+/// is exactly the leak `ISOLATES_ABANDONED` counts.
+pub static ADMISSION_IN_USE: AtomicI64 = AtomicI64::new(0);
+
+/// The configured global permit ceiling, published so the saturation ratio
+/// needs no out-of-band constant. Zero means the cap is disabled.
+pub static ADMISSION_LIMIT: AtomicI64 = AtomicI64::new(0);
+
+/// Publish the admission cap's ceiling once it is known.
+///
+/// **Call this at boot, not lazily.** Published only as a side effect of the
+/// first invocation, this gauge reads `0` — the documented value for "the cap
+/// is disabled" — for the whole window between a replica starting and its first
+/// function call, which on most replicas is not short. The saturation ratio it
+/// is the denominator of would divide by zero over exactly that window.
+pub fn set_admission_limit(limit: i64) {
+    ADMISSION_LIMIT.store(limit, Ordering::Relaxed);
+}
+
+/// Invocations waiting for a concurrency permit right now.
+///
+/// The semaphore bounds how many invocations *run*; this is how many are
+/// parked. It matters because a waiter is not free: admission happens inside
+/// `runtime::run`, after the function bundle, the invocation context and the
+/// resolved host have been moved in, so each waiter retains all of that for up
+/// to the queue budget. Under saturation that is `arrival_rate × budget` live
+/// bundles, eating the same headroom the concurrency arithmetic is spending —
+/// while `admission.in_use` and `isolates.live` both read perfectly healthy.
+///
+/// Without this series that state is invisible until it is an outage.
+pub static ADMISSION_QUEUED: AtomicI64 = AtomicI64::new(0);
+
+/// Raises [`ADMISSION_QUEUED`] for as long as it is held.
+pub struct QueueGuard(());
+
+impl QueueGuard {
+    /// Count one invocation as queued until the returned guard drops.
+    pub fn enter() -> Self {
+        ADMISSION_QUEUED.fetch_add(1, Ordering::Relaxed);
+        Self(())
+    }
+
+    /// How many are queued right now, for a ceiling check.
+    pub fn depth() -> i64 {
+        ADMISSION_QUEUED.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for QueueGuard {
+    fn drop(&mut self) {
+        ADMISSION_QUEUED.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Raises [`ADMISSION_IN_USE`] for as long as it is held.
+///
+/// Separate from [`IsolateGuard`] on purpose. This one covers the whole
+/// invocation — including the setup before an isolate exists and the teardown
+/// after it is gone — because that is the window a permit is actually occupied
+/// for. Conflating the two would understate saturation by however long setup
+/// takes.
+pub struct AdmissionGuard(());
+
+impl AdmissionGuard {
+    /// Count one permit as held until the returned guard drops.
+    pub fn enter() -> Self {
+        ADMISSION_IN_USE.fetch_add(1, Ordering::Relaxed);
+        Self(())
+    }
+}
+
+impl Drop for AdmissionGuard {
+    fn drop(&mut self) {
+        ADMISSION_IN_USE.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Publish the pool's current occupancy. Called from the pool health monitor.
 pub fn set_db_pool(size: u64, idle: u64, max: u64) {
     DB_POOL_SIZE.store(size, Ordering::Relaxed);

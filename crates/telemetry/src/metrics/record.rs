@@ -113,6 +113,50 @@ pub fn custom_app_function(
     });
 }
 
+/// One isolate terminated for breaching its heap ceiling.
+///
+/// Labelled by org only. The app is deliberately not carried even for a
+/// watchlisted app: this is a **host-health** fact — which tenant is taking
+/// memory from the box everyone shares — and the org is the unit an operator
+/// acts on. The invocation row and its logs are where you then find the app.
+pub fn custom_app_heap_termination(org_id: &str) {
+    with_instruments(|i| {
+        i.custom_app_heap_terminations
+            .add(1, &[KeyValue::new(ORG, org_id.to_owned())]);
+    });
+}
+
+/// How long one invocation waited for a concurrency permit.
+///
+/// Recorded on **every** admitted invocation, including the uncontended ones
+/// that waited microseconds. Recording only the slow waits would make the
+/// histogram describe a population that does not exist, and `_count` would stop
+/// matching the invocation count.
+pub fn custom_app_admission_wait(org_id: &str, seconds: f64) {
+    with_instruments(|i| {
+        i.custom_app_admission_wait
+            .record(seconds, &[KeyValue::new(ORG, org_id.to_owned())]);
+    });
+}
+
+/// One invocation shed because no permit came free within the queue budget.
+///
+/// `reason` is `global` or `org` — which limit bound. The distinction is the
+/// whole point of having two: `global` means the box is full and the fleet
+/// needs more replicas, `org` means one tenant is monopolising it and everyone
+/// else is fine.
+pub fn custom_app_admission_shed(org_id: &str, reason: &'static str) {
+    with_instruments(|i| {
+        i.custom_app_admission_shed.add(
+            1,
+            &[
+                KeyValue::new(ORG, org_id.to_owned()),
+                KeyValue::new("oxy.reason", reason),
+            ],
+        );
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +169,8 @@ mod tests {
         custom_app_request("org", "app", "html", 200, 0.1);
         custom_app_function("org", "app", "fn", "ok", 0.5, Some(0.006), 3);
         custom_app_function("org", "app", "fn", "error", 0.5, None, 0);
+        custom_app_heap_termination("org");
+        custom_app_admission_wait("org", 0.0);
+        custom_app_admission_shed("org", "global");
     }
 }
