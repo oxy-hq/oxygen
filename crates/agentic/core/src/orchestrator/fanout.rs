@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::hub_task::bind_current_hub;
 use tracing::Instrument;
 
 use crate::back_target::{BackTarget, RetryContext};
@@ -245,7 +246,7 @@ where
             .acquire_owned()
             .await
             .expect("fanout semaphore is never closed");
-        set.spawn(
+        set.spawn(bind_current_hub(
             async move {
                 // Held for the task's lifetime; released on completion so the
                 // next queued sub-spec can start.
@@ -327,7 +328,7 @@ where
                 unreachable!("retry loop must exit via return")
             }
             .instrument(sub_span),
-        );
+        ));
     }
 
     let mut outcomes = Vec::with_capacity(total);

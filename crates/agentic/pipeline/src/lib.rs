@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use agentic_analytics::SchemaCatalog;
 use agentic_analytics::config::AgentConfig;
 use agentic_builder::{BuilderAppRunner, BuilderTestRunner};
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::event_registry::EventRegistry;
 use agentic_runtime::handle::{PipelineHandle, PipelineOutcome};
 use agentic_runtime::state::RuntimeState;
@@ -1202,7 +1203,7 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
     let mut outcomes = handle.outcomes;
 
     // Forward cancellation.
-    tokio::spawn({
+    spawn_with_hub({
         let cancel = cancel.clone();
         async move {
             cancel.cancelled().await;
@@ -1211,7 +1212,7 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
     });
 
     // Drain events and serialize.
-    let events_task = tokio::spawn(async move {
+    let events_task = spawn_with_hub(async move {
         while let Some(event) = events.recv().await {
             let (event_type, payload) = event.serialize();
             if event_tx.send((event_type, payload)).await.is_err() {
@@ -1222,7 +1223,7 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
 
     // Map PipelineOutcome → TaskOutcome. Forward ALL outcomes (pipeline
     // may produce Suspended then Done after resume).
-    let outcomes_task = tokio::spawn(async move {
+    let outcomes_task = spawn_with_hub(async move {
         // Track whether the pipeline produced any resolving outcome (a terminal
         // Done/Failed/Cancelled, or a Suspended). A `Suspended` is a legitimate
         // non-hang stopping point after which the driver normally drops the
@@ -1277,7 +1278,7 @@ fn spawn_bridge_tasks<Ev: agentic_core::DomainEvents + 'static>(
         }
     });
 
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let _ = tokio::join!(events_task, outcomes_task);
     })
 }
@@ -1390,7 +1391,7 @@ pub async fn drive_with_coordinator(
     let cancel_forwarder = {
         let transport_cancel = transport.clone();
         let cancel_task_id = root_task_id.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             // Wait for the cancel signal.
             while cancel_rx.changed().await.is_ok() {
                 if *cancel_rx.borrow() {
@@ -1409,7 +1410,7 @@ pub async fn drive_with_coordinator(
     let virtual_worker = {
         let transport_clone = transport.clone();
         let task_id = root_task_id.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             use agentic_core::transport::WorkerTransport;
             tracing::debug!(target: "worker", task_id = %task_id, "virtual worker started");
 
@@ -1417,7 +1418,7 @@ pub async fn drive_with_coordinator(
             // mirroring what Worker::handle_task does for child tasks.
             let cancel_token = transport_clone.cancellation_token(&task_id);
             let task_cancel = executing_task.cancel.clone();
-            let _cancel_fwd = tokio::spawn({
+            let _cancel_fwd = spawn_with_hub({
                 let task_id = task_id.clone();
                 async move {
                     cancel_token.cancelled().await;
@@ -1612,7 +1613,7 @@ pub async fn drive_with_coordinator(
     // Register the root task in the coordinator (already running via virtual worker).
     coordinator.register_root(run_id.clone(), root_next_seq);
 
-    let child_worker = tokio::spawn(async move {
+    let child_worker = spawn_with_hub(async move {
         worker.run().await;
     });
 
@@ -1992,7 +1993,7 @@ async fn run_agentic_headless(
 
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<Event<AnalyticsEvent>>(256);
     let event_stream: EventStream<AnalyticsEvent> = event_tx;
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         match destination {
             EventDestination::Drain => while event_rx.recv().await.is_some() {},
             EventDestination::Forward(sink) => {

@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::coordinator::Coordinator;
 use agentic_runtime::state::RuntimeState;
 use agentic_runtime::transport::DurableTransport;
@@ -905,7 +906,7 @@ async fn recover_single_run_owned(
         let cf_db = db.clone();
         let cf_run = root.id.clone();
         let mut cf_rx = cancel_rx;
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             let poll = std::time::Duration::from_secs(5);
             loop {
                 let cancelled = tokio::select! {
@@ -971,7 +972,7 @@ async fn recover_single_run_owned(
         let hb_db = db.clone();
         let hb_run_id = root.id.clone();
         let hb_driver_id = driver_id.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             loop {
                 tokio::time::sleep(interval).await;
                 match agentic_runtime::crud::heartbeat_driver(&hb_db, &hb_run_id, &hb_driver_id)
@@ -993,11 +994,11 @@ async fn recover_single_run_owned(
     }
 
     let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
-    tokio::spawn(async move { worker.run().await });
+    spawn_with_hub(async move { worker.run().await });
 
     let pending_count = pending_resumes.len();
     let retire_transport = transport.clone();
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let mut coord = coordinator;
         coord.process_pending_resumes(pending_resumes).await;
         coord.run().await;
@@ -1147,7 +1148,7 @@ fn spawn_virtual_worker(
         agentic_runtime::orchestrator::worker::HEARTBEAT_INTERVAL,
     );
 
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let mut events = executing.events;
         while let Some((event_type, payload)) = events.recv().await {
             if transport_clone
@@ -1165,7 +1166,7 @@ fn spawn_virtual_worker(
     });
 
     let task_id_for_outcomes = task_id;
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let mut outcomes = executing.outcomes;
         // Whether the driver stopped while still holding the claim — see
         // `Worker::handle_task`'s cleanup block. This third driver has to

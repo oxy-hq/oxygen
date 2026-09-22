@@ -9,6 +9,7 @@
 //! true cardinality and badge the result as truncated.
 
 use agentic_connector::{ColumnStats, ExecutionResult, ResultSummary};
+use agentic_core::hub_task::spawn_blocking_with_hub;
 use agentic_core::result::QueryResult;
 
 /// Execute `preagg_sql` against `source` via in-memory DuckDB, returning up to
@@ -22,7 +23,7 @@ pub(crate) async fn execute_rollup(
     source: agentic_semantic::compile::PreaggSource,
     sample_limit: u64,
 ) -> Result<ExecutionResult, String> {
-    let (columns, rows, total_row_count) = tokio::task::spawn_blocking(move || {
+    let (columns, rows, total_row_count) = spawn_blocking_with_hub(move || {
         agentic_semantic::preagg::execute_preagg_sql_typed(&preagg_sql, &source, sample_limit)
     })
     .await

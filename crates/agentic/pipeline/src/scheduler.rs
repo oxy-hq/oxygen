@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::cron::{
     count_occurrences_between, next_occurrence_after, occurrences_between, validate_cron,
 };
@@ -744,7 +745,7 @@ pub async fn tick_monitor_schedules(
         let schedule_id_scan = s.id.clone();
         let run_id_scan = run_id.clone();
         let granularity_scan = granularity.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             let Some(port) = platform_scan.as_monitor_scan_port() else {
                 tracing::error!(target: "monitor_scan", run_id = %run_id_scan, "no MonitorScanPort available");
                 let _ = update_run_failed(

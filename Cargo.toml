@@ -171,11 +171,23 @@ sea-orm-migration = { version = "2.0.1", features = [
   "runtime-tokio-rustls",
   "with-uuid",
 ] }
+# Keep in lockstep with `sentry-core` below. The two must resolve to ONE crate
+# version: `oxy-app` binds a hub through `sentry`, `agentic-core` reads it back
+# through `sentry-core`, and two semver-incompatible copies are two thread-locals
+# — everything compiles and the carry silently stops. Cargo has no shared
+# version literal, so the guard is oxy-app's
+# `a_spawn_through_the_agentic_wrapper_keeps_the_custom_app_tag`.
 sentry = { version = "0.49.1", features = [
   "tower-axum-matched-path",
   "rustls",
   "tracing",
 ] }
+# `agentic-core::hub_task` carries `Hub::current()` across the spawns the agentic
+# crates make; `client` is what makes that hub the real per-thread one (the
+# crate compiles hubs to no-ops without it). Everyone else takes the full
+# `sentry` above, which enables the same feature. MUST stay the same version as
+# `sentry` above — bump the two together; see the note there.
+sentry-core = { version = "0.49.1", features = ["client"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0.151" }
 serde_yaml = { version = "0.9.34" }

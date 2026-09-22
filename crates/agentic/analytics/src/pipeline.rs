@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use agentic_core::hub_task::spawn_with_hub;
 use chrono_tz::Tz;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -225,7 +226,7 @@ pub async fn start_pipeline(
         semantic_confidence: 0.0,
     };
 
-    let join = tokio::spawn(
+    let join = spawn_with_hub(
         async move {
             let result = tokio::select! {
                 r = orchestrator.run(initial_intent) => Some(r),
@@ -394,7 +395,7 @@ pub async fn resume_pipeline(
         .with_handlers(build_analytics_handlers())
         .with_events(event_stream);
 
-    let join = tokio::spawn(
+    let join = spawn_with_hub(
         async move {
             // Resume from the suspended state instead of running from scratch.
             let result = tokio::select! {

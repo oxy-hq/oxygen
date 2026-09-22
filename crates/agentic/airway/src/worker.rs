@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use agentic_core::delegation::TaskOutcome;
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::orchestrator::worker::ExecutingTask;
 use airway::Pipeline;
 use airway::airstack::{AirappEventHandler, EventBus, PipelineEvent};
@@ -189,8 +190,8 @@ impl AirwayWorker {
         // the handles the watcher needs to release it itself.
         let db_watch = self.db.clone();
         let run_id_watch = run_id.clone();
-        tokio::spawn(async move {
-            let handle = tokio::spawn(drive(
+        spawn_with_hub(async move {
+            let handle = spawn_with_hub(drive(
                 spec,
                 resume_run_id,
                 run_id,

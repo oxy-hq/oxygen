@@ -11,6 +11,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::Duration;
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::transport::{
     CoordinatorTransport, TransportError, WorkerMessage, WorkerTransport,
 };
@@ -1051,7 +1052,7 @@ impl WorkerTransport for DurableTransport {
         let worker_id = self.worker_id.clone();
         let task_id = task_id.to_string();
         let cancel_clone = cancel.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 tokio::select! {

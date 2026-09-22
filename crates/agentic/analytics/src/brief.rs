@@ -18,6 +18,7 @@
 //! any FSM stage override runs the full pipeline. Loosen later if a
 //! valid brief shape ends up routed through analytics by mistake.
 
+use agentic_core::hub_task::spawn_with_hub;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -93,7 +94,7 @@ pub async fn start_brief_pipeline(
     // worker claimed — so the trace view can step from one to the other.
     run_span.follows_from(tracing::Span::current());
 
-    let join = tokio::spawn(
+    let join = spawn_with_hub(
         async move {
             let outcome = tokio::select! {
                 r = client.complete(&system, &user) => match r {

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use agentic_core::delegation::{TaskOutcome, TaskSpec};
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_runtime::worker::ExecutingTask;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -23,7 +24,7 @@ impl PipelineTaskExecutor {
         let cancel = CancellationToken::new();
 
         let workspace: Arc<dyn agentic_automation::WorkspaceContext> = self.platform.clone();
-        tokio::spawn(async move {
+        spawn_with_hub(async move {
             let result = agentic_automation::run_automation_step(
                 workspace.as_ref(),
                 step_config,
@@ -768,7 +769,7 @@ pub fn run_decision_task(
     let (outcome_tx, outcome_rx) = mpsc::channel::<TaskOutcome>(16);
     let cancel = CancellationToken::new();
 
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         match decision {
             D::Complete {
                 final_answer,

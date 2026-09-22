@@ -10,6 +10,8 @@
 //! | `snowflake`  | [`SnowflakeConnector`]  | `snowflake-api`        |
 //! | `bigquery`   | [`BigQueryConnector`]   | `gcp-bigquery-client`  |
 
+use agentic_core::hub_task::spawn_blocking_with_hub;
+
 pub mod config;
 pub mod connector;
 pub mod telemetry;
@@ -209,7 +211,7 @@ pub async fn build_connector_async(
             // DuckDB variants open synchronously — delegate to spawn_blocking
             // so we don't block the async runtime.
             let result: Result<Box<dyn DatabaseConnector>, ConnectorError> =
-                tokio::task::spawn_blocking(move || build_connector(cfg))
+                spawn_blocking_with_hub(move || build_connector(cfg))
                     .await
                     .map_err(|e| {
                         ConnectorError::ConnectionError(format!("task join error: {e}"))

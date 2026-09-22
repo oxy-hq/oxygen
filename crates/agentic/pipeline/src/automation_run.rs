@@ -19,6 +19,7 @@ use agentic_automation::{
     AutomationConfig, AutomationDecider, AutomationDecision, WorkspaceContext, run_automation_step,
 };
 use agentic_core::delegation::{ChildCompletion, DelegationItem, DelegationTarget, TaskSpec};
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
 use agentic_runtime::coordinator::Coordinator;
 use agentic_runtime::crud;
@@ -436,7 +437,7 @@ pub fn spawn_automation_run_drive(
     // then propagates the cancellation up to the run row.
     let transport_for_cancel = transport.clone();
     let cancel_task_id = run_id.clone();
-    let cancel_forwarder = tokio::spawn(async move {
+    let cancel_forwarder = spawn_with_hub(async move {
         while cancel_rx.changed().await.is_ok() {
             if *cancel_rx.borrow() {
                 tracing::info!(
@@ -450,12 +451,12 @@ pub fn spawn_automation_run_drive(
         }
     });
 
-    let worker_task = tokio::spawn(async move {
+    let worker_task = spawn_with_hub(async move {
         worker.run().await;
     });
     let cleanup_run_id = run_id.clone();
     let cleanup_state = state;
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let mut coord = coordinator;
         coord.run().await;
         // SSE keeps streaming while the notifier exists; without this

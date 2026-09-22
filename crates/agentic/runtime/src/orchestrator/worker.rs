@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome};
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::transport::{WorkerMessage, WorkerTransport};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -213,7 +214,7 @@ impl Worker {
             let transport = Arc::clone(&self.transport);
             let executor = Arc::clone(&self.executor);
 
-            tokio::spawn(async move {
+            spawn_with_hub(async move {
                 Self::handle_task(transport, executor, task_id, assignment).await;
                 // Permit released only after handle_task fully returns —
                 // not on each Suspended outcome — so a long-suspended
@@ -307,7 +308,7 @@ impl Worker {
 
         // Forward cancellation from transport to the executing task.
         let task_cancel = executing.cancel.clone();
-        let cancel_fwd = tokio::spawn({
+        let cancel_fwd = spawn_with_hub({
             let cancel_token = cancel_token.clone();
             let task_id = task_id.clone();
             async move {
@@ -321,7 +322,7 @@ impl Worker {
         let event_fwd = {
             let transport = Arc::clone(&transport);
             let task_id = task_id.clone();
-            tokio::spawn(async move {
+            spawn_with_hub(async move {
                 let mut events = executing.events;
                 while let Some((event_type, payload)) = events.recv().await {
                     if transport

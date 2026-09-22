@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use agentic_core::evaluator::{ConsistencyEvaluator, EvalError, EvalResult};
+use agentic_core::hub_task::bind_current_hub;
 use async_trait::async_trait;
 
 use crate::LlmClient;
@@ -77,12 +78,12 @@ impl ConsistencyEvaluator for LlmConsistencyEvaluator {
                     "Question: {question}\n\nAnswer A:\n{}\n\nAnswer B:\n{}",
                     answers[i], answers[j],
                 );
-                join_set.spawn(async move {
+                join_set.spawn(bind_current_hub(async move {
                     let response = client
                         .complete_with_max_tokens(&sys, &user_msg, PAIRWISE_MAX_TOKENS)
                         .await;
                     (i, j, response)
-                });
+                }));
             }
         }
 

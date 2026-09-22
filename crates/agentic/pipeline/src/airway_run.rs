@@ -15,6 +15,7 @@ use agentic_airway::AirwayPipelineSpec;
 use agentic_airway::extension::run_extension;
 use agentic_automation::WorkspaceContext;
 use agentic_core::delegation::TaskSpec;
+use agentic_core::hub_task::spawn_with_hub;
 use agentic_core::transport::{CoordinatorTransport, WorkerTransport};
 use agentic_runtime::coordinator::Coordinator;
 use agentic_runtime::crud;
@@ -542,7 +543,7 @@ pub fn spawn_airway_run_drive(
     // to the run row.
     let transport_for_cancel = transport.clone();
     let cancel_task_id = run_id.clone();
-    let cancel_forwarder = tokio::spawn(async move {
+    let cancel_forwarder = spawn_with_hub(async move {
         while cancel_rx.changed().await.is_ok() {
             if *cancel_rx.borrow() {
                 let _ = transport_for_cancel.cancel_subtree(&cancel_task_id).await;
@@ -551,12 +552,12 @@ pub fn spawn_airway_run_drive(
         }
     });
 
-    let worker_task = tokio::spawn(async move {
+    let worker_task = spawn_with_hub(async move {
         worker.run().await;
     });
     let cleanup_run_id = run_id.clone();
     let cleanup_state = state;
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         let mut coord = coordinator;
         coord.run().await;
         // Close the SSE stream cleanly once the run terminates —

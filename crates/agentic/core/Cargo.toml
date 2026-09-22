@@ -20,11 +20,16 @@ serde_json = { workspace = true }
 # Needed by `subrun::parse_oxy_comment_block` — main's cleanup PR
 # removed this when our subrun module didn't exist there yet.
 serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["sync", "fs", "io-util"] }
+# `hub_task`: the hub-carrying `spawn` / `spawn_blocking` every agentic crate
+# uses instead of tokio's. External-only, as this crate's rule requires.
+sentry-core = { workspace = true }
+tokio = { workspace = true, features = ["sync", "fs", "io-util", "rt"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "sync", "net", "io-util"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "net", "io-util"] }
+# `sentry_core::test::with_captured_events` for the `hub_task` carry tests.
+sentry-core = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }

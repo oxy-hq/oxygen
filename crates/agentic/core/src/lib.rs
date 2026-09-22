@@ -24,6 +24,7 @@ pub mod delegation;
 pub mod domain;
 pub mod evaluator;
 pub mod events;
+pub mod hub_task;
 pub mod human_input;
 pub mod orchestrator;
 pub mod result;

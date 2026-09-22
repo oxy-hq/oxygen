@@ -8,7 +8,11 @@
 //! - the per-request hub `NewSentryLayer` binds on the outer router (serve.rs);
 //! - [`custom_app_hub`], bound onto a background function job (`app_function_executor`);
 //! - the isolate thread, host-call tasks and `spawn_blocking` closures, which
-//!   carry `Hub::current()` across explicitly (`custom_apps_functions::{runtime, host}`).
+//!   carry `Hub::current()` across explicitly (`custom_apps_functions::{runtime, host}`);
+//! - every request-scoped spawn inside the agentic crates, which goes through
+//!   `agentic_core::hub_task` (`spawn_with_hub`, `spawn_blocking_with_hub`,
+//!   `bind_current_hub`) and so carries whatever hub the handler bound without
+//!   knowing the tag exists — pinned by the second scan test below.
 //!
 //! [`tag_custom_app_surface`] decides from the URL — host label or
 //! `/customer-apps/**` path. That is not enough for the custom-app **data
@@ -161,6 +165,9 @@ impl<S: Stream> Stream for HubBoundStream<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
     use axum::Router;
     use axum::body::Body;
     use axum::extract::Request;
@@ -493,6 +500,44 @@ mod tests {
         );
     }
 
+    /// The one test that crosses the two crate names. `oxy-app` binds through
+    /// `sentry::Hub`; `agentic_core::hub_task` reads `sentry_core::Hub`. Today
+    /// those are one crate and one thread-local. Pin them apart — `sentry`
+    /// bumped to 0.50 with `sentry-core` left at 0.49 — and Cargo resolves two
+    /// copies with two thread-locals: everything compiles, `hub_task`'s own
+    /// tests pass (they live entirely inside `sentry-core`), the source walk
+    /// below passes, and `Hub::current()` inside the wrapper returns a hub this
+    /// middleware never bound. The bug the wrapper closes comes back silently.
+    ///
+    /// It is also the only end-to-end proof that the carry reaches what
+    /// `before_send` reads: the tag on the event. There is no control half
+    /// here because `a_spawn_carries_the_tag_only_when_it_is_bound` above is
+    /// it — a bare spawn on this runtime captures *untagged*, which is exactly
+    /// what this test sees the day the wrapper stops binding.
+    #[test]
+    fn a_spawn_through_the_agentic_wrapper_keeps_the_custom_app_tag() {
+        let tags = tags_captured_in(|runtime| {
+            runtime.block_on(async {
+                // Read on the spawning task, under the tagged hub, the way a
+                // custom-app handler calls into the pipeline.
+                let carried = sentry::Hub::run(custom_app_hub(), || {
+                    agentic_core::hub_task::spawn_with_hub(async {
+                        sentry::capture_message("carried", sentry::Level::Error);
+                    })
+                });
+                carried.await.expect("carried task");
+            });
+        });
+
+        assert_eq!(
+            tags,
+            vec![Some(CUSTOM_APP_SURFACE.to_string())],
+            "`agentic_core::hub_task` must carry the hub `sentry::Hub::run` bound. `[None]` \
+             means the wrapper stopped binding, or the workspace's `sentry` and \
+             `sentry-core` pins resolved to two different crate versions"
+        );
+    }
+
     /// The mechanism behind `projects::agent_run_stream`. An SSE body is a
     /// `Stream`, so `bind_hub` — a `Future` extension — cannot reach it, and
     /// axum polls it after the handler future has resolved and the tower
@@ -532,6 +577,30 @@ mod tests {
         );
     }
 
+    /// Work that deliberately runs with no custom-app hub, and why. One entry
+    /// per site, for the two source walks below.
+    struct Unhubbed {
+        /// Relative to `crates/app` in the data-plane walk, to `crates/agentic`
+        /// in the agentic one.
+        file: &'static str,
+        site: &'static str,
+        why: &'static str,
+    }
+
+    fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                rust_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
     /// Boundary: every spawn and stream on the custom-app **data plane** must
     /// carry a hub.
     ///
@@ -563,17 +632,6 @@ mod tests {
     /// own hub, and demanding a binding there would prove nothing.
     #[test]
     fn every_custom_app_data_plane_spawn_carries_a_hub() {
-        use std::fs;
-        use std::path::{Path, PathBuf};
-
-        /// Work that deliberately runs with no custom-app hub, and why.
-        struct Unhubbed {
-            /// Relative to `crates/app`.
-            file: &'static str,
-            site: &'static str,
-            why: &'static str,
-        }
-
         const UNHUBBED: &[Unhubbed] = &[Unhubbed {
             file: "src/server/api/projects/automation_run.rs",
             site: "spawn_periodic_sweep",
@@ -607,20 +665,6 @@ mod tests {
             "bind_hub_stream(",
             "Hub::run(",
         ];
-
-        fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
-            let Ok(entries) = fs::read_dir(dir) else {
-                return;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    rust_files(&path, out);
-                } else if path.extension().is_some_and(|ext| ext == "rs") {
-                    out.push(path);
-                }
-            }
-        }
 
         let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = Vec::new();
@@ -714,6 +758,369 @@ mod tests {
             "expected the data-plane walk to find at least the known sites, \
              scanned {scanned} file(s) / {sites} site(s)"
         );
+    }
+
+    /// A spawn or blocking-pool hop inside the agentic crates, one detector per
+    /// way of writing one. `spawn_blocking(` matched bare covers the
+    /// `tokio::task::` spelling, a `use`d one and the `JoinSet` / `Handle`
+    /// methods; `spawn_local(` likewise covers `tokio::task::spawn_local` and
+    /// the `LocalSet` / `JoinSet` methods; `.spawn(` covers a `JoinSet`, a
+    /// runtime `Handle`, a `task::Builder`, a `std::thread::Builder` and a
+    /// scoped thread. Every spelling trips exactly **one** detector — a
+    /// `std::thread::Builder` detector beside `.spawn(` would count one site
+    /// twice and demand two exemptions for it — which
+    /// `a_bare_agentic_spawn_is_detected_in_every_spelling` pins.
+    const AGENTIC_DETECTORS: [&str; 7] = [
+        "tokio::spawn(",
+        "tokio::task::spawn(",
+        "spawn_blocking(",
+        "spawn_local(",
+        ".spawn(",
+        "thread::spawn(",
+        "spawn_scoped(",
+    ];
+    /// The one carry a detector can pair with: the two wrappers replace their
+    /// detector outright, so only the executor form leaves one behind.
+    const AGENTIC_BINDINGS: [&str; 1] = ["bind_current_hub("];
+    /// The wrappers, counted only to prove the walk reached the sites.
+    const AGENTIC_CARRIES: [&str; 3] = [
+        "spawn_with_hub(",
+        "spawn_blocking_with_hub(",
+        "bind_current_hub(",
+    ];
+
+    /// `source` with every `#[cfg(test)] mod … { … }` block and every comment
+    /// line removed. Test modules are cut wherever they sit, not only at the
+    /// tail (`worker.rs` keeps one mid-file): rustfmt guarantees a top-level
+    /// module closes with a `}` in column 0, and that is the cut.
+    fn agentic_production_text(source: &str) -> String {
+        let mut out = String::with_capacity(source.len());
+        let mut lines = source.lines().peekable();
+        while let Some(line) = lines.next() {
+            if line == "#[cfg(test)]"
+                && lines
+                    .peek()
+                    .is_some_and(|next| next.starts_with("mod ") && next.ends_with('{'))
+            {
+                for inner in lines.by_ref() {
+                    if inner == "}" {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out
+    }
+
+    /// A file that only ever compiles under `cfg(test)`: anything under a
+    /// `tests/` directory, or a `tests.rs` / `*_tests.rs` module.
+    fn is_agentic_test_file(relative: &str) -> bool {
+        let mut parts = relative.split('/').peekable();
+        let mut name = "";
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                name = part;
+            } else if part == "tests" {
+                return true;
+            }
+        }
+        let stem = name.trim_end_matches(".rs");
+        stem == "tests" || stem.ends_with("_tests") || stem.ends_with("_test")
+    }
+
+    /// What one agentic source file's production code spawns.
+    struct AgenticSpawns {
+        /// Detector hits: spawns the wrappers did not replace.
+        detected: usize,
+        /// `bind_current_hub(` calls, each able to pair with one detector hit.
+        bound: usize,
+        /// Wrapper calls of every kind.
+        carried: usize,
+    }
+
+    impl AgenticSpawns {
+        fn of(source: &str) -> Self {
+            let text = agentic_production_text(source);
+            let count = |needles: &[&str]| -> usize {
+                needles.iter().map(|n| text.matches(n).count()).sum()
+            };
+            Self {
+                detected: count(&AGENTIC_DETECTORS),
+                bound: count(&AGENTIC_BINDINGS),
+                carried: count(&AGENTIC_CARRIES),
+            }
+        }
+
+        /// Every detected spawn is accounted for by a binding or a documented
+        /// exemption.
+        ///
+        /// `<=`, not `==`. A `bind_current_hub(` with no detector beside it — a
+        /// bound future handed to something the detectors do not name — is
+        /// over-binding, and an exact count failed it with a message about
+        /// bare spawns that pointed nowhere. The price is the one a per-file
+        /// count always carried: it cannot say *which* binding belongs to which
+        /// spawn, so a surplus binding can cover one bare spawn in the same
+        /// file. The exact form never prevented that either; it only forbade
+        /// the surplus.
+        fn all_carried(&self, exemptions: usize) -> bool {
+            self.detected <= self.bound + exemptions
+        }
+    }
+
+    /// Boundary, second walk: no bare spawn inside the agentic crates.
+    ///
+    /// The walk above stops at `oxy-app`'s handlers, but the work they start
+    /// runs on inside `crates/agentic/*` — the pipeline run behind a custom
+    /// app's `useAsk`, an automation run, a connector query on the blocking
+    /// pool — and every `tokio::spawn` in there dropped the hub the handler
+    /// had bound, so an error or panic past that point reached Sentry
+    /// untagged. Those crates cannot know the tag (`agentic-core` depends on
+    /// nothing of ours), so they carry the hub blind:
+    /// `agentic_core::hub_task::{spawn_with_hub, spawn_blocking_with_hub}`
+    /// replace `tokio::spawn` / `spawn_blocking` outright, and
+    /// `bind_current_hub` wraps the future handed to an executor those two
+    /// cannot stand in for (`JoinSet::spawn`, `LocalSet::spawn_local`).
+    ///
+    /// So the rule is simpler than the one above: a bare spawn has nothing to
+    /// pair against and must not exist unless `UNHUBBED_AGENTIC` names it — a
+    /// boot-time loop with no request hub to inherit, or a task that outlives
+    /// the request that started it, where a carried hub would misattribute
+    /// whatever it captures later. An exemption whose spawn is gone fails too:
+    /// left behind, it would cover the next bare spawn added to that file.
+    /// `async_stream::stream!` is not a detector here: a stream body runs on
+    /// its poller's hub, and the only streams that escape one — SSE bodies —
+    /// are bound where the custom-app handlers hand them to axum, above.
+    ///
+    /// This lives here rather than in `agentic-core` because it shares
+    /// `Unhubbed` and `rust_files` with the walk above and CI runs it on every
+    /// PR; the cost is that `just unit agentic-runtime` alone stays green on a
+    /// bare spawn.
+    #[test]
+    fn every_agentic_spawn_carries_a_hub() {
+        const UNHUBBED_AGENTIC: &[Unhubbed] = &[
+            Unhubbed {
+                file: "runtime/src/orchestrator/background.rs",
+                site: "start_with_options",
+                why: "the reaper + health-probe loop `background::start` spawns once at boot: \
+                      there is no request hub to inherit, and what it can capture is Oxy's \
+                      own queue upkeep failing — a platform bug, which is what Sentry is for.",
+            },
+            Unhubbed {
+                file: "runtime/src/orchestrator/transport/durable.rs",
+                site: "spawn_stuck_run_sweeper",
+                why: "a boot-time sweeper loop over stuck runs; the same reasoning.",
+            },
+            Unhubbed {
+                file: "runtime/src/orchestrator/router/postgres.rs",
+                site: "start_with_options",
+                why: "the LISTEN/NOTIFY listener loop the task router starts at boot.",
+            },
+            Unhubbed {
+                file: "runtime/src/orchestrator/router/postgres.rs",
+                site: "listen_once",
+                why: "that listener's connection driver: it lives as long as the listen \
+                      does and serves no request.",
+            },
+            Unhubbed {
+                file: "connector/src/postgres.rs",
+                site: "ensure_client_connected",
+                why: "the connection driver of the connector's memoized `Client`: it lives as \
+                      long as that client does and serves no single request, so carrying the \
+                      hub of whichever request opened the connection would drop a later \
+                      driver error as that custom app's. (`postgres_tx`'s driver is \
+                      transaction-scoped and stays wrapped.)",
+            },
+        ];
+
+        let agentic_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../agentic");
+        let mut files = Vec::new();
+        rust_files(&agentic_root, &mut files);
+        files.sort();
+
+        let mut walked = 0usize;
+        let mut carried = 0usize;
+        for path in files {
+            let relative = path
+                .strip_prefix(&agentic_root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            // The wrappers themselves, and the tests that spawn bare on purpose.
+            if is_agentic_test_file(&relative) || relative == "core/src/hub_task.rs" {
+                continue;
+            }
+            let Ok(raw) = fs::read_to_string(&path) else {
+                continue;
+            };
+            walked += 1;
+            let spawns = AgenticSpawns::of(&raw);
+            carried += spawns.carried;
+
+            let exempt: Vec<&Unhubbed> = UNHUBBED_AGENTIC
+                .iter()
+                .filter(|entry| entry.file == relative)
+                .collect();
+            let exempt_sites = exempt
+                .iter()
+                .map(|entry| entry.site)
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            assert!(
+                exempt.len() <= spawns.detected,
+                "crates/agentic/{relative}: {} documented exemption(s) ({exempt_sites}) but only \
+                 {} bare spawn site(s) — an exempted spawn was removed or wrapped. Delete its \
+                 `UNHUBBED_AGENTIC` entry: left behind, it would cover the next bare spawn \
+                 added to this file.",
+                exempt.len(),
+                spawns.detected,
+            );
+            assert!(
+                spawns.all_carried(exempt.len()),
+                "crates/agentic/{relative}: {} bare spawn/blocking/thread site(s), but only {} \
+                 `bind_current_hub` binding(s) and {} documented exemption(s) ({exempt_sites}) \
+                 to account for them.\n\n\
+                 Work spawned here drops the hub of the task that spawned it — for a \
+                 custom app's run, the tag `before_send` needs to keep the tenant's error \
+                 or panic out of Sentry. Spawn through `agentic_core::hub_task` \
+                 (`agentic_runtime::hub_task` from `agentic-http`): `spawn_with_hub(..)` \
+                 for `tokio::spawn`, `spawn_blocking_with_hub(..)` for `spawn_blocking`, \
+                 `bind_current_hub(..)` on the future handed to a `JoinSet`, a `LocalSet` \
+                 or another executor. If this is a loop started at boot with no request \
+                 hub to inherit, or a task that outlives the request that started it, add \
+                 it to `UNHUBBED_AGENTIC` with the reason.",
+                spawns.detected,
+                spawns.bound,
+                exempt.len(),
+            );
+            if !exempt.is_empty() {
+                let text = agentic_production_text(&raw);
+                for entry in exempt {
+                    assert!(
+                        text.contains(entry.site),
+                        "crates/agentic/{relative}: exemption for `{}` no longer matches \
+                         anything in the file — it was documented as: {}",
+                        entry.site,
+                        entry.why,
+                    );
+                }
+            }
+        }
+
+        // The walk has to be load-bearing: a moved crate directory would walk
+        // nothing and a renamed wrapper would count nothing, and either would
+        // pass every per-file check above. 301 files and 47 carried sites when
+        // these floors were set.
+        assert!(
+            walked >= 250,
+            "the agentic walk read only {walked} source file(s), expected at least 250. Did \
+             `crates/agentic` move? Fix the root this test walks rather than the number."
+        );
+        assert!(
+            carried >= 40,
+            "the agentic walk counted only {carried} `hub_task` call site(s), expected at \
+             least 40. If the wrappers were renamed, update `AGENTIC_CARRIES`. If the agentic \
+             crates legitimately shed spawns, nothing is wrong: lower this floor to just \
+             under the new count. It exists only so a scan that silently matches nothing \
+             cannot pass."
+        );
+    }
+
+    /// The scan's arithmetic, on fixtures: every way of writing a bare spawn
+    /// trips exactly one detector and fails its file. One, not two — a site
+    /// counted twice would need two bindings, or two exemptions, to clear.
+    #[test]
+    fn a_bare_agentic_spawn_is_detected_in_every_spelling() {
+        const BARE: [&str; 11] = [
+            "fn f() { tokio::spawn(async {}); }",
+            "fn f() { tokio::task::spawn(async {}); }",
+            "fn f() { tokio::task::spawn_blocking(|| ()); }",
+            "fn f(handle: Handle) { handle.spawn_blocking(|| ()); }",
+            "fn f() { tokio::task::spawn_local(async {}); }",
+            "fn f(local: &LocalSet) { local.spawn_local(async {}); }",
+            "fn f(set: &mut JoinSet<()>) { set.spawn(async {}); }",
+            "fn f() { std::thread::spawn(|| ()); }",
+            "fn f() { std::thread::Builder::new().spawn(|| ()).unwrap(); }",
+            "fn f() { std::thread::scope(|s| { s.spawn(|| ()); }); }",
+            "fn f(s: &Scope, b: Builder) { b.spawn_scoped(s, || ()).unwrap(); }",
+        ];
+        for source in BARE {
+            let spawns = AgenticSpawns::of(source);
+            assert_eq!(
+                spawns.detected, 1,
+                "`{source}` should trip exactly one detector"
+            );
+            assert!(
+                !spawns.all_carried(0),
+                "`{source}` is a bare spawn and must fail its file"
+            );
+        }
+    }
+
+    /// ...and the other direction: a wrapped, bound or exempted spawn passes,
+    /// over-binding is not punished, test and comment text is not production
+    /// code — and a bare spawn beside a bound one still fails.
+    #[test]
+    fn a_carried_agentic_spawn_passes_and_a_bare_one_beside_it_does_not() {
+        // The wrappers leave no detector behind.
+        let wrapped = AgenticSpawns::of(
+            "fn f() { spawn_with_hub(async {}); spawn_blocking_with_hub(|| ()); }",
+        );
+        assert_eq!(
+            (wrapped.detected, wrapped.bound, wrapped.carried),
+            (0, 0, 2)
+        );
+        assert!(wrapped.all_carried(0));
+
+        // An executor spawn pairs with its binding, a `LocalSet` included.
+        for source in [
+            "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(async {})); }",
+            "fn f(local: &LocalSet) { local.spawn_local(bind_current_hub(async {})); }",
+        ] {
+            let spawns = AgenticSpawns::of(source);
+            assert_eq!((spawns.detected, spawns.bound), (1, 1), "{source}");
+            assert!(spawns.all_carried(0), "{source}");
+        }
+
+        // Over-binding: a bound future handed to something no detector names.
+        let over_bound = AgenticSpawns::of(
+            "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(a())); \
+             let later = bind_current_hub(b()); }",
+        );
+        assert_eq!((over_bound.detected, over_bound.bound), (1, 2));
+        assert!(
+            over_bound.all_carried(0),
+            "a surplus binding is not a bare spawn"
+        );
+
+        // A bare spawn beside a bound one still fails the file...
+        let mixed = AgenticSpawns::of(
+            "fn f(set: &mut JoinSet<()>) { set.spawn(bind_current_hub(a())); tokio::spawn(b()); }",
+        );
+        assert_eq!((mixed.detected, mixed.bound), (2, 1));
+        assert!(!mixed.all_carried(0));
+        // ...unless it is a documented exemption.
+        assert!(mixed.all_carried(1));
+
+        // Test modules, wherever they sit, and comment lines are not production.
+        let source = [
+            "// tokio::spawn( named in prose",
+            "fn f() {}",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    fn t() { tokio::spawn(async {}); }",
+            "}",
+            "fn g() { spawn_with_hub(async {}); }",
+        ]
+        .join("\n");
+        let spawns = AgenticSpawns::of(&source);
+        assert_eq!((spawns.detected, spawns.carried), (0, 1));
     }
 
     #[test]

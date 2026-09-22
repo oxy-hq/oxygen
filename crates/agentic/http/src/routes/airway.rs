@@ -36,6 +36,7 @@
 
 use std::sync::Arc;
 
+use agentic_runtime::hub_task::spawn_with_hub;
 use axum::{
     Json,
     extract::{Extension, Path},
@@ -428,7 +429,7 @@ pub async fn chunked_backfill(
 
     let db = state.db.clone();
     let pref = body.pipeline_ref.clone();
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         if let Err(e) = drive_backfill_range(&db, platform, range_id, None, |_| {}).await {
             tracing::error!(%e, pipeline_ref = %pref, %range_id, "chunked backfill driver failed");
         }
@@ -475,7 +476,7 @@ pub async fn airway_resume(
     // `TaskSpec`, so a mid-drive restart drops the in-flight resume. Checkpoints
     // make that safe — another Resume just continues from the still-not-`done`
     // chunks. `resume_backfill_range` re-checks the range's workspace.
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         if let Err(e) = resume_backfill_range(&db, platform, range_id, None, |_| {}).await {
             tracing::error!(%e, %range_id, "airway resume driver failed");
         }

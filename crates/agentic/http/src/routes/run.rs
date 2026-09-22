@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use agentic_runtime::hub_task::spawn_with_hub;
 use axum::{
     Json,
     extract::{Extension, Path},
@@ -244,7 +245,7 @@ pub async fn create_run(
     let builder_test_runner = state.builder_test_runner.clone();
     let builder_app_runner = state.builder_app_runner.clone();
     let router = state.router.clone();
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
             started,
             db,
@@ -1064,7 +1065,7 @@ pub async fn answer_run(
     let builder_test_runner = state.builder_test_runner.clone();
     let builder_app_runner = state.builder_app_runner.clone();
     let router = state.router.clone();
-    tokio::spawn(async move {
+    spawn_with_hub(async move {
         agentic_pipeline::drive_with_coordinator(
             started,
             db,

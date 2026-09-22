@@ -4,6 +4,7 @@
 //! semantic queries compile via airlayer then execute, and unsupported
 //! types return clear error messages.
 
+use agentic_core::hub_task::spawn_blocking_with_hub;
 use agentic_core::result::CellValue;
 use serde_json::{Value, json};
 
@@ -295,7 +296,7 @@ async fn execute_semantic_query(
         } => {
             let sql_for_exec = preagg_sql.clone();
             let source_for_exec = source.clone();
-            let mut result = tokio::task::spawn_blocking(move || {
+            let mut result = spawn_blocking_with_hub(move || {
                 crate::preagg::execute_preagg_sql(&sql_for_exec, &source_for_exec)
             })
             .await

@@ -47,6 +47,11 @@ pub mod orchestrator;
 pub use lifecycle::{bridge, event_registry, handle, state};
 pub use orchestrator::{background, circuit_breaker, coordinator, router, transport, worker};
 
+/// The hub-carrying `spawn` / `spawn_blocking` the agentic crates use in
+/// place of tokio's, re-exported for `agentic-http`: it may name this crate
+/// but not `agentic-core`, and its handlers spawn too.
+pub use agentic_core::hub_task;
+
 /// Union of lifecycle + orchestrator entities under the legacy
 /// `agentic_runtime::entity::*` path.
 pub mod entity {

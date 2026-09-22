@@ -29,6 +29,7 @@
 
 mod convert;
 
+use agentic_core::hub_task::spawn_with_hub;
 use async_trait::async_trait;
 use tokio_postgres::Client;
 use tokio_postgres::types::ToSql;
@@ -142,7 +143,7 @@ impl PgTransaction {
             .map_err(|e| {
                 ConnectorError::ConnectionError(format!("connect failed: {}", pg_error_message(&e)))
             })?;
-        let driver = tokio::spawn(async move {
+        let driver = spawn_with_hub(async move {
             if let Err(e) = connection.await {
                 tracing::debug!("transaction connection closed: {e}");
             }

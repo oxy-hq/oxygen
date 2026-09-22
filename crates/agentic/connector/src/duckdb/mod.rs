@@ -17,6 +17,7 @@ use std::{
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
+use agentic_core::hub_task::spawn_blocking_with_hub;
 use async_trait::async_trait;
 use duckdb::{Connection, types::Value};
 use slugify::slugify;
@@ -551,7 +552,7 @@ impl DatabaseConnector for DuckDbConnector {
         // that parked this task.
         let conn = self.conn.clone();
         let sql_owned = sql.to_string();
-        tokio::task::spawn_blocking(move || {
+        spawn_blocking_with_hub(move || {
             let conn = conn
                 .lock()
                 .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
@@ -585,7 +586,7 @@ impl DatabaseConnector for DuckDbConnector {
         // callers (e.g. join_all of 29 filter-count queries) can run in parallel
         // rather than serialising on the limited worker-thread pool.  Pattern is
         // identical to `execute_statement` above.
-        tokio::task::spawn_blocking(move || {
+        spawn_blocking_with_hub(move || {
             let conn = conn
                 .lock()
                 .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;

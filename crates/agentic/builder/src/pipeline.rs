@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use agentic_core::hub_task::spawn_with_hub;
 use chrono_tz::Tz;
 
 use agentic_core::events::{CoreEvent, Event, EventStream};
@@ -140,7 +141,7 @@ pub fn start_pipeline(params: BuilderPipelineParams) -> PipelineHandle<BuilderEv
         history: params.history,
     };
 
-    let join = tokio::spawn(
+    let join = spawn_with_hub(
         async move {
             let result = tokio::select! {
                 r = orchestrator.run(initial_intent) => Some(r),
@@ -262,7 +263,7 @@ pub fn resume_pipeline(
         .with_handlers(build_builder_handlers())
         .with_events(event_stream);
 
-    let join = tokio::spawn(
+    let join = spawn_with_hub(
         async move {
             // Emit synthetic ToolResult for file_change so the LLM sees the
             // user's accept/reject decision when the orchestrator resumes.
