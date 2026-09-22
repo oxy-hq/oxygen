@@ -108,7 +108,10 @@ reqwest = { workspace = true, features = [
     "json",
     "query",
 ], optional = true }
-serde_json = { workspace = true, optional = true }
+# `raw_value` — `execute_query_full` reads wide integers off the JSON text
+# ClickHouse wrote; parsed to a number first, anything past `u64` becomes an
+# `f64` and loses its digits.
+serde_json = { workspace = true, features = ["raw_value"], optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 
 # Snowflake

@@ -22,13 +22,15 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 use agentic_core::result::{
     CellValue, ColumnSpec, QueryResult, QueryRow, TypedRowError, TypedRowStream, TypedValue,
 };
 
-use crate::clickhouse_typed::{ch_type_to_typed, parse_ch_cell};
+use crate::clickhouse_typed::{ch_type_to_typed, parse_ch_raw_cell};
 use crate::connector::{
     ColumnStats, ConnectorError, DatabaseConnector, ExecutionResult, ResultSummary,
     SchemaColumnInfo, SchemaInfo, SchemaTableInfo, SqlDialect, SqlScript, is_returning_statement,
@@ -38,10 +40,15 @@ use crate::connector::{
 // ── HTTP response types ────────────────────────────────────────────────────────
 
 /// Parsed ClickHouse JSONCompact response.
+///
+/// `C` is the cell: a parsed [`Value`] for the summary and schema paths, or
+/// the JSON text ClickHouse wrote (`Box<RawValue>`) for `execute_query_full`,
+/// which reads integers wider than `u64` off the text — parsed first they
+/// would be `f64`s with the digits gone.
 #[derive(Debug, Deserialize)]
-struct ChResponse {
+struct ChResponse<C = Value> {
     meta: Vec<ChMeta>,
-    data: Vec<Vec<Value>>,
+    data: Vec<Vec<C>>,
     #[allow(dead_code)]
     #[serde(default)]
     rows: u64,
@@ -194,6 +201,19 @@ impl ClickHouseConnector {
     /// Execute a SQL string against ClickHouse via HTTP, returning the parsed
     /// JSONCompact response.
     async fn http_query(&self, sql: &str) -> Result<ChResponse, ConnectorError> {
+        self.http_query_as(sql).await
+    }
+
+    /// [`http_query`](Self::http_query) with each cell left as the JSON text
+    /// ClickHouse wrote, for the exact-digit decoding in `execute_query_full`.
+    async fn http_query_raw(&self, sql: &str) -> Result<ChResponse<Box<RawValue>>, ConnectorError> {
+        self.http_query_as(sql).await
+    }
+
+    async fn http_query_as<C: DeserializeOwned>(
+        &self,
+        sql: &str,
+    ) -> Result<ChResponse<C>, ConnectorError> {
         http_query(
             &self.client,
             &self.url,
@@ -287,7 +307,7 @@ fn result_guard_params(max_result_bytes: u64) -> [(&'static str, String); 2] {
 }
 
 /// POST `sql` to the ClickHouse HTTP endpoint and parse the JSONCompact response.
-async fn http_query(
+async fn http_query<C: DeserializeOwned>(
     client: &reqwest::Client,
     url: &str,
     user: &str,
@@ -295,7 +315,7 @@ async fn http_query(
     database: &str,
     max_result_bytes: u64,
     sql: &str,
-) -> Result<ChResponse, ConnectorError> {
+) -> Result<ChResponse<C>, ConnectorError> {
     let body = format!("{sql} FORMAT JSONCompact");
 
     let response = client
@@ -326,7 +346,7 @@ async fn http_query(
         .await
         .map_err(|e| ConnectorError::query_failed(sql.to_string(), e.to_string()))?;
 
-    serde_json::from_str::<ChResponse>(&text).map_err(|e| {
+    serde_json::from_str::<ChResponse<C>>(&text).map_err(|e| {
         ConnectorError::query_failed(
             sql.to_string(),
             format!("JSON parse error: {e}\nResponse: {text}"),
@@ -565,9 +585,10 @@ impl DatabaseConnector for ClickHouseConnector {
         // One request: `SELECT * FROM (user_sql) FORMAT JSONCompact`.
         // The response carries per-column `meta.type` strings (Nullable,
         // LowCardinality, composites all included) and a row-major `data`
-        // array of JSON values, which `parse_ch_cell` decodes typed.
+        // array of JSON cells, which `parse_ch_raw_cell` decodes typed from
+        // their text.
         let full_sql = format!("SELECT * FROM ({sql})");
-        let resp = self.http_query(&full_sql).await?;
+        let resp = self.http_query_raw(&full_sql).await?;
 
         let columns: Vec<ColumnSpec> = resp
             .meta
@@ -585,8 +606,8 @@ impl DatabaseConnector for ClickHouseConnector {
             .map(|row| {
                 let mut cells = Vec::with_capacity(col_count);
                 for (idx, col) in columns.iter().enumerate() {
-                    let v = row.get(idx).unwrap_or(&Value::Null);
-                    cells.push(parse_ch_cell(v, col)?);
+                    let text = row.get(idx).map_or("null", |cell| cell.get());
+                    cells.push(parse_ch_raw_cell(text, col)?);
                 }
                 Ok(cells)
             })
@@ -683,7 +704,7 @@ async fn fetch_schema(
     );
 
     // Schema introspection is small; the default ceiling is plenty.
-    let resp = http_query(
+    let resp: ChResponse = http_query(
         client,
         url,
         user,
@@ -829,6 +850,33 @@ mod tests {
         let info = DatabaseConnector::introspect_schema(&conn)
             .expect("a populated cache answers even with an error recorded");
         assert!(info.tables.is_empty());
+    }
+
+    /// The typed path keeps each cell as the JSON text ClickHouse wrote, so a
+    /// `UInt256` past `u64` reaches the decoder with its digits intact.
+    /// Parsed to a `Value` first, `serde_json` would hold it as
+    /// `1.157920892373162e+77`.
+    #[test]
+    fn a_raw_response_keeps_a_uint256_cell_verbatim() {
+        const UINT256_MAX: &str =
+            "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+        let body = format!(
+            r#"{{"meta":[{{"name":"c","type":"UInt256"}}],"data":[[{UINT256_MAX}]],"rows":1}}"#
+        );
+        let resp: ChResponse<Box<RawValue>> = serde_json::from_str(&body).unwrap();
+        assert_eq!(resp.data[0][0].get(), UINT256_MAX);
+
+        let col = ColumnSpec {
+            name: "c".into(),
+            data_type: ch_type_to_typed(resp.meta[0].r#type.as_deref().unwrap()),
+        };
+        assert_eq!(
+            parse_ch_raw_cell(resp.data[0][0].get(), &col).unwrap(),
+            TypedValue::Decimal(UINT256_MAX.into())
+        );
+
+        let lossy: ChResponse = serde_json::from_str(&body).unwrap();
+        assert_eq!(lossy.data[0][0].to_string(), "1.157920892373162e+77");
     }
 
     #[test]

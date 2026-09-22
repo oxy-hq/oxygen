@@ -225,7 +225,7 @@
           "native_type": "UInt64",
           "class": "precision_gt_18",
           "value_sql": "18446744073709551615",
-          "expect": { "warehouse": {"$error": "not a 64-bit integer"} }
+          "expect": { "warehouse": "18446744073709551615" }
         },
         {
           "key": "clickhouse/Nullable(UInt64)/null",
@@ -260,7 +260,7 @@
           "native_type": "Int128",
           "class": "precision_gt_18",
           "value_sql": "toInt128('-170141183460469231731687303715884105728')",
-          "expect": { "warehouse": "-1.7014118346046923e+38" }
+          "expect": { "warehouse": "-170141183460469231731687303715884105728" }
         },
         {
           "key": "clickhouse/Nullable(Int128)/null",
@@ -288,7 +288,7 @@
           "native_type": "UInt128",
           "class": "precision_gt_18",
           "value_sql": "toUInt128('340282366920938463463374607431768211455')",
-          "expect": { "warehouse": "3.402823669209385e+38" }
+          "expect": { "warehouse": "340282366920938463463374607431768211455" }
         },
         {
           "key": "clickhouse/Nullable(UInt128)/null",
@@ -323,7 +323,7 @@
           "native_type": "Int256",
           "class": "precision_gt_18",
           "value_sql": "toInt256('-57896044618658097711785492504343953926634992332820282019728792003956564819968')",
-          "expect": { "warehouse": "-5.78960446186581e+76" }
+          "expect": { "warehouse": "-57896044618658097711785492504343953926634992332820282019728792003956564819968" }
         },
         {
           "key": "clickhouse/Nullable(Int256)/null",
@@ -351,7 +351,7 @@
           "native_type": "UInt256",
           "class": "precision_gt_18",
           "value_sql": "toUInt256('115792089237316195423570985008687907853269984665640564039457584007913129639935')",
-          "expect": { "warehouse": "1.157920892373162e+77" }
+          "expect": { "warehouse": "115792089237316195423570985008687907853269984665640564039457584007913129639935" }
         },
         {
           "key": "clickhouse/Nullable(UInt256)/null",
@@ -464,6 +464,13 @@
           "class": "precision_gt_18",
           "value_sql": "toDecimal128('1234567890123456789.0123456789', 10)",
           "expect": { "warehouse": "1.2345678901234568e+18" }
+        },
+        {
+          "key": "clickhouse/Decimal(38, 0)/precision_gt_18",
+          "native_type": "Decimal(38, 0)",
+          "class": "precision_gt_18",
+          "value_sql": "toDecimal128('12345678901234567890123456789012345678', 0)",
+          "expect": { "warehouse": "12345678901234567890123456789012345678" }
         },
         {
           "key": "clickhouse/Decimal32(4)/plain",
@@ -1171,7 +1178,7 @@
           "class": "plain",
           "value_sql": "'a'",
           "expect": {
-            "warehouse": {"$error": "native type 'Text'): error deserializing column"},
+            "warehouse": "a",
             "oltp": {"$error": "Postgres type `char`, which cannot be returned directly"}
           }
         },
@@ -1181,7 +1188,7 @@
           "class": "null",
           "value_sql": "NULL",
           "expect": {
-            "warehouse": {"$error": "native type 'Text'): error deserializing column"},
+            "warehouse": null,
             "oltp": {"$error": "Postgres type `char`, which cannot be returned directly"}
           }
         },
@@ -2164,7 +2171,7 @@
           "native_type": "TIMESTAMP_NS",
           "class": "date_before_1970",
           "value_sql": "'1969-07-20 20:17:40.500000001'::TIMESTAMP_NS",
-          "expect": { "warehouse": "1969-07-20 20:17:40.500001" }
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
         },
         {
           "key": "duckdb/TIMESTAMP_NS/date_after_2100",

@@ -48,7 +48,7 @@ there first whether a platform change caused it.
 
 **`shape_zoo` runs by default, and it is the expensive step.** `CANARY_STEPS`
 absent means all, and `shape_zoo` is in that list. One run issues roughly **200
-statements** — a read per case, 114 ClickHouse and 81 Postgres, plus a create
+statements** — a read per case, 115 ClickHouse and 81 Postgres, plus a create
 and a count on each plane — all sequential. That is what `canary`'s
 180-second `timeoutSeconds` is sized for; at the 60 seconds the other steps
 need, the step times out rather than failing on a case. A deployment that has

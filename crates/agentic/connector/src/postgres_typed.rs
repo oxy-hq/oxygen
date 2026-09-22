@@ -81,9 +81,15 @@ pub(crate) fn select_expr_for_pg_type(quoted_col: &str, typname: &str) -> String
         // UUID has no feature-free decoder; cast to text.
         "uuid" => format!("{quoted_col}::TEXT"),
 
+        // `"char"` is one byte, which `tokio_postgres` reads as an `i8`, not a
+        // `String`; left bare, the decode failed with a message that named
+        // neither the column nor the type. Cast it to text and it is the one
+        // character it holds.
+        "char" => format!("{quoted_col}::TEXT"),
+
         // Types we can decode natively — no cast needed.
         "bool" | "int2" | "int4" | "int8" | "float4" | "float8" | "text" | "varchar" | "bpchar"
-        | "char" | "name" | "bytea" | "date" | "timestamp" | "timestamptz" | "json" | "jsonb" => {
+        | "name" | "bytea" | "date" | "timestamp" | "timestamptz" | "json" | "jsonb" => {
             quoted_col.to_string()
         }
 
@@ -259,6 +265,16 @@ mod tests {
         assert_eq!(select_expr_for_pg_type("\"x\"", "uuid"), "\"x\"::TEXT");
         assert_eq!(select_expr_for_pg_type("\"x\"", "interval"), "\"x\"::TEXT");
         assert_eq!(select_expr_for_pg_type("\"x\"", "jsonb"), "\"x\"");
+    }
+
+    /// `"char"` (the one-byte type, distinct from `bpchar`) maps to text like
+    /// its wider cousins, and its SELECT casts — the bare column decodes as an
+    /// `i8` in `tokio_postgres`, which the text decoder refused.
+    #[test]
+    fn select_expr_casts_the_one_byte_char_to_text() {
+        assert_eq!(pg_typname_to_typed("char"), TypedDataType::Text);
+        assert_eq!(select_expr_for_pg_type("\"x\"", "char"), "\"x\"::TEXT");
+        assert_eq!(select_expr_for_pg_type("\"x\"", "bpchar"), "\"x\"");
     }
 
     #[test]

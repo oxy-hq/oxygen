@@ -19,20 +19,28 @@ pub(super) fn epoch_days_to_iso(days: i32) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// Ticks per second for a DuckDB timestamp unit, and the digits a fraction of
+/// a second takes in it.
+fn ticks_and_fraction_digits(unit: &TimeUnit) -> (i64, usize) {
+    match unit {
+        TimeUnit::Second => (1, 0),
+        TimeUnit::Millisecond => (1_000, 3),
+        TimeUnit::Microsecond => (1_000_000, 6),
+        TimeUnit::Nanosecond => (1_000_000_000, 9),
+    }
+}
+
 /// Convert a timestamp (in the given unit, since Unix epoch) to an ISO datetime string.
+///
+/// Floor division, not `/`: a pre-1970 instant is a negative tick count, and
+/// truncating toward zero would read `20:17:40.5` as `20:17:41` with the
+/// fraction taken from the wrong second. The fraction is zero-padded to the
+/// unit's width: one microsecond is `.000001`, where a bare `{sub_secs}`
+/// wrote `.1`.
 pub(super) fn epoch_ts_to_iso(unit: &TimeUnit, value: i64) -> String {
-    let secs = match unit {
-        TimeUnit::Second => value,
-        TimeUnit::Millisecond => value / 1_000,
-        TimeUnit::Microsecond => value / 1_000_000,
-        TimeUnit::Nanosecond => value / 1_000_000_000,
-    };
-    let sub_secs = match unit {
-        TimeUnit::Second => 0i64,
-        TimeUnit::Millisecond => (value % 1_000).abs(),
-        TimeUnit::Microsecond => (value % 1_000_000).abs(),
-        TimeUnit::Nanosecond => (value % 1_000_000_000).abs(),
-    };
+    let (ticks, digits) = ticks_and_fraction_digits(unit);
+    let secs = value.div_euclid(ticks);
+    let sub_secs = value.rem_euclid(ticks);
     let days = secs.div_euclid(86_400) as i32;
     let time_secs = secs.rem_euclid(86_400);
     let h = time_secs / 3600;
@@ -44,7 +52,7 @@ pub(super) fn epoch_ts_to_iso(unit: &TimeUnit, value: i64) -> String {
     } else if sub_secs == 0 {
         format!("{date} {h:02}:{m:02}:{s:02}")
     } else {
-        format!("{date} {h:02}:{m:02}:{s:02}.{sub_secs}")
+        format!("{date} {h:02}:{m:02}:{s:02}.{sub_secs:0digits$}")
     }
 }
 
@@ -179,7 +187,9 @@ pub(super) fn duckdb_value_to_typed(v: Value, data_type: &TypedDataType) -> Type
                 TimeUnit::Second => value.saturating_mul(1_000_000),
                 TimeUnit::Millisecond => value.saturating_mul(1_000),
                 TimeUnit::Microsecond => value,
-                TimeUnit::Nanosecond => value / 1_000,
+                // Floor, not truncate: before 1970 the count is negative, and
+                // `/` would carry `.500000001` to `.500001`.
+                TimeUnit::Nanosecond => value.div_euclid(1_000),
             };
             TypedValue::Timestamp(micros)
         }
@@ -211,5 +221,89 @@ pub(super) fn duckdb_to_cell_opt(v: Value) -> Option<CellValue> {
         Value::Enum(s) => Some(CellValue::Text(s)),
         Value::Blob(_) => None,
         other => Some(CellValue::Text(format!("{other:?}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 1969-07-20 20:17:40.500000001 UTC, in nanoseconds since the epoch.
+    const MOON_LANDING_NS: i64 = -14_182_939_499_999_999;
+
+    #[test]
+    fn nanoseconds_before_1970_floor_to_the_microsecond() {
+        let got = duckdb_value_to_typed(
+            Value::Timestamp(TimeUnit::Nanosecond, MOON_LANDING_NS),
+            &TypedDataType::Timestamp,
+        );
+        // 20:17:40.500000, not 20:17:40.500001.
+        assert_eq!(got, TypedValue::Timestamp(-14_182_939_500_000));
+    }
+
+    #[test]
+    fn nanoseconds_after_1970_drop_the_sub_microsecond_digits() {
+        let got = duckdb_value_to_typed(
+            Value::Timestamp(TimeUnit::Nanosecond, 1_710_074_096_789_123_456),
+            &TypedDataType::Timestamp,
+        );
+        assert_eq!(got, TypedValue::Timestamp(1_710_074_096_789_123));
+    }
+
+    #[test]
+    fn iso_rendering_before_1970_keeps_the_second_and_its_fraction() {
+        assert_eq!(
+            epoch_ts_to_iso(&TimeUnit::Nanosecond, MOON_LANDING_NS),
+            "1969-07-20 20:17:40.500000001"
+        );
+        assert_eq!(
+            epoch_ts_to_iso(&TimeUnit::Millisecond, -14_182_939_500),
+            "1969-07-20 20:17:40.500"
+        );
+        assert_eq!(
+            epoch_ts_to_iso(&TimeUnit::Second, -14_182_940),
+            "1969-07-20 20:17:40"
+        );
+    }
+
+    /// The fraction is as wide as its unit — 3, 6 or 9 digits — so one tick
+    /// past the second is `.000001`, not `.1`, on either side of the epoch.
+    #[test]
+    fn iso_rendering_pads_a_short_fraction_to_the_unit_width() {
+        // 2024-01-01 00:00:00 UTC is 1_704_067_200 seconds after the epoch.
+        for (unit, after, before, fraction) in [
+            (
+                TimeUnit::Millisecond,
+                1_704_067_200_005,
+                -14_182_939_995,
+                "005",
+            ),
+            (
+                TimeUnit::Microsecond,
+                1_704_067_200_000_001,
+                -14_182_939_999_999,
+                "000001",
+            ),
+            (
+                TimeUnit::Nanosecond,
+                1_704_067_200_000_000_001,
+                -14_182_939_999_999_999,
+                "000000001",
+            ),
+        ] {
+            assert_eq!(
+                epoch_ts_to_iso(&unit, after),
+                format!("2024-01-01 00:00:00.{fraction}")
+            );
+            assert_eq!(
+                epoch_ts_to_iso(&unit, before),
+                format!("1969-07-20 20:17:40.{fraction}")
+            );
+        }
+        // A fraction with a zero in the middle keeps it: 50 ms is `.050`.
+        assert_eq!(
+            epoch_ts_to_iso(&TimeUnit::Millisecond, 1_704_067_200_050),
+            "2024-01-01 00:00:00.050"
+        );
     }
 }

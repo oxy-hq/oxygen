@@ -1,9 +1,11 @@
 //! Row-oriented typed conversion helpers for the ClickHouse backend.
 //!
 //! ClickHouse's HTTP `FORMAT JSONCompact` response gives us both column
-//! metadata (with CH's rich type strings) and each row as
-//! `Vec<serde_json::Value>`. This module translates those into
-//! [`TypedDataType`] / [`TypedValue`] for [`execute_query_full`].
+//! metadata (with CH's rich type strings) and each row as an array of JSON
+//! cells. This module translates those into [`TypedDataType`] /
+//! [`TypedValue`] for [`execute_query_full`]: [`parse_ch_raw_cell`] takes a
+//! cell's JSON text, so an integer wider than `u64` keeps its digits, and
+//! [`parse_ch_cell`] the parsed `Value` for everything else.
 //!
 //! The type parser understands the wrappers CH sends in column metadata
 //! (`Nullable(...)`, `LowCardinality(...)`) plus the common scalar types.
@@ -52,9 +54,12 @@ pub(crate) fn ch_type_to_typed(type_str: &str) -> TypedDataType {
     match inner {
         "Bool" | "Boolean" => TypedDataType::Bool,
         "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" => TypedDataType::Int32,
-        // UInt32 fits in i64; Int64 / UInt64 / Int128+ may overflow — fall back
-        // to Decimal string in `parse_ch_cell`.
+        // `UInt64` keeps the `Int64` type so ordinary values stay JSON numbers;
+        // one above `i64::MAX` decodes to a `Decimal` string holding its exact
+        // digits (`parse_ch_cell`), the way DuckDB's `UBIGINT` does.
         "Int64" | "UInt32" | "UInt64" => TypedDataType::Int64,
+        // Wider than any integer `TypedValue`: a `Decimal` string holding the
+        // exact digits, read off the JSON text by `parse_ch_raw_cell`.
         "Int128" | "UInt128" | "Int256" | "UInt256" => TypedDataType::Decimal {
             precision: 38,
             scale: 0,
@@ -114,11 +119,61 @@ fn parse_decimal(rest: &str) -> TypedDataType {
 
 // ── JSONCompact cell → TypedValue ────────────────────────────────────────────
 
+/// Decode a JSONCompact cell from the JSON text ClickHouse wrote for it.
+///
+/// `serde_json` parses a bare integer wider than `u64` — an `Int128` through
+/// `UInt256` past 2^64, or an integer-valued `Decimal` that wide — as an
+/// `f64`, so [`parse_ch_cell`] would see `1.157920892373162e+77` and keep
+/// that. Reading the digits off the text first keeps them exact, quoted by
+/// the server or not. Everything else parses to a `Value` and takes the
+/// [`parse_ch_cell`] path.
+pub(crate) fn parse_ch_raw_cell(text: &str, col: &ColumnSpec) -> Result<TypedValue, TypedRowError> {
+    match (&col.data_type, integer_literal(text)) {
+        (TypedDataType::Decimal { .. }, Some(digits)) => {
+            return Ok(TypedValue::Decimal(digits.to_string()));
+        }
+        // The commonest ClickHouse cell — ids, `count()`, every `UInt32` and
+        // `Int64` column — so the digits parse in place, `i64` then `u64`, as
+        // `parse_ch_cell` would. Only the refusal builds a `Value`, so that
+        // `parse_ch_cell` words it.
+        (TypedDataType::Int64, Some(digits)) => {
+            if let Ok(n) = digits.parse::<i64>() {
+                return Ok(TypedValue::Int64(n));
+            }
+            if let Ok(n) = digits.parse::<u64>() {
+                return Ok(TypedValue::Decimal(n.to_string()));
+            }
+            return parse_ch_cell(&Value::String(digits.to_string()), col);
+        }
+        _ => {}
+    }
+    let value: Value = serde_json::from_str(text).map_err(|e| TypedRowError::TypeMappingError {
+        column: col.name.clone(),
+        native_type: format!("{:?}", col.data_type),
+        message: format!("could not decode '{text}': {e}"),
+    })?;
+    parse_ch_cell(&value, col)
+}
+
+/// The digits of `text` when it is a JSON integer, bare (`-42`) or quoted
+/// (`"42"`); `None` for anything else — a fraction, an exponent, `null`.
+fn integer_literal(text: &str) -> Option<&str> {
+    let text = text.trim();
+    let digits = text
+        .strip_prefix('"')
+        .and_then(|t| t.strip_suffix('"'))
+        .unwrap_or(text);
+    let unsigned = digits.strip_prefix('-').unwrap_or(digits);
+    (!unsigned.is_empty() && unsigned.bytes().all(|b| b.is_ascii_digit())).then_some(digits)
+}
+
 /// Decode a single JSONCompact cell value into a [`TypedValue`].
 ///
-/// ClickHouse returns many numerics as strings (Int64, UInt32/64, Decimal,
-/// big ints) so every numeric path tolerates both `Value::Number` and
-/// `Value::String`. Date / DateTime cells always arrive as strings.
+/// Whether 64-bit and wider integers arrive quoted is the server's
+/// `output_format_json_quote_64bit_integers`, off by default, so they come as
+/// bare JSON numbers on most servers and as strings on some; every numeric
+/// path tolerates both `Value::Number` and `Value::String`. Date / DateTime
+/// cells always arrive as strings.
 pub(crate) fn parse_ch_cell(value: &Value, col: &ColumnSpec) -> Result<TypedValue, TypedRowError> {
     if value.is_null() {
         return Ok(TypedValue::Null);
@@ -153,10 +208,10 @@ pub(crate) fn parse_ch_cell(value: &Value, col: &ColumnSpec) -> Result<TypedValu
             .ok_or_else(|| mapping_err(col, value, "not a 32-bit integer")),
         TypedDataType::Int64 => number_as_i64(value)
             .map(TypedValue::Int64)
-            .or_else(|| {
-                // UInt64 that overflows i64 arrives as a string like "18446744073709551615".
-                value.as_str().map(|s| TypedValue::Decimal(s.to_string()))
-            })
+            // A `UInt64` above `i64::MAX` — a bare JSON number `serde_json`
+            // holds as a `u64`, or its quoted form — keeps its exact digits as
+            // a `Decimal` string rather than failing the read or rounding.
+            .or_else(|| number_as_u64(value).map(|n| TypedValue::Decimal(n.to_string())))
             .ok_or_else(|| mapping_err(col, value, "not a 64-bit integer")),
         TypedDataType::Float64 => number_as_f64(value)
             .map(TypedValue::Float64)
@@ -198,6 +253,14 @@ pub(crate) fn parse_ch_cell(value: &Value, col: &ColumnSpec) -> Result<TypedValu
 fn number_as_i64(v: &Value) -> Option<i64> {
     match v {
         Value::Number(n) => n.as_i64(),
+        Value::String(s) => s.parse().ok(),
+        _ => None,
+    }
+}
+
+fn number_as_u64(v: &Value) -> Option<u64> {
+    match v {
+        Value::Number(n) => n.as_u64(),
         Value::String(s) => s.parse().ok(),
         _ => None,
     }
@@ -378,13 +441,161 @@ mod tests {
         );
     }
 
+    /// `UInt64` max overflows `i64`. It arrives as a bare JSON number unless
+    /// the server quotes 64-bit integers; both forms keep the exact digits.
     #[test]
     fn parse_cell_routes_uint64_overflow_to_decimal_string() {
-        // UInt64 max (18446744073709551615) overflows i64.
-        let v = Value::String("18446744073709551615".into());
-        match parse_ch_cell(&v, &col(TypedDataType::Int64)).unwrap() {
-            TypedValue::Decimal(s) => assert_eq!(s, "18446744073709551615"),
-            other => panic!("expected Decimal fallback, got {other:?}"),
+        let int64 = col(TypedDataType::Int64);
+        for v in [
+            serde_json::json!(18_446_744_073_709_551_615u64),
+            Value::String("18446744073709551615".into()),
+        ] {
+            assert_eq!(
+                parse_ch_cell(&v, &int64).unwrap(),
+                TypedValue::Decimal("18446744073709551615".into()),
+                "{v}"
+            );
+        }
+        // The first value past `i64::MAX` is where the string form begins…
+        assert_eq!(
+            parse_ch_cell(&serde_json::json!(9_223_372_036_854_775_808u64), &int64).unwrap(),
+            TypedValue::Decimal("9223372036854775808".into())
+        );
+        // …and `i64::MAX` itself is still an integer.
+        assert_eq!(
+            parse_ch_cell(&serde_json::json!(9_223_372_036_854_775_807u64), &int64).unwrap(),
+            TypedValue::Int64(i64::MAX)
+        );
+        // Not an integer at all is still refused, not smuggled through as text.
+        assert!(parse_ch_cell(&Value::String("wide".into()), &int64).is_err());
+    }
+
+    const UINT256_MAX: &str =
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+    const INT128_MIN: &str = "-170141183460469231731687303715884105728";
+
+    fn wide() -> ColumnSpec {
+        col(ch_type_to_typed("UInt256"))
+    }
+
+    /// A 128- or 256-bit integer past `u64` is an `f64` once `serde_json` has
+    /// parsed it; decoded from the JSON text it keeps every digit, whether the
+    /// server wrote it bare or quoted.
+    #[test]
+    fn raw_cell_keeps_wide_integers_exact() {
+        for text in [UINT256_MAX.to_string(), format!("\"{UINT256_MAX}\"")] {
+            assert_eq!(
+                parse_ch_raw_cell(&text, &wide()).unwrap(),
+                TypedValue::Decimal(UINT256_MAX.into()),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            parse_ch_raw_cell(INT128_MIN, &col(ch_type_to_typed("Int128"))).unwrap(),
+            TypedValue::Decimal(INT128_MIN.into())
+        );
+        // What the parsed path makes of the same text — the lossy shape the
+        // raw path exists to avoid.
+        assert_eq!(
+            parse_ch_cell(&serde_json::from_str(UINT256_MAX).unwrap(), &wide()).unwrap(),
+            TypedValue::Decimal("1.157920892373162e+77".into())
+        );
+    }
+
+    #[test]
+    fn raw_cell_takes_the_int64_route_for_64_bit_columns() {
+        let int64 = col(TypedDataType::Int64);
+        assert_eq!(
+            parse_ch_raw_cell("42", &int64).unwrap(),
+            TypedValue::Int64(42)
+        );
+        assert_eq!(
+            parse_ch_raw_cell("\"-42\"", &int64).unwrap(),
+            TypedValue::Int64(-42)
+        );
+        assert_eq!(
+            parse_ch_raw_cell("18446744073709551615", &int64).unwrap(),
+            TypedValue::Decimal("18446744073709551615".into())
+        );
+        // The boundary, and the quoted form of a value past it.
+        assert_eq!(
+            parse_ch_raw_cell("9223372036854775807", &int64).unwrap(),
+            TypedValue::Int64(i64::MAX)
+        );
+        assert_eq!(
+            parse_ch_raw_cell("-9223372036854775808", &int64).unwrap(),
+            TypedValue::Int64(i64::MIN)
+        );
+        assert_eq!(
+            parse_ch_raw_cell("\"9223372036854775808\"", &int64).unwrap(),
+            TypedValue::Decimal("9223372036854775808".into())
+        );
+    }
+
+    /// An integer that fits neither `i64` nor `u64` is refused with the
+    /// column, its type and the digits it could not hold. The wording is
+    /// `parse_ch_cell`'s, whichever way the digits arrived.
+    #[test]
+    fn raw_cell_refuses_an_integer_past_u64_in_a_64_bit_column() {
+        let int64 = col(TypedDataType::Int64);
+        for text in [
+            "123456789012345678901234567890",
+            "\"123456789012345678901234567890\"",
+        ] {
+            match parse_ch_raw_cell(text, &int64).unwrap_err() {
+                TypedRowError::TypeMappingError {
+                    column,
+                    native_type,
+                    message,
+                } => {
+                    assert_eq!(column, "c");
+                    assert_eq!(native_type, "Int64");
+                    assert_eq!(
+                        message,
+                        "could not decode '\"123456789012345678901234567890\"': \
+                         not a 64-bit integer"
+                    );
+                }
+                other => panic!("expected a type-mapping error, got {other:?}"),
+            }
+        }
+    }
+
+    /// Anything that is not an integer literal parses as before: a decimal
+    /// fraction, `null`, a composite, a string.
+    #[test]
+    fn raw_cell_parses_everything_else_as_a_value() {
+        let decimal = col(TypedDataType::Decimal {
+            precision: 18,
+            scale: 4,
+        });
+        assert_eq!(
+            parse_ch_raw_cell("1234.5678", &decimal).unwrap(),
+            TypedValue::Decimal("1234.5678".into())
+        );
+        assert_eq!(
+            parse_ch_raw_cell("null", &wide()).unwrap(),
+            TypedValue::Null
+        );
+        assert_eq!(
+            parse_ch_raw_cell("[1, 2]", &col(TypedDataType::Json)).unwrap(),
+            TypedValue::Json(serde_json::json!([1, 2]))
+        );
+        assert_eq!(
+            parse_ch_raw_cell("\"12\"", &col(TypedDataType::Text)).unwrap(),
+            TypedValue::Text("12".into())
+        );
+        assert!(parse_ch_raw_cell("not json", &wide()).is_err());
+    }
+
+    #[test]
+    fn integer_literal_accepts_bare_and_quoted_integers_only() {
+        assert_eq!(integer_literal("12"), Some("12"));
+        assert_eq!(integer_literal("-12"), Some("-12"));
+        assert_eq!(integer_literal(" \"12\" "), Some("12"));
+        assert_eq!(integer_literal("0"), Some("0"));
+        for not_an_integer in ["1.0", "1e5", "-", "", "\"\"", "\"abc\"", "null", "-1.5"] {
+            assert_eq!(integer_literal(not_an_integer), None, "{not_an_integer}");
         }
     }
 
