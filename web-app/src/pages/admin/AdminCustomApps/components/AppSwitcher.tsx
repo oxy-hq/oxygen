@@ -12,8 +12,9 @@ import type { AppStatus } from "../appStatus";
  *
  * The button exists because the fleet is not the only way between apps. `/admin/apps`
  * does list every app, but hopping from one console straight to another should not cost
- * a round trip through it — ⌘K and three letters, with the console never unmounting
- * behind it. The fleet is for looking at everything; the palette is for going somewhere.
+ * a round trip through it — three letters in the palette, with the console never
+ * unmounting behind it. The fleet is for looking at everything; the palette is for going
+ * somewhere.
  */
 /**
  * A status's tone. `draft` and `quiet` are deliberately `muted` rather than `ok`: neither
@@ -35,7 +36,15 @@ export function statusTone(s: AppStatus) {
   }
 }
 
-/** The trigger that says the shortcut out loud. */
+/**
+ * The trigger.
+ *
+ * It deliberately does **not** print `⌘K`. There is only one binding
+ * (`AdminEntitySearch`), but the topbar's own Search button already advertises that key
+ * on every admin page — so two controls printing the same shortcut read as a conflict
+ * even though pressing it opens one palette. One advertisement, and this button says
+ * what it does instead.
+ */
 export const AppSwitcherTrigger = ({
   onClick,
   className
@@ -53,8 +62,5 @@ export const AppSwitcherTrigger = ({
     )}
   >
     Switch app
-    <kbd className='inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1 font-mono text-[10px]'>
-      <span className='text-xs'>⌘</span>K
-    </kbd>
   </button>
 );

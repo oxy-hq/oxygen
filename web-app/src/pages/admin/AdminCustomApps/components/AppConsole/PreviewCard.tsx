@@ -1,4 +1,4 @@
-import { ExternalLink, Monitor } from "lucide-react";
+import { Activity, ExternalLink, GitBranch, Monitor, Smartphone } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/shadcn/button";
 import type { CustomApp } from "@/types/apps";
@@ -59,18 +59,35 @@ export const PreviewCard = ({ app, servedAt }: { app: CustomApp; servedAt: strin
       </>
     }
   >
-    <div className='flex items-center gap-3'>
-      <div className='flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground'>
-        <Monitor className='size-4' />
+    {/* Laid out for the full page width it now spans: the served URL takes the slack,
+        and the space that would otherwise be empty says what `Inspect` is for. Naming
+        the three tools is the point — the request log in particular is the only place
+        the product shows what a custom app calls, and nobody would guess that from a
+        button labelled "Inspect". */}
+    <div className='flex flex-wrap items-center gap-x-6 gap-y-3'>
+      <div className='flex min-w-0 flex-1 items-center gap-3'>
+        <div className='flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground'>
+          <Monitor className='size-4' />
+        </div>
+        <div className='min-w-0'>
+          <p className='truncate font-mono text-[11px]' title={servedAt}>
+            {servedAt}
+          </p>
+          <p className='text-muted-foreground text-xs'>Served here — opens in its own tab.</p>
+        </div>
       </div>
-      <div className='min-w-0 flex-1'>
-        <p className='truncate font-mono text-[11px] text-muted-foreground' title={servedAt}>
-          {servedAt}
-        </p>
-        <p className='text-muted-foreground text-xs'>
-          Inspect for device sizes, draft channel and the request log.
-        </p>
-      </div>
+      <ul className='flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground text-xs'>
+        {[
+          ["Device sizes", Smartphone],
+          ["Draft channel", GitBranch],
+          ["Request log", Activity]
+        ].map(([label, Icon]) => (
+          <li key={label as string} className='flex items-center gap-1.5'>
+            <Icon className='size-3 shrink-0' />
+            {label as string}
+          </li>
+        ))}
+      </ul>
     </div>
     <p className='sr-only'>
       Preview for {app.name} in {app.org_slug}

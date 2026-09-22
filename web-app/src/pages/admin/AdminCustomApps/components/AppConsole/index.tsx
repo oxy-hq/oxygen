@@ -109,11 +109,40 @@ export const AppConsole = ({
           </Button>
         </header>
 
-        {/* Two columns at width, one below. The left column is the sequence an operator
-            works down — what shipped, who can reach it, what it runs — and the right is
+        {/* The preview leads. It is the app itself — where it is served, and the way in
+            to the request log — so it is the first thing on the page and spans both
+            columns rather than sitting last in the right-hand one.
+
+            This is a deliberate revision of the original direction, which put it last on
+            the argument that "a staff console is not a browser for viewing one app".
+            That argument was about the old layout giving a live iframe the entire stage;
+            it is not an argument for burying the app's own identity at the bottom. The
+            rule it was protecting still holds and still does the work: no iframe here,
+            just where it is served and two links out. */}
+        <div className='mb-3'>
+          <PreviewCard app={app} servedAt={servedAt} />
+        </div>
+
+        {/* Then two columns at width, one below, ordered by the six operator questions
+            rather than by object type. Left is the sequence someone works down — is it
+            broken, what shipped, who can reach it, what it runs — and right is the
             reference they look across at. */}
         <div className='grid items-start gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]'>
           <div className='flex min-w-0 flex-col gap-3'>
+            {/* The three capture-backed views, together. Separately they were three
+                panels of nothing whenever capture is off. First in the column because
+                "is it broken" is the question people arrive with. */}
+            <ConsolePanel
+              id='observability'
+              title='Availability & activity'
+              question='Q1 — is it broken'
+            >
+              <div className='flex flex-col gap-3'>
+                <Availability orgSlug={app.org_slug} appSlug={app.slug} />
+                <Activity appId={app.id} />
+              </div>
+            </ConsolePanel>
+
             <ConsolePanel
               id='build'
               title='Live build & history'
@@ -153,21 +182,6 @@ export const AppConsole = ({
             <ConsolePanel id='identity' title='Identity & manifest'>
               <AppInfo app={app} />
             </ConsolePanel>
-
-            {/* The three capture-backed views, together. Separately they were three
-                panels of nothing whenever capture is off. */}
-            <ConsolePanel
-              id='observability'
-              title='Availability & activity'
-              question='Q1 — is it broken'
-            >
-              <div className='flex flex-col gap-3'>
-                <Availability orgSlug={app.org_slug} appSlug={app.slug} />
-                <Activity appId={app.id} />
-              </div>
-            </ConsolePanel>
-
-            <PreviewCard app={app} servedAt={servedAt} />
           </div>
         </div>
 
