@@ -17,16 +17,11 @@ import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  returnToPointsAtCustomApp,
-  useFrontlineRoster,
-  useKioskDevice
-} from "@/hooks/auth/useFrontline";
+import { returnToPointsAtCustomApp, useFrontlineRoster } from "@/hooks/auth/useFrontline";
 import { useRequestMagicLink } from "@/hooks/auth/useMagicLink";
-import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
+import type { BoundKioskDevice } from "@/types/frontline";
 import CrewSignIn, { CrewSignInHint } from "./CrewSignIn";
-import { nobodyRosteredHere } from "./crewRoster";
 import LoginWithGitHubButton from "./LoginWithGitHubButton";
 import LoginWithGoogleButton from "./LoginWithGoogleButton";
 import LoginWithOktaButton from "./LoginWithOktaButton";
@@ -207,8 +202,9 @@ const AccountSignIn = () => {
 
 /**
  * On a kiosk the screen belongs to the crew. Account sign-in stays one tap away
- * for the manager setting the tablet up, but never sits under the PIN pad where
- * a worker could wander into an email form.
+ * for the manager setting the tablet up — in the top corner, out of the way of
+ * the names — but never sits under the PIN pad where a worker could wander into
+ * an email form.
  */
 const AdminSignInDialog = () => (
   <Dialog>
@@ -217,7 +213,7 @@ const AdminSignInDialog = () => (
         type='button'
         variant='link'
         size='sm'
-        className='self-center text-muted-foreground'
+        className='shrink-0 px-0 text-muted-foreground'
         data-testid='login-admin-signin'
       >
         Sign in as an admin
@@ -237,39 +233,21 @@ const AdminSignInDialog = () => (
   </Dialog>
 );
 
-const ACCOUNT_COPY = {
-  title: "Welcome back",
-  subtitle: "Sign in to your account to continue"
-};
-
-/** How the crew half of a kiosk's page lets somebody say who they are. */
-type KioskEntry = "pick" | "type" | "nobody";
-
-/** A kiosk speaks to whoever is standing at it, not to an account holder. */
-const KIOSK_SUBTITLE: Record<KioskEntry, string> = {
-  pick: "Tap your name and enter your PIN",
-  type: "Enter your ID and PIN",
-  nobody: "Crew sign-in isn't ready on this tablet yet"
-};
-
-const kioskCopy = (entry: KioskEntry) => ({
-  title: "Who's on shift?",
-  subtitle: KIOSK_SUBTITLE[entry]
-});
-
-const LoginForm = () => {
+/**
+ * An enrolled kiosk's login page: the store's crew on the whole screen, and the
+ * admin's way in tucked into its top corner.
+ */
+export const KioskLogin = ({ device }: { device: BoundKioskDevice }) => {
   const { authConfig } = useAuth();
   const [searchParams] = useSearchParams();
   // Crew sign-in's first-choice destination (validated server-side before any
-  // redirect). The magic-link section reads the same param on its own.
+  // redirect).
   const returnTo = searchParams.get("return_to") ?? undefined;
-  const { data: device, isPending: isProbingKiosk } = useKioskDevice();
-  const kiosk = device?.bound ? device : undefined;
   const {
     data: staff = [],
     isLoading: isRosterLoading,
     isError: isRosterError
-  } = useFrontlineRoster(kiosk?.org);
+  } = useFrontlineRoster(device.org);
 
   const hasAccountSignIn = Boolean(
     authConfig.magic_link ||
@@ -279,55 +257,34 @@ const LoginForm = () => {
       authConfig.dev_login
   );
 
-  // Hold the page until the probe answers. Rendering the account options first
-  // would flash exactly what a kiosk hides. The probe never throws, and for a
-  // browser without a kiosk cookie the server runs no query before answering.
-  if (isProbingKiosk) {
-    return (
-      <div className='flex justify-center py-10' data-testid='login-probing'>
-        <Spinner />
-      </div>
-    );
-  }
+  return (
+    <CrewSignIn
+      device={device}
+      staff={staff}
+      isRosterLoading={isRosterLoading}
+      isRosterError={isRosterError}
+      returnTo={returnTo}
+      adminSignIn={hasAccountSignIn ? <AdminSignInDialog /> : undefined}
+    />
+  );
+};
 
-  // While the roster is still loading, assume the common case (there is one)
-  // so the subtitle doesn't flip mid-read.
-  let entry: KioskEntry = "type";
-  if (
-    kiosk &&
-    nobodyRosteredHere(kiosk, staff, { isLoading: isRosterLoading, isError: isRosterError })
-  ) {
-    entry = "nobody";
-  } else if (isRosterLoading || staff.length > 0) {
-    entry = "pick";
-  }
-  const copy = kiosk ? kioskCopy(entry) : ACCOUNT_COPY;
+/** Every other browser's login page: account sign-in. */
+const LoginForm = () => {
+  const [searchParams] = useSearchParams();
+  // The magic-link section reads the same param on its own.
+  const returnTo = searchParams.get("return_to") ?? undefined;
 
   return (
-    <div className={cn("flex flex-col gap-6")}>
+    <div className='flex flex-col gap-6'>
       <div className='flex flex-col items-center gap-2 text-center'>
-        <h1 className='font-bold text-2xl'>{copy.title}</h1>
-        <p className='text-muted-foreground text-sm'>{copy.subtitle}</p>
+        <h1 className='font-bold text-2xl'>Welcome back</h1>
+        <p className='text-muted-foreground text-sm'>Sign in to your account to continue</p>
       </div>
 
       <div className='flex flex-col gap-4'>
-        {kiosk ? (
-          <>
-            <CrewSignIn
-              device={kiosk}
-              staff={staff}
-              isRosterLoading={isRosterLoading}
-              isRosterError={isRosterError}
-              returnTo={returnTo}
-            />
-            {hasAccountSignIn && <AdminSignInDialog />}
-          </>
-        ) : (
-          <>
-            <AccountSignIn />
-            {returnToPointsAtCustomApp(returnTo) && <CrewSignInHint />}
-          </>
-        )}
+        <AccountSignIn />
+        {returnToPointsAtCustomApp(returnTo) && <CrewSignInHint />}
       </div>
     </div>
   );

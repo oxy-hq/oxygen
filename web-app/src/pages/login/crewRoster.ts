@@ -88,3 +88,92 @@ export function groupByInitial(staff: FrontlineStaff[]): RosterGroup[] {
     })
     .map(([letter, members]) => ({ letter, staff: [...members].sort(byName) }));
 }
+
+/**
+ * One tile of the name board, in the order it is drawn.
+ */
+export interface RosterTile {
+  member: FrontlineStaff;
+  /**
+   * The letter this name files under — set on the FIRST name of each letter
+   * only. That tile wears the letter in its corner and is where the A–Z rail
+   * lands; every other tile is `null`.
+   */
+  letter: string | null;
+}
+
+/**
+ * The roster as ONE continuous A–Z run of tiles.
+ *
+ * A block per letter left a half-empty row under every letter with an odd
+ * count, which at 20 people is most of them, and its headings cost a row
+ * each. The names now run on; the first of each letter carries the letter,
+ * which is all the rail needs to jump to. Order and the `#` bucket are
+ * {@link groupByInitial}'s, so the two can never disagree.
+ */
+export function rosterFlow(staff: FrontlineStaff[]): RosterTile[] {
+  return groupByInitial(staff).flatMap((group) =>
+    group.staff.map((member, i) => ({ member, letter: i === 0 ? group.letter : null }))
+  );
+}
+
+/** Lower-case with accents folded, so "Álvaro" is found by "alv". */
+function folded(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+/**
+ * The names containing `query`, blind to case and accents. A blank query
+ * leaves the roster whole.
+ *
+ * Client-side on purpose: the roster read is capped at 200 for one store and
+ * is already on the tablet in full, so there is no page to fetch and no
+ * reason to ask the server.
+ */
+export function findByName(staff: FrontlineStaff[], query: string): FrontlineStaff[] {
+  const needle = folded(query.trim());
+  if (!needle) {
+    return staff;
+  }
+  return staff.filter((member) => folded(member.name).includes(needle));
+}
+
+/**
+ * Past this many people the board grows a "Find your name" box. Up to it the
+ * whole roster fits a tablet screen and the rail is shortcut enough; a box
+ * nobody needs is one more thing between a worker and their name.
+ */
+const NAME_SEARCH_OVER = 30;
+
+export function showsNameSearch(staff: FrontlineStaff[]): boolean {
+  return staff.length > NAME_SEARCH_OVER;
+}
+
+/** Below this the whole roster is already on screen, so "recently" repeats it. */
+const RECENT_ROW_FROM = 12;
+/** One row on a tablet, two by two on a phone. */
+const RECENT_ROW_SIZE = 4;
+
+/**
+ * "On this tablet recently": the people who last signed in on this kiosk,
+ * newest first — only those still on today's roster, at most four.
+ *
+ * `recent` is what the kiosk remembered (see `recentCrew.ts`); somebody who
+ * has since left the store drops out here, and the next one back takes the
+ * seat. Off at a small store, where the whole roster is already in view, and
+ * while someone is searching, where the row would sit above the answer.
+ */
+export function recentRow(
+  staff: FrontlineStaff[],
+  recent: string[],
+  { searching }: { searching: boolean }
+): FrontlineStaff[] {
+  if (searching || staff.length < RECENT_ROW_FROM) {
+    return [];
+  }
+  const byIdentifier = new Map(staff.map((member) => [member.identifier, member]));
+  return recent
+    .map((identifier) => byIdentifier.get(identifier))
+    .filter((member): member is FrontlineStaff => member !== undefined)
+    .slice(0, RECENT_ROW_SIZE);
+}

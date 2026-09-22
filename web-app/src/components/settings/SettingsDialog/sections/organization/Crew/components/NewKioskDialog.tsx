@@ -31,6 +31,35 @@ import { apiErrorMessage, appReturnTo } from "../utils";
 
 /** Radix Select can't carry an empty value, so "no app" needs a name. App ids are uuids. */
 const ORG_HOME = "org-home";
+/** Nothing chosen yet. Radix shows the placeholder for an empty value. */
+const UNCHOSEN = "";
+
+/**
+ * What "Opens" starts on. A tablet exists to open an app — crew who land on
+ * the org home are told the kiosk has no app to open — so the org's one app a
+ * kiosk can open is preselected. With several there is no safe guess, so
+ * nothing is, and Create waits for the admin. With none, the org home is all
+ * there is. A draft doesn't count: its shell refuses crew until it's published.
+ */
+function defaultOpens(apps: AppAccessSummary[]): string {
+  const openable = apps.filter((app) => app.published);
+  if (openable.length === 1) return openable[0].id;
+  return openable.length === 0 ? ORG_HOME : UNCHOSEN;
+}
+
+/** The line under "Opens": what the choice does for crew. */
+function opensHint(appId: string, apps: AppAccessSummary[]): string {
+  const app = apps.find((a) => a.id === appId);
+  if (app) {
+    return app.published
+      ? `Crew land in ${app.name} as soon as they sign in.`
+      : `${app.name} isn't published yet, so it won't open for crew until it is.`;
+  }
+  if (appId === UNCHOSEN) return "The app crew land in as soon as they sign in.";
+  return apps.some((a) => a.published)
+    ? "Crew sign in to a page with no app to open."
+    : "No app is published to this organization yet, so crew sign in to a page with no app to open.";
+}
 
 export function NewKioskDialog({
   open,
@@ -88,12 +117,16 @@ function NewKioskForm({
   const createDevice = useCreateDevice();
   const locations = useLocations(orgId);
   const [name, setName] = useState("");
-  const [appId, setAppId] = useState<string>(ORG_HOME);
+  // Derived until the admin picks, so an app list that answers after the
+  // dialog opened still lands on its default instead of the org home.
+  const [chosenAppId, setChosenAppId] = useState<string | null>(null);
+  const appId = chosenAppId ?? defaultOpens(apps);
   const [locationId, setLocationId] = useState<string>(NO_LOCATION);
   const [idleMinutes, setIdleMinutes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const idle = idleTimeoutFromMinutes(idleMinutes);
-  const canSubmit = name.trim().length > 0 && idle.kind !== "invalid";
+  const needsOpens = appId === UNCHOSEN;
+  const canSubmit = name.trim().length > 0 && !needsOpens && idle.kind !== "invalid";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,9 +167,20 @@ function NewKioskForm({
       </div>
       <div className='space-y-1.5'>
         <Label htmlFor='kiosk-opens'>Opens</Label>
-        <Select value={appId} onValueChange={setAppId}>
-          <SelectTrigger id='kiosk-opens' className='w-full'>
-            <SelectValue />
+        <Select
+          value={appId}
+          // Never a pick: no item carries "". Inside a form, Radix mirrors the
+          // value into a hidden native <select> and bubbles its `change`; when
+          // the default moves to an app whose option hasn't registered yet,
+          // that select reads "" and would wipe the default it just got.
+          onValueChange={(value) => value !== UNCHOSEN && setChosenAppId(value)}
+        >
+          <SelectTrigger
+            id='kiosk-opens'
+            className='w-full'
+            data-testid='settings-crew-kiosk-opens'
+          >
+            <SelectValue placeholder='Choose where the tablet lands' />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ORG_HOME}>Organization home</SelectItem>
@@ -147,7 +191,9 @@ function NewKioskForm({
             ))}
           </SelectContent>
         </Select>
-        <p className='text-muted-foreground text-xs'>Where the tablet lands after a sign-in.</p>
+        <p className='text-muted-foreground text-xs' data-testid='settings-crew-kiosk-opens-hint'>
+          {opensHint(appId, apps)}
+        </p>
       </div>
       <div className='space-y-1.5'>
         <Label htmlFor='kiosk-location'>Location</Label>
@@ -190,7 +236,16 @@ function NewKioskForm({
         </p>
       </div>
       {error && <p className='text-destructive text-sm'>{error}</p>}
-      <div className='flex justify-end gap-2'>
+      <div className='flex items-center justify-end gap-2'>
+        {needsOpens && (
+          <p
+            id='kiosk-create-blocked'
+            className='mr-auto text-muted-foreground text-xs'
+            data-testid='settings-crew-new-kiosk-blocked'
+          >
+            Choose where the tablet lands first.
+          </p>
+        )}
         <Button type='button' variant='outline' size='sm' onClick={onCancel}>
           Cancel
         </Button>
@@ -198,6 +253,7 @@ function NewKioskForm({
           type='submit'
           size='sm'
           disabled={!canSubmit || createDevice.isPending}
+          aria-describedby={needsOpens ? "kiosk-create-blocked" : undefined}
           data-testid='settings-crew-new-kiosk-submit'
         >
           {createDevice.isPending ? "Creating..." : "Create kiosk"}
