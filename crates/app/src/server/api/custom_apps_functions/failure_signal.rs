@@ -35,10 +35,21 @@ pub(super) struct Failure {
     pub host_call: Option<HostCallFailure>,
 }
 
-/// The first `ctx.*` call of an invocation that failed on the platform's side,
-/// by name only. `op` is a fixed op name (`query`, `warehouse.insert`), never
-/// the SQL, URL or secret name the call carried; `kind` is a
-/// `host_call_attrs::classify_host_error` value that counts toward paging.
+/// The first `ctx.*` call of an invocation that failed on the platform's side:
+/// its name, and the shape of what the host said. `op` is a fixed op name
+/// (`query`, `warehouse.insert`), never the SQL, URL or secret name the call
+/// carried; `kind` is a `host_call_attrs::classify_host_error` value that
+/// counts toward paging; `message` is the host's error text after
+/// [`normalize`] and the [`FINGERPRINT_PREFIX`] bound — the same text the
+/// `threw` path digests — taken as the failure is noted, so the raw text is
+/// never held. It feeds the fingerprint and nothing else: not the span, the
+/// log line or the page, which name the op and kind.
+//
+// The message is here because op and kind alone masked a new failure: a
+// function that already catches a routine `permission_denied` on
+// `warehouse.insert` made a real break of the same op and kind "not new" to
+// the pager, so it never paged.
+//
 // Only the V8 runtime constructs one; without it the type is still named by
 // the run outcome, which always carries `None`.
 //
@@ -47,10 +58,29 @@ pub(super) struct Failure {
 // This module is private, so the type still reaches no further than
 // `custom_apps_functions`.
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HostCallFailure {
     pub op: &'static str,
     pub kind: &'static str,
+    pub message: String,
+}
+
+/// Written by hand so that `message` cannot reach a log line through a
+/// `?failure` field or a panic message: the op and kind print, and the message
+/// prints as its digest — enough to tell two values apart in a failed
+/// assertion, with none of the text. [`Failure`] derives its `Debug` and holds
+/// one of these, so the rule covers it too.
+impl std::fmt::Debug for HostCallFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostCallFailure")
+            .field("op", &self.op)
+            .field("kind", &self.kind)
+            .field(
+                "message",
+                &format_args!("<elided, digest {}>", digest(&self.message)),
+            )
+            .finish()
+    }
 }
 
 /// The rule for the note a host keeps across one invocation's calls. The host
@@ -58,10 +88,24 @@ pub struct HostCallFailure {
 /// reports each call's outcome; these decide what the note becomes.
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
 impl HostCallFailure {
-    /// After a call of `op` failed as `kind`: the first failure stands. One
-    /// page names one failure, and later calls often fail because of it.
-    pub fn noted(current: Option<Self>, op: &'static str, kind: &'static str) -> Option<Self> {
-        current.or(Some(Self { op, kind }))
+    /// After a call of `op` failed as `kind`, saying `message`: the first
+    /// failure stands. One page names one failure, and later calls often fail
+    /// because of it. The message is normalized here, before anything is
+    /// kept — the host holds the note for the rest of the run, and what it
+    /// holds must already be the digest's input, not the data.
+    pub fn noted(
+        current: Option<Self>,
+        op: &'static str,
+        kind: &'static str,
+        message: &str,
+    ) -> Option<Self> {
+        current.or_else(|| {
+            Some(Self {
+                op,
+                kind,
+                message: normalized_prefix(message),
+            })
+        })
     }
 
     /// After a call of `op` succeeded: a failure of that op is one the run
@@ -71,6 +115,19 @@ impl HostCallFailure {
     /// name comes from a closed list and a target would not.
     pub fn recovered(current: Option<Self>, op: &'static str) -> Option<Self> {
         current.filter(|hc| hc.op != op)
+    }
+
+    /// The fingerprint a caught failure pages under: a digest over the op,
+    /// the kind and the normalized message. Op and kind keep one broken call
+    /// together across every app it hit; the message keeps a new break apart
+    /// from the routine failure a function already catches on the same op, so
+    /// it is still new to the pager. Digested, none of the message's text
+    /// reaches the row, the log line or the page.
+    pub fn fingerprint(&self) -> String {
+        digest(&format!(
+            "host_call {} {} {}",
+            self.op, self.kind, self.message
+        ))
     }
 }
 
@@ -92,8 +149,8 @@ impl Failure {
             "success" if http_status < 500 => {
                 return host_call.map(|hc| Self {
                     kind: "host_call",
-                    fingerprint: digest(&format!("host_call {} {}", hc.op, hc.kind)),
-                    host_call: Some(*hc),
+                    fingerprint: hc.fingerprint(),
+                    host_call: Some(hc.clone()),
                 });
             }
             // Digested whole, not normalized: the status IS the signature, and
@@ -131,6 +188,7 @@ impl Failure {
         // the invocation row, so the op and kind are what on-call has to go on.
         let (op, host_kind) = self
             .host_call
+            .as_ref()
             .map_or((None, None), |hc| (Some(hc.op), Some(hc.kind)));
         span.record("host_call.op", op);
         span.record("host_call.kind", host_kind);
@@ -162,8 +220,9 @@ fn kind_of_error(message: &str) -> &'static str {
     }
 }
 
-/// Bytes of normalized message that feed the digest. Past this, messages that
-/// share a prefix are the same failure; stack traces and quoted rows vary
+/// Chars of normalized message that feed the digest — chars, not bytes, so
+/// the bound never lands inside a multi-byte character. Past this, messages
+/// that share a prefix are the same failure; stack traces and quoted rows vary
 /// further down without saying anything new.
 const FINGERPRINT_PREFIX: usize = 240;
 
@@ -172,59 +231,169 @@ const FINGERPRINT_PREFIX: usize = 240;
 ///
 /// Two invocations that failed the same way differ in everything the message
 /// says about the data — quoted values, row numbers, ids, the rows ClickHouse
-/// quotes back. Quoted runs become `?` and every word containing a digit
-/// becomes `#` before hashing, so the Code 27 insert failure is one
+/// quotes back, the object key or URL a store or fetch names. [`normalize`]
+/// takes those out before hashing, so the Code 27 insert failure is one
 /// fingerprint across every invocation and every app it hit.
 pub(super) fn fingerprint(message: &str) -> String {
-    let normalized = normalize(message);
-    let end = normalized
-        .char_indices()
-        .nth(FINGERPRINT_PREFIX)
-        .map_or(normalized.len(), |(i, _)| i);
-    digest(&normalized[..end])
+    digest(&normalized_prefix(message))
+}
+
+/// The first [`FINGERPRINT_PREFIX`] chars of the normalized message: the
+/// digest's input, and all a [`HostCallFailure`] keeps of what the host said.
+fn normalized_prefix(message: &str) -> String {
+    let mut normalized = normalize(message);
+    if let Some((end, _)) = normalized.char_indices().nth(FINGERPRINT_PREFIX) {
+        normalized.truncate(end);
+    }
+    normalized
 }
 
 fn digest(input: &str) -> String {
     hex::encode(&Sha256::digest(input.as_bytes())[..8])
 }
 
+/// The message with its data taken out, three rules:
+///
+/// - a quoted run becomes `?` — the value a warehouse or the host quotes
+///   back (`Cannot parse input: expected '(' before: '…'`, `fetch to '…'
+///   blocked`);
+/// - a run containing `/` or `@` becomes `?` — a URL, path, object key or
+///   address the message carries bare: reqwest's `error sending request for
+///   url (https://…)`, the stores' `head_object <key>: …` and `write <path>:
+///   …`, a mail address in an SES refusal. Each embeds a value that changes
+///   per call (a path segment, a file name), which the digit rule alone does
+///   not catch, so without this every occurrence was a new fingerprint and
+///   none reached the paging threshold. A URL keeps its host in front of the
+///   `?` ([`url_host`]): `https://api.example.com:8443/v1/x?page=abc` is
+///   `api.example.com/?`. Everything with no host folds whole;
+/// - every other word containing a digit becomes `#` — a row number, an id,
+///   a version, a size.
+///
+/// A run is what lies between spaces and brackets (`()[]{}`, `,`, `;`). A
+/// colon inside one does not end it — a URL's scheme and port are read with
+/// the rest of it, so one host is one input with or without a port — but a
+/// colon or full stop ending it stays outside the `?`, as do a URL's
+/// parentheses: `head_object ?: …`, `for url (api.example.com/?)`.
+/// `DB::Exception:` reads as before. Whitespace collapses.
 fn normalize(message: &str) -> String {
     let mut out = String::with_capacity(message.len().min(FINGERPRINT_PREFIX * 2));
     let mut chars = message.chars().peekable();
-    let mut word = String::new();
-    let flush = |word: &mut String, out: &mut String| {
-        if word.chars().any(|c| c.is_ascii_digit()) {
-            out.push('#');
-        } else {
-            out.push_str(word);
-        }
-        word.clear();
-    };
+    let mut run = String::new();
+    let mut prev = ' ';
     while let Some(c) = chars.next() {
         match c {
             // A quote opens a quoted run only where a value could start: after
-            // a word it is an apostrophe (`doesn't`), and treating it as a quote
-            // would swallow the rest of the message.
-            '\'' | '"' | '`' if word.is_empty() => {
-                flush(&mut word, &mut out);
+            // a word character it is an apostrophe (`doesn't`, `app's`), and
+            // treating it as a quote would swallow the rest of the message.
+            '\'' | '"' | '`' if !is_word_char(prev) => {
+                flush_run(&mut run, &mut out);
                 skip_quoted(c, &mut chars);
                 out.push('?');
             }
-            c if c.is_alphanumeric() || c == '_' => word.push(c),
             c if c.is_whitespace() => {
-                flush(&mut word, &mut out);
+                flush_run(&mut run, &mut out);
                 if !out.ends_with(' ') {
                     out.push(' ');
                 }
             }
-            c => {
-                flush(&mut word, &mut out);
+            c if is_run_boundary(c) => {
+                flush_run(&mut run, &mut out);
                 out.push(c);
             }
+            c => run.push(c),
+        }
+        prev = c;
+    }
+    flush_run(&mut run, &mut out);
+    out.trim().to_string()
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn is_run_boundary(c: char) -> bool {
+    matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | ',' | ';')
+}
+
+/// Emit one run. A locator — a run with `/` or `@` in it — becomes `?`, after
+/// its host when it is a URL ([`url_host`]), and with the colon or full stop
+/// that ends it kept, since that is the sentence's and not the locator's. Any
+/// other run emits its words with the digit rule applied and its punctuation
+/// kept.
+fn flush_run(run: &mut String, out: &mut String) {
+    if run.is_empty() {
+        return;
+    }
+    let locator_len = run.trim_end_matches([':', '.']).len();
+    let locator = &run[..locator_len];
+    if locator.contains(['/', '@']) {
+        if let Some(host) = url_host(locator) {
+            push_words(&host, out);
+            out.push('/');
+        }
+        out.push('?');
+        out.push_str(&run[locator_len..]);
+    } else {
+        push_words(run, out);
+    }
+    run.clear();
+}
+
+/// The host of a locator that is a URL — `scheme://authority…` with a real
+/// scheme and a host — lowercased, without userinfo or port. `None` for
+/// everything else a locator can be: an object key, a filesystem path, a mail
+/// address, a `file:///…` module specifier (no authority), a path whose query
+/// string happens to carry a URL (no scheme in front).
+///
+/// The host is kept because the pager keys on (app, function, fingerprint).
+/// Folded whole, every URL one function fetches was one input, so a routine
+/// failure on one vendor made a new break on another "not new" — the mask
+/// this fingerprint exists to remove, one level down. Scheme, port, path and
+/// query are what change per call or say nothing, so they still fold. A host
+/// is shape, not payload, by the rule that already puts it on a platform span;
+/// the parser is the one that span uses (`url_shape::fetch_target`), so the
+/// two cannot disagree. It is read from `url_shape` and not from
+/// `host_call_attrs`, which is gated with the runtime: this module compiles,
+/// and must normalize identically, with the feature off.
+/// The host then takes the digit rule like any other words: a numbered shard
+/// (`api2.…`, `shop123.…`) is one input, not one per number.
+fn url_host(locator: &str) -> Option<String> {
+    let target = super::url_shape::fetch_target(locator);
+    let is_scheme = target.scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+        && target
+            .scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    let is_host = !target.host.is_empty()
+        && target
+            .host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'));
+    (is_scheme && is_host).then_some(target.host)
+}
+
+/// `text` with every word containing a digit as `#`, punctuation kept.
+fn push_words(text: &str, out: &mut String) {
+    let mut word = String::new();
+    for c in text.chars() {
+        if is_word_char(c) {
+            word.push(c);
+        } else {
+            flush_word(&mut word, out);
+            out.push(c);
         }
     }
-    flush(&mut word, &mut out);
-    out.trim().to_string()
+    flush_word(&mut word, out);
+}
+
+fn flush_word(word: &mut String, out: &mut String) {
+    if word.chars().any(|c| c.is_ascii_digit()) {
+        out.push('#');
+    } else {
+        out.push_str(word);
+    }
+    word.clear();
 }
 
 /// Consume a quoted run up to its closing `quote`, honouring `\`-escapes and a
@@ -264,6 +433,39 @@ mod tests {
     fn the_same_failure_in_different_apps_and_rows_is_one_fingerprint() {
         assert_eq!(fingerprint(CODE_27_A), fingerprint(CODE_27_B));
         assert_eq!(fingerprint(CODE_27_A).len(), 16);
+        // The value `main` gave this message before `normalize` learned about
+        // locators, computed from a separate implementation of that older
+        // algorithm. A message with no bare `/` or `@` run keeps the
+        // fingerprint it has, so rows already stored stay in their groups and
+        // the locator rule re-pages only the failures it re-reads.
+        assert_eq!(fingerprint(CODE_27_A), "af597dfd3a7536b8");
+    }
+
+    /// What bounds the locator rule's reach into failures that were never
+    /// caught. A thrown error is stored with its stack (`JsError`'s `Display`
+    /// prints it), so a frame sits inside nearly every short message's prefix
+    /// — but this runtime names its modules `oxy:function`, `oxy:bootstrap`
+    /// and `oxy:invoke`, with no `/`, so a function's own frames are not
+    /// locators and an ordinary thrown error keeps the fingerprint `main` gave
+    /// it (the literal, from the same separate implementation as Code 27's).
+    /// Rename those specifiers to `file:///…` and every `threw` fingerprint on
+    /// the platform changes at once: this test is what says so.
+    #[test]
+    fn a_thrown_errors_own_stack_frames_keep_the_fingerprint_main_gave_it() {
+        let thrown = "function threw: Error: name is required\n    \
+                      at default (oxy:function:3:9)\n    at async oxy:invoke:5:20";
+        assert_eq!(
+            normalize(thrown),
+            "function threw: Error: name is required at default (oxy:function:#:#) \
+             at async oxy:invoke:#:#"
+        );
+        assert_eq!(fingerprint(thrown), "d5267ee67e7f0e3a");
+        // A frame that does carry a slash is a locator, and folds: a thrown
+        // error whose prefix reaches one is re-fingerprinted by this rule.
+        assert_eq!(
+            normalize("at eventLoopTick (ext:core/01_core.js:178:7)"),
+            "at eventLoopTick (?)"
+        );
     }
 
     #[test]
@@ -293,6 +495,167 @@ mod tests {
             fingerprint("Table t doesn't exist. (UNKNOWN_TABLE)"),
             fingerprint("Table t doesn't exist. (UNKNOWN_DATABASE)")
         );
+        assert_eq!(
+            normalize("could not connect to this app's Airhouse schema: refused"),
+            "could not connect to this app's Airhouse schema: refused"
+        );
+    }
+
+    /// One message per shape the host writes bare — a URL, an object key, a
+    /// path, an address — each as `host.rs`, reqwest or the asset stores
+    /// phrase it, with the value that changes per call. Each shape folds to
+    /// one input, so the occurrences count as one failure rather than each
+    /// being new. Dropping the locator rule from `normalize` fails its line.
+    #[test]
+    fn a_locator_the_host_writes_bare_does_not_reach_the_fingerprint_input() {
+        // reqwest 0.13 appends ` for url (<url>)` to `fetch failed: {e}`. The
+        // host stays (see the two-endpoints test); what changes per call goes.
+        let fetch_a = "fetch failed: error sending request for url \
+                       (https://api.example.com/v1/customers/acme-corp/invoices)";
+        let fetch_b = "fetch failed: error sending request for url \
+                       (https://api.example.com:8443/v1/customers/globex/invoices?page=abc)";
+        assert_eq!(
+            normalize(fetch_a),
+            "fetch failed: error sending request for url (api.example.com/?)"
+        );
+        assert_eq!(normalize(fetch_a), normalize(fetch_b));
+        // `s3::head` / `s3::copy`: the key bare, then the SDK's error.
+        let head_a = "s3 error: head_object customer-app-storage/3fa85f64-5717-4562-b3fc-2c963f66afa6/\
+                      uploads/invoice-acme.pdf: dispatch failure";
+        let head_b = "s3 error: head_object customer-app-storage/3fa85f64-5717-4562-b3fc-2c963f66afa6/\
+                      uploads/statement-globex.pdf: dispatch failure";
+        // (`s3` carries a digit, so the digit rule already reads it as `#`.)
+        assert_eq!(
+            normalize(head_a),
+            "# error: head_object ?: dispatch failure"
+        );
+        assert_eq!(normalize(head_a), normalize(head_b));
+        assert_eq!(
+            normalize(
+                "s3 error: copy_object customer-app-storage/a/reports/q3.csv -> \
+                 customer-app-storage/a/archive/q3.csv: service error"
+            ),
+            "# error: copy_object ? -> ?: service error"
+        );
+        // The filesystem store: `write <path>: <io error>`.
+        assert_eq!(
+            normalize(
+                "filesystem storage error: write /var/oxy/state/customer-app-storage/a/uploads/\
+                 invoice-acme.pdf: No such file or directory (os error 2)"
+            ),
+            "filesystem storage error: write ?: No such file or directory (os error #)"
+        );
+        // SES names the recipient it refused.
+        assert_eq!(
+            normalize(
+                "MessageRejected: Email address is not verified. The following identities \
+                 failed the check in region US-EAST-1: bob@example.com"
+            ),
+            "MessageRejected: Email address is not verified. The following identities \
+             failed the check in region US-EAST-#: ?"
+        );
+        for (message, leaked) in [
+            (fetch_a, "acme-corp"),
+            (fetch_a, "https"),
+            (fetch_b, "globex"),
+            (fetch_b, "8443"),
+            (fetch_b, "page"),
+            (head_a, "invoice-acme"),
+            (head_a, "customer-app-storage"),
+        ] {
+            assert!(
+                !normalize(message).contains(leaked),
+                "{leaked} in {}",
+                normalize(message)
+            );
+        }
+        // The host's own refusals already quote the value; they read as before.
+        assert_eq!(
+            normalize("fetch to 'http://rates.example.com/v1/usd' blocked by SSRF allowlist"),
+            "fetch to ? blocked by SSRF allowlist",
+            "custom_app_functions_host_failures computes its fingerprint over this text"
+        );
+        assert_eq!(
+            normalize("'metadata.internal' resolves only to non-public addresses"),
+            "? resolves only to non-public addresses"
+        );
+    }
+
+    /// The mask, one level down. The pager keys on (app, function,
+    /// fingerprint), so with every URL folded to one `?` a function that
+    /// already catches a routine timeout on one vendor had a new break on
+    /// another arrive as "not new". A URL keeps its host; what changes per
+    /// call — scheme, port, path, query, userinfo — still folds, so one host
+    /// is one input. Collapsing the host again in `flush_run` fails this.
+    #[test]
+    fn two_endpoints_in_one_function_are_two_fingerprints() {
+        let fetch_failed = |url: &str| {
+            HostCallFailure::noted(
+                None,
+                "fetch",
+                "host_call_failed",
+                &format!("fetch failed: error sending request for url ({url})"),
+            )
+            .unwrap()
+        };
+        let vendor_a = fetch_failed("https://api.example.com/v1/rates");
+        let vendor_b = fetch_failed("https://api.other.com/z");
+        assert_eq!(
+            vendor_a.message,
+            "fetch failed: error sending request for url (api.example.com/?)"
+        );
+        assert_eq!(
+            vendor_b.message,
+            "fetch failed: error sending request for url (api.other.com/?)"
+        );
+        assert_ne!(
+            vendor_a.fingerprint(),
+            vendor_b.fingerprint(),
+            "a break on one vendor is new beside a routine failure on another"
+        );
+
+        // One host is one input, however the URL varies from call to call.
+        for url in [
+            "https://api.example.com",
+            "https://api.example.com/",
+            "https://api.example.com:8443/v1/x?page=abc",
+            "https://api.example.com/v1/y",
+            "http://api.example.com/v1/customers/acme-corp#frag",
+            "https://user:hunter2@api.example.com/v1/rates?key=sk_live_abc",
+            "HTTPS://API.Example.COM/v1/rates",
+        ] {
+            assert_eq!(
+                fetch_failed(url).fingerprint(),
+                vendor_a.fingerprint(),
+                "{url}"
+            );
+        }
+        for kept_out in ["hunter2", "sk_live_abc", "user", "8443", "acme-corp"] {
+            let folded = normalize(
+                "url (https://user:hunter2@api.example.com:8443/v1/customers/acme-corp?key=sk_live_abc)",
+            );
+            assert!(!folded.contains(kept_out), "{kept_out} in {folded}");
+        }
+        // A numbered shard or tenant is one host, by the digit rule.
+        assert_eq!(
+            normalize("https://shop123.example.com/admin"),
+            normalize("https://shop456.example.com/orders")
+        );
+        assert_eq!(normalize("https://api2.example.com/x"), "#.example.com/?");
+
+        // No host, so nothing to keep: these fold whole, as before.
+        for host_less in [
+            // A module specifier in a stack frame: a scheme, but no authority.
+            "file:///app/functions/upload-report/index.ts:12:34",
+            "customer-app-storage/3fa85f64-5717-4562-b3fc-2c963f66afa6/uploads/invoice-acme.pdf",
+            "/var/oxy/state/customer-app-storage/a/uploads/invoice-acme.pdf",
+            "bob@example.com",
+            // A URL in a query string is the caller's data, not where the
+            // call went: there is no scheme in front of this run.
+            "/redirect?to=https://evil.example/x",
+        ] {
+            assert_eq!(normalize(host_less), "?", "{host_less}");
+        }
     }
 
     #[test]
@@ -354,19 +717,80 @@ mod tests {
         );
     }
 
+    /// The Code 27 failure as `ctx.warehouse.insert` returned it to a handler
+    /// that caught it — the same text minus the `function threw:` framing.
+    const CAUGHT_CODE_27: &str = "warehouse insert failed: query failed: HTTP 400 \
+        Bad Request: Code: 27. DB::Exception: Cannot parse input: expected '(' before: \
+        '/*oxy.app=\\'bookkeeping\\',oxy.fn=\\'upload-report\\',oxy.invocation=\\'0af7651916cd\\'*/': \
+        at row 63: While executing ValuesBlockInputFormat. (CANNOT_PARSE_INPUT_ASSERTION_FAILED) \
+        (version 25.8.4.13 (official build))";
+
     #[test]
     fn a_caught_host_call_failure_on_a_2xx_is_a_failure() {
-        let hc = HostCallFailure {
-            op: "warehouse.insert",
-            kind: "host_call_failed",
-        };
+        let hc =
+            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", CAUGHT_CODE_27)
+                .unwrap();
         let f = Failure::of("success", 200, None, Some(&hc)).expect("caught host failure pages");
         assert_eq!(f.kind, "host_call");
         assert_eq!(
             f.fingerprint,
-            digest("host_call warehouse.insert host_call_failed")
+            digest(&format!(
+                "host_call warehouse.insert host_call_failed {}",
+                normalized_prefix(CAUGHT_CODE_27)
+            )),
+            "the fingerprint is over the op, the kind and the normalized message, \
+             bounded as the `threw` path's is"
         );
+        assert_ne!(
+            f.fingerprint,
+            digest("host_call warehouse.insert host_call_failed"),
+            "op and kind alone no longer name it"
+        );
+        assert_eq!(f.fingerprint.len(), 16);
         assert_eq!(f.host_call, Some(hc), "the page names the op and kind");
+    }
+
+    /// The mask this fixes. A function that already catches a routine failure
+    /// on an op — `permission_denied` on a scheduled airhouse write, say — has
+    /// that (op, kind) in the pager's lookback, so a real break of the same op
+    /// and kind was not "new" and never paged. With the message in the
+    /// fingerprint, the break is a fingerprint the function never had.
+    #[test]
+    fn a_new_failure_on_an_op_a_function_already_catches_is_a_new_fingerprint() {
+        let routine = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            "warehouse insert failed: this is a read-only warehouse connection",
+        )
+        .unwrap();
+        let broken =
+            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", CAUGHT_CODE_27)
+                .unwrap();
+        assert_eq!((routine.op, routine.kind), (broken.op, broken.kind));
+        assert_ne!(
+            Failure::of("success", 200, None, Some(&routine))
+                .unwrap()
+                .fingerprint,
+            Failure::of("success", 200, None, Some(&broken))
+                .unwrap()
+                .fingerprint,
+            "two failures of one op and kind are two fingerprints"
+        );
+        // And the same break across apps and rows is still one fingerprint —
+        // the message is digested normalized, as the `threw` path's is.
+        let other_app = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            &CAUGHT_CODE_27
+                .replace("bookkeeping", "receiving")
+                .replace("upload-report", "submit")
+                .replace("0af7651916cd", "884e14953bc3")
+                .replace("row 63", "row 2"),
+        )
+        .unwrap();
+        assert_eq!(broken.fingerprint(), other_app.fingerprint());
     }
 
     /// The first failure stands over a later one, and a later success of the
@@ -375,21 +799,30 @@ mod tests {
     /// says nothing about the `fetch` that did not.
     #[test]
     fn a_noted_host_call_failure_is_cleared_by_a_success_of_the_same_op() {
-        let noted = HostCallFailure::noted(None, "fetch", "timeout");
+        let noted = HostCallFailure::noted(None, "fetch", "timeout", "fetch timed out after 30s");
         assert_eq!(
             noted,
             Some(HostCallFailure {
                 op: "fetch",
-                kind: "timeout"
+                kind: "timeout",
+                message: "fetch timed out after #".into(),
             })
         );
         assert_eq!(
-            HostCallFailure::noted(noted, "warehouse.insert", "host_call_failed"),
+            HostCallFailure::noted(
+                noted.clone(),
+                "warehouse.insert",
+                "host_call_failed",
+                CAUGHT_CODE_27
+            ),
             noted,
             "the first failure stands"
         );
-        assert_eq!(HostCallFailure::recovered(noted, "storage.head"), noted);
-        assert_eq!(HostCallFailure::recovered(noted, "fetch"), None);
+        assert_eq!(
+            HostCallFailure::recovered(noted.clone(), "storage.head"),
+            noted
+        );
+        assert_eq!(HostCallFailure::recovered(noted.clone(), "fetch"), None);
         // Recovered, then failed again: the second failure is the one the run
         // did not recover from.
         assert_eq!(
@@ -397,12 +830,71 @@ mod tests {
                 HostCallFailure::recovered(noted, "fetch"),
                 "warehouse.insert",
                 "host_call_failed",
-            ),
-            Some(HostCallFailure {
-                op: "warehouse.insert",
-                kind: "host_call_failed"
-            })
+                CAUGHT_CODE_27,
+            )
+            .map(|hc| (hc.op, hc.kind)),
+            Some(("warehouse.insert", "host_call_failed"))
         );
+    }
+
+    /// What the host keeps across the run is the digest's input, never the
+    /// message: normalized and bounded as it is noted.
+    #[test]
+    fn a_noted_message_is_normalized_before_it_is_kept() {
+        let key =
+            "customer-app-storage/3fa85f64-5717-4562-b3fc-2c963f66afa6/uploads/invoice-acme.pdf";
+        let noted = HostCallFailure::noted(
+            None,
+            "storage.head",
+            "host_call_failed",
+            &format!("s3 error: head_object {key}: dispatch failure"),
+        )
+        .unwrap();
+        assert_eq!(noted.message, "# error: head_object ?: dispatch failure");
+        let long = format!(
+            "warehouse insert failed: {}",
+            "x ".repeat(FINGERPRINT_PREFIX)
+        );
+        let noted =
+            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", &long).unwrap();
+        assert_eq!(noted.message.chars().count(), FINGERPRINT_PREFIX);
+        assert_eq!(
+            noted.fingerprint(),
+            digest(&format!(
+                "host_call warehouse.insert host_call_failed {}",
+                noted.message
+            ))
+        );
+    }
+
+    /// "Nothing of the message reaches a log line" as a property of the type,
+    /// not a habit of its callers: a `tracing::warn!(?failure)` added later
+    /// prints the op, the kind and a digest.
+    #[test]
+    fn a_host_call_failures_debug_output_elides_its_message() {
+        let hc = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "permission_denied",
+            "warehouse insert failed: permission denied for table ledger_entries",
+        )
+        .unwrap();
+        let failure = Failure::of("success", 200, None, Some(&hc)).unwrap();
+        for printed in [
+            format!("{hc:?}"),
+            format!("{hc:#?}"),
+            format!("{failure:?}"),
+        ] {
+            assert!(printed.contains("warehouse.insert"), "{printed}");
+            assert!(printed.contains("permission_denied"), "{printed}");
+            for text in ["ledger_entries", "permission denied for", &hc.message] {
+                assert!(!printed.contains(text), "{text} in {printed}");
+            }
+        }
+        // The digest stands in for the text, so two notes still tell apart.
+        let other =
+            HostCallFailure::noted(None, "warehouse.insert", "permission_denied", "other").unwrap();
+        assert_ne!(format!("{hc:?}"), format!("{other:?}"));
     }
 
     #[test]
@@ -410,6 +902,7 @@ mod tests {
         let hc = HostCallFailure {
             op: "query",
             kind: "timeout",
+            message: "query timed out after #".into(),
         };
         let real = Failure::of("success", 503, None, Some(&hc)).unwrap();
         assert_eq!(real.kind, "http_5xx");

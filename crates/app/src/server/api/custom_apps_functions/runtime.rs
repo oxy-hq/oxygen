@@ -245,8 +245,12 @@ pub trait FunctionHost: Send + Sync {
     /// Called by the broker when a host call failed in a way that pages
     /// (`host_call_attrs::counts_toward_paging`), before the isolate sees the
     /// rejection — so a handler that catches it and answers 2xx still leaves a
-    /// failure behind. `op` is a fixed op name, never what the call carried.
-    fn note_host_call_failure(&self, _op: &'static str, _kind: &'static str) {}
+    /// failure behind. `op` is a fixed op name, never what the call carried;
+    /// `message` is the host's error text, which the host normalizes before it
+    /// keeps anything (`failure_signal::HostCallFailure::noted`), so the
+    /// fingerprint can tell a new break on an op apart from the routine
+    /// failure a handler already catches there.
+    fn note_host_call_failure(&self, _op: &'static str, _kind: &'static str, _message: &str) {}
     /// Called by the broker when a host call succeeded, so a failure noted for
     /// the same `op` earlier in the run is dropped: the run recovered from it,
     /// and the fingerprint should name one it did not. The rule and its
@@ -1782,7 +1786,9 @@ pub async fn run(
                                             super::host_call_attrs::classify_host_error(message);
                                         if super::host_call_attrs::counts_toward_paging(error_kind)
                                         {
-                                            host_note.note_host_call_failure(op, error_kind);
+                                            host_note.note_host_call_failure(
+                                                op, error_kind, message,
+                                            );
                                         }
                                     }
                                     Ok(_) => host_note.note_host_call_success(op),
@@ -2361,9 +2367,10 @@ mod tests {
         /// When set, the app's own stores fail with this message: every
         /// `ctx.airhouse` op, and the `begin_oltp` that opens `ctx.oltp.tx`.
         own_store_error: Option<String>,
-        /// Every `(op, kind)` the broker noted, in order — all of them, not
-        /// just the first, so a test can see a note that should not exist.
-        host_call_failures: std::sync::Mutex<Vec<(&'static str, &'static str)>>,
+        /// Every `(op, kind, message)` the broker noted, in order — all of
+        /// them, not just the first, so a test can see a note that should not
+        /// exist.
+        host_call_failures: std::sync::Mutex<Vec<(&'static str, &'static str, String)>>,
         /// Every op the broker reported a success for, in order.
         host_call_successes: std::sync::Mutex<Vec<&'static str>>,
     }
@@ -2373,7 +2380,22 @@ mod tests {
             self.tx_ops.lock().unwrap().clone()
         }
         fn host_call_failures(&self) -> Vec<(&'static str, &'static str)> {
-            self.host_call_failures.lock().unwrap().clone()
+            self.host_call_failures
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(op, kind, _)| (*op, *kind))
+                .collect()
+        }
+        /// The message each note carried, in order: the real host folds it
+        /// into the fingerprint (`HostCallFailure::noted`).
+        fn host_call_failure_messages(&self) -> Vec<String> {
+            self.host_call_failures
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, _, message)| message.clone())
+                .collect()
         }
         fn host_call_successes(&self) -> Vec<&'static str> {
             self.host_call_successes.lock().unwrap().clone()
@@ -2393,8 +2415,11 @@ mod tests {
             }
             Ok(serde_json::json!({ "rows": [{ "x": 1 }], "truncated": false }))
         }
-        fn note_host_call_failure(&self, op: &'static str, kind: &'static str) {
-            self.host_call_failures.lock().unwrap().push((op, kind));
+        fn note_host_call_failure(&self, op: &'static str, kind: &'static str, message: &str) {
+            self.host_call_failures
+                .lock()
+                .unwrap()
+                .push((op, kind, message.to_string()));
         }
         fn note_host_call_success(&self, op: &'static str) {
             self.host_call_successes.lock().unwrap().push(op);
@@ -2750,6 +2775,11 @@ mod tests {
             host.host_call_failures(),
             vec![("query", "host_call_failed")],
             "exactly one note, for the one failed call"
+        );
+        assert_eq!(
+            host.host_call_failure_messages(),
+            vec!["connection refused"],
+            "the note carries the host's message, for the fingerprint"
         );
     }
 

@@ -5,12 +5,15 @@
 //! invocation row carried no `failure_fingerprint`, so the ops pager, which
 //! groups rows by that column, never saw it. The broker now notes the failure
 //! on `ProjectFunctionHost` before the isolate gets the rejection. Finalization
-//! then writes a `host_call` fingerprint over `host_call <op> <kind>`.
+//! then writes a `host_call` fingerprint over `host_call <op> <kind>
+//! <normalized message>` — the message so that a new break on an op the
+//! function already catches is still new to the pager, normalized so that a
+//! fingerprint carries none of the message's data.
 //!
 //! The runtime unit tests prove the broker makes that note, over a `MockHost`.
-//! These prove the rest of the path: the real host keeps the note, and the
-//! invocation row a published app writes carries it. Both failures are
-//! deterministic:
+//! These prove the rest of the path: the real host keeps the note, with the
+//! message it normalized, and the invocation row a published app writes
+//! carries the fingerprint over all three. Both failures are deterministic:
 //!
 //! - `ctx.fetch` to an `http://` URL is refused by `is_safe_outbound` before
 //!   any DNS lookup or connection. Its message contains "blocked", which
@@ -82,11 +85,30 @@ fn functions() -> Vec<FunctionSpec> {
     ]
 }
 
+/// The message `ProjectFunctionHost::fetch` refuses `quote-rates`' URL with —
+/// the text the broker hands `note_host_call_failure`.
+const FETCH_REFUSAL: &str = "fetch to 'http://rates.example.com/v1/usd' blocked by SSRF allowlist";
+/// `FETCH_REFUSAL` as `failure_signal::normalize` writes it: the quoted URL is
+/// one `?`. Written out by hand, so this test computes the fingerprint from
+/// the formula rather than from the crate's own function; the unit test
+/// `a_locator_the_host_writes_bare_does_not_reach_the_fingerprint_input`
+/// pins the same line from the other side.
+///
+/// No host survives here, and that is the rule rather than an oversight. A
+/// *bare* URL keeps its host (`for url (api.example.com/?)`), so two endpoints
+/// in one function stay two fingerprints. This URL is *quoted*: the host wrote
+/// it as a value, the quote rule takes it whole before the run rule sees it,
+/// and that rule is `main`'s — changing it would re-fingerprint every stored
+/// failure that quotes a URL. The refusal is also the one fetch failure a
+/// second endpoint cannot hide behind: it fires before any request is made.
+const FETCH_REFUSAL_NORMALIZED: &str = "fetch to ? blocked by SSRF allowlist";
+
 /// The fingerprint `failure_signal::Failure::of` gives a caught host-call
-/// failure: 16 hex chars of SHA-256 over `host_call <op> <kind>`. Recomputed
-/// here because `failure_signal` is a private module of the crate.
-fn host_call_fingerprint(op: &str, kind: &str) -> String {
-    let digest = Sha256::digest(format!("host_call {op} {kind}").as_bytes());
+/// failure: 16 hex chars of SHA-256 over `host_call <op> <kind> <normalized
+/// message>`. Recomputed here because `failure_signal` is a private module of
+/// the crate.
+fn host_call_fingerprint(op: &str, kind: &str, normalized_message: &str) -> String {
+    let digest = Sha256::digest(format!("host_call {op} {kind} {normalized_message}").as_bytes());
     hex::encode(&digest[..8])
 }
 
@@ -107,9 +129,12 @@ async fn a_caught_fetch_refusal_answers_200_and_still_writes_a_host_call_fingerp
         call.raw
     );
     let reason = data["reason"].as_str().expect("the caught message");
+    // The isolate prefixes the surface (`ctx.fetch: …`); the host's own text,
+    // which is what the fingerprint normalizes, is the rest.
     assert!(
-        reason.contains("blocked by SSRF allowlist"),
-        "the fetch failed on the SSRF check, not on the network: {reason}"
+        reason.ends_with(FETCH_REFUSAL),
+        "the fetch failed on the SSRF check, not on the network, and said so in the \
+         words the fingerprint below assumes: {reason}"
     );
     assert_eq!(call.frame("done"), Some(&json!({ "status": 200 })));
 
@@ -125,8 +150,14 @@ async fn a_caught_fetch_refusal_answers_200_and_still_writes_a_host_call_fingerp
     );
     assert_eq!(
         rows[0].failure_fingerprint.as_deref(),
-        Some(host_call_fingerprint("fetch", "not_allowed").as_str()),
-        "the caught fetch refusal must leave the fingerprint the pager groups by"
+        Some(host_call_fingerprint("fetch", "not_allowed", FETCH_REFUSAL_NORMALIZED).as_str()),
+        "the caught fetch refusal must leave the fingerprint the pager groups by: op, kind \
+         and the normalized message"
+    );
+    assert_ne!(
+        rows[0].failure_fingerprint.as_deref(),
+        Some(host_call_fingerprint("fetch", "not_allowed", "").as_str()),
+        "op and kind alone no longer name the failure"
     );
 }
 

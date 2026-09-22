@@ -116,7 +116,9 @@ pub struct ProjectFunctionHost {
     /// app chose: the op name comes from a closed list, and a target would
     /// not. Concurrent calls of one op settle in completion order. The rule is
     /// `HostCallFailure::{noted, recovered}`; this holds the state, for one
-    /// assignment at a time and never across an await, so a std mutex.
+    /// assignment at a time and never across an await, so a std mutex. What
+    /// it holds of the host's message is the normalized, bounded form the
+    /// fingerprint digests — `noted` takes the raw text and keeps none of it.
     host_call_failure: std::sync::Mutex<Option<super::failure_signal::HostCallFailure>>,
 }
 
@@ -686,12 +688,14 @@ impl FunctionHost for ProjectFunctionHost {
         }
     }
 
-    fn note_host_call_failure(&self, op: &'static str, kind: &'static str) {
+    fn note_host_call_failure(&self, op: &'static str, kind: &'static str, message: &str) {
         let mut noted = self
             .host_call_failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *noted = super::failure_signal::HostCallFailure::noted(*noted, op, kind);
+        // `noted` normalizes the message before it is stored; the raw text
+        // goes no further than this call.
+        *noted = super::failure_signal::HostCallFailure::noted(noted.take(), op, kind, message);
     }
 
     fn note_host_call_success(&self, op: &'static str) {
@@ -699,14 +703,14 @@ impl FunctionHost for ProjectFunctionHost {
             .host_call_failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *noted = super::failure_signal::HostCallFailure::recovered(*noted, op);
+        *noted = super::failure_signal::HostCallFailure::recovered(noted.take(), op);
     }
 
     fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {
-        *self
-            .host_call_failure
+        self.host_call_failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     async fn query(&self, sql: String) -> Result<serde_json::Value, String> {

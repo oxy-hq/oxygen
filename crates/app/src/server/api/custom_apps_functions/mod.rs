@@ -43,6 +43,10 @@ mod tx;
 /// Which warehouses `ctx.warehouse.upsert` can reach, refused by name.
 #[cfg(feature = "custom-app-functions")]
 mod upsert_support;
+/// A URL's scheme, host and port, never its path or query. Always compiled:
+/// `failure_signal` reads a host from it in every configuration, and the gated
+/// `host_call_attrs` hands the same parser to `runtime`'s fetch spans.
+mod url_shape;
 
 /// Named so `ProjectFunctionHost::new` can be called from outside the crate —
 /// the engine-backed tests in `tests/custom_apps/` build a real host.

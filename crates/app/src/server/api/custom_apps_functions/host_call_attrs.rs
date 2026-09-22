@@ -123,35 +123,12 @@ pub(super) fn db_query_summary(sql: &str) -> QuerySummary {
     }
 }
 
-/// Where a `ctx.fetch` goes — never the path or query.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct FetchTarget {
-    pub scheme: String,
-    pub host: String,
-    pub port: Option<u16>,
-}
-
-pub(super) fn fetch_target(url: &str) -> FetchTarget {
-    let (scheme, rest) = match url.split_once("://") {
-        Some((s, r)) => (s.to_ascii_lowercase(), r),
-        None => (String::new(), url),
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    // Drop userinfo if a caller embedded credentials in the URL.
-    let authority = authority.rsplit('@').next().unwrap_or(authority);
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => match p.parse::<u16>() {
-            Ok(port) => (h.to_string(), Some(port)),
-            Err(_) => (authority.to_string(), None),
-        },
-        _ => (authority.to_string(), None),
-    };
-    FetchTarget {
-        scheme,
-        host: host.to_ascii_lowercase(),
-        port,
-    }
-}
+/// Where a `ctx.fetch` goes — never the path or query. The parser lives in
+/// `url_shape`, which compiles in every configuration, because the failure
+/// fingerprint reads a URL's host by the same rule and this module is gated
+/// with the runtime. Handed on from here so a span's attributes still come
+/// from one place.
+pub(super) use super::url_shape::fetch_target;
 
 /// `error.type` for a failed host op, from the message the host returned.
 /// Coarse on purpose: these become a HyperDX facet, and a facet with one
@@ -365,24 +342,6 @@ mod tests {
         );
         assert!(identifier_like("orders_v2.$tmp-1"));
         assert!(!identifier_like("secret-42'"));
-    }
-
-    #[test]
-    fn fetch_target_keeps_scheme_host_port_and_drops_the_rest() {
-        let t = fetch_target("https://user:pw@api.stripe.com:8443/v1/charges?key=sk_live_123");
-        assert_eq!(t.scheme, "https");
-        assert_eq!(t.host, "api.stripe.com");
-        assert_eq!(t.port, Some(8443));
-        let t = fetch_target("http://example.test/path");
-        assert_eq!(
-            (t.scheme.as_str(), t.host.as_str(), t.port),
-            ("http", "example.test", None)
-        );
-        // Not a URL at all: no scheme, and whatever came in is the "host" —
-        // there is nothing sensitive to strip and nothing to panic on.
-        let t = fetch_target("not a url");
-        assert_eq!(t.scheme, "");
-        assert_eq!(t.port, None);
     }
 
     #[test]

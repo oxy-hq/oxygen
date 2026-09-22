@@ -149,7 +149,7 @@ fn message(
 /// a NULL `error` — the app caught the message — so pointing at the column
 /// would send on-call to an empty cell; the op and kind are what there is.
 fn where_to_look(failure: &Failure) -> String {
-    match failure.host_call {
+    match &failure.host_call {
         Some(hc) => format!(
             "• host call `{}` failed as `{}`; the handler caught it and answered, so \
              `app_function_invocations.error` is NULL. The same op and kind on other apps \
@@ -183,6 +183,7 @@ mod tests {
         let hc = HostCallFailure {
             op: "warehouse.insert",
             kind: "host_call_failed",
+            message: "warehouse insert failed: query failed: HTTP # Bad Request: Code: #.".into(),
         };
         let caught = Failure::of("success", 200, None, Some(&hc)).unwrap();
         let line = where_to_look(&caught);
@@ -190,6 +191,10 @@ mod tests {
         assert!(line.contains("`host_call_failed`"), "{line}");
         assert!(line.contains("is NULL"), "{line}");
         assert!(!line.contains("The message is in"), "{line}");
+        // The message feeds the fingerprint and stops there: the page names
+        // the op and kind, and nothing of what the host said.
+        assert!(!line.contains("Bad Request"), "{line}");
+        assert!(!line.contains(&hc.message), "{line}");
 
         let threw = Failure::of("error", 0, Some("function threw: Error: x"), None).unwrap();
         assert!(where_to_look(&threw).starts_with("The message is in"));
