@@ -28,11 +28,15 @@ stops at the first failure:
 | `warehouse_insert` | `ctx.warehouse.insert`, 3 rows in one statement | bookkeeping `ingest-report`, `ingest-doordash` |
 | `warehouse_exec` | `ctx.warehouse.exec` of a 2-row INSERT that opens with `--` | warehouse `submit-receiving`; 14 functions call `exec` |
 | `warehouse_readback` | `ctx.warehouse.query`: every row the two write steps sent landed | — |
+| `upsert_refusal` | Pins a refusal: `ctx.warehouse.upsert` on ClickHouse must be refused by name (`warehouse.upsert is not supported on ClickHouse`) before anything is sent. Writes nothing | the docs' promise; any app that reaches for `upsert` on a warehouse |
+| `tx_refusal` | Pins a refusal: `ctx.tx` on ClickHouse must be refused naming the engine (`ClickHouse does not support multi-statement transactions`), and the callback must not run | the docs' promise |
 | `sql_read` | Top-level `ctx.query`, resolving `{ rows, truncated }` | 13 functions |
+| `sql_stream` | `ctx.queryStream`, the same read through the async generator | — |
 | `oltp_roundtrip` | `ctx.oltp` write, read and delete in the canary's own schema | Store Ops (45 functions) |
+| `oltp_transaction` | `ctx.oltp.tx`: a transaction inserts a row and reads it back on its own connection, and the commit is visible afterwards; a second inserts and throws, and its row is gone. Deletes what it committed | — |
 | `shape_zoo` | Every case in `fixtures/data-shapes/zoo.json` (synced to `functions/shape-zoo.json`). The ClickHouse cases are created, filled once and read one column at a time on `canary_warehouse` with `ctx.warehouse.exec`/`query`; the Postgres cases go the same way through `ctx.oltp`. Each column must equal its case's `expect` | every app that reads a warehouse or its OLTP store |
-| `org_read` | `ctx.org.places()` response shape | Store Ops (43) |
-| `storage_roundtrip` | `put` binary as base64; `get` and compare bytes; `getUploadUrl`, then a `ctx.fetch` PUT with `bodyEncoding: "base64"`; `head`; `delete` | bookkeeping, warehouse, Store Ops |
+| `org_read` | `ctx.org.places()`, `people()` and `assignments()` response shapes | Store Ops (43) |
+| `storage_roundtrip` | `put` binary as base64; `get` and compare bytes; `getUploadUrl`, then a `ctx.fetch` PUT with `bodyEncoding: "base64"`; `head`; `copy`, then `getDownloadUrl` and a `ctx.fetch` GET with `encoding: "base64"` compared to the bytes; `list` under the run's prefix; `delete` all three | bookkeeping, warehouse, Store Ops |
 | `secrets_roundtrip` | `ctx.secrets.set`, read back through `ctx.env` | bookkeeping `refresh-qb-token` |
 | `check_in` | `ctx.fetch` POST to the All Quiet check-in URL, after every other step passed | — |
 
@@ -40,6 +44,20 @@ A failing step throws `canary step <name> failed: <cause>`. The failure pager
 fingerprints the start of that message, so each step pages under its own
 fingerprint. URLs are stripped from the cause, because the check-in URL and a
 presigned PUT are both credentials.
+
+**Every host op has a step here, or a written reason.** `STEP_OPS` in
+`functions/steps.ts` names the host ops each step makes; `pnpm test` checks each
+list against the calls the step makes on the fake host, and
+`crates/app/tests/custom_apps/canary_coverage.rs` fails when a name in the
+platform's closed list (`HOST_OPS` in `custom_apps_functions/host_call_attrs.rs`)
+has neither a step nor an exemption with a reason. Adding a host op means adding
+a step, or an exemption that says what would unblock one.
+
+The two `*_refusal` steps pin wording, not behaviour the canary wants: the host
+refuses both ops on ClickHouse before sending anything, and the platform
+classifies those refusals as the app's own condition (`bad_request`), so
+catching them every five minutes pages nobody. A host that let either through
+would fail in the engine's words, one row late.
 
 `shape_zoo` fails as `canary step shape_zoo failed: <key> (<class>): expected <json> got <json>`,
 naming the first case that differs. Its values are synthetic. A failure there means an engine,
@@ -51,7 +69,11 @@ absent means all, and `shape_zoo` is in that list. One run issues roughly **200
 statements** — a read per case, 115 ClickHouse and 81 Postgres, plus a create
 and a count on each plane — all sequential. That is what `canary`'s
 180-second `timeoutSeconds` is sized for; at the 60 seconds the other steps
-need, the step times out rather than failing on a case. A deployment that has
+need, the step times out rather than failing on a case. The steps added after
+the zoo was timed — `upsert_refusal`, `tx_refusal`, `sql_stream`,
+`oltp_transaction`, the three `org_read` reads and the copy, presigned GET and
+list in `storage_roundtrip` — add about fifteen host calls, a few seconds at
+most, inside the same budget. A deployment that has
 not timed the zoo against its own warehouse should list `CANARY_STEPS` **without**
 `shape_zoo` until it has, and note why next to it. Timing it needs no stopwatch:
 a passing step logs one line, `shape_zoo: <cases> cases in <ms> ms` (no values),
@@ -63,9 +85,11 @@ job's `/function-runs/<run_id>`.
 ### Tags and cleanup
 
 - **Tags:** every row, object and secret value carries the run id.
-- **Removed in the same run:** the OLTP row and both storage objects. If that
+- **Removed in the same run:** the OLTP rows (`oltp_roundtrip`'s, and
+  `oltp_transaction`'s `<runId>-tx`) and all three storage objects. If that
   cleanup fails, the step fails.
 - **ClickHouse rows** are not deleted. The table's 7-day TTL removes them.
+  `upsert_refusal` and `tx_refusal` write none.
 - **Zoo tables** (`oxy_shape_zoo_<first 8 hex chars of the zoo's SHA-256>`, in `oxy_canary` and
   in the canary's OLTP schema) are not deleted: each holds one row, and a run creates and fills it
   only when it is missing. A zoo change creates a new table; drop the old one by hand.
@@ -88,11 +112,28 @@ stack should run the canary twice, or drop the step with `CANARY_STEPS`.
 
 ### Not covered, and why
 
-- `email.send`: open decision D3 in the verification design
-  (`internal-docs/2026-09-14-custom-app-verification-design.md`): whether a
-  canary may send real mail, and to whom.
-- `ctx.tx` and `warehouse.upsert`: no live app uses them.
-- `airway.run`: out of scope for the canary.
+Each of these is an `EXEMPT` entry in `canary_coverage.rs`, with the reason and
+what would unblock it; that test fails if one is dropped from the platform's op
+list or gains a step without the entry going.
+
+- `email.send`: a real SES send every five minutes is a side effect outside the
+  platform, to a mailbox someone has to own — open decision D3 in the
+  verification design (`internal-docs/2026-09-14-custom-app-verification-design.md`).
+- `semantic.query`: the canary workspace has no semantic model, so a call would
+  fail on the missing topic rather than prove the host path. Unblocked by
+  committing a minimal view and topic to the workspace.
+- `airway.run`: runs an ELT pipeline, a side effect that needs an `.airway.yml`
+  and source credentials. Out of scope for the canary by design.
+- `airhouse.query` / `exec` / `append`: `ctx.airhouse` writes the app's own
+  schema in the workspace's Airhouse, and its tables come only from
+  `airhouseMigrations` applied at promote. The manifest declares neither, and
+  neither staging nor prod is known to provision Airhouse for `oxy-canary`.
+  Unblocked by provisioning it, declaring the capability and a one-table
+  migration, and a step that appends one run-tagged row and reads it back.
+
+`ctx.tx` and `warehouse.upsert` are covered only as refusals (`tx_refusal`,
+`upsert_refusal`): the canary's destination is ClickHouse, which can do
+neither. `ctx.oltp.tx` exercises the transaction bracket itself on Postgres.
 
 ## Page checks
 
@@ -151,10 +192,14 @@ that step fails.
   `CANARY_CHECKIN_URL` unset:
 
   ```text
-  warehouse_insert,warehouse_exec,warehouse_readback,sql_read,oltp_roundtrip,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip
+  warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,oltp_roundtrip,oltp_transaction,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip
   ```
 
-  The reason to note next to it: no staging monitor. Two things follow:
+  The reason to note next to it: no staging monitor. Three things follow:
+  - A step added to `ALL_STEPS` does not run on staging until this list names
+    it: `CANARY_STEPS` names steps, and a name it lacks is a recorded
+    omission. The list above is current as of `oltp_transaction`; update the
+    secret when a step lands.
   - The manifest does not declare `CANARY_CHECKIN_URL` required, so staging's
     Secrets panel does not list it as missing: an unset URL is staging's normal
     state, not a gap. The panel's "missing" flag is for secrets a run cannot

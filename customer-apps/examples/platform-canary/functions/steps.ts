@@ -19,8 +19,12 @@ export type StepName =
   | "warehouse_insert"
   | "warehouse_exec"
   | "warehouse_readback"
+  | "upsert_refusal"
+  | "tx_refusal"
   | "sql_read"
+  | "sql_stream"
   | "oltp_roundtrip"
+  | "oltp_transaction"
   | "shape_zoo"
   | "org_read"
   | "storage_roundtrip"
@@ -32,14 +36,103 @@ export const ALL_STEPS: StepName[] = [
   "warehouse_insert",
   "warehouse_exec",
   "warehouse_readback",
+  "upsert_refusal",
+  "tx_refusal",
   "sql_read",
+  "sql_stream",
   "oltp_roundtrip",
+  "oltp_transaction",
   "shape_zoo",
   "org_read",
   "storage_roundtrip",
   "secrets_roundtrip",
   "check_in"
 ];
+
+/**
+ * Every name the host pages an op under: `HOST_OPS` in
+ * `crates/app/src/server/api/custom_apps_functions/host_call_attrs.rs`.
+ * `crates/app/tests/custom_apps/canary_coverage.rs` holds this union equal to
+ * that list, so a new host op fails there until it is named here and either
+ * exercised by a step or exempted with a reason.
+ */
+export type HostOp =
+  | "query"
+  | "query_stream"
+  | "fetch"
+  | "semantic.query"
+  | "airway.run"
+  | "warehouse.insert"
+  | "warehouse.exec"
+  | "warehouse.upsert"
+  | "warehouse.query"
+  | "tx.begin"
+  | "tx.begin_oltp"
+  | "tx.query"
+  | "tx.exec"
+  | "tx.commit"
+  | "tx.rollback"
+  | "oltp.query"
+  | "oltp.exec"
+  | "airhouse.query"
+  | "airhouse.exec"
+  | "airhouse.append"
+  | "storage.getUploadUrl"
+  | "storage.getDownloadUrl"
+  | "storage.put"
+  | "storage.get"
+  | "storage.head"
+  | "storage.list"
+  | "storage.delete"
+  | "storage.copy"
+  | "secrets.set"
+  | "email.send"
+  | "org.people"
+  | "org.places"
+  | "org.assignments";
+
+/**
+ * The host ops each step makes, in the order it makes them. Checked both
+ * ways: `steps.test.ts` runs each step on a fake host and compares the calls
+ * it recorded with this list, and `canary_coverage.rs` checks every host op
+ * is in one of these lists or exempted there with a reason. A step's ops are
+ * the calls it makes itself, helpers included — `ensureTable`'s
+ * `warehouse.exec` for the write steps, the zoo's reads for `shape_zoo`.
+ */
+export const STEP_OPS: Record<StepName, readonly HostOp[]> = {
+  warehouse_insert: ["warehouse.exec", "warehouse.insert"],
+  warehouse_exec: ["warehouse.exec"],
+  warehouse_readback: ["warehouse.query"],
+  upsert_refusal: ["warehouse.upsert"],
+  tx_refusal: ["tx.begin"],
+  sql_read: ["query"],
+  sql_stream: ["query_stream"],
+  oltp_roundtrip: ["oltp.exec", "oltp.query"],
+  oltp_transaction: [
+    "oltp.exec",
+    "tx.begin_oltp",
+    "tx.exec",
+    "tx.query",
+    "tx.commit",
+    "oltp.query",
+    "tx.rollback"
+  ],
+  shape_zoo: ["warehouse.exec", "warehouse.query", "oltp.exec", "oltp.query"],
+  org_read: ["org.places", "org.people", "org.assignments"],
+  storage_roundtrip: [
+    "storage.put",
+    "storage.get",
+    "storage.getUploadUrl",
+    "fetch",
+    "storage.head",
+    "storage.copy",
+    "storage.getDownloadUrl",
+    "storage.list",
+    "storage.delete"
+  ],
+  secrets_roundtrip: ["secrets.set"],
+  check_in: ["fetch"]
+};
 
 /** The workspace database the canary writes: `destinations` in oxy-app.json. */
 export const DATABASE = "canary_warehouse";
@@ -63,6 +156,15 @@ const RUN_ID_RE = /^[a-z0-9-]{1,64}$/;
 const INSERT_PATHS = ["insert-1", "insert-2", "insert-3"];
 const EXEC_PATHS = ["exec-1", "exec-2"];
 
+/**
+ * The stable part of each refusal the canary pins on its ClickHouse
+ * destination. `upsert_support.rs` and the connector's
+ * `transaction::unsupported` write the rest; a change to these words is a
+ * change to what live apps and the docs see.
+ */
+const UPSERT_REFUSAL = /warehouse\.upsert is not supported on ClickHouse/;
+const TX_REFUSAL = /ClickHouse does not support multi-statement transactions/;
+
 export interface CanaryOptions {
   runId: string;
   steps: StepName[];
@@ -72,9 +174,24 @@ export interface CanaryOptions {
 interface RunState extends CanaryOptions {
   ctx: OxyFunctionContext;
   tableReady: boolean;
+  oltpTableReady: boolean;
 }
 
 type FetchInit = NonNullable<Parameters<OxyFunctionContext["fetch"]>[1]>;
+
+/**
+ * `ctx.oltp.tx`, as the host serves it (`begin_oltp` in `host.rs`, the same
+ * handle as `ctx.tx`). The published `@oxy-hq/sdk` this app installs does not
+ * declare it on `OxyOltpApi` yet; the workspace SDK does. Typed here the way
+ * `bodyEncoding` is below, until the next SDK release.
+ */
+interface OltpTransaction {
+  query(sql: string, params?: unknown[]): Promise<OxyFunctionRow[]>;
+  exec(sql: string, params?: unknown[]): Promise<number>;
+}
+type OltpWithTx = OxyFunctionContext["oltp"] & {
+  tx<T>(fn: (tx: OltpTransaction) => Promise<T> | T): Promise<T>;
+};
 
 /** Parse `CANARY_STEPS`. Absent or blank means every step; an unknown name throws. */
 export function selectSteps(csv: string | undefined): StepName[] {
@@ -105,7 +222,7 @@ export async function runCanary(
     throw new Error("canary run id must be 1-64 lowercase letters, digits or hyphens");
   }
   const steps = ALL_STEPS.filter((step) => opts.steps.includes(step));
-  const run: RunState = { ...opts, steps, ctx, tableReady: false };
+  const run: RunState = { ...opts, steps, ctx, tableReady: false, oltpTableReady: false };
   for (const name of steps) {
     try {
       await STEPS[name](run);
@@ -120,8 +237,12 @@ const STEPS: Record<StepName, (run: RunState) => Promise<void>> = {
   warehouse_insert: warehouseInsert,
   warehouse_exec: warehouseExec,
   warehouse_readback: warehouseReadback,
+  upsert_refusal: upsertRefusal,
+  tx_refusal: txRefusal,
   sql_read: sqlRead,
+  sql_stream: sqlStream,
   oltp_roundtrip: oltpRoundtrip,
+  oltp_transaction: oltpTransaction,
   // Every zoo case: ClickHouse through ctx.warehouse on DATABASE, Postgres through ctx.oltp.
   shape_zoo: (run) => runShapeZoo(run.ctx, DATABASE),
   org_read: orgRead,
@@ -184,6 +305,64 @@ async function warehouseReadback(run: RunState): Promise<void> {
   }
 }
 
+// ── refusals the destination's engine decides ────────────────────────────────
+
+/**
+ * Pins a refusal, not a write. `ctx.warehouse.upsert` compiles to `ON CONFLICT`,
+ * which ClickHouse cannot parse, so the host refuses it by name before sending
+ * anything (`upsert_support.rs`); a host that let the statement through would
+ * fail in ClickHouse's words, one row late, and the docs and live apps depend
+ * on this wording. Nothing is written. The refusal is the app's own condition
+ * (`bad_request` in `host_call_attrs.rs`), so catching it here pages nobody.
+ */
+async function upsertRefusal(run: RunState): Promise<void> {
+  await expectRefusal(
+    "ctx.warehouse.upsert",
+    () =>
+      run.ctx.warehouse.upsert(DATABASE, TABLE, [{ run: run.runId, path: "upsert-1" }], ["run"]),
+    UPSERT_REFUSAL
+  );
+}
+
+/**
+ * Pins a refusal, not a transaction. `ctx.tx` needs a Postgres-backed
+ * database; on ClickHouse the connector refuses to open one, naming the engine
+ * (`transaction::unsupported` in the connector crate), and the callback never
+ * runs — the alternative, running the statements one by one, would report
+ * success on a half-applied write. Same classification as `upsert_refusal`.
+ */
+async function txRefusal(run: RunState): Promise<void> {
+  let ran = false;
+  await expectRefusal(
+    "ctx.tx",
+    () =>
+      run.ctx.tx(DATABASE, async () => {
+        ran = true;
+      }),
+    TX_REFUSAL
+  );
+  if (ran) throw new Error("ctx.tx ran the callback on ClickHouse instead of refusing");
+}
+
+/** `call` must reject in words matching `refusal`; resolving, or rejecting in other words, fails. */
+async function expectRefusal(
+  what: string,
+  call: () => Promise<unknown>,
+  refusal: RegExp
+): Promise<void> {
+  let outcome: { refused: false } | { refused: true; message: string };
+  try {
+    await call();
+    outcome = { refused: false };
+  } catch (err) {
+    outcome = { refused: true, message: causeOf(err) };
+  }
+  if (!outcome.refused) throw new Error(`${what} resolved on ClickHouse instead of refusing`);
+  if (!refusal.test(outcome.message)) {
+    throw new Error(`${what} was refused in other words than ${refusal}: ${outcome.message}`);
+  }
+}
+
 // ── reads ────────────────────────────────────────────────────────────────────
 
 /**
@@ -203,16 +382,50 @@ async function sqlRead(run: RunState): Promise<void> {
   }
 }
 
-/** `ctx.org.places()` answers the shape Store Ops reads. An org with no places passes. */
+/**
+ * `ctx.queryStream`: the same read through the async generator, which the
+ * isolate feeds from one `query_stream` host call and yields in batches. A
+ * generator that yields nothing, or something other than row arrays, fails.
+ */
+async function sqlStream(run: RunState): Promise<void> {
+  const rows: OxyFunctionRow[] = [];
+  for await (const batch of run.ctx.queryStream("SELECT 1 AS one")) {
+    if (!Array.isArray(batch)) throw new Error("ctx.queryStream yielded something other than a row array");
+    rows.push(...batch);
+  }
+  if (rows.length !== 1 || Number(rows[0].one) !== 1) {
+    throw new Error(`expected one row with one = 1, got ${rows.length} rows`);
+  }
+}
+
+/**
+ * `ctx.org.places()`, `people()` and `assignments()` answer the shapes Store
+ * Ops reads. An org with no places, people or assignments passes; the
+ * per-item checks need one of each to bite.
+ */
 async function orgRead(run: RunState): Promise<void> {
-  const result: unknown = await run.ctx.org.places();
-  if (!isRecord(result) || !Array.isArray(result.places) || typeof result.total !== "number") {
-    throw new Error("ctx.org.places() did not resolve { places: [...], total }");
+  const { org } = run.ctx;
+  const places = listOf(await org.places(), "places");
+  const badPlace = places.findIndex((place) => !isPlace(place));
+  if (badPlace >= 0) {
+    throw new Error(`place ${badPlace} lacks id, name, parent_id, status, timezone or external_ids`);
   }
-  const bad = (result.places as unknown[]).findIndex((place) => !isPlace(place));
-  if (bad >= 0) {
-    throw new Error(`place ${bad} lacks id, name, parent_id, status, timezone or external_ids`);
+  const people = listOf(await org.people(), "people");
+  const badPerson = people.findIndex((person) => !isPerson(person));
+  if (badPerson >= 0) throw new Error(`person ${badPerson} lacks id, name or kind`);
+  const assignments = listOf(await org.assignments(), "assignments");
+  const badAssignment = assignments.findIndex((assignment) => !isAssignment(assignment));
+  if (badAssignment >= 0) {
+    throw new Error(`assignment ${badAssignment} lacks id, user_id, role_id, role_scope or location_id`);
   }
+}
+
+/** The `key` list of a `{ <key>: [...], total }` answer, or a throw naming the shape. */
+function listOf(result: unknown, key: string): unknown[] {
+  if (!isRecord(result) || !Array.isArray(result[key]) || typeof result.total !== "number") {
+    throw new Error(`ctx.org.${key}() did not resolve { ${key}: [...], total }`);
+  }
+  return result[key] as unknown[];
 }
 
 function isPlace(value: unknown): boolean {
@@ -227,17 +440,44 @@ function isPlace(value: unknown): boolean {
   );
 }
 
+function isPerson(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    (value.kind === "member" || value.kind === "frontline")
+  );
+}
+
+function isAssignment(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.user_id === "string" &&
+    typeof value.role_id === "string" &&
+    typeof value.role_scope === "string" &&
+    (value.location_id === null || typeof value.location_id === "string")
+  );
+}
+
 // ── oltp ─────────────────────────────────────────────────────────────────────
 
-/** Write, read and delete one row in the app's own OLTP schema. A failed delete fails the step. */
-async function oltpRoundtrip(run: RunState): Promise<void> {
-  const { oltp } = run.ctx;
-  await oltp.exec(
+/** Created on first use; `run` is the primary key, so a tag is written once. */
+async function ensureOltpTable(run: RunState): Promise<void> {
+  if (run.oltpTableReady) return;
+  await run.ctx.oltp.exec(
     `CREATE TABLE IF NOT EXISTS ${OLTP_TABLE} (
        run        text        PRIMARY KEY,
        written_at timestamptz NOT NULL DEFAULT now()
      )`
   );
+  run.oltpTableReady = true;
+}
+
+/** Write, read and delete one row in the app's own OLTP schema. A failed delete fails the step. */
+async function oltpRoundtrip(run: RunState): Promise<void> {
+  const { oltp } = run.ctx;
+  await ensureOltpTable(run);
   await oltp.exec(`INSERT INTO ${OLTP_TABLE} (run) VALUES ($1)`, [run.runId]);
   await withCleanup(
     async () => {
@@ -253,9 +493,77 @@ async function oltpRoundtrip(run: RunState): Promise<void> {
   );
 }
 
+/**
+ * `ctx.oltp.tx`: a commit lands and a rollback does not. One transaction
+ * inserts a row tagged `<runId>-tx` and reads it back on its own connection;
+ * after it resolves, a plain `ctx.oltp.query` must see the row. A second
+ * inserts `<runId>-rb` and throws; the runtime must roll it back and rethrow
+ * that error, and the row must not be there. The committed row is deleted at
+ * the end, and a failed delete fails the step.
+ */
+async function oltpTransaction(run: RunState): Promise<void> {
+  const oltp = run.ctx.oltp as OltpWithTx;
+  await ensureOltpTable(run);
+  const committed = `${run.runId}-tx`;
+  const rolledBack = `${run.runId}-rb`;
+  const seen = await oltp.tx(async (tx) => {
+    await tx.exec(`INSERT INTO ${OLTP_TABLE} (run) VALUES ($1)`, [committed]);
+    const rows = await tx.query(`SELECT run FROM ${OLTP_TABLE} WHERE run = $1`, [committed]);
+    return rows.length;
+  });
+  await withCleanup(
+    async () => {
+      if (seen !== 1) {
+        throw new Error(`the transaction read back ${seen} rows of its own insert, expected 1`);
+      }
+      await expectOltpRows(run, committed, 1, "after commit");
+      const abort = new Error("canary: roll this back");
+      let thrown: unknown;
+      try {
+        await oltp.tx(async (tx) => {
+          await tx.exec(`INSERT INTO ${OLTP_TABLE} (run) VALUES ($1)`, [rolledBack]);
+          throw abort;
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      if (thrown === undefined) throw new Error("ctx.oltp.tx resolved although the callback threw");
+      if (thrown !== abort) {
+        throw new Error(`ctx.oltp.tx rethrew something other than the callback's error: ${causeOf(thrown)}`);
+      }
+      await expectOltpRows(run, rolledBack, 0, "after rollback");
+    },
+    async () => {
+      // The rolled-back tag is included so a rollback that did not roll back
+      // leaves nothing behind either; the step has already failed on it.
+      const deleted = await oltp.exec(`DELETE FROM ${OLTP_TABLE} WHERE run = $1 OR run = $2`, [
+        committed,
+        rolledBack
+      ]);
+      if (deleted === 0) throw new Error("cleanup deleted 0 rows, expected the committed row");
+    }
+  );
+}
+
+async function expectOltpRows(
+  run: RunState,
+  tag: string,
+  expected: number,
+  when: string
+): Promise<void> {
+  const rows = await run.ctx.oltp.query(`SELECT run FROM ${OLTP_TABLE} WHERE run = $1`, [tag]);
+  if (rows.length !== expected) {
+    throw new Error(`${when}: ${rows.length} rows tagged ${tag}, expected ${expected}`);
+  }
+}
+
 // ── storage ──────────────────────────────────────────────────────────────────
 
-/** Put and get binary as base64, upload through a presigned PUT, head it, delete both. */
+/**
+ * Put and get binary as base64; upload through a presigned PUT and head it;
+ * copy the object and read the copy back through a presigned GET; list the
+ * run's prefix; delete all three.
+ */
 async function storageRoundtrip(run: RunState): Promise<void> {
   const written: string[] = [];
   await withCleanup(
@@ -297,6 +605,34 @@ async function storageWrites(run: RunState, written: string[]): Promise<void> {
   if (!head || head.size !== bytes.length) {
     throw new Error(
       `head saw ${head ? head.size : "no"} bytes after the PUT, expected ${bytes.length}`
+    );
+  }
+
+  // `copy` reads the source and writes the destination, the one op gated on
+  // both storage capabilities; the copy is read back the way a browser would,
+  // through a presigned GET.
+  const copy = await storage.copy(put.key, `canary/${run.runId}-copy.bin`);
+  written.push(copy.key);
+  if (copy.size !== bytes.length) {
+    throw new Error(`copy reported ${copy.size} bytes, expected ${bytes.length}`);
+  }
+  const download = await storage.getDownloadUrl(copy.key);
+  const fetched = await run.ctx.fetch(download.url, { encoding: "base64" });
+  if (fetched.status < 200 || fetched.status >= 300) {
+    throw new Error(`presigned GET answered HTTP ${fetched.status}`);
+  }
+  if (!sameBytes(base64ToBytes(fetched.body), bytes)) {
+    throw new Error("presigned GET returned different bytes than put wrote");
+  }
+
+  // The listing is by the app-relative prefix every pathname above shares;
+  // the keys it returns are the silo keys put and copy returned.
+  const page = await storage.list({ prefix: `canary/${run.runId}`, limit: 100 });
+  const listed = new Set(page.objects.map((object) => object.key));
+  const unlisted = written.filter((key) => !listed.has(key));
+  if (unlisted.length > 0) {
+    throw new Error(
+      `list under the run's prefix lacks ${unlisted.length} of the ${written.length} objects this run wrote`
     );
   }
 }

@@ -21,6 +21,9 @@
       "timezone": "UTC",
       "timeoutSeconds": 180,
       "destinations": ["canary_warehouse"],
+      "customerWarehouseWrites": {
+        "canary_warehouse": "The canary exercises the customer-warehouse write path the way bookkeeping ingest-report and warehouse submit-receiving use it. oxy_canary is an Oxy-owned database, never a customer's."
+      },
       "oltp": { "enabled": true },
       "org": { "read": true },
       "storage": { "read": true, "write": true },

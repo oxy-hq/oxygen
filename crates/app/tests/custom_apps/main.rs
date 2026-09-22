@@ -21,6 +21,7 @@
 //! | `custom_app_functions_shape_zoo_oltp` | the Postgres zoo cases through `ctx.oltp` in the app's own provisioned schema, against `expect.oltp` |
 //! | `shape_zoo` | `fixtures/data-shapes/zoo.json` is well formed, and the SQL built from it matches the shared vector the canary also tests |
 //! | `shape_zoo_coverage` | source scans: every native type `ch_type_to_typed`, `strip_type_wrappers`, `pg_typname_to_typed`, `is_decodable` and `describe_type_to_typed` name has a zoo case, or a reasoned exemption |
+//! | `canary_coverage` | source scans: every host op in `HOST_OPS` is declared by a platform-canary step (`STEP_OPS` in the canary's `steps.ts`), or exempted with a reason; a declared op the host lacks is refused |
 //!
 //! `custom_app_functions_fixture` holds no tests: it seeds, publishes and calls.
 //!
@@ -35,6 +36,7 @@ mod common;
 
 mod admin_app_workspace_in_org;
 mod app_scoped_secrets;
+mod canary_coverage;
 mod custom_app_access_control;
 mod custom_app_activity_roles;
 mod custom_app_functions_clickhouse;

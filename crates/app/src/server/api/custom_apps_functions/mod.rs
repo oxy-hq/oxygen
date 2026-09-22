@@ -58,6 +58,10 @@ mod url_shape;
 /// the engine-backed tests in `tests/custom_apps/` build a real host.
 #[cfg(feature = "custom-app-functions")]
 pub use data_audit::InvocationIdentity;
+/// Every name a host op pages under. Read by `tests/custom_apps/canary_coverage.rs`,
+/// which checks the platform canary exercises each one or exempts it with a reason.
+#[cfg(feature = "custom-app-functions")]
+pub use host_call_attrs::HOST_OPS;
 
 use std::collections::HashMap;
 use std::sync::Mutex;

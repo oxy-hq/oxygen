@@ -163,6 +163,14 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
 /// call — an app using `AlreadyExists` as its put-if-absent idiom would
 /// otherwise clear the paging threshold by itself.
 ///
+/// The same holds for an op the destination's engine cannot do at all:
+/// `warehouse.upsert` on a warehouse with no `ON CONFLICT`
+/// (`upsert_support::check`), `ctx.tx` on one with no transactions (the
+/// connector's `transaction::unsupported`). Both are refused by name before a
+/// statement is sent, by the app's choice of destination, on every call; the
+/// platform canary pins that wording on its ClickHouse destination every run,
+/// which must not page.
+///
 /// The host returns errors as plain strings, with no caller-vs-platform
 /// distinction to read, so this matches the host's own phrasing (`host.rs`,
 /// `host/airhouse_ops.rs`, `StorageError`'s `Display`): one marker per shape,
@@ -185,6 +193,8 @@ fn is_caller_error(m: &str) -> bool {
         "invalid semantic query spec:",
         "invalid storage request:",
         "storage conflict:",
+        "warehouse.upsert is not supported on",
+        "does not support multi-statement transactions",
     ];
     MARKERS.iter().any(|marker| m.contains(marker))
 }
@@ -209,10 +219,57 @@ pub(super) fn counts_toward_paging(kind: &str) -> bool {
     )
 }
 
+/// Every fixed name a host op pages under: what [`host_op_name`] returns for
+/// the families with sub-ops, and the literal `runtime::host_call_span` hands
+/// back for each op with one. The unit tests below pin the list to both
+/// sources, so a new host op cannot be named without appearing here.
+///
+/// This is the list `tests/custom_apps/canary_coverage.rs` reads: every name
+/// on it is exercised by a step of the platform canary
+/// (`customer-apps/examples/platform-canary`) or exempted there with a reason.
+/// A name added here without either fails that test.
+pub const HOST_OPS: &[&str] = &[
+    "query",
+    "query_stream",
+    "fetch",
+    "semantic.query",
+    "airway.run",
+    "warehouse.insert",
+    "warehouse.exec",
+    "warehouse.upsert",
+    "warehouse.query",
+    "tx.begin",
+    "tx.begin_oltp",
+    "tx.query",
+    "tx.exec",
+    "tx.commit",
+    "tx.rollback",
+    "oltp.query",
+    "oltp.exec",
+    "airhouse.query",
+    "airhouse.exec",
+    "airhouse.append",
+    "storage.getUploadUrl",
+    "storage.getDownloadUrl",
+    "storage.put",
+    "storage.get",
+    "storage.head",
+    "storage.list",
+    "storage.delete",
+    "storage.copy",
+    "secrets.set",
+    "email.send",
+    "org.people",
+    "org.places",
+    "org.assignments",
+];
+
 /// The fixed name a host op pages under: its family and sub-op from a closed
 /// list, e.g. `warehouse.insert`. The sub-op string arrives from the isolate,
 /// so one off the list is `<family>.other`, never the string itself — a page
 /// fingerprint is shared across apps and carries nothing an app chose.
+/// Every name returned here other than `other` / `<family>.other` is in
+/// [`HOST_OPS`].
 pub(super) fn host_op_name(family: &str, op: &str) -> &'static str {
     match (family, op) {
         ("warehouse", "insert") => "warehouse.insert",
@@ -274,6 +331,8 @@ pub(super) fn faas_trigger(mode: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     #[test]
@@ -489,5 +548,211 @@ mod tests {
         assert_eq!(faas_trigger("schedule"), "timer");
         assert_eq!(faas_trigger("manual"), "other");
         assert_eq!(faas_trigger("airway"), "other");
+    }
+
+    /// `warehouse.upsert` and `ctx.tx` on a ClickHouse destination are refused
+    /// by name before a statement is sent (`upsert_support::check`, the
+    /// connector's `transaction::unsupported`), as `reply_json` prefixes them.
+    /// The app chose the destination, and the refusal is the same on every
+    /// call, so it is the app's condition — and the platform canary pins both
+    /// messages on its ClickHouse destination every five minutes, which must
+    /// not page.
+    #[test]
+    fn an_op_the_destinations_engine_cannot_do_is_a_bad_request() {
+        for message in [
+            "ctx.warehouse: warehouse.upsert is not supported on ClickHouse: it compiles to \
+             `INSERT … ON CONFLICT … DO UPDATE`, which only Postgres and DuckDB parse. \
+             Use warehouse.insert, or warehouse.exec with this warehouse's own upsert \
+             statement.",
+            "ctx.tx: could not open a transaction on 'canary_warehouse': ClickHouse does not \
+             support multi-statement transactions — ctx.tx() requires a Postgres-backed \
+             database (`type: postgres`). Use ctx.warehouse.{insert,exec,upsert} for \
+             single-statement writes.",
+        ] {
+            let kind = classify_host_error(message);
+            assert_eq!(kind, "bad_request", "{message}");
+            assert!(!counts_toward_paging(kind), "{message}");
+        }
+    }
+
+    // ── HOST_OPS is pinned to its two sources ──────────────────────────────
+    //
+    // `host_op_name` (this file) names the ops of the families with sub-ops;
+    // `runtime::host_call_span` names the rest with one literal each. Both are
+    // read from source here, so a name added to either without `HOST_OPS`, or
+    // to `HOST_OPS` without a source, fails.
+
+    /// The `{ … }` body of `fn <name>(` in `src`, braces counted outside
+    /// string literals, `//` comment lines dropped. Enough for the two
+    /// functions read here.
+    fn fn_body(src: &str, name: &str) -> String {
+        let at = src
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("`fn {name}` not found"));
+        let code: String = src[at..]
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let open = code.find('{').expect("a function body");
+        let (mut depth, mut in_str, mut prev) = (0usize, false, '\0');
+        for (i, c) in code[open..].char_indices() {
+            match c {
+                '"' if prev != '\\' => in_str = !in_str,
+                '{' if !in_str => depth += 1,
+                '}' if !in_str => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return code[open..open + i + 1].to_string();
+                    }
+                }
+                _ => {}
+            }
+            prev = c;
+        }
+        panic!("unbalanced braces in `fn {name}`")
+    }
+
+    /// The contents of the string literal `s` opens with, if it opens with one.
+    fn quoted(s: &str) -> Option<String> {
+        s.strip_prefix('"')?
+            .split_once('"')
+            .map(|(inner, _)| inner.to_string())
+    }
+
+    /// Every `"…"` in `s`, in order (no escapes expected).
+    fn string_literals(s: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = s;
+        while let Some(at) = rest.find('"') {
+            match quoted(&rest[at..]) {
+                Some(inner) => {
+                    rest = &rest[at + inner.len() + 2..];
+                    out.push(inner);
+                }
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// Each arm of `host_op_name` as `(family, op, name)`; `op` is `None` for a
+    /// family's `_` arm. The bare `_ => "other"` arm is not an op and is skipped.
+    fn host_op_name_arms() -> Vec<(String, Option<String>, String)> {
+        fn_body(include_str!("host_call_attrs.rs"), "host_op_name")
+            .lines()
+            .filter_map(|line| {
+                let (lhs, rhs) = line.trim().split_once("=>")?;
+                let name = quoted(rhs.trim())?;
+                let (family, op) = lhs
+                    .trim()
+                    .trim_start_matches('(')
+                    .trim_end_matches(')')
+                    .split_once(',')?;
+                Some((quoted(family.trim())?, quoted(op.trim()), name))
+            })
+            .collect()
+    }
+
+    /// The families `host_op_name` owns: those with a `(family, _)` arm.
+    fn host_op_name_families() -> BTreeSet<String> {
+        host_op_name_arms()
+            .into_iter()
+            .filter(|(_, op, _)| op.is_none())
+            .map(|(family, _, _)| family)
+            .collect()
+    }
+
+    /// The names `host_call_span` hands back itself: the literal after
+    /// `HostCallKind::<kind>,` in an arm, and both in the query arm's
+    /// `let op = if streaming { … } else { … };`.
+    fn host_call_span_literals(body: &str) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        for (at, marker) in body.match_indices("HostCallKind::") {
+            let rest = &body[at + marker.len()..];
+            let rest = rest.trim_start_matches(|c: char| c.is_alphanumeric());
+            if let Some(name) = rest.strip_prefix(',').and_then(|r| quoted(r.trim_start())) {
+                names.insert(name);
+            }
+        }
+        let at = body
+            .find("let op = ")
+            .expect("the query arm's `let op = …;`");
+        let end = body[at..].find(';').map_or(body.len(), |e| at + e);
+        names.extend(string_literals(&body[at..end]));
+        names
+    }
+
+    #[test]
+    fn host_ops_is_every_name_host_op_name_returns_and_nothing_else() {
+        let arms = host_op_name_arms();
+        assert!(
+            arms.len() > 20,
+            "the arm scan found only {} arms",
+            arms.len()
+        );
+        let families = host_op_name_families();
+        let mut named = BTreeSet::new();
+        for (family, op, name) in &arms {
+            match op {
+                Some(op) => {
+                    assert_eq!(host_op_name(family, op), name, "arm ({family}, {op})");
+                    assert!(
+                        HOST_OPS.contains(&name.as_str()),
+                        "`host_op_name` returns `{name}`, which HOST_OPS lacks"
+                    );
+                    named.insert(name.clone());
+                }
+                None => assert!(
+                    name.ends_with("other"),
+                    "the `_` arm of `{family}` names `{name}`, not `{family}.other`"
+                ),
+            }
+        }
+        for name in HOST_OPS {
+            if let Some((family, _)) = name.split_once('.') {
+                if families.contains(family) {
+                    assert!(
+                        named.contains(*name),
+                        "HOST_OPS names `{name}`, which no `host_op_name` arm returns"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn host_ops_is_every_name_host_call_span_returns_and_nothing_else() {
+        let body = fn_body(include_str!("runtime.rs"), "host_call_span");
+        let literals = host_call_span_literals(&body);
+        assert!(
+            literals.len() >= 5,
+            "the literal scan found only {literals:?}"
+        );
+        for name in &literals {
+            assert!(
+                HOST_OPS.contains(&name.as_str()),
+                "`host_call_span` names `{name}`, which HOST_OPS lacks"
+            );
+        }
+        let families = host_op_name_families();
+        for name in HOST_OPS {
+            match name.split_once('.') {
+                Some((family, _)) if families.contains(family) => assert!(
+                    body.contains(&format!("host_op_name(\"{family}\"")),
+                    "`host_call_span` no longer names the `{family}` family through `host_op_name`"
+                ),
+                _ => assert!(
+                    literals.contains(*name),
+                    "HOST_OPS names `{name}`, which `host_call_span` never returns"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn host_ops_has_no_duplicate() {
+        let unique: BTreeSet<&str> = HOST_OPS.iter().copied().collect();
+        assert_eq!(unique.len(), HOST_OPS.len());
     }
 }

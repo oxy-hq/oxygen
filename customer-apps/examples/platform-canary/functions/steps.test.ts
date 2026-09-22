@@ -4,6 +4,9 @@
 // table, OLTP rows and storage objects live in maps, and every member records
 // its call. A test breaks one member and checks that the failure surfaces as
 // `canary step <name> failed: …` — the prefix the pager fingerprints on.
+//
+// The fake is also a ClickHouse: `warehouse.upsert` and `ctx.tx` refuse in the
+// host's words, which two steps pin.
 
 import type { OxyFunctionContext } from "@oxy-hq/sdk";
 import { base64ToBytes, bytesToBase64 } from "@oxy-hq/sdk";
@@ -11,11 +14,25 @@ import { build } from "esbuild";
 import type { ShapeZoo, ZooCase } from "./shape-zoo";
 import zooJson from "./shape-zoo.json";
 import { describe, expect, it } from "vitest";
-import { ALL_STEPS, CANARY_SECRET_KEY, runCanary, type StepName, selectSteps } from "./steps";
+import {
+  ALL_STEPS,
+  CANARY_SECRET_KEY,
+  STEP_OPS,
+  runCanary,
+  type StepName,
+  selectSteps
+} from "./steps";
 
 const RUN_ID = "run-k3x9a1";
 const CHECKIN_URL = "https://allquiet.example.test/api/webhook/checkin";
 const UPLOAD_HOST = "https://canary-bucket.s3.example.test/";
+const OCTET = "application/octet-stream";
+
+/** As `reply_json` in `runtime.rs` prefixes the host's refusals. */
+const UPSERT_REFUSAL =
+  "ctx.warehouse: warehouse.upsert is not supported on ClickHouse: it compiles to `INSERT … ON CONFLICT … DO UPDATE`, which only Postgres and DuckDB parse. Use warehouse.insert, or warehouse.exec with this warehouse's own upsert statement.";
+const TX_REFUSAL =
+  "ctx.tx: could not open a transaction on 'canary_warehouse': ClickHouse does not support multi-statement transactions — ctx.tx() requires a Postgres-backed database (`type: postgres`). Use ctx.warehouse.{insert,exec,upsert} for single-statement writes.";
 
 type Row = Record<string, unknown>;
 
@@ -23,6 +40,13 @@ interface Call {
   member: string;
   args: unknown[];
 }
+
+interface TxHandle {
+  query(sql: string, params?: unknown[]): Promise<Row[]>;
+  exec(sql: string, params?: unknown[]): Promise<number>;
+}
+
+type TxFn = (tx: TxHandle) => Promise<unknown> | unknown;
 
 /** One `('run', 'path')` tuple in a VALUES list. */
 const TUPLE = /\(\s*'([^']*)'\s*,\s*'([^']*)'\s*\)/g;
@@ -58,26 +82,67 @@ const PLACE = {
   updated_at: "2026-01-01T00:00:00Z"
 };
 
+const PERSON = { id: "user-1", name: "Ana", role: "Shift lead", kind: "member" };
+
+const ASSIGNMENT = {
+  id: "assignment-1",
+  user_id: "user-1",
+  user_name: "Ana",
+  user_kind: "member",
+  role_id: "role-1",
+  role_name: "Shift lead",
+  role_scope: "location",
+  location_id: "place-1",
+  location_name: "Clovis",
+  supervisor_id: null,
+  supervisor_name: null,
+  created_at: "2026-01-01T00:00:00Z"
+};
+
+/** A host that decoded the object as UTF-8 would mangle its high bytes; flipping the last byte stands in for that. */
+function flipLastByte(base64: string): string {
+  const bytes = base64ToBytes(base64);
+  bytes[bytes.length - 1] ^= 0xff;
+  return bytesToBase64(bytes);
+}
+
 function makeFake() {
   const calls: Call[] = [];
   const record = (member: string, ...args: unknown[]) => {
     calls.push({ member, args });
   };
   const table: Row[] = [];
-  // OLTP rows by run id. The fake reads the run id from the first bound parameter.
+  // OLTP rows by run tag. The fake reads the tag from the first bound parameter.
   const oltpRows = new Set<string>();
   // Storage objects: key → base64 body.
   const objects = new Map<string, string>();
-  const state = { dropReadbackRows: 0, corruptGet: false, corruptZoo: false };
+  const state = {
+    dropReadbackRows: 0,
+    corruptGet: false,
+    corruptZoo: false,
+    corruptDownload: false,
+    hideFromList: false,
+    dropCommit: false,
+    leakRollback: false,
+    resolveOnThrow: false
+  };
 
-  const oltpWrite = (sql: string, params: unknown[]): Row[] => {
-    const run = String(params[0]);
+  const oltpWrite = (rows: Set<string>, sql: string, params: unknown[]): Row[] => {
+    const tags = params.map(String);
     if (/^\s*INSERT/i.test(sql)) {
-      oltpRows.add(run);
-      return [{ run }];
+      for (const tag of tags) rows.add(tag);
+      return tags.map((run) => ({ run }));
     }
     if (/^\s*DELETE/i.test(sql)) {
-      return oltpRows.delete(run) ? [{ run }] : [];
+      return tags.filter((tag) => rows.delete(tag)).map((run) => ({ run }));
+    }
+    return [];
+  };
+
+  const oltpRead = (visible: (tag: string) => boolean, sql: string, params: unknown[]): Row[] => {
+    if (/^\s*SELECT/i.test(sql)) {
+      const run = String(params[0]);
+      return visible(run) ? [{ run }] : [];
     }
     return [];
   };
@@ -93,6 +158,10 @@ function makeFake() {
     query: async (sql: string): Promise<unknown> => {
       record("query", sql);
       return { rows: [{ one: 1 }], truncated: false };
+    },
+    queryStream: async function* (sql: string): AsyncGenerator<Row[], void, unknown> {
+      record("query_stream", sql);
+      yield [{ one: 1 }];
     },
     warehouse: {
       insert: async (database: string, tableName: string, rows: Row[]): Promise<unknown> => {
@@ -116,57 +185,93 @@ function makeFake() {
         }
         const landed = table.filter((row) => sql.includes(`'${String(row.run)}'`));
         return { rows: landed.slice(0, landed.length - state.dropReadbackRows), truncated: false };
+      },
+      // The fake is a ClickHouse: no ON CONFLICT, so the host refuses by name.
+      upsert: async (
+        database: string,
+        tableName: string,
+        rows: Row[],
+        conflictColumns: string[]
+      ): Promise<unknown> => {
+        record("warehouse.upsert", database, tableName, rows, conflictColumns);
+        throw new Error(UPSERT_REFUSAL);
       }
+    },
+    // …and no transactions either. `fn` never runs.
+    tx: async (database: string, _fn: TxFn): Promise<unknown> => {
+      record("tx.begin", database);
+      throw new Error(TX_REFUSAL);
     },
     oltp: {
       exec: async (sql: string, params: unknown[] = []): Promise<number> => {
         record("oltp.exec", sql, params);
         if (sql.includes("oxy_shape_zoo_")) return 0;
-        return oltpWrite(sql, params).length;
+        return oltpWrite(oltpRows, sql, params).length;
       },
       query: async (sql: string, params: unknown[] = []): Promise<Row[]> => {
         record("oltp.query", sql, params);
         if (sql.includes("oxy_shape_zoo_")) {
           return zooRows(sql, ZOO.engines.postgres.cases, "oltp", state.corruptZoo);
         }
-        if (/^\s*SELECT/i.test(sql)) {
-          const run = String(params[0]);
-          return oltpRows.has(run) ? [{ run }] : [];
+        return oltpRead((tag) => oltpRows.has(tag), sql, params);
+      },
+      // The commit/rollback bracket of `ctx.oltp.tx`: writes stage on the handle
+      // and reach `oltpRows` on commit; a throw rolls them back and rethrows.
+      tx: async (fn: TxFn): Promise<unknown> => {
+        record("tx.begin_oltp");
+        const staged = new Set<string>();
+        const handle: TxHandle = {
+          query: async (sql, params = []) => {
+            record("tx.query", sql, params);
+            return oltpRead((tag) => staged.has(tag) || oltpRows.has(tag), sql, params);
+          },
+          exec: async (sql, params = []) => {
+            record("tx.exec", sql, params);
+            return oltpWrite(staged, sql, params).length;
+          }
+        };
+        let result: unknown;
+        try {
+          result = await fn(handle);
+        } catch (err) {
+          record("tx.rollback");
+          if (state.leakRollback) for (const tag of staged) oltpRows.add(tag);
+          if (state.resolveOnThrow) return undefined;
+          throw err;
         }
-        return oltpWrite(sql, params);
+        record("tx.commit");
+        if (!state.dropCommit) for (const tag of staged) oltpRows.add(tag);
+        return result;
       }
     },
     org: {
       places: async (): Promise<unknown> => {
         record("org.places");
         return { places: [PLACE], total: 1 };
+      },
+      people: async (): Promise<unknown> => {
+        record("org.people");
+        return { people: [PERSON], total: 1 };
+      },
+      assignments: async (): Promise<unknown> => {
+        record("org.assignments");
+        return { assignments: [ASSIGNMENT], total: 1 };
       }
     },
     storage: {
       put: async (pathname: string, body: string, opts?: { encoding?: string }) => {
         record("storage.put", pathname, body, opts);
         objects.set(pathname, body);
-        return {
-          key: pathname,
-          size: sizeOf(body, opts?.encoding),
-          contentType: "application/octet-stream"
-        };
+        return { key: pathname, size: sizeOf(body, opts?.encoding), contentType: OCTET };
       },
       get: async (key: string, opts?: { encoding?: string }) => {
         record("storage.get", key, opts);
         const body = objects.get(key);
         if (body === undefined) return null;
-        // A host that decoded the object as UTF-8 would mangle its high bytes;
-        // flipping the last byte stands in for that.
-        let served = body;
-        if (state.corruptGet) {
-          const bytes = base64ToBytes(body);
-          bytes[bytes.length - 1] ^= 0xff;
-          served = bytesToBase64(bytes);
-        }
+        const served = state.corruptGet ? flipLastByte(body) : body;
         return {
           body: served,
-          contentType: "application/octet-stream",
+          contentType: OCTET,
           size: base64ToBytes(served).length,
           encoding: "base64"
         };
@@ -180,18 +285,41 @@ function makeFake() {
           expiresAt: new Date(Date.now() + 900_000).toISOString()
         };
       },
+      getDownloadUrl: async (key: string, opts?: { expiresInSeconds?: number }) => {
+        record("storage.getDownloadUrl", key, opts);
+        return {
+          url: `${UPLOAD_HOST}${key}?X-Amz-Signature=fake&response-content-disposition=inline`,
+          expiresAt: new Date(Date.now() + 900_000).toISOString()
+        };
+      },
       head: async (key: string) => {
         record("storage.head", key);
         const body = objects.get(key);
         return body === undefined
           ? null
-          : { key, size: base64ToBytes(body).length, contentType: "application/octet-stream" };
+          : { key, size: base64ToBytes(body).length, contentType: OCTET };
+      },
+      list: async (opts?: { prefix?: string; limit?: number; cursor?: string }) => {
+        record("storage.list", opts);
+        const prefix = opts?.prefix ?? "";
+        const listed = [...objects.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, body]) => ({ key, size: base64ToBytes(body).length, contentType: OCTET }));
+        if (state.hideFromList) listed.pop();
+        return { objects: listed, cursor: null, hasMore: false };
       },
       delete: async (keyOrKeys: string | string[]) => {
         record("storage.delete", keyOrKeys);
         const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
         for (const key of keys) objects.delete(key);
         return { deleted: keys.length };
+      },
+      copy: async (fromKey: string, toPathname: string, opts?: { allowOverwrite?: boolean }) => {
+        record("storage.copy", fromKey, toPathname, opts);
+        const body = objects.get(fromKey);
+        if (body === undefined) throw new Error(`storage.copy: source '${fromKey}' not found`);
+        objects.set(toPathname, body);
+        return { key: toPathname, size: base64ToBytes(body).length, contentType: OCTET };
       }
     },
     secrets: {
@@ -199,13 +327,23 @@ function makeFake() {
         record("secrets.set", key, value);
       }
     },
+    // A PUT to an upload URL stores the body; a GET of a download URL serves it
+    // as base64 when asked to, the way the host decodes a binary response.
     fetch: async (
       url: string,
-      init?: { method?: string; body?: unknown; bodyEncoding?: string }
+      init?: { method?: string; body?: unknown; bodyEncoding?: string; encoding?: string }
     ): Promise<{ status: number; body: string; encoding: string }> => {
       record("fetch", url, init);
-      if (url.startsWith(UPLOAD_HOST) && init?.method === "PUT") {
-        objects.set(url.slice(UPLOAD_HOST.length).split("?")[0], String(init.body));
+      if (url.startsWith(UPLOAD_HOST)) {
+        const key = url.slice(UPLOAD_HOST.length).split("?")[0];
+        if (init?.method === "PUT") {
+          objects.set(key, String(init.body));
+        } else if ((init?.method ?? "GET") === "GET") {
+          const body = objects.get(key);
+          if (body === undefined) return { status: 404, body: "", encoding: "utf8" };
+          const served = state.corruptDownload ? flipLastByte(body) : body;
+          return { status: 200, body: served, encoding: init?.encoding ?? "utf8" };
+        }
       }
       return { status: 200, body: "", encoding: "utf8" };
     }
@@ -306,6 +444,70 @@ describe("runCanary", () => {
     });
   });
 
+  describe("refusals the destination's engine decides", () => {
+    it("upsert_refusal asks for one upsert, is refused naming ClickHouse, and writes nothing", async () => {
+      const fake = makeFake();
+      await run(fake, ["upsert_refusal"]);
+      expect(fake.calls.map((call) => call.member)).toEqual(["warehouse.upsert"]);
+      const [database, , rows, conflict] = fake.calls[0].args as [string, string, Row[], string[]];
+      expect(database).toBe("canary_warehouse");
+      expect(rows.every((row) => row.run === RUN_ID)).toBe(true);
+      expect(conflict).toEqual(["run"]);
+      expect(fake.table).toHaveLength(0);
+    });
+
+    it("upsert_refusal fails when the host accepts the upsert", async () => {
+      const fake = makeFake();
+      fake.raw.warehouse.upsert = async () => ({});
+      await expect(run(fake, ["upsert_refusal"])).rejects.toThrow(
+        /^canary step upsert_refusal failed: ctx\.warehouse\.upsert resolved on ClickHouse instead of refusing/
+      );
+    });
+
+    it("upsert_refusal fails when the refusal is in other words, quoting them", async () => {
+      const fake = makeFake();
+      fake.raw.warehouse.upsert = async () => {
+        throw new Error("Code: 62. DB::Exception: Syntax error: failed at position 60 (CONFLICT)");
+      };
+      const err = await failure(run(fake, ["upsert_refusal"]));
+      expect(err.message).toMatch(/^canary step upsert_refusal failed: ctx\.warehouse\.upsert was refused in other words/);
+      expect(err.message).toContain("Code: 62");
+    });
+
+    it("tx_refusal opens one transaction on the warehouse, is refused naming ClickHouse, and the callback never runs", async () => {
+      const fake = makeFake();
+      await run(fake, ["tx_refusal"]);
+      expect(fake.calls.map((call) => call.member)).toEqual(["tx.begin"]);
+      expect(fake.calls[0].args[0]).toBe("canary_warehouse");
+    });
+
+    it("tx_refusal fails when the host opens a transaction on ClickHouse", async () => {
+      const fake = makeFake();
+      fake.raw.tx = async (_database, fn) =>
+        fn({ query: async () => [], exec: async () => 0 });
+      await expect(run(fake, ["tx_refusal"])).rejects.toThrow(
+        /^canary step tx_refusal failed: ctx\.tx resolved on ClickHouse instead of refusing/
+      );
+    });
+  });
+
+  describe("sql_stream", () => {
+    it("reads one row through the generator, from one host call", async () => {
+      const fake = makeFake();
+      await run(fake, ["sql_stream"]);
+      expect(callsTo(fake, "query_stream")).toHaveLength(1);
+      expect(callsTo(fake, "query")).toHaveLength(0);
+    });
+
+    it("fails when the generator yields nothing", async () => {
+      const fake = makeFake();
+      fake.raw.queryStream = async function* () {};
+      await expect(run(fake, ["sql_stream"])).rejects.toThrow(
+        /^canary step sql_stream failed: expected one row with one = 1, got 0 rows/
+      );
+    });
+  });
+
   describe("oltp_roundtrip", () => {
     it("deletes the row it wrote", async () => {
       const fake = makeFake();
@@ -334,6 +536,47 @@ describe("runCanary", () => {
       fake.raw.oltp.query = refuseDelete(query);
       await expect(run(fake, ["oltp_roundtrip"])).rejects.toThrow(
         /^canary step oltp_roundtrip failed: /
+      );
+    });
+  });
+
+  describe("oltp_transaction", () => {
+    it("commits one tagged row, rolls a second back, and deletes what it committed", async () => {
+      const fake = makeFake();
+      await run(fake, ["oltp_transaction"]);
+      const members = fake.calls.map((call) => call.member);
+      // One commit, one rollback, in that order, each after its own begin.
+      expect(members.filter((m) => m === "tx.begin_oltp")).toHaveLength(2);
+      expect(members.indexOf("tx.commit")).toBeLessThan(members.indexOf("tx.rollback"));
+      const inserted = callsTo(fake, "tx.exec")
+        .filter((call) => /^\s*INSERT/i.test(String(call.args[0])))
+        .map((call) => String((call.args[1] as unknown[])[0]));
+      expect(inserted).toEqual([`${RUN_ID}-tx`, `${RUN_ID}-rb`]);
+      expect(fake.oltpRows.size).toBe(0);
+    });
+
+    it("fails when the commit does not land", async () => {
+      const fake = makeFake();
+      fake.state.dropCommit = true;
+      await expect(run(fake, ["oltp_transaction"])).rejects.toThrow(
+        /^canary step oltp_transaction failed: after commit: 0 rows tagged run-k3x9a1-tx, expected 1/
+      );
+    });
+
+    it("fails when the rollback leaves the row, and still deletes it", async () => {
+      const fake = makeFake();
+      fake.state.leakRollback = true;
+      await expect(run(fake, ["oltp_transaction"])).rejects.toThrow(
+        /^canary step oltp_transaction failed: after rollback: 1 rows tagged run-k3x9a1-rb, expected 0/
+      );
+      expect(fake.oltpRows.size).toBe(0);
+    });
+
+    it("fails when ctx.oltp.tx resolves although the callback threw", async () => {
+      const fake = makeFake();
+      fake.state.resolveOnThrow = true;
+      await expect(run(fake, ["oltp_transaction"])).rejects.toThrow(
+        /^canary step oltp_transaction failed: ctx\.oltp\.tx resolved although the callback threw/
       );
     });
   });
@@ -403,6 +646,47 @@ describe("runCanary", () => {
       await expect(run(fake, ["storage_roundtrip"])).rejects.toThrow(
         /^canary step storage_roundtrip failed: head saw no bytes/
       );
+    });
+
+    it("copies the object, GETs the copy through its presigned URL as base64, and deletes all three", async () => {
+      const fake = makeFake();
+      await run(fake, ["storage_roundtrip"]);
+      const [copy] = callsTo(fake, "storage.copy");
+      const [fromKey, toPathname] = copy.args as [string, string];
+      expect(fromKey).toBe(`canary/${RUN_ID}.bin`);
+      expect(toPathname).toBe(`canary/${RUN_ID}-copy.bin`);
+      const [download] = callsTo(fake, "storage.getDownloadUrl");
+      expect(download.args[0]).toBe(toPathname);
+      const gets = callsTo(fake, "fetch").filter(
+        (call) => (call.args[1] as { method?: string })?.method !== "PUT"
+      );
+      expect(gets).toHaveLength(1);
+      expect((gets[0].args[1] as { encoding?: string }).encoding).toBe("base64");
+      const deleted = callsTo(fake, "storage.delete").flatMap((call) => [call.args[0]].flat());
+      expect(deleted).toHaveLength(3);
+      expect(deleted).toContain(toPathname);
+      expect(fake.objects.size).toBe(0);
+    });
+
+    it("lists under the run's prefix and expects every object it wrote", async () => {
+      const fake = makeFake();
+      await run(fake, ["storage_roundtrip"]);
+      const [list] = callsTo(fake, "storage.list");
+      expect((list.args[0] as { prefix?: string }).prefix).toBe(`canary/${RUN_ID}`);
+      fake.state.hideFromList = true;
+      await expect(run(fake, ["storage_roundtrip"])).rejects.toThrow(
+        /^canary step storage_roundtrip failed: list under the run's prefix lacks 1 of the 3 objects/
+      );
+      expect(fake.objects.size).toBe(0);
+    });
+
+    it("fails when the presigned GET returns different bytes", async () => {
+      const fake = makeFake();
+      fake.state.corruptDownload = true;
+      await expect(run(fake, ["storage_roundtrip"])).rejects.toThrow(
+        /^canary step storage_roundtrip failed: presigned GET returned different bytes/
+      );
+      expect(fake.objects.size).toBe(0);
     });
   });
 
@@ -518,6 +802,28 @@ describe("runCanary", () => {
     }
   );
 
+  it("org_read reads places, people and assignments, and passes on an empty org", async () => {
+    const fake = makeFake();
+    fake.raw.org.places = async () => {
+      fake.record("org.places");
+      return { places: [], total: 0 };
+    };
+    fake.raw.org.people = async () => {
+      fake.record("org.people");
+      return { people: [], total: 0 };
+    };
+    fake.raw.org.assignments = async () => {
+      fake.record("org.assignments");
+      return { assignments: [], total: 0 };
+    };
+    await run(fake, ["org_read"]);
+    expect(fake.calls.map((call) => call.member)).toEqual([
+      "org.places",
+      "org.people",
+      "org.assignments"
+    ]);
+  });
+
   // Every step, broken at its own host call, fails under its own name. The
   // optional last element is the step list, for a step that reads what earlier
   // steps wrote.
@@ -540,6 +846,22 @@ describe("runCanary", () => {
         };
       },
       ["warehouse_insert", "warehouse_exec", "warehouse_readback"]
+    ],
+    [
+      "upsert_refusal: the host accepts the upsert",
+      "upsert_refusal",
+      (fake) => {
+        fake.raw.warehouse.upsert = async () => ({});
+      }
+    ],
+    [
+      "tx_refusal: the host refuses in other words",
+      "tx_refusal",
+      (fake) => {
+        fake.raw.tx = async () => {
+          throw new Error("ctx.tx: database 'canary_warehouse' is not configured for this project");
+        };
+      }
     ],
     [
       "sql_read: query throws",
@@ -565,10 +887,28 @@ describe("runCanary", () => {
       }
     ],
     [
+      "sql_stream: the generator throws",
+      "sql_stream",
+      (fake) => {
+        fake.raw.queryStream = async function* () {
+          throw new Error("no default database");
+        };
+      }
+    ],
+    [
       "oltp_roundtrip: the read finds nothing",
       "oltp_roundtrip",
       (fake) => {
         fake.raw.oltp.query = async () => [];
+      }
+    ],
+    [
+      "oltp_transaction: begin throws",
+      "oltp_transaction",
+      (fake) => {
+        fake.raw.oltp.tx = async () => {
+          throw new Error("ctx.oltp.tx: could not open a transaction: too many connections");
+        };
       }
     ],
     [
@@ -586,12 +926,37 @@ describe("runCanary", () => {
       }
     ],
     [
+      "org_read: people has the wrong shape",
+      "org_read",
+      (fake) => {
+        fake.raw.org.people = async () => ({ people: [PERSON], total: "1" });
+      }
+    ],
+    [
+      "org_read: an assignment lacks its fields",
+      "org_read",
+      (fake) => {
+        fake.raw.org.assignments = async () => ({ assignments: [{ id: "assignment-2" }], total: 1 });
+      }
+    ],
+    [
       "storage_roundtrip: put throws",
       "storage_roundtrip",
       (fake) => {
         fake.raw.storage.put = async () => {
           throw new Error("storage.write capability missing");
         };
+      }
+    ],
+    [
+      "storage_roundtrip: copy reports the wrong size",
+      "storage_roundtrip",
+      (fake) => {
+        fake.raw.storage.copy = async (_fromKey, toPathname) => ({
+          key: toPathname,
+          size: 1,
+          contentType: OCTET
+        });
       }
     ],
     [
@@ -619,6 +984,38 @@ describe("runCanary", () => {
     breakIt(fake);
     const err = await failure(run(fake, steps ?? [step]));
     expect(err.message.startsWith(`canary step ${step} failed: `)).toBe(true);
+  });
+});
+
+describe("STEP_OPS", () => {
+  /**
+   * Steps a step reads after, run with it in the same run (`warehouse_readback`
+   * expects what the run's own write steps sent). The fake is deterministic, so
+   * their calls are counted on a second fake and skipped.
+   */
+  const PREREQUISITES: Partial<Record<StepName, StepName[]>> = {
+    warehouse_readback: ["warehouse_insert", "warehouse_exec"]
+  };
+
+  it.each(ALL_STEPS)("%s declares exactly the host ops it makes, in first-call order", async (step) => {
+    const before = PREREQUISITES[step] ?? [];
+    let from = 0;
+    if (before.length > 0) {
+      const prelude = makeFake();
+      await run(prelude, before);
+      from = prelude.calls.length;
+    }
+    const fake = makeFake();
+    await run(fake, [...before, step]);
+    const made = [...new Set(fake.calls.slice(from).map((call) => call.member))];
+    expect(made).toEqual([...STEP_OPS[step]]);
+  });
+
+  it("names every step once, and no step twice", () => {
+    expect(Object.keys(STEP_OPS).sort()).toEqual([...ALL_STEPS].sort());
+    for (const step of ALL_STEPS) {
+      expect(new Set(STEP_OPS[step]).size, step).toBe(STEP_OPS[step].length);
+    }
   });
 });
 
