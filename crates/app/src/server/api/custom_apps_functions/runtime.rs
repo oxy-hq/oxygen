@@ -39,7 +39,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use deno_core::{JsRuntime, OpState, RuntimeOptions, op2};
 use deno_error::JsErrorBox;
@@ -1539,25 +1539,28 @@ globalThis.__buildCtx = (ctxData) => ({
 });
 "#;
 
-/// Isolate threads abandoned after [`TIMEOUT_GRACE`] expired.
-///
-/// The detach is deliberate (see the grace arm in [`run`]) and it is also an
-/// unbounded resource leak that nothing was counting. A rising value is the
-/// earliest available signal that a tenant's function is wedged in a host call
-/// that will not return, and it is a fact about **our process** rather than
-/// about the app — so it belongs in platform telemetry, never in the
-/// tenant-facing store.
-///
-/// Healthy is zero. Mirrors the `workspace_fs_probe::leaks()` idiom.
-static ABANDONED_ISOLATES: AtomicU64 = AtomicU64::new(0);
-
 /// Threads abandoned so far on this process. Healthy is zero.
 ///
-/// Scraped as `oxy_abandoned_isolates_total` by `worker_metrics`; see the
-/// `ABANDONED_ISOLATES` static for why the number is per-process and why it is
-/// deliberately not on the fleet-health API.
+/// The detach is deliberate (see the grace arm in [`run`]) and it is also an
+/// unbounded resource leak. A rising value is the earliest available signal
+/// that a tenant's function is wedged in a host call that will not return, and
+/// it is a fact about **our process** rather than about the app — so it belongs
+/// in platform telemetry, never in the tenant-facing store.
+///
+/// The count itself lives in `oxy_telemetry::metrics::sources`, not here.
+/// It used to be a private static in this module that only `worker_metrics`
+/// read, and `worker_metrics` is mounted only on `oxy worker`'s health port —
+/// a fleet that serves no `/fn` route and therefore never creates an isolate.
+/// The series existed and was pinned at zero on the only process that emitted
+/// it. Moving the storage into the telemetry crate is what lets `oxy serve`,
+/// where isolates actually run, export it.
+///
+/// Scraped as `oxy_abandoned_isolates_total` (hand-rolled, `worker_metrics`)
+/// and as `oxy_custom_app_isolates_abandoned_total` (OTel, every role).
+/// Deliberately not on the fleet-health API: that endpoint is `FleetOk`, so a
+/// load-balanced read would report whichever replica answered.
 pub fn abandoned_isolates() -> u64 {
-    ABANDONED_ISOLATES.load(Ordering::Relaxed)
+    oxy_telemetry::metrics::sources::abandoned_isolates()
 }
 
 /// How long to wait for the isolate thread to actually exit after a wall-clock
@@ -1659,6 +1662,12 @@ pub async fn run(
             let cancelled = cancelled.clone();
             let meters = meters.clone();
             move || {
+                // Counted from inside the closure, so a thread that failed to
+                // spawn is never counted as live. The guard covers every exit
+                // path below — the early `return` when the runtime fails to
+                // build, a panic in tenant code, and the normal end — because a
+                // missed decrement drifts this gauge upward forever.
+                let _isolate_guard = oxy_telemetry::metrics::sources::IsolateGuard::enter();
                 sentry::Hub::run(sentry_hub, || {
                     // Sync closure, so holding the guard for the whole thread body
                     // is correct (the "never hold across an await" rule is about
@@ -1748,10 +1757,10 @@ pub async fn run(
             // thread unwind on its own once the host op completes — its
             // `done_tx`/`call_tx` sends then no-op against our dropped ends.
             _ = &mut grace, if timed_out => {
-                // Deliberate, and worth counting: see `ABANDONED_ISOLATES`.
-                ABANDONED_ISOLATES.fetch_add(1, Ordering::Relaxed);
+                // Deliberate, and worth counting: see `abandoned_isolates`.
+                let abandoned_total = oxy_telemetry::metrics::sources::isolate_abandoned();
                 tracing::warn!(
-                    abandoned_total = abandoned_isolates(),
+                    abandoned_total,
                     grace_secs = TIMEOUT_GRACE.as_secs(),
                     "isolate thread did not exit after termination; detaching it"
                 );
@@ -3563,8 +3572,35 @@ mod tests {
     #[test]
     fn the_abandoned_isolate_gauge_starts_at_zero_and_observes_increments() {
         let before = abandoned_isolates();
-        ABANDONED_ISOLATES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        assert_eq!(abandoned_isolates(), before + 1);
-        ABANDONED_ISOLATES.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        let reported = oxy_telemetry::metrics::sources::isolate_abandoned();
+        assert_eq!(
+            reported,
+            before + 1,
+            "the incrementer returns the new total"
+        );
+        assert_eq!(
+            abandoned_isolates(),
+            before + 1,
+            "the accessor must read the same counter the grace arm increments"
+        );
+        oxy_telemetry::metrics::sources::ISOLATES_ABANDONED
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The live gauge has to come back to where it started once the guard is
+    /// dropped. A drifting gauge is worse than no gauge: it is the number a
+    /// concurrency cap would be sized from.
+    #[test]
+    fn the_isolate_guard_balances() {
+        use oxy_telemetry::metrics::sources::{ISOLATES_LIVE, IsolateGuard};
+        use std::sync::atomic::Ordering;
+
+        let before = ISOLATES_LIVE.load(Ordering::Relaxed);
+        {
+            let _a = IsolateGuard::enter();
+            let _b = IsolateGuard::enter();
+            assert_eq!(ISOLATES_LIVE.load(Ordering::Relaxed), before + 2);
+        }
+        assert_eq!(ISOLATES_LIVE.load(Ordering::Relaxed), before);
     }
 }

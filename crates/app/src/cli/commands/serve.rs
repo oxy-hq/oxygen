@@ -723,7 +723,13 @@ async fn create_web_application(
         .layer(axum::middleware::from_fn(
             oxy_telemetry::http_trace::record_error_body,
         ))
-        .layer(create_trace_layer());
+        .layer(create_trace_layer())
+        // Outside the trace layer, so a request shed by admission control with
+        // a 503 is still counted — a fleet that sheds is exactly when the rate
+        // and the status split matter most.
+        .layer(axum::middleware::from_fn(
+            oxy_telemetry::http_metrics::record,
+        ));
 
     // Subdomain-based dispatch for custom-app bundles. Rewrites a
     // `<org>--<slug>.customer-apps[-env].<zone>` Host to the equivalent
@@ -770,8 +776,12 @@ async fn create_web_application(
                     oxy_telemetry::http_trace::record_error_body,
                 ))
                 // Being a sibling of `main`, this surface would otherwise be
-                // the one API tree with no request span in HyperDX.
-                .layer(create_trace_layer()),
+                // the one API tree with no request span in HyperDX — and, for
+                // the same reason, the one with no metrics.
+                .layer(create_trace_layer())
+                .layer(axum::middleware::from_fn(
+                    oxy_telemetry::http_metrics::record,
+                )),
         )
         .fallback_service(main)
         // OUTERMOST of everything, so `x-oxy-request-id` is minted exactly once
@@ -816,7 +826,10 @@ async fn create_internal_application(
         .layer(axum::middleware::from_fn(
             oxy_telemetry::http_trace::record_error_body,
         ))
-        .layer(create_trace_layer()))
+        .layer(create_trace_layer())
+        .layer(axum::middleware::from_fn(
+            oxy_telemetry::http_metrics::record,
+        )))
 }
 
 /// One `SERVER` span per request, named by route, with the OTel HTTP semantic
@@ -1036,6 +1049,22 @@ async fn serve_application(
     // Both serve branches below consume `shutdown_token`; keep a handle so the
     // shutdown-hook wait can tell a signalled shutdown from an error unwind.
     let shutdown_observer = shutdown_token.clone();
+
+    // `/metrics` on its own port, off unless OXY_METRICS_PORT says otherwise.
+    // A bind failure is logged and stepped over rather than propagated: losing
+    // observability is a degradation, and taking the serve fleet down over it
+    // would make the monitoring a source of outages instead of a witness to
+    // them.
+    if let Some(port) = crate::server::metrics_server::resolve_metrics_port(None) {
+        match crate::server::metrics_server::start(port, shutdown_token.clone()).await {
+            Ok(_handle) => {}
+            Err(e) => tracing::warn!(
+                error = %e,
+                port,
+                "metrics server did not start; /metrics will not be served by this process"
+            ),
+        }
+    }
 
     let socket_addr = format!("{}:{}", args.host, args.port)
         .parse()

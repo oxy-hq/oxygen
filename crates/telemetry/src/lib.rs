@@ -15,9 +15,11 @@
 //! | Module          | What it provides                                                      |
 //! |-----------------|-----------------------------------------------------------------------|
 //! | [`otel`]        | The OTLP trace + log exporters as subscriber layers, and their shutdown |
+//! | [`metrics`]     | The third signal: one instrument set behind a Prometheus reader and an opt-in OTLP one |
 //! | [`resource`]    | Who is emitting: `service.name` per fleet role, version, environment  |
 //! | [`json_format`] | The stderr JSON line: flat fields, `trace_id` / `span_id`, current span |
 //! | [`http_trace`]  | One `SERVER` span per HTTP request, named by route, W3C parent honoured |
+//! | [`http_metrics`] | RED metrics per request, sharing `http_trace`'s route source |
 //! | [`propagation`] | `traceparent` injection for the internal serve → ide hop               |
 //! | [`stderr_capture`] | Every stray stderr line (dependencies, C libs, panics) as JSON, repeats collapsed |
 //! | [`sentry_filter`] | What reaches Sentry: `error` an event, `warn` a breadcrumb, custom-app targets and surfaces nothing |
@@ -41,8 +43,10 @@
 //!
 //! The full operator guide is `internal-docs/platform-telemetry.md`.
 
+pub mod http_metrics;
 pub mod http_trace;
 pub mod json_format;
+pub mod metrics;
 pub mod otel;
 pub mod propagation;
 pub mod resource;

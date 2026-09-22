@@ -9817,6 +9817,7 @@ dependencies = [
  "dirs 6.0.0",
  "entity",
  "oxy-shared",
+ "oxy-telemetry",
  "sea-orm",
  "serial_test",
  "sqlx",

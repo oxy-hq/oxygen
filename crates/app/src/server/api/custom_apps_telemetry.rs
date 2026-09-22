@@ -91,6 +91,15 @@ pub struct ServeEvent<'a> {
 
 /// Record one served request (HTML shell or bundle asset).
 pub fn record_serve(event: ServeEvent<'_>) {
+    // Metrics first, and deliberately **outside** the sink gate below. That
+    // gate asks whether the tenant-facing ClickHouse store is configured
+    // (`OXY_CLICKHOUSE_*`), which has no default in any mode — so on a
+    // deployment without it, every line after the gate is dead. The metrics
+    // plane is a different backend with a different switch, and letting an
+    // unset ClickHouse silently disable Prometheus series would reproduce the
+    // exact "no traces" confusion that store is already known for.
+    record_serve_metrics(&event);
+
     if !custom_app_sink::is_enabled() {
         return;
     }
@@ -240,6 +249,9 @@ pub struct FunctionEvent<'a> {
 
 /// Record one function invocation.
 pub fn record_function(event: FunctionEvent<'_>) {
+    // Ahead of the sink gate, for the reason spelled out in `record_serve`.
+    record_function_metrics(&event);
+
     if !custom_app_sink::is_enabled() {
         return;
     }
@@ -285,6 +297,59 @@ pub fn record_function(event: FunctionEvent<'_>) {
         trace_id,
         span_id,
     });
+}
+
+/// Mirror one serve event into the metrics plane.
+///
+/// Deliberately a much smaller fact than the ClickHouse row beside it: no
+/// route, no user, no session, no build. Those are fields you filter a *trace*
+/// or an event row by; putting them on a time series would multiply its
+/// cardinality by the product of their ranges. What survives is what a
+/// dashboard or an alert reads — who, what kind, how it ended, how long.
+fn record_serve_metrics(event: &ServeEvent<'_>) {
+    // This runs on every bundle-asset response — the custom-app hot path that
+    // `oxy-customer-apps-perf` governs — and the two `to_string()`s below each
+    // allocate a 36-byte UUID rendering before `with_instruments` gets a chance
+    // to discard them. On a deployment with no meter provider that is pure
+    // waste on the busiest path in the process, so it is skipped by an atomic
+    // load instead.
+    if !oxy_telemetry::metrics::is_installed() {
+        return;
+    }
+    oxy_telemetry::metrics::record::custom_app_request(
+        &event.org_id.to_string(),
+        &event.app_id.to_string(),
+        if event.is_html { "html" } else { "asset" },
+        event.status,
+        f64::from(event.duration_ms) / 1000.0,
+    );
+}
+
+/// Mirror one function invocation into the metrics plane.
+///
+/// The outcome here is the invocation's own `status_label` rather than the
+/// derived `outcome` the ClickHouse row carries, because the two answer
+/// different questions and conflating them loses the distinction that matters
+/// most on this path: `cancelled` folds into `ok` for SLO purposes (someone
+/// navigated away — counting it would make every chatty app look unreliable),
+/// but for "what is this function doing" a cancellation is not a success.
+fn record_function_metrics(event: &FunctionEvent<'_>) {
+    // Same guard as `record_serve_metrics`, for consistency rather than cost —
+    // an invocation is orders of magnitude more expensive than two UUID
+    // renderings. Keeping both the same shape means neither drifts into being
+    // the one that allocates unconditionally.
+    if !oxy_telemetry::metrics::is_installed() {
+        return;
+    }
+    oxy_telemetry::metrics::record::custom_app_function(
+        &event.org_id.to_string(),
+        &event.app_id.to_string(),
+        event.function_name,
+        event.status_label,
+        f64::from(event.duration_ms) / 1000.0,
+        event.init_ms.map(|ms| f64::from(ms) / 1000.0),
+        event.host_calls,
+    );
 }
 
 /// Persist a run's `ctx.log()` / `console.*` output.

@@ -17,6 +17,7 @@ pub mod git_fetch_maintenance;
 pub mod health_eval_executor;
 pub mod http_cache;
 pub mod ide_proxy;
+pub mod metrics_server;
 pub mod preagg_context;
 pub mod preagg_executor;
 mod preagg_freshness;

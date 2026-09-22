@@ -169,6 +169,29 @@ fn main() {
                 );
             }
 
+            // Metrics, installed after the subscriber so its own diagnostics
+            // are logged rather than dropped. Separate from `OtelConfig`
+            // because the two signals have independent switches: the
+            // Prometheus reader is always on (a pull endpoint costs nothing
+            // until scraped) while OTLP push is opt-in, and a one-shot CLI
+            // command gets neither.
+            let mut metrics_config = oxy_telemetry::metrics::MetricsConfig::from_env();
+            if command.is_none() {
+                metrics_config.sdk_disabled = true;
+            }
+            for problem in
+                oxy_telemetry::metrics::init(&metrics_config, oxy_telemetry::resource::build(role))
+            {
+                tracing::warn!(%problem, "platform metrics degraded");
+            }
+            if metrics_config.otlp_exported() {
+                tracing::info!(
+                    endpoint = metrics_config.otlp_endpoint.as_deref().unwrap_or_default(),
+                    interval_secs = metrics_config.export_interval.as_secs(),
+                    "OTLP metrics export enabled"
+                );
+            }
+
             // Give the server enough file-descriptor headroom before it binds
             // listeners / boots the embedded Postgres — macOS defaults to a
             // soft NOFILE of 256, which busy instances exhaust (EMFILE).
@@ -209,6 +232,18 @@ fn main() {
             };
 
             observability_boot::shutdown().await;
+
+            // Metrics before the trace/log exporters: the meter provider's own
+            // flush can emit internal logs, and those should still have
+            // somewhere to go.
+            match tokio::task::spawn_blocking(oxy_telemetry::metrics::shutdown).await {
+                Ok(problems) => {
+                    for problem in problems {
+                        eprintln!("oxy: {problem}");
+                    }
+                }
+                Err(e) => eprintln!("oxy: metrics shutdown did not complete: {e}"),
+            }
 
             // Last: flush the OTLP exporters. Blocking, bounded, and off the
             // async thread so a slow collector cannot wedge the runtime.

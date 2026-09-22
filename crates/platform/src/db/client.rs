@@ -177,8 +177,35 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
         loop {
             tokio::time::sleep(POOL_HEALTH_INTERVAL).await;
             let (size, idle) = (pool.size(), pool.num_idle());
-            match tokio::time::timeout(POOL_HEALTH_PROBE_TIMEOUT, pool.acquire()).await {
+            // Publish occupancy every pass, whether or not the probe succeeds:
+            // a saturated pool is exactly the case where the probe fails, and
+            // losing the numbers there would blind the metric precisely when it
+            // matters.
+            oxy_telemetry::metrics::sources::set_db_pool(
+                u64::from(size),
+                idle as u64,
+                u64::from(max),
+            );
+            let probe_started = std::time::Instant::now();
+            let probe = tokio::time::timeout(POOL_HEALTH_PROBE_TIMEOUT, pool.acquire()).await;
+            // The two failure shapes are genuinely different incidents and the
+            // label keeps them apart. `timeout` is the pool being full — every
+            // connection checked out, nothing freed within the probe's 2s.
+            // `error` is the *server* refusing us, which is the shape of the
+            // prod incident where `max_connections` sat pending-reboot: sqlx
+            // swallows the Postgres `FATAL`, so without this the only evidence
+            // was latency that looked like slow queries.
+            let failure_reason = match &probe {
+                Ok(Ok(_)) => None,
+                Ok(Err(_)) => Some("error"),
+                Err(_) => Some("timeout"),
+            };
+            match probe {
                 Ok(Ok(_conn)) => {
+                    oxy_telemetry::metrics::record::db_pool_probe(
+                        probe_started.elapsed().as_secs_f64(),
+                    );
+                    oxy_telemetry::metrics::sources::set_db_pool_starved(false);
                     if starved {
                         tracing::info!(
                             pool_size = size,
@@ -190,6 +217,16 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
                     }
                 }
                 _ => {
+                    // No duration sample on either failure path. A timeout was
+                    // cancelled and never finished; an error finished without
+                    // acquiring, so its elapsed time measures how fast the
+                    // server said no, not how long a checkout takes. Recording
+                    // either would put a number in the histogram that answers a
+                    // different question from every other sample in it.
+                    oxy_telemetry::metrics::record::db_pool_probe_failure(
+                        failure_reason.unwrap_or("timeout"),
+                    );
+                    oxy_telemetry::metrics::sources::set_db_pool_starved(true);
                     // Resolve the cause BEFORE the macro: awaiting inside a
                     // `tracing` argument holds the macro's non-`Send` internals
                     // across the await and makes the whole task unspawnable.

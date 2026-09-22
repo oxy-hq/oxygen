@@ -12,6 +12,10 @@ authors.workspace = true
 # Errors + entity types are platform-shared.
 oxy-shared = { workspace = true }
 entity = { workspace = true }
+# The pool health monitor publishes its occupancy and probe timings into the
+# metrics sources. oxy-telemetry depends only on oxy-shared, so this adds no
+# cycle and no agentic reach.
+oxy-telemetry = { workspace = true }
 
 # Database
 sea-orm = { workspace = true }

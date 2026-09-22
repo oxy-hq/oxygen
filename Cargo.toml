@@ -875,12 +875,24 @@ tracing-subscriber = "0.3.23"
 # the one transport that needs no async runtime there (the gRPC/tonic one
 # would also drag a second tonic feature-set into the graph).
 opentelemetry = "0.32"
-opentelemetry_sdk = "0.32"
+# `experimental_metrics_custom_reader` unlocks `ManualReader`, the `MetricReader`
+# trait and `Pipeline` — nothing else; it pulls no extra dependency and compiles
+# one more module. It is what lets `/metrics` be a *pull* endpoint sharing one
+# instrument set with the OTLP push reader (crates/telemetry/src/metrics).
+# The alternative that avoids the flag — a custom `PushMetricExporter` behind a
+# `PeriodicReader`, flushed on scrape — costs a background thread, a snapshot
+# mutex and a scrape that is one flush race away from stale. "Experimental" here
+# means the API may move on a minor bump; the used surface is one builder and
+# five trait methods, and any drift is a compile error, not a silent fault.
+opentelemetry_sdk = { version = "0.32", features = [
+  "experimental_metrics_custom_reader",
+] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = [
   "http-proto",
   "reqwest-blocking-client",
   "trace",
   "logs",
+  "metrics",
   "internal-logs",
 ] }
 opentelemetry-appender-tracing = "0.32"

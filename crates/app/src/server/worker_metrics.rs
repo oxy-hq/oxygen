@@ -254,6 +254,14 @@ pub async fn metrics(State(state): State<MetricsState>) -> Response {
         if db_error { 0 } else { 1 }
     ));
 
+    // The OpenTelemetry-registered instruments, appended rather than merged.
+    // Everything above is hand-rolled and stays byte-for-byte as it was: those
+    // lines carry absent-vs-zero rules, three-matcher alert recipes and an
+    // explicit "`max` must not be used", none of which survive a round trip
+    // through a generic exporter. The two blocks share one endpoint and
+    // nothing else.
+    body.push_str(&oxy_telemetry::metrics::render_prometheus());
+
     (
         StatusCode::OK,
         [("content-type", "text/plain; version=0.0.4")],
