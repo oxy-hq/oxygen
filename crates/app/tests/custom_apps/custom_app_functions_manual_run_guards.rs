@@ -30,18 +30,13 @@
 //! comment naming a symbol cannot satisfy an assertion (the failure
 //! `tests/authz/app_scope_boundary.rs` documents).
 
-use std::path::PathBuf;
-
+use crate::common::read_repo_file;
 use crate::custom_app_functions_manual_run::{RUN_DETAIL_ROUTE, RUNS_ROUTE};
 
 /// `rel` (from the repo root) with whole-line comments dropped, every whitespace
 /// character removed, and `,)` folded to `)`.
 fn code(rel: &str) -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(rel);
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
-    let squashed: String = raw
+    let squashed: String = read_repo_file(rel)
         .lines()
         .filter(|line| !line.trim_start().starts_with("//"))
         .flat_map(str::chars)

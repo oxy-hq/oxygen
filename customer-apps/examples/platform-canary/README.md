@@ -36,7 +36,7 @@ stops at the first failure:
 | `oltp_transaction` | `ctx.oltp.tx`: a transaction inserts a row and reads it back on its own connection, and the commit is visible afterwards; a second inserts and throws, and its row is gone. Deletes what it committed | — |
 | `shape_zoo` | Every case in `fixtures/data-shapes/zoo.json` (synced to `functions/shape-zoo.json`). The ClickHouse cases are created, filled once and read one column at a time on `canary_warehouse` with `ctx.warehouse.exec`/`query`; the Postgres cases go the same way through `ctx.oltp`. Each column must equal its case's `expect` | every app that reads a warehouse or its OLTP store |
 | `org_read` | `ctx.org.places()`, `people()` and `assignments()` response shapes | Store Ops (43) |
-| `storage_roundtrip` | `put` binary as base64; `get` and compare bytes; `getUploadUrl`, then a `ctx.fetch` PUT with `bodyEncoding: "base64"`; `head`; `copy`, then `getDownloadUrl` and a `ctx.fetch` GET with `encoding: "base64"` compared to the bytes; `list` under the run's prefix; `delete` all three | bookkeeping, warehouse, Store Ops |
+| `storage_roundtrip` | `put` binary as base64; `get` and compare bytes; `getUploadUrl`, then a `ctx.fetch` PUT with `bodyEncoding: "base64"`; `head`; `copy`, then `getDownloadUrl` and a `ctx.fetch` GET with `encoding: "base64"` compared to the bytes; `list` under `canary/`, walking pages, which must return all three; `delete` all three | bookkeeping, warehouse, Store Ops |
 | `secrets_roundtrip` | `ctx.secrets.set`, read back through `ctx.env` | bookkeeping `refresh-qb-token` |
 | `check_in` | `ctx.fetch` POST to the All Quiet check-in URL, after every other step passed | — |
 
@@ -58,6 +58,16 @@ refuses both ops on ClickHouse before sending anything, and the platform
 classifies those refusals as the app's own condition (`bad_request`), so
 catching them every five minutes pages nobody. A host that let either through
 would fail in the engine's words, one row late.
+
+**Publish a bundle with those two steps only to a server carrying that
+classification.** The canary bundle and the server roll out independently, and
+the host notes a paging host-call failure *before* the isolate sees the
+rejection. On a server that predates `classify_host_error`'s `bad_request` for
+these refusals (`custom_apps_functions/host_call_attrs.rs`), every run leaves
+two `host_call_failed` fingerprints, `warehouse.upsert` and `tx.begin`, and
+nothing recovers them: ops are paged twice every five minutes for the canary's
+own contract check. Until that server release is deployed, keep `CANARY_STEPS`
+explicit and without `upsert_refusal` and `tx_refusal`.
 
 `shape_zoo` fails as `canary step shape_zoo failed: <key> (<class>): expected <json> got <json>`,
 naming the first case that differs. Its values are synthetic. A failure there means an engine,
@@ -199,7 +209,9 @@ that step fails.
   - A step added to `ALL_STEPS` does not run on staging until this list names
     it: `CANARY_STEPS` names steps, and a name it lacks is a recorded
     omission. The list above is current as of `oltp_transaction`; update the
-    secret when a step lands.
+    secret when a step lands — and add `upsert_refusal` and `tx_refusal` only
+    once the staging server carries the refusal classification (the paragraph
+    under the step table), or every run pages twice.
   - The manifest does not declare `CANARY_CHECKIN_URL` required, so staging's
     Secrets panel does not list it as missing: an unset URL is staging's normal
     state, not a gap. The panel's "missing" flag is for secrets a run cannot

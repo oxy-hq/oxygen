@@ -167,9 +167,15 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
 /// `warehouse.upsert` on a warehouse with no `ON CONFLICT`
 /// (`upsert_support::check`), `ctx.tx` on one with no transactions (the
 /// connector's `transaction::unsupported`). Both are refused by name before a
-/// statement is sent, by the app's choice of destination, on every call; the
-/// platform canary pins that wording on its ClickHouse destination every run,
-/// which must not page.
+/// statement is sent, on every call, by the app's choice of destination —
+/// deterministic given the connector the destination resolved to. That
+/// resolution is platform state, read from the compiled workspace, so these
+/// two markers are the one place this list can swallow a platform fault: a
+/// regression that resolved a Postgres destination to a non-transactional
+/// connector would fail every `ctx.tx` with this message and page nobody. The
+/// trade is taken because the platform canary pins both refusals on its
+/// ClickHouse destination every five minutes, and the alternative is a
+/// guaranteed page for its own contract check on every run.
 ///
 /// The host returns errors as plain strings, with no caller-vs-platform
 /// distinction to read, so this matches the host's own phrasing (`host.rs`,
@@ -581,6 +587,10 @@ mod tests {
     // `runtime::host_call_span` names the rest with one literal each. Both are
     // read from source here, so a name added to either without `HOST_OPS`, or
     // to `HOST_OPS` without a source, fails.
+    //
+    // The scanning helpers below are a smaller copy of
+    // `tests/common/source_scan.rs`: a `src` unit test cannot reach an
+    // integration binary's `common` module.
 
     /// The `{ … }` body of `fn <name>(` in `src`, braces counted outside
     /// string literals, `//` comment lines dropped. Enough for the two

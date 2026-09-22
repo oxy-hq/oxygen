@@ -44,6 +44,10 @@ use migration::{Migrator, MigratorTrait};
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
 use uuid::Uuid;
 
+/// Comment-stripping source scans, shared by the coverage tests that read Rust and
+/// TypeScript sources (`custom_apps::shape_zoo_coverage`, `custom_apps::canary_coverage`).
+pub mod source_scan;
+
 /// Keeps the state dir alive for the whole test binary. Dropping it would
 /// delete the bundle bytes mid-test.
 static STATE_DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
@@ -94,6 +98,15 @@ const REUSE_LABEL: &str = "tech.oxy.test-postgres";
 /// The demo project the seed points workspaces at.
 pub fn examples_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
+}
+
+/// `rel`, relative to the repository root, as a string — for the source-scanning and
+/// fixture-reading tests, which otherwise each spell `CARGO_MANIFEST_DIR/../..` themselves.
+pub fn read_repo_file(rel: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(rel);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"))
 }
 
 /// The demo workspace id `seed_demo` derives — UUID v5 of "demo.oxy.local" in

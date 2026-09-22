@@ -10,13 +10,16 @@
 //! step declares and no `EXEMPT` entry explains fails here, as does a declared op the host
 //! does not have, and a `HostOp` type in `steps.ts` that drifts from `HOST_OPS`.
 //!
-//! Source scans only, no database, in the style of `shape_zoo_coverage.rs`: each block is
-//! read from `steps.ts` with comments removed, so a commented-out op does not count.
+//! Source scans only, no database, in the style of `shape_zoo_coverage.rs` and over the
+//! same helpers (`common::source_scan`): each block is read from `steps.ts` with comments
+//! removed, so a commented-out op does not count.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 
 use oxy_app::server::api::custom_apps_functions::HOST_OPS;
+
+use crate::common::read_repo_file;
+use crate::common::source_scan::{Lang, string_literals, strip_comments};
 
 const STEPS_TS: &str = "customer-apps/examples/platform-canary/functions/steps.ts";
 
@@ -139,7 +142,7 @@ fn canary_exemptions_are_still_host_ops_and_still_undeclared() {
 fn every_canary_step_declares_its_ops_and_every_declaration_is_a_step() {
     let src = steps_ts();
     let steps = step_ops(&src);
-    let all: BTreeSet<String> = string_literals(&block(&src, "export const ALL_STEPS", "];"))
+    let all: BTreeSet<String> = literals(&block(&src, "export const ALL_STEPS", "];"))
         .into_iter()
         .collect();
     assert!(all.len() >= 10, "ALL_STEPS scan found only {all:?}");
@@ -185,16 +188,17 @@ export const STEP_OPS: Record<StepName, readonly HostOp[]> = {
         BTreeSet::from(["query".to_string(), "fetch".to_string()])
     );
     assert_eq!(
-        string_literals(&block(fixture, "export const ALL_STEPS", "];")),
+        literals(&block(fixture, "export const ALL_STEPS", "];")),
         expect(&["a", "b"])
     );
 }
 
 fn steps_ts() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(STEPS_TS);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {STEPS_TS}: {e}"))
+    read_repo_file(STEPS_TS)
+}
+
+fn literals(s: &str) -> Vec<String> {
+    string_literals(s, Lang::TypeScript)
 }
 
 /// `STEP_OPS` from `src`: each step's declared ops, in declaration order.
@@ -218,7 +222,7 @@ fn step_ops(src: &str) -> BTreeMap<String, Vec<String>> {
             "STEP_OPS entry key {key:?} is not a step name"
         );
         assert!(
-            out.insert(key.clone(), string_literals(list)).is_none(),
+            out.insert(key.clone(), literals(list)).is_none(),
             "STEP_OPS lists {key} twice"
         );
     }
@@ -228,7 +232,7 @@ fn step_ops(src: &str) -> BTreeMap<String, Vec<String>> {
 
 /// The `type HostOp = | "…" | "…";` union from `src`.
 fn host_op_union(src: &str) -> BTreeSet<String> {
-    string_literals(&block(src, "export type HostOp =", ";"))
+    literals(&block(src, "export type HostOp =", ";"))
         .into_iter()
         .collect()
 }
@@ -251,72 +255,10 @@ fn block(src: &str, start: &str, end: &str) -> String {
             }
         }
     }
-    let body = strip_comments(&raw.join("\n"));
+    let body = strip_comments(&raw.join("\n"), Lang::TypeScript);
     assert!(
         body.trim_end().ends_with(end),
         "the `{start}` block does not end with `{end}`"
     );
     body
-}
-
-/// `src` without `//` and `/* */` comments; `"`, `'` and `` ` `` literals copied whole.
-fn strip_comments(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
-    let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        match (chars[i], chars.get(i + 1)) {
-            (q @ ('"' | '\'' | '`'), _) => {
-                let end = literal_end(&chars, i, q);
-                out.extend(&chars[i..end]);
-                i = end;
-            }
-            ('/', Some('/')) => {
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
-                }
-            }
-            ('/', Some('*')) => {
-                let mut j = i + 2;
-                while j + 1 < chars.len() && !(chars[j] == '*' && chars[j + 1] == '/') {
-                    j += 1;
-                }
-                i = j + 2;
-            }
-            _ => {
-                out.push(chars[i]);
-                i += 1;
-            }
-        }
-    }
-    out
-}
-
-/// Index just past the literal quoted with `quote` that opens at `start`.
-fn literal_end(chars: &[char], start: usize, quote: char) -> usize {
-    let mut i = start + 1;
-    while i < chars.len() {
-        match chars[i] {
-            '\\' => i += 2,
-            c if c == quote => return i + 1,
-            _ => i += 1,
-        }
-    }
-    chars.len()
-}
-
-/// Every `"…"` literal in comment-free `s`, in order.
-fn string_literals(s: &str) -> Vec<String> {
-    let chars: Vec<char> = s.chars().collect();
-    let (mut out, mut i) = (Vec::new(), 0);
-    while i < chars.len() {
-        if chars[i] == '"' {
-            let end = literal_end(&chars, i, '"');
-            out.push(chars[i + 1..end - 1].iter().collect());
-            i = end;
-        } else {
-            i += 1;
-        }
-    }
-    out
 }

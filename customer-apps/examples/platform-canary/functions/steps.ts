@@ -157,6 +157,15 @@ const INSERT_PATHS = ["insert-1", "insert-2", "insert-3"];
 const EXEC_PATHS = ["exec-1", "exec-2"];
 
 /**
+ * How `storage.list` walks under `canary/`: pages of `LIST_PAGE_SIZE`, at most
+ * `MAX_LIST_PAGES` of them before giving up. Every run deletes what it wrote,
+ * so a silo with more objects than that is itself the finding: earlier runs
+ * are not cleaning up.
+ */
+const LIST_PAGE_SIZE = 100;
+const MAX_LIST_PAGES = 10;
+
+/**
  * The stable part of each refusal the canary pins on its ClickHouse
  * destination. `upsert_support.rs` and the connector's
  * `transaction::unsupported` write the rest; a change to these words is a
@@ -561,8 +570,8 @@ async function expectOltpRows(
 
 /**
  * Put and get binary as base64; upload through a presigned PUT and head it;
- * copy the object and read the copy back through a presigned GET; list the
- * run's prefix; delete all three.
+ * copy the object and read the copy back through a presigned GET; list under
+ * `canary/`, walking pages, and expect all three; delete all three.
  */
 async function storageRoundtrip(run: RunState): Promise<void> {
   const written: string[] = [];
@@ -625,16 +634,40 @@ async function storageWrites(run: RunState, written: string[]): Promise<void> {
     throw new Error("presigned GET returned different bytes than put wrote");
   }
 
-  // The listing is by the app-relative prefix every pathname above shares;
-  // the keys it returns are the silo keys put and copy returned.
-  const page = await storage.list({ prefix: `canary/${run.runId}`, limit: 100 });
-  const listed = new Set(page.objects.map((object) => object.key));
+  // Listed under the app-relative directory every pathname above shares —
+  // `canary/`, not the run id: a run id is a partial segment, and the local
+  // storage backend lists a prefix as a directory while S3 lists it as a key
+  // prefix, so only a directory boundary lists the same on both. The keys it
+  // returns are the silo keys put and copy returned.
+  const listed = await listUnder(storage, "canary/");
   const unlisted = written.filter((key) => !listed.has(key));
   if (unlisted.length > 0) {
     throw new Error(
-      `list under the run's prefix lacks ${unlisted.length} of the ${written.length} objects this run wrote`
+      `list under canary/ lacks ${unlisted.length} of the ${written.length} objects this run wrote`
     );
   }
+}
+
+/**
+ * Every key under `prefix`, cursor-paginated so objects an earlier failed run
+ * left behind cannot push this run's past the first page; capped at
+ * `MAX_LIST_PAGES`.
+ */
+async function listUnder(
+  storage: OxyFunctionContext["storage"],
+  prefix: string
+): Promise<Set<string>> {
+  const keys = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_LIST_PAGES; page++) {
+    const result = await storage.list({ prefix, limit: LIST_PAGE_SIZE, cursor });
+    for (const object of result.objects) keys.add(object.key);
+    if (!result.hasMore || result.cursor === null) return keys;
+    cursor = result.cursor;
+  }
+  throw new Error(
+    `more than ${MAX_LIST_PAGES * LIST_PAGE_SIZE} objects under ${prefix}: earlier runs are not cleaning up`
+  );
 }
 
 function uploadInit(upload: StorageUploadUrl, body: string): FetchInit {

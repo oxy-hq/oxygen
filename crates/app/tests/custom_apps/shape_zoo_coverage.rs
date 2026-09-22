@@ -3,7 +3,8 @@
 //! The design's shape zoo section requires that a newly supported type cannot ship without a
 //! zoo case. Source scans only, no database, following `tests/authz/app_scope_boundary.rs` and
 //! `custom_app_functions_manual_run_guards.rs`: a comment naming a type must not count, so each
-//! mapper is read with comments removed, string and char literals kept whole.
+//! mapper is read with comments removed, string and char literals kept whole
+//! (`common::source_scan`, shared with `canary_coverage`).
 //!
 //! **Names.** String literals for the three string maps (a trailing `(` dropped, as in
 //! `"Nullable("` or `"DECIMAL("`); `Type::X` constants for `is_decodable`, lowercased to the
@@ -16,8 +17,9 @@
 //! (`DateTime64` does not cover `DateTime`).
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
+use crate::common::read_repo_file;
+use crate::common::source_scan::{Lang, rust_fn_body, string_literals, strip_comments};
 use crate::shape_zoo::{self, Engine, LoadedZoo};
 
 #[derive(Clone, Copy)]
@@ -164,17 +166,20 @@ fn shape_zoo_scanner_reads_code_not_comments() {
                    match x { \"Real\" | \"Also(\" => 1, _ if x.ends_with('\"') => 2, _ => 0 } /* \"Blocked\" */\n\
                }\n\
                fn other() { \"Elsewhere\" }\n";
-    let body = fn_body(&strip_comments(src), "target");
-    assert_eq!(string_literals(&body), vec!["Real", "Also("]);
+    let body = rust_fn_body(&strip_comments(src, Lang::Rust), "target");
+    assert_eq!(string_literals(&body, Lang::Rust), vec!["Real", "Also("]);
     assert_eq!(type_constants(&body), vec!["int4", "jsonb"]);
 }
 
 fn mapped() -> Vec<Mapped> {
     let mut out = Vec::new();
     for m in MAPPERS {
-        let body = fn_body(&strip_comments(&read(m.file)), m.function);
+        let body = rust_fn_body(
+            &strip_comments(&read_repo_file(m.file), Lang::Rust),
+            m.function,
+        );
         let raw = match m.names {
-            Names::StringLiterals => string_literals(&body),
+            Names::StringLiterals => string_literals(&body, Lang::Rust),
             Names::TypeConstants => type_constants(&body),
         };
         assert!(
@@ -248,117 +253,6 @@ fn covered(name: &str, declared: &BTreeSet<String>, mapped: &BTreeSet<String>) -
                 !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) && !mapped.contains(d)
             })
     })
-}
-
-fn read(rel: &str) -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(rel);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"))
-}
-
-/// `src` without `//` and `/* */` comments; string and char literals copied whole.
-fn strip_comments(src: &str) -> String {
-    let chars: Vec<char> = src.chars().collect();
-    let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < chars.len() {
-        let end = match (chars[i], chars.get(i + 1)) {
-            ('"', _) => string_end(&chars, i),
-            ('\'', _) => char_end(&chars, i),
-            ('/', Some('/')) => {
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
-                }
-                continue;
-            }
-            ('/', Some('*')) => {
-                let mut j = i + 2;
-                while j + 1 < chars.len() && !(chars[j] == '*' && chars[j + 1] == '/') {
-                    j += 1;
-                }
-                i = j + 2;
-                continue;
-            }
-            _ => i + 1,
-        };
-        out.extend(&chars[i..end]);
-        i = end;
-    }
-    out
-}
-
-/// Index just past the string literal that opens at `start`.
-fn string_end(chars: &[char], start: usize) -> usize {
-    let mut i = start + 1;
-    while i < chars.len() {
-        match chars[i] {
-            '\\' => i += 2,
-            '"' => return i + 1,
-            _ => i += 1,
-        }
-    }
-    chars.len()
-}
-
-/// Index just past a char literal at `start` (`'x'`, `'\n'`, `'\''`), or `start + 1` for a
-/// lifetime.
-fn char_end(chars: &[char], start: usize) -> usize {
-    match (chars.get(start + 1), chars.get(start + 2)) {
-        (Some('\\'), _) => chars
-            .get(start + 3..)
-            .and_then(|rest| rest.iter().position(|c| *c == '\''))
-            .map_or(chars.len(), |p| start + 4 + p),
-        (Some(_), Some('\'')) => start + 3,
-        _ => start + 1,
-    }
-}
-
-/// The body of the first `fn <name>(` in comment-free `src`, braces matched outside literals.
-fn fn_body(src: &str, name: &str) -> String {
-    let at = src
-        .find(&format!("fn {name}("))
-        .unwrap_or_else(|| panic!("`fn {name}` not found"));
-    let chars: Vec<char> = src[at..].chars().collect();
-    let open = chars
-        .iter()
-        .position(|c| *c == '{')
-        .expect("a function body");
-    let (mut depth, mut i) = (0usize, open);
-    while i < chars.len() {
-        match chars[i] {
-            '"' => i = string_end(&chars, i) - 1,
-            '\'' => i = char_end(&chars, i) - 1,
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return chars[open..=i].iter().collect();
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    panic!("unbalanced braces in `fn {name}`")
-}
-
-fn string_literals(body: &str) -> Vec<String> {
-    let chars: Vec<char> = body.chars().collect();
-    let (mut out, mut i) = (Vec::new(), 0);
-    while i < chars.len() {
-        match chars[i] {
-            '"' => {
-                let end = string_end(&chars, i);
-                let text: String = chars[i + 1..end - 1].iter().collect();
-                out.push(text.replace("\\\"", "\""));
-                i = end;
-            }
-            '\'' => i = char_end(&chars, i),
-            _ => i += 1,
-        }
-    }
-    out
 }
 
 /// `Type::X` constants, not the tail of `TypedDataType::X`.

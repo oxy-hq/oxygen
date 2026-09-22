@@ -23,16 +23,7 @@
 //!
 //! Related in spirit: `authz_boundaries.rs`, `custom_apps_boundary.rs`.
 
-use std::fs;
-use std::path::PathBuf;
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("crates/app -> repo root")
-        .to_path_buf()
-}
+use crate::common::read_repo_file;
 
 /// The nest the storage handlers are mounted under (`router/global.rs`). The
 /// frontend's `apiClient` has `/api` as its baseURL, so a TS path of
@@ -97,11 +88,8 @@ fn to_route_pattern(path: &str) -> Option<String> {
 
 #[test]
 fn storage_ui_paths_match_mounted_routes() {
-    let root = repo_root();
-    let service = fs::read_to_string(root.join("web-app/src/services/api/customAppStorage.ts"))
-        .expect("storage service file");
-    let router =
-        fs::read_to_string(root.join("crates/app/src/server/router/global.rs")).expect("global.rs");
+    let service = read_repo_file("web-app/src/services/api/customAppStorage.ts");
+    let router = read_repo_file("crates/app/src/server/router/global.rs");
 
     let paths = frontend_paths(&service);
     // A FLOOR, not merely non-empty. `frontend_paths` pairs backticks
@@ -169,11 +157,8 @@ fn every_storage_handler_is_reachable() {
     // one silently stopped covering `history`, the first handler added after this
     // test shipped — a list you have to remember to update is a list that goes
     // stale exactly when it matters.
-    let root = repo_root();
-    let router =
-        fs::read_to_string(root.join("crates/app/src/server/router/global.rs")).expect("global.rs");
-    let handlers = fs::read_to_string(root.join("crates/app/src/server/api/admin/apps/storage.rs"))
-        .expect("storage handlers");
+    let router = read_repo_file("crates/app/src/server/router/global.rs");
+    let handlers = read_repo_file("crates/app/src/server/api/admin/apps/storage.rs");
 
     // A `pub async fn` here is a route handler *or* a testable query helper
     // (`fleet_rows_scoped`), and only the first kind belongs in the router. The
@@ -324,7 +309,6 @@ fn prose_states_the_real_url() {
     // in Rust (round 1), then in one markdown file (round 3), then in a second
     // one — each time because the check was scoped to where it had last been
     // found.
-    let root = repo_root();
     let sources = [
         "crates/app/src/server/api/admin/apps/storage.rs",
         "internal-docs/customer-apps-functions.md",
@@ -333,7 +317,7 @@ fn prose_states_the_real_url() {
 
     let mut bad = Vec::new();
     for rel in sources {
-        let text = fs::read_to_string(root.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"));
+        let text = read_repo_file(rel);
         for line in text.lines() {
             if claims_an_admin_storage_url(line) {
                 bad.push(format!("{rel}: {}", line.trim()));

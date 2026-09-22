@@ -299,14 +299,27 @@ function makeFake() {
           ? null
           : { key, size: base64ToBytes(body).length, contentType: OCTET };
       },
+      // Sorted keys and an offset cursor, as `local::list` pages; S3 pages the
+      // same order by continuation token.
       list: async (opts?: { prefix?: string; limit?: number; cursor?: string }) => {
         record("storage.list", opts);
         const prefix = opts?.prefix ?? "";
-        const listed = [...objects.entries()]
+        const limit = opts?.limit ?? 100;
+        const offset = Number(opts?.cursor ?? 0);
+        const all = [...objects.entries()]
           .filter(([key]) => key.startsWith(prefix))
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([key, body]) => ({ key, size: base64ToBytes(body).length, contentType: OCTET }));
-        if (state.hideFromList) listed.pop();
-        return { objects: listed, cursor: null, hasMore: false };
+        if (state.hideFromList) {
+          // Hide the run's own put; a listing without it is the fake's bug, not a hidden object.
+          const at = all.findIndex((object) => object.key === `canary/${RUN_ID}.bin`);
+          if (at < 0) throw new Error("hideFromList: the run's put key is not in the listing");
+          all.splice(at, 1);
+        }
+        const page = all.slice(offset, offset + limit);
+        const end = offset + page.length;
+        const hasMore = end < all.length;
+        return { objects: page, cursor: hasMore ? String(end) : null, hasMore };
       },
       delete: async (keyOrKeys: string | string[]) => {
         record("storage.delete", keyOrKeys);
@@ -668,16 +681,42 @@ describe("runCanary", () => {
       expect(fake.objects.size).toBe(0);
     });
 
-    it("lists under the run's prefix and expects every object it wrote", async () => {
+    it("lists under canary/, a directory boundary, and expects every object it wrote", async () => {
       const fake = makeFake();
       await run(fake, ["storage_roundtrip"]);
-      const [list] = callsTo(fake, "storage.list");
-      expect((list.args[0] as { prefix?: string }).prefix).toBe(`canary/${RUN_ID}`);
+      const lists = callsTo(fake, "storage.list");
+      expect(lists).toHaveLength(1);
+      expect((lists[0].args[0] as { prefix?: string }).prefix).toBe("canary/");
       fake.state.hideFromList = true;
       await expect(run(fake, ["storage_roundtrip"])).rejects.toThrow(
-        /^canary step storage_roundtrip failed: list under the run's prefix lacks 1 of the 3 objects/
+        /^canary step storage_roundtrip failed: list under canary\/ lacks 1 of the 3 objects/
       );
       expect(fake.objects.size).toBe(0);
+    });
+
+    it("walks list pages, so objects an earlier run left behind cannot hide this run's", async () => {
+      const fake = makeFake();
+      // 150 leftovers that sort before this run's keys: on one page of 100, none of the run's would be seen.
+      for (let i = 0; i < 150; i++) {
+        fake.objects.set(`canary/a-older-${String(i).padStart(3, "0")}.bin`, "AA==");
+      }
+      await run(fake, ["storage_roundtrip"]);
+      const lists = callsTo(fake, "storage.list");
+      expect(lists).toHaveLength(2);
+      expect((lists[1].args[0] as { cursor?: string }).cursor).toBe("100");
+      // The leftovers are not this run's to delete.
+      expect(fake.objects.size).toBe(150);
+    });
+
+    it("fails, naming the cause, when the listing never ends", async () => {
+      const fake = makeFake();
+      for (let i = 0; i < 1001; i++) {
+        fake.objects.set(`canary/a-older-${String(i).padStart(4, "0")}.bin`, "AA==");
+      }
+      await expect(run(fake, ["storage_roundtrip"])).rejects.toThrow(
+        /^canary step storage_roundtrip failed: more than 1000 objects under canary\/: earlier runs are not cleaning up/
+      );
+      expect(callsTo(fake, "storage.list")).toHaveLength(10);
     });
 
     it("fails when the presigned GET returns different bytes", async () => {

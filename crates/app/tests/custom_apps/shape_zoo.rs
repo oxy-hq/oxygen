@@ -18,7 +18,6 @@
 //! `{"$error": s}` matches a read that was refused with a message containing `s`.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
@@ -169,11 +168,7 @@ impl LoadedZoo {
 }
 
 pub(crate) fn load() -> LoadedZoo {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(ZOO_PATH);
-    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    parse(&bytes)
+    parse(crate::common::read_repo_file(ZOO_PATH).as_bytes())
 }
 
 pub(crate) fn parse(bytes: &[u8]) -> LoadedZoo {
