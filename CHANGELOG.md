@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.150] - 2026-09-22
+
+### 🚀 Features
+
+- Weekly Sentry production triage — an issue every Monday, a draft PR when the fix is clear (#3250)
+- Update language server list and add API configuration options in project.yml
+- The kiosk is the store's — its own roster, an A-Z rail, a 30-minute idle default, and an update route (#3248)
+- Admin console kit — one page frame, one async state, one status vocabulary (#3256)
+- Custom apps admin is a fleet and a console, not four tabs over a three-row table (#3263)
+- The app console leads with the preview, and only one control claims ⌘K (#3272)
+- Store tablet sign-in — the kiosk opens the crew app, and the name picker fits a whole crew (#3267)
+
+### 🐛 Bug Fixes
+
+- The two production defects the weekly Sentry triage found (#3255)
+- Status text misses AA on the tint it is designed to sit on (#3260)
+- The org drain retried a failed page forever, and /admin/tenants was never stranded (#3269)
+- A failed org drain told the org pickers there were no organizations (#3273)
+
+### 📚 Documentation
+
+- Custom-app guard — design, runbook and observability (#3238)
+- The custom-app checks schedule is the last setup step, not the first (#3259)
+
+### ⚙️ Miscellaneous Tasks
+
+- Custom-app guard follow-ups — worktree fmt, the canary's optional check-in secret, merged infra notes, zoo timing (#3247)
+- Update Rust version to 1.98.1 in Dockerfiles and related scripts
+
 ## [0.5.149] - 2026-09-18
 
 ### 🚀 Features
@@ -21,6 +50,10 @@ All notable changes to this project will be documented in this file.
 ### 📚 Documentation
 
 - What the prod check found for the shared Airway cursor (#3205)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.5.149 (#3245)
 
 ## [0.5.148] - 2026-09-17
 
