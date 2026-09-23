@@ -1614,6 +1614,22 @@ pub fn abandoned_isolates() -> u64 {
 /// and returns an error to one app. The only traffic this newly breaks is a
 /// function that legitimately holds >128 MiB of live JS objects — and that
 /// function was already one spike away from taking the fleet down.
+/// Per-isolate heap ceiling.
+///
+/// **Deliberately not loosened alongside the admission ceilings.** Those are
+/// *rejecting* limits whose failure mode when set too tight is refused work;
+/// this one is the *containment* limit, and it is what actually keeps one
+/// tenant's runaway allocation from taking the pod — and with it every other
+/// tenant on that replica — down. `limits::DEFAULT_MAX_CONCURRENCY × this` is
+/// already well past the cgroup limit, which is the proof that the concurrency
+/// cap is not the memory protection: this is.
+///
+/// Its own too-tight failure mode is real but bounded and visible: one
+/// invocation is terminated, `oxy_custom_app_isolates_heap_terminations_total`
+/// records it against the org, and nothing else on the replica is affected.
+/// That is a strictly better trade than a pod OOM, so this number moves only on
+/// evidence of legitimate functions hitting it — not as part of the
+/// loosen-then-tighten pass on the admission ceilings.
 const DEFAULT_HEAP_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 
 /// Override for [`DEFAULT_HEAP_LIMIT_BYTES`], in megabytes. `0` disables.

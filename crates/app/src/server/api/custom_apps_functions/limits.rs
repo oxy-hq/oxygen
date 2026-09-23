@@ -64,16 +64,58 @@ pub const MAX_QUEUED_ENV: &str = "OXY_FUNCTION_MAX_QUEUED";
 /// `oxy_custom_app_isolates_live_peak` once that has run in production; that
 /// gauge exists precisely because a scrape-interval average cannot tell you
 /// what concurrency actually reaches.
-pub const DEFAULT_MAX_CONCURRENCY: usize = 32;
+///
+/// # Loose first, then tighten — and why that order is not negotiable
+///
+/// These three numbers are **arithmetic against a dev cluster that has served
+/// zero custom-app invocations**. Shipping a guess *tight* is how you
+/// manufacture the incident the cap exists to prevent: a refused invocation and
+/// a failed one are the same event to the person holding the tablet, so a cap
+/// set below real traffic converts a slow app into a broken one — and does it
+/// on the first busy shift, not gradually.
+///
+/// The asymmetry that settles it: these ceilings are **not** what protects the
+/// box's memory. `32 × 128 MiB` is already 4 GiB against a 2 GiB cgroup, so the
+/// global cap was never the binding memory protection — the per-isolate heap
+/// ceiling is, backed by invocations being short (mean init 6 ms, p95 637 ms).
+/// Loosening a *rejecting* ceiling therefore costs approximately nothing in
+/// memory risk, while tightening one costs refused work immediately.
+///
+/// So: generous until `oxy_custom_app_admission_shed_total` and
+/// `oxy_custom_app_isolates_live_peak` have a week of production traffic
+/// underneath them, then close down to what was actually observed. The heap
+/// ceiling is deliberately **not** loosened with them — see
+/// `DEFAULT_HEAP_LIMIT_BYTES`.
+pub const DEFAULT_MAX_CONCURRENCY: usize = 64;
 
-/// Default per-org ceiling — a quarter of the global one, so it takes four
-/// equally busy orgs to saturate the box and one busy org cannot.
-pub const DEFAULT_MAX_ORG_CONCURRENCY: usize = 8;
+/// Default per-org ceiling.
+///
+/// Three quarters of the global one, not a quarter. It still binds before the
+/// global cap — so "one tenant is eating the box" stays a distinguishable
+/// `ShedReason::Org` rather than a generic `Global` — but it no longer refuses
+/// a single customer's burst on a box that is otherwise idle.
+///
+/// The old value (8, a quarter) was the sharpest edge in the whole cap: at p95
+/// 637 ms it refuses one org at roughly 12 invocations/sec/replica, which a
+/// shift-change burst from one tablet fleet can reach while the fleet as a
+/// whole is doing nothing. Per-org fairness only means anything under
+/// contention, and with six orgs there is none to arbitrate — so until there
+/// is, the limit could only take work away.
+pub const DEFAULT_MAX_ORG_CONCURRENCY: usize = 48;
 
-/// Default queue budget. Comfortably above p95 invocation duration (637 ms), so
-/// a permit freed by a normal invocation completing is one a queued caller
-/// still catches.
-pub const DEFAULT_QUEUE_BUDGET: Duration = Duration::from_secs(5);
+/// Default queue budget.
+///
+/// Waiting is strictly better than refusing for a request whose caller is
+/// already waiting on it, and `admit()` is cancel-aware: if the caller goes
+/// away the wait ends as `ShedReason::Cancelled`, which is explicitly not
+/// counted as a shed. So a longer budget cannot inflate the shed rate — it can
+/// only convert a refusal into a served request or into a disconnect that was
+/// going to happen anyway.
+///
+/// 15 s sits far above p95 invocation duration (637 ms), so a permit freed by
+/// normal completion is one a queued caller still catches even several
+/// invocations deep, and far below any client timeout worth respecting.
+pub const DEFAULT_QUEUE_BUDGET: Duration = Duration::from_secs(15);
 
 /// Which ceiling refused an invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,6 +408,32 @@ mod tests {
         assert!(
             DEFAULT_MAX_ORG_CONCURRENCY < DEFAULT_MAX_CONCURRENCY,
             "per-org default must bind before the global one"
+        );
+    }
+
+    /// The per-org ceiling must stay a LARGE fraction of the global one until
+    /// production traffic says otherwise.
+    ///
+    /// The sibling test above stops it reaching the global cap, where it could
+    /// never bind. This one stops the opposite drift, which is the one that
+    /// actually costs a customer something: a per-org ceiling set to a small
+    /// fraction refuses one tenant's burst while the box is idle, and a refused
+    /// invocation is indistinguishable from a broken app to the person holding
+    /// the tablet. It was 8 of 32 — a quarter — sized by arithmetic against a
+    /// cluster that had served zero invocations.
+    ///
+    /// Tightening it is a legitimate thing to do *from measurement*. This test
+    /// is what makes that a deliberate edit with a reason attached rather than
+    /// a quiet return to a guess.
+    #[test]
+    fn the_org_ceiling_is_generous_until_production_says_otherwise() {
+        assert!(
+            DEFAULT_MAX_ORG_CONCURRENCY * 2 >= DEFAULT_MAX_CONCURRENCY,
+            "per-org default ({DEFAULT_MAX_ORG_CONCURRENCY}) is under half the \
+             global one ({DEFAULT_MAX_CONCURRENCY}) — that refuses a single \
+             org's burst on an otherwise idle box. Tighten only from observed \
+             oxy_custom_app_admission_shed_total / isolates_live_peak, and say \
+             so here."
         );
     }
 
