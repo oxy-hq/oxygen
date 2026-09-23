@@ -44,11 +44,19 @@ pub static DB_POOL_MAX: AtomicU64 = AtomicU64::new(0);
 /// only evidence was a log line nothing was matching on.
 pub static DB_POOL_STARVED: AtomicBool = AtomicBool::new(false);
 
-/// How many times the pool's health probe has failed to acquire.
+/// How many times the pool has *entered* starvation — episodes, not probes.
+///
+/// A pool that stays starved across ten consecutive probes counts **one**;
+/// [`set_db_pool_starved`] increments only on the false-to-true edge, and
+/// `starvation_events_count_transitions_not_probes` below pins that. Counting
+/// probes instead would make the number track probe cadence rather than how
+/// often the pool broke.
 ///
 /// Monotonic and per-process. The gauge above says "right now"; this says "has
 /// it been happening", which is what distinguishes a blip from a pattern
-/// between two scrapes.
+/// between two scrapes. For failure *volume* and the error-vs-timeout split,
+/// read `oxy_db_pool_probe_failures_total`, which counts every failed probe —
+/// the two answer different questions and neither substitutes for the other.
 pub static DB_POOL_STARVATION_EVENTS: AtomicU64 = AtomicU64::new(0);
 
 /// V8 isolates alive in this process right now.
