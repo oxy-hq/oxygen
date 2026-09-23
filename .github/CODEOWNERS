@@ -29,16 +29,23 @@
 
 # Custom Apps Platform (code-first React bundles shipped via `oxyc publish`)
 crates/app/src/server/api/custom_apps_serve/       @luong-komorebi @NTtanh
-crates/app/src/server/api/custom_apps_functions/   @luong-komorebi @NTtanh
 crates/app/src/server/api/custom_apps_storage/     @luong-komorebi @NTtanh
 # No `.rs` suffix on the glob: several of these are now directories
 # (custom_apps_client/, custom_apps_health/, custom_apps_migrations/ — #3103),
 # which a `custom_apps_*.rs` pattern silently stops matching.
 crates/app/src/server/api/custom_apps_*            @luong-komorebi @NTtanh
+# Oxy Functions — kept BELOW the catch-all on purpose: the backup differs, and
+# last-match-wins is the only thing that makes it stick. Tay is the reliable
+# second here, not Mars — webhooks (#3137), the airhouse-managed write fix
+# (#3052) and both seam inversions (#2789, #2803) are his, against one
+# repo-wide sweep (#2822) from Mars.
+crates/app/src/server/api/custom_apps_functions/   @luong-komorebi @hotay
 crates/app/src/custom_app_template/                @luong-komorebi @NTtanh
 sdk/create-oxy-app/                                @luong-komorebi @NTtanh
 internal-docs/customer-apps*.md                    @luong-komorebi @NTtanh
-internal-docs/vibe-coding-customer-apps.md         @luong-komorebi @NTtanh
+# `custom-app*` and `customer-apps*` are both in use as doc prefixes; the
+# vibe-coding doc that used to sit here went away with v0 sources (#3244).
+internal-docs/custom-app*.md                       @luong-komorebi @NTtanh
 .claude/skills/oxy-customer-apps-perf/             @luong-komorebi @NTtanh
 
 # Admin & staff surfaces (workspace-health carve-out is re-owned by Hai below)
@@ -100,6 +107,11 @@ internal-docs/architecture-review-checklist.md     @luong-komorebi @NTtanh
 crates/observability/                              @luong-komorebi @hotay
 crates/app/src/server/api/traces.rs                @luong-komorebi @hotay
 internal-docs/observability-analytics.md           @luong-komorebi @hotay
+# Platform telemetry (new 2026-09, #3115) — the OTLP/HyperDX side, NOT the
+# product traces store above. Separate clusters, separate trace-id spaces; the
+# two get confused often enough that they are listed together deliberately.
+crates/telemetry/                                  @luong-komorebi @hotay
+internal-docs/platform-telemetry.md                @luong-komorebi @hotay
 
 # Partner distribution platform
 crates/api-partner-console/                        @luong-komorebi @NTtanh
@@ -109,8 +121,20 @@ internal-docs/partner-platform.md                  @luong-komorebi @NTtanh
 # GitHub integration — backend surface (extracted sibling crate)
 crates/api-github/                                 @luong-komorebi @NTtanh
 
+# oxyc — the `@oxy-hq/cli` HTTP-API client that replaced `oxy api` (#3016).
+# Mars backs up on the same reasoning as sdk/typescript below (client/SDK side);
+# nobody but Luong has committed here yet, so this is a generalist backup.
+sdk/cli/                                           @luong-komorebi @NTtanh
+internal-docs/oxy-api-cli.md                       @luong-komorebi @NTtanh
+
 # LLM vendor infrastructure + build/CI
+# agentic/llm was uncovered until now (102 focus touches, four contributors).
+# Luong stays primary on the vendor routing itself (#2751 openai_compat and the
+# llm.vendor override) but Tay is the second here rather than Hai: he is
+# consolidating the whole LLM stack onto this crate (#3190, part 1 of N). If
+# that lands the rest of the way, the primary should follow it to him.
 crates/infrastructure/llm/                         @luong-komorebi @haitrr
+crates/agentic/llm/                                @luong-komorebi @hotay
 /Dockerfile                                        @luong-komorebi @nresh
 
 
@@ -229,6 +253,12 @@ crates/app/src/server/api/organizations/           @NTtanh @luong-komorebi
 
 # Secrets management
 crates/app/src/server/api/secrets.rs               @NTtanh @luong-komorebi
+
+# Document model (new 2026-09, #3087) — folders, documents, immutable versions,
+# visibility and search; one model for both knowledge base and compliance.
+# Mars authored all of it. Luong backs up: it rests on his storage silo and its
+# write gate is a ring in his authz match.
+crates/app/src/server/api/documents/               @NTtanh @luong-komorebi
 
 # IDE git flow + git client crate
 crates/git/                                        @NTtanh @nresh
