@@ -273,13 +273,24 @@ pub trait FunctionHost: Send + Sync {
     /// `message` is the host's error text, which the host normalizes before it
     /// keeps anything (`failure_signal::HostCallFailure::noted`), so the
     /// fingerprint can tell a new break on an op apart from the routine
-    /// failure a handler already catches there.
-    fn note_host_call_failure(&self, _op: &'static str, _kind: &'static str, _message: &str) {}
+    /// failure a handler already catches there; `target` is where the call
+    /// went, for the ops that name one (`host_call_target`), normalized the
+    /// same way before it is kept.
+    fn note_host_call_failure(
+        &self,
+        _op: &'static str,
+        _kind: &'static str,
+        _message: &str,
+        _target: Option<&str>,
+    ) {
+    }
     /// Called by the broker when a host call succeeded, so a failure noted for
-    /// the same `op` earlier in the run is dropped: the run recovered from it,
-    /// and the fingerprint should name one it did not. The rule and its
-    /// trade-off: `failure_signal::HostCallFailure::recovered`.
-    fn note_host_call_success(&self, _op: &'static str) {}
+    /// the same `op` against the same `target` earlier in the run is dropped:
+    /// the run recovered from it, and the fingerprint should name one it did
+    /// not. A success against another target — a `fetch` to Slack after a
+    /// failed `fetch` to a vendor — clears nothing. The rule:
+    /// `failure_signal::HostCallFailure::recovered`.
+    fn note_host_call_success(&self, _op: &'static str, _target: Option<&str>) {}
     /// The failure noted for this invocation — the first not recovered from —
     /// read once the isolate has finished.
     fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {
@@ -1906,6 +1917,9 @@ pub async fn run(
                         meters.host_calls.fetch_add(1, Ordering::Relaxed);
                         let host = host.clone();
                         let (span, kind, op) = host_call_span(&call);
+                        // Read before dispatch consumes the call: the note
+                        // keys a later success to the same target.
+                        let target = host_call_target(&call);
                         tokio::spawn(
                             async move {
                                 // `dispatch_host_call` consumes its host.
@@ -1921,11 +1935,14 @@ pub async fn run(
                                         if super::host_call_attrs::counts_toward_paging(error_kind)
                                         {
                                             host_note.note_host_call_failure(
-                                                op, error_kind, message,
+                                                op,
+                                                error_kind,
+                                                message,
+                                                target.as_deref(),
                                             );
                                         }
                                     }
-                                    Ok(_) => host_note.note_host_call_success(op),
+                                    Ok(_) => host_note.note_host_call_success(op, target.as_deref()),
                                 }
                                 let _ = reply.send(result);
                             }
@@ -1956,6 +1973,46 @@ enum HostCallKind {
     Query,
     Fetch,
     Other,
+}
+
+/// Where a host call went, for the failure note's clear-on-success rule
+/// (`FunctionHost::note_host_call_success`): a later success of the same op
+/// clears a noted failure only when it went to the same place. Read from the
+/// call before dispatch, on both the failing and the succeeding side, so the
+/// two cannot disagree.
+///
+/// Only what a span of this call already records, and never a value the
+/// caller could put anything in: a `fetch`'s host, by the one parser its span
+/// uses (`url_shape::fetch_target`) — scheme, port, path and query stay out,
+/// and a URL with no host has no target; a `warehouse.*` op's database and,
+/// when the payload names one, table (`db.namespace`, `db.collection.name`),
+/// gated as the span gates them (`data_audit::record_db_span`): a value that
+/// is not `identifier_like` — over 64 chars, or anything outside
+/// `[A-Za-z0-9_.$-]` — drops out of the target rather than into it, so the
+/// note holds exactly what the span records. Every other op clears by name
+/// alone: a storage key or an OLTP statement is payload, an app's own
+/// Airhouse and OLTP schemas are one destination each, and a transaction op
+/// names its transaction, not a place. The host normalizes what it keeps of
+/// this (`HostCallFailure::noted`).
+fn host_call_target(call: &HostCall) -> Option<String> {
+    use super::host_call_attrs::{fetch_target, identifier_like};
+    match call {
+        HostCall::Fetch { url, .. } => Some(fetch_target(url).host).filter(|host| !host.is_empty()),
+        HostCall::WarehouseWrite { payload, .. } => {
+            let field = |name: &str| {
+                payload
+                    .get(name)
+                    .and_then(|v| v.as_str())
+                    .filter(|v| identifier_like(v))
+            };
+            let database = field("database")?;
+            Some(match field("table") {
+                Some(table) => format!("{database} {table}"),
+                None => database.to_string(),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The span one host op runs under. Named and attributed on the OpenTelemetry
@@ -2576,12 +2633,14 @@ mod tests {
         /// When set, the app's own stores fail with this message: every
         /// `ctx.airhouse` op, and the `begin_oltp` that opens `ctx.oltp.tx`.
         own_store_error: Option<String>,
-        /// Every `(op, kind, message)` the broker noted, in order — all of
-        /// them, not just the first, so a test can see a note that should not
-        /// exist.
-        host_call_failures: std::sync::Mutex<Vec<(&'static str, &'static str, String)>>,
-        /// Every op the broker reported a success for, in order.
-        host_call_successes: std::sync::Mutex<Vec<&'static str>>,
+        /// Every `(op, kind, message, target)` the broker noted, in order —
+        /// all of them, not just the first, so a test can see a note that
+        /// should not exist.
+        #[allow(clippy::type_complexity)]
+        host_call_failures:
+            std::sync::Mutex<Vec<(&'static str, &'static str, String, Option<String>)>>,
+        /// Every `(op, target)` the broker reported a success for, in order.
+        host_call_successes: std::sync::Mutex<Vec<(&'static str, Option<String>)>>,
     }
 
     impl MockHost {
@@ -2593,7 +2652,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(op, kind, _)| (*op, *kind))
+                .map(|(op, kind, _, _)| (*op, *kind))
                 .collect()
         }
         /// The message each note carried, in order: the real host folds it
@@ -2603,10 +2662,28 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .map(|(_, _, message)| message.clone())
+                .map(|(_, _, message, _)| message.clone())
+                .collect()
+        }
+        /// The target each note carried, in order: what the real host keys a
+        /// later success against (`HostCallFailure::recovered`).
+        fn host_call_failure_targets(&self) -> Vec<Option<String>> {
+            self.host_call_failures
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, _, _, target)| target.clone())
                 .collect()
         }
         fn host_call_successes(&self) -> Vec<&'static str> {
+            self.host_call_successes
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(op, _)| *op)
+                .collect()
+        }
+        fn host_call_successes_with_targets(&self) -> Vec<(&'static str, Option<String>)> {
             self.host_call_successes.lock().unwrap().clone()
         }
     }
@@ -2624,14 +2701,25 @@ mod tests {
             }
             Ok(serde_json::json!({ "rows": [{ "x": 1 }], "truncated": false }))
         }
-        fn note_host_call_failure(&self, op: &'static str, kind: &'static str, message: &str) {
-            self.host_call_failures
+        fn note_host_call_failure(
+            &self,
+            op: &'static str,
+            kind: &'static str,
+            message: &str,
+            target: Option<&str>,
+        ) {
+            self.host_call_failures.lock().unwrap().push((
+                op,
+                kind,
+                message.to_string(),
+                target.map(str::to_string),
+            ));
+        }
+        fn note_host_call_success(&self, op: &'static str, target: Option<&str>) {
+            self.host_call_successes
                 .lock()
                 .unwrap()
-                .push((op, kind, message.to_string()));
-        }
-        fn note_host_call_success(&self, op: &'static str) {
-            self.host_call_successes.lock().unwrap().push(op);
+                .push((op, target.map(str::to_string)));
         }
         async fn tx(
             &self,
@@ -3089,6 +3177,127 @@ mod tests {
             vec![("query", "host_call_failed")]
         );
         assert_eq!(host.host_call_successes(), vec!["query"]);
+        // `ctx.query` names no target, so the note is keyed by op alone.
+        assert_eq!(host.host_call_failure_targets(), vec![None]);
+        assert_eq!(
+            host.host_call_successes_with_targets(),
+            vec![("query", None)]
+        );
+    }
+
+    /// The broker names where a call went alongside its op, on failure and on
+    /// success, so the host can clear a caught failure only for the same
+    /// target (`HostCallFailure::recovered`): a `fetch`'s host, by the one URL
+    /// parser; a `warehouse.*` op's database and table; nothing for an op
+    /// that names no place. Neither the URL's path nor the query reaches the
+    /// note.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_host_call_is_noted_with_its_target() {
+        let host = Arc::new(MockHost::default());
+        let resp = run_on(
+            r#"
+            export default async (req, ctx) => {
+                try { await ctx.fetch("https://api.vendor-a.com/v1/rates?key=sk_live_abc"); } catch (e) {}
+                try { await ctx.fetch("https://hooks.slack.com/services/T0/B0/x"); } catch (e) {}
+                const r = await ctx.warehouse.query("dw", "SELECT 1");
+                return Response.json({ rows: r.rows.length });
+            };
+        "#,
+            test_ctx(),
+            host.clone(),
+        )
+        .await
+        .expect("the handler caught both fetches and answered");
+        assert_eq!(resp.status, 200, "{}", resp.body);
+        assert_eq!(
+            host.host_call_failures(),
+            vec![("fetch", "host_call_failed"), ("fetch", "host_call_failed")]
+        );
+        assert_eq!(
+            host.host_call_failure_targets(),
+            vec![
+                Some("api.vendor-a.com".to_string()),
+                Some("hooks.slack.com".to_string())
+            ],
+            "two hosts under one op are two targets"
+        );
+        assert_eq!(
+            host.host_call_successes_with_targets(),
+            vec![("warehouse.query", Some("dw".to_string()))]
+        );
+    }
+
+    /// The note holds exactly what the call's span records, gated the same
+    /// way (`data_audit::record_db_span`): a database or table that is not
+    /// `identifier_like` — over 64 chars, or carrying anything outside
+    /// `[A-Za-z0-9_.$-]` — drops out of the target rather than into it, and a
+    /// fetch keeps the host alone.
+    #[test]
+    fn host_call_target_keeps_only_what_the_span_records() {
+        fn warehouse(payload: serde_json::Value) -> HostCall {
+            let (reply, _rx) = tokio::sync::oneshot::channel();
+            HostCall::WarehouseWrite {
+                op: "insert".into(),
+                payload,
+                reply,
+            }
+        }
+        fn fetch(url: &str) -> HostCall {
+            let (reply, _rx) = tokio::sync::oneshot::channel();
+            HostCall::Fetch {
+                url: url.into(),
+                init: serde_json::json!({}),
+                reply,
+            }
+        }
+        let target = |call: HostCall| host_call_target(&call);
+        assert_eq!(
+            target(warehouse(
+                serde_json::json!({ "database": "dw", "table": "ledger" })
+            )),
+            Some("dw ledger".into())
+        );
+        assert_eq!(
+            target(warehouse(serde_json::json!({ "database": "dw" }))),
+            Some("dw".into())
+        );
+        // A table the span would not record leaves the database alone.
+        for table in ["x".repeat(65), "ledger; drop table x".into(), "".into()] {
+            assert_eq!(
+                target(warehouse(
+                    serde_json::json!({ "database": "dw", "table": table })
+                )),
+                Some("dw".into()),
+                "{table}"
+            );
+        }
+        // A database the span would not record is no target at all.
+        assert_eq!(
+            target(warehouse(
+                serde_json::json!({ "database": "x".repeat(65), "table": "ledger" })
+            )),
+            None
+        );
+        assert_eq!(
+            target(warehouse(serde_json::json!({ "table": "ledger" }))),
+            None
+        );
+        // A fetch keeps the host: no userinfo, port, path or query.
+        assert_eq!(
+            target(fetch(
+                "https://user:pw@api.example.com:8443/v1/x?key=sk_live_1"
+            )),
+            Some("api.example.com".into())
+        );
+        // An op that names no place.
+        let (reply, _rx) = tokio::sync::oneshot::channel();
+        assert_eq!(
+            target(HostCall::Query {
+                sql: "select 1".into(),
+                reply
+            }),
+            None
+        );
     }
 
     /// A refusal of the call's own arguments is the app's error, and the run

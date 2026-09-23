@@ -44,12 +44,21 @@ pub(super) struct Failure {
 /// [`normalize`] and the [`FINGERPRINT_PREFIX`] bound — the same text the
 /// `threw` path digests — taken as the failure is noted, so the raw text is
 /// never held. It feeds the fingerprint and nothing else: not the span, the
-/// log line or the page, which name the op and kind.
+/// log line or the page, which name the op and kind. `target` is where the
+/// call went, for the ops that name one — a `fetch`'s host, a `warehouse.*`
+/// op's database and table — normalized the same way and kept so that a
+/// later success of the op clears the note only when it went to the same
+/// place ([`HostCallFailure::recovered`]). It is not in the fingerprint.
 //
 // The message is here because op and kind alone masked a new failure: a
 // function that already catches a routine `permission_denied` on
 // `warehouse.insert` made a real break of the same op and kind "not new" to
 // the pager, so it never paged.
+//
+// The target is here because a clear by op alone masked the other half: the
+// fingerprint kept a URL's host so two vendors under one `fetch` were two
+// patterns, and then a caught failure on vendor A was dropped by any later
+// `fetch` that worked — a Slack webhook, say — so A's break never paged.
 //
 // Only the V8 runtime constructs one; without it the type is still named by
 // the run outcome, which always carries `None`.
@@ -64,6 +73,9 @@ pub struct HostCallFailure {
     pub op: &'static str,
     pub kind: &'static str,
     pub message: String,
+    /// Where the call went, normalized as `message` is; `None` for an op
+    /// that names no target, which then clears by op alone.
+    pub target: Option<String>,
 }
 
 /// Written by hand so that `message` cannot reach a log line through a
@@ -80,6 +92,9 @@ impl std::fmt::Debug for HostCallFailure {
                 "message",
                 &format_args!("<elided, digest {}>", digest(&self.message)),
             )
+            // Shape, not payload: a host or a database name, already on the
+            // call's own span (`server.address`, `db.namespace`).
+            .field("target", &self.target)
             .finish()
     }
 }
@@ -89,33 +104,49 @@ impl std::fmt::Debug for HostCallFailure {
 /// reports each call's outcome; these decide what the note becomes.
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
 impl HostCallFailure {
-    /// After a call of `op` failed as `kind`, saying `message`: the first
-    /// failure stands. One page names one failure, and later calls often fail
-    /// because of it. The message is normalized here, before anything is
-    /// kept — the host holds the note for the rest of the run, and what it
-    /// holds must already be the digest's input, not the data.
+    /// After a call of `op` against `target` failed as `kind`, saying
+    /// `message`: the first failure stands. One page names one failure, and
+    /// later calls often fail because of it. The message and the target are
+    /// normalized here, before anything is kept — the host holds the note for
+    /// the rest of the run, and what it holds must already be the digest's
+    /// input, not the data.
     pub fn noted(
         current: Option<Self>,
         op: &'static str,
         kind: &'static str,
         message: &str,
+        target: Option<&str>,
     ) -> Option<Self> {
         current.or_else(|| {
             Some(Self {
                 op,
                 kind,
                 message: normalized_prefix(message),
+                target: target.map(normalized_prefix),
             })
         })
     }
 
-    /// After a call of `op` succeeded: a failure of that op is one the run
-    /// recovered from (a retried `ctx.fetch` that answered on the second
-    /// attempt), and the fingerprint should name a failure it did not. By op
-    /// name only — two targets under one op share the clear, because the op
-    /// name comes from a closed list and a target would not.
-    pub fn recovered(current: Option<Self>, op: &'static str) -> Option<Self> {
-        current.filter(|hc| hc.op != op)
+    /// After a call of `op` against `target` succeeded: a failure of that op
+    /// against that target is one the run recovered from (a retried
+    /// `ctx.fetch` that answered on the second attempt), and the fingerprint
+    /// should name a failure it did not. The target is part of the key: a
+    /// `fetch` to vendor A that failed is not answered for by a `fetch` to
+    /// Slack that worked, and clearing it there erased the one failure the
+    /// pager exists to see. The target is compared normalized, as it was
+    /// kept, so the digit rule folds on both sides: a numbered shard is one
+    /// host (`shop123.example.com` and `shop456.example.com`), and a
+    /// numbered table is one table the same way — `dw orders_2024` and
+    /// `dw raw_v1` are both `dw #`, so a caught insert into one is cleared by
+    /// a success on the other; only digit-free names tell apart. An op that
+    /// names no target (`None` on both sides) clears by op name alone. The
+    /// raw target goes no further than this call.
+    pub fn recovered(
+        current: Option<Self>,
+        op: &'static str,
+        target: Option<&str>,
+    ) -> Option<Self> {
+        current.filter(|hc| !(hc.op == op && hc.target == target.map(normalized_prefix)))
     }
 
     /// The fingerprint a caught failure pages under: a digest over the op,
@@ -612,6 +643,7 @@ mod tests {
                 "fetch",
                 "host_call_failed",
                 &format!("fetch failed: error sending request for url ({url})"),
+                None,
             )
             .unwrap()
         };
@@ -744,9 +776,14 @@ mod tests {
 
     #[test]
     fn a_caught_host_call_failure_on_a_2xx_is_a_failure() {
-        let hc =
-            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", CAUGHT_CODE_27)
-                .unwrap();
+        let hc = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            None,
+        )
+        .unwrap();
         let f = Failure::of("success", 200, None, Some(&hc)).expect("caught host failure pages");
         assert_eq!(f.kind, "host_call");
         assert_eq!(
@@ -779,11 +816,17 @@ mod tests {
             "warehouse.insert",
             "host_call_failed",
             "warehouse insert failed: this is a read-only warehouse connection",
+            None,
         )
         .unwrap();
-        let broken =
-            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", CAUGHT_CODE_27)
-                .unwrap();
+        let broken = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            None,
+        )
+        .unwrap();
         assert_eq!((routine.op, routine.kind), (broken.op, broken.kind));
         assert_ne!(
             Failure::of("success", 200, None, Some(&routine))
@@ -805,24 +848,32 @@ mod tests {
                 .replace("upload-report", "submit")
                 .replace("0af7651916cd", "884e14953bc3")
                 .replace("row 63", "row 2"),
+            None,
         )
         .unwrap();
         assert_eq!(broken.fingerprint(), other_app.fingerprint());
     }
 
     /// The first failure stands over a later one, and a later success of the
-    /// same op clears it: an app that retried and got its answer pages nobody.
-    /// A success of another op clears nothing — a `storage.head` that worked
-    /// says nothing about the `fetch` that did not.
+    /// same op against the same target clears it: an app that retried and got
+    /// its answer pages nobody. A success of another op clears nothing — a
+    /// `storage.head` that worked says nothing about the `fetch` that did not.
     #[test]
     fn a_noted_host_call_failure_is_cleared_by_a_success_of_the_same_op() {
-        let noted = HostCallFailure::noted(None, "fetch", "timeout", "fetch timed out after 30s");
+        let noted = HostCallFailure::noted(
+            None,
+            "fetch",
+            "timeout",
+            "fetch timed out after 30s",
+            Some("api.example.com"),
+        );
         assert_eq!(
             noted,
             Some(HostCallFailure {
                 op: "fetch",
                 kind: "timeout",
                 message: "fetch timed out after #".into(),
+                target: Some("api.example.com".into()),
             })
         );
         assert_eq!(
@@ -830,28 +881,134 @@ mod tests {
                 noted.clone(),
                 "warehouse.insert",
                 "host_call_failed",
-                CAUGHT_CODE_27
+                CAUGHT_CODE_27,
+                None,
             ),
             noted,
             "the first failure stands"
         );
         assert_eq!(
-            HostCallFailure::recovered(noted.clone(), "storage.head"),
+            HostCallFailure::recovered(noted.clone(), "storage.head", None),
             noted
         );
-        assert_eq!(HostCallFailure::recovered(noted.clone(), "fetch"), None);
+        assert_eq!(
+            HostCallFailure::recovered(noted.clone(), "fetch", Some("api.example.com")),
+            None
+        );
         // Recovered, then failed again: the second failure is the one the run
         // did not recover from.
         assert_eq!(
             HostCallFailure::noted(
-                HostCallFailure::recovered(noted, "fetch"),
+                HostCallFailure::recovered(noted, "fetch", Some("api.example.com")),
                 "warehouse.insert",
                 "host_call_failed",
                 CAUGHT_CODE_27,
+                None,
             )
             .map(|hc| (hc.op, hc.kind)),
             Some(("warehouse.insert", "host_call_failed"))
         );
+    }
+
+    /// The mask the target closes. The fingerprint keeps a URL's host so two
+    /// vendors under one `fetch` are two patterns, and a clear by op alone
+    /// undid that: a caught failure on vendor A was dropped by any later
+    /// `fetch` that worked — a Slack webhook, say — so A's break never paged.
+    /// A success clears a failure only against the same target; an op with
+    /// no target clears by op alone, as before.
+    #[test]
+    fn a_success_on_another_target_does_not_clear_a_noted_failure() {
+        let vendor_a = HostCallFailure::noted(
+            None,
+            "fetch",
+            "host_call_failed",
+            "fetch failed: error sending request for url (https://api.vendor-a.com/v1/rates)",
+            Some("api.vendor-a.com"),
+        );
+        assert_eq!(
+            vendor_a.as_ref().and_then(|hc| hc.target.as_deref()),
+            Some("api.vendor-a.com")
+        );
+        assert_eq!(
+            HostCallFailure::recovered(vendor_a.clone(), "fetch", Some("hooks.slack.com")),
+            vendor_a,
+            "a fetch to another host says nothing about vendor A"
+        );
+        assert_eq!(
+            HostCallFailure::recovered(vendor_a.clone(), "fetch", None),
+            vendor_a,
+            "a fetch with no host to compare is not the same target either"
+        );
+        assert_eq!(
+            HostCallFailure::recovered(vendor_a, "fetch", Some("api.vendor-a.com")),
+            None,
+            "the same host, retried and answered, is recovered from"
+        );
+
+        // The target is compared as it was kept — normalized — so a numbered
+        // shard is one host on both sides, as it is one input to the
+        // fingerprint.
+        let shard = HostCallFailure::noted(
+            None,
+            "fetch",
+            "timeout",
+            "fetch timed out after 30s",
+            Some("shop123.example.com"),
+        );
+        assert_eq!(
+            shard.as_ref().and_then(|hc| hc.target.as_deref()),
+            Some("#.example.com")
+        );
+        assert_eq!(
+            HostCallFailure::recovered(shard, "fetch", Some("shop456.example.com")),
+            None
+        );
+
+        // A warehouse op keys on the destination and table it named: a
+        // caught insert into `ledger` is not cleared by one into `audit`.
+        let ledger = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            Some("dw ledger"),
+        );
+        assert_eq!(
+            HostCallFailure::recovered(ledger.clone(), "warehouse.insert", Some("dw audit")),
+            ledger
+        );
+        assert_eq!(
+            HostCallFailure::recovered(ledger, "warehouse.insert", Some("dw ledger")),
+            None
+        );
+        // Numbered tables fold as numbered shards do: one target, by the
+        // digit rule, so a success on `raw_v1` clears a failure on
+        // `orders_2024` in the same database.
+        let orders_2024 = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            Some("dw orders_2024"),
+        );
+        assert_eq!(
+            orders_2024.as_ref().and_then(|hc| hc.target.as_deref()),
+            Some("dw #")
+        );
+        assert_eq!(
+            HostCallFailure::recovered(orders_2024, "warehouse.insert", Some("dw raw_v1")),
+            None
+        );
+
+        // An op with no target: op alone still clears.
+        let query = HostCallFailure::noted(
+            None,
+            "query",
+            "host_call_failed",
+            "connection refused",
+            None,
+        );
+        assert_eq!(HostCallFailure::recovered(query, "query", None), None);
     }
 
     /// What the host keeps across the run is the digest's input, never the
@@ -865,6 +1022,7 @@ mod tests {
             "storage.head",
             "host_call_failed",
             &format!("s3 error: head_object {key}: dispatch failure"),
+            None,
         )
         .unwrap();
         assert_eq!(noted.message, "# error: head_object ?: dispatch failure");
@@ -872,9 +1030,20 @@ mod tests {
             "warehouse insert failed: {}",
             "x ".repeat(FINGERPRINT_PREFIX)
         );
-        let noted =
-            HostCallFailure::noted(None, "warehouse.insert", "host_call_failed", &long).unwrap();
+        let noted = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            &long,
+            Some(&"y ".repeat(FINGERPRINT_PREFIX)),
+        )
+        .unwrap();
         assert_eq!(noted.message.chars().count(), FINGERPRINT_PREFIX);
+        assert_eq!(
+            noted.target.as_ref().map(|t| t.chars().count()),
+            Some(FINGERPRINT_PREFIX),
+            "the target is bounded as the message is"
+        );
         assert_eq!(
             noted.fingerprint(),
             digest(&format!(
@@ -894,6 +1063,7 @@ mod tests {
             "warehouse.insert",
             "permission_denied",
             "warehouse insert failed: permission denied for table ledger_entries",
+            None,
         )
         .unwrap();
         let failure = Failure::of("success", 200, None, Some(&hc)).unwrap();
@@ -910,7 +1080,8 @@ mod tests {
         }
         // The digest stands in for the text, so two notes still tell apart.
         let other =
-            HostCallFailure::noted(None, "warehouse.insert", "permission_denied", "other").unwrap();
+            HostCallFailure::noted(None, "warehouse.insert", "permission_denied", "other", None)
+                .unwrap();
         assert_ne!(format!("{hc:?}"), format!("{other:?}"));
     }
 
@@ -920,6 +1091,7 @@ mod tests {
             op: "query",
             kind: "timeout",
             message: "query timed out after #".into(),
+            target: None,
         };
         let real = Failure::of("success", 503, None, Some(&hc)).unwrap();
         assert_eq!(real.kind, "http_5xx");

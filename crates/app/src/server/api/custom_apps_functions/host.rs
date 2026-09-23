@@ -108,17 +108,19 @@ pub struct ProjectFunctionHost {
     /// The `ctx.*` call of this invocation that failed in a way that pages and
     /// that the run did not recover from. The first failure stands over later
     /// ones (one page names one failure, and later calls often fail because of
-    /// it); a later success of the same op clears it, so an app that retries a
-    /// flaky `ctx.fetch` and gets its answer on the second attempt pages
-    /// nobody. The clear goes by op name alone — two targets under one op
-    /// share it, so a `fetch` to A that failed is cleared by a `fetch` to B
-    /// that worked. That is the price of a fingerprint carrying nothing an
-    /// app chose: the op name comes from a closed list, and a target would
-    /// not. Concurrent calls of one op settle in completion order. The rule is
-    /// `HostCallFailure::{noted, recovered}`; this holds the state, for one
-    /// assignment at a time and never across an await, so a std mutex. What
-    /// it holds of the host's message is the normalized, bounded form the
-    /// fingerprint digests — `noted` takes the raw text and keeps none of it.
+    /// it); a later success of the same op against the same target clears
+    /// it, so an app that retries a flaky `ctx.fetch` and gets its answer on
+    /// the second attempt pages nobody, while a `fetch` to B that worked says
+    /// nothing about the `fetch` to A that did not. The target is what the
+    /// broker reads off the call before dispatch (`runtime::host_call_target`):
+    /// a `fetch`'s host, a `warehouse.*` op's database and table, nothing for
+    /// the rest — shape already on the call's span, never a key, a URL's path
+    /// or the SQL. Concurrent calls of one op settle in completion order. The
+    /// rule is `HostCallFailure::{noted, recovered}`; this holds the state,
+    /// for one assignment at a time and never across an await, so a std
+    /// mutex. What it holds of the host's message and of the target is the
+    /// normalized, bounded form the fingerprint digests — `noted` takes the
+    /// raw text and keeps none of it.
     host_call_failure: std::sync::Mutex<Option<super::failure_signal::HostCallFailure>>,
 }
 
@@ -688,22 +690,29 @@ impl FunctionHost for ProjectFunctionHost {
         }
     }
 
-    fn note_host_call_failure(&self, op: &'static str, kind: &'static str, message: &str) {
+    fn note_host_call_failure(
+        &self,
+        op: &'static str,
+        kind: &'static str,
+        message: &str,
+        target: Option<&str>,
+    ) {
         let mut noted = self
             .host_call_failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // `noted` normalizes the message before it is stored; the raw text
-        // goes no further than this call.
-        *noted = super::failure_signal::HostCallFailure::noted(noted.take(), op, kind, message);
+        // `noted` normalizes the message and the target before they are
+        // stored; the raw text goes no further than this call.
+        *noted =
+            super::failure_signal::HostCallFailure::noted(noted.take(), op, kind, message, target);
     }
 
-    fn note_host_call_success(&self, op: &'static str) {
+    fn note_host_call_success(&self, op: &'static str, target: Option<&str>) {
         let mut noted = self
             .host_call_failure
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *noted = super::failure_signal::HostCallFailure::recovered(noted.take(), op);
+        *noted = super::failure_signal::HostCallFailure::recovered(noted.take(), op, target);
     }
 
     fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {

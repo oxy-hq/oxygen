@@ -180,14 +180,14 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
 /// The host returns errors as plain strings, with no caller-vs-platform
 /// distinction to read, so this matches the host's own phrasing (`host.rs`,
 /// `host/airhouse_ops.rs`, `StorageError`'s `Display`): one marker per shape,
-/// each as the host writes it. The backtick in `` ` is required `` and
-/// `` ` must be `` is the host quoting a field name; a warehouse's own
-/// "is required" or "must be" carries none and stays platform-side.
-/// `m` is the lowercased message.
+/// each as the host writes it. The two shapes that quote a field name —
+/// `` `field` is required `` and `` `field` must be … `` — are matched where
+/// the host writes them, at the head of the message
+/// ([`is_argument_refusal`]), because an engine quotes identifiers with
+/// backticks too and its text could carry either phrase. `m` is the
+/// lowercased message.
 fn is_caller_error(m: &str) -> bool {
     const MARKERS: &[&str] = &[
-        "` is required",
-        "` must be",
         "each row must be an object",
         "row missing column '",
         "unknown op '",
@@ -202,7 +202,65 @@ fn is_caller_error(m: &str) -> bool {
         "warehouse.upsert is not supported on",
         "does not support multi-statement transactions",
     ];
-    MARKERS.iter().any(|marker| m.contains(marker))
+    is_argument_refusal(m) || MARKERS.iter().any(|marker| m.contains(marker))
+}
+
+/// The host refusing a field of the call's arguments — `` `sql` is required ``,
+/// `` `rows` must be a non-empty array `` — matched as the host writes it and
+/// nowhere else: the quoted field heads the message, after at most one
+/// prefix of the host's own — the op's dotted name (`warehouse.exec: `,
+/// `ctx.storage.put: `) or a typed label from [`CALLER_ERROR_LABELS`]
+/// (`InvalidEmailPayload: `). An engine's own text reaches the classifier
+/// behind the host's wrapper (`warehouse exec failed: …`, `exec failed: …`,
+/// `write failed: …`) or its driver's (`db error: ERROR: …`, `Code: 27.
+/// DB::Exception: …`), so a column or setting an engine quotes with backticks
+/// — MySQL, BigQuery, a JSON API body — sits past the head and stays
+/// platform-side. As bare substrings these two markers let such a message
+/// read as the app's own argument error, which never counts toward paging.
+/// The first `: ` ends the prefix, so a prefix that itself carried one would
+/// not match; none does, and a new one must not.
+fn is_argument_refusal(m: &str) -> bool {
+    let head = match m.split_once(": ") {
+        Some((prefix, rest)) if is_dotted_op(prefix) || is_caller_error_label(prefix) => rest,
+        _ => m,
+    };
+    let Some(after_open) = head.strip_prefix('`') else {
+        return false;
+    };
+    let Some((field, rest)) = after_open.split_once('`') else {
+        return false;
+    };
+    identifier_like(field) && (rest.starts_with(" is required") || rest.starts_with(" must be"))
+}
+
+/// An op name the host prefixes its own refusals with (`warehouse.exec`,
+/// `ctx.storage.put`). Dotted, so a driver's `ERROR: ` or ClickHouse's
+/// `Code: ` does not read as one.
+fn is_dotted_op(op: &str) -> bool {
+    op.contains('.')
+        && op
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_'))
+}
+
+/// The typed labels the host's own code puts at the head of a refusal it
+/// composes itself, accepted by [`is_argument_refusal`] as a head prefix
+/// beside a dotted op name. An explicit list, never "any space-free token":
+/// that would re-open `` ERROR: `col` must be … ``, the engine text the
+/// anchoring exists to keep out. `InvalidEmailPayload` is the app's own
+/// payload (`emails/app_emailer.rs`, `host.rs`). `SenderRejected` is
+/// deliberately absent: an unverified SES identity is the deployment's
+/// misconfiguration, not the app's condition, and pages. The unit test
+/// `every_typed_label_the_host_writes_is_placed` reads every such label from
+/// the source and fails when one is neither here nor placed as
+/// platform-side, so the list cannot drift silently.
+const CALLER_ERROR_LABELS: &[&str] = &["InvalidEmailPayload"];
+
+/// `prefix` is the lowercased head of the message.
+fn is_caller_error_label(prefix: &str) -> bool {
+    CALLER_ERROR_LABELS
+        .iter()
+        .any(|label| label.eq_ignore_ascii_case(prefix))
 }
 
 /// Whether a [`classify_host_error`] kind pages even when the handler catches
@@ -452,8 +510,12 @@ mod tests {
     fn a_host_refusing_the_calls_arguments_is_a_bad_request() {
         for message in [
             "`sql` is required",
+            "`id` is required",
             "warehouse.exec: `sql` is required",
+            "warehouse.query: `database` is required",
             "ctx.storage.put: `body` is required",
+            "ctx.storage.copy: `sourceKey` is required",
+            "InvalidEmailPayload: `subject` is required",
             "`table` is required",
             "`params` must be an array of values, got an object. \
              Pass positional arguments for $1, $2, … — e.g. [tableNo, sku].",
@@ -493,13 +555,37 @@ mod tests {
 
     /// The markers are the host's phrasing. A warehouse saying "required" or
     /// "must be" about the app's SQL is still a failed call on the platform's
-    /// side of the line, and pages as before.
+    /// side of the line, and pages as before — including when it quotes the
+    /// column or setting with backticks, as MySQL, BigQuery and a JSON API
+    /// body do. Each of the backticked messages carries the substring
+    /// `` ` must be `` or `` ` is required `` and, behind the host's or the
+    /// driver's own prefix, sits where an engine's text sits: as a substring
+    /// the marker read every one of them as the app's own error, and a real
+    /// failure of `warehouse.exec` worded this way never counted.
     #[test]
     fn a_warehouse_message_in_similar_words_is_not_a_bad_request() {
         for message in [
             "ERROR: a column definition list is required for functions returning \"record\"",
             "argument of WHERE must be type boolean, not type integer",
             "Code: 62. DB::Exception: Syntax error: failed at position 8",
+            // The host's `warehouse {op} failed:` around the connector's
+            // `query failed: HTTP 400 …` around ClickHouse's own line.
+            "warehouse exec failed: query failed: HTTP 400 Bad Request: Code: 36. DB::Exception: \
+             Setting `max_insert_threads` must be a positive integer. (BAD_ARGUMENTS) \
+             (version 25.8.4.13 (official build))",
+            // ClickHouse's line as `ctx.query` returns it, bare: `Code: ` is
+            // not the host's op prefix.
+            "Code: 36. DB::Exception: Setting `max_insert_threads` must be a positive integer. \
+             (BAD_ARGUMENTS)",
+            // A driver's `db error: ERROR:` head around an engine's constraint
+            // message, behind the host's `{op} failed:` wrapper.
+            "exec failed: db error: ERROR: value for domain `positive_amount` must be greater \
+             than zero",
+            "write failed: error returned from database: 3819 (HY000): check constraint \
+             `qty_positive` is violated: `qty` is required to be positive",
+            // The head is quoted, but it is not a field the host named: a
+            // driver echoing the statement.
+            "`INSERT INTO ledger` is required to name its columns on this engine",
         ] {
             assert_eq!(
                 classify_host_error(message),
@@ -579,6 +665,173 @@ mod tests {
             assert_eq!(kind, "bad_request", "{message}");
             assert!(!counts_toward_paging(kind), "{message}");
         }
+    }
+
+    /// The emailer prefixes its refusals with a typed label, not a dotted op.
+    /// `InvalidEmailPayload` is the app's own payload and is allowlisted as a
+    /// head prefix; `SenderRejected` — an unverified SES identity — is the
+    /// deployment's misconfiguration and pages, though it too says
+    /// `` `from` must be ``. (As bare substrings the markers read both as
+    /// `bad_request`; the first cut of the anchoring read both as a page.)
+    #[test]
+    fn a_typed_label_is_a_head_prefix_only_when_allowlisted() {
+        assert_eq!(
+            classify_host_error("InvalidEmailPayload: `subject` is required"),
+            "bad_request"
+        );
+        let sender_rejected = "SenderRejected: MessageRejected: Email address is not verified. \
+             The following identities failed the check in region US-EAST-1: \
+             noreply@example.com — the `from` must be a verified SES identity. Set \
+             OXY_APP_EMAIL_FROM to a verified sender, or OXY_APP_EMAIL_LOCAL_TEST=1 to \
+             preview locally.";
+        assert_eq!(classify_host_error(sender_rejected), "host_call_failed");
+        assert!(counts_toward_paging(classify_host_error(sender_rejected)));
+        // A label is not a licence: the rest still has to be the host's
+        // refusal shape, so the emailer's other lines classify as they
+        // always did.
+        for message in [
+            "InvalidEmailPayload: at least one `to` recipient is required",
+            "InvalidEmailPayload: provide `html` or `text`",
+            "InvalidEmailPayload: missing field `subject`",
+        ] {
+            assert_eq!(
+                classify_host_error(message),
+                "host_call_failed",
+                "{message}"
+            );
+        }
+    }
+
+    // ── CALLER_ERROR_LABELS is pinned to the host's sources ────────────────
+
+    /// Every typed label the host's error-producing code writes at the head
+    /// of a string literal (`InvalidEmailPayload: …`, `SenderRejected: …`),
+    /// read from the source, must be either in `CALLER_ERROR_LABELS` or named
+    /// here as one that stays platform-side, with the reason. A label added
+    /// to the host without that decision fails here. This is what the first
+    /// cut of the anchoring lacked: `a_host_refusing_the_calls_arguments_is_a_bad_request`
+    /// enumerated `host.rs` and `airhouse_ops.rs` shapes by hand, and the
+    /// emailer's went unseen.
+    #[test]
+    fn every_typed_label_the_host_writes_is_placed() {
+        /// Not a head prefix for the two markers. Each either pages — the
+        /// platform's or the deployment's condition — or is a refusal that
+        /// never carries the phrase, and classifies as it always did.
+        const PLATFORM_SIDE_LABELS: &[&str] = &[
+            // An unverified SES identity: the deployment's misconfiguration.
+            "SenderRejected",
+            // SES or the emailer failing, throttling, or unconfigured.
+            "EmailSendFailed",
+            "EmailNotConfigured",
+            "RateLimitExceeded",
+            "DailyLimitExceeded",
+            // The app over a per-send limit: a refusal, never worded with a
+            // backticked field.
+            "TooManyRecipients",
+            "TooManyAttachments",
+            "AttachmentTooLarge",
+            // A capability the manifest lacks: `not_allowed`, by the word
+            // `capability`, before the markers are consulted.
+            "AirhouseCapabilityMissing",
+            "EmailCapabilityMissing",
+            "OltpCapabilityMissing",
+            "OrgCapabilityMissing",
+            "StorageCapabilityMissing",
+        ];
+        let found = typed_labels_in_host_sources();
+        let placed: BTreeSet<String> = CALLER_ERROR_LABELS
+            .iter()
+            .chain(PLATFORM_SIDE_LABELS)
+            .map(|l| l.to_string())
+            .collect();
+        assert_eq!(
+            CALLER_ERROR_LABELS.len() + PLATFORM_SIDE_LABELS.len(),
+            placed.len(),
+            "a label is placed once"
+        );
+        let unplaced: Vec<_> = found.difference(&placed).collect();
+        let unwritten: Vec<_> = placed.difference(&found).collect();
+        assert!(
+            unplaced.is_empty(),
+            "typed labels the host writes but nothing places: {unplaced:?} — add each to \
+             CALLER_ERROR_LABELS (a head prefix for the app's own argument refusal) or to \
+             PLATFORM_SIDE_LABELS here, with the reason"
+        );
+        assert!(
+            unwritten.is_empty(),
+            "placed labels the host no longer writes: {unwritten:?}"
+        );
+    }
+
+    /// Every typed label at the head of a string literal in the host's
+    /// error-producing sources: the emailer, the host and its ops, the
+    /// storage module. Test files (`tests.rs`, a `tests/` directory) are
+    /// skipped — what a test quotes is not what the host writes. Read per
+    /// line, at every `"`, rather than through [`string_literals`]: that
+    /// helper expects no escaped quotes, and the emailer has them, so past
+    /// the first `\"` it read the file inside out and lost the labels that
+    /// followed. The label shape is strict enough that a `"` outside a
+    /// literal (a char, a comment) yields nothing.
+    fn typed_labels_in_host_sources() -> BTreeSet<String> {
+        const HOST_SOURCES: &[&str] = &[
+            "src/emails",
+            "src/server/api/custom_apps_functions/host.rs",
+            "src/server/api/custom_apps_functions/host",
+            "src/server/api/custom_apps_storage",
+        ];
+        let mut labels = BTreeSet::new();
+        for source in HOST_SOURCES {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(source);
+            assert!(root.exists(), "{}", root.display());
+            for file in rust_files(&root) {
+                let src = std::fs::read_to_string(&file).unwrap();
+                for line in src.lines() {
+                    labels.extend(
+                        line.match_indices('"')
+                            .filter_map(|(at, _)| typed_label(&line[at + 1..]))
+                            .map(str::to_string),
+                    );
+                }
+            }
+        }
+        labels
+    }
+
+    /// The `.rs` files at or under `path`, test files skipped, in a fixed order.
+    fn rust_files(path: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|n| n == "tests") {
+                return out;
+            }
+            let mut entries: Vec<_> = std::fs::read_dir(path)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .collect();
+            entries.sort();
+            for entry in entries {
+                out.extend(rust_files(&entry));
+            }
+        } else if path.extension().is_some_and(|e| e == "rs")
+            && path.file_name().is_some_and(|n| n != "tests.rs")
+        {
+            out.push(path.to_path_buf());
+        }
+        out
+    }
+
+    /// The typed label a string literal opens with — `InvalidEmailPayload: …`
+    /// gives `InvalidEmailPayload` — by the shape the host's labels share:
+    /// CamelCase with at least two capitals and a lowercase letter, then
+    /// `: `. One capital (`From: `, `Code: `) or no lowercase (`HTTP`, `DB`)
+    /// is a header, an engine's line or a driver's, not a label.
+    fn typed_label(literal: &str) -> Option<&str> {
+        let (label, _) = literal.split_once(": ")?;
+        let camel = label.starts_with(|c: char| c.is_ascii_uppercase())
+            && label.chars().all(|c| c.is_ascii_alphabetic())
+            && label.chars().filter(|c| c.is_ascii_uppercase()).count() >= 2
+            && label.chars().any(|c| c.is_ascii_lowercase());
+        camel.then_some(label)
     }
 
     // ── HOST_OPS is pinned to its two sources ──────────────────────────────

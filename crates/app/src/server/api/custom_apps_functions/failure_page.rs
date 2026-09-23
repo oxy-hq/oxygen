@@ -184,6 +184,7 @@ mod tests {
             op: "warehouse.insert",
             kind: "host_call_failed",
             message: "warehouse insert failed: query failed: HTTP # Bad Request: Code: #.".into(),
+            target: None,
         };
         let caught = Failure::of("success", 200, None, Some(&hc)).unwrap();
         let line = where_to_look(&caught);
