@@ -1176,6 +1176,270 @@ jobs:
           kill -TERM $OXY_PID 2>/dev/null || true; sleep 3
           docker rm -f oxy-postgres 2>/dev/null || true
 
+  custom-app-canary:
+    name: Custom-app canary (checkpoint 1)
+    needs: [changesets, cargo-check-and-test]
+    concurrency:
+      group: custom-app-canary-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    # Checkpoint 1 of the custom-app guard
+    # (internal-docs/2026-09-14-custom-app-verification-design.md §3): this
+    # PR's own server, booted from the binary `cargo-check-and-test` just
+    # built, publishes this PR's own platform canary — built against this
+    # PR's SDK and Vite plugin, shipped with this PR's `oxyc` — and runs its
+    # checks against a real ClickHouse and a real per-org Postgres. Until now
+    # the canary ran only on staging after a release was cut, so a break in
+    # the publish path, the SDK build, the manifest or a host API was found
+    # at release time. `scripts/ci/platform-canary-checkpoint.mjs` is the
+    # whole of it and runs the same way on a dev box (`just custom-app-canary`).
+    #
+    # The steps it runs are DERIVED — everything the canary's own `ALL_STEPS`
+    # declares minus the script's `OMITTED_IN_CI`, each omission with its
+    # reason: `check_in` (no All Quiet monitor to check in to) and
+    # `storage_roundtrip` (the presigned PUT goes through `ctx.fetch`, which
+    # allows only HTTPS to a public host, and the runner has no such bucket).
+    # A step added to the canary runs here the day it lands; the self-test
+    # below fails when an omission names no real step.
+    #
+    # Where the binary comes from is the one fork in this job. When the `oxy`
+    # filter fired, `cargo-check-and-test` built and uploaded `oxy-binary-ci`,
+    # and this job downloads it. When it did not (an sdk-only or canary-only
+    # PR — exactly the PRs this check exists for), there is no artifact and
+    # the job builds `oxy-server` itself, with the check job's toolchain and a
+    # read-only restore of its `test` cache. That build path is the price of
+    # catching SDK-only breaks; removing it returns the job to "skipped when
+    # there is no binary", and a skipped job satisfies a required check.
+    #
+    # `needs` therefore keeps `cargo-check-and-test`, and the `if` reads its
+    # `result` under `!cancelled()` so a *skipped* need no longer skips this
+    # job — the pattern `public-release.yaml` uses (`always() &&
+    # needs.<job>.result == 'success'`). A failed or cancelled check job still
+    # skips this one: a red nextest is the finding, and the artifact may be
+    # missing. `needs.changesets.result` is checked explicitly because the
+    # implicit `success()` no longer is.
+    #
+    # Boot: service containers plus `oxy serve --enterprise`, the shape
+    # `agentic-tests.yaml` runs on every PR. Not `oxy start`, which
+    # `smoke-test-enterprise` used before it was disabled in 0f288b149 (no
+    # reason recorded; it landed with the move to arm64 runners): `oxy start`
+    # manages Docker itself, and a job that owns its services needs none of that.
+    # `OXY_STATE_DIR` is outside the checkout on purpose — inside a git repo,
+    # workspace git tooling walks up to that repo's `.git`.
+    if: |
+      !cancelled() &&
+      needs.changesets.result == 'success' &&
+      (needs.cargo-check-and-test.result == 'success' ||
+       needs.cargo-check-and-test.result == 'skipped') &&
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.custom-app-canary == 'true' &&
+      !(github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        startsWith(github.event.head_commit.message, 'chore: release')) &&
+      github.event.pull_request.draft != true &&
+      (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release/'))
+    # Warp arm64: the `oxy-binary-ci` artifact is built there, and `oxy` is
+    # an arm64 binary.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # The script is ~30s locally. On the artifact path the job's own work is
+    # checkout, the download, a cold pnpm store and the Playwright cache, then
+    # the server boot — about 5–8 minutes, after the ~27-minute check job it
+    # waits on. On the build path it is that plus `cargo build -p oxy-server`:
+    # minutes on a warm `test` cache, and the check job's comment puts a cold
+    # workspace compile at ~40 minutes with nextest, so 60 covers a cold build
+    # here without letting a hang run past the hour.
+    timeout-minutes: 60
+    env:
+      OXY_DATABASE_URL: postgresql://admin:password@localhost:5432/default
+      # The check job's profile, so the build path restores its `test` cache
+      # (the cache key hashes CARGO_* and RUST* variables) and produces the
+      # same binary the artifact path would have: no debuginfo, stripped.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_DEV_STRIP: "symbols"
+      # Dev sign-in, honored for any peer and any build because the list is
+      # explicit: the staff address `as=staff` resolves to, and the canary user.
+      # `OXY_GLOBAL_ADMINS` seeds that staff address into `app_admins`, which
+      # is what lets it create the org and issue the operator grant.
+      OXY_GLOBAL_ADMINS: canary-staff@oxy.test
+      OXY_DEV_LOGIN_EMAILS: canary-staff@oxy.test,canary@oxygen-hq.com
+      MAGIC_LINK_LOCAL_TEST: "true"
+      OXY_APP_EMAIL_LOCAL_TEST: "1"
+      # `ctx.oltp` needs a tenant: the local provider creates one database per
+      # org in the cluster the admin URL names — a throwaway service below,
+      # separate from the control plane the way `cargo-check-and-test` keeps it.
+      OXY_OLTP_PROVIDER: local
+      OXY_OLTP_ADMIN_URL: postgresql://postgres:postgres@localhost:15433/postgres
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: default
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d default" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      oltp-postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 15433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      # The same image, credentials and port as `cargo-check-and-test`'s, so a
+      # canary step and the engine test suites see one ClickHouse.
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.8-alpine
+        env:
+          CLICKHOUSE_USER: default
+          CLICKHOUSE_PASSWORD: clickhouse
+        ports:
+          - 18123:8123
+        options: >-
+          --health-cmd "wget --spider -q http://127.0.0.1:8123/ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # ── the binary: the artifact when the check job ran… ──────────────────
+      - name: Download oxy binary
+        if: needs.cargo-check-and-test.result == 'success'
+        uses: ./.github/actions/download-oxy-binary
+
+      # ── …otherwise build it, the way `cargo-check-and-test` does ──────────
+      # The same steps as that job, minus what only tests need (nextest, the
+      # web-app dist embed — `web-app/dist/vite.svg` is committed, so
+      # `include_dir!` compiles and the binary serves the API and the app
+      # bundles, which is all the canary reads — and the BigQuery key).
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        if: needs.cargo-check-and-test.result == 'skipped'
+        name: Create GitHub App Token (build path)
+        id: app-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: read
+          repositories: |
+            airlayer
+            airform
+            airway-internal
+            snowflake-rs
+      - uses: rui314/setup-mold@7e4f20ad28a2e8ca6fd0892ccf72e2abb706b9c3 # v1
+        if: needs.cargo-check-and-test.result == 'skipped' && runner.os == 'Linux'
+        with:
+          make-default: true
+      - name: Prep Rust (build path)
+        if: needs.cargo-check-and-test.result == 'skipped'
+        uses: dtolnay/rust-toolchain@stable
+      # Private cargo git deps (airlayer, airform, airway-internal,
+      # snowflake-rs): `git-fetch-with-cli` is on, so cargo shells out to git,
+      # which uses gh as its credential helper — see the check job.
+      - name: Authenticate gh for private cargo git deps (build path)
+        if: needs.cargo-check-and-test.result == 'skipped'
+        env:
+          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "$GH_APP_TOKEN" | gh auth login --with-token
+          gh auth setup-git
+      # Read-only: `shared-key: test` restores the cache the check job's test
+      # task saves on main, and `save-if: false` keeps this job — which builds
+      # one package — from ever writing a smaller cache under that key.
+      - name: Prep cargo cache (build path)
+        if: needs.cargo-check-and-test.result == 'skipped'
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          shared-key: test
+          save-if: false
+      - name: Install Protoc (build path)
+        if: needs.cargo-check-and-test.result == 'skipped'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+      - name: Build oxy (build path)
+        if: needs.cargo-check-and-test.result == 'skipped'
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          cargo build -p oxy-server
+          echo "cargo build -p oxy-server took $(( (SECONDS - start) / 60 ))m$(( (SECONDS - start) % 60 ))s"
+          echo "$GITHUB_WORKSPACE/target/debug" >> "$GITHUB_PATH"
+
+      # pnpm, Node and Playwright's Chromium (cached), then the root install:
+      # the script builds sdk/typescript, sdk/vite-plugin and sdk/cli from it,
+      # and the browser check runs from web-app.
+      - name: Set up pnpm, Node, and Playwright
+        uses: ./.github/actions/setup-web-app-test-env
+        with:
+          install-playwright: "true"
+
+      # `OXY_STATE_DIR` is set here rather than in the job's `env`, where the
+      # `runner` context is not available.
+      - name: Start oxy
+        run: |
+          set -euo pipefail
+          export OXY_STATE_DIR="$RUNNER_TEMP/oxy-state"
+          export OXY_LOG_DIR="$RUNNER_TEMP/custom-app-canary"
+          { echo "OXY_STATE_DIR=$OXY_STATE_DIR"; echo "OXY_LOG_DIR=$OXY_LOG_DIR"; } >> "$GITHUB_ENV"
+          mkdir -p "$OXY_LOG_DIR" "$OXY_STATE_DIR"
+          nohup oxy serve --enterprise > "$OXY_LOG_DIR/oxy-server.log" 2>&1 &
+          echo "$!" > "$OXY_LOG_DIR/oxy-server.pid"
+          for i in $(seq 1 60); do
+            if curl -sf --max-time 5 http://127.0.0.1:3000/api/ready > /dev/null; then
+              echo "ready after ~$((i * 3))s"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$OXY_LOG_DIR/oxy-server.pid")" 2>/dev/null; then
+              echo "::error::oxy serve exited before it was ready"
+              tail -n 80 "$OXY_LOG_DIR/oxy-server.log"
+              exit 1
+            fi
+            sleep 3
+          done
+          echo "::error::oxy serve did not answer /api/ready within 3 minutes"
+          tail -n 80 "$OXY_LOG_DIR/oxy-server.log"
+          exit 1
+
+      # The script's own tests: the CI step list is a partition of the canary's
+      # `ALL_STEPS` (every omission is a real step, nothing is in neither list).
+      - name: Script self-test
+        run: node --test scripts/ci/platform-canary-checkpoint.test.mjs
+
+      - name: Publish the canary and run its checks
+        run: |
+          node scripts/ci/platform-canary-checkpoint.mjs \
+            --target http://127.0.0.1:3000 \
+            --clickhouse-url http://localhost:18123 \
+            --clickhouse-password clickhouse \
+            --journey
+
+      # The server's own log, and only that: the script prints check verdicts
+      # and the failed step's message, the browser check keeps screenshots and
+      # traces off, and no page or response body is collected.
+      - name: Upload server log
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: custom-app-canary-server-log
+          path: ${{ runner.temp }}/custom-app-canary/oxy-server.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop oxy
+        if: always()
+        run: |
+          pid_file="$OXY_LOG_DIR/oxy-server.pid"
+          if [ -f "$pid_file" ]; then
+            kill -TERM "$(cat "$pid_file")" 2>/dev/null || true
+            sleep 3
+          fi
+
   e2e-tests:
     name: E2E Tests (Playwright)
     needs: [changesets, cargo-check-and-test]

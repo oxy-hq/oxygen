@@ -171,6 +171,59 @@ This runs every function marked `"check": true` in `oxy-app.json` (here, `canary
 A check fails when it throws, times out, or returns a body whose `ok` is
 `false`. `canary` never returns `ok: false`: every failure throws.
 
+## Running it in CI and locally
+
+Checkpoint 1 of the verification design
+(`internal-docs/2026-09-14-custom-app-verification-design.md` §3) runs this app on
+every pull request that touches the custom-app surface, the engines, `sdk/`, this
+directory or the zoo fixture: the `custom-app-canary` job in
+`.github/workflows/ci.yaml`. It boots the PR's own server from the binary CI just
+built, builds `@oxy-hq/sdk`, `@oxy-hq/vite-plugin` and `oxyc` from the checkout,
+publishes this app with them, runs `oxyc checks run` twice and opens the app in
+Chromium. The script is `scripts/ci/platform-canary-checkpoint.mjs`, and a failure
+names the step.
+
+- **Built against the checkout, not npm.** The script publishes a staged copy of
+  this directory whose `pnpm-workspace.yaml` overrides `@oxy-hq/sdk` and
+  `@oxy-hq/vite-plugin` with `pnpm pack` tarballs of the workspace packages. This
+  directory's `package.json` and lockfile stay as they are, so a plain
+  `pnpm install` here still takes the npm versions.
+- **Steps CI runs are derived:** everything in `ALL_STEPS` (`functions/steps.ts`)
+  minus the script's `OMITTED_IN_CI`, each omission with its reason: `check_in`
+  (no All Quiet monitor to check in to) and `storage_roundtrip` (its presigned
+  PUT goes through `ctx.fetch`, which allows only HTTPS to a public host, and
+  the runner's object store would be MinIO on loopback). A step added here runs
+  in CI the day it lands; `node scripts/ci/platform-canary-checkpoint.mjs
+  --list-steps` prints the list, and the script's self-test fails when an
+  omission names no real step. `oltp_roundtrip`, `oltp_transaction` and the
+  Postgres half of `shape_zoo` run: the server's local OLTP provider gives the
+  org a database.
+- **Two runs.** The first may fail only `secrets_roundtrip` (see above: it reads
+  the value the previous run wrote); the second must be green.
+- **What it creates**, all through the API: an org (default `oxy-canary`) whose
+  Owner is `canary@oxygen-hq.com`, minted by dev sign-in — Owner rather than the
+  Member prod uses, because minting the API key needs workspace Admin; the
+  `app_operator` grant scoped to that org, as on prod; the `oltp` flag on and a
+  writer provisioned; the ClickHouse database and the `canary_warehouse`
+  workspace database; a compiled, promoted revision; an API key that expires in
+  a day. Re-runs reuse the org and leave its database configuration alone, so
+  point a fresh `--org-slug` at a different ClickHouse database.
+
+**Locally**, against a `just up` box: add
+`OXY_DEV_LOGIN_EMAILS=<first OXY_GLOBAL_ADMINS entry>,canary@oxygen-hq.com` to
+`.env` (dev sign-in must know the canary user; this replaces the persona roster for
+that box, so remove it after), `just up --restart`, then
+
+```sh
+just custom-app-canary            # against :3000 and the oxy-clickhouse container
+just custom-app-canary --journey  # plus the browser check (Playwright's Chromium in web-app)
+```
+
+Against any other server: `node scripts/ci/platform-canary-checkpoint.mjs --target
+<url> --clickhouse-url <url the server can reach> --clickhouse-password <pw>`;
+`--help` lists the rest. The server needs `OXY_OLTP_PROVIDER=local` with
+`OXY_OLTP_ADMIN_URL`, and dev sign-in for a staff address and the canary user.
+
 ## Configuration
 
 Both are app secrets (the app's Secrets panel):

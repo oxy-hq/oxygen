@@ -15,6 +15,8 @@ on:
         value: ${{ jobs.changesets.outputs.ci-counter }}
       canary-zoo:
         value: ${{ jobs.changesets.outputs.canary-zoo }}
+      custom-app-canary:
+        value: ${{ jobs.changesets.outputs.custom-app-canary }}
       docker:
         value: ${{ jobs.changesets.outputs.docker }}
       changes:
@@ -43,6 +45,7 @@ jobs:
       ci-scripts: ${{ steps.changes.outputs.ci-scripts }}
       ci-counter: ${{ steps.changes.outputs.ci-counter }}
       canary-zoo: ${{ steps.changes.outputs.canary-zoo }}
+      custom-app-canary: ${{ steps.changes.outputs.custom-app-canary }}
       docker: ${{ steps.changes.outputs.docker }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -189,6 +192,38 @@ jobs:
               - "customer-apps/examples/platform-canary/**"
               # And where the job is defined, and where these filters are —
               # the same self-reference the two filters above document.
+              - ".github/workflows/ci.yaml"
+              - ".github/workflows/changesets.yaml"
+            # `custom-app-canary` gates checkpoint 1 of the custom-app guard
+            # (`custom-app-canary` in ci.yaml): the PR's own server publishes
+            # the PR's own platform canary with the PR's own SDK and `oxyc`, and
+            # runs its checks against real engines. Listed: the custom-app
+            # surface a published app runs through (serving, publish, functions,
+            # secrets, storage, the routers that mount them, subdomain dispatch,
+            # auth), the engines its steps write (the warehouse connectors,
+            # Airhouse, per-org OLTP), everything under sdk/ (the SDK the canary
+            # compiles against, the Vite plugin that builds it, the `oxyc` that
+            # publishes and checks it), the canary and the zoo fixture it
+            # bundles, the script, and the two workflow files, as above.
+            #
+            # The job takes the binary `cargo-check-and-test` uploads when the
+            # `oxy` filter fired, and builds `oxy-server` itself when it did not
+            # (a PR matching only sdk/, the canary or the fixture) — see the
+            # job's comment for that fork and what it costs.
+            custom-app-canary:
+              - "crates/app/src/server/api/custom_apps*"
+              - "crates/app/src/server/api/custom_apps*/**"
+              - "crates/app/src/server/router/**"
+              - "crates/app-core/**"
+              - "crates/auth/**"
+              - "crates/agentic/connector/**"
+              - "crates/airhouse/**"
+              - "crates/oltp/**"
+              - "sdk/**"
+              - "customer-apps/examples/platform-canary/**"
+              - "fixtures/data-shapes/**"
+              - "scripts/ci/platform-canary-checkpoint.mjs"
+              - "scripts/ci/platform-canary-checkpoint.test.mjs"
               - ".github/workflows/ci.yaml"
               - ".github/workflows/changesets.yaml"
             docker:

@@ -691,6 +691,26 @@ verify *FLAGS:
 #   just fleet-assert --keep           leave the fleet running to poke at
 fleet-assert *FLAGS:
     ./scripts/fleet-assert.sh {{ FLAGS }}
+
+# Checkpoint 1 of the custom-app guard, against a running dev box: build the
+# workspace SDK, Vite plugin and oxyc, publish the platform canary with them
+# into an `oxy-canary` org it creates, run its checks twice, and (with
+# --journey) open it in Chromium. The same script CI's `custom-app-canary` job
+# runs on a pull request; a failure names the step.
+# The server needs dev sign-in for the canary user: put
+# `OXY_DEV_LOGIN_EMAILS=<first OXY_GLOBAL_ADMINS entry>,canary@oxygen-hq.com`
+# in .env and `just up --restart` (this replaces the persona roster for that box;
+# remove it after). `just up` already gives the local OLTP provider; ClickHouse
+# is the `oxy-clickhouse` container when OXY_OBSERVABILITY_BACKEND=clickhouse.
+#   just custom-app-canary                       # against :3000, ClickHouse :8123
+#   just custom-app-canary --journey             # plus the browser check
+#   just custom-app-canary --org-slug oxy-canary-2 --clickhouse-url http://localhost:28123
+custom-app-canary *FLAGS:
+    node scripts/ci/platform-canary-checkpoint.mjs \
+      --target "${CANARY_TARGET:-http://127.0.0.1:3000}" \
+      --clickhouse-url "${CANARY_CLICKHOUSE_URL:-http://localhost:8123}" \
+      --clickhouse-password "${CANARY_CLICKHOUSE_PASSWORD:-default}" \
+      {{ FLAGS }}
 # ── Per-org OLTP POC ──────────────────────────────────────────────────────────
 # Docs: scripts/oltp/README.md · Design:
 # internal-docs/2026-08-04-per-org-oltp-postgres-design.md
