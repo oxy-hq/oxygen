@@ -166,9 +166,15 @@ pub static BUNDLE_CACHE_BYTES: AtomicU64 = AtomicU64::new(0);
 
 /// The configured resident-byte budget; `0` when the byte bound is disabled.
 ///
-/// Published when the budget is first resolved, so the ratio needs no
-/// out-of-band constant and a replica reporting `0` genuinely has the bound
-/// off rather than merely not having cached anything yet.
+/// **Published at boot, by `custom_apps_bundle_cache::resolve_budget()` from
+/// serve startup — not lazily.** The distinction is the whole value of the
+/// gauge: left to be resolved by the first custom-app asset request, this reads
+/// `0` until then, and `0` is also what "the bound is disabled" looks like. Over
+/// that window the two are indistinguishable and the saturation ratio this is
+/// the denominator of divides by zero.
+///
+/// Same rule as [`set_admission_limit`], for the same reason, and this one
+/// reintroduced the defect once before it was caught in review.
 pub static BUNDLE_CACHE_LIMIT: AtomicU64 = AtomicU64::new(0);
 
 /// Publish the bundle cache's current resident size.

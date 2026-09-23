@@ -620,6 +620,26 @@ mod tests {
         assert!(c.get("k14").is_some(), "the newest entry must survive");
     }
 
+    /// Every other test here injects its caps, which is what makes the
+    /// eviction paths cheap to exercise — and leaves the *production* wiring
+    /// untested. This is the one assertion that the cache a real replica builds
+    /// carries the real bounds; without it, a `new()` that silently stopped
+    /// passing `MAX_BYTE_ENTRIES` would keep the whole suite green.
+    #[test]
+    fn the_default_constructor_wires_the_real_caps() {
+        let c = ByteBudgetCache::new();
+        assert_eq!(
+            c.lru.cap().get(),
+            MAX_BYTE_ENTRIES,
+            "the entry cap must come from the constant, not a test value"
+        );
+        assert_eq!(
+            c.budget,
+            byte_budget(),
+            "the byte budget must come from the resolved global"
+        );
+    }
+
     /// **The capacity-eviction twin of the replacement test**, and the case
     /// that was wrong.
     ///
