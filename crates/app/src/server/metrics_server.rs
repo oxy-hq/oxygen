@@ -9,14 +9,18 @@
 //!
 //! That had a concrete consequence beyond the missing signal.
 //! `oxy_abandoned_isolates_total` counts isolate threads wedged in a host call,
-//! and it was reachable only through the worker's endpoint. But isolates are
-//! created by `/customer-apps/**` and `/fn`, which are **serve** routes; the
-//! worker compiles the runtime in (`custom-app-functions` is a default feature)
-//! and never runs a function. The series existed, was scraped, and was pinned
-//! at zero on the only process that published it — so an alert written against
-//! it could never have fired. Standing this endpoint up is what makes that
-//! metric, and every metric this work adds, reachable from the fleet that
-//! actually produces it.
+//! and it was reachable only through the worker's endpoint. But **route-mode**
+//! invocations — `/customer-apps/**` and `/fn`, the bulk of them — run on
+//! **serve**, which published nothing. Standing this endpoint up is what makes
+//! that metric, and every metric this work adds, reachable from the fleet that
+//! produces most of them.
+//!
+//! An earlier version of this comment said the worker "never runs a function"
+//! and that an alert could "never have fired". Not true: scheduled and job-mode
+//! invocations are `TaskSpec`s of kind `app_function` that the worker fleet
+//! claims, so the worker does create isolates — measured on oxy-dev,
+//! `oxy_custom_app_isolates_live_peak` on a worker pod read 1. The real gap was
+//! that the counter covered scheduled runs only.
 //!
 //! ## Why a separate port rather than the main router
 //!

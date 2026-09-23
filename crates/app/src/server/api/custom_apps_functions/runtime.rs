@@ -1584,11 +1584,12 @@ globalThis.__buildCtx = (ctxData) => ({
 ///
 /// The count itself lives in `oxy_telemetry::metrics::sources`, not here.
 /// It used to be a private static in this module that only `worker_metrics`
-/// read, and `worker_metrics` is mounted only on `oxy worker`'s health port —
-/// a fleet that serves no `/fn` route and therefore never creates an isolate.
-/// The series existed and was pinned at zero on the only process that emitted
-/// it. Moving the storage into the telemetry crate is what lets `oxy serve`,
-/// where isolates actually run, export it.
+/// read, and `worker_metrics` is mounted only on `oxy worker`'s health port.
+/// The worker does claim `app_function` tasks (scheduled and job-mode runs), so
+/// it creates isolates and the counter was not inert there — but **route-mode**
+/// invocations, which are the bulk, run on `oxy serve`, which published
+/// nothing. Moving the storage into the telemetry crate is what lets serve
+/// export it too.
 ///
 /// Scraped as `oxy_abandoned_isolates_total` (hand-rolled, `worker_metrics`)
 /// and as `oxy_custom_app_isolates_abandoned_total` (OTel, every role).

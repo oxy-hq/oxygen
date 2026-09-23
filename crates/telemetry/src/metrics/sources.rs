@@ -100,8 +100,10 @@ pub fn isolate_finished() {
 /// `custom_apps_functions::runtime::abandoned_isolates()` reads. It lives here
 /// rather than in that module so the value is reachable from the metrics layer
 /// on **every** role — the counter was previously a private static that only
-/// `worker_metrics` read, which meant it was exported by `oxy worker`, the one
-/// fleet that never creates an isolate, and was therefore pinned at zero.
+/// `worker_metrics` read, so it was exported by `oxy worker` alone. The worker
+/// does create isolates (it claims scheduled and job-mode `app_function`
+/// tasks), but **route-mode** invocations run on `oxy serve`, which exported
+/// nothing — so the majority of them were uncounted.
 pub static ISOLATES_ABANDONED: AtomicU64 = AtomicU64::new(0);
 
 /// Count one abandoned isolate thread.
