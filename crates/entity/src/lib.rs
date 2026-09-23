@@ -70,8 +70,6 @@ pub mod api_keys;
 pub mod app_admin_scope_orgs;
 pub mod app_admins;
 pub mod app_builds;
-pub mod app_environment_events;
-pub mod app_environments;
 pub mod app_function_invocations;
 pub mod app_functions;
 pub mod app_members;

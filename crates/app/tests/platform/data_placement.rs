@@ -128,14 +128,6 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("app_definitions", Control("compiled .app.yml")),
     (
-        "app_environment_events",
-        Control("custom-app environment pointer history; ids only"),
-    ),
-    (
-        "app_environments",
-        Control("custom-app environment build pointers"),
-    ),
-    (
         "app_function_failure_alerts",
         Control("at-most-once failure page ledger"),
     ),
