@@ -178,14 +178,24 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
 /// guaranteed page for its own contract check on every run.
 ///
 /// The host returns errors as plain strings, with no caller-vs-platform
-/// distinction to read, so this matches the host's own phrasing (`host.rs`,
-/// `host/airhouse_ops.rs`, `StorageError`'s `Display`): one marker per shape,
-/// each as the host writes it. The two shapes that quote a field name —
-/// `` `field` is required `` and `` `field` must be … `` — are matched where
-/// the host writes them, at the head of the message
-/// ([`is_argument_refusal`]), because an engine quotes identifiers with
-/// backticks too and its text could carry either phrase. `m` is the
-/// lowercased message.
+/// distinction to read, so this reads the host's own phrasing (`host.rs`,
+/// `host/airhouse_ops.rs`, `StorageError`'s `Display`) by two separate paths:
+///
+/// - a **typed label** at the head of the message decides by itself. The
+///   emailer labels every refusal it composes (`InvalidEmailPayload: …`,
+///   `TooManyRecipients: …`), and a label on [`CALLER_ERROR_LABELS`] is the
+///   app's own argument error whatever phrasing follows it — serde's
+///   `missing field …`, `at least one \`to\` recipient is required`,
+///   `provide \`html\` or \`text\``. Matching those on their wording made
+///   every phrasing but one page on an app's own bad arguments;
+/// - the **phrase markers**, for the host code that emits no label: one
+///   marker per shape, each as the host writes it. The two shapes that quote a
+///   field name — `` `field` is required `` and `` `field` must be … `` — are
+///   matched where the host writes them, at the head of the message
+///   ([`is_argument_refusal`]), because an engine quotes identifiers with
+///   backticks too and its text could carry either phrase.
+///
+/// `m` is the lowercased message.
 fn is_caller_error(m: &str) -> bool {
     const MARKERS: &[&str] = &[
         "each row must be an object",
@@ -202,15 +212,25 @@ fn is_caller_error(m: &str) -> bool {
         "warehouse.upsert is not supported on",
         "does not support multi-statement transactions",
     ];
-    is_argument_refusal(m) || MARKERS.iter().any(|marker| m.contains(marker))
+    has_caller_error_label(m)
+        || is_argument_refusal(m)
+        || MARKERS.iter().any(|marker| m.contains(marker))
+}
+
+/// The message opens with a label from [`CALLER_ERROR_LABELS`], as the host
+/// writes one: the label, then `: `. The first `: ` ends the label, so a
+/// message that merely mentions one later — an engine's text quoting a
+/// header, say — does not read as it.
+fn has_caller_error_label(m: &str) -> bool {
+    m.split_once(": ")
+        .is_some_and(|(label, _)| is_caller_error_label(label))
 }
 
 /// The host refusing a field of the call's arguments — `` `sql` is required ``,
 /// `` `rows` must be a non-empty array `` — matched as the host writes it and
 /// nowhere else: the quoted field heads the message, after at most one
-/// prefix of the host's own — the op's dotted name (`warehouse.exec: `,
-/// `ctx.storage.put: `) or a typed label from [`CALLER_ERROR_LABELS`]
-/// (`InvalidEmailPayload: `). An engine's own text reaches the classifier
+/// prefix of the host's own, the op's dotted name (`warehouse.exec: `,
+/// `ctx.storage.put: `). An engine's own text reaches the classifier
 /// behind the host's wrapper (`warehouse exec failed: …`, `exec failed: …`,
 /// `write failed: …`) or its driver's (`db error: ERROR: …`, `Code: 27.
 /// DB::Exception: …`), so a column or setting an engine quotes with backticks
@@ -218,10 +238,12 @@ fn is_caller_error(m: &str) -> bool {
 /// platform-side. As bare substrings these two markers let such a message
 /// read as the app's own argument error, which never counts toward paging.
 /// The first `: ` ends the prefix, so a prefix that itself carried one would
-/// not match; none does, and a new one must not.
+/// not match; none does, and a new one must not. A typed label is not a
+/// prefix here: a label on the allowlist has already decided
+/// ([`has_caller_error_label`]), and one off it must not become a way in.
 fn is_argument_refusal(m: &str) -> bool {
     let head = match m.split_once(": ") {
-        Some((prefix, rest)) if is_dotted_op(prefix) || is_caller_error_label(prefix) => rest,
+        Some((prefix, rest)) if is_dotted_op(prefix) => rest,
         _ => m,
     };
     let Some(after_open) = head.strip_prefix('`') else {
@@ -243,24 +265,79 @@ fn is_dotted_op(op: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_'))
 }
 
-/// The typed labels the host's own code puts at the head of a refusal it
-/// composes itself, accepted by [`is_argument_refusal`] as a head prefix
-/// beside a dotted op name. An explicit list, never "any space-free token":
-/// that would re-open `` ERROR: `col` must be … ``, the engine text the
-/// anchoring exists to keep out. `InvalidEmailPayload` is the app's own
-/// payload (`emails/app_emailer.rs`, `host.rs`). `SenderRejected` is
-/// deliberately absent: an unverified SES identity is the deployment's
-/// misconfiguration, not the app's condition, and pages. The unit test
-/// `every_typed_label_the_host_writes_is_placed` reads every such label from
-/// the source and fails when one is neither here nor placed as
-/// platform-side, so the list cannot drift silently.
-const CALLER_ERROR_LABELS: &[&str] = &["InvalidEmailPayload"];
+/// The typed labels the host's own code puts at the head of a refusal of the
+/// call's arguments. A message opening with one is the app's own error,
+/// whatever follows the label ([`has_caller_error_label`]): each is composed
+/// by the host before anything is sent, from the payload alone, and fails the
+/// same way on every call with that payload. An explicit list, never "any
+/// CamelCase token": the host writes labels for the platform's conditions
+/// too ([`PLATFORM_ERROR_LABELS`]), and a bare `ERROR: ` or `Code: ` head is
+/// an engine's or a driver's, not a label at all.
+///
+/// - `InvalidEmailPayload` — a field of the app's email missing or malformed
+///   (`emails/app_emailer.rs`, `emails/mime.rs`, and `host.rs` around serde's
+///   own text).
+/// - `TooManyRecipients`, `TooManyAttachments`, `AttachmentTooLarge` — the
+///   app's payload over a per-send limit that is fixed and documented
+///   (`MAX_RECIPIENTS_PER_SEND`, …): the count or size the app sent, refused
+///   before SES is reached.
+///
+/// Every label the host writes is placed on this list or the other, with its
+/// reason, and the unit test `every_typed_label_the_host_writes_is_placed`
+/// reads the labels from the source, fails on one that is on neither, and
+/// proves each placement against the classifier — so a new label must be
+/// decided, not merely noticed.
+const CALLER_ERROR_LABELS: &[&str] = &[
+    "InvalidEmailPayload",
+    "TooManyRecipients",
+    "TooManyAttachments",
+    "AttachmentTooLarge",
+];
 
-/// `prefix` is the lowercased head of the message.
-fn is_caller_error_label(prefix: &str) -> bool {
+/// The typed labels the host writes for a condition that is not the app's
+/// arguments: each pages, as the platform's or the deployment's fault, or is
+/// the app's usage rather than its payload. Read by the placement test
+/// only; the classifier needs no list of what it does not accept.
+///
+/// - `SenderRejected` — an unverified SES identity: the deployment's
+///   misconfiguration, not the app's condition. It says `` the `from` must be
+///   a verified SES identity ``, and as a bare substring that marker once
+///   read it as the app's own error.
+/// - `EmailSendFailed`, `EmailNotConfigured` — SES or the emailer failing,
+///   or the platform sender unset.
+/// - `RateLimitExceeded`, `DailyLimitExceeded` — written by two sources under
+///   one label: SES throttling and the account's daily quota
+///   (`classify_ses_error`), which are the platform's sending capacity, and
+///   the host's per-invocation cap (`MAX_EMAILS_PER_INVOCATION`), which is
+///   the app's loop. One label takes one placement, and the SES half — a
+///   platform limit the app cannot see — decides it: both page. The
+///   per-function and hourly caps in `failure_alert` bound the noise of an
+///   app that hits its own cap.
+/// - `AirhouseCapabilityMissing`, `EmailCapabilityMissing`,
+///   `OltpCapabilityMissing`, `OrgCapabilityMissing`,
+///   `StorageCapabilityMissing` — a capability the manifest lacks. `oxyc`
+///   refuses to publish a function that calls one, so a live hit is a
+///   platform surprise; the word `capability` classifies these
+///   `not_allowed` before any marker is consulted.
+#[cfg(test)]
+const PLATFORM_ERROR_LABELS: &[&str] = &[
+    "SenderRejected",
+    "EmailSendFailed",
+    "EmailNotConfigured",
+    "RateLimitExceeded",
+    "DailyLimitExceeded",
+    "AirhouseCapabilityMissing",
+    "EmailCapabilityMissing",
+    "OltpCapabilityMissing",
+    "OrgCapabilityMissing",
+    "StorageCapabilityMissing",
+];
+
+/// `label` is the lowercased head of the message, up to its first `: `.
+fn is_caller_error_label(label: &str) -> bool {
     CALLER_ERROR_LABELS
         .iter()
-        .any(|label| label.eq_ignore_ascii_case(prefix))
+        .any(|allowed| allowed.eq_ignore_ascii_case(label))
 }
 
 /// Whether a [`classify_host_error`] kind pages even when the handler catches
@@ -667,18 +744,33 @@ mod tests {
         }
     }
 
-    /// The emailer prefixes its refusals with a typed label, not a dotted op.
-    /// `InvalidEmailPayload` is the app's own payload and is allowlisted as a
-    /// head prefix; `SenderRejected` — an unverified SES identity — is the
-    /// deployment's misconfiguration and pages, though it too says
-    /// `` `from` must be ``. (As bare substrings the markers read both as
-    /// `bad_request`; the first cut of the anchoring read both as a page.)
+    /// The emailer labels its refusals rather than quoting a field at the
+    /// head, and the label decides: every `InvalidEmailPayload` line the
+    /// emailer writes is the app's own payload, in whichever words — the
+    /// backticked shape, `at least one …`, `provide …`, serde's `missing
+    /// field …`. Keyed on the phrase instead, only the first of these was
+    /// `bad_request`, and an app omitting `to` paged on-call. `SenderRejected`
+    /// — an unverified SES identity — is the deployment's misconfiguration
+    /// and pages, though it too says `` `from` must be ``; as bare substrings
+    /// the markers once read it as `bad_request`.
     #[test]
-    fn a_typed_label_is_a_head_prefix_only_when_allowlisted() {
-        assert_eq!(
-            classify_host_error("InvalidEmailPayload: `subject` is required"),
-            "bad_request"
-        );
+    fn a_typed_label_on_the_allowlist_decides_by_itself() {
+        for message in [
+            "InvalidEmailPayload: `subject` is required",
+            "InvalidEmailPayload: at least one `to` recipient is required",
+            "InvalidEmailPayload: provide `html` or `text`",
+            "InvalidEmailPayload: missing field `subject`",
+            "InvalidEmailPayload: `idempotencyKey` exceeds 256 characters",
+            "InvalidEmailPayload: message has neither `html` nor `text` to send",
+            "TooManyRecipients: 51 recipients exceeds the per-send limit of 50",
+            "TooManyAttachments: 21 attachments exceeds the per-send limit of 20",
+            "AttachmentTooLarge: attachments total 10485761 bytes, over the 10485760-byte \
+             per-send limit; store the file with ctx.storage and send a download link",
+        ] {
+            let kind = classify_host_error(message);
+            assert_eq!(kind, "bad_request", "{message}");
+            assert!(!counts_toward_paging(kind), "{message}");
+        }
         let sender_rejected = "SenderRejected: MessageRejected: Email address is not verified. \
              The following identities failed the check in region US-EAST-1: \
              noreply@example.com — the `from` must be a verified SES identity. Set \
@@ -686,66 +778,41 @@ mod tests {
              preview locally.";
         assert_eq!(classify_host_error(sender_rejected), "host_call_failed");
         assert!(counts_toward_paging(classify_host_error(sender_rejected)));
-        // A label is not a licence: the rest still has to be the host's
-        // refusal shape, so the emailer's other lines classify as they
-        // always did.
-        for message in [
-            "InvalidEmailPayload: at least one `to` recipient is required",
-            "InvalidEmailPayload: provide `html` or `text`",
-            "InvalidEmailPayload: missing field `subject`",
-        ] {
-            assert_eq!(
-                classify_host_error(message),
-                "host_call_failed",
-                "{message}"
-            );
-        }
+        // The label has to head the message: mentioned later, it is an
+        // engine's or a driver's text quoting something, and stays where it
+        // classified before.
+        assert_eq!(
+            classify_host_error("exec failed: db error: InvalidEmailPayload: `x` is required"),
+            "host_call_failed"
+        );
     }
 
-    // ── CALLER_ERROR_LABELS is pinned to the host's sources ────────────────
+    // ── Every typed label is placed, and each placement holds ──────────────
 
     /// Every typed label the host's error-producing code writes at the head
     /// of a string literal (`InvalidEmailPayload: …`, `SenderRejected: …`),
-    /// read from the source, must be either in `CALLER_ERROR_LABELS` or named
-    /// here as one that stays platform-side, with the reason. A label added
+    /// read from the source, must be on `CALLER_ERROR_LABELS` or on
+    /// `PLATFORM_ERROR_LABELS`, each with its reason beside it. A label added
     /// to the host without that decision fails here. This is what the first
     /// cut of the anchoring lacked: `a_host_refusing_the_calls_arguments_is_a_bad_request`
     /// enumerated `host.rs` and `airhouse_ops.rs` shapes by hand, and the
     /// emailer's went unseen.
+    ///
+    /// Placement is then proven, not just listed: a message under a
+    /// caller-error label is `bad_request` in words no marker matches, and a
+    /// message under a platform-error label pages even in the words that
+    /// tempt the markers most. A label moved between the lists without the
+    /// classifier following fails the second half.
     #[test]
     fn every_typed_label_the_host_writes_is_placed() {
-        /// Not a head prefix for the two markers. Each either pages — the
-        /// platform's or the deployment's condition — or is a refusal that
-        /// never carries the phrase, and classifies as it always did.
-        const PLATFORM_SIDE_LABELS: &[&str] = &[
-            // An unverified SES identity: the deployment's misconfiguration.
-            "SenderRejected",
-            // SES or the emailer failing, throttling, or unconfigured.
-            "EmailSendFailed",
-            "EmailNotConfigured",
-            "RateLimitExceeded",
-            "DailyLimitExceeded",
-            // The app over a per-send limit: a refusal, never worded with a
-            // backticked field.
-            "TooManyRecipients",
-            "TooManyAttachments",
-            "AttachmentTooLarge",
-            // A capability the manifest lacks: `not_allowed`, by the word
-            // `capability`, before the markers are consulted.
-            "AirhouseCapabilityMissing",
-            "EmailCapabilityMissing",
-            "OltpCapabilityMissing",
-            "OrgCapabilityMissing",
-            "StorageCapabilityMissing",
-        ];
         let found = typed_labels_in_host_sources();
         let placed: BTreeSet<String> = CALLER_ERROR_LABELS
             .iter()
-            .chain(PLATFORM_SIDE_LABELS)
+            .chain(PLATFORM_ERROR_LABELS)
             .map(|l| l.to_string())
             .collect();
         assert_eq!(
-            CALLER_ERROR_LABELS.len() + PLATFORM_SIDE_LABELS.len(),
+            CALLER_ERROR_LABELS.len() + PLATFORM_ERROR_LABELS.len(),
             placed.len(),
             "a label is placed once"
         );
@@ -754,13 +821,32 @@ mod tests {
         assert!(
             unplaced.is_empty(),
             "typed labels the host writes but nothing places: {unplaced:?} — add each to \
-             CALLER_ERROR_LABELS (a head prefix for the app's own argument refusal) or to \
-             PLATFORM_SIDE_LABELS here, with the reason"
+             CALLER_ERROR_LABELS (the app's own argument error, whatever follows the \
+             label) or to PLATFORM_ERROR_LABELS (pages), with the reason"
         );
         assert!(
             unwritten.is_empty(),
             "placed labels the host no longer writes: {unwritten:?}"
         );
+
+        for label in CALLER_ERROR_LABELS {
+            let message = format!("{label}: something the markers never match");
+            assert_eq!(
+                classify_host_error(&message),
+                "bad_request",
+                "a caller-error label decides by itself: {message}"
+            );
+        }
+        for label in PLATFORM_ERROR_LABELS {
+            // The words that would reach `bad_request` through the anchored
+            // markers if the label were a head prefix for them.
+            let message = format!("{label}: `from` must be a verified identity");
+            let kind = classify_host_error(&message);
+            assert!(
+                counts_toward_paging(kind),
+                "a platform-error label pages: {message} classified {kind}"
+            );
+        }
     }
 
     /// Every typed label at the head of a string literal in the host's

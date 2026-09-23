@@ -48,7 +48,9 @@ pub(super) struct Failure {
 /// call went, for the ops that name one — a `fetch`'s host, a `warehouse.*`
 /// op's database and table — normalized the same way and kept so that a
 /// later success of the op clears the note only when it went to the same
-/// place ([`HostCallFailure::recovered`]). It is not in the fingerprint.
+/// place ([`HostCallFailure::recovered`]). It joins the fingerprint only for
+/// a `fetch` whose message does not name its host
+/// ([`HostCallFailure::fingerprint`]).
 //
 // The message is here because op and kind alone masked a new failure: a
 // function that already catches a routine `permission_denied` on
@@ -58,7 +60,10 @@ pub(super) struct Failure {
 // The target is here because a clear by op alone masked the other half: the
 // fingerprint kept a URL's host so two vendors under one `fetch` were two
 // patterns, and then a caught failure on vendor A was dropped by any later
-// `fetch` that worked — a Slack webhook, say — so A's break never paged.
+// `fetch` that worked — a Slack webhook, say — so A's break never paged. It
+// then reached the fingerprint because the host was kept only where the
+// message carried the URL: a body read that timed out names no host, so two
+// vendors' timeouts were one pattern after all.
 //
 // Only the V8 runtime constructs one; without it the type is still named by
 // the run outcome, which always carries `None`.
@@ -150,18 +155,64 @@ impl HostCallFailure {
     }
 
     /// The fingerprint a caught failure pages under: a digest over the op,
-    /// the kind and the normalized message. Op and kind keep one broken call
+    /// the kind and the normalized message — and, for a `fetch` whose message
+    /// does not name its host, the target. Op and kind keep one broken call
     /// together across every app it hit; the message keeps a new break apart
     /// from the routine failure a function already catches on the same op, so
     /// it is still new to the pager. Digested, none of the message's text
     /// reaches the row, the log line or the page.
+    ///
+    /// The target rule, exactly: the target joins the input when the op is
+    /// on [`TARGET_KEYED_OPS`] and the normalized message does not contain
+    /// `<target>/?` — the one shape [`url_host`] writes a host in, so a
+    /// coincidental substring (a single-label host that folded to `#`, found
+    /// in `# bytes`) does not count as naming it. A `fetch` is keyed by host
+    /// wherever its message carries the URL bare (`url_host` keeps
+    /// `api.example.com` in `for url (api.example.com/?)`, which is where
+    /// reqwest puts every send-phase error, a timeout included), so those
+    /// messages already carry the target and keep the fingerprint they have.
+    /// The ones that name no host
+    /// gain it: a body read that failed or timed out (`read failed: error
+    /// decoding response body` — reqwest's `chunk()` carries no URL), a
+    /// response over the size cap, and the refusal that quotes its URL as a
+    /// value (`fetch to ? blocked …`). Without it, a routine one of those on
+    /// vendor A made a new one on vendor B "not new" to the pager. ` @ `
+    /// separates the two, and cannot occur in the message: a run with `@` in
+    /// it is a locator and folds to `?`, so no normalized text contains one.
+    ///
+    /// Every fingerprint this changes pages once more on deploy day, which is
+    /// why the rule reaches no further. A `warehouse.*` target stays out: no
+    /// warehouse message names its database, so folding it in would
+    /// re-fingerprint every caught warehouse failure at once, for a
+    /// per-destination split the fingerprint never had.
     pub fn fingerprint(&self) -> String {
-        digest(&format!(
-            "host_call {} {} {}",
-            self.op, self.kind, self.message
-        ))
+        let mut input = format!("host_call {} {} {}", self.op, self.kind, self.message);
+        if let Some(target) = self.unnamed_target() {
+            input.push_str(" @ ");
+            input.push_str(target);
+        }
+        digest(&input)
+    }
+
+    /// The target the fingerprint carries: the note's, when the op is keyed
+    /// by it and the message does not already name it as `url_host` writes
+    /// a host — `<host>/?`. Both sides are normalized, so a numbered shard's
+    /// host is found in a message that carries it (`#.example.com` in
+    /// `(#.example.com/?)`).
+    fn unnamed_target(&self) -> Option<&str> {
+        let target = self.target.as_deref()?;
+        let named = self.message.contains(&format!("{target}/?"));
+        (TARGET_KEYED_OPS.contains(&self.op) && !named).then_some(target)
     }
 }
+
+/// The ops whose target joins the fingerprint when the message does not name
+/// it ([`HostCallFailure::fingerprint`]). `fetch` alone: its target is the
+/// host the fingerprint already keys on wherever the message carries the URL,
+/// so this is the same rule reaching the messages that carry none. Adding an
+/// op here re-fingerprints every caught failure of that op whose message
+/// does not name the target — for `warehouse.*`, all of them.
+const TARGET_KEYED_OPS: &[&str] = &["fetch"];
 
 impl Failure {
     /// The failure an invocation's outcome describes, or `None` when it did not
@@ -705,6 +756,161 @@ mod tests {
         ] {
             assert_eq!(normalize(host_less), "?", "{host_less}");
         }
+    }
+
+    /// The mask one level further down. `url_host` keeps a host only where
+    /// the message carries the URL bare, and reqwest 0.13 puts one on every
+    /// send-phase error — but a body read that timed out or broke (`read
+    /// failed: error decoding response body`, from `chunk()`, which carries
+    /// no URL), a response over the cap, and the refusal that quotes its URL
+    /// name no host, so a routine one on vendor A and a new one on vendor B
+    /// were one fingerprint. The target the broker read off the call joins
+    /// the fingerprint for exactly those. Nothing else moves: a message that
+    /// names its host keeps the fingerprint `main` gave it (the literal,
+    /// computed from the formula outside the crate), and a warehouse target
+    /// never joins. Dropping the target from the fingerprint fails the first
+    /// half; folding it in unconditionally fails the second.
+    #[test]
+    fn two_hosts_timeouts_in_one_function_are_two_fingerprints() {
+        let body_timed_out = |host: &str| {
+            HostCallFailure::noted(
+                None,
+                "fetch",
+                "host_call_failed",
+                "read failed: error decoding response body",
+                Some(host),
+            )
+            .unwrap()
+        };
+        let vendor_a = body_timed_out("api.example.com");
+        let vendor_b = body_timed_out("api.other.com");
+        assert_eq!(
+            vendor_a.message, vendor_b.message,
+            "the message alone cannot tell the two apart"
+        );
+        assert_ne!(
+            vendor_a.fingerprint(),
+            vendor_b.fingerprint(),
+            "a timeout on one vendor is new beside a routine one on another"
+        );
+        assert_eq!(
+            vendor_a.fingerprint(),
+            digest(
+                "host_call fetch host_call_failed read failed: error decoding response body @ api.example.com"
+            ),
+            "the target joins the input after ` @ `, which no normalized message contains"
+        );
+        // The other two shapes the host writes with no host in them.
+        for message in [
+            "fetch to 'http://rates.example.com/v1/usd' blocked by SSRF allowlist",
+            "response too large (exceeded the 10485760 byte cap)",
+        ] {
+            let a = HostCallFailure::noted(
+                None,
+                "fetch",
+                "host_call_failed",
+                message,
+                Some("a.example.com"),
+            );
+            let b = HostCallFailure::noted(
+                None,
+                "fetch",
+                "host_call_failed",
+                message,
+                Some("b.example.com"),
+            );
+            assert_ne!(
+                a.unwrap().fingerprint(),
+                b.unwrap().fingerprint(),
+                "{message}"
+            );
+        }
+
+        // "Names its host" means carries it as `url_host` writes one —
+        // `<host>/?` — not that the target happens to be a substring: a
+        // single-label host with a digit folds to `#`, which `# bytes`
+        // contains, and the target still joins.
+        let single_label = HostCallFailure::noted(
+            None,
+            "fetch",
+            "host_call_failed",
+            "response too large (10485761 bytes > 10485760 cap)",
+            Some("svc2"),
+        )
+        .unwrap();
+        assert_eq!(single_label.target.as_deref(), Some("#"));
+        assert_eq!(
+            single_label.fingerprint(),
+            digest("host_call fetch host_call_failed response too large (# bytes > # cap) @ #")
+        );
+
+        // A message that names its host — every send-phase failure, a
+        // timeout included — keeps the fingerprint `main` gave it: the
+        // target is already in the input, so it is not added again.
+        let named = HostCallFailure::noted(
+            None,
+            "fetch",
+            "host_call_failed",
+            "fetch failed: error sending request for url (https://api.example.com/v1/rates)",
+            Some("api.example.com"),
+        )
+        .unwrap();
+        assert_eq!(named.fingerprint(), "e019a17a15e9ebc7");
+        assert_eq!(
+            named.fingerprint(),
+            HostCallFailure {
+                target: None,
+                ..named.clone()
+            }
+            .fingerprint()
+        );
+        // The target is compared normalized, as the message is, so a
+        // numbered shard's host is found in the message that carries it.
+        let shard = HostCallFailure::noted(
+            None,
+            "fetch",
+            "host_call_failed",
+            "fetch failed: error sending request for url (https://shop123.example.com/admin)",
+            Some("shop123.example.com"),
+        )
+        .unwrap();
+        assert_eq!(shard.target.as_deref(), Some("#.example.com"));
+        assert_eq!(
+            shard.fingerprint(),
+            HostCallFailure {
+                target: None,
+                ..shard.clone()
+            }
+            .fingerprint()
+        );
+
+        // A warehouse target never joins: the caught Code 27 is one
+        // fingerprint with a destination noted and without, so no stored
+        // warehouse fingerprint moves.
+        let with_target = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            Some("dw ledger"),
+        )
+        .unwrap();
+        let without = HostCallFailure::noted(
+            None,
+            "warehouse.insert",
+            "host_call_failed",
+            CAUGHT_CODE_27,
+            None,
+        )
+        .unwrap();
+        assert_eq!(with_target.fingerprint(), without.fingerprint());
+        assert_eq!(
+            with_target.fingerprint(),
+            digest(&format!(
+                "host_call warehouse.insert host_call_failed {}",
+                normalized_prefix(CAUGHT_CODE_27)
+            ))
+        );
     }
 
     #[test]
