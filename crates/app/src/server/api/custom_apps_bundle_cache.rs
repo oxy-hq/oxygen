@@ -633,11 +633,55 @@ mod tests {
             MAX_BYTE_ENTRIES,
             "the entry cap must come from the constant, not a test value"
         );
+        // Deliberately compared against `byte_budget()` rather than
+        // `MAX_BYTE_CACHE_BYTES`: the contract is "new() reads the resolved
+        // global", and asserting the constant would make this test fail
+        // whenever OXY_BUNDLE_CACHE_MAX_MB is set in the environment. It does
+        // NOT pin what the global resolves to — `resolve_budget_publishes_the_gauge`
+        // below covers that half.
         assert_eq!(
             c.budget,
             byte_budget(),
             "the byte budget must come from the resolved global"
         );
+    }
+
+    /// The gauge contract the boot call exists to satisfy.
+    ///
+    /// `resolve_budget()` is only useful if calling it actually publishes
+    /// `oxy_custom_app_bundle_cache_limit_bytes` — and for a long time the boot
+    /// site did not call it at all, because the call sat inside a
+    /// `tracing::info!` field expression and `tracing` evaluates those only when
+    /// the callsite is enabled. Default `OXY_LOG_LEVEL` is `warn`, so it never
+    /// ran, and the gauge stayed at the value that also means "disabled".
+    ///
+    /// This pins the half that is testable here: resolving publishes. That the
+    /// *boot path* resolves is now a plain `let` in `serve.rs`, which cannot be
+    /// optimised away by a log level.
+    #[test]
+    fn resolve_budget_publishes_the_gauge() {
+        use std::sync::atomic::Ordering;
+
+        // nextest gives each test its own process, so the OnceLock is ours and
+        // the env is uncontended.
+        unsafe { std::env::set_var(MAX_BYTE_CACHE_BYTES_ENV, "64") };
+
+        assert_eq!(
+            oxy_telemetry::metrics::sources::BUNDLE_CACHE_LIMIT.load(Ordering::Relaxed),
+            0,
+            "nothing should have resolved the budget yet in this process"
+        );
+
+        let resolved = resolve_budget();
+        assert_eq!(resolved, 64 * 1024 * 1024);
+        assert_eq!(
+            oxy_telemetry::metrics::sources::BUNDLE_CACHE_LIMIT.load(Ordering::Relaxed),
+            resolved as u64,
+            "resolving the budget must publish it — a gauge left at 0 is \
+             indistinguishable from the byte bound being disabled"
+        );
+
+        unsafe { std::env::remove_var(MAX_BYTE_CACHE_BYTES_ENV) };
     }
 
     /// **The capacity-eviction twin of the replacement test**, and the case

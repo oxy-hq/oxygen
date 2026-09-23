@@ -1050,33 +1050,50 @@ async fn serve_application(
     // shutdown-hook wait can tell a signalled shutdown from an error unwind.
     let shutdown_observer = shutdown_token.clone();
 
-    // Resolve the function concurrency ceilings at boot so
-    // `oxy_custom_app_admission_limit` is published before the first scrape.
-    // They are `OnceLock`s filled on first use, and their only other caller is
-    // `admit` — so left lazy, the gauge reads 0 (the documented value for "the
-    // cap is disabled") for the whole window between a replica starting and its
-    // first function call, and the saturation ratio it is the denominator of
-    // divides by zero over exactly that window.
-    // Unconditional, unlike the function limits below: the bundle cache serves
-    // static assets and exists whether or not the V8 runtime is compiled in.
-    // Left lazy it is resolved by the first asset request, so until then the
-    // gauge reads 0 — indistinguishable from the documented "bound disabled".
+    // ── Resolve the runtime limits at boot ───────────────────────────────────
+    //
+    // Each of these is a `OnceLock` that also PUBLISHES a gauge as a side
+    // effect of being resolved. Left to be resolved by first use, each gauge
+    // reads 0 until then — and 0 is also what "this limit is disabled" looks
+    // like, so over the whole boot-to-first-request window the two are
+    // indistinguishable and the saturation ratios divide by zero.
+    //
+    // ⚠️ THE CALLS MUST BE `let` BINDINGS, NOT FIELD EXPRESSIONS.
+    // `tracing` evaluates a field's value expression only when the callsite is
+    // enabled — the macro wraps the value set in `if enabled { … }`. The
+    // default `OXY_LOG_LEVEL` is `warn` (see `logging.rs`), the OTel layer
+    // takes events only at <= WARN, and the OTLP log bridge is opt-in — so on
+    // a default serve an `info!` is disabled everywhere and anything called
+    // inside its field list NEVER RUNS. Written as
+    // `budget_bytes = resolve_budget()` this block silently did nothing and the
+    // gauges stayed lazy, which is the exact defect it was added to prevent.
+    // Prod happened to be covered only because it runs at `info`.
+    let bundle_cache_budget_bytes = crate::server::api::custom_apps_bundle_cache::resolve_budget();
     tracing::info!(
         target: "oxy.custom_app.bundle_cache",
-        budget_bytes = crate::server::api::custom_apps_bundle_cache::resolve_budget(),
+        budget_bytes = bundle_cache_budget_bytes,
         "custom-app bundle cache budget"
     );
 
+    // Unconditional above, feature-gated here: the bundle cache serves static
+    // assets and exists whether or not the V8 runtime is compiled in, while the
+    // concurrency ceilings only mean anything with it.
     #[cfg(feature = "custom-app-functions")]
     {
         use crate::server::api::custom_apps_functions::limits;
+        let max_concurrency = limits::max_concurrency();
+        let max_org_concurrency = limits::max_org_concurrency();
+        let max_queued = limits::max_queued();
+        let queue_budget_secs = limits::queue_budget().as_secs();
+        let heap_limit_bytes =
+            crate::server::api::custom_apps_functions::runtime::heap_limit_bytes();
         tracing::info!(
             target: "oxy.custom_app.admission",
-            max_concurrency = limits::max_concurrency(),
-            max_org_concurrency = limits::max_org_concurrency(),
-            max_queued = limits::max_queued(),
-            queue_budget_secs = limits::queue_budget().as_secs(),
-            heap_limit_bytes = ?crate::server::api::custom_apps_functions::runtime::heap_limit_bytes(),
+            max_concurrency,
+            max_org_concurrency,
+            max_queued,
+            queue_budget_secs,
+            heap_limit_bytes = ?heap_limit_bytes,
             "custom-app function limits"
         );
     }

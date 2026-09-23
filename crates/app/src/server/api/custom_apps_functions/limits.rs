@@ -538,4 +538,37 @@ mod tests {
         }
         assert_eq!(max_org_concurrency(), 4);
     }
+
+    /// The gauge contract the boot call exists to satisfy — the twin of
+    /// `custom_apps_bundle_cache::tests::resolve_budget_publishes_the_gauge`.
+    ///
+    /// `max_concurrency()` publishes `oxy_custom_app_admission_limit` as a side
+    /// effect of resolving. That is only worth anything if something resolves
+    /// it at boot, and for a while nothing did: the boot call sat inside a
+    /// `tracing::info!` field expression, and `tracing` evaluates those only
+    /// when the callsite is enabled. Default `OXY_LOG_LEVEL` is `warn`, so the
+    /// whole block was dead and the gauge stayed at 0 — which is also what
+    /// "the cap is disabled" reads as, the precise ambiguity the boot call was
+    /// added to remove.
+    #[test]
+    fn resolving_the_cap_publishes_the_limit_gauge() {
+        use oxy_telemetry::metrics::sources::ADMISSION_LIMIT;
+        use std::sync::atomic::Ordering;
+
+        unsafe { std::env::set_var(MAX_CONCURRENCY_ENV, "24") };
+        assert_eq!(
+            ADMISSION_LIMIT.load(Ordering::Relaxed),
+            0,
+            "nothing should have resolved the cap yet in this process"
+        );
+
+        let resolved = max_concurrency();
+        assert_eq!(resolved, 24);
+        assert_eq!(
+            ADMISSION_LIMIT.load(Ordering::Relaxed),
+            resolved as i64,
+            "resolving the cap must publish it — a gauge left at 0 is \
+             indistinguishable from the cap being disabled"
+        );
+    }
 }
