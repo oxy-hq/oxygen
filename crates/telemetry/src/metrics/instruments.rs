@@ -405,9 +405,9 @@ fn observables(meter: &Meter) -> Vec<ObservableHandle> {
                 .with_description(
                     "Isolate threads detached after the termination grace period — a tenant \
                      function wedged in a host call that never returned. Healthy is zero, so \
-                     there is no threshold to tune. Emitted by every role, which is the fix for \
-                     it previously being exported only by the worker, the one fleet that never \
-                     creates an isolate.",
+                     there is no threshold to tune. Emitted by every role: the worker's own \
+                     endpoint had been the only exporter, and it sees scheduled invocations \
+                     only, so route-mode traffic — the bulk of it — went uncounted.",
                 )
                 .with_unit("{isolate}")
                 .with_callback(|observer| {
