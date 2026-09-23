@@ -404,6 +404,71 @@ export interface OxySecretsApi {
   set(key: string, value: string): Promise<void>;
 }
 
+/**
+ * `ctx.crypto` — HMAC signing and verification, and a constant-time compare.
+ * **Synchronous**: pure CPU inside the isolate, so these skip the host-call
+ * channel and there is nothing to `await`. Mirrors `crypto` in `__buildCtx`
+ * (`runtime.rs`); the three members here are the three the host binds.
+ *
+ * `key` and `data` are read as UTF-8 — every webhook scheme in the wild signs a
+ * UTF-8 base string with a UTF-8 secret (GitHub the body, Slack `v0:ts:body`,
+ * Stripe `ts.body`) — so there is deliberately no per-argument encoding knob.
+ *
+ * Who controls an input decides what its absence does. An unset or empty `key`,
+ * or an unknown `algorithm` / `encoding`, is the author's mistake and **throws**.
+ * A `signature` that is absent or will not decode is the caller's, and returns
+ * **`false`** — throwing would turn a forged request into a 500. Both sides of
+ * `timingSafeEqual` are symmetric, so an absent or empty side is `false` and
+ * never a throw: with the secret unset, every request is rejected.
+ */
+export interface OxyCryptoApi {
+  /**
+   * The digest of `data` under `key`, as a string in `encoding`. For signing an
+   * **outbound** request; `verifyHmac` is the inverse direction.
+   */
+  hmac(input: OxyHmacInput): string;
+  /**
+   * Whether `signature` is the digest of `data` under `key`, compared in
+   * constant time. Strip the provider's prefix first (`sha256=`, `v0=`) and
+   * pass the bare digest — prefix formats are per-provider. A header the caller
+   * omitted can be passed as-is: absent is `false`, not a throw.
+   */
+  verifyHmac(input: OxyVerifyHmacInput): boolean;
+  /**
+   * Constant-time equality for a plain shared secret where there is no HMAC.
+   * Use it, not `===`, for any secret comparison: `===` short-circuits at the
+   * first differing byte and leaks the secret one byte at a time to anyone who
+   * can time the endpoint. `false` when either side is absent or empty.
+   */
+  timingSafeEqual(a: string | null | undefined, b: string | null | undefined): boolean;
+}
+
+/** The inputs `ctx.crypto.hmac` and `ctx.crypto.verifyHmac` share. */
+export interface OxyHmacInput {
+  /** `"sha256"` (default) or `"sha512"`. Anything else throws. */
+  algorithm?: "sha256" | "sha512";
+  /**
+   * The secret, from configuration (`ctx.env.…`), never from the request.
+   * Required and non-empty: an absent one throws rather than signing with `""`
+   * or the literal `"undefined"` — keys an attacker guesses as easily as you do.
+   */
+  key: string;
+  /** The base string to sign — for a webhook, the body or `v0:{ts}:{body}`. */
+  data: string;
+  /** How the digest is written (`hmac`) or read (`verifyHmac`): `"hex"` (default) or `"base64"`. */
+  encoding?: "hex" | "base64";
+}
+
+/** `ctx.crypto.verifyHmac`'s input: {@link OxyHmacInput} plus the signature to check. */
+export interface OxyVerifyHmacInput extends OxyHmacInput {
+  /**
+   * The bare digest the caller sent, provider prefix (`sha256=`, `v0=`) already
+   * stripped. Attacker-controlled, so a header the caller omitted may be passed
+   * as-is: absent, or not decodable in `encoding`, is `false`, never a throw.
+   */
+  signature: string | null | undefined;
+}
+
 /** `ctx.semantic` — airlayer-compiled semantic queries (inherits the pre-agg fast path). */
 export interface OxySemanticApi {
   /**
@@ -733,7 +798,8 @@ export interface OxyOrgAssignment {
 /**
  * The data-plane context passed as the second argument to a function's default
  * export. Mirrors the host-assembled `ctx` (`__buildCtx` in `runtime.rs`);
- * every member is a host-provided async function bridged to a Rust backend.
+ * every member is a host-provided async function bridged to a Rust backend,
+ * except `crypto`, which is synchronous (pure CPU inside the isolate).
  */
 export interface OxyFunctionContext {
   /** Invoking user (route) or system identity (schedule/airway). */
@@ -793,8 +859,19 @@ export interface OxyFunctionContext {
   env: Record<string, string>;
   /** Structured per-invocation logging (captured + surfaced with the response). */
   log(...args: unknown[]): void;
-  /** Read-only SQL (SELECT/WITH only), function-scoped row cap. Resolves to the rows. */
-  query(sql: string): Promise<OxyFunctionRow[]>;
+  /**
+   * HMAC sign / verify and a constant-time compare. Synchronous — no `await`.
+   * See {@link OxyCryptoApi}.
+   */
+  crypto: OxyCryptoApi;
+  /**
+   * Read-only SQL (`SELECT` / `WITH` only) against the app's default database,
+   * capped at the function row limit. Resolves to `{ rows, truncated }` — the
+   * shape the host sends (`host.rs` `query`), the same as `ctx.warehouse.query`;
+   * `truncated` says the cap cut rows. Destructure it:
+   * `const { rows } = await ctx.query(sql)`.
+   */
+  query(sql: string): Promise<{ rows: OxyFunctionRow[]; truncated: boolean }>;
   /** Read-only SQL with a higher row cap, yielded to the caller in batches. */
   queryStream(
     sql: string,

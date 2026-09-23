@@ -350,8 +350,8 @@ jobs:
           # them in anyway). Pooled, fixing one ambient-types error in src would
           # mask a new fixture drift and the step would stay green on exactly
           # what it exists to catch.
-          SDK_TEST_ERROR_BASELINE: 13
-          SDK_TESTFILE_ERROR_BASELINE: 6
+          SDK_TEST_ERROR_BASELINE: 12
+          SDK_TESTFILE_ERROR_BASELINE: 5
           # 12 test files today; floor just under. See the web-app ratchet.
           SDK_TESTFILE_FLOOR: 10
         run: |

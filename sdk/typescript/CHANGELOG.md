@@ -5,6 +5,32 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.14.0] - 2026-09-23
+
+### Added
+
+- **`ctx.crypto` is declared on `OxyFunctionContext`.** The host has bound
+  `ctx.crypto.hmac`, `ctx.crypto.verifyHmac` and `ctx.crypto.timingSafeEqual`
+  since they shipped, and the authoring guide documents them, but the context
+  type never declared them — so the documented webhook-verification call was a
+  type error for a thing that works. `OxyCryptoApi`, `OxyHmacInput` and
+  `OxyVerifyHmacInput` are exported. Typed from `__buildCtx` in `runtime.rs`:
+  synchronous (no `await`);
+  `algorithm` defaults to `"sha256"`, `encoding` to `"hex"`; `key` and `data`
+  are required strings; `signature` and both sides of `timingSafeEqual` accept
+  an absent value, because the host answers `false` for one rather than
+  throwing.
+
+### Fixed
+
+- **`ctx.query` resolves to `{ rows, truncated }`, as the host has always sent
+  it.** The type said `OxyFunctionRow[]`. A function that indexed or iterated
+  the result compiled and failed on its first call (`rows.map is not a
+  function`; `.length` reading `undefined`), while the docs, the scaffold and
+  the platform canary already destructure `rows`. If you typed against the old
+  shape, change `const rows = await ctx.query(sql)` to
+  `const { rows } = await ctx.query(sql)` — the runtime value is unchanged.
+
 ## [2.13.1] - 2026-09-22
 
 ### Fixed

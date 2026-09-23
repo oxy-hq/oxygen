@@ -376,9 +376,11 @@ async function expectRefusal(
 
 /**
  * Top-level `ctx.query`. The host resolves `{ rows, truncated }` (`host.rs`
- * `query`), which is what live functions destructure. The SDK's type says a bare
- * row array, so the result is checked as `unknown`: a host that changed shape
- * would break every `const { rows } = await ctx.query(…)`, and must fail here.
+ * `query`), which is what live functions destructure and, since SDK 2.14, what
+ * the type says. The result is still checked as `unknown`, on purpose: this step
+ * tests the host, not the type — a host that changed shape would break every
+ * `const { rows } = await ctx.query(…)`, and must fail here whatever the SDK
+ * declares.
  */
 async function sqlRead(run: RunState): Promise<void> {
   const result: unknown = await run.ctx.query("SELECT 1 AS one");
