@@ -601,6 +601,82 @@ mod tests {
         }
     }
 
+    /// The functions a request enters the custom-app gate through. Reaching
+    /// any of them *is* the custom-app identity ([`mark_custom_app_surface`]),
+    /// so a file whose production code calls one is on the data plane and the
+    /// walk below reads it. `check_custom_app_gates` is the gate;
+    /// `mark_custom_app_surface` is what it tags the hub with; and
+    /// `enter_semantic_boundary` wraps the gate for the semantic-analysis
+    /// surfaces (metric tree, cohort, world model, projection), whose handlers
+    /// never name the gate themselves.
+    ///
+    /// A helper that wraps the gate and is called from another file MUST be
+    /// listed, or every one of its callers is invisible to the walk — which is
+    /// how the metric-tree baseline and the cohort read shipped their warehouse
+    /// queries on bare `spawn_blocking`s. `gate_entry_points_are_complete`
+    /// derives that set from the source and fails on an unlisted one.
+    const GATE_ENTRY_POINTS: [&str; 3] = [
+        "check_custom_app_gates",
+        "mark_custom_app_surface",
+        "enter_semantic_boundary",
+    ];
+
+    /// Every source file under `src/server` but this one, as `(path relative
+    /// to the crate, raw source)`, sorted — the one traversal both the walk's
+    /// scope and the entry-point derivation read, so a violation in either
+    /// reports in a deterministic order. This module is left out: it defines
+    /// the bindings and names every detector in its own tests.
+    fn server_sources() -> Vec<(String, String)> {
+        let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        rust_files(&crate_root.join("src/server"), &mut files);
+        files.sort();
+        files
+            .into_iter()
+            .filter(|path| {
+                !path
+                    .file_name()
+                    .is_some_and(|name| name == "sentry_surface.rs")
+            })
+            .filter_map(|path| {
+                let text = fs::read_to_string(&path).ok()?;
+                let relative = path
+                    .strip_prefix(crate_root)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                Some((relative, text))
+            })
+            .collect()
+    }
+
+    /// The files the data-plane walk reads: every module whose production code
+    /// calls one of `entry_points`, plus three kept in by name — the two places
+    /// a hub is *made* rather than inherited from a request (the function
+    /// runtime and the job executor), and `custom_apps_publish.rs`, which never
+    /// passes the gate and is never tagged but carries the request hub across
+    /// its unpack and file-walk pool hops on purpose, so a panic there is not
+    /// attributed to whatever the pool thread last ran; that carry keeps its
+    /// remove-it test here. By call, not by mention: a bare-name match would
+    /// take the IDE's own metric-tree and world-model handlers in through the
+    /// comments that name `enter_semantic_boundary`, and it was only such a
+    /// comment that ever put publish in.
+    fn data_plane_scope(entry_points: &[&str]) -> Vec<(String, String)> {
+        server_sources()
+            .into_iter()
+            .filter(|(relative, text)| {
+                let always_scanned = relative.starts_with("src/server/api/custom_apps_functions/")
+                    || relative == "src/server/app_function_executor.rs"
+                    || relative == "src/server/api/custom_apps_publish.rs";
+                let production = production_text(text);
+                let reaches_the_gate = entry_points
+                    .iter()
+                    .any(|entry| calls(&production, entry) > 0);
+                always_scanned || reaches_the_gate
+            })
+            .collect()
+    }
+
     /// Boundary: every spawn and stream on the custom-app **data plane** must
     /// carry a hub.
     ///
@@ -612,16 +688,26 @@ mod tests {
     /// database to reach the point where it would capture.
     ///
     /// So the objection is mechanical and the source is the evidence, as in
-    /// `tests/authz/authz_boundaries.rs`. In scope: every module that calls
-    /// `check_custom_app_gates` — reaching that gate *is* the custom-app
+    /// `tests/authz/authz_boundaries.rs`. In scope ([`data_plane_scope`]):
+    /// every module whose production code calls a gate entry point
+    /// ([`GATE_ENTRY_POINTS`]) — reaching the gate *is* the custom-app
     /// identity ([`mark_custom_app_surface`]), so the set grows with the data
-    /// plane instead of being a list someone must remember to extend — plus the
-    /// two places a hub is *made* rather than inherited from a request: the
-    /// function runtime (`custom_apps_functions/`: the isolate thread, the
-    /// host-call reply tasks, the blocking-pool hops in `host.rs`) and the job
-    /// executor (`app_function_executor.rs`, which mints [`custom_app_hub`] for
-    /// a scheduled run). Those are the carries the design names by hand, and
-    /// they had no remove-it test until this walk reached them.
+    /// plane instead of being a list someone must remember to extend. The gate
+    /// is entered through helpers as well as by name — the semantic-analysis
+    /// handlers go through `enter_semantic_boundary` and never say
+    /// `check_custom_app_gates` — so the entry points are a list, and
+    /// `gate_entry_points_are_complete` keeps it complete: matching the one
+    /// literal left `projects/metric_tree.rs` and `projects/cohort.rs` out of
+    /// the walk, each running warehouse reads on a bare `spawn_blocking`. Plus
+    /// three files kept in by name: the two places a hub is *made* rather than
+    /// inherited from a request — the function runtime
+    /// (`custom_apps_functions/`: the isolate thread, the host-call reply
+    /// tasks, the blocking-pool hops in `host.rs`) and the job executor
+    /// (`app_function_executor.rs`, which mints [`custom_app_hub`] for a
+    /// scheduled run) — and `custom_apps_publish.rs`, which passes no gate but
+    /// carries the request hub across its pool hops deliberately. Those are
+    /// the carries the design names by hand, and they had no remove-it test
+    /// until this walk reached them.
     ///
     /// Counting per file, rather than pairing each spawn with its own binding,
     /// is deliberate: a binding sits at the end of the spawned block, tens of
@@ -666,35 +752,9 @@ mod tests {
             "Hub::run(",
         ];
 
-        let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut files = Vec::new();
-        rust_files(&crate_root.join("src/server"), &mut files);
-        files.sort();
-
         let mut scanned = 0usize;
         let mut sites = 0usize;
-        for path in files {
-            // This module defines both bindings and names every detector in its
-            // own tests, so scanning it would only count itself.
-            if path
-                .file_name()
-                .is_some_and(|name| name == "sentry_surface.rs")
-            {
-                continue;
-            }
-            let Ok(text) = fs::read_to_string(&path) else {
-                continue;
-            };
-            let relative = path
-                .strip_prefix(crate_root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let makes_its_own_hub = relative.starts_with("src/server/api/custom_apps_functions/")
-                || relative == "src/server/app_function_executor.rs";
-            if !text.contains("check_custom_app_gates") && !makes_its_own_hub {
-                continue;
-            }
+        for (relative, text) in data_plane_scope(&GATE_ENTRY_POINTS) {
             // Production code only: a trailing `#[cfg(test)] mod tests` spawns
             // under the test's own hub.
             let text = match text.rfind("#[cfg(test)]\nmod ") {
@@ -751,12 +811,344 @@ mod tests {
         }
 
         // The walk itself has to be load-bearing: a bad root, a renamed gate or
-        // a moved runtime directory would scan nothing and pass. 11 files and
-        // 17 sites when this floor was set.
+        // a moved runtime directory would scan nothing and pass. 13 files and
+        // 19 sites when this floor was set (by call plus the three named files:
+        // the metric-tree baseline and the cohort read joined, publish stayed).
         assert!(
-            scanned >= 9 && sites >= 14,
+            scanned >= 11 && sites >= 17,
             "expected the data-plane walk to find at least the known sites, \
              scanned {scanned} file(s) / {sites} site(s)"
+        );
+    }
+
+    /// The walk's scope follows [`GATE_ENTRY_POINTS`], and each entry is
+    /// load-bearing: the semantic-analysis handlers reach the gate only
+    /// through `enter_semantic_boundary`, so dropping that name from the list
+    /// drops them from the walk — the gap this pins shut.
+    #[test]
+    fn the_data_plane_scope_follows_every_gate_entry_point() {
+        let paths = |entry_points: &[&str]| -> Vec<String> {
+            data_plane_scope(entry_points)
+                .into_iter()
+                .map(|(relative, _)| relative)
+                .collect()
+        };
+        const THROUGH_THE_HELPER: [&str; 2] = [
+            "src/server/api/projects/metric_tree.rs",
+            "src/server/api/projects/cohort.rs",
+        ];
+        const THROUGH_THE_GATE: [&str; 2] = [
+            "src/server/api/projects/query.rs",
+            "src/server/api/projects/semantic_query.rs",
+        ];
+
+        let scope = paths(&GATE_ENTRY_POINTS);
+        for file in THROUGH_THE_HELPER.iter().chain(&THROUGH_THE_GATE) {
+            assert!(
+                scope.iter().any(|path| path == file),
+                "{file} must be in the data-plane walk's scope"
+            );
+        }
+
+        let without_the_helper: Vec<&str> = GATE_ENTRY_POINTS
+            .iter()
+            .copied()
+            .filter(|entry| *entry != "enter_semantic_boundary")
+            .collect();
+        let narrowed = paths(&without_the_helper);
+        for file in THROUGH_THE_HELPER {
+            assert!(
+                !narrowed.iter().any(|path| path == file),
+                "{file} reaches the gate only through `enter_semantic_boundary`; without that \
+                 entry it must leave the scope, or the entry is not what puts it there"
+            );
+        }
+        for file in THROUGH_THE_GATE {
+            assert!(
+                narrowed.iter().any(|path| path == file),
+                "{file} calls the gate by name and stays whatever the helper list says"
+            );
+        }
+
+        // A mention is not a call: the IDE's own metric-tree handler names the
+        // helper in a comment and must stay out, or its spawns — platform work
+        // under a platform hub — would be demanded a custom-app binding.
+        assert!(
+            !scope
+                .iter()
+                .any(|path| path == "src/server/api/metric_tree.rs"),
+            "a file that only mentions a gate entry point is not on the data plane"
+        );
+
+        // Publish calls no gate and is in by name, whatever the list says, so
+        // its deliberate carries keep their remove-it test.
+        for paths in [&scope, &narrowed] {
+            assert!(
+                paths
+                    .iter()
+                    .any(|path| path == "src/server/api/custom_apps_publish.rs"),
+                "custom_apps_publish.rs is kept in the scope by name"
+            );
+        }
+    }
+
+    /// [`GATE_ENTRY_POINTS`] is complete. Every function whose body calls a
+    /// listed entry point and which some *other* file calls is a way into the
+    /// gate the walk has to follow, so it must be listed too — closed under
+    /// the list itself, so a helper that wraps a helper is caught the same
+    /// way. A handler calls the gate as well, but the router mounts it —
+    /// `post(post_baseline)`, no call — and nothing calls it, so it needs no
+    /// entry. And the other direction: a listed name no such function carries
+    /// is a stale entry, kept only to match prose.
+    ///
+    /// The SDK's handlers share their names with the IDE's — `post_baseline`
+    /// is defined in both `api/metric_tree.rs` and `api/projects/metric_tree.rs`
+    /// — so a file that *defines* a function of the name is not counted as
+    /// calling it: its `name(` is its own. A genuine cross-file call of a
+    /// handler still trips the check, and the message says what to do then.
+    ///
+    /// The derivation is textual ([`fn_items`], [`calls`], [`defines`]), so it
+    /// is pinned twice: on fixtures below, and here by having to find both
+    /// helpers.
+    #[test]
+    fn gate_entry_points_are_complete() {
+        let sources: Vec<(String, String)> = server_sources()
+            .into_iter()
+            .map(|(relative, text)| (relative, production_text(&text)))
+            .collect();
+
+        let mut helpers: Vec<(String, String)> = Vec::new();
+        for (file, text) in &sources {
+            for (name, body) in fn_items(text) {
+                let enters_the_gate = GATE_ENTRY_POINTS
+                    .iter()
+                    .any(|entry| calls(&body, entry) > 0);
+                if !enters_the_gate {
+                    continue;
+                }
+                let called_elsewhere = sources.iter().any(|(other, text)| {
+                    other != file && !defines(text, &name) && calls(text, &name) > 0
+                });
+                if called_elsewhere {
+                    helpers.push((name, file.clone()));
+                }
+            }
+        }
+
+        for (name, file) in &helpers {
+            assert!(
+                GATE_ENTRY_POINTS.contains(&name.as_str()),
+                "{file}: `{name}` enters the custom-app gate and other files call it, but it is \
+                 not in `GATE_ENTRY_POINTS` — so every file that reaches the gate through it is \
+                 left out of `every_custom_app_data_plane_spawn_carries_a_hub`, and a bare spawn \
+                 there captures a tenant's error untagged.\n\n\
+                 If `{name}` is a helper that handlers enter the gate through, add it to the \
+                 list. If it is an axum handler, listing it is the WRONG fix: the SDK's handlers \
+                 share their names with the IDE's, so the entry would pull every file that calls \
+                 anything so named into the walk — the IDE's `api/metric_tree.rs` and its \
+                 platform-hub spawns included. The fix then is to stop calling the handler \
+                 across files: mount it, or extract what the caller needs into a helper and list \
+                 that."
+            );
+        }
+        for entry in GATE_ENTRY_POINTS {
+            // The marker is the root: it sets the tag rather than calling a gate.
+            if entry == "mark_custom_app_surface" {
+                continue;
+            }
+            assert!(
+                helpers.iter().any(|(name, _)| name == entry),
+                "`{entry}` is in `GATE_ENTRY_POINTS`, but no function of that name both calls a \
+                 gate entry point and is called from another file — a stale entry, or the \
+                 derivation stopped seeing it. Remove it, or fix `fn_items` / `calls`."
+            );
+        }
+    }
+
+    /// The name of the `fn` item `line` opens, if it opens one. Visibility and
+    /// qualifiers come in the order rustfmt writes them; a declaration with no
+    /// body (a trait method ending in `;`) opens nothing.
+    fn fn_name(line: &str) -> Option<&str> {
+        let mut rest = line.trim_start();
+        loop {
+            let before = rest;
+            for qualifier in [
+                "pub(crate) ",
+                "pub(super) ",
+                "pub ",
+                "const ",
+                "async ",
+                "unsafe ",
+            ] {
+                if let Some(after) = rest.strip_prefix(qualifier) {
+                    rest = after;
+                }
+            }
+            if rest == before {
+                break;
+            }
+        }
+        let name = rest
+            .strip_prefix("fn ")?
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .next()?;
+        (!name.is_empty() && !line.trim_end().ends_with(';')).then_some(name)
+    }
+
+    /// Every `fn` item in `text` (production text, so comments and test
+    /// modules are already gone) as `(name, body)`. rustfmt puts an item's
+    /// opening line and its closing `}` at one indentation with nothing else
+    /// at that indentation between them, so the pair bounds the body; an item
+    /// opening at the same indentation, or any line at a shallower one, closes
+    /// whatever is open. A `fn` nested inside another's body is not an item of
+    /// its own here: it opens nothing, and its body — a gate call included —
+    /// counts as the outer function's. `src/server` has a few such local
+    /// helpers today and none calls a gate; if one ever does, the outer
+    /// function is what the derivation reports, which errs towards listing.
+    fn fn_items(text: &str) -> Vec<(String, String)> {
+        let mut items = Vec::new();
+        let mut open: Option<(String, usize, String)> = None;
+        for line in text.lines() {
+            let indent = line.len() - line.trim_start().len();
+            let opens = fn_name(line);
+            if let Some((name, at, mut body)) = open.take() {
+                if line.trim() == "}" && indent == at {
+                    items.push((name, body));
+                    continue;
+                }
+                let interrupted =
+                    !line.trim().is_empty() && (indent < at || (opens.is_some() && indent == at));
+                if !interrupted {
+                    body.push_str(line);
+                    body.push('\n');
+                    open = Some((name, at, body));
+                    continue;
+                }
+                items.push((name, body));
+            }
+            if let Some(name) = opens {
+                if line.trim_end().ends_with('}') {
+                    items.push((name.to_string(), line.to_string()));
+                } else {
+                    open = Some((name.to_string(), indent, String::new()));
+                }
+            }
+        }
+        if let Some((name, _, body)) = open {
+            items.push((name, body));
+        }
+        items
+    }
+
+    /// How many times `text` calls the free function `name`: `name(` that is
+    /// not its definition (`fn name(`), not a method of that name on some type
+    /// (`.name(`), and not the tail of a longer identifier.
+    fn calls(text: &str, name: &str) -> usize {
+        let needle = format!("{name}(");
+        text.match_indices(&needle)
+            .filter(|(at, _)| {
+                let before = &text[..*at];
+                !before.ends_with("fn ")
+                    && !before.ends_with('.')
+                    && !before
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            })
+            .count()
+    }
+
+    /// Whether `text` defines a function named `name` — the reason a `name(`
+    /// in that file is its own and not a call of a same-named function
+    /// elsewhere.
+    fn defines(text: &str, name: &str) -> bool {
+        text.contains(&format!("fn {name}(")) || text.contains(&format!("fn {name}<"))
+    }
+
+    /// The derivation's parser, on fixtures: a helper that wraps the gate is
+    /// found by the call in its body, a method or a trait declaration is not
+    /// mistaken for one, a nested `fn` folds into its parent, and a definition,
+    /// a method call, a longer name or a comment elsewhere is not a call.
+    #[test]
+    fn a_gate_helper_is_derived_from_a_call_not_a_mention() {
+        let source = [
+            "pub(crate) async fn enter_boundary(",
+            "    headers: &HeaderMap,",
+            ") -> Result<Boundary, Response> {",
+            "    let app = check_custom_app_gates(headers, project_id).await?;",
+            "    Ok(app)",
+            "}",
+            "impl Boundary {",
+            "    fn project_id(&self) -> Uuid {",
+            "        self.app.project_id",
+            "    }",
+            "}",
+            "trait Gate {",
+            "    fn check_custom_app_gates(&self);",
+            "}",
+        ]
+        .join("\n");
+        let items = fn_items(&source);
+        let names: Vec<&str> = items.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["enter_boundary", "project_id"]);
+        assert_eq!(calls(&items[0].1, "check_custom_app_gates"), 1);
+        assert_eq!(calls(&items[1].1, "check_custom_app_gates"), 0);
+
+        // A nested fn is not an item of its own: its gate call is `outer`'s.
+        let nested = [
+            "fn outer() {",
+            "    fn inner() {",
+            "        check_custom_app_gates(h, id);",
+            "    }",
+            "}",
+        ]
+        .join("\n");
+        let items = fn_items(&nested);
+        let names: Vec<&str> = items.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["outer"], "a nested fn folds into its parent");
+        assert_eq!(calls(&items[0].1, "check_custom_app_gates"), 1);
+
+        // A file that defines the name is not counted as calling it.
+        assert!(defines(
+            "pub async fn post_baseline(\n    headers: HeaderMap,\n) -> Response {",
+            "post_baseline"
+        ));
+        assert!(defines("fn post_baseline<T>(t: T) {", "post_baseline"));
+        assert!(!defines(
+            "let r = post_baseline(headers).await;",
+            "post_baseline"
+        ));
+
+        assert_eq!(
+            calls(
+                "let b = enter_boundary(&headers, id).await?;",
+                "enter_boundary"
+            ),
+            1
+        );
+        assert_eq!(
+            calls(
+                "let b = super::enter_boundary(&headers, id).await?;",
+                "enter_boundary"
+            ),
+            1
+        );
+        assert_eq!(
+            calls(
+                "pub async fn enter_boundary(headers: &HeaderMap) {",
+                "enter_boundary"
+            ),
+            0
+        );
+        assert_eq!(calls("state.enter_boundary(id);", "enter_boundary"), 0);
+        assert_eq!(calls("re_enter_boundary(id);", "enter_boundary"), 0);
+        assert_eq!(
+            calls(
+                &production_text("// see enter_boundary(..)\nfn f() {}\n"),
+                "enter_boundary"
+            ),
+            0,
+            "prose is not production text"
         );
     }
 
@@ -792,8 +1184,9 @@ mod tests {
     /// `source` with every `#[cfg(test)] mod … { … }` block and every comment
     /// line removed. Test modules are cut wherever they sit, not only at the
     /// tail (`worker.rs` keeps one mid-file): rustfmt guarantees a top-level
-    /// module closes with a `}` in column 0, and that is the cut.
-    fn agentic_production_text(source: &str) -> String {
+    /// module closes with a `}` in column 0, and that is the cut. Shared by
+    /// the agentic walk, [`data_plane_scope`] and the entry-point derivation.
+    fn production_text(source: &str) -> String {
         let mut out = String::with_capacity(source.len());
         let mut lines = source.lines().peekable();
         while let Some(line) = lines.next() {
@@ -846,7 +1239,7 @@ mod tests {
 
     impl AgenticSpawns {
         fn of(source: &str) -> Self {
-            let text = agentic_production_text(source);
+            let text = production_text(source);
             let count = |needles: &[&str]| -> usize {
                 needles.iter().map(|n| text.matches(n).count()).sum()
             };
@@ -1000,7 +1393,7 @@ mod tests {
                 exempt.len(),
             );
             if !exempt.is_empty() {
-                let text = agentic_production_text(&raw);
+                let text = production_text(&raw);
                 for entry in exempt {
                     assert!(
                         text.contains(entry.site),

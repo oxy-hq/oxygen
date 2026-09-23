@@ -566,17 +566,25 @@ pub async fn post_cohort(
     let period = req.period.clone();
     let cohort_for_run = cohort_name.clone();
 
+    // Sentry hubs are per thread: carry the request's onto the blocking pool,
+    // so a warehouse error or a panic while resolving the cohort is captured
+    // under the custom-app surface tag (`middlewares::sentry_surface`), not on
+    // the pool thread's bare hub — this request entered the gate through
+    // `enter_semantic_boundary`, and the tag lives on the hub it tagged.
+    let hub = sentry::Hub::current();
     let run = tokio::task::spawn_blocking(move || {
-        oxy_airlayer_compat::engine::cohort::resolve_cohort(
-            &augmented,
-            &entity,
-            &cohort_for_run,
-            &measure,
-            &time_dimension,
-            (period.0.as_str(), period.1.as_str()),
-            statistic,
-            &*executor,
-        )
+        sentry::Hub::run(hub, || {
+            oxy_airlayer_compat::engine::cohort::resolve_cohort(
+                &augmented,
+                &entity,
+                &cohort_for_run,
+                &measure,
+                &time_dimension,
+                (period.0.as_str(), period.1.as_str()),
+                statistic,
+                &*executor,
+            )
+        })
     });
 
     match tokio::time::timeout(COHORT_TIMEOUT, run).await {

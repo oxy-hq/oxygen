@@ -479,30 +479,38 @@ async fn run_baseline_query(
     let period = req.period.clone();
     let time_dimension = req.time_dimension.clone();
 
+    // Sentry hubs are per thread: carry the request's onto the blocking pool,
+    // so a warehouse error or a panic in the baseline reads is captured under
+    // the custom-app surface tag (`middlewares::sentry_surface`), not on the
+    // pool thread's bare hub — this request entered the gate through
+    // `enter_semantic_boundary`, and the tag lives on the hub it tagged.
+    let hub = sentry::Hub::current();
     tokio::time::timeout(
         BASELINE_TIMEOUT,
         tokio::task::spawn_blocking(move || {
-            let executor = build_query_executor(
-                engine,
-                databases,
-                workspace_manager,
-                user_id,
-                // Customer-app requests carry no workspace role of their own
-                // to read through; Viewer matches `runner_for`'s read-only
-                // posture for this surface.
-                WorkspaceRole::Viewer,
-                handle,
-                preagg,
-            );
-            mt::baseline_reads(
-                &tree,
-                &layer,
-                &roots,
-                &time_dimension,
-                (period.0.as_str(), period.1.as_str()),
-                &scope,
-                executor,
-            )
+            sentry::Hub::run(hub, || {
+                let executor = build_query_executor(
+                    engine,
+                    databases,
+                    workspace_manager,
+                    user_id,
+                    // Customer-app requests carry no workspace role of their
+                    // own to read through; Viewer matches `runner_for`'s
+                    // read-only posture for this surface.
+                    WorkspaceRole::Viewer,
+                    handle,
+                    preagg,
+                );
+                mt::baseline_reads(
+                    &tree,
+                    &layer,
+                    &roots,
+                    &time_dimension,
+                    (period.0.as_str(), period.1.as_str()),
+                    &scope,
+                    executor,
+                )
+            })
         }),
     )
     .await
