@@ -60,14 +60,13 @@ catching them every five minutes pages nobody. A host that let either through
 would fail in the engine's words, one row late.
 
 **Publish a bundle with those two steps only to a server carrying that
-classification.** The canary bundle and the server roll out independently, and
-the host notes a paging host-call failure *before* the isolate sees the
-rejection. On a server that predates `classify_host_error`'s `bad_request` for
-these refusals (`custom_apps_functions/host_call_attrs.rs`), every run leaves
-two `host_call_failed` fingerprints, `warehouse.upsert` and `tx.begin`, and
-nothing recovers them: ops are paged twice every five minutes for the canary's
-own contract check. Until that server release is deployed, keep `CANARY_STEPS`
-explicit and without `upsert_refusal` and `tx_refusal`.
+classification** — one that predates `classify_host_error`'s `bad_request` for
+these refusals (`custom_apps_functions/host_call_attrs.rs`) notes the refusal
+as a paging host-call failure before the isolate sees it. The condition, what
+it costs on an older server, and the order to republish in are in
+[custom-app-observability.md § Deploy day for a pager change](../../../internal-docs/custom-app-observability.md#deploy-day-for-a-pager-change).
+Until that server release is deployed, keep `CANARY_STEPS` explicit and
+without `upsert_refusal` and `tx_refusal`.
 
 `shape_zoo` fails as `canary step shape_zoo failed: <key> (<class>): expected <json> got <json>`,
 naming the first case that differs. Its values are synthetic. A failure there means an engine,
@@ -264,7 +263,7 @@ that step fails.
     omission. The list above is current as of `oltp_transaction`; update the
     secret when a step lands — and add `upsert_refusal` and `tx_refusal` only
     once the staging server carries the refusal classification (the paragraph
-    under the step table), or every run pages twice.
+    under the step table), or every run leaves a standing `host_call` failure.
   - The manifest does not declare `CANARY_CHECKIN_URL` required, so staging's
     Secrets panel does not list it as missing: an unset URL is staging's normal
     state, not a gap. The panel's "missing" flag is for secrets a run cannot
