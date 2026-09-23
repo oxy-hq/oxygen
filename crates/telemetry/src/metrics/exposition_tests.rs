@@ -285,6 +285,10 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
     i.custom_app_function_init_duration.record(0.001, &[]);
     i.custom_app_function_host_calls.record(1.0, &[]);
     i.custom_app_function_invocations.add(1, &[]);
+    i.custom_app_heap_terminations.add(1, &[]);
+    i.custom_app_admission_wait.record(0.001, &[]);
+    i.custom_app_admission_shed.add(1, &[]);
+    i.custom_app_bundle_cache_evictions.add(1, &[]);
 
     let body = render(&reader);
     let types: BTreeMap<&str, &str> = body
@@ -309,6 +313,18 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
         ("oxy_custom_app_isolates_live", "gauge"),
         ("oxy_custom_app_isolates_live_peak", "gauge"),
         ("oxy_custom_app_isolates_abandoned_total", "counter"),
+        ("oxy_custom_app_isolates_heap_terminations_total", "counter"),
+        ("oxy_custom_app_admission_in_use", "gauge"),
+        ("oxy_custom_app_admission_limit", "gauge"),
+        ("oxy_custom_app_admission_queued", "gauge"),
+        ("oxy_custom_app_admission_wait_seconds", "histogram"),
+        ("oxy_custom_app_admission_shed_total", "counter"),
+        // `…bundle_cache.bytes` already ends in the unit, so the `By` suffix
+        // is not applied twice; `…bundle_cache.limit` does not, so it gains
+        // `_bytes`. The asymmetry is the semconv rule working, not a typo.
+        ("oxy_custom_app_bundle_cache_bytes", "gauge"),
+        ("oxy_custom_app_bundle_cache_limit_bytes", "gauge"),
+        ("oxy_custom_app_bundle_cache_evictions_total", "counter"),
     ] {
         assert_eq!(
             types.get(name),

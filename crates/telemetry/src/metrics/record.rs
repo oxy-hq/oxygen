@@ -157,6 +157,22 @@ pub fn custom_app_admission_shed(org_id: &str, reason: &'static str) {
     });
 }
 
+/// Objects dropped from the bundle cache — to stay inside its byte budget, or
+/// because the entry cap bound.
+///
+/// Takes a count rather than being called per victim: one insert can evict
+/// thousands (a large object must free its own size against small chunks), and
+/// the caller holds a process-global lock on the custom-app asset path while it
+/// does. Both eviction causes are counted, so "zero evictions" cannot read as
+/// "the budget is generous" on a cache evicting steadily on entries.
+///
+/// Unlabelled: the cache is process-global and shared across every app, so
+/// there is no org to attribute an eviction to — the victim and the cause are
+/// usually different tenants, which is the whole reason the budget exists.
+pub fn bundle_cache_evictions(count: u64) {
+    with_instruments(|i| i.custom_app_bundle_cache_evictions.add(count, &[]));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

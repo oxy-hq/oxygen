@@ -50,17 +50,14 @@ use uuid::Uuid;
 
 use super::custom_apps_build_store::{self, BuildStoreError};
 
-/// Entry cap for cached **bytes**, count-bounded rather than byte-bounded
-/// for simplicity — revisit if a single app ships huge assets.
+/// Entry cap for cached **bytes**. Retained alongside the byte budget below;
+/// whichever binds first wins.
 ///
-/// Worth knowing that this leaves the two maps bounded backwards relative to
-/// their value: `MAX_ABSENT_REL_LEN` gives a *length* bound to the map whose
-/// entries are ≤ ~550 bytes, while this one count-bounds the map holding whole
-/// assets, capped only by the bundle's own unpack ceiling — 8192 slots × a
-/// multi-MiB chunk is GiBs resident on a replica hosting many apps, and every
-/// publisher sizes their own assets. The revisit is cheaper now that entries
-/// are `Bytes`: `len()` is O(1), so a running total decremented on eviction is
-/// a few lines.
+/// It is no longer the *interesting* bound — see [`MAX_BYTE_CACHE_BYTES`] —
+/// but it stays because the two answer different questions. This one bounds
+/// per-entry bookkeeping (a map of 8192 tiny assets costs the same map
+/// overhead whatever they weigh), and it is what keeps the LRU's own
+/// allocation predictable.
 ///
 /// A build contributes roughly its file count, plus — for an asset requested
 /// by both a brotli and a non-brotli client — one entry per representation.
@@ -68,6 +65,40 @@ use super::custom_apps_build_store::{self, BuildStoreError};
 /// case to a single entry per asset, since a brotli hit never fetches the
 /// identity object.
 const MAX_BYTE_ENTRIES: usize = 8192;
+
+/// Resident-byte budget for the byte cache. Override with
+/// [`MAX_BYTE_CACHE_BYTES_ENV`]; `0` disables the byte bound and leaves only
+/// the entry cap.
+///
+/// **Why this exists.** The entry cap alone bounded the map backwards relative
+/// to its value: `MAX_ABSENT_REL_LEN` length-bounds the map whose entries are
+/// ≤ ~550 bytes, while the map holding whole assets was bounded only by a
+/// *count*. 8192 slots × a multi-MiB chunk is GiBs resident on a replica
+/// hosting many apps, and **every publisher sizes their own assets** — so the
+/// ceiling was set by tenants rather than by us, with the pod's 2 GiB cgroup
+/// limit as the only real backstop. That limit kills the process, which serves
+/// every other app.
+///
+/// 256 MiB against a serve process whose 14-day peak was 888 MiB on a 2 GiB
+/// limit: large enough that a busy app's whole critical path stays hot, small
+/// enough that the cache cannot be the reason a replica reaches the ceiling.
+/// It is a budget, not a measurement — `oxy_custom_app_bundle_cache_bytes`
+/// reports what is actually resident, and the eviction counter says whether
+/// the budget binds.
+const MAX_BYTE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+
+/// Override for [`MAX_BYTE_CACHE_BYTES`], in megabytes. `0` disables.
+pub const MAX_BYTE_CACHE_BYTES_ENV: &str = "OXY_BUNDLE_CACHE_MAX_MB";
+
+/// The largest single object worth caching, as a fraction of the budget.
+///
+/// An asset bigger than this is served straight through. Admitting it would
+/// evict a large share of everything else to hold one object that is itself
+/// then first in line to go — paying the eviction cost twice for no hit-rate.
+/// An eighth means at least eight large assets coexist before the budget
+/// binds, which is the point where an LRU still behaves like a cache rather
+/// than a two-entry buffer.
+const OVERSIZE_DIVISOR: usize = 8;
 
 /// Entry cap for **known-absent** keys. Larger than the byte cap because an
 /// entry is a bare string rather than a payload, and because the key space
@@ -100,7 +131,182 @@ const MAX_ABSENT_REL_LEN: usize = 512;
 /// `Arc<Vec<u8>>` forced a `to_vec()` at that boundary — a full alloc and
 /// memcpy of the asset on every warm-cache hit, which is exactly the
 /// per-request cost this module exists to remove.
-type ByteCache = Mutex<LruCache<String, Bytes>>;
+/// An LRU that evicts on **resident bytes** as well as entry count.
+///
+/// The running total lives beside the map rather than being recomputed,
+/// because `Bytes::len()` is O(1) but summing 8192 of them per insert is not.
+/// Both fields are private and every mutation goes through the three methods
+/// below, so `resident` cannot drift from the sum of the entries — the one
+/// invariant that matters here, and the one a bare `usize` next to a public
+/// map would eventually lose.
+///
+/// The subtle case is **replacement**: `LruCache::put` returns the displaced
+/// value, and forgetting to subtract its length leaks budget on every
+/// overwrite until the cache believes it is full while holding almost
+/// nothing. A test pins it.
+struct ByteBudgetCache {
+    lru: LruCache<String, Bytes>,
+    resident: usize,
+    /// Held per-instance rather than read from [`byte_budget`] at each `put`,
+    /// so a test can build a small cache and observe eviction without
+    /// allocating the real 256 MiB budget.
+    budget: usize,
+}
+
+impl ByteBudgetCache {
+    fn new() -> Self {
+        Self::with_budget(byte_budget())
+    }
+
+    fn with_budget(budget: usize) -> Self {
+        Self::with_caps(MAX_BYTE_ENTRIES, budget)
+    }
+
+    /// Both caps injectable, so a test can make the **entry** cap bind without
+    /// inserting 8192 objects. That matters more than it looks: the entry cap
+    /// is the one that binds first in production whenever the mean cached
+    /// object is under `budget / MAX_BYTE_ENTRIES` (32 KiB at the defaults),
+    /// which is most of a Vite build — and it is the path where the byte
+    /// accounting was wrong.
+    fn with_caps(entries: usize, budget: usize) -> Self {
+        Self {
+            lru: LruCache::new(NonZeroUsize::new(entries).expect("entry cap > 0")),
+            resident: 0,
+            budget,
+        }
+    }
+
+    fn get(&mut self, k: &str) -> Option<Bytes> {
+        self.lru.get(k).cloned()
+    }
+
+    /// Insert, evicting least-recently-used entries until the budget holds.
+    ///
+    /// Returns `false` when the object was too large to admit (see
+    /// [`OVERSIZE_DIVISOR`]) — the caller still serves it, it just is not
+    /// remembered.
+    fn put(&mut self, k: String, v: Bytes) -> bool {
+        let budget = self.budget;
+        if budget > 0 && v.len() > budget / OVERSIZE_DIVISOR {
+            return false;
+        }
+        let incoming = v.len();
+        // `contains` takes `&self` and cannot promote, so probing first leaves
+        // LRU order untouched. It is what distinguishes the two things `push`
+        // reports through one return value.
+        let replacing = self.lru.contains(&k);
+        let mut evicted = 0u64;
+
+        // `push`, NOT `put`. `put` returns only a *replaced* value: at capacity
+        // it evicts the least-recently-used entry internally and returns
+        // `None`, because the victim is a different key than the one inserted
+        // and `Option<V>` cannot name it. Its bytes were therefore never
+        // subtracted, so `resident` drifted upward on every insert past the
+        // entry cap — over-reporting the gauge, then evicting live entries to
+        // pay down phantom bytes, converging on evict-per-insert. `push`
+        // returns `Option<(K, V)>` and reports both cases.
+        //
+        // Replacement is handled before the budget check, so overwriting a hot
+        // entry with a slightly larger one does not evict others for nothing.
+        if let Some((_, old)) = self.lru.push(k, v) {
+            self.resident = self.resident.saturating_sub(old.len());
+            if !replacing {
+                // A capacity eviction rather than an overwrite. Counting it is
+                // what keeps the counter from measuring byte-budget pressure
+                // alone — otherwise "zero evictions" reads as "the budget is
+                // generous" on a cache evicting steadily on entries.
+                evicted += 1;
+            }
+        }
+        self.resident += incoming;
+
+        if budget > 0 {
+            while self.resident > budget {
+                match self.lru.pop_lru() {
+                    Some((_, victim)) => {
+                        self.resident = self.resident.saturating_sub(victim.len());
+                        evicted += 1;
+                    }
+                    // Reachable only if `resident` has drifted from the map —
+                    // which is the bug above. Kept so that a future drift is a
+                    // wrong number rather than an infinite loop under the
+                    // process-global lock on the request path.
+                    None => {
+                        self.resident = 0;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Recorded once, not per victim. A large insert must free its own size,
+        // so a 32 MiB object against 4 KiB chunks is thousands of pops — and
+        // this loop runs under the mutex every custom-app asset request
+        // contends on. One `add(n)` keeps the metrics cost O(1) per insert
+        // instead of O(victims) on a path `oxy-customer-apps-perf` governs.
+        if evicted > 0 {
+            oxy_telemetry::metrics::record::bundle_cache_evictions(evicted);
+        }
+        oxy_telemetry::metrics::sources::set_bundle_cache_bytes(self.resident as u64);
+        true
+    }
+
+    /// Only the tests reach this — `seed` pops the *absent* cache, which is a
+    /// plain `LruCache`. Kept because the byte accounting has to be exercised
+    /// on removal too, and gated so it is not a dead-code warning in a build
+    /// that does not compile tests.
+    #[cfg(test)]
+    fn pop(&mut self, k: &str) {
+        if let Some(v) = self.lru.pop(k) {
+            self.resident = self.resident.saturating_sub(v.len());
+            oxy_telemetry::metrics::sources::set_bundle_cache_bytes(self.resident as u64);
+        }
+    }
+}
+
+/// The resident-byte budget in force, resolved once.
+///
+/// **Call [`resolve_budget`] at boot rather than letting this fall out of the
+/// first request** — see that function for why.
+fn byte_budget() -> usize {
+    static VALUE: OnceLock<usize> = OnceLock::new();
+    *VALUE.get_or_init(|| {
+        let bytes = match std::env::var(MAX_BYTE_CACHE_BYTES_ENV)
+            .ok()
+            .and_then(|v| v.trim().parse::<usize>().ok())
+        {
+            Some(0) => 0,
+            // `saturating_mul`: the parse accepts any `usize`, so a fat-fingered
+            // `OXY_BUNDLE_CACHE_MAX_MB` overflows the multiply — a panic in a
+            // debug build (which is what this repo builds locally and in CI)
+            // and a silent wrap in release, both inside a `OnceLock` init on
+            // the first request that touches the cache.
+            Some(mb) => mb.saturating_mul(1024 * 1024),
+            None => MAX_BYTE_CACHE_BYTES,
+        };
+        oxy_telemetry::metrics::sources::set_bundle_cache_limit(bytes as u64);
+        bytes
+    })
+}
+
+/// Resolve the budget and publish `oxy_custom_app_bundle_cache_limit_bytes`.
+///
+/// Called from serve startup. Left lazy, the budget is resolved by the first
+/// custom-app asset request on the replica, so until then the gauge reads `0` —
+/// which is also the documented value for "the byte bound is disabled". Over
+/// the whole boot-to-first-bundle-request window the two are indistinguishable,
+/// and the saturation ratio this gauge is the denominator of divides by zero.
+///
+/// That is the same defect the admission-limit gauge already had and already
+/// fixed; `sources` states the rule in bold — publish at boot, not lazily —
+/// and this reintroduced it for a sibling gauge. Unlike the admission limits
+/// this is **not** behind `custom-app-functions`: the bundle cache serves
+/// static assets and exists whether or not the V8 runtime is compiled in.
+pub fn resolve_budget() -> usize {
+    byte_budget()
+}
+
+type ByteCache = Mutex<ByteBudgetCache>;
 /// Keys known not to exist in their build. Value-less: presence *is* the fact.
 type AbsentCache = Mutex<LruCache<String, ()>>;
 
@@ -118,11 +324,7 @@ type AbsentCache = Mutex<LruCache<String, ()>>;
 /// lets each cap suit what it holds.
 fn byte_cache() -> &'static ByteCache {
     static CACHE: OnceLock<ByteCache> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(LruCache::new(
-            NonZeroUsize::new(MAX_BYTE_ENTRIES).expect("MAX_BYTE_ENTRIES > 0"),
-        ))
-    })
+    CACHE.get_or_init(|| Mutex::new(ByteBudgetCache::new()))
 }
 
 fn absent_cache() -> &'static AbsentCache {
@@ -148,7 +350,7 @@ pub async fn get_or_fetch(
 ) -> Result<Option<Bytes>, BuildStoreError> {
     let k = key(app_id, build_id, rel_path);
     // Bytes first: the common case, and the more valuable answer.
-    if let Some(hit) = byte_cache().lock().get(&k).cloned() {
+    if let Some(hit) = byte_cache().lock().get(&k) {
         return Ok(Some(hit));
     }
     // Then "we have asked before and it wasn't there".
@@ -160,7 +362,20 @@ pub async fn get_or_fetch(
     let fetched = custom_apps_build_store::get_object(app_id, build_id, rel_path).await?;
     match &fetched {
         Some(bytes) => {
-            byte_cache().lock().put(k, bytes.clone());
+            if !byte_cache().lock().put(k, bytes.clone()) {
+                // Served, not remembered. Logged at `debug` rather than
+                // `trace` — unlike the long-path case below this is bounded by
+                // what an app actually publishes, so it cannot be driven by a
+                // scanner, and an operator wondering why one asset never warms
+                // needs a line to find.
+                tracing::debug!(
+                    target: "oxy.custom_app.bundle_cache",
+                    app_id = %app_id,
+                    build_id,
+                    bytes = bytes.len(),
+                    "object exceeds the per-entry cache ceiling; serving without caching"
+                );
+            }
         }
         None if rel_path.len() <= MAX_ABSENT_REL_LEN => {
             absent_cache().lock().put(k, ());
@@ -289,6 +504,189 @@ mod tests {
         unsafe {
             std::env::remove_var("OXY_STATE_DIR");
         }
+    }
+
+    /// The invariant the whole design rests on: `resident` is the sum of the
+    /// entries' lengths. These exercise `ByteBudgetCache` directly rather than
+    /// through `get_or_fetch`, because the budget is process-global and
+    /// resolved once — a test that drove it through the real cache could not
+    /// choose a budget small enough to make evictions observable.
+    #[test]
+    fn resident_tracks_the_sum_of_entries() {
+        let mut c = ByteBudgetCache::with_budget(1_000_000);
+        assert_eq!(c.resident, 0);
+
+        c.put("a".into(), Bytes::from_static(&[0u8; 100]));
+        c.put("b".into(), Bytes::from_static(&[0u8; 250]));
+        assert_eq!(c.resident, 350);
+
+        c.pop("a");
+        assert_eq!(c.resident, 250, "pop must release the entry's bytes");
+
+        c.pop("nonexistent");
+        assert_eq!(c.resident, 250, "popping a missing key changes nothing");
+    }
+
+    /// **The bug this shape invites.** `LruCache::put` returns the displaced
+    /// value; forgetting to subtract its length leaks budget on every
+    /// overwrite, until the cache believes it is full while holding almost
+    /// nothing and evicts everything on the next insert.
+    ///
+    /// Overwrites are not hypothetical here: a re-`seed` of `index.html` at
+    /// publish time hits exactly this path.
+    #[test]
+    fn replacing_an_entry_does_not_leak_budget() {
+        let mut c = ByteBudgetCache::with_budget(1_000_000);
+        c.put("k".into(), Bytes::from_static(&[0u8; 1000]));
+        assert_eq!(c.resident, 1000);
+
+        c.put("k".into(), Bytes::from_static(&[0u8; 10]));
+        assert_eq!(
+            c.resident, 10,
+            "the displaced value's bytes must be released, not added to"
+        );
+
+        c.put("k".into(), Bytes::from_static(&[0u8; 400]));
+        assert_eq!(c.resident, 400);
+        assert_eq!(c.lru.len(), 1, "an overwrite is not a second entry");
+    }
+
+    /// An object larger than the per-entry ceiling is refused rather than
+    /// admitted-and-immediately-evicted. Admitting it would evict a large
+    /// share of the cache to hold something that is itself next to go.
+    #[test]
+    fn an_oversized_object_is_refused_and_leaves_the_cache_intact() {
+        let mut c = ByteBudgetCache::with_budget(8_000);
+        c.put("hot".into(), Bytes::from_static(b"keep me"));
+        let before = c.resident;
+
+        let huge = Bytes::from(vec![0u8; 8_000 / OVERSIZE_DIVISOR + 1]);
+        assert!(
+            !c.put("huge".into(), huge),
+            "an object past the per-entry ceiling must be refused"
+        );
+        assert_eq!(c.resident, before, "a refused object contributes no bytes");
+        assert!(
+            c.get("hot").is_some(),
+            "a refused object must not have evicted anything"
+        );
+    }
+
+    /// An object exactly at the ceiling is admitted — the bound is `>`, not
+    /// `>=`, and an off-by-one here silently halves the useful entry size.
+    #[test]
+    fn an_object_exactly_at_the_ceiling_is_admitted() {
+        let mut c = ByteBudgetCache::with_budget(8_000);
+        let at_limit = Bytes::from(vec![0u8; 8_000 / OVERSIZE_DIVISOR]);
+        assert!(c.put("edge".into(), at_limit));
+        assert!(c.get("edge").is_some());
+    }
+
+    /// The point of the change: the cache evicts on **bytes**, long before the
+    /// 8192-entry cap would bind.
+    ///
+    /// Sizing note — entries must clear the per-entry ceiling
+    /// (`budget / OVERSIZE_DIVISOR`) or they are refused rather than admitted
+    /// and evicted, and the test would pass vacuously with an empty cache.
+    /// 1 KiB against a 10 KiB budget gives a 1.25 KiB ceiling, so all fifteen
+    /// are admissible and only the byte budget decides what stays.
+    #[test]
+    fn the_budget_evicts_least_recently_used_bytes() {
+        let mut c = ByteBudgetCache::with_budget(10_000);
+        for i in 0..15 {
+            assert!(
+                c.put(format!("k{i}"), Bytes::from(vec![0u8; 1_000])),
+                "k{i} must be admissible, or this test proves nothing"
+            );
+        }
+        assert!(
+            c.resident <= 10_000,
+            "resident {} exceeded the 10000-byte budget",
+            c.resident
+        );
+        assert!(
+            c.lru.len() < 15,
+            "nothing was evicted — the cache is still count-bounded only"
+        );
+        assert_eq!(
+            c.resident,
+            c.lru.iter().map(|(_, v)| v.len()).sum::<usize>(),
+            "the running total drifted from the map it describes"
+        );
+        assert!(
+            c.get("k0").is_none(),
+            "eviction must take the LEAST recently used first"
+        );
+        assert!(c.get("k14").is_some(), "the newest entry must survive");
+    }
+
+    /// **The capacity-eviction twin of the replacement test**, and the case
+    /// that was wrong.
+    ///
+    /// `LruCache::put` returns *only* a replaced value: when the map is at
+    /// capacity it evicts the least-recently-used entry internally and returns
+    /// `None`, because the victim is a different key than the one inserted and
+    /// the `Option<V>` signature cannot name it. So every insert past the cap
+    /// added its bytes with no matching subtraction and `resident` drifted
+    /// upward forever — over-reporting the gauge, then evicting real entries to
+    /// pay down phantom bytes, converging on evict-per-insert.
+    ///
+    /// The entry cap is not the unreachable bound here: it binds first whenever
+    /// the mean object is under `budget / entries`, which is most of a Vite
+    /// build on a replica hosting many apps — the exact scenario this module
+    /// exists for.
+    #[test]
+    fn capacity_eviction_keeps_the_byte_accounting_honest() {
+        // Tiny entry cap, budget large enough that it never binds — so this
+        // isolates the count path.
+        let mut c = ByteBudgetCache::with_caps(4, 10_000_000);
+        for i in 0..40 {
+            assert!(c.put(format!("k{i}"), Bytes::from(vec![0u8; 100])));
+        }
+
+        assert_eq!(c.lru.len(), 4, "the entry cap must still bind");
+        assert_eq!(
+            c.resident,
+            c.lru.iter().map(|(_, v)| v.len()).sum::<usize>(),
+            "resident drifted from the map: a capacity eviction's bytes were \
+             never released (LruCache::put discards the victim — use push)"
+        );
+        assert_eq!(c.resident, 400, "four 100-byte entries");
+    }
+
+    /// Both caps binding at once, which is the production shape.
+    #[test]
+    fn accounting_holds_when_both_caps_bind() {
+        let mut c = ByteBudgetCache::with_caps(8, 1_000);
+        for i in 0..50 {
+            c.put(format!("k{i}"), Bytes::from(vec![0u8; 120]));
+        }
+        assert!(c.lru.len() <= 8);
+        assert!(c.resident <= 1_000);
+        assert_eq!(
+            c.resident,
+            c.lru.iter().map(|(_, v)| v.len()).sum::<usize>(),
+            "resident must equal the map under both bounds"
+        );
+    }
+
+    /// A zero budget disables the byte bound entirely, leaving the original
+    /// entry cap — the documented off switch, and the rollback path.
+    #[test]
+    fn a_zero_budget_disables_the_byte_bound() {
+        let mut c = ByteBudgetCache::with_budget(0);
+        for i in 0..20 {
+            c.put(format!("k{i}"), Bytes::from(vec![0u8; 10_000]));
+        }
+        assert_eq!(
+            c.lru.len(),
+            20,
+            "with the bound off, nothing evicts on bytes"
+        );
+        assert_eq!(
+            c.resident, 200_000,
+            "the total is still tracked, just not enforced"
+        );
     }
 
     #[tokio::test]

@@ -155,6 +155,32 @@ pub static ADMISSION_IN_USE: AtomicI64 = AtomicI64::new(0);
 /// needs no out-of-band constant. Zero means the cap is disabled.
 pub static ADMISSION_LIMIT: AtomicI64 = AtomicI64::new(0);
 
+/// Bytes the custom-app bundle cache currently holds.
+///
+/// The cache was bounded by entry *count* only, which set its ceiling from
+/// what tenants publish rather than from anything we chose — 8192 slots × a
+/// multi-MiB chunk is GiBs, with the pod's cgroup limit as the only backstop.
+/// It is now byte-bounded, and this is what says whether the budget is being
+/// approached, together with [`BUNDLE_CACHE_LIMIT`] as its denominator.
+pub static BUNDLE_CACHE_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// The configured resident-byte budget; `0` when the byte bound is disabled.
+///
+/// Published when the budget is first resolved, so the ratio needs no
+/// out-of-band constant and a replica reporting `0` genuinely has the bound
+/// off rather than merely not having cached anything yet.
+pub static BUNDLE_CACHE_LIMIT: AtomicU64 = AtomicU64::new(0);
+
+/// Publish the bundle cache's current resident size.
+pub fn set_bundle_cache_bytes(bytes: u64) {
+    BUNDLE_CACHE_BYTES.store(bytes, Ordering::Relaxed);
+}
+
+/// Publish the bundle cache's configured budget.
+pub fn set_bundle_cache_limit(bytes: u64) {
+    BUNDLE_CACHE_LIMIT.store(bytes, Ordering::Relaxed);
+}
+
 /// Publish the admission cap's ceiling once it is known.
 ///
 /// **Call this at boot, not lazily.** Published only as a side effect of the

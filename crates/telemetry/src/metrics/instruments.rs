@@ -178,6 +178,15 @@ pub struct Instruments {
     /// came free within the queue budget, by `oxy.reason` (`global` / `org`).
     pub custom_app_admission_shed: Counter<u64>,
 
+    /// `oxy.custom_app.bundle_cache.evictions` — objects dropped from the
+    /// bundle cache to stay inside its resident-byte budget.
+    ///
+    /// Zero means the budget never binds and the cache is sized generously.
+    /// A high rate against a low hit rate means it is thrashing — the budget
+    /// is too small for the working set, and raising it is cheaper than the
+    /// store round-trips it is costing.
+    pub custom_app_bundle_cache_evictions: Counter<u64>,
+
     /// Observable handles. Never read; held so their callbacks stay registered.
     _observables: Vec<ObservableHandle>,
 }
@@ -288,6 +297,15 @@ impl Instruments {
                      whether the global or the per-org limit bound.",
                 )
                 .with_unit("{invocation}")
+                .build(),
+            custom_app_bundle_cache_evictions: meter
+                .u64_counter("oxy.custom_app.bundle_cache.evictions")
+                .with_description(
+                    "Objects dropped from the bundle cache to stay inside its resident-byte \
+                     budget. Zero means the budget never binds; a high rate means it is thrashing \
+                     and is costing store round-trips.",
+                )
+                .with_unit("{object}")
                 .build(),
 
             _observables: observables(meter),
@@ -409,6 +427,35 @@ fn observables(meter: &Meter) -> Vec<ObservableHandle> {
                 .with_unit("{permit}")
                 .with_callback(|observer| {
                     observer.observe(sources::ADMISSION_IN_USE.load(Ordering::Relaxed), &[]);
+                })
+                .build(),
+        ),
+        ObservableHandle::U64(
+            meter
+                .u64_observable_gauge("oxy.custom_app.bundle_cache.bytes")
+                .with_description(
+                    "Bytes the custom-app bundle cache holds right now. Its ceiling used to be a \
+                     per-entry COUNT, so the resident size was set by what tenants publish rather \
+                     than by anything we chose; this is the measured half of the byte budget that \
+                     replaced it.",
+                )
+                .with_unit("By")
+                .with_callback(|observer| {
+                    observer.observe(sources::BUNDLE_CACHE_BYTES.load(Ordering::Relaxed), &[]);
+                })
+                .build(),
+        ),
+        ObservableHandle::U64(
+            meter
+                .u64_observable_gauge("oxy.custom_app.bundle_cache.limit")
+                .with_description(
+                    "The bundle cache's configured resident-byte budget; 0 when the byte bound is \
+                     disabled. Published when the budget is resolved, so 0 means genuinely off \
+                     rather than nothing cached yet.",
+                )
+                .with_unit("By")
+                .with_callback(|observer| {
+                    observer.observe(sources::BUNDLE_CACHE_LIMIT.load(Ordering::Relaxed), &[]);
                 })
                 .build(),
         ),

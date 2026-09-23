@@ -1057,6 +1057,16 @@ async fn serve_application(
     // cap is disabled") for the whole window between a replica starting and its
     // first function call, and the saturation ratio it is the denominator of
     // divides by zero over exactly that window.
+    // Unconditional, unlike the function limits below: the bundle cache serves
+    // static assets and exists whether or not the V8 runtime is compiled in.
+    // Left lazy it is resolved by the first asset request, so until then the
+    // gauge reads 0 — indistinguishable from the documented "bound disabled".
+    tracing::info!(
+        target: "oxy.custom_app.bundle_cache",
+        budget_bytes = crate::server::api::custom_apps_bundle_cache::resolve_budget(),
+        "custom-app bundle cache budget"
+    );
+
     #[cfg(feature = "custom-app-functions")]
     {
         use crate::server::api::custom_apps_functions::limits;
