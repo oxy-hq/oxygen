@@ -12,6 +12,7 @@
 
 use opentelemetry::KeyValue;
 
+use super::Instruments;
 use super::instruments::app_label;
 use super::with_instruments;
 
@@ -24,6 +25,55 @@ const KIND: &str = "oxy.kind";
 const FUNCTION: &str = "oxy.function";
 const OUTCOME: &str = "oxy.outcome";
 const STATUS: &str = "http.response.status_code";
+const REASON: &str = "oxy.reason";
+
+/// The two `reason` values [`db_pool_probe_failure`] can carry.
+///
+/// Public because `oxy-platform`'s probe selects from these rather than
+/// spelling its own literals. [`seed_zero_series`] has to seed *the same*
+/// series the probe will later increment, and two string literals in two
+/// crates drift without a compile error — which would leave a seeded decoy at
+/// 0 beside the real series. One definition makes that impossible.
+pub const DB_POOL_PROBE_FAILURE_TIMEOUT: &str = "timeout";
+/// See [`DB_POOL_PROBE_FAILURE_TIMEOUT`].
+pub const DB_POOL_PROBE_FAILURE_ERROR: &str = "error";
+
+const DB_POOL_PROBE_FAILURE_REASONS: [&str; 2] =
+    [DB_POOL_PROBE_FAILURE_TIMEOUT, DB_POOL_PROBE_FAILURE_ERROR];
+
+/// Give the synchronous counters an alert can be written against a sample at
+/// zero, at install time.
+///
+/// **Why this is needed at all.** An *observable* instrument's callback runs on
+/// every collection, so its series exists from the first scrape and
+/// `increase(x[1h]) > 0` sees `0 -> 1` on the first event. A *synchronous*
+/// counter is different: OTel exports only instruments that hold data, so the
+/// series does not exist until the first `add()` — it is **born carrying that
+/// first value, with no earlier sample to subtract from**. `increase()` over it
+/// therefore returns 0 for a counter that appears at 1 and never moves again,
+/// and the first, isolated occurrence is invisible to an alert. That is the
+/// "alarm that looks like coverage but can never fire" failure this whole
+/// module exists to close, so the counters that *can* be seeded are.
+///
+/// **Why only these two.** A seed must carry the **exact** attribute set the
+/// real record will use. Seeding a different one is strictly worse than not
+/// seeding: it produces a decoy series pinned at 0 while the real one is born
+/// beside it, so a rule reads calm precisely when something is happening. That
+/// rules out every counter keyed by org — `custom_app_admission_shed`,
+/// `custom_app_heap_termination`, `custom_app_function` — because the org set
+/// is not known here and is unbounded anyway. Those stay un-seeded, and a rule
+/// on them needs the birth clause `(x > 0) unless (x offset 1h)` instead.
+///
+/// Seeding is also *not* free of meaning: it asserts these series should exist
+/// on every process. Both do — the pool probe runs everywhere, and the bundle
+/// cache is constructed on any role that can serve a custom app.
+pub(super) fn seed_zero_series(i: &Instruments) {
+    i.custom_app_bundle_cache_evictions.add(0, &[]);
+    for reason in DB_POOL_PROBE_FAILURE_REASONS {
+        i.db_pool_probe_failures
+            .add(0, &[KeyValue::new(REASON, reason)]);
+    }
+}
 
 /// One successful pool health probe, and how long it waited for a connection.
 pub fn db_pool_probe(seconds: f64) {
@@ -45,7 +95,7 @@ pub fn db_pool_probe(seconds: f64) {
 pub fn db_pool_probe_failure(reason: &'static str) {
     with_instruments(|i| {
         i.db_pool_probe_failures
-            .add(1, &[KeyValue::new("oxy.reason", reason)]);
+            .add(1, &[KeyValue::new(REASON, reason)]);
     });
 }
 

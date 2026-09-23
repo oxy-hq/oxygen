@@ -237,6 +237,13 @@ pub fn init(config: &MetricsConfig, resource: Resource) -> Vec<String> {
         problems
             .push("metrics were installed concurrently; one of the two providers serves".into());
     }
+
+    // After the `set`, never before: `with_instruments` reads `INSTALLED`, so
+    // seeding earlier would be a silent no-op — the exact shape of bug this
+    // seeding exists to prevent. On a lost race this seeds the winner's
+    // instruments, which is the right target anyway.
+    with_instruments(record::seed_zero_series);
+
     problems
 }
 

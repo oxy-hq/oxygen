@@ -372,3 +372,66 @@ fn every_rendered_line_is_a_comment_or_a_sample() {
         );
     }
 }
+
+/// The premise the seeding rests on: a synchronous counter that nothing has
+/// recorded into exports **no series at all**. If OTel ever changed that, the
+/// seeding below would be unnecessary rather than merely harmless, and this is
+/// the test that would say so.
+#[test]
+fn an_unrecorded_sync_counter_exports_nothing() {
+    use crate::metrics::Instruments;
+
+    let (provider, reader) = harness();
+    let _instruments = Instruments::new(&provider.meter("oxy"));
+
+    let body = render(&reader);
+    assert!(
+        !body.contains("oxy_custom_app_bundle_cache_evictions"),
+        "a sync counter with no samples should export nothing — if it now \
+         exports a zero on its own, `record::seed_zero_series` is redundant:\n{body}"
+    );
+}
+
+/// Seeding gives the alertable sync counters a prior sample, so the first real
+/// event is a visible delta rather than the series' birth value.
+///
+/// Both halves are the assertion. The counters that CAN be seeded must be
+/// present at zero; the org-labelled ones must be absent, because a seed under
+/// an attribute set the real record will not use is a decoy pinned at 0 while
+/// the true series is born beside it.
+#[test]
+fn seeding_makes_a_first_event_visible_to_increase() {
+    use crate::metrics::Instruments;
+
+    let (provider, reader) = harness();
+    let instruments = Instruments::new(&provider.meter("oxy"));
+    crate::metrics::record::seed_zero_series(&instruments);
+
+    let body = render(&reader);
+
+    for name in [
+        "oxy_custom_app_bundle_cache_evictions_total",
+        r#"oxy_db_pool_probe_failures_total{oxy_reason="error"}"#,
+        r#"oxy_db_pool_probe_failures_total{oxy_reason="timeout"}"#,
+    ] {
+        let line = body
+            .lines()
+            .find(|l| l.starts_with(name) && !l.starts_with('#'))
+            .unwrap_or_else(|| panic!("seeded series is missing: {name}\n{body}"));
+        let (_, value) = line.rsplit_once(' ').expect("sample has a value");
+        assert_eq!(value, "0", "a seed must be zero, not a count: {line}");
+    }
+
+    for absent in [
+        "oxy_custom_app_admission_shed_total",
+        "oxy_custom_app_isolates_heap_terminations_total",
+        "oxy_custom_app_function_invocations_total",
+    ] {
+        assert!(
+            !body.contains(absent),
+            "{absent} is keyed by org, so it must NOT be seeded — a seed under \
+             the wrong attribute set is a decoy that reads calm while the real \
+             series is born elsewhere:\n{body}"
+        );
+    }
+}

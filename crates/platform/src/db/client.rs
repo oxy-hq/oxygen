@@ -195,10 +195,15 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
             // prod incident where `max_connections` sat pending-reboot: sqlx
             // swallows the Postgres `FATAL`, so without this the only evidence
             // was latency that looked like slow queries.
+            // These come from `record` rather than being spelled here: the
+            // same two values are seeded at zero on install so an alert can
+            // see the first failure, and a literal that drifted from the
+            // seeded one would create a second series while the seeded decoy
+            // stayed calm.
             let failure_reason = match &probe {
                 Ok(Ok(_)) => None,
-                Ok(Err(_)) => Some("error"),
-                Err(_) => Some("timeout"),
+                Ok(Err(_)) => Some(oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_ERROR),
+                Err(_) => Some(oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_TIMEOUT),
             };
             match probe {
                 Ok(Ok(_conn)) => {
@@ -224,7 +229,9 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
                     // either would put a number in the histogram that answers a
                     // different question from every other sample in it.
                     oxy_telemetry::metrics::record::db_pool_probe_failure(
-                        failure_reason.unwrap_or("timeout"),
+                        failure_reason.unwrap_or(
+                            oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_TIMEOUT,
+                        ),
                     );
                     oxy_telemetry::metrics::sources::set_db_pool_starved(true);
                     // Resolve the cause BEFORE the macro: awaiting inside a
