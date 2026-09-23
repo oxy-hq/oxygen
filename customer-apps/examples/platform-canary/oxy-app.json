@@ -31,7 +31,12 @@
     },
     "echo": {
       "route": true,
-      "timeoutSeconds": 10
+      "timeoutSeconds": 10,
+      "webhook": {
+        "secretVar": "CANARY_PROBE_SECRET",
+        "signatureHeader": "x-oxy-probe-signature",
+        "encoding": "hex"
+      }
     }
   }
 }
