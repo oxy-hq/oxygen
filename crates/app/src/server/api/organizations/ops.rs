@@ -67,8 +67,15 @@ const RESERVED_ORG_SLUGS: &[&str] = &[
     "workspaces",
 ];
 
+/// A slug an org may not take. Two reasons:
+///
+/// - it collides with a top-level frontend route ([`RESERVED_ORG_SLUGS`]); or
+/// - it contains `--`, the delimiter in custom-app hosts
+///   (`[<env>--]<org>--<slug>.customer-apps.<zone>`, parsed by
+///   `oxy_app_core::custom_apps_host_dispatch::parse_app_host`). An org slug holding
+///   one would make those hosts ambiguous.
 pub fn is_reserved_slug(slug: &str) -> bool {
-    RESERVED_ORG_SLUGS.contains(&slug)
+    RESERVED_ORG_SLUGS.contains(&slug) || slug.contains("--")
 }
 
 /// Trims, lowercases, and validates an invitee email. Returns the normalized
@@ -306,5 +313,28 @@ mod invitation_email_tests {
         )
         .expect("render");
         assert!(html.contains("alice@acme.com"));
+    }
+}
+
+#[cfg(test)]
+mod reserved_slug_tests {
+    use super::is_reserved_slug;
+
+    #[test]
+    fn a_double_hyphen_is_reserved_as_the_custom_app_host_delimiter() {
+        assert!(is_reserved_slug("acme--internal"));
+        assert!(is_reserved_slug("--"));
+    }
+
+    #[test]
+    fn single_hyphens_and_ordinary_slugs_are_not_reserved() {
+        assert!(!is_reserved_slug("poke-house"));
+        assert!(!is_reserved_slug("staging"));
+        assert!(!is_reserved_slug("dev-team"));
+    }
+
+    #[test]
+    fn route_collisions_are_still_reserved() {
+        assert!(is_reserved_slug("admin"));
     }
 }

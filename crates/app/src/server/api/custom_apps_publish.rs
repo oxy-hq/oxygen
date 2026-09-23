@@ -26,9 +26,10 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use entity::{app_builds, app_functions, apps, organizations, workspaces};
 use flate2::read::GzDecoder;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, ModelTrait,
-    QueryFilter, QueryOrder,
+    QueryFilter, QueryOrder, TransactionTrait,
 };
 use serde::Serialize;
 use tar::Archive;
@@ -1110,33 +1111,60 @@ async fn register_function_schedules(
 }
 
 /// Point the channel(s) at the new build. Draft always; published +
-/// `published_at` when promoting.
+/// `published_at` when promoting. Each move is mirrored into `app_environments`
+/// (draft → staging, published → production) in the same transaction, so the two
+/// can never disagree.
 async fn set_pointers(
     db: &DatabaseConnection,
     app_id: Uuid,
     build_pk: Uuid,
     promote: bool,
+    actor: Option<Uuid>,
 ) -> Result<(), PublishError> {
-    let row = apps::Entity::find_by_id(app_id)
-        .one(db)
-        .await
-        .map_err(|e| PublishError::Db(e.to_string()))?
-        .ok_or_else(|| PublishError::Db(format!("app {app_id} vanished mid-publish")))?;
-    let mut active: apps::ActiveModel = row.into();
-    active.draft_build_id = ActiveValue::Set(Some(build_pk));
     if promote {
         // Promotion gate (validator-can't-be-bypassed): only a build whose
         // validation is recorded `passed` may go live. Redundant on this path —
         // the build was just gate-1 validated — but keeps every promotion point
         // honest, so a build that hasn't passed can never reach the live channel.
         gate_promotion(db, build_pk).await?;
+    }
+    let db_err = |e: sea_orm::DbErr| PublishError::Db(e.to_string());
+    let txn = db.begin().await.map_err(db_err)?;
+    let row = apps::Entity::find_by_id(app_id)
+        .one(&txn)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| PublishError::Db(format!("app {app_id} vanished mid-publish")))?;
+    let mut active: apps::ActiveModel = row.into();
+    active.draft_build_id = ActiveValue::Set(Some(build_pk));
+    if promote {
         active.published_build_id = ActiveValue::Set(Some(build_pk));
         active.published_at = ActiveValue::Set(Some(Utc::now().fixed_offset()));
     }
-    active
-        .update(db)
+    active.update(&txn).await.map_err(db_err)?;
+    super::custom_apps_environments::record_move(
+        &txn,
+        app_id,
+        &AppEnvironment::Staging,
+        Some(build_pk),
+        super::custom_apps_environments::EnvAction::Publish,
+        actor,
+    )
+    .await
+    .map_err(db_err)?;
+    if promote {
+        super::custom_apps_environments::record_move(
+            &txn,
+            app_id,
+            &AppEnvironment::Production,
+            Some(build_pk),
+            super::custom_apps_environments::EnvAction::Promote,
+            actor,
+        )
         .await
-        .map_err(|e| PublishError::Db(e.to_string()))?;
+        .map_err(db_err)?;
+    }
+    txn.commit().await.map_err(db_err)?;
     Ok(())
 }
 
@@ -1167,8 +1195,8 @@ async fn gate_promotion(db: &DatabaseConnection, build_pk: Uuid) -> Result<(), P
     Ok(())
 }
 
-/// Delete builds beyond `KEEP_BUILDS`, never touching the rows the two
-/// channel pointers currently reference. Best-effort on the S3 side.
+/// Delete builds beyond `KEEP_BUILDS`, never touching a build a channel pointer or
+/// an `app_environments` row references. Row before bytes; best-effort on the S3 side.
 async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
     // Always protect the builds the live channels point at, regardless of what
     // the caller passed. GC that reaps the currently-served build is a silent
@@ -1194,6 +1222,17 @@ async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
             return;
         }
     }
+    // Environment rows name builds too (and, from Phase 4, dev-slot base builds the
+    // pointer columns never see). Same fail-safe as above: unknown means skip GC.
+    match super::custom_apps_environments::protected_build_ids(db, app_id).await {
+        Ok(ids) => protect.extend(ids),
+        Err(e) => {
+            tracing::warn!(
+                "gc_builds: could not load environment builds for app {app_id} ({e}); skipping GC"
+            );
+            return;
+        }
+    }
     let builds = match app_builds::Entity::find()
         .filter(app_builds::Column::AppId.eq(app_id))
         .order_by_desc(app_builds::Column::CreatedAt)
@@ -1210,12 +1249,19 @@ async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
         if protect.contains(&build.id) {
             continue;
         }
-        if let Err(e) = store::delete_build(app_id, &build.build_id).await {
-            tracing::warn!("gc_builds S3 delete failed ({}): {e}", build.build_id);
-        }
         let build_label = build.build_id.clone();
+        // Captured before the row goes: once it is deleted, this log line is the only
+        // record of where an orphan from a failed byte delete lives.
+        let s3_prefix = build.s3_prefix.clone();
+        // Row first. If anything still names this build, the environment FK refuses
+        // and the bytes are never touched; a failed byte delete afterwards only
+        // leaves an orphan prefix, never a row pointing at deleted bytes.
         if let Err(e) = build.delete(db).await {
             tracing::warn!("gc_builds row delete failed ({build_label}): {e}");
+            continue;
+        }
+        if let Err(e) = store::delete_build(app_id, &build_label).await {
+            tracing::warn!("gc_builds S3 delete failed ({build_label}, prefix {s3_prefix}): {e}");
         }
     }
 }
@@ -1539,7 +1585,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
             }
         }
     }
-    if let Err(e) = set_pointers(&db, app_id, build_pk, input.promote).await {
+    if let Err(e) = set_pointers(&db, app_id, build_pk, input.promote, input.published_by).await {
         rollback_stored_build(&db, app_id, &input.build_id, build_pk, rollback).await;
         return Err(e);
     }

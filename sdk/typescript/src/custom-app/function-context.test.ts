@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { OxyCryptoApi, OxyFunctionContext, OxyFunctionRow } from "./function-context";
+import type {
+  OxyCryptoApi,
+  OxyFunctionContext,
+  OxyFunctionRequest,
+  OxyFunctionRow
+} from "./function-context";
 
 // The fixtures below are typed against `OxyFunctionContext`, so the SDK
 // typecheck ratchet in CI (`tsconfig.test.json`) is what fails when the declared
@@ -59,5 +64,42 @@ describe("OxyFunctionContext.crypto", () => {
   it("timingSafeEqual accepts an absent side and fails closed on it", () => {
     expect(ctx.crypto.timingSafeEqual(undefined, "s")).toBe(false);
     expect(ctx.crypto.timingSafeEqual("s", "s")).toBe(true);
+  });
+});
+
+describe("OxyFunctionRequest", () => {
+  /** What `req_json` (`runtime.rs`) hands the isolate for a real HTTP call. */
+  const request: OxyFunctionRequest = {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=abc" },
+    body: '{"hello":"world"}'
+  };
+
+  /** The scheduled and Airway paths synthesise this: a method, and no headers. */
+  const scheduled: OxyFunctionRequest = { method: "POST", headers: {}, body: "" };
+
+  it("carries the method and headers the host sends, not the body alone", () => {
+    expect(request.method).toBe("POST");
+    expect(request.headers["x-hub-signature-256"]).toBe("sha256=abc");
+    expect(JSON.parse(request.body || "{}")).toEqual({ hello: "world" });
+  });
+
+  it("keys headers in lower case, so a caller's casing must be normalised first", () => {
+    // The host lower-cases every name (`sanitize_request_headers`), so this is
+    // the only spelling that ever hits; looking one up by its sent casing misses.
+    expect(request.headers["Content-Type"]).toBeUndefined();
+    expect(request.headers["content-type"]).toBe("application/json");
+  });
+
+  it("gives a scheduled run an empty header map rather than omitting it", () => {
+    expect(scheduled.headers).toEqual({});
+    expect(Object.keys(scheduled.headers)).toHaveLength(0);
+  });
+
+  it("is not body-only (the pre-2.15 type, which made the guide's webhook example fail)", () => {
+    // @ts-expect-error — method and headers are required; if this directive turns
+    // unused, the type has regressed to the shape that could not read a signature.
+    const bodyOnly: OxyFunctionRequest = { body: "{}" };
+    expect(bodyOnly.body).toBe("{}");
   });
 });

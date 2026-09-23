@@ -175,6 +175,9 @@ mod m20260911_000002_function_failure_fingerprint_index;
 mod m20260914_000001_backfill_range_resources;
 mod m20260915_000001_drop_dead_tables;
 mod m20260915_000002_custom_app_migrations_store;
+mod m20260922_000001_app_environments;
+
+pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 
 pub struct Migrator;
 
@@ -359,6 +362,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260914_000001_backfill_range_resources::Migration),
             Box::new(m20260915_000001_drop_dead_tables::Migration),
             Box::new(m20260915_000002_custom_app_migrations_store::Migration),
+            Box::new(m20260922_000001_app_environments::Migration),
         ]
     }
 }

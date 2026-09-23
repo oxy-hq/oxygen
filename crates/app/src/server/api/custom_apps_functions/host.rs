@@ -770,7 +770,17 @@ impl FunctionHost for ProjectFunctionHost {
         if let Some(headers) = init.get("headers").and_then(|h| h.as_object()) {
             for (k, v) in headers {
                 if let Some(vs) = v.as_str() {
-                    req = req.header(k, vs);
+                    // Validated here rather than left to `send()`. `RequestBuilder::header`
+                    // stores a rejected name or value and surfaces it as reqwest's opaque
+                    // `builder error`, which reads as the platform failing and pages; the
+                    // app's own header is its own argument, and it deserves a message that
+                    // names which one.
+                    let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+                        .map_err(|_| format!("InvalidFetchHeader: `{k}` is not a header name"))?;
+                    let value = reqwest::header::HeaderValue::from_str(vs).map_err(|_| {
+                        format!("InvalidFetchHeader: the value of `{k}` is not a header value")
+                    })?;
+                    req = req.header(name, value);
                 }
             }
         }
@@ -1400,8 +1410,13 @@ impl FunctionHost for ProjectFunctionHost {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             + 1;
         if n > MAX_EMAILS_PER_INVOCATION {
+            // `TooManyEmails`, not `RateLimitExceeded`: this is the app's own loop
+            // against a cap it can see, which belongs with `TooManyRecipients` and
+            // `TooManyAttachments` and must not page. `RateLimitExceeded` stays the
+            // emailer's label for SES throttling — a platform limit the app cannot
+            // see — so the two no longer share one placement.
             return Err(format!(
-                "RateLimitExceeded: this invocation exceeded the \
+                "TooManyEmails: this invocation exceeded the \
                  {MAX_EMAILS_PER_INVOCATION}-email limit"
             ));
         }

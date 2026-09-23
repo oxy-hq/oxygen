@@ -24,12 +24,27 @@
 /**
  * The request passed as the first argument to a function's default export.
  *
- * The host hands the isolate the raw request body as a string (see
- * `req_json` in `runtime.rs`); parse it yourself, e.g.
- * `JSON.parse(req.body || "{}")`. This is intentionally *not* a full Web
- * `Request` — there is no `.json()` / headers object in v1.
+ * The host builds this as `{ method, headers, body }` (`req_json` in
+ * `runtime.rs`). It is intentionally *not* a full Web `Request`: the body
+ * arrives as a string, so parse it yourself — `JSON.parse(req.body || "{}")`
+ * — and there is no `.json()`, no `url`, and no `Headers` object.
  */
 export interface OxyFunctionRequest {
+  /**
+   * HTTP method of the triggering request, upper-case (`"POST"`, `"GET"`).
+   * A scheduled or Airway run has no real request and reports `"POST"`.
+   */
+  method: string;
+  /**
+   * The headers the function is allowed to see, keyed by **lower-case** name.
+   *
+   * The host drops everything that is not on its passthrough list and not
+   * `x-*`, plus its own `x-oxy-*` prefix and a blocked list; a header sent
+   * twice collapses to its **first** value, and one whose bytes are not UTF-8
+   * is dropped rather than lossily decoded. A scheduled or Airway run has no
+   * headers, so this is `{}` — never absent.
+   */
+  headers: Record<string, string>;
   /** Raw request body as received (JSON string for a JSON POST). */
   body: string;
 }

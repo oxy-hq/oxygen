@@ -18,6 +18,7 @@ use sea_orm::ModelTrait;
 use sea_orm::QueryFilter;
 use sea_orm::QueryOrder;
 use sea_orm::QuerySelect;
+use sea_orm::TransactionTrait;
 use uuid::Uuid;
 
 use super::dto::*;
@@ -813,7 +814,9 @@ pub async fn unpublish_app(
         tracing::error!("unpublish_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let updated = unpublish_one(&db, id).await.map_err(|e| e.status)?;
+    let updated = unpublish_one(&db, id, user.id)
+        .await
+        .map_err(|e| e.status)?;
     crate::server::api::custom_apps_auth::invalidate_access_cache();
     let org = load_org(&db, updated.org_id).await.map_err(|e| e.status)?;
 
@@ -976,14 +979,35 @@ pub async fn rollback_app(
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let now = Utc::now().fixed_offset();
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("rollback_app begin failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     let mut active: apps::ActiveModel = row.into();
     active.published_build_id = ActiveValue::Set(Some(req.build_id));
     active.published_at = ActiveValue::Set(Some(now));
     active.last_promoted_by = ActiveValue::Set(Some(user.id));
     active.last_promoted_at = ActiveValue::Set(Some(now));
     active.updated_at = ActiveValue::Set(now);
-    let updated = active.update(&db).await.map_err(|e| {
+    let updated = active.update(&txn).await.map_err(|e| {
         tracing::error!("rollback_app update failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    crate::server::api::custom_apps_environments::record_move(
+        &txn,
+        id,
+        &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+        Some(req.build_id),
+        crate::server::api::custom_apps_environments::EnvAction::Rollback,
+        Some(user.id),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("rollback_app environment mirror failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    txn.commit().await.map_err(|e| {
+        tracing::error!("rollback_app commit failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -1096,7 +1120,7 @@ pub async fn batch_unpublish_apps(
         .await
         .map_err(|s| api_err(s, "Could not verify grant scope."))?;
     for id in ids {
-        results.push(match unpublish_one(&db, id).await {
+        results.push(match unpublish_one(&db, id, user.id).await {
             Ok(_) => BatchItemResult::ok(id),
             Err(e) => BatchItemResult::failed(id, e.message),
         });

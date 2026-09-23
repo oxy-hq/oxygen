@@ -33,7 +33,7 @@ use oxy::theme::StyledText;
 use oxy_shared::errors::OxyError;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder,
+    QueryOrder, TransactionTrait,
 };
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -571,6 +571,10 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
         .map_err(|e| OxyError::DBError(format!("query app {app_id}: {e}")))?
         .ok_or_else(|| OxyError::RuntimeError(format!("app {app_id} vanished mid-deploy")))?;
 
+    let txn = conn
+        .begin()
+        .await
+        .map_err(|e| OxyError::DBError(format!("begin pointer move for app {app_id}: {e}")))?;
     let mut active = row.into_active_model();
     active.draft_build_id = ActiveValue::Set(Some(build_pk));
     active.published_build_id = ActiveValue::Set(Some(build_pk));
@@ -578,9 +582,33 @@ async fn point_app_at(conn: &Conn, app_id: Uuid, build_pk: Uuid) -> Result<(), O
     active.last_promoted_at = ActiveValue::Set(Some(now));
     active.updated_at = ActiveValue::Set(now);
     active
-        .update(conn)
+        .update(&txn)
         .await
         .map_err(|e| OxyError::DBError(format!("point app {app_id} at build: {e}")))?;
+    for (environment, action) in [
+        (
+            oxy_app_core::custom_app_environment::AppEnvironment::Staging,
+            crate::server::api::custom_apps_environments::EnvAction::Publish,
+        ),
+        (
+            oxy_app_core::custom_app_environment::AppEnvironment::Production,
+            crate::server::api::custom_apps_environments::EnvAction::Promote,
+        ),
+    ] {
+        crate::server::api::custom_apps_environments::record_move(
+            &txn,
+            app_id,
+            &environment,
+            Some(build_pk),
+            action,
+            None,
+        )
+        .await
+        .map_err(|e| OxyError::DBError(format!("mirror {environment} for app {app_id}: {e}")))?;
+    }
+    txn.commit()
+        .await
+        .map_err(|e| OxyError::DBError(format!("commit pointer move for app {app_id}: {e}")))?;
     Ok(())
 }
 

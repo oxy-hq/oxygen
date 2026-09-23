@@ -4,6 +4,8 @@ pub use super::admin_assume_sessions::Entity as AdminAssumeSessions;
 pub use super::api_keys::Entity as ApiKeys;
 pub use super::app_admins::Entity as AppAdmins;
 pub use super::app_builds::Entity as AppBuilds;
+pub use super::app_environment_events::Entity as AppEnvironmentEvents;
+pub use super::app_environments::Entity as AppEnvironments;
 pub use super::app_function_invocations::Entity as AppFunctionInvocations;
 pub use super::app_functions::Entity as AppFunctions;
 pub use super::app_members::Entity as AppMembers;

@@ -292,6 +292,14 @@ const CALLER_ERROR_LABELS: &[&str] = &[
     "TooManyRecipients",
     "TooManyAttachments",
     "AttachmentTooLarge",
+    // The app's own `ctx.email.send` loop against `MAX_EMAILS_PER_INVOCATION`, a
+    // cap it can count. Split out of `RateLimitExceeded`, which stays the
+    // emailer's label for SES throttling — a limit the app cannot see.
+    "TooManyEmails",
+    // A header the app handed `ctx.fetch` that is not a header. Validated where it
+    // is added (`host.rs`), because leaving it to `send()` produced reqwest's
+    // opaque `builder error`: it named nothing, and it paged.
+    "InvalidFetchHeader",
 ];
 
 /// The typed labels the host writes for a condition that is not the app's
@@ -305,14 +313,12 @@ const CALLER_ERROR_LABELS: &[&str] = &[
 ///   read it as the app's own error.
 /// - `EmailSendFailed`, `EmailNotConfigured` — SES or the emailer failing,
 ///   or the platform sender unset.
-/// - `RateLimitExceeded`, `DailyLimitExceeded` — written by two sources under
-///   one label: SES throttling and the account's daily quota
-///   (`classify_ses_error`), which are the platform's sending capacity, and
-///   the host's per-invocation cap (`MAX_EMAILS_PER_INVOCATION`), which is
-///   the app's loop. One label takes one placement, and the SES half — a
-///   platform limit the app cannot see — decides it: both page. The
-///   per-function and hourly caps in `failure_alert` bound the noise of an
-///   app that hits its own cap.
+/// - `RateLimitExceeded`, `DailyLimitExceeded` — SES throttling and the
+///   account's daily quota (`classify_ses_error`): the platform's sending
+///   capacity, which the app cannot see or count, so both page. These used to
+///   be shared with the host's per-invocation cap, which forced one placement
+///   on two conditions and paged an app for its own loop; that half now writes
+///   `TooManyEmails` and sits on the caller list.
 /// - `AirhouseCapabilityMissing`, `EmailCapabilityMissing`,
 ///   `OltpCapabilityMissing`, `OrgCapabilityMissing`,
 ///   `StorageCapabilityMissing` — a capability the manifest lacks. `oxyc`
@@ -611,6 +617,14 @@ mod tests {
             "invalid method 'FETCH'",
             "invalid semantic query spec: missing field `measures`",
             "invalid storage request: copy source and destination are the same key",
+            // The app's own loop against a cap it can count, verbatim as `host.rs`
+            // writes it. It read `RateLimitExceeded` until that label was split.
+            "TooManyEmails: this invocation exceeded the 20-email limit",
+            // A header the app handed `ctx.fetch`. Validated where it is added, so
+            // this replaces reqwest's `fetch failed: builder error`, which named
+            // nothing and paged.
+            "InvalidFetchHeader: `x-sig\n` is not a header name",
+            "InvalidFetchHeader: the value of `x-sig` is not a header value",
             "storage conflict: 'customer-app-storage/7c1e/generated/report.csv' already \
              exists; pass allowOverwrite to replace it",
         ] {

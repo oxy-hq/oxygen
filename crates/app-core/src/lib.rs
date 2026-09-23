@@ -11,6 +11,7 @@
 
 pub mod app_state;
 pub mod audit;
+pub mod custom_app_environment;
 pub mod custom_apps_host_dispatch;
 pub mod member_authz;
 pub mod org_host_dispatch;

@@ -5,6 +5,18 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.15.0] - 2026-09-23
+
+### Added
+
+- **`OxyFunctionRequest` declares `method` and `headers`.** The host has always
+  sent `{ method, headers, body }` (`req_json` in `runtime.rs`); the type named
+  only `body`, so the webhook-verification example in the functions guide —
+  `req.headers["x-hub-signature-256"]` — was a type error against the SDK that
+  documents it. Header names are keyed lower-case, a header sent twice collapses
+  to its first value, and a scheduled or Airway run reports `POST` with `{}`.
+  Nothing about the runtime value changed.
+
 ## [2.14.0] - 2026-09-23
 
 ### Added
