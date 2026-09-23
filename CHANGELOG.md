@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.151] - 2026-09-23
+
+### 🚀 Features
+
+- Oxyc refuses to publish a function that calls a capability its manifest lacks or a global the isolate does not have (#3282)
+- Platform metrics — the third signal, one instrument set behind two readers (#3286)
+- Bound what one custom app can take from the shared serve process (#3287)
+- Bound the custom-app bundle cache in bytes, not entries (#3289)
+- Custom-app environments — the shadow model (phase 1a, supersedes #3166) (#3299)
+
+### 🐛 Bug Fixes
+
+- Stopping oxy serve no longer removes database containers it did not start (#3253)
+- Work spawned inside the agentic and connector crates keeps the sentry hub (#3252)
+- Warehouse conversions keep wide integers exact, read "char" columns, and floor pre-1970 nanoseconds (#3251)
+- A caught host-call failure's fingerprint carries its message digest, so a new break on a routine op still pages (#3249)
+- Sdk an abort the hook did not cause left it loading forever (#3274)
+- The sentry data-plane scan covers every gate entry point, and the metric-tree warehouse read carries the hub (#3291)
+- A host-call success clears a caught failure only for the same target, and the caller-error markers are anchored to the host's own messages (#3292)
+- The boot limit resolution never ran — tracing skips field exprs when disabled (#3295)
+- An airway task that can never run must fail, not defer in silence (#3261)
+- The corrected isolate claim survived in the one place that ships it (#3301)
+- An app's own argument errors never page, and two vendors' timeouts are two patterns (#3297)
+- The functions sdk context type matches the host for ctx.query and ctx.crypto (#3298)
+- Seed the sync counters an alert can actually be written against (#3302)
+
+### 💼 Other
+
+- *(deps)* Bump the prod-npm-minor-dependencies group across 1 directory with 17 updates (#3288)
+
+### 🚜 Refactor
+
+- Retire the oxy LLM provider crates (LLM consolidation, part 2/2) (#3254)
+
+### 📚 Documentation
+
+- Rebrand landing page to Oxygen Nexus (#3293)
+- Update product-context.md from recent changelogs (#3265)
+- Deploy day for a pager change, and the 0.5.151 rollout checklist (#3290)
+- Correct the abandoned-isolate claim — the worker does create isolates (#3300)
+- Spec for a typed test context in the functions sdk (#3296)
+- *(custom-apps)* Environments design (staging, dev slots, promote) and Phase 1a plan (#3162)
+- The release checklist matches what main actually carries, and names the cut decision (#3303)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#3264)
+- The starvation counter counts episodes, and its comment said probes (#3304)
+
+### 🧪 Testing
+
+- The platform canary declares which host ops each step exercises, and a test fails when one has no step (#3283)
+- Pin the production cache wiring, and say what keeps the limit gauge honest (#3294)
+
+### ⚙️ Miscellaneous Tasks
+
+- Canary coverage follow-ups — refusal-step rollout note, backend-agnostic storage list, one source-scan helper (#3284)
+- Every platform pull request publishes and runs the platform canary (checkpoint 1) (#3281)
+
+### ◀️ Revert
+
+- Custom-app environments phase 1a rides 0.5.152, not the pager-burst release (#3305)
+
 ## [0.5.150] - 2026-09-22
 
 ### 🚀 Features
@@ -30,6 +90,7 @@ All notable changes to this project will be documented in this file.
 
 - Custom-app guard follow-ups — worktree fmt, the canary's optional check-in secret, merged infra notes, zoo timing (#3247)
 - Update Rust version to 1.98.1 in Dockerfiles and related scripts
+- Release 0.5.150 (#3246)
 
 ## [0.5.149] - 2026-09-18
 
