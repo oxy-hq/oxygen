@@ -142,7 +142,14 @@ pub struct PipelineAirwayAdmissionResolver {
 fn classify_load_failure(e: PipelineRefError) -> AttemptError {
     match e {
         PipelineRefError::Invalid(m) => AttemptError::Determinate(m),
-        PipelineRefError::Io(m) | PipelineRefError::Unavailable(m) => AttemptError::Transient(m),
+        // `NotInRevision` is transient *here* for the same reason it is a
+        // short deferral in the executor: a compile promoting the ref resolves
+        // it, and this resolver's retries are already bounded by
+        // `ADMISSION_MAX_ATTEMPTS`. Calling it determinate would refuse a
+        // pipeline queued a moment before its compile landed.
+        PipelineRefError::Io(m)
+        | PipelineRefError::Unavailable(m)
+        | PipelineRefError::NotInRevision(m) => AttemptError::Transient(m),
     }
 }
 

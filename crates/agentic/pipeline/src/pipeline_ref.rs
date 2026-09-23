@@ -56,6 +56,23 @@ pub enum PipelineRefError {
     /// good, and another node or another moment may resolve it.
     #[error("{0}")]
     Unavailable(String),
+    /// The boundary **answered**, for a promoted revision, and the ref is not
+    /// in it — and this node holds no working copy that could say otherwise.
+    ///
+    /// Split out of [`Unavailable`](Self::Unavailable) because waiting does not
+    /// fix it and the two were indistinguishable. A pipeline that exists only
+    /// in the IDE's working copy resolves at submit (that node reads the
+    /// filesystem) and then cannot resolve on any worker, so the run was
+    /// deferred every 30s for as long as the queue's ceiling allowed — thirteen
+    /// hours in the case this variant was added for — while the run itself sat
+    /// in `running` and nothing was ever recorded as an error.
+    ///
+    /// Still not *terminal* on arrival: a compile promoting the ref is the
+    /// normal resolution, and it usually lands in seconds. Callers should give
+    /// it a short, bounded wait and then fail loudly, rather than the long wait
+    /// that belongs to a genuinely unknown answer.
+    #[error("{0}")]
+    NotInRevision(String),
 }
 
 /// Syntactic half of the containment guard: reject empty, absolute, and
@@ -134,13 +151,62 @@ pub async fn load_pipeline_yaml(
         // Deliberately checked before `resolve_pipeline_ref`, which folds this
         // into the same `Err(String)` as "not found" and so cannot be told
         // apart downstream.
-        // Says only what is known. "not compiled for this revision" would be
-        // false whenever the host declined for another reason — a draft branch,
+        //
+        // Which of the two this is turns on whether the host reads a promoted
+        // revision at all. Asking it is what lets the message say only what is
+        // known: "not compiled for this revision" would be false whenever the
+        // host declined for another reason — a draft branch, nothing promoted,
         // or a row it found and could not re-serialise.
-        return Err(PipelineRefError::Unavailable(format!(
-            "pipeline_ref `{pipeline_ref}` could not be resolved on this node (nothing served from \
-             the compile boundary, no working copy here)"
-        )));
+        return Err(match workspace.compiled_revision() {
+            // The boundary answered, for a real revision, and did not serve
+            // this path. Waiting does not fix that, so it must not be reported
+            // as the retryable state — see `PipelineRefError::NotInRevision`.
+            //
+            // States the OBSERVATION and then both readings of it, rather than
+            // one instruction. An earlier draft said "commit it and let a
+            // compile promote it", which is the ordinary cause and would have
+            // been wrong in the incident that produced this variant: that file
+            // was committed, merged, and present in a revision whose compile
+            // reported `files_seen=92 files_failed=0`. Telling that user to
+            // commit and compile sends them round a loop and teaches them the
+            // message lies. The second sentence is what says "you have found a
+            // bug", and it has to be there for the message to be honest in
+            // both cases.
+            //
+            // **"not served from" rather than "not present in", deliberately.**
+            // `Ok(None)` from the host covers two states, and a compiled
+            // revision is `Some` for both: no row at all, and a row that was
+            // found and could not be re-serialised (`workspace_context`'s
+            // re-serialise arm logs a WARN and declines). "Not present" and
+            // "is not registered" would be false of the second — it IS
+            // registered, it is unusable — so the wording has to span both,
+            // and the last clause says what is actually known: the revision
+            // does not serve a ref it compiled. Splitting the two at the port
+            // would let this be sharper, and is the better fix if this arm
+            // ever gets traffic.
+            //
+            // Naming the revision is the load-bearing half: it is what lets a
+            // reader check the ref against that revision's tree in one command
+            // instead of inferring from compile counts.
+            //
+            // Says "a compile that promotes it will make it resolvable" rather
+            // than "retry": this deferral shares one `first_deferred_at` with
+            // every other deferral of the same task, so THIS run may have no
+            // retries left (see `AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS`). The
+            // statement is true of the workspace either way; a promise about
+            // this run would not be.
+            Some(revision_id) => PipelineRefError::NotInRevision(format!(
+                "pipeline_ref `{pipeline_ref}` is not served from promoted revision \
+                 {revision_id}, and this node holds no working copy. If it was added \
+                 recently, a compile that promotes it will make it resolvable. If it is \
+                 already committed and compiled, this is a bug — the revision does not \
+                 serve a ref it compiled."
+            )),
+            None => PipelineRefError::Unavailable(format!(
+                "pipeline_ref `{pipeline_ref}` could not be resolved on this node (nothing served \
+                 from the compile boundary, no working copy here)"
+            )),
+        });
     };
 
     let path = resolve_pipeline_ref(root, trimmed).map_err(PipelineRefError::Invalid)?;
@@ -190,12 +256,32 @@ mod tests {
         /// look. The last one is the case that has no `Option` spelling, which
         /// is why the port is a `Result`.
         compiled: Result<Option<String>, String>,
+        /// What [`WorkspaceContext::compiled_revision`] reports. `None` — the
+        /// port's default — is "this node serves no promoted revision"; `Some`
+        /// is a host reading the boundary, which is what turns a declined
+        /// lookup into `NotInRevision` rather than `Unavailable`.
+        revision: Option<uuid::Uuid>,
+    }
+
+    impl FakeHost {
+        /// A host with no promoted revision, which is every pre-existing case
+        /// in this module.
+        fn diskless(compiled: Result<Option<String>, String>) -> Self {
+            Self {
+                root: PathBuf::from("/nonexistent-oxy-workspace/does/not/exist"),
+                compiled,
+                revision: None,
+            }
+        }
     }
 
     #[async_trait::async_trait]
     impl agentic_automation::WorkspaceContext for FakeHost {
         fn workspace_path(&self) -> Option<&Path> {
             Some(&self.root)
+        }
+        fn compiled_revision(&self) -> Option<uuid::Uuid> {
+            self.revision
         }
         fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig> {
             vec![]
@@ -236,16 +322,66 @@ mod tests {
     /// replica.
     #[tokio::test]
     async fn compiled_body_is_served_without_any_workspace_directory() {
-        let host = FakeHost {
-            root: PathBuf::from("/nonexistent-oxy-workspace/does/not/exist"),
-            compiled: Ok(Some("name: from_boundary\n".to_string())),
-        };
+        let host = FakeHost::diskless(Ok(Some("name: from_boundary\n".to_string())));
         assert!(!host.root.exists(), "precondition: no working copy");
 
         let yaml = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
             .await
             .expect("compiled row must satisfy the read with no filesystem");
         assert_eq!(yaml, "name: from_boundary\n");
+    }
+
+    /// A host that IS serving a promoted revision and declines the lookup gets
+    /// `NotInRevision`, not the retryable `Unavailable`.
+    ///
+    /// This is the only place the two are told apart, and the whole reason the
+    /// port has `compiled_revision`. Both arrive as `Ok(None)` plus no working
+    /// copy; only the host's revision says whether the boundary was asked and
+    /// answered, or never consulted at all.
+    #[tokio::test]
+    async fn a_declined_lookup_on_a_promoted_revision_is_not_unavailable() {
+        let revision = uuid::Uuid::new_v4();
+        let host = FakeHost {
+            revision: Some(revision),
+            ..FakeHost::diskless(Ok(None))
+        };
+        assert!(!host.root.exists(), "precondition: no working copy");
+
+        let err = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
+            .await
+            .expect_err("a ref the boundary declined cannot be served here");
+        assert!(
+            matches!(err, PipelineRefError::NotInRevision(_)),
+            "the boundary answered for a revision, so this is not `Unavailable`: {err:?}"
+        );
+        // The revision id is the actionable half — it is what lets a reader
+        // check the ref against that revision's tree rather than against the
+        // file in front of them.
+        assert!(
+            err.to_string().contains(&revision.to_string()),
+            "the message must name the revision it asked: {err}"
+        );
+        assert!(
+            !err.to_string().contains("nonexistent-oxy-workspace"),
+            "errors still quote only the ref, never a resolved path: {err}"
+        );
+    }
+
+    /// The same declined lookup with NO promoted revision stays `Unavailable`.
+    ///
+    /// The pair with the test above is what pins the split: identical host
+    /// answer, identical absent working copy, and the disposition turns solely
+    /// on `compiled_revision`.
+    #[tokio::test]
+    async fn a_declined_lookup_with_no_revision_is_still_unavailable() {
+        let host = FakeHost::diskless(Ok(None));
+        let err = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
+            .await
+            .expect_err("nothing can answer here");
+        assert!(
+            matches!(err, PipelineRefError::Unavailable(_)),
+            "no revision means no answer was ever given, which is retryable: {err:?}"
+        );
     }
 
     /// Host declines (unpromoted / draft branch / local workspace) → the FS
@@ -258,6 +394,7 @@ mod tests {
         let host = FakeHost {
             root: dir.path().to_path_buf(),
             compiled: Ok(None),
+            revision: None,
         };
 
         let yaml = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
@@ -302,6 +439,7 @@ mod tests {
         let host = FakeHost {
             root: dir.path().to_path_buf(),
             compiled: Err("connection reset by peer".into()),
+            revision: None,
         };
 
         let err = load_pipeline_yaml(&host, "pipelines/p.airway.yml")
@@ -321,6 +459,7 @@ mod tests {
         let host = FakeHost {
             root: PathBuf::from("/nonexistent-oxy-workspace"),
             compiled: Ok(Some("name: attacker\n".to_string())),
+            revision: None,
         };
         for bad in ["", "   ", "/etc/passwd", "../../etc/passwd", "a/../../b"] {
             let err = load_pipeline_yaml(&host, bad)

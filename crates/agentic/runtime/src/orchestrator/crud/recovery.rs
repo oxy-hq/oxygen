@@ -603,19 +603,146 @@ pub async fn increment_attempt(db: &DatabaseConnection, run_id: &str) -> Result<
 ///
 /// [`claim_task`]: super::queue::claim_task
 pub async fn retire_run(db: &DatabaseConnection, run_id: &str, reason: &str) -> Result<(), DbErr> {
+    retire_run_with_message(db, run_id, &format!("recovery failed: {reason}")).await
+}
+
+/// Retire the run owning a task that was **dead-lettered** by the queue.
+///
+/// [`super::queue::defer_task`] moves a row to `dead` once it has waited past
+/// its domain's ceiling, and until this existed that was the end of it: the
+/// queue row went terminal, an ERROR line was logged, and the RUN stayed
+/// `running` for ever. Nothing alerts on a run that reads `running`, and
+/// `find_pending_global_runs` requires a `queued` row, so nothing selected it
+/// again either — a customer's daily load could stop permanently while every
+/// surface reported it as in flight. That is the shape the ceiling exists to
+/// prevent, and the ceiling could not do it alone.
+///
+/// The message is the operator's only account of what happened, so it carries
+/// the domain's own deferral reason rather than a generic "timed out".
+pub async fn dead_letter_run(
+    db: &DatabaseConnection,
+    run_id: &str,
+    reason: &str,
+) -> Result<(), DbErr> {
+    retire_run_with_message(
+        db,
+        run_id,
+        &format!("dead-lettered after waiting past its queue ceiling: {reason}"),
+    )
+    .await
+}
+
+/// The **root** run id that owns `task_id` — itself for a root task, the
+/// prefix for a `run_id.N` descendant.
+///
+/// The predicate mirrors [`find_pending_global_runs`] and
+/// [`super::queue::cancel_queued_tasks_for_run`] rather than splitting the id
+/// on `.` here: a third spelling of "which run owns this task" is a third
+/// thing to keep in step. `None` means the run row is gone, which is not an
+/// error — the caller has nothing left to retire.
+///
+/// **`ORDER BY length(id) ASC` is the whole correctness of this function.**
+/// A delegated child's RUN id is its TASK id (`coordinator::suspension` sets
+/// `child_run_id = child_id = format!("{task_id}.{n}")`), so for `root.1` both
+/// `root.1` and `root` satisfy the predicate and the ordering alone decides
+/// which comes back. `DESC` returns the child — which retires the child run
+/// and leaves the parent in `delegating`/`waiting_on_child` with no live queue
+/// row and nothing to wake it (`find_stuck_runs` only sweeps
+/// `source_type = 'workflow'`). That is the same "reads as in flight for ever"
+/// one level up, which is what the caller exists to stop.
+///
+/// Shortest match is the root because a root id never contains `.` — every
+/// dot in a task id was put there by the delegation counter.
+pub async fn owning_run_id(
+    db: &DatabaseConnection,
+    task_id: &str,
+) -> Result<Option<String>, DbErr> {
+    use sea_orm::FromQueryResult;
+
+    #[derive(FromQueryResult)]
+    struct Row {
+        id: String,
+    }
+
+    // `$1 LIKE id || '.%'` is not sargable, so this is a scan of
+    // `agentic_runs`. Acceptable here and nowhere hotter: it runs once per
+    // dead-letter, which is a task that has already spent its entire wait
+    // budget failing to run. Run ids are UUIDs (or `<prefix>-<uuid>`) and
+    // carry no `_` or `%`, so the LIKE metacharacters are not reachable from
+    // an id — if that ever stops being true this needs an ESCAPE clause.
+    Ok(Row::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT id FROM agentic_runs \
+          WHERE id = $1 OR $1 LIKE id || '.%' \
+          ORDER BY length(id) ASC LIMIT 1",
+        [task_id.into()],
+    ))
+    .one(db)
+    .await?
+    .map(|r| r.id))
+}
+
+/// The shared body of [`retire_run`] and [`dead_letter_run`]: both writes in
+/// one transaction, with the caller supplying the whole `error_message`.
+async fn retire_run_with_message(
+    db: &DatabaseConnection,
+    run_id: &str,
+    error_message: &str,
+) -> Result<(), DbErr> {
     use sea_orm::TransactionTrait;
 
     let txn = db.begin().await?;
     super::queue::cancel_queued_tasks_for_run(&txn, run_id).await?;
     // Mirrors `transition_run`'s terminal path, including releasing the driver
     // lease — a terminal run needs no driver.
+    //
+    // **The whole task tree, not just the root**, and on the same predicate
+    // the queue cancel above already uses. The two halves were asymmetric: the
+    // queue side has always cancelled every row under `run_id`, while this one
+    // touched a single `agentic_runs` row. That left a retired root's children
+    // non-terminal — `running`, with a `dead` or `cancelled` queue row and
+    // nothing in the steady state that could advance them.
+    //
+    // Not permanent, and the earlier version of this comment overstated it:
+    // `cleanup_stale_runs`' SECOND pass selects children with a non-null
+    // `parent_run_id` in the non-terminal set and fails them once the parent
+    // is terminal, so a stranded child does converge to `failed`. But that
+    // runs at **`oxy serve` startup only** (`router::entry`'s
+    // `new_agentic_state`; `WorkerRuntime` deliberately skips it), so the
+    // reconciliation is a restart, not a sweep on any cadence — the child is
+    // non-terminal for however long this deployment stays up.
+    //
+    // Closing it here removes the dependency on that restart entirely: the row
+    // goes terminal in the same transaction that retires its root. Leaving a
+    // run row stuck non-terminal is the exact defect this function exists to
+    // fix, so leaving one behind in the fix is not a trade worth making.
+    //
+    // `NOT IN (<terminal>)` so a child that already finished keeps its own
+    // outcome: a delegation can complete and report before a later sibling
+    // strands the root, and overwriting that `done` with `failed` would
+    // rewrite history rather than close it. The terminal set is
+    // `lifecycle::crud`'s (`done | failed | cancelled | timed_out`). The
+    // `IS NULL` disjunct is load-bearing, not defensive: `x NOT IN (…)` is
+    // NULL — not true — for a NULL column, so without it a run with no status
+    // yet would never be retired.
+    //
+    // Same sargability cost as `owning_run_id` above, and bounded for a
+    // different reason: `id LIKE $1 || '.%'` cannot use the PK btree, so this
+    // scans `agentic_runs` where it used to be a PK lookup. What bounds it is
+    // that the queue cancel one line up is what de-selects the run from
+    // `find_pending_global_runs` (which requires a `queued` row), so a caller
+    // like `retire_orphaned_runs` fires once per orphan rather than once per
+    // latency tick. `cancel_queued_tasks_for_run` already pays the identical
+    // cost on the larger `agentic_task_queue`.
     txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE agentic_runs \
             SET task_status = 'failed', error_message = $2, \
                 driver_id = NULL, driver_heartbeat_at = NULL, updated_at = now() \
-          WHERE id = $1",
-        [run_id.into(), format!("recovery failed: {reason}").into()],
+          WHERE (id = $1 OR id LIKE $1 || '.%') \
+            AND (task_status IS NULL \
+                 OR task_status NOT IN ('done', 'failed', 'cancelled', 'timed_out'))",
+        [run_id.into(), error_message.into()],
     ))
     .await?;
     txn.commit().await

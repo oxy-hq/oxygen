@@ -424,6 +424,54 @@ impl DurableTransport {
         }
     }
 
+    /// Mark the run owning a dead-lettered task terminal, so reaching the
+    /// queue's wait ceiling is a visible failure rather than a log line.
+    ///
+    /// Resolved through [`crud::owning_run_id`] rather than by splitting
+    /// `task_id` on `.`: a descendant dead-lettering strands its parent just
+    /// as completely as a root does, and retiring the root is what cancels the
+    /// rest of the tree.
+    ///
+    /// Every failure here is logged and swallowed. The queue row is already
+    /// `dead` by the time this runs, so the worst case is the behaviour that
+    /// shipped before this existed — never a run retired on a task that is
+    /// still live.
+    async fn retire_dead_lettered_run(&self, task_id: &str, reason: &str) {
+        let run_id = match crud::owning_run_id(&self.db, task_id).await {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                tracing::warn!(
+                    target: "transport",
+                    %task_id,
+                    "dead-lettered task has no run row; nothing to retire"
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::error!(
+                    target: "transport",
+                    %task_id, error = %e,
+                    "dead-lettered task: could not resolve its run; the run stays \
+                     non-terminal and will need operator attention"
+                );
+                return;
+            }
+        };
+        match crud::dead_letter_run(&self.db, &run_id, reason).await {
+            Ok(()) => tracing::error!(
+                target: "transport",
+                %task_id, %run_id, %reason,
+                "run failed: its task was dead-lettered by the queue"
+            ),
+            Err(e) => tracing::error!(
+                target: "transport",
+                %task_id, %run_id, error = %e,
+                "dead-lettered task: failed to mark its run terminal; the run stays \
+                 non-terminal and will need operator attention"
+            ),
+        }
+    }
+
     // `heartbeat` / `spawn_heartbeat` inherent methods removed: they duplicated
     // the `WorkerTransport` impl below with a *divergent* contract (the
     // inherent one returned `Result<bool>` where the trait returns
@@ -924,6 +972,23 @@ impl WorkerTransport for DurableTransport {
                             "task dead-lettered: waited past its ceiling without \
                              ever being able to run"
                         );
+                        // An ERROR line was the whole of it until now, and a
+                        // log line is not a status: the RUN stayed `running`
+                        // for ever while its only queue row sat `dead`, and
+                        // `find_pending_global_runs` requires a `queued` row,
+                        // so nothing ever selected it again. A daily airway
+                        // load could stop permanently with every surface —
+                        // the runs list, the API, any alert keyed on a failed
+                        // run — reporting it as in flight. Bounding the wait
+                        // only helps if reaching the bound is visible, so the
+                        // run goes terminal here, carrying the domain's own
+                        // reason.
+                        //
+                        // Best-effort and never fatal to the deferral: the
+                        // queue row is already `dead`, so a failure here
+                        // leaves exactly the pre-existing behaviour rather
+                        // than a half-applied one.
+                        self.retire_dead_lettered_run(task_id, reason).await;
                     }
                     Ok(DeferOutcome::NotHeld) => {
                         tracing::warn!(

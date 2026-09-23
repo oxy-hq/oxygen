@@ -296,6 +296,14 @@ impl WorkspaceContext for OxyProjectContext {
             .collect())
     }
 
+    /// The promoted revision this context's `ConfigManager` reads from, which
+    /// is exactly what its `Origin` already records. Reported so the caller can
+    /// tell "the boundary answered and this ref is not in that revision" from
+    /// "there is no boundary answer on this node" — see the port's doc.
+    fn compiled_revision(&self) -> Option<uuid::Uuid> {
+        self.workspace_manager.config_manager.revision_id()
+    }
+
     /// Serve a `.airway.yml` body from `airway_pipelines`. `Ok(None)` = "read
     /// the FS", which the caller (`pipeline_ref::load_pipeline_yaml`) then does
     /// under its containment guard; `Err` = "I could not look", which the

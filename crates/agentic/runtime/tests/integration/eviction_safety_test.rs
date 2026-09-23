@@ -1464,3 +1464,226 @@ async fn the_wait_streak_is_not_reset_by_later_deferrals() {
     .await
     .unwrap();
 }
+
+/// Reaching the wait ceiling must fail the RUN, not just the queue row.
+///
+/// The two tests above pin `defer_task`'s own arithmetic, and both stop at the
+/// queue: `queue_status == "dead"` and nothing else. That was also where the
+/// production behaviour stopped — the transport logged an ERROR and returned,
+/// so the run stayed `running` for ever with its only queue row `dead`.
+/// `find_pending_global_runs` requires a `queued` row, so nothing selected it
+/// again either: a scheduled airway load could stop permanently while the runs
+/// list, the API and every alert keyed on a failed run all read "in flight".
+///
+/// Goes through `WorkerTransport::send` rather than `crud::defer_task`,
+/// because the gap was in the arm that interprets the outcome. A test on
+/// `defer_task` alone passes either way.
+#[tokio::test]
+async fn a_dead_lettered_task_fails_its_run() {
+    use agentic_core::transport::{WorkerMessage, WorkerTransport};
+    use agentic_runtime::transport::{DurableTransport, process_worker_id};
+    use sea_orm::EntityTrait;
+
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: no DB available");
+        return;
+    };
+    let (run_id, task_id) = seed_task(&db, "airway", TaskScope::Global).await;
+
+    // The transport defers as `process_worker_id()`, and `defer_task` is
+    // ownership-scoped, so the claim has to be held by that same id or the
+    // defer is a `NotHeld` no-op and this test passes for the wrong reason.
+    claim_or_fail(&db, process_worker_id(), &task_id).await;
+    db.execute_raw(Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "UPDATE agentic_task_queue \
+         SET first_deferred_at = now() - interval '2 hours' WHERE task_id = $1",
+        [task_id.clone().into()],
+    ))
+    .await
+    .unwrap();
+
+    let transport = DurableTransport::new(db.clone());
+    transport
+        .send(WorkerMessage::Defer {
+            task_id: task_id.clone(),
+            delay_secs: 30,
+            max_wait_secs: 3600,
+            reason: "pipeline yaml not resolvable on this node".to_string(),
+        })
+        .await
+        .expect("a deferral is never an error to the caller");
+
+    assert_eq!(
+        row(&db, &task_id).await.queue_status,
+        "dead",
+        "precondition: past the ceiling the queue row must dead-letter"
+    );
+
+    let run = agentic_runtime::entity::run::Entity::find_by_id(run_id.clone())
+        .one(&db)
+        .await
+        .expect("read the run")
+        .expect("the run row exists");
+    assert_eq!(
+        run.task_status.as_deref(),
+        Some("failed"),
+        "a dead-lettered task must leave its run terminal, not `running` for ever"
+    );
+    assert!(
+        run.error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("pipeline yaml not resolvable on this node"),
+        "the operator's only account of this is the message, so it must carry \
+         the domain's own reason; got {:?}",
+        run.error_message
+    );
+}
+
+/// A dead-lettered CHILD task must retire its ROOT run, not just itself.
+///
+/// A delegated child's run id **is** its task id
+/// (`coordinator::suspension` sets `child_run_id = child_id =
+/// "{task_id}.{n}"`), so a run row exists under both `root` and `root.1` and
+/// only the ordering in `owning_run_id` decides which is retired. Retiring the
+/// child leaves the parent in `delegating` with no live queue row and nothing
+/// to wake it — `find_stuck_runs` sweeps only `source_type = 'workflow'` — so
+/// the run reads as in flight for ever, one level up from the failure this
+/// whole path exists to stop.
+///
+/// The root is also what `cancel_queued_tasks_for_run` needs in order to
+/// cancel the rest of the tree: it matches `task_id = $1 OR task_id LIKE $1 ||
+/// '.%'`, which cancels nothing useful when handed a leaf.
+#[tokio::test]
+async fn a_dead_lettered_child_task_fails_its_root_run() {
+    use agentic_core::transport::{WorkerMessage, WorkerTransport};
+    use agentic_runtime::transport::{DurableTransport, process_worker_id};
+    use sea_orm::EntityTrait;
+
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: no DB available");
+        return;
+    };
+    let (root_id, _root_task) = seed_task(&db, "automation", TaskScope::Global).await;
+
+    // A delegated child, shaped exactly as the coordinator spawns one.
+    let child_id = format!("{root_id}.1");
+    crud::insert_child_run(&db, &child_id, &root_id, "child", "airway", 0, None)
+        .await
+        .expect("seed child run");
+    crud::enqueue_task(
+        &db,
+        &child_id,
+        &child_id,
+        Some(&root_id),
+        &TaskSpec::Agent {
+            agent_id: "test-agent".to_string(),
+            question: "q".to_string(),
+            extra: None,
+        },
+        None,
+        TaskScope::Global,
+    )
+    .await
+    .expect("enqueue child task");
+
+    claim_or_fail(&db, process_worker_id(), &child_id).await;
+    db.execute_raw(Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        "UPDATE agentic_task_queue \
+         SET first_deferred_at = now() - interval '2 hours' WHERE task_id = $1",
+        [child_id.clone().into()],
+    ))
+    .await
+    .unwrap();
+
+    DurableTransport::new(db.clone())
+        .send(WorkerMessage::Defer {
+            task_id: child_id.clone(),
+            delay_secs: 30,
+            max_wait_secs: 3600,
+            reason: "pipeline yaml not resolvable on this node".to_string(),
+        })
+        .await
+        .expect("a deferral is never an error to the caller");
+
+    assert_eq!(
+        row(&db, &child_id).await.queue_status,
+        "dead",
+        "precondition: past the ceiling the child's queue row must dead-letter"
+    );
+
+    let root = agentic_runtime::entity::run::Entity::find_by_id(root_id.clone())
+        .one(&db)
+        .await
+        .expect("read the root run")
+        .expect("the root run row exists");
+    assert_eq!(
+        root.task_status.as_deref(),
+        Some("failed"),
+        "the ROOT must go terminal — retiring only the child leaves the parent \
+         waiting on a child that will never report"
+    );
+
+    // And the child's own row, which retiring only the root would strand.
+    // Inert while it sits there — listings filter `parent_run_id IS NULL` —
+    // and not permanent: `cleanup_stale_runs`' second pass fails children of
+    // a terminal parent. But that runs at `oxy serve` STARTUP only, so
+    // reconciliation is a restart rather than a sweep, and the row is
+    // non-terminal for as long as the deployment stays up. Closing it in the
+    // same transaction is what removes the dependency on that restart.
+    let child = agentic_runtime::entity::run::Entity::find_by_id(child_id.clone())
+        .one(&db)
+        .await
+        .expect("read the child run")
+        .expect("the child run row exists");
+    assert_eq!(
+        child.task_status.as_deref(),
+        Some("failed"),
+        "the child must go terminal too, or a later sweep resurrects it"
+    );
+}
+
+/// Retiring a run must not rewrite a child that already finished.
+///
+/// The tree-wide terminal write carries `NOT IN (<terminal>)` for this: a
+/// delegation can complete and report before a later sibling strands the root,
+/// and overwriting that `done` with `failed` would rewrite history rather than
+/// close it. Pinned separately because the widened `UPDATE` is the kind of
+/// change where "cover the descendants" and "cover ONLY the unfinished
+/// descendants" look identical until someone's completed sub-run is relabelled.
+#[tokio::test]
+async fn retiring_a_root_leaves_an_already_finished_child_alone() {
+    use sea_orm::EntityTrait;
+
+    let Some(db) = test_db().await else {
+        eprintln!("skipping: no DB available");
+        return;
+    };
+    let (root_id, _root_task) = seed_task(&db, "automation", TaskScope::Global).await;
+
+    let done_child = format!("{root_id}.1");
+    crud::insert_child_run(&db, &done_child, &root_id, "child", "airway", 0, None)
+        .await
+        .expect("seed child run");
+    crud::transition_run(&db, &done_child, "done", None, None, None)
+        .await
+        .expect("the child finished before the root was retired");
+
+    crud::retire_run(&db, &root_id, "exhausted")
+        .await
+        .expect("retire the root");
+
+    let child = agentic_runtime::entity::run::Entity::find_by_id(done_child.clone())
+        .one(&db)
+        .await
+        .expect("read the child run")
+        .expect("the child run row exists");
+    assert_eq!(
+        child.task_status.as_deref(),
+        Some("done"),
+        "a child that completed keeps its own outcome; retiring the root closes \
+         what is open, it does not rewrite what finished"
+    );
+}

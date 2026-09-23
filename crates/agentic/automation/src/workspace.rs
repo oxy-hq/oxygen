@@ -334,6 +334,32 @@ pub trait WorkspaceContext: Send + Sync {
         Ok(None)
     }
 
+    /// The promoted revision this context reads compiled artifacts from, if it
+    /// reads any.
+    ///
+    /// The one thing [`Self::resolve_pipeline_yaml`]'s `Ok(None)` cannot say.
+    /// That value carries two facts a caller has to act on differently:
+    ///
+    /// * *there is no boundary answer here* — nothing is promoted, this is a
+    ///   draft branch, or the host does not do the boundary at all. Another
+    ///   node or another moment may well answer, so the read is **retryable**.
+    /// * *the boundary answered, for a real revision, and the ref is not in
+    ///   it* — the file is uncommitted, was never compiled, or was removed.
+    ///   No amount of waiting fixes that.
+    ///
+    /// Collapsing the two is how an airway run whose pipeline existed only in
+    /// the IDE's working copy was deferred every 30 seconds for thirteen hours
+    /// while its run sat in `running`: the submit resolved the ref from the
+    /// filesystem on the node that holds the checkout, and the stateless
+    /// worker that claimed it read the promoted revision, correctly found
+    /// nothing, and reported it as "could not answer".
+    ///
+    /// `None` — the default — keeps every existing host (test fakes, the CLI,
+    /// local mode) on the retryable reading it has today.
+    fn compiled_revision(&self) -> Option<uuid::Uuid> {
+        None
+    }
+
     /// Read a `.sql` file's body from the compile boundary, keyed by its
     /// workspace-relative path.
     ///

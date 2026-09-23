@@ -145,6 +145,53 @@ pub const AIRWAY_UNAVAILABLE_RETRY_SECS: u64 = 30;
 /// `agentic-runtime`, not here.
 const AIRWAY_UNAVAILABLE_MAX_WAIT_SECS: u64 = AIRWAY_LEASE_MAX_WAIT_SECS;
 
+/// Dead-letter ceiling for a ref the boundary **answered about** and does not
+/// have (`PipelineRefError::NotInRevision`). Ten minutes.
+///
+/// Short on purpose, and the opposite call from the ceiling above, because the
+/// two deferrals carry opposite information. `Unavailable` says *nobody here
+/// knows*, so waiting is the whole strategy and cutting it short throws away a
+/// run over a blip. `NotInRevision` says *the boundary knows, and the answer is
+/// no* — the only thing that changes it is a compile promoting the ref, which
+/// takes seconds on every workspace we serve. Twenty retries is generous for
+/// that, and the alternative is what this was: a run deferring every 30s for
+/// thirteen hours because its pipeline lived only in someone's working copy.
+///
+/// **The shared-streak caveat from `AIRWAY_UNAVAILABLE_MAX_WAIT_SECS` applies
+/// here, and it cuts both ways.** `defer_task` measures every ceiling against
+/// one `first_deferred_at`, written once per streak whatever the reason, so a
+/// `NotInRevision` deferral inherits whatever streak the task already has.
+/// There are two predecessors and they are not equally benign:
+///
+/// * **A lease streak is benign.** A task waiting hours on the single-flight
+///   lease and then taking a `NotInRevision` deferral is dead-lettered on the
+///   spot — and that is correct, not collateral. The ordering in
+///   `execute_airway` is what makes it so: the YAML load runs *before* the
+///   lease acquire, so a task cannot hold a lease streak without having
+///   resolved at least once. Reaching this variant afterwards means the
+///   pipeline left the promoted revision mid-wait — deleted or renamed — and
+///   failing it is the answer.
+///
+/// * **An `Unavailable` streak is NOT, and this ceiling does not help there.**
+///   `Unavailable` writes the same column and implies nothing ever resolved.
+///   A task deferring against the 12h ceiling because nothing is promoted
+///   yet, which then sees a revision promoted without its ref, takes its first
+///   `NotInRevision` deferral with a streak already older than 600s — and is
+///   dead-lettered with **zero** retries, in exactly the window this ceiling
+///   exists to grant. The message is worded not to promise that retry (see
+///   `pipeline_ref`), but the window is still lost.
+///
+/// Closing the second case needs what `#2906` already named as the real fix
+/// and deliberately left to `agentic-runtime`: a streak per reason class, so
+/// `defer_task` can reset the clock when the reason changes rather than
+/// carrying one forward across two conditions that mean different things. It
+/// is not reachable from this crate — `TaskAssignment` carries no defer
+/// history — and it is a queue change, not an airway one. Until then this
+/// ceiling is an improvement on the common path (a fresh streak, which is
+/// what the incident had) and a no-op on the uncommon one, which is the right
+/// way round but is not the same as being correct in both.
+const AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS: u64 = 600;
+
 /// What to do with a pipeline-YAML load failure at claim time.
 ///
 /// Split from the call site so the choice can be asserted without a database, a
@@ -168,6 +215,15 @@ fn action_for_load_failure(e: crate::pipeline_ref::PipelineRefError) -> LoadFail
         crate::pipeline_ref::PipelineRefError::Unavailable(m) => LoadFailureAction::Defer {
             delay_secs: AIRWAY_UNAVAILABLE_RETRY_SECS,
             max_wait_secs: AIRWAY_UNAVAILABLE_MAX_WAIT_SECS,
+            reason: m,
+        },
+        // The boundary answered and the ref is not in the promoted revision.
+        // Still a deferral — a compile promoting it is the normal resolution
+        // and lands in seconds — but on [`AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS`],
+        // not the twelve hours that belong to an unknown answer.
+        crate::pipeline_ref::PipelineRefError::NotInRevision(m) => LoadFailureAction::Defer {
+            delay_secs: AIRWAY_UNAVAILABLE_RETRY_SECS,
+            max_wait_secs: AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS,
             reason: m,
         },
         e => LoadFailureAction::Fail(format!("airway: {e}")),
@@ -888,7 +944,12 @@ impl PipelineTaskExecutor {
                 .await
             {
                 Ok(y) => y,
-                Err(crate::pipeline_ref::PipelineRefError::Unavailable(m)) => {
+                // Both mean "this node cannot serve that ref", which is a 503
+                // and not the caller's mistake — `NotInRevision` would
+                // otherwise fall into the `BadRequest` catch-all below and
+                // tell the caller their perfectly good ref was malformed.
+                Err(crate::pipeline_ref::PipelineRefError::Unavailable(m))
+                | Err(crate::pipeline_ref::PipelineRefError::NotInRevision(m)) => {
                     return Err(ResetSchemaError::Unavailable(format!("airway: {m}")));
                 }
                 Err(e) => return Err(BadRequest(format!("airway: {e}"))),
@@ -2238,8 +2299,9 @@ mod tests {
 #[cfg(test)]
 mod load_failure_action_tests {
     use super::{
-        AIRWAY_LEASE_MAX_WAIT_SECS, AIRWAY_UNAVAILABLE_MAX_WAIT_SECS,
-        AIRWAY_UNAVAILABLE_RETRY_SECS, LoadFailureAction, action_for_load_failure,
+        AIRWAY_LEASE_MAX_WAIT_SECS, AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS,
+        AIRWAY_UNAVAILABLE_MAX_WAIT_SECS, AIRWAY_UNAVAILABLE_RETRY_SECS, LoadFailureAction,
+        action_for_load_failure,
     };
     use crate::pipeline_ref::PipelineRefError;
 
@@ -2288,8 +2350,35 @@ mod load_failure_action_tests {
         ] {
             assert!(
                 matches!(action_for_load_failure(e), LoadFailureAction::Fail(_)),
-                "only `Unavailable` may defer"
+                "only the two `can't answer here` variants may defer"
             );
         }
+    }
+
+    /// `NotInRevision` defers like `Unavailable` but on the SHORT ceiling.
+    ///
+    /// The pair is the whole point of splitting the variant: both are "not
+    /// this node's answer to give", so both defer rather than failing a run
+    /// whose compile is seconds away — but one of them has been answered by
+    /// the boundary and the other has not, and only the unanswered one
+    /// deserves twelve hours. Asserting the ceilings *differ* is what stops
+    /// the split collapsing back into one disposition in a later tidy-up.
+    #[test]
+    fn not_in_revision_defers_on_the_short_ceiling() {
+        let action = action_for_load_failure(PipelineRefError::NotInRevision("gone".into()));
+        assert_eq!(
+            action,
+            LoadFailureAction::Defer {
+                delay_secs: AIRWAY_UNAVAILABLE_RETRY_SECS,
+                max_wait_secs: AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS,
+                reason: "gone".to_string(),
+            }
+        );
+        assert!(
+            AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS < AIRWAY_UNAVAILABLE_MAX_WAIT_SECS,
+            "an answered `no` must not wait as long as an unanswered question: \
+             {AIRWAY_NOT_IN_REVISION_MAX_WAIT_SECS} vs \
+             {AIRWAY_UNAVAILABLE_MAX_WAIT_SECS}"
+        );
     }
 }

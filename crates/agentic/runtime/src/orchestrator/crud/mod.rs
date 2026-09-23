@@ -24,7 +24,7 @@ pub use queue::{
     requeue_task, reset_task_to_queued, set_terminal_status_owned, update_queue_heartbeat,
 };
 pub use recovery::{
-    StuckRun, cleanup_stale_runs, find_pending_global_runs, find_stuck_automation_runs,
-    find_stuck_runs, get_active_root_runs, get_max_child_counter, get_resumable_root_runs,
-    increment_attempt, mark_recovery_failed, retire_run,
+    StuckRun, cleanup_stale_runs, dead_letter_run, find_pending_global_runs,
+    find_stuck_automation_runs, find_stuck_runs, get_active_root_runs, get_max_child_counter,
+    get_resumable_root_runs, increment_attempt, mark_recovery_failed, owning_run_id, retire_run,
 };

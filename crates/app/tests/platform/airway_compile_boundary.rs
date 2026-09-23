@@ -27,7 +27,9 @@ use entity::workspaces::WorkspaceStatus;
 use entity::{airway_pipelines, organizations, revisions, workspace_compiled_configs, workspaces};
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy_app::agentic_wiring::OxyProjectContext;
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -413,5 +415,313 @@ async fn airway_unpromoted_workspace_falls_through_to_fs() {
             .await
             .is_none(),
         "an unpromoted workspace must read the FS, not a stale revision"
+    );
+}
+
+/// Seed an org + a workspace row pointing at `root`, then run the REAL
+/// compiler over it and promote the result.
+///
+/// Every test above seeds `airway_pipelines` by hand, so all of them agree on
+/// a `file_path` spelling that nothing in the compiler was ever asked to
+/// produce. The writer's key and the reader's key are only ever compared here.
+async fn compile_and_promote(db: &DatabaseConnection, root: &std::path::Path) -> Uuid {
+    let ws_id = seed_workspace_at(db, root).await;
+    compile_at(db, ws_id, root, None).await;
+    ws_id
+}
+
+/// Seed an org + a workspace row whose `path` is `root`. Split from
+/// [`compile_and_promote`] so a test can compile the same workspace more than
+/// once, which is what production does and what a from-scratch fixture cannot.
+async fn seed_workspace_at(db: &DatabaseConnection, root: &std::path::Path) -> Uuid {
+    let now = chrono::Utc::now().fixed_offset();
+    let org_id = Uuid::new_v4();
+    organizations::ActiveModel {
+        id: ActiveValue::Set(org_id),
+        name: ActiveValue::Set("rt-org".into()),
+        slug: ActiveValue::Set(format!("rt-{}", org_id.simple())),
+        logo: ActiveValue::NotSet,
+        logo_content_type: ActiveValue::NotSet,
+        created_at: ActiveValue::Set(now),
+        updated_at: ActiveValue::Set(now),
+    }
+    .insert(db)
+    .await
+    .expect("seed org");
+
+    let ws_id = Uuid::new_v4();
+    workspaces::ActiveModel {
+        id: ActiveValue::Set(ws_id),
+        name: ActiveValue::Set("rt-ws".into()),
+        org_id: ActiveValue::Set(Some(org_id)),
+        path: ActiveValue::Set(Some(root.to_string_lossy().into_owned())),
+        status: ActiveValue::Set(WorkspaceStatus::Ready),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+    .expect("seed workspace");
+    ws_id
+}
+
+/// Run the real compiler over `root` and promote the result.
+///
+/// `git_sha` matters more than it looks. `compile_after_content_change` — the
+/// production trigger — resolves HEAD and passes `Some(sha)`, which is what
+/// arms `compile_workspace`'s idempotency short-circuit; `None` mints a unique
+/// `local-<uuid>` and opts out of it entirely. A fixture that always passes
+/// `None` therefore never exercises the path every cloud compile takes.
+async fn compile_at(
+    db: &DatabaseConnection,
+    ws_id: Uuid,
+    root: &std::path::Path,
+    git_sha: Option<&str>,
+) -> Uuid {
+    let outcome = oxy_compile::compile_workspace(oxy_compile::CompileRequest {
+        db,
+        workspace_id: ws_id,
+        workspace_path: root,
+        git_sha: git_sha.map(str::to_string),
+        branch: Some("main".to_string()),
+        compiler_version: oxy_compile::compiler_version(),
+        promote: true,
+        kind: oxy_compile::RevisionKind::Main,
+        owner_user_id: None,
+        config_gate: Some(oxy_app::server::compile_config_gate::runtime_config_gate()),
+    })
+    .await
+    .expect("compile the workspace");
+
+    assert!(
+        outcome.failures.is_empty(),
+        "fixture must compile clean: {:?}",
+        outcome.failures
+    );
+    assert_eq!(
+        outcome.promotion,
+        oxy_compile::Promotion::Promoted,
+        "the worker reads the promoted revision"
+    );
+    outcome.revision_id
+}
+
+/// A working copy with a `config.yml` and one pipeline under `pipelines/`.
+///
+/// `project_subdir` is the **only** thing that varies between the two cases
+/// below, and it is the difference between the two workspace layouts running
+/// in production: some workspaces' `workspaces.path` is the clone root, others'
+/// is a project directory inside it (`<clone>/oxy`). Returns the tempdir (the
+/// guard) and the path the workspace row should carry.
+fn working_copy_with_pipeline(project_subdir: Option<&str>) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("workspace dir");
+    let root = match project_subdir {
+        Some(sub) => dir.path().join(sub),
+        None => dir.path().to_path_buf(),
+    };
+    std::fs::create_dir_all(&root).expect("mkdir project root");
+    std::fs::write(root.join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    std::fs::create_dir_all(root.join("pipelines")).expect("mkdir pipelines");
+    std::fs::write(
+        root.join("pipelines/marketing_plan.airway.yml"),
+        concat!(
+            "name: marketing_plan\n",
+            "source:\n",
+            "  kind: filesystem\n",
+            "  config:\n",
+            "    base_path: /tmp/mp\n",
+            "    pattern: '*.csv'\n",
+            "    format: csv\n",
+            "    table_name: marketing_plan\n",
+            "destination:\n",
+            "  database: warehouse\n",
+            "  dataset_name: raw\n",
+            "resources:\n",
+            "  - marketing_plan\n",
+        ),
+    )
+    .expect("write pipeline");
+    (dir, root)
+}
+
+/// THE PRODUCTION ROUND TRIP. The compiler's `file_path` and the runtime's
+/// `pipeline_ref` must be the same string.
+///
+/// A queued `TaskSpec::Airway` carries a workspace-relative ref. If the writer
+/// stores anything else, the row exists and the worker still cannot find it —
+/// which on a node with no working copy is an `Unavailable` deferral that
+/// repeats every 30s for as long as the queue ceiling allows, with the run
+/// sitting in `running` and nothing ever recorded as an error.
+///
+/// Asserts the key twice over: once raw against `airway_pipelines` (what the
+/// writer stored) and once through the full reader path (what the worker asks
+/// for). A failure in the first is a writer bug and in the second a reader
+/// bug, and the two are indistinguishable from the deferral alone.
+async fn assert_round_trip_for_layout(project_subdir: Option<&str>) {
+    let db = setup_db().await;
+    let (_guard, root) = working_copy_with_pipeline(project_subdir);
+    let ws_id = compile_and_promote(&db, &root).await;
+
+    let rev_id = current_revision_id(&db, ws_id)
+        .await
+        .expect("the compile promoted a revision");
+    let rows = airway_pipelines::Entity::find()
+        .filter(airway_pipelines::Column::RevisionId.eq(rev_id))
+        .all(&db)
+        .await
+        .expect("read airway_pipelines");
+    assert_eq!(
+        rows.iter()
+            .map(|r| r.file_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pipelines/marketing_plan.airway.yml"],
+        "the writer must key on the path relative to the PROJECT root, whatever \
+         the layout — got {:?} for subdir {project_subdir:?}",
+        rows.iter().map(|r| &r.file_path).collect::<Vec<_>>()
+    );
+
+    let (ctx, _absent) = worker_context_without_working_copy(&db, ws_id).await;
+    let yaml = agentic_pipeline::pipeline_ref::load_pipeline_yaml(
+        &ctx,
+        "pipelines/marketing_plan.airway.yml",
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "a compiled pipeline must resolve with no working copy (subdir {project_subdir:?}): {e}"
+        )
+    });
+    let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
+        .expect("the compiled body must round-trip into an AirwayPipelineSpec");
+    assert_eq!(spec.name, "marketing_plan");
+}
+
+/// The layout where `workspaces.path` IS the clone root.
+#[tokio::test]
+async fn a_compiled_pipeline_resolves_by_the_ref_a_queued_task_carries() {
+    assert_round_trip_for_layout(None).await;
+}
+
+/// The layout where `workspaces.path` is a project directory inside the clone.
+///
+/// Both shapes are in production side by side, and a key composed against the
+/// wrong base would round-trip in one and not the other — which reads exactly
+/// like the incident: one workspace's pipelines resolve on the fleet and
+/// another's do not, with no deploy in between. Pinned as its own case so a
+/// regression names the layout instead of just failing.
+#[tokio::test]
+async fn the_ref_is_relative_to_the_project_root_not_the_clone_root() {
+    assert_round_trip_for_layout(Some("oxy")).await;
+}
+
+/// A pipeline ADDED to a workspace that has already compiled must be
+/// registered by the compile that first sees it.
+///
+/// The two cases above compile a fresh workspace, once, that already contains
+/// the pipeline — so every entity in them is a first compile with no prior
+/// revision to differ from. Production is the other shape: the workspace had
+/// compiled many times, and the pipeline arrived on a pull and was compiled for
+/// the first time in the revision the worker then could not resolve it from.
+/// A from-scratch fixture cannot see a fault that needs a predecessor.
+///
+/// Both compiles carry a real `git_sha`, because that is what arms
+/// `compile_workspace`'s idempotency short-circuit — with `None` the compiler
+/// mints `local-<uuid>` and skips it, so a fixture that never passes one never
+/// exercises the path every cloud compile takes. Distinct shas, as two commits
+/// would have: the partial unique index on `(workspace_id, git_sha)` for
+/// ready+main revisions is what makes that the realistic shape.
+#[tokio::test]
+async fn a_pipeline_added_to_an_existing_workspace_registers_on_the_next_compile() {
+    let db = setup_db().await;
+
+    // First: a workspace with a config and NO pipelines, compiled and promoted.
+    let dir = tempfile::tempdir().expect("workspace dir");
+    let root = dir.path().to_path_buf();
+    std::fs::write(root.join("config.yml"), "models: []\ndatabases: []\n")
+        .expect("write config.yml");
+    let ws_id = seed_workspace_at(&db, &root).await;
+    let first = compile_at(
+        &db,
+        ws_id,
+        &root,
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    )
+    .await;
+    assert!(
+        airway_pipelines::Entity::find()
+            .filter(airway_pipelines::Column::RevisionId.eq(first))
+            .all(&db)
+            .await
+            .expect("read airway_pipelines")
+            .is_empty(),
+        "precondition: the first revision has no pipelines, so the second is \
+         genuinely the first compile that sees one"
+    );
+
+    // Then: the pipeline arrives, as a pull would deliver it, and is compiled.
+    std::fs::create_dir_all(root.join("pipelines")).expect("mkdir pipelines");
+    std::fs::write(
+        root.join("pipelines/marketing_plan.airway.yml"),
+        concat!(
+            "name: marketing_plan\n",
+            "source:\n",
+            "  kind: filesystem\n",
+            "  config:\n",
+            "    base_path: /tmp/mp\n",
+            "    pattern: '*.csv'\n",
+            "    format: csv\n",
+            "    table_name: marketing_plan\n",
+            "destination:\n",
+            "  database: warehouse\n",
+            "  dataset_name: raw\n",
+            "resources:\n",
+            "  - marketing_plan\n",
+        ),
+    )
+    .expect("write pipeline");
+    let second = compile_at(
+        &db,
+        ws_id,
+        &root,
+        Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    )
+    .await;
+    assert_ne!(
+        first, second,
+        "the second compile must mint its own revision"
+    );
+    assert_eq!(
+        current_revision_id(&db, ws_id).await,
+        Some(second),
+        "the second revision must be the promoted one"
+    );
+
+    let rows = airway_pipelines::Entity::find()
+        .filter(airway_pipelines::Column::RevisionId.eq(second))
+        .all(&db)
+        .await
+        .expect("read airway_pipelines");
+    assert_eq!(
+        rows.iter()
+            .map(|r| r.file_path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pipelines/marketing_plan.airway.yml"],
+        "a newly added pipeline must be registered by the compile that first \
+         walks it, not only by a later one"
+    );
+
+    // And the worker can actually resolve it from that revision.
+    let (ctx, _absent) = worker_context_without_working_copy(&db, ws_id).await;
+    let yaml = agentic_pipeline::pipeline_ref::load_pipeline_yaml(
+        &ctx,
+        "pipelines/marketing_plan.airway.yml",
+    )
+    .await
+    .expect("a newly added pipeline must resolve on a node with no working copy");
+    assert_eq!(
+        agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
+            .expect("round-trips into an AirwayPipelineSpec")
+            .name,
+        "marketing_plan"
     );
 }

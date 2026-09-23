@@ -181,7 +181,13 @@ pub async fn start_airway_run(
         .map_err(|e| match e {
             crate::pipeline_ref::PipelineRefError::Invalid(m) => AirwayRunError::InvalidInput(m),
             crate::pipeline_ref::PipelineRefError::Io(m) => AirwayRunError::Io(m),
-            crate::pipeline_ref::PipelineRefError::Unavailable(m) => AirwayRunError::Unavailable(m),
+            // Both are "not this node's answer to give", which is what
+            // `Unavailable` means to a caller; they differ only in what the
+            // message can say, and `NotInRevision`'s says more.
+            crate::pipeline_ref::PipelineRefError::Unavailable(m)
+            | crate::pipeline_ref::PipelineRefError::NotInRevision(m) => {
+                AirwayRunError::Unavailable(m)
+            }
         })?;
     let spec = AirwayPipelineSpec::from_yaml_with_vars(&yaml, request.variables.as_ref())?;
 
