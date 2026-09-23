@@ -113,6 +113,10 @@ const airwayKeys = {
   /** Per-range chunk coverage (the drill-in grid). */
   coverage: (projectId: string, rangeId: string) =>
     [...airwayKeys.all, "coverage", projectId, rangeId] as const,
+  /** The resources a pipeline holds a cursor for — the names a cursor rewind
+   *  may be scoped to. */
+  resourceCursors: (projectId: string, pipelineRef: string) =>
+    [...airwayKeys.all, "resource-cursors", projectId, pipelineRef] as const,
   files: (projectId: string) => [...airwayKeys.all, "files", projectId] as const
 };
 

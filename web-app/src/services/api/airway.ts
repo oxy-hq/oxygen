@@ -74,6 +74,84 @@ export type ResumeBackfillRequest = {
   range_id: string;
 };
 
+// ── Cursor reset (rewind, not drop) ────────────────────────────────────────
+
+export type ResetCursorsRequest = {
+  /** Path to a `.airway.yml`, relative to the workspace root. */
+  pipeline_ref: string;
+  /**
+   * Resources to rewind. Omitted or empty means **every** resource holding a
+   * cursor — the server reads an empty list the wider way, so `[]` is never
+   * "none".
+   *
+   * The UI never sends `[]`. It resolves on the server, against the cursors
+   * held *then* — which can include one that appeared after the picker
+   * loaded, so "every resource" would clear a resource nobody was shown. A
+   * list naming every held cursor is judged exactly as `[]` is (no
+   * `UnknownOwnership` noise, nothing having been narrowed) and clears only
+   * the names it carries.
+   */
+  resources?: string[];
+  /** Proceed past a convergence refusal. The server logs the overridden
+   *  reasons. */
+  force?: boolean;
+};
+
+/** `200` — the cursors moved. */
+export type ResetCursorsCleared = {
+  kind: "cleared";
+  /** Resources whose cursor was removed, sorted. */
+  cleared: string[];
+  /** Resources named by the caller that held no cursor — never run, or a typo.
+   *  Not an error, but the two are indistinguishable without it. */
+  not_held: string[];
+};
+
+/**
+ * `409` — the server understood and declined, because re-pulling these
+ * resources would duplicate rows rather than converge.
+ *
+ * `reasons` is the backend's own prose, already rendered, one entry per table
+ * or scoping problem. It names the table, says why, and for an unscopeable
+ * reset gives **both readings**. Render it verbatim: an operator deciding
+ * whether to `force` is deciding on exactly these sentences, and a summary of
+ * them is a decision made on less than the facts.
+ */
+export type ResetCursorsRefused = {
+  kind: "refused";
+  reasons: string[];
+};
+
+/**
+ * A refusal is not a failure — the route says so itself — so it comes back as a
+ * value rather than a thrown error. Left as an exception it would reach the UI
+ * as an `AxiosError` whose `.message` is `"Request failed with status code
+ * 409"`, and the careful reasons would never be seen.
+ */
+export type ResetCursorsOutcome =
+  | ResetCursorsCleared
+  | ResetCursorsRefused
+  | ResetCursorsPipelineRunning;
+
+/**
+ * `409` with `error: "pipeline_running"` — something holds the pipeline's
+ * single-flight lease (usually a run, possibly another cursor reset), so the
+ * server did not reset anything. `message` says which; branch on nothing else.
+ *
+ * Distinct from {@link ResetCursorsRefused} because it **cannot be forced**:
+ * `force` overrides the convergence judgement, and this is not a judgement —
+ * it is an observed holder, and for a run, one whose cursor save the reset
+ * would break. Offering the override here would offer a button that cannot
+ * work. Wait for the holder (or cancel it, when it is a run), then rewind.
+ */
+export type ResetCursorsPipelineRunning = {
+  kind: "pipeline_running";
+  /** The lease holder: a run id, or `cursor-reset:<uuid>` for another reset. */
+  run_id: string;
+  /** The server's explanation, rendered verbatim. */
+  message: string;
+};
+
 /** One chunk's coverage row (mirrors a `backfill_checkpoints` row). */
 export type CoverageChunk = {
   /** ISO 8601. Half-open `[period_start, period_end)`. */
@@ -523,6 +601,84 @@ export class AirwayService {
       pipeline_ref: pipelineRef
     });
     return data;
+  }
+
+  /**
+   * Resources holding a cursor for this pipeline, sorted — the names
+   * {@link resetCursors} accepts.
+   *
+   * Offered rather than asked for. The scope takes the raw cursor keys, and the
+   * nearest thing the UI can otherwise reach is a table name from a run's
+   * lineage, which is that name put through the normalizer. Where the two
+   * diverge, a reset scoped to the table name clears nothing and says so only
+   * afterwards, in `not_held`.
+   */
+  static async resourceCursors(projectId: string, pipelineRef: string): Promise<string[]> {
+    const { data } = await apiClient.get<{ resources: string[] }>(
+      `${AirwayService.base(projectId)}/resource-cursors`,
+      { params: { pipeline_ref: pipelineRef } }
+    );
+    return data.resources ?? [];
+  }
+
+  /**
+   * Rewind a pipeline's incremental cursors, **keeping every landed row**. The
+   * non-destructive sibling of {@link resetSchema}: the next run re-pulls the
+   * named resources from their `default_start`; nothing is dropped.
+   *
+   * Returns a refusal as a value rather than throwing it — see
+   * {@link ResetCursorsOutcome}. Everything else (400 / 500 / 503) still
+   * throws.
+   */
+  static async resetCursors(
+    projectId: string,
+    request: ResetCursorsRequest
+  ): Promise<ResetCursorsOutcome> {
+    const res = await apiClient.post(`${AirwayService.base(projectId)}/reset-cursors`, request, {
+      // 409 is the server declining a well-formed request, not an error. Left
+      // to axios' default it rejects, and the reasons the operator has to read
+      // are replaced by "Request failed with status code 409".
+      validateStatus: (s) => (s >= 200 && s < 300) || s === 409
+    });
+
+    if (res.status === 409) {
+      const body = res.data as
+        | { error?: unknown; run_id?: unknown; message?: unknown; reasons?: unknown }
+        | undefined;
+      if (body?.error === "pipeline_running") {
+        return {
+          kind: "pipeline_running",
+          run_id: typeof body.run_id === "string" ? body.run_id : "",
+          message:
+            typeof body.message === "string"
+              ? body.message
+              : // Only reached on version skew, where the holder kind is
+                // least knowable — so claim none.
+                "Something holds this pipeline's lease (a run, or another reset). Wait for it to finish — or cancel it, if it is a run — then rewind."
+        };
+      }
+      const reasons: unknown = body?.reasons;
+      const parsed =
+        Array.isArray(reasons) && reasons.every((r) => typeof r === "string")
+          ? (reasons as string[])
+          : [];
+      // A refusal with nothing in it would render as an empty panel — the exact
+      // silent swallow this whole path exists to prevent. Better to fail loudly
+      // with the body than to show a refusal that explains nothing.
+      if (parsed.length === 0) {
+        throw new Error(
+          `Cursor reset was refused, but the server sent no reasons: ${JSON.stringify(res.data)}`
+        );
+      }
+      return { kind: "refused", reasons: parsed };
+    }
+
+    const body = res.data as { cleared?: string[]; not_held?: string[] } | undefined;
+    return {
+      kind: "cleared",
+      cleared: body?.cleared ?? [],
+      not_held: body?.not_held ?? []
+    };
   }
 
   static async listRuns(

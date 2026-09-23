@@ -1,4 +1,4 @@
-//! Reset a pipeline's provisioned schema.
+//! Reset a pipeline's provisioned schema — or just its cursors.
 //!
 //! Three small, independently-composable steps the `agentic-pipeline`
 //! executor stitches together to wipe one workspace's pipeline back to a clean
@@ -6,6 +6,16 @@
 //! destination, then tombstone the workspace's
 //! `airway_workspace_pipeline_state` row (clearing its `PipelineState` cursors
 //! and `Schema`). A later run then re-infers a fresh schema from scratch.
+//!
+//! A fourth step, [`cursors`], does the *non*-destructive half on its own:
+//! rewind cursors — all of them, or one resource's — while the stored schema
+//! and every landed row stay exactly where they are. It exists because the
+//! three above only compose one way round. Clearing the cursors is the last of
+//! them, so "re-pull from an earlier `default_start`" was reachable only
+//! through "drop everything this pipeline has ever landed", which a pipeline
+//! carrying an append-only resource cannot pay. Whether such a rewind is
+//! *safe* is [`convergence`]'s question, and it is not the same question for
+//! every resource.
 //!
 //! Every step is scoped to a `workspace_id`, so resetting a pipeline in one
 //! workspace leaves a same-named pipeline elsewhere alone.
@@ -15,6 +25,17 @@
 //! ([`StateStore`], [`airway::destination::Destination`]) plus the SeaORM
 //! [`airway_workspace_pipeline_state`](crate::extension::workspace_pipeline_state)
 //! entity.
+
+pub mod convergence;
+pub mod cursors;
+
+pub use convergence::{
+    CursorResetRefusal, CursorScope, NonConvergentReason, NonConvergentTable,
+    cursor_reset_refusals, table_converges_on_repull,
+};
+pub use cursors::{
+    ClearedCursors, clear_pipeline_cursors, stored_cursor_state, stored_resource_cursors,
+};
 
 use std::sync::Arc;
 

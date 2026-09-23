@@ -8,6 +8,7 @@
 //! See `internal-docs/testing.md` for the cost model.
 
 mod airway_config_test;
+mod airway_cursor_reset_test;
 mod airway_reset_in_place_resume_test;
 mod airway_retry_count_test;
 mod airway_run_history_scope_test;

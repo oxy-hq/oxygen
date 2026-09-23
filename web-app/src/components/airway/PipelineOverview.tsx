@@ -8,6 +8,7 @@
 
 import type React from "react";
 import LineageGraph from "@/components/airway/LineageGraph";
+import ResetCursorsButton from "@/components/airway/ResetCursorsButton";
 import ResetSchemaButton from "@/components/airway/ResetSchemaButton";
 import { useAirwayRunStream, useAirwayRuns } from "@/hooks/api/airway/useAirway";
 import { cn } from "@/libs/shadcn/utils";
@@ -82,7 +83,15 @@ const PipelineOverview: React.FC<{
             ELT pipeline · {runs?.length ?? 0} run{runs?.length === 1 ? "" : "s"}
           </p>
         </div>
-        <ResetSchemaButton pipelineRef={pipelineRef} />
+        {/* Order is the safety property, not the styling. The rewind keeps
+            every row and comes first carrying the outline; the schema reset
+            drops every destination table and reads as secondary. Before the
+            rewind existed, the destructive one was the only reset on screen,
+            so it was also the one reached for to do a rewind's job. */}
+        <div className='flex items-center gap-1'>
+          <ResetCursorsButton pipelineRef={pipelineRef} />
+          <ResetSchemaButton pipelineRef={pipelineRef} />
+        </div>
       </div>
 
       <section>

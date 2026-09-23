@@ -7,6 +7,7 @@
 //!
 //! See `internal-docs/testing.md` for the cost model.
 
+mod cursor_reset_test;
 mod harness;
 mod pipeline_lease_test;
 mod reset_test;

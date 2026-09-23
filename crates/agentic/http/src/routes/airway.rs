@@ -834,3 +834,276 @@ pub async fn reset_airway_schema(
         }
     }
 }
+
+// ── GET /agentic-airway/resource-cursors?pipeline_ref=... ──────────────────
+//
+// The resource names `/reset-cursors` will accept for this pipeline. Read-only.
+//
+// Exists so a caller can *offer* the names rather than ask for them. The scope
+// takes the raw keys of `PipelineState::resource_states`; the nearest thing a UI
+// can otherwise reach is a table name from a run's lineage, which is that name
+// put through `NamingConvention::SnakeCase`. Where the two diverge, a reset
+// scoped to the table name clears nothing and reports the name under
+// `not_held` — a silent no-op on the control that exists to be the safe
+// alternative to dropping every table.
+//
+// `IdeOnly` by inheritance through `airway_router_roles`' `/{*rest}` wildcard,
+// and correctly so: it resolves a `pipeline_ref`, which falls back to the
+// working copy when the compile boundary misses. No new declaration needed.
+
+#[derive(Deserialize)]
+pub struct ResourceCursorsQuery {
+    /// Path to a `.airway.yml`, relative to the workspace root.
+    pub pipeline_ref: String,
+}
+
+#[derive(Serialize)]
+pub struct ResourceCursorsResponse {
+    /// Resources holding a cursor, sorted. Empty is a normal answer — a
+    /// pipeline that has never run holds nothing, and there is nothing to
+    /// rewind.
+    pub resources: Vec<String>,
+}
+
+pub async fn airway_resource_cursors(
+    Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
+    AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
+    axum::extract::Query(q): axum::extract::Query<ResourceCursorsQuery>,
+) -> Response {
+    use agentic_pipeline::executor::ResetCursorsError;
+
+    let executor =
+        agentic_pipeline::executor::PipelineTaskExecutor::bare(platform, state.db.clone());
+    match executor.airway_resource_cursors(&q.pipeline_ref).await {
+        Ok(resources) => Json(ResourceCursorsResponse { resources }).into_response(),
+        Err(e) => {
+            // The same mapping the two reset routes use, so a `pipeline_ref`
+            // that 503s for the list cannot 400 for the reset that follows it.
+            let (status, retry_after) = match &e {
+                ResetCursorsError::BadRequest(_) => (StatusCode::BAD_REQUEST, None),
+                ResetCursorsError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
+                ResetCursorsError::Unavailable(_) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Some(airway_unavailable_retry_after()),
+                ),
+                // A read judges nothing and takes no lease, so these cannot
+                // happen today. Listed so a new variant breaks the build here;
+                // a 500 rather than a panic so a refactor that makes one
+                // reachable answers the request instead of dropping it.
+                ResetCursorsError::Refused(_) | ResetCursorsError::PipelineRunning { .. } => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, None)
+                }
+            };
+            tracing::warn!(
+                error = %e,
+                pipeline_ref = %q.pipeline_ref,
+                status = status.as_u16(),
+                "airway_resource_cursors failed"
+            );
+            match retry_after {
+                Some(secs) => (
+                    status,
+                    [(axum::http::header::RETRY_AFTER, secs)],
+                    e.to_string(),
+                )
+                    .into_response(),
+                None => (status, e.to_string()).into_response(),
+            }
+        }
+    }
+}
+
+// ── POST /agentic-airway/reset-cursors ──────────────────────────────────────
+//
+// Rewind a pipeline's incremental cursors WITHOUT dropping anything it has
+// landed, so a resource can be re-pulled from an earlier `default_start`. The
+// non-destructive sibling of `/reset-schema`, which stays exactly as it is.
+//
+// `IdeOnly` by inheritance, and correctly so: it resolves a `pipeline_ref`,
+// which falls back to the working copy when the compile boundary misses. The
+// `/{*rest}` wildcard in `airway_router_roles` already says this, which is why
+// there is no new declaration.
+//
+// Authed. This one refuses rather than destroys, but a cursor is still
+// production state.
+
+#[derive(Deserialize)]
+pub struct ResetCursorsRequest {
+    /// Path to a `.airway.yml`, relative to the workspace root.
+    pub pipeline_ref: String,
+    /// Resources to rewind. Omitted or empty means **every** resource holding
+    /// a cursor — deliberately the wider reading, because the narrower one
+    /// ("nothing") would make an empty list a silent no-op on a route whose
+    /// whole job is to change state.
+    #[serde(default)]
+    pub resources: Vec<String>,
+    /// Proceed even though re-pulling would duplicate rows rather than
+    /// converge. The reasons are logged server-side when this is used.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Serialize)]
+pub struct ResetCursorsResponse {
+    /// Resources whose cursor was cleared.
+    pub cleared: Vec<String>,
+    /// Resources named by the caller that held no cursor — never run, or a
+    /// typo. Not an error, but the caller cannot tell those apart without it.
+    pub not_held: Vec<String>,
+}
+
+/// The refusal, as JSON rather than a bare string: a client deciding whether
+/// to retry with `force` needs the reasons enumerated, not a sentence to parse.
+#[derive(Serialize)]
+pub struct ResetCursorsRefusal {
+    /// Always `"refused"`: the convergence judgement declined, and `force` may
+    /// override it. What it declined *for* is per reason, in `refusals`.
+    ///
+    /// This used to read `"would_duplicate"` for every refusal, including the
+    /// unscopeable-reset one, which makes no duplication claim at all — so a
+    /// client auto-deciding on the code got that case backwards.
+    pub error: &'static str,
+    /// Every reason, rendered — one per entry of `refusals`, in the same order.
+    pub reasons: Vec<String>,
+    /// The same reasons, typed.
+    pub refusals: Vec<RefusalReason>,
+}
+
+/// One reason a cursor reset was refused.
+#[derive(Serialize)]
+pub struct RefusalReason {
+    /// `"would_duplicate"` — a table in scope appends on a re-pull — or
+    /// `"unknown_ownership"` — a table no known resource claims, so the reset
+    /// could not be narrowed to what was named.
+    pub kind: &'static str,
+    /// The table the reason is about.
+    pub table: String,
+    /// The reason, rendered; identical to the matching `reasons` entry.
+    pub reason: String,
+}
+
+impl From<&agentic_pipeline::executor::CursorResetRefusal> for RefusalReason {
+    fn from(r: &agentic_pipeline::executor::CursorResetRefusal) -> Self {
+        Self {
+            kind: r.kind(),
+            table: r.table().to_string(),
+            reason: r.to_string(),
+        }
+    }
+}
+
+/// The other `409`: something else — usually a run, possibly another reset —
+/// holds the pipeline's single-flight lease. `message` says which.
+///
+/// Its own shape and code, not a `reasons` entry beside the convergence ones,
+/// because it is not overridable by `force` — a client that offered the
+/// override here would be offering a button that cannot work.
+#[derive(Serialize)]
+pub struct ResetCursorsPipelineRunning {
+    /// Always `"pipeline_running"`.
+    pub error: &'static str,
+    /// The lease holder: a run id, or `cursor-reset:<uuid>` for another reset.
+    pub run_id: String,
+    pub message: String,
+}
+
+pub async fn reset_airway_cursors(
+    Extension(state): Extension<Arc<AgenticState>>,
+    Extension(platform): Extension<Arc<dyn PlatformContext>>,
+    AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
+    Json(req): Json<ResetCursorsRequest>,
+) -> Response {
+    use agentic_pipeline::executor::{CursorScope, ResetCursorsError};
+
+    let scope = if req.resources.is_empty() {
+        CursorScope::AllResources
+    } else {
+        CursorScope::Resources(req.resources.clone())
+    };
+
+    let executor =
+        agentic_pipeline::executor::PipelineTaskExecutor::bare(platform, state.db.clone());
+    match executor
+        .reset_airway_cursors(&req.pipeline_ref, &scope, req.force)
+        .await
+    {
+        Ok(cleared) => Json(ResetCursorsResponse {
+            cleared: cleared.cleared,
+            not_held: cleared.not_held,
+        })
+        .into_response(),
+        // A refusal is not a failure: the request was well-formed and
+        // understood, and the server declined to corrupt data. `409` rather
+        // than `400` (the caller made no mistake) or `403` (this is not about
+        // who they are) — the state of the resource conflicts with the action.
+        Err(ResetCursorsError::Refused(refusals)) => {
+            let refusals: Vec<RefusalReason> = refusals.iter().map(RefusalReason::from).collect();
+            tracing::info!(
+                pipeline_ref = %req.pipeline_ref,
+                refused = refusals.len(),
+                "reset_airway_cursors refused by the convergence judgement"
+            );
+            (
+                StatusCode::CONFLICT,
+                Json(ResetCursorsRefusal {
+                    error: "refused",
+                    reasons: refusals.iter().map(|r| r.reason.clone()).collect(),
+                    refusals,
+                }),
+            )
+                .into_response()
+        }
+        Err(ref e @ ResetCursorsError::PipelineRunning { ref run_id }) => {
+            tracing::info!(
+                pipeline_ref = %req.pipeline_ref,
+                held_by = %run_id,
+                force = req.force,
+                "reset_airway_cursors refused: the pipeline lease is held"
+            );
+            (
+                StatusCode::CONFLICT,
+                Json(ResetCursorsPipelineRunning {
+                    error: "pipeline_running",
+                    run_id: run_id.clone(),
+                    message: e.to_string(),
+                }),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            // Same mapping as `/reset-schema`, including `Retry-After` on the
+            // 503, so the two reset routes cannot answer the same condition
+            // differently.
+            let (status, retry_after) = match &e {
+                ResetCursorsError::BadRequest(_) => (StatusCode::BAD_REQUEST, None),
+                ResetCursorsError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
+                ResetCursorsError::Unavailable(_) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Some(airway_unavailable_retry_after()),
+                ),
+                // Handled above; listed so a new variant breaks the build here
+                // rather than falling into a status chosen for something else.
+                // A 500, not a panic, if the arms above are ever reordered.
+                ResetCursorsError::Refused(_) | ResetCursorsError::PipelineRunning { .. } => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, None)
+                }
+            };
+            tracing::warn!(
+                error = %e,
+                pipeline_ref = %req.pipeline_ref,
+                status = status.as_u16(),
+                "reset_airway_cursors failed"
+            );
+            match retry_after {
+                Some(secs) => (
+                    status,
+                    [(axum::http::header::RETRY_AFTER, secs)],
+                    e.to_string(),
+                )
+                    .into_response(),
+                None => (status, e.to_string()).into_response(),
+            }
+        }
+    }
+}

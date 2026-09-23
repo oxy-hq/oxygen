@@ -37,6 +37,8 @@ import {
   type CoverageReport,
   type DiscoveredTable,
   type DiscoverSourceRequest,
+  type ResetCursorsOutcome,
+  type ResetCursorsRequest,
   type StartAirwayRequest
 } from "@/services/api/airway";
 import { type AirwayRunView, reduceAirwayEvents } from "@/utils/airwayReducer";
@@ -102,6 +104,62 @@ export const useResetSchema = (): UseMutationResult<
       });
       queryClient.invalidateQueries({
         queryKey: keys.ranges(project.id, variables.pipeline_ref)
+      });
+      // A schema reset tombstones the state row, so the pipeline now holds no
+      // cursors at all. Leaving this cached would offer a rewind picker listing
+      // resources that no longer hold anything to rewind.
+      queryClient.invalidateQueries({
+        queryKey: keys.resourceCursors(project.id, variables.pipeline_ref)
+      });
+    }
+  });
+};
+
+/**
+ * The resources this pipeline holds a cursor for — the names {@link
+ * useResetCursors} may be scoped to.
+ *
+ * `enabled` so the dialog fetches when it opens rather than on every render of
+ * the pipeline page: the route resolves a `pipeline_ref` through the compile
+ * boundary, which is not free, and nothing on screen needs the list until
+ * someone is choosing from it.
+ */
+export const useAirwayResourceCursors = (
+  pipelineRef: string,
+  enabled: boolean
+): UseQueryResult<string[], Error> => {
+  const { project } = useCurrentProjectBranch();
+  return useQuery({
+    queryKey: keys.resourceCursors(project.id, pipelineRef),
+    queryFn: () => AirwayService.resourceCursors(project.id, pipelineRef),
+    enabled
+  });
+};
+
+/**
+ * Rewind a pipeline's cursors, keeping every landed row.
+ *
+ * The result type is a union, not a throw: a `409` refusal resolves as
+ * `{ kind: "refused" }` so the caller renders the server's reasons instead of
+ * an `AxiosError` message. Only 400/500/503 reject.
+ *
+ * Invalidation is on the cleared path only — a refusal changed nothing, and
+ * invalidating after one would refetch the very list the operator is choosing
+ * from while the refusal is still on screen.
+ */
+export const useResetCursors = (): UseMutationResult<
+  ResetCursorsOutcome,
+  Error,
+  ResetCursorsRequest
+> => {
+  const { project } = useCurrentProjectBranch();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ResetCursorsRequest) => AirwayService.resetCursors(project.id, request),
+    onSuccess: (outcome, variables) => {
+      if (outcome.kind !== "cleared") return;
+      queryClient.invalidateQueries({
+        queryKey: keys.resourceCursors(project.id, variables.pipeline_ref)
       });
     }
   });

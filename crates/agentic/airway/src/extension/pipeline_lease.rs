@@ -209,6 +209,11 @@ async fn try_acquire_once<C: ConnectionTrait>(
     }
 }
 
+/// The holder [`try_acquire`] reports when it lost the acquire race every time
+/// and the read-back found no row. It names no run and no reset — only that
+/// something contended — so a caller rendering it must not claim either.
+pub const CONTENDED_HOLDER: &str = "<unknown: lost the acquire race repeatedly>";
+
 /// Try to take the single-flight lease for `(workspace_id, pipeline_name)`.
 ///
 /// Retries the one race the upsert cannot resolve in a single statement: when
@@ -262,7 +267,7 @@ pub async fn try_acquire<C: ConnectionTrait>(
             };
         } else {
             last = LeaseAcquisition::Held {
-                run_id: "<unknown: lost the acquire race repeatedly>".to_string(),
+                run_id: CONTENDED_HOLDER.to_string(),
                 expires_at: chrono::Utc::now(),
             };
         }

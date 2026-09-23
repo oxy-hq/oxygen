@@ -272,6 +272,16 @@ where
         // Drop a pipeline's destination tables + clear its stored schema/cursor
         // so a later run re-infers a fresh schema.
         .route("/reset-schema", post(routes::reset_airway_schema))
+        // Rewind the cursors and NOTHING else, so a resource can be re-pulled
+        // from an earlier `default_start` without the pipeline's history being
+        // the price. Refuses where a re-pull would duplicate rather than
+        // converge; `force` overrides.
+        .route("/reset-cursors", post(routes::reset_airway_cursors))
+        // The resource names `/reset-cursors` accepts, so a caller offers them
+        // rather than asking for them — a name guessed from a run's lineage is
+        // the table name, which diverges from the cursor key often enough that
+        // a reset scoped to it would silently clear nothing.
+        .route("/resource-cursors", get(routes::airway_resource_cursors))
         .layer(axum::Extension(state))
 }
 

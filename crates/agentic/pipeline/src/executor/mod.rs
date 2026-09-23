@@ -1642,8 +1642,10 @@ impl agentic_airway::CredentialProvider for PlatformAirhouseCredentialProvider {
 }
 
 mod automation;
+mod cursor_reset;
 
 pub use automation::run_decision_task;
+pub use cursor_reset::{ClearedCursors, CursorResetRefusal, CursorScope, ResetCursorsError};
 
 /// What to do with a pipeline's declared `base_path`.
 #[derive(Debug, PartialEq, Eq)]
