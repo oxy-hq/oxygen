@@ -152,18 +152,3 @@ impl OllamaModelConfig {
         None
     }
 }
-
-#[cfg(test)]
-mod tests {
-    // The config-default URLs above (what an unset `api_url` falls back to for
-    // chat traffic) must stay identical to the hosts the provider crates' key-
-    // validation probes hit — otherwise "Test key" would green-light a key
-    // against a host that requests never actually reach. These are duplicate
-    // literals only until Phase 2d deletes the provider crates and their probe
-    // constants; lock them together until then.
-    #[test]
-    fn config_default_urls_match_provider_probe_urls() {
-        assert_eq!(super::OPENAI_API_URL, oxy_openai::OPENAI_API_URL);
-        assert_eq!(super::ANTHROPIC_API_URL, oxy_anthropic::ANTHROPIC_API_URL);
-    }
-}

@@ -5,11 +5,11 @@ use crate::LlmError;
 /// Root of the Anthropic API — the `/messages` path is appended by
 /// `AnthropicProvider::messages_url`, mirroring [`OPENAI_BASE_URL`].
 ///
-/// Deliberately named `…_BASE_URL`, not `ANTHROPIC_API_URL`: that name is
-/// already taken by `oxy_anthropic::ANTHROPIC_API_URL`, and while this constant
-/// held a full `/v1/messages` URL and that one held a root, the two were
-/// trivially confusable — which is how a config-supplied root once reached a
-/// provider that POSTed it verbatim.
+/// Deliberately named `…_BASE_URL`, not `ANTHROPIC_API_URL`: a same-named
+/// constant (`ANTHROPIC_API_URL`, a bare root) lives in `oxy-llm`, and while
+/// this one held a full `/v1/messages` URL and that one held a root, the two
+/// were trivially confusable — which is how a config-supplied root once reached
+/// a provider that POSTed it verbatim.
 pub(super) const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 pub(super) const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Beta feature flag required for extended thinking / streaming thinking.

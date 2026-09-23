@@ -9252,20 +9252,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-anthropic"
-version = "0.5.150"
-dependencies = [
- "async-openai",
- "oxy-shared",
- "reqwest 0.13.4",
- "schemars 0.8.22",
- "serde",
- "serde_with",
- "tokio",
- "wiremock",
-]
-
-[[package]]
 name = "oxy-api-github"
 version = "0.5.150"
 dependencies = [
@@ -9656,16 +9642,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-gemini"
-version = "0.5.150"
-dependencies = [
- "async-openai",
- "oxy-shared",
- "schemars 0.8.22",
- "serde",
-]
-
-[[package]]
 name = "oxy-git"
 version = "0.5.150"
 dependencies = [
@@ -9685,13 +9661,13 @@ dependencies = [
 name = "oxy-llm"
 version = "0.5.150"
 dependencies = [
- "oxy-anthropic",
- "oxy-openai",
  "oxy-shared",
+ "reqwest 0.13.4",
  "schemars 0.8.22",
  "serde",
  "serde_with",
  "tokio",
+ "wiremock",
 ]
 
 [[package]]
@@ -9751,16 +9727,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-ollama"
-version = "0.5.150"
-dependencies = [
- "async-openai",
- "oxy-shared",
- "schemars 0.8.22",
- "serde",
-]
-
-[[package]]
 name = "oxy-oltp"
 version = "0.5.150"
 dependencies = [
@@ -9785,23 +9751,6 @@ dependencies = [
  "tracing",
  "uuid",
  "webpki-roots 1.0.7",
-]
-
-[[package]]
-name = "oxy-openai"
-version = "0.5.150"
-dependencies = [
- "async-openai",
- "axum",
- "oxy-shared",
- "reqwest 0.13.4",
- "schemars 0.8.22",
- "secrecy",
- "serde",
- "serde_with",
- "tokio",
- "tracing",
- "wiremock",
 ]
 
 [[package]]

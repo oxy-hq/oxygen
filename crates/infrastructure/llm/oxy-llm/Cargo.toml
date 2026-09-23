@@ -9,15 +9,15 @@ publish.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# oxy-anthropic / oxy-openai are still needed for the key-validation probes
-# (validation.rs). Config schema types now live in this crate (configs.rs), so
-# oxy-gemini / oxy-ollama are no longer dependencies.
-oxy-anthropic = { workspace = true }
-oxy-openai = { workspace = true }
+# Config schema types (configs.rs) and the key-validation probes (validation.rs)
+# both live in this crate, so it no longer depends on any provider crate — the
+# LLM runtime is agentic-llm. `reqwest` backs the key-validation probes.
 oxy-shared = { workspace = true }
+reqwest = { workspace = true }
 schemars = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
 serde_with = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+wiremock = { workspace = true }

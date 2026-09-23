@@ -29,10 +29,6 @@ members = [
   "crates/shared",
   "crates/simulation",
   "crates/test-utils",
-  "crates/infrastructure/llm/anthropic",
-  "crates/infrastructure/llm/ollama",
-  "crates/infrastructure/llm/gemini",
-  "crates/infrastructure/llm/openai",
   "crates/infrastructure/llm/oxy-llm",
   "crates/infrastructure/semantic",
   "crates/agentic/analytics",
@@ -93,7 +89,6 @@ migration = { path = "crates/migration" }
 omni = { path = "crates/integration/omni" }
 oxy = { path = "crates/core" }
 oxy-airlayer-compat = { path = "crates/infrastructure/semantic" }
-oxy-anthropic = { path = "crates/infrastructure/llm/anthropic" }
 oxy-auth = { path = "crates/auth" }
 oxy-app-core = { path = "crates/app-core" }
 oxy-authz = { path = "crates/authz" }
@@ -101,7 +96,6 @@ oxy-server-authz = { path = "crates/server-authz" }
 oxy-billing = { path = "crates/billing" }
 oxy-cameras = { path = "crates/cameras" }
 oxy-compile = { path = "crates/oxy-compile" }
-oxy-gemini = { path = "crates/infrastructure/llm/gemini" }
 oxy-git = { path = "crates/git" }
 oxy-llm = { path = "crates/infrastructure/llm/oxy-llm" }
 oxy-looker = { path = "crates/integration/looker" }
@@ -109,9 +103,7 @@ oxy-slack-client = { path = "crates/integration/slack-client" }
 oxy-metric-monitoring = { path = "crates/metric-monitoring" }
 oxy-observability = { path = "crates/observability" }
 oxy-telemetry = { path = "crates/telemetry" }
-oxy-ollama = { path = "crates/infrastructure/llm/ollama" }
 oxy-airform = { path = "crates/airform" }
-oxy-openai = { path = "crates/infrastructure/llm/openai" }
 oxy-oltp = { path = "crates/oltp" }
 oxy-platform = { path = "crates/platform" }
 oxy-project = { path = "crates/project" }
