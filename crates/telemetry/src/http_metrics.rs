@@ -209,6 +209,52 @@ mod tests {
         );
     }
 
+    /// The test above proves `inflight_attributes` labels whatever route it is
+    /// handed. It cannot prove `record` hands it the right thing — it passes
+    /// the pattern in directly, so replacing the `MatchedPath` lookup with
+    /// `request.uri().path()` leaves it green while every `/api/threads/<uuid>`
+    /// becomes its own series.
+    ///
+    /// This drives a real request through the layer and reads the label back
+    /// off the rendered exposition, which is the only place the extraction is
+    /// observable. The negative assertion is the load-bearing one: the URL's
+    /// concrete id must appear nowhere in the body.
+    ///
+    /// Needs its own process because `init` installs into a `OnceLock` — which
+    /// nextest gives it, and `cargo test` would not. This repo mandates
+    /// nextest.
+    #[tokio::test]
+    async fn the_recorded_route_label_is_the_pattern_not_the_url() {
+        use crate::metrics::{MetricsConfig, init, render_prometheus};
+
+        let problems = init(
+            &MetricsConfig {
+                sdk_disabled: false,
+                otlp_enabled: false,
+                otlp_endpoint: None,
+                export_interval: std::time::Duration::from_secs(60),
+            },
+            crate::resource::build(Some("serve")),
+        );
+        assert!(
+            problems.is_empty(),
+            "provider install reported {problems:?}"
+        );
+
+        assert_eq!(call("/api/threads/7").await, StatusCode::OK);
+
+        let body = render_prometheus();
+        assert!(
+            body.contains(r#"http_route="/api/threads/{id}""#),
+            "the route label must be the matched PATTERN:\n{body}"
+        );
+        assert!(
+            !body.contains("/api/threads/7"),
+            "the concrete URL leaked into a label — that is one series per id, \
+             which is the cardinality explosion the pattern exists to prevent:\n{body}"
+        );
+    }
+
     /// Hyper parses any RFC 9110 token as a method, so an unauthenticated
     /// caller controls this value. Folding the unknown ones is what keeps the
     /// axis from being attacker-controlled.
