@@ -340,7 +340,7 @@ pub async fn unpublish_app(
 
     // Canonical unpublish: also nulls published_build_id (no dangling pointer)
     // and drops the per-app canonical-dir caches.
-    let saved = admin_apps::unpublish_one(&db, app_id)
+    let saved = admin_apps::unpublish_one(&db, app_id, actor.id)
         .await
         .map_err(|e| e.status)?;
     oxy_app::server::api::custom_apps_auth::invalidate_access_cache();

@@ -35,6 +35,8 @@
 mod common;
 
 mod admin_app_workspace_in_org;
+mod app_environment_pointer_writes;
+mod app_environments;
 mod app_scoped_secrets;
 mod canary_coverage;
 mod custom_app_access_control;

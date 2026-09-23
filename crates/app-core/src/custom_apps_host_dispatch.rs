@@ -61,38 +61,76 @@ use axum::http::Uri;
 use axum::middleware::Next;
 use axum::response::Response;
 
-/// Parse `<org>--<slug>.customer-apps[-<env>]?.<rest>` from a `Host`
-/// header value. Returns `(org_slug, app_slug)` on a match, `None`
-/// otherwise.
+use crate::custom_app_environment::AppEnvironment;
+
+/// A custom-app host, split into the environment it addresses and the app.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParsedAppHost {
+    pub environment: AppEnvironment,
+    pub org_slug: String,
+    pub app_slug: String,
+}
+
+/// Parse `[<env>--]<org>--<slug>.customer-apps[-<cluster>]?.<rest>` from a `Host`
+/// header value.
 ///
 /// Rules:
 /// - Strips any `:port` tail (so dev-server hosts work).
-/// - The first label must split into `<org>--<slug>` on the FIRST
-///   `--`. Slugs may contain `-` but not `--` (we control slug
-///   validation; split_once at first `--` means engineering org names
-///   like `acme--internal` would collide, so we disallow `--` in org
-///   slugs in the registration form — see admin/apps/handlers.rs).
 /// - The second label must be exactly `customer-apps` or start with
-///   `customer-apps-` (i.e. `customer-apps`, `customer-apps-dev`,
-///   `customer-apps-staging`, `customer-apps-prod`, …).
-/// - Both parts non-empty; neither contains `.` (defense against a
-///   crafted host like `evil.mars--app.customer-apps-dev.oxygen-hq.com`
-///   trying to ride a wildcard).
-pub fn parse_subdomain(host: &str) -> Option<(String, String)> {
+///   `customer-apps-` (`customer-apps-dev`, `customer-apps-staging`, …). That
+///   suffix names the oxy *cluster*, not the app environment.
+/// - The first label splits on `--` into exactly two segments (production) or
+///   three (environment first). App slugs cannot contain `--`
+///   (`admin/apps/ops.rs::is_valid_slug`) and org slugs cannot either
+///   (`organizations/ops.rs::is_reserved_slug`), so the split is unambiguous.
+/// - A three-segment host must name a non-production environment: production is
+///   only ever the bare form, so every environment has exactly one host.
+/// - Org and slug are non-empty. Neither can contain `.`, because the first label
+///   ends at the first `.` (defence against a crafted host riding the wildcard).
+pub fn parse_app_host(host: &str) -> Option<ParsedAppHost> {
     let host_no_port = host.split(':').next().unwrap_or(host);
     let (prefix, rest) = host_no_port.split_once('.')?;
     let second_label = rest.split('.').next()?;
     if second_label != "customer-apps" && !second_label.starts_with("customer-apps-") {
         return None;
     }
-    let (org, slug) = prefix.split_once("--")?;
+    // Pull at most four segments off the iterator instead of collecting into a Vec:
+    // this runs on every custom-app request. The fourth `next()` only tells three
+    // segments apart from four or more.
+    let mut segments = prefix.split("--");
+    let (environment, org, slug) = match (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) {
+        (Some(org), Some(slug), None, _) => (AppEnvironment::Production, org, slug),
+        (Some(env), Some(org), Some(slug), None) => {
+            let environment = AppEnvironment::parse(env)?;
+            if environment == AppEnvironment::Production {
+                return None;
+            }
+            (environment, org, slug)
+        }
+        _ => return None,
+    };
     if org.is_empty() || slug.is_empty() {
         return None;
     }
-    if org.contains('.') || slug.contains('.') {
-        return None;
-    }
-    Some((org.to_string(), slug.to_string()))
+    Some(ParsedAppHost {
+        environment,
+        org_slug: org.to_string(),
+        app_slug: slug.to_string(),
+    })
+}
+
+/// `(org_slug, app_slug)` for a **production** custom-app host; `None` for every
+/// other host, including environment-prefixed ones. The existing callers (serve,
+/// health, shell context) route production only until Phase 1b makes them
+/// environment-aware.
+pub fn parse_subdomain(host: &str) -> Option<(String, String)> {
+    let parsed = parse_app_host(host)?;
+    (parsed.environment == AppEnvironment::Production).then_some((parsed.org_slug, parsed.app_slug))
 }
 
 /// Build the absolute subdomain URL for an app, e.g.
@@ -165,8 +203,8 @@ pub fn admin_base_url() -> Option<String> {
 /// form so the existing `/customer-apps/{*path}` route handles them.
 ///
 /// Applied to the outer router so every request is inspected. Cheap:
-/// one Host-header read + at most two `split_once` calls on the
-/// non-matching fast path.
+/// one Host-header read + at most three delimiter scans (`:`, then `.`
+/// twice), with no allocation, on the non-matching fast path.
 pub async fn subdomain_rewrite_middleware(request: Request, next: Next) -> Response {
     let Some(host) = request
         .headers()
@@ -635,5 +673,87 @@ mod tests {
             std::env::remove_var("OXY_API_URL");
         }
         assert_eq!(admin_base_url(), None);
+    }
+
+    #[test]
+    fn app_host_bare_form_is_production() {
+        assert_eq!(
+            parse_app_host("acme--store.customer-apps.oxygen-hq.com"),
+            Some(ParsedAppHost {
+                environment: AppEnvironment::Production,
+                org_slug: "acme".into(),
+                app_slug: "store".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn app_host_staging_prefix() {
+        assert_eq!(
+            parse_app_host("staging--acme--store.customer-apps.oxygen-hq.com"),
+            Some(ParsedAppHost {
+                environment: AppEnvironment::Staging,
+                org_slug: "acme".into(),
+                app_slug: "store".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn app_host_dev_slot_prefix_with_port_and_cluster_label() {
+        assert_eq!(
+            parse_app_host("dev-luong--acme--store.customer-apps-dev.oxy.tech:5173"),
+            Some(ParsedAppHost {
+                environment: AppEnvironment::Dev {
+                    handle: "luong".into()
+                },
+                org_slug: "acme".into(),
+                app_slug: "store".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn app_host_rejects_unknown_or_explicit_production_prefix() {
+        assert_eq!(
+            parse_app_host("qa--acme--store.customer-apps.oxygen-hq.com"),
+            None
+        );
+        // Production is only ever the bare form, so each environment has exactly one host.
+        assert_eq!(
+            parse_app_host("production--acme--store.customer-apps.oxygen-hq.com"),
+            None
+        );
+    }
+
+    #[test]
+    fn app_host_rejects_four_segments_and_empty_parts() {
+        assert_eq!(
+            parse_app_host("staging--a--b--c.customer-apps.oxygen-hq.com"),
+            None
+        );
+        assert_eq!(
+            parse_app_host("staging----store.customer-apps.oxygen-hq.com"),
+            None
+        );
+        assert_eq!(
+            parse_app_host("staging--acme--.customer-apps.oxygen-hq.com"),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_subdomain_sees_only_production_hosts() {
+        assert_eq!(
+            parse_subdomain("acme--store.customer-apps.oxygen-hq.com"),
+            Some(("acme".into(), "store".into()))
+        );
+        // Before this change this parsed as org `staging`, slug `acme--store`, which
+        // is not a valid app slug and so already 404'd downstream. It now stays
+        // unrouted until Phase 1b resolves environments.
+        assert_eq!(
+            parse_subdomain("staging--acme--store.customer-apps.oxygen-hq.com"),
+            None
+        );
     }
 }

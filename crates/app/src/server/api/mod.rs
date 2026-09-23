@@ -22,6 +22,7 @@ pub mod custom_apps_bundle_cache;
 pub mod custom_apps_cache;
 pub mod custom_apps_client;
 pub mod custom_apps_debug;
+pub mod custom_apps_environments;
 pub mod custom_apps_functions;
 pub mod custom_apps_gates;
 pub mod custom_apps_health;

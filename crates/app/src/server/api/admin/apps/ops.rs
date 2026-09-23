@@ -18,6 +18,7 @@ use sea_orm::ModelTrait;
 use sea_orm::QueryFilter;
 use sea_orm::QueryOrder;
 use sea_orm::QuerySelect;
+use sea_orm::TransactionTrait;
 use uuid::Uuid;
 
 use crate::server::api::workspace_org::{WorkspaceOrgMatch, workspace_in_org};
@@ -403,8 +404,31 @@ pub async fn publish_one(
         active.published_build_id = ActiveValue::Set(Some(ptr));
     }
     active.updated_at = ActiveValue::Set(now);
-    let updated = active.update(db).await.map_err(|e| {
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("publish_one {id} begin failed: {e}");
+        AppOpError::internal()
+    })?;
+    let updated = active.update(&txn).await.map_err(|e| {
         tracing::error!("publish_one {id} update failed: {e}");
+        AppOpError::internal()
+    })?;
+    if let Some(ptr) = draft_ptr {
+        crate::server::api::custom_apps_environments::record_move(
+            &txn,
+            id,
+            &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+            Some(ptr),
+            crate::server::api::custom_apps_environments::EnvAction::Promote,
+            Some(actor),
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("publish_one {id} environment mirror failed: {e}");
+            AppOpError::internal()
+        })?;
+    }
+    txn.commit().await.map_err(|e| {
+        tracing::error!("publish_one {id} commit failed: {e}");
         AppOpError::internal()
     })?;
 
@@ -419,7 +443,11 @@ pub async fn publish_one(
 /// Core unpublish mutation shared by [`unpublish_app`] and
 /// [`batch_unpublish_apps`]. Nulls `published_at` + the published channel
 /// pointer; the bundle bytes stay untouched.
-pub async fn unpublish_one(db: &DatabaseConnection, id: Uuid) -> Result<apps::Model, AppOpError> {
+pub async fn unpublish_one(
+    db: &DatabaseConnection,
+    id: Uuid,
+    actor: Uuid,
+) -> Result<apps::Model, AppOpError> {
     let row = Apps::find_by_id(id)
         .one(db)
         .await
@@ -434,8 +462,29 @@ pub async fn unpublish_one(db: &DatabaseConnection, id: Uuid) -> Result<apps::Mo
     active.published_at = ActiveValue::Set(None);
     active.published_build_id = ActiveValue::Set(None);
     active.updated_at = ActiveValue::Set(now);
-    let updated = active.update(db).await.map_err(|e| {
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("unpublish_one {id} begin failed: {e}");
+        AppOpError::internal()
+    })?;
+    let updated = active.update(&txn).await.map_err(|e| {
         tracing::error!("unpublish_one {id} update failed: {e}");
+        AppOpError::internal()
+    })?;
+    crate::server::api::custom_apps_environments::record_move(
+        &txn,
+        id,
+        &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+        None,
+        crate::server::api::custom_apps_environments::EnvAction::Unpublish,
+        Some(actor),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("unpublish_one {id} environment mirror failed: {e}");
+        AppOpError::internal()
+    })?;
+    txn.commit().await.map_err(|e| {
+        tracing::error!("unpublish_one {id} commit failed: {e}");
         AppOpError::internal()
     })?;
 
@@ -550,8 +599,29 @@ pub(super) async fn promote_latest_one(
     active.last_promoted_by = ActiveValue::Set(Some(actor));
     active.last_promoted_at = ActiveValue::Set(Some(now));
     active.updated_at = ActiveValue::Set(now);
-    let updated = active.update(db).await.map_err(|e| {
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("promote_latest_one {id} begin failed: {e}");
+        AppOpError::internal()
+    })?;
+    let updated = active.update(&txn).await.map_err(|e| {
         tracing::error!("promote_latest_one {id} update failed: {e}");
+        AppOpError::internal()
+    })?;
+    crate::server::api::custom_apps_environments::record_move(
+        &txn,
+        id,
+        &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+        Some(latest.id),
+        crate::server::api::custom_apps_environments::EnvAction::Promote,
+        Some(actor),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("promote_latest_one {id} environment mirror failed: {e}");
+        AppOpError::internal()
+    })?;
+    txn.commit().await.map_err(|e| {
+        tracing::error!("promote_latest_one {id} commit failed: {e}");
         AppOpError::internal()
     })?;
 
