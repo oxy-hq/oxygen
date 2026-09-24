@@ -443,6 +443,43 @@ mod tests {
     /// An unknown encoding is OUR misconfiguration, not the caller's failure to
     /// authenticate — answering 401 would send a provider into a retry loop over
     /// a manifest typo it can do nothing about.
+    /// ⚠️ CROSS-REPO CONTRACT — an external uptime monitor asserts on this exact
+    /// body, so it is not free text.
+    ///
+    /// `allquiet/uptime/monitors.tf` in oxy-hq/infrastructure probes a real
+    /// custom app by POSTing a DELIBERATELY WRONG signature and asserting
+    /// `401` + this string. That is the whole design: reaching "signature
+    /// mismatch" means the request got past `resolve_webhook_target` (so
+    /// Postgres answered org → app → published build → the declared webhook)
+    /// and past `resolve_signing_keys` (so the secret manager read a non-empty
+    /// key), then actually ran the HMAC. It proves more resolution than a 202
+    /// does, and — the point — it needs no valid signature, so no signing
+    /// material has to live in a monitoring vendor, in SSM, or in a
+    /// `TF_VAR_*`, and rotating the app's secret cannot break the probe.
+    ///
+    /// The other 401 bodies are what make it specific: "webhook signing secret
+    /// is not configured" means the secret vanished, and "signature is not hex"
+    /// means the monitor's header is malformed. Both are real failures the
+    /// monitor should catch, and it only catches them because this string is
+    /// distinct from them. Changing any of these three words changes what that
+    /// monitor means; change them together.
+    #[test]
+    fn a_wrong_signature_reports_mismatch_verbatim() {
+        let body = b"payload";
+        // Valid lowercase hex, 32 bytes — the right SHAPE, the wrong value. A
+        // malformed header would stop earlier at "signature is not hex" and the
+        // monitor would be asserting the wrong thing entirely.
+        let wrong = "0".repeat(64);
+        let err = verify_signature(&headers(&wrong), body, HEADER, "hex", "the-real-key")
+            .expect_err("a zero signature must not verify");
+
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            err.1, "signature mismatch",
+            "an external monitor asserts this string; see the doc comment above"
+        );
+    }
+
     #[test]
     fn an_unknown_encoding_is_a_server_error_not_a_401() {
         let body = b"payload";
