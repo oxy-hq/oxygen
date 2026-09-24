@@ -10,41 +10,80 @@ name: Custom app checks
 #
 # Two entry points:
 #
-#   - `schedule`: both environments every 15 minutes, once the repo variable
-#     CUSTOM_APP_CHECKS_SCHEDULE is `true`. On prod, only a run whose checks
-#     all passed POSTs to CHECKIN_URL, so the All Quiet monitor behind it hears
-#     nothing when the apps break and also when the checks stop running.
-#     Staging has no heartbeat monitor yet; it gets one when the Better Stack
-#     escalation flag flips. So CHECKIN_URL is required on prod only, and a
-#     staging run without it skips the check-in with a notice.
+#   - `schedule`: both environments every 15 minutes. The schedule turns
+#     itself on: a leg whose environment holds no OXY_API_KEY exits green at
+#     `Require secrets` with a notice, and starts checking on the first tick
+#     after the key appears. There is no switch to flip. On prod, only a run
+#     whose checks all passed POSTs to the check-in URL, so the All Quiet
+#     monitor behind it hears nothing when the apps break and also when the
+#     checks stop running. Staging has no heartbeat monitor yet; it gets one
+#     when the Better Stack escalation flag flips. So the check-in URL is
+#     required on prod only, and a staging run without it skips the check-in
+#     with a notice.
 #
 #   - `workflow_dispatch`: one environment. `public-image-bump.yaml` dispatches
 #     staging with `expect_version` when it proposes a prod image bump. That run
 #     waits for staging to serve the version, then records the result as labels
 #     on the bump PR in oxy-hq/infrastructure (see the last step).
 #
-# Targets: `.github/custom-app-checks.json`. Secrets: the GitHub environments
-# `custom-app-checks-staging` and `custom-app-checks-prod`. Setup order:
-# internal-docs/release-process.md, "Release checks".
+# Targets: `.github/custom-app-checks.json`. Setup: `just release-checks-setup`
+# (scripts/release/custom-app-checks-setup.sh) sets everything below that a
+# person has to provide and reports what each scope holds; the order around it
+# is in internal-docs/release-process.md, "Release checks".
 #
-# CUSTOM_APP_CHECKS_SCHEDULE is the last step of that setup, not one of the
-# first. `Require secrets` below is deliberately loud, so flipping the variable
-# before the environments hold their secrets fails both legs of every tick —
-# ~96 runs a day that check nothing and leave `main` permanently red. If the
-# secrets have to come out (a rotation, an environment rebuild), set the
-# variable to `false` for the duration rather than letting the ticks fail.
+# Secrets. A job that names an environment reads the environment's secrets AND
+# the repository's, so every token here reads the environment secret if set,
+# else a repository secret that already exists. Whoever sets the specific one
+# still wins; the fallback is for the common case, where one token does. What
+# a person must set is three values: OXY_API_KEY in each environment and the
+# prod check-in URL. Everything else falls back.
 #
-# Sentry, on a staging dispatch that names a version, and never a verdict. Two
-# more secrets in `custom-app-checks-staging`, both optional: a missing one
-# costs its step a warning and never fails the run.
+#   OXY_API_KEY          environment only (staging and prod), a key for a
+#                        synthetic app-operator user. No fallback: it is the
+#                        credential the checks run as, and its presence is what
+#                        turns the scheduled leg on.
+#   CHECKIN_URL          prod: environment CHECKIN_URL, else repository
+#                        CUSTOM_APP_CHECKS_CHECKIN_URL (the All Quiet
+#                        `custom_app_checks_prod` monitor). There is one URL and
+#                        it is prod-only, so the repository secret is the normal
+#                        home; the qualified name keeps it from reading as any
+#                        check-in at repository scope.
+#   INFRA_PR_TOKEN       environment, else repository OXY_HQ_GIT_TOKEN. Labels
+#                        and comments on the bump PR in oxy-hq/infrastructure:
+#                        needs `repo` on that repository (classic) or
+#                        Issues + Pull requests: write (fine-grained). A 403 or
+#                        404 from `gh` in "Record the result" is this scope.
+#   SENTRY_RELEASE_TOKEN environment, else repository SENTRY_AUTH_TOKEN. Needs
+#                        `project:releases` (create the release, POST a deploy).
+#   SENTRY_READ_TOKEN    environment, else repository SENTRY_AUTH_TOKEN. Needs
+#                        `event:read` (and `org:read`) for the issues query. A
+#                        Sentry 403 in either Sentry step names the token that
+#                        was in play, so the fix is to add the scope to that
+#                        token or set the environment-specific one.
 #
-#   - SENTRY_RELEASE_TOKEN (scope project:releases): once staging serves the
-#     version, "Mark the staging deploy in Sentry" records a `staging` deploy
-#     of release `oxy@X.Y.Z` in project `oxy`.
-#   - SENTRY_READ_TOKEN (scopes event:read and org:read): after the result is
-#     recorded, "Comment new Sentry issues on the prod bump PR" lists the
-#     unresolved issues first seen in that release on staging. It never adds a
-#     label or a hold.
+# The fallback tokens' scopes are an assumption until a run proves them: none
+# of this widens a token, and the step messages say which token was used.
+#
+# A scheduled leg with no OXY_API_KEY is the only quiet ending. Once the key is
+# in, `Require secrets` is deliberately loud again: a prod leg with a key and no
+# check-in URL fails every tick until the URL is set, because from the key on a
+# missing piece is a misconfiguration, not setup in progress. The variable that
+# used to gate the schedule (CUSTOM_APP_CHECKS_SCHEDULE) is gone: flipping it
+# before the environments held anything produced 318 consecutive red runs on
+# 2026-09-22, and a gate that reads the key cannot be flipped early. To take a
+# leg off the schedule (a rotation, an environment rebuild), delete its
+# OXY_API_KEY for the duration.
+#
+# Sentry, on a staging dispatch that names a version, and never a verdict.
+# Both Sentry tokens are optional: a missing one costs its step a warning and
+# never fails the run.
+#
+#   - SENTRY_RELEASE_TOKEN: once staging serves the version, "Mark the staging
+#     deploy in Sentry" records a `staging` deploy of release `oxy@X.Y.Z` in
+#     project `oxy`.
+#   - SENTRY_READ_TOKEN: after the result is recorded, "Comment new Sentry
+#     issues on the prod bump PR" lists the unresolved issues first seen in
+#     that release on staging. It never adds a label or a hold.
 #
 # CUSTOM_APP_CHECK_ALLOWED_ORIGINS, set on the browser step from the target
 # file's baseUrl, lists the origins besides each app's own that may receive
@@ -92,10 +131,10 @@ jobs:
   checks:
     name: Custom app checks (${{ matrix.environment }})
     # oxygen-internal only. The environments and secrets exist only here, so a
-    # copy of this file anywhere else (the public mirror) must not run.
-    if: >-
-      github.repository == 'oxy-hq/oxygen-internal' &&
-      (github.event_name == 'workflow_dispatch' || vars.CUSTOM_APP_CHECKS_SCHEDULE == 'true')
+    # copy of this file anywhere else (the public mirror) must not run. A job
+    # `if` cannot read secrets, so whether a scheduled leg has a key to run
+    # with is decided in the first step, not here.
+    if: github.repository == 'oxy-hq/oxygen-internal'
     runs-on: ubuntu-latest
     # Above the sum of the step timeouts below (2+5+15+10+2+35+2+15+15+2+5+5+3 =
     # 116). A hung step then hits its own timeout first, and the result step
@@ -115,20 +154,32 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'schedule' }}
     steps:
       # First, before any install: a misconfigured environment should fail in
-      # seconds, and loudly. An unset secret is never a skipped check.
+      # seconds, and loudly. An unset secret is never a skipped check — with
+      # one exception, the scheduled leg of an environment that has no key
+      # yet, which is setup still in progress rather than a misconfiguration.
+      # That leg exits 0 with a notice and `ready=false`, and every later step
+      # is gated on `ready`, so the tick ends green having checked nothing and
+      # said so. A dispatch never takes that exit: a person asked for this run
+      # and gets the error.
       - name: Require secrets
         id: secrets
         timeout-minutes: 2
         env:
           ENVIRONMENT: ${{ matrix.environment }}
+          EVENT_NAME: ${{ github.event_name }}
           OXY_API_KEY: ${{ secrets.OXY_API_KEY }}
-          CHECKIN_URL: ${{ secrets.CHECKIN_URL }}
-          INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          # Each of these is the environment secret if set, else the repository
+          # one (see the header). `*_SOURCE` names which, for the messages.
+          # The repository check-in URL is prod's, so only the prod leg reads it.
+          CHECKIN_URL: ${{ secrets.CHECKIN_URL || (matrix.environment == 'prod' && secrets.CUSTOM_APP_CHECKS_CHECKIN_URL || '') }}
+          CHECKIN_URL_SOURCE: ${{ secrets.CHECKIN_URL && 'CHECKIN_URL (environment)' || 'CUSTOM_APP_CHECKS_CHECKIN_URL (repository)' }}
+          INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
+          INFRA_PR_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
         run: |
           set -euo pipefail
-          # CHECKIN_URL feeds the prod All Quiet monitor. Staging has no monitor
-          # yet, so there it is optional (see "Check in").
+          # The check-in URL feeds the prod All Quiet monitor. Staging has no
+          # monitor yet, so there it is optional (see "Check in").
           #
           # INFRA_PR_TOKEN is how staging's result reaches the prod bump PR
           # ("Record the result"), and it is required ONLY on the run that does
@@ -151,22 +202,56 @@ jobs:
               fi
               ;;
           esac
-          missing=0
+          # Where each name is looked for, for the message: the environment,
+          # or the environment and then the repository fallback.
+          where() {
+            case "$1" in
+              OXY_API_KEY) echo "environment custom-app-checks-${ENVIRONMENT}" ;;
+              CHECKIN_URL) echo "environment custom-app-checks-${ENVIRONMENT} (CHECKIN_URL) or the repository (CUSTOM_APP_CHECKS_CHECKIN_URL)" ;;
+              INFRA_PR_TOKEN) echo "environment custom-app-checks-${ENVIRONMENT} (INFRA_PR_TOKEN) or the repository (OXY_HQ_GIT_TOKEN)" ;;
+            esac
+          }
+          missing=()
           for name in "${required[@]}"; do
             if [[ -z "${!name:-}" ]]; then
-              echo "::error::secret ${name} is not set in environment custom-app-checks-${ENVIRONMENT}"
-              missing=1
+              missing+=("$name")
             fi
           done
-          exit "$missing"
+          if (( ${#missing[@]} == 0 )); then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            if [[ "$ENVIRONMENT" == prod ]]; then
+              echo "check-in URL: ${CHECKIN_URL_SOURCE}"
+            fi
+            if [[ -n "${EXPECT_VERSION:-}" ]]; then
+              echo "bump-PR token: ${INFRA_PR_TOKEN_SOURCE}"
+            fi
+            exit 0
+          fi
+          # No key on a schedule: setup has not reached this environment. Say
+          # what is missing and end green; the first tick after the key lands
+          # runs the checks. Only the key buys this exit — see the header.
+          if [[ "$EVENT_NAME" == schedule && -z "${OXY_API_KEY:-}" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::custom-app-checks-${ENVIRONMENT}: setup is incomplete, so this scheduled run checked nothing. Missing: ${missing[*]}. Run \`just release-checks-setup\` (internal-docs/release-process.md, \"Release checks\"); the schedule starts on the first tick after OXY_API_KEY is set."
+            exit 0
+          fi
+          for name in "${missing[@]}"; do
+            echo "::error::secret ${name} is not set in $(where "$name")"
+          done
+          exit 1
 
+      # `ready` is false only on a scheduled leg with no key (above); every
+      # step from here to the browser check is gated on it, and the steps
+      # after those are gated on these steps' outcomes.
       - name: Checkout
         id: checkout
+        if: steps.secrets.outputs.ready == 'true'
         timeout-minutes: 5
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up pnpm, Node, and Playwright
         id: setup
+        if: steps.secrets.outputs.ready == 'true'
         timeout-minutes: 15
         uses: ./.github/actions/setup-web-app-test-env
         with:
@@ -174,11 +259,13 @@ jobs:
 
       - name: Build oxyc
         id: build
+        if: steps.secrets.outputs.ready == 'true'
         timeout-minutes: 10
         run: pnpm --filter @oxy-hq/cli build
 
       - name: Resolve targets
         id: targets
+        if: steps.secrets.outputs.ready == 'true'
         timeout-minutes: 2
         env:
           ENVIRONMENT: ${{ matrix.environment }}
@@ -267,7 +354,10 @@ jobs:
         continue-on-error: true
         timeout-minutes: 2
         env:
-          SENTRY_RELEASE_TOKEN: ${{ secrets.SENTRY_RELEASE_TOKEN }}
+          # Environment SENTRY_RELEASE_TOKEN, else repository SENTRY_AUTH_TOKEN
+          # (needs project:releases — see the header).
+          SENTRY_RELEASE_TOKEN: ${{ secrets.SENTRY_RELEASE_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_TOKEN_SOURCE: ${{ secrets.SENTRY_RELEASE_TOKEN && 'SENTRY_RELEASE_TOKEN (environment custom-app-checks-staging)' || 'SENTRY_AUTH_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -275,9 +365,10 @@ jobs:
           set -uo pipefail
           RELEASE="oxy@${EXPECT_VERSION}"
           if [[ -z "${SENTRY_RELEASE_TOKEN:-}" ]]; then
-            echo "::warning::secret SENTRY_RELEASE_TOKEN is not set in environment custom-app-checks-staging: no Sentry deploy marker for ${RELEASE}"
+            echo "::warning::neither SENTRY_RELEASE_TOKEN (environment custom-app-checks-staging) nor SENTRY_AUTH_TOKEN (repository) is set: no Sentry deploy marker for ${RELEASE}"
             exit 0
           fi
+          echo "Sentry token: ${SENTRY_TOKEN_SOURCE}; a 403 below means it lacks project:releases"
           RESPONSE="${RUNNER_TEMP}/sentry-response.json"
           # sentry_post PATH JSON: prints the HTTP status, or 000 when Sentry
           # could not be reached at all.
@@ -307,7 +398,7 @@ jobs:
             "$(jq -nc --arg v "$RELEASE" '{version: $v, projects: ["oxy"]}')")
           if [[ "$code" != 201 && "$code" != 208 ]] &&
             ! { [[ "$code" == 400 ]] && grep -qi 'already exist' "$RESPONSE" 2>/dev/null; }; then
-            echo "::warning::$(sentry_said "$code") when creating release ${RELEASE}: no staging deploy marker"
+            echo "::warning::$(sentry_said "$code") when creating release ${RELEASE} (token: ${SENTRY_TOKEN_SOURCE}): no staging deploy marker"
             exit 0
           fi
 
@@ -315,14 +406,14 @@ jobs:
           code=$(sentry_post "/organizations/${SENTRY_ORG}/releases/${VERSION_PATH}/deploys/" \
             "$(jq -nc --arg url "$RUN_URL" '{environment: "staging", projects: ["oxy"], name: "custom-app checks", url: $url}')")
           if [[ "$code" != 201 ]]; then
-            echo "::warning::$(sentry_said "$code") when marking the staging deploy of ${RELEASE}"
+            echo "::warning::$(sentry_said "$code") when marking the staging deploy of ${RELEASE} (token: ${SENTRY_TOKEN_SOURCE})"
             exit 0
           fi
           echo "Marked a staging deploy of ${RELEASE} in Sentry project oxy."
 
       - name: Run server-side checks
         id: server
-        if: steps.version.outputs.superseded != 'true'
+        if: steps.secrets.outputs.ready == 'true' && steps.version.outputs.superseded != 'true'
         timeout-minutes: 15
         env:
           BASE_URL: ${{ steps.targets.outputs.base_url }}
@@ -428,12 +519,16 @@ jobs:
         timeout-minutes: 2
         env:
           ENVIRONMENT: ${{ matrix.environment }}
-          CHECKIN_URL: ${{ secrets.CHECKIN_URL }}
+          # Environment CHECKIN_URL, else — on prod only — the repository's
+          # CUSTOM_APP_CHECKS_CHECKIN_URL. The repository secret is the prod
+          # monitor's URL and the staging leg can read it too, so staging
+          # checks in only when its own environment names a URL.
+          CHECKIN_URL: ${{ secrets.CHECKIN_URL || (matrix.environment == 'prod' && secrets.CUSTOM_APP_CHECKS_CHECKIN_URL || '') }}
         run: |
           set -euo pipefail
           # "Require secrets" already failed a prod run without one.
           if [[ -z "${CHECKIN_URL:-}" ]]; then
-            echo "::notice::${ENVIRONMENT} has no heartbeat monitor yet (it waits on the Better Stack escalation flag): CHECKIN_URL is unset, so this run does not check in"
+            echo "::notice::${ENVIRONMENT} has no heartbeat monitor yet (it waits on the Better Stack escalation flag): no check-in URL for it, so this run does not check in"
             exit 0
           fi
           curl -fsS -m 10 --retry 3 -X POST "$CHECKIN_URL"
@@ -481,7 +576,10 @@ jobs:
         if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && inputs.expect_version != '' }}
         timeout-minutes: 5
         env:
-          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
+          # Environment INFRA_PR_TOKEN, else repository OXY_HQ_GIT_TOKEN (needs
+          # `repo` on oxy-hq/infrastructure — see the header).
+          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
+          GH_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment custom-app-checks-staging)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
           SUPERSEDED: ${{ steps.version.outputs.superseded == 'true' }}
           SERVER: ${{ steps.server.outcome }}
@@ -496,9 +594,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::secret INFRA_PR_TOKEN is not set: the release-check result for ${EXPECT_VERSION} cannot reach the prod bump PR"
+            echo "::error::neither INFRA_PR_TOKEN (environment custom-app-checks-staging) nor OXY_HQ_GIT_TOKEN (repository) is set: the release-check result for ${EXPECT_VERSION} cannot reach the prod bump PR"
             exit 1
           fi
+          echo "bump-PR token: ${GH_TOKEN_SOURCE}; a 403 or 404 from gh below means it lacks \`repo\` on ${INFRA_REPO}"
 
           if [[ "$SUPERSEDED" == "true" ]]; then
             RESULT=superseded
@@ -636,8 +735,12 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
-          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN }}
-          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          # Same fallbacks as the record step and the deploy marker: the GitHub
+          # token needs `repo` on oxy-hq/infrastructure, the Sentry token
+          # `event:read` (and `org:read`) — see the header.
+          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_TOKEN_SOURCE: ${{ secrets.SENTRY_READ_TOKEN && 'SENTRY_READ_TOKEN (environment custom-app-checks-staging)' || 'SENTRY_AUTH_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
           PR: ${{ steps.record.outputs.pr }}
           INFRA_REPO: oxy-hq/infrastructure
@@ -647,8 +750,9 @@ jobs:
           RELEASE="oxy@${EXPECT_VERSION}"
           ISSUES="${RUNNER_TEMP}/sentry-issues.json"
           if [[ -z "${SENTRY_READ_TOKEN:-}" ]]; then
-            SUMMARY="Sentry was not checked for \`${RELEASE}\`: secret \`SENTRY_READ_TOKEN\` is not set in environment \`custom-app-checks-staging\`."
+            SUMMARY="Sentry was not checked for \`${RELEASE}\`: neither \`SENTRY_READ_TOKEN\` (environment \`custom-app-checks-staging\`) nor \`SENTRY_AUTH_TOKEN\` (repository) is set."
           else
+            echo "Sentry token: ${SENTRY_TOKEN_SOURCE}; a 403 below means it lacks event:read"
             # `project` takes a slug on this endpoint. `firstRelease:` is the
             # release an issue was first seen in: the issues this release brought.
             code=$(curl -sS -m 20 -G -o "$ISSUES" -w '%{http_code}' \
@@ -664,7 +768,7 @@ jobs:
             if [[ "$code" == 000 ]]; then
               SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry could not be reached."
             elif [[ "$code" != 200 ]]; then
-              SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry answered HTTP ${code}."
+              SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry answered HTTP ${code} (token: ${SENTRY_TOKEN_SOURCE})."
             elif ! COUNT=$(jq -e 'if type == "array" then length else error("not a list") end' "$ISSUES" 2>/dev/null); then
               # 200, but not the list of issues this asked for.
               SUMMARY="Sentry was not checked for \`${RELEASE}\`: Sentry answered HTTP 200, but the body was not a list of issues."

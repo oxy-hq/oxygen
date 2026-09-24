@@ -711,6 +711,16 @@ custom-app-canary *FLAGS:
       --clickhouse-url "${CANARY_CLICKHOUSE_URL:-http://localhost:8123}" \
       --clickhouse-password "${CANARY_CLICKHOUSE_PASSWORD:-default}" \
       {{ FLAGS }}
+
+# The secrets the release checks need, in one pass: an API key per environment
+# and the prod check-in URL. Everything else falls back to a token the
+# repository already holds, and the schedule turns itself on once a key
+# appears. Nothing is echoed; an existing secret is kept unless --force.
+#   just release-checks-setup --check     # what each scope holds now
+#   just release-checks-setup             # prompt for whatever is missing
+release-checks-setup *FLAGS:
+    scripts/ci/setup-release-checks.sh {{ FLAGS }}
+
 # ── Per-org OLTP POC ──────────────────────────────────────────────────────────
 # Docs: scripts/oltp/README.md · Design:
 # internal-docs/2026-08-04-per-org-oltp-postgres-design.md
