@@ -408,7 +408,17 @@ mod every_migrator {
             let Ok(text) = fs::read_to_string(&file) else {
                 continue;
             };
-            let count = text.matches(IMPL_HEADER).count();
+            // Code lines only: a commented-out `// oxy_migration_tolerance::tolerate_schema_ahead!();`
+            // must not pass for the real thing, nor a commented-out `impl` count
+            // as a migrator.
+            let code: Vec<&str> = text
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect();
+            let count = code
+                .iter()
+                .filter(|line| line.contains(IMPL_HEADER))
+                .count();
             if count == 0 {
                 continue;
             }
@@ -416,7 +426,7 @@ mod every_migrator {
             // Per file, not per impl: a file with two migrators and one macro
             // would pass, but no file in this workspace has two, and the
             // alternative is parsing Rust. If that changes, split on the header.
-            if !text.contains(MACRO) {
+            if !code.iter().any(|line| line.contains(MACRO)) {
                 untolerated.push(file.display().to_string());
             }
         }
@@ -436,5 +446,85 @@ mod every_migrator {
              `crates/app/tests/platform/migration_rollback_tolerance.rs`.",
             untolerated.join("\n  ")
         );
+    }
+}
+
+/// The one-release lag, enforced rather than remembered.
+///
+/// Tolerance protects the binary you revert TO. 0.5.153 is the first release to
+/// carry it, so the one migration added since 0.5.152 —
+/// `AddCompileTaskBackoffIndex` in the runtime migrator — is held back for it:
+/// 0.5.152 cannot tolerate a ledger row it does not know, so any row 0.5.153
+/// wrote would wedge a rollback to 0.5.152 exactly as 0.5.111's did. Once
+/// 0.5.153 is cut, the migration goes back in and ships in 0.5.154, which
+/// reverts safely to 0.5.153.
+///
+/// "Re-land it after the cut" is a note that gets lost, so this reads the
+/// workspace version (the one a release commit bumps, and the one this crate
+/// inherits) and the runtime migrator's source, and fails in both directions:
+///
+/// * version ≤ 0.5.152 and registered — re-landed too early; 0.5.153 would be
+///   forward-only again.
+/// * version ≥ 0.5.154 and NOT registered — the 0.5.154 release cannot go out
+///   without the index it was holding for.
+///
+/// At 0.5.153 either is fine: that is the window to re-land in. Delete this
+/// module once 0.5.154 has shipped with the migration registered.
+mod carrier_release {
+    use std::fs;
+
+    use super::read_only_family::workspace_crates;
+
+    /// The registration line, exactly — matched only on lines that are code.
+    /// Prose never contains `Box::new(`, but a commented-out entry does, and
+    /// `// Box::new(AddCompileTaskBackoffIndex),` is the most natural way to
+    /// hold a line back: a plain substring test would read it as registered,
+    /// and 0.5.154 would ship without the index on a green release PR.
+    const REGISTRATION: &str = "Box::new(AddCompileTaskBackoffIndex)";
+
+    fn release_version() -> (u64, u64, u64) {
+        let v = env!("CARGO_PKG_VERSION");
+        let mut parts = v.split('.').map(|p| {
+            p.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|n| n.parse::<u64>().ok())
+                .unwrap_or_else(|| panic!("unparseable workspace version {v:?}"))
+        });
+        (
+            parts.next().expect("major"),
+            parts.next().expect("minor"),
+            parts.next().expect("patch"),
+        )
+    }
+
+    #[test]
+    fn the_held_back_migration_ships_in_0_5_154_and_not_before() {
+        let path = workspace_crates().join("agentic/runtime/src/migration.rs");
+        let source =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let registered = source
+            .lines()
+            .any(|line| !line.trim_start().starts_with("//") && line.contains(REGISTRATION));
+        let version = release_version();
+
+        if version <= (0, 5, 152) {
+            assert!(
+                !registered,
+                "`AddCompileTaskBackoffIndex` is registered while the workspace is still at \
+                 {version:?} — before 0.5.153 is cut. 0.5.153 is the carrier release: it must \
+                 add no ledger row, because 0.5.152 cannot tolerate one and a rollback to it \
+                 would abort. Move the `{REGISTRATION}` line back out until the cut. See \
+                 internal-docs/revert-safe-migrations.md."
+            );
+        }
+        if version >= (0, 5, 154) {
+            assert!(
+                registered,
+                "the workspace is at {version:?} but `AddCompileTaskBackoffIndex` was never \
+                 re-registered in `RuntimeMigrator::migrations()`. It was held back for the \
+                 0.5.153 carrier release only; add `{REGISTRATION}` back after \
+                 `AddPendingGlobalRunsIndex`, then delete this test module."
+            );
+        }
     }
 }

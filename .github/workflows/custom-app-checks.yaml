@@ -31,7 +31,7 @@ name: Custom app checks
 # entry with no apps — it is there for `promote.yaml`, which reads every
 # environment's baseUrl from one place. The checks never run against dev:
 # the matrix is staging/prod and so is the dispatch input. Setup:
-# `just release-checks-setup` (scripts/release/custom-app-checks-setup.sh) sets
+# `just release-checks-setup` (scripts/ci/setup-release-checks.sh) sets
 # everything below that a person has to provide and reports what each scope
 # holds; the order around it is in internal-docs/deploy-pipeline.md, "One-time
 # setup for the checks".
@@ -47,6 +47,24 @@ name: Custom app checks
 #                        synthetic app-operator user. No fallback: it is the
 #                        credential the checks run as, and its presence is what
 #                        turns the scheduled leg on.
+#
+#                        It is NOT replaceable by trusted publishing (OIDC),
+#                        although `oxyc checks run` can mint its own credential
+#                        since #3325. Two reasons, both checked:
+#                        - The browser check loads the canary AS A USER
+#                          (web-app/tests/custom-app-checks/app-loads.spec.ts
+#                          sends this key as X-API-Key). A minted publish token
+#                          reaches only the /customer-apps API routes, so without
+#                          the key the app redirects to sign-in, the browser
+#                          check times out, and a staging dispatch puts
+#                          `release-hold` on every prod bump.
+#                        - The schedule's "green when not set up" gate cannot
+#                          move to exit codes: `checks run` exits 4 for "no
+#                          publisher registered" AND for a bad token, and 7 for
+#                          "deployment predates #3325" AND for an unreachable
+#                          host. Turning them green would hide an outage.
+#                        Removing the key first needs a way for the browser check
+#                        to sign in without one.
 #   CHECKIN_URL          prod: environment CHECKIN_URL, else repository
 #                        CUSTOM_APP_CHECKS_CHECKIN_URL (the All Quiet
 #                        `custom_app_checks_prod` monitor). There is one URL and

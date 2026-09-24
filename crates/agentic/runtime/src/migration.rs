@@ -35,7 +35,15 @@ impl MigratorTrait for RuntimeMigrator {
             Box::new(AddTaskQueueAvailableAt),
             Box::new(AddTaskQueueFirstDeferredAt),
             Box::new(AddPendingGlobalRunsIndex),
-            Box::new(AddCompileTaskBackoffIndex),
+            // `AddCompileTaskBackoffIndex` (below) is held back for exactly one
+            // release. 0.5.153 is the first release to carry
+            // `tolerate_schema_ahead!()`, and tolerance protects the binary you
+            // revert TO — 0.5.152 has none, so any ledger row 0.5.153 wrote would
+            // abort 0.5.152's migrate step and wedge the rollback, as 0.5.111 did.
+            // Re-land this line right after 0.5.153 is cut; 0.5.154 then reverts
+            // safely to 0.5.153. The code that queries the index works without
+            // it (a sequential scan, as in 0.5.152). See
+            // `internal-docs/revert-safe-migrations.md`.
         ]
     }
 
@@ -2125,6 +2133,10 @@ const COMPILE_TASK_BACKOFF_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_tas
      ON agentic_task_queue ((spec->>'workspace_id'), updated_at DESC) \
      WHERE spec->>'type' = 'compile'";
 
+/// Held back from `migrations()` for the 0.5.153 carrier release — see the
+/// comment there. `oxy-migration-tolerance`'s `carrier_release` test keeps the
+/// hold-back honest in both directions: it fails if this is registered before
+/// 0.5.153 is cut, and fails the 0.5.154 release if it still is not.
 pub struct AddCompileTaskBackoffIndex;
 
 /// Named by hand, NOT by `DeriveMigrationName`.

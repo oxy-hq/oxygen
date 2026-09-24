@@ -425,24 +425,74 @@ jobs:
             exit 0
           fi
 
-          # Whether a rollback would land on a schema the older binary cannot
-          # read. Reported, never enforced here: the guard
-          # (crates/app/tests/platform/migration_rollback_safety.rs) is what makes
-          # a one-step rollback legal, and this says out loud when a step is more
-          # than one.
+          # Whether rolling this promotion back is legal. Reported, never
+          # enforced here. A rollback needs two halves
+          # (internal-docs/revert-safe-migrations.md):
+          #
+          #  * SCHEMA — the binary rolled back to must read what it finds. The
+          #    guard crates/app/tests/platform/migration_rollback_safety.rs keeps
+          #    every migration additive, so one step back holds by construction.
+          #  * LEDGER — the binary rolled back to must TOLERATE the candidate's
+          #    ledger rows, or its migrate step aborts before it serves anything
+          #    (0.5.111 → 0.5.110). Tolerance runs in the binary you roll back
+          #    TO, so it holds only if what prod runs now carries #2786.
+          #
+          # A migration is a REGISTRATION — a `Box::new(..)` line added to a
+          # migrator's `migrations()` — not a file and not a name: a file count
+          # under crates/migration saw one chain of eight and counted wiring
+          # edits as migrations; grepping names would flag a migration held back
+          # (its struct stays, its registration goes) and miss one re-landed
+          # (only the registration line comes back). Same method as the
+          # multi-step check in internal-docs/deploy-pipeline.md.
           MIGRATIONS="not determined (one side's internal commit is unknown)"
           if [[ -n "$CANDIDATE_INTERNAL" && -n "$CURRENT_INTERNAL" ]]; then
             cd "$GITHUB_WORKSPACE"
-            # What prod currently runs, against what is proposed. `git diff A B`,
-            # not `A...B`: a merge base would hide a migration that reached the
-            # candidate by another route.
-            FILES=$(git diff --name-only "$CURRENT_INTERNAL" "$CANDIDATE_INTERNAL" -- crates/migration 2>/dev/null | wc -l | tr -d ' ') || FILES=""
-            if [[ -z "$FILES" ]]; then
+            if ! git cat-file -e "${CURRENT_INTERNAL}^{commit}" 2>/dev/null \
+              || ! git cat-file -e "${CANDIDATE_INTERNAL}^{commit}" 2>/dev/null; then
               MIGRATIONS="not determined (a commit is missing from this checkout)"
-            elif [[ "$FILES" == "0" ]]; then
-              MIGRATIONS="none — the schema does not move"
             else
-              MIGRATIONS="${FILES} file(s) under crates/migration; additive by the guard, so a one-step rollback stays legal"
+              # Every file that defines a migrator on either side, so a chain
+              # added or removed by the promotion is still read.
+              mapfile -t MIGRATOR_FILES < <(
+                for sha in "$CURRENT_INTERNAL" "$CANDIDATE_INTERNAL"; do
+                  git grep -l 'impl MigratorTrait for' "$sha" -- crates ':!crates/migration-tolerance' \
+                    | cut -d: -f2-
+                done | sort -u
+              )
+              DOC="https://github.com/oxy-hq/oxygen-internal/blob/main/internal-docs/revert-safe-migrations.md"
+              if (( ${#MIGRATOR_FILES[@]} == 0 )); then
+                # An empty pathspec list turns `git diff A B --` into the WHOLE
+                # diff — test fixtures included — and the line would name
+                # migrations that do not exist, confidently. Say nothing instead.
+                MIGRATIONS="not determined (no file matched \`impl MigratorTrait for\` at either commit)"
+              else
+                # `git diff A B`, not `A...B`: a merge base would hide a
+                # migration that reached the candidate by another route.
+                # Anchored to the start of the added line: every registration
+                # sits on its own line, and an unanchored match would count a
+                # comment, a commented-out entry, or a `Box::new(..)` in a test.
+                ADDED=$(git diff "$CURRENT_INTERNAL" "$CANDIDATE_INTERNAL" -- "${MIGRATOR_FILES[@]}" \
+                  | grep -E '^\+[[:space:]]*Box::new\(' \
+                  | grep -oE 'Box::new\([A-Za-z0-9_:]+' \
+                  | sed -E 's/^Box::new\(//; s/::Migration$//' \
+                  | sort -u || true)
+                if [[ -z "$ADDED" ]]; then
+                  MIGRATIONS="none — no migration is registered, so a rollback is safe on both halves"
+                else
+                  COUNT=$(wc -l <<<"$ADDED" | tr -d ' ')
+                  NAMES=$(paste -sd, - <<<"$ADDED" | sed 's/,/, /g')
+                  # 84d817b49 is #2786, the commit that wired tolerance into every
+                  # migrator. Whether what prod runs NOW contains it decides the
+                  # ledger half, because that is the binary a rollback lands on.
+                  # References are repo-qualified: this line is written into a PR
+                  # in oxy-hq/infrastructure, where a bare `#2786` links there.
+                  if git merge-base --is-ancestor 84d817b49 "$CURRENT_INTERNAL" 2>/dev/null; then
+                    MIGRATIONS="${COUNT} migration(s): ${NAMES}. Additive by the guard, and the binary a rollback lands on tolerates their ledger rows — a one-step rollback stays legal"
+                  else
+                    MIGRATIONS="⚠️ FORWARD-ONLY — ${COUNT} migration(s): ${NAMES}. What prod runs now predates ledger tolerance (oxy-hq/oxygen-internal#2786), so rolling this back would ABORT its migrate step on these rows. Hold them for a later promotion, or accept this one as forward-only — ${DOC}"
+                  fi
+                fi
+              fi
             fi
             cd infra
           fi
