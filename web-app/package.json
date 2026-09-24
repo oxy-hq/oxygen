@@ -106,8 +106,8 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.125.0",
-    "@playwright/mcp": "0.0.80",
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@playwright/mcp": "0.0.82",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -115,7 +115,7 @@
     "@types/js-cookie": "^3.0.6",
     "@types/jsdom": "^30.0.0",
     "@types/lodash": "^4.17.25",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "@types/nunjucks": "3.2.6",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.3.0",
@@ -123,13 +123,13 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/unist": "^3.0.3",
     "@vitejs/plugin-react": "^6.1.1",
-    "jsdom": "^30.0.1",
+    "jsdom": "^30.1.0",
     "rollup-plugin-visualizer": "^7.1.1",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vite-plugin-node-polyfills": "^0.28.0",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=22.19.0"
