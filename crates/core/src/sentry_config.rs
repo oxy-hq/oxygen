@@ -48,7 +48,11 @@ fn client_options(environment: String, release: String) -> sentry::ClientOptions
         .before_send_log(filter_log)
 }
 
-pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
+/// `build_sha` is the commit this binary was built from, short form. It is passed
+/// in rather than read from a `rustc-env` here so that this crate needs no build
+/// script: see `oxy_app::BUILD_SHA`, which is where it comes from in the binary.
+/// `"dev"`, `"unknown"` and `""` all mean "no commit" and yield the bare release.
+pub fn init_sentry(build_sha: &str) -> Option<sentry::ClientInitGuard> {
     let dsn = env::var("SENTRY_DSN").ok();
     if dsn.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
         info!("Sentry DSN not found or empty in environment. Sentry will not be initialized.");
@@ -64,7 +68,7 @@ pub fn init_sentry() -> Option<sentry::ClientInitGuard> {
             .unwrap_or_else(|_| "production".to_string())
     };
 
-    let release = format!("oxy@{}", env!("CARGO_PKG_VERSION"));
+    let release = release_id(env!("CARGO_PKG_VERSION"), build_sha);
 
     // sentry 0.49 made `ClientOptions` `#[non_exhaustive]`, so it can no longer be
     // built with a struct literal — the consuming builder methods are the supported
@@ -298,6 +302,29 @@ pub fn add_breadcrumb(message: &str, category: &str, level: sentry::Level) {
     });
 }
 
+/// The Sentry release for a build: `oxy@<version>`, plus the build commit when
+/// there is one.
+///
+/// The sha is what makes it a *deploy* identity. `CARGO_PKG_VERSION` is the last
+/// published semver, so on the deploy train it is the same string for every digest
+/// between two publishes — `promote.yaml` asks Sentry "what is new in this
+/// release?" as a promotion gate, and without the sha that question spans weeks of
+/// deploys and always answers yes.
+///
+/// A local build has no sha and gets the bare form rather than a fake one: an
+/// invented sha would pool every developer's laptop into one release.
+fn release_id(version: &str, build_sha: &str) -> String {
+    // `build.rs` writes "dev" for a local build and CI writes "unknown" when it
+    // has nothing — the same two sentinels `/version` checks. Neither is a
+    // commit, and pooling every developer's laptop into `oxy@0.5.149+dev` is
+    // worse than the bare form.
+    if matches!(build_sha, "" | "dev" | "unknown") {
+        format!("oxy@{version}")
+    } else {
+        format!("oxy@{version}+{build_sha}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,7 +336,7 @@ mod tests {
         unsafe {
             env::remove_var("SENTRY_DSN");
         }
-        let guard = init_sentry();
+        let guard = init_sentry("dev");
         assert!(guard.is_none());
     }
 
@@ -319,7 +346,7 @@ mod tests {
         unsafe {
             env::set_var("SENTRY_DSN", "");
         }
-        let guard = init_sentry();
+        let guard = init_sentry("dev");
         assert!(guard.is_none());
         unsafe {
             env::remove_var("SENTRY_DSN");
@@ -720,6 +747,22 @@ mod tests {
                 assert_eq!(rate, 0.0, "no deployment may turn performance traces on")
             }
             other => panic!("traces must be off, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_release_id_names_the_deploy_not_just_the_version() {
+        assert_eq!(
+            super::release_id("0.5.149", "a1b2c3d"),
+            "oxy@0.5.149+a1b2c3d",
+            "two digests that share a published version must not share a release"
+        );
+        for absent in ["", "dev", "unknown"] {
+            assert_eq!(
+                super::release_id("0.5.149", absent),
+                "oxy@0.5.149",
+                "'{absent}' is not a commit; a release must not be minted from it"
+            );
         }
     }
 }

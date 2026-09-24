@@ -1,0 +1,29 @@
+{
+  // The CI scripts are TypeScript run directly by Node 26 — no build step, no
+  // bundler. Node strips types at load; it does NOT check them, so this config
+  // exists so `tsc --noEmit` can. Stripping without checking is the failure mode
+  // where a type annotation is decoration.
+  //
+  // `erasableSyntaxOnly` keeps the source inside what Node can strip: no enums,
+  // no namespaces, no parameter properties. Without it a passing typecheck can
+  // still fail at runtime.
+  //
+  // `allowImportingTsExtensions` because Node resolves an import by its real
+  // filename — `./promote.ts` — and there is no emit step to rewrite `.js` into
+  // it. `noEmit` is what makes the flag legal.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}

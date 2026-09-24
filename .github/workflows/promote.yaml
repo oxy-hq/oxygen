@@ -1,0 +1,840 @@
+name: Promote
+
+# The deploy train's one door: forward to staging and prod, and back again.
+# Design and rationale: internal-docs/deploy-pipeline.md. The decisions live in
+# .github/scripts/promote.ts (with a `--self-test`); this file owns the effects,
+# because those need tokens, git and a checkout.
+#
+# It is a reconciler. Every run re-derives "what should each environment be
+# running, and is it?" from scratch and never depends on having seen a build
+# finish, so a missed dispatch, a cancelled run or a token that expired over the
+# weekend is repaired by the next pass rather than stalling the train silently.
+# The `repository_dispatch` trigger is a latency optimisation, not the mechanism.
+#
+# Runs in oxygen-internal, deliberately — unlike `public-image-bump.yaml`, which
+# this replaces and which ran only in the public mirror, where its logs were
+# public and nobody working on the product ever looked at them.
+#
+# Two repository variables stage the rollout, so the same file serves the
+# human-merge phase and the auto-merge phase:
+#
+#   PROMOTE_ENABLED=true          — promote staging, and propose prod. Without it
+#                                   the run only plans and reports.
+#   PROMOTE_PROD_AUTOMERGE=true   — also merge the prod PR itself. NOT RECOMMENDED,
+#                                   and off. A human merging is the design, not a
+#                                   phase on the way to something else:
+#
+#     * one prod instance serves every customer and the ide StatefulSet is
+#       single-replica, so there is no blast radius to limit;
+#     * the gates are synthetic — one canary app and a browser beacon prove the
+#       platform BOOTS, not that chat, SQL generation or a customer's automation
+#       are right;
+#     * staging carries no real traffic, so its soak is 30 minutes of nothing
+#       happening;
+#     * "no new Sentry issues" cannot see the failure this product actually has.
+#       A confidently wrong answer raises no error at all.
+#
+#                                   The human is the only component here that can
+#                                   catch a wrong answer, which is why the gates
+#                                   report TO one rather than instead of one.
+#                                   internal-docs/deploy-pipeline.md says what
+#                                   would have to exist before flipping it.
+#
+# Secrets and variables:
+#   vars.ARGO_APP_CLIENT_ID + secrets.ARGO_APP_PRIVATE_KEY  — the GitHub App that
+#     can write oxy-hq/infrastructure (contents + pull requests). Same app the
+#     release workflows already use.
+#   secrets.SENTRY_READ_TOKEN (scopes event:read, org:read) — the new-issues gate.
+#     REQUIRED. Without it the count reads "not measured" and the prod gate stays
+#     blocked, because a gate that passes unmeasured is not a gate — and since the
+#     gate passing is what tells a human the bump is theirs to merge, an unset
+#     token means nobody is ever told. It fails closed in the loud direction.
+#   secrets.SLACK_BOT_TOKEN — where "ready to merge" and "the train is stuck" go.
+#     Optional: unset, they are printed in the run log with a warning. Losing the
+#     notification must not also stop the promotion it describes.
+
+on:
+  schedule:
+    # Every 15 minutes. The reconciler is cheap (a handful of API calls) and this
+    # is the backstop that makes every other trigger an optimisation.
+    - cron: "*/15 * * * *"
+  repository_dispatch:
+    # Sent by the mirror when `main-<sha>` is published, for the fast path.
+    types: [image-published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: >-
+          Which environment to act on. Honoured by the `if:` on every EFFECTING
+          step, not inside promote.ts — the script only echoes it back, so a
+          decision that ever starts reading it needs the clause moved, not added
+          in two places.
+        type: choice
+        options: [all, staging, prod]
+        default: all
+      sha:
+        description: >-
+          Short MIRROR sha to pin, as `main-<sha>` spells it. Empty means the
+          newest promotable digest. Required for a rollback.
+        type: string
+        required: false
+        default: ""
+      rollback:
+        description: >-
+          Pin an OLDER sha on prod. Skips every gate, clears any hold, labels the
+          PR release-rollback. A rollback is never held.
+        type: boolean
+        required: false
+        default: false
+      reason:
+        description: Why (recorded on the PR). Required for a rollback.
+        type: string
+        required: false
+        default: ""
+
+# One writer. The prod bump branch is rebuilt from main and force-pushed, so two
+# runs minutes apart would race and the loser would fail on a non-fast-forward.
+# `cancel-in-progress: false`: a queued run finishing late is fine, a half-done
+# promotion is not.
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Dispatching custom-app-checks.yaml in this repo.
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  INFRA_REPO: oxy-hq/infrastructure
+  BUMP_BRANCH: chore/bump-oxy-prod-image
+  STAGING_VALUES: oxy-workload/575455576647/us-west-2/oxy-dev/products/oxy/gitops/values/oxy-staging.yaml
+  PROD_VALUES: oxy-workload/664267706513/us-west-2/oxy-prod/products/oxy/gitops/values/oxy.yaml
+  SENTRY_ORG: oxygen-intelligence
+  SENTRY_API: https://us.sentry.io/api/0
+  IMAGE: ghcr.io/oxy-hq/oxygen
+
+jobs:
+  reconcile:
+    name: Reconcile environments
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Refuse a rollback with no target or no reason
+        if: inputs.rollback == true
+        env:
+          SHA: ${{ inputs.sha }}
+          REASON: ${{ inputs.reason }}
+          ENABLED: ${{ vars.PROMOTE_ENABLED }}
+        run: |
+          set -euo pipefail
+          # A rollback skips every gate, so the two things that make it
+          # accountable — what it pins and why — are not optional.
+          [[ -n "$SHA" ]] || { echo "::error::a rollback needs an explicit sha"; exit 1; }
+          [[ -n "$REASON" ]] || { echo "::error::a rollback needs a reason; it is recorded on the PR"; exit 1; }
+          # Every effecting step below is gated on PROMOTE_ENABLED. Before
+          # cutover that would make a rollback a green run that did nothing —
+          # during an incident, which is the worst possible moment to be told
+          # nothing. Fail, and name the path that does work.
+          if [[ "${ENABLED:-}" != "true" ]]; then
+            echo "::error::PROMOTE_ENABLED is not set, so this workflow writes nothing. Roll back with the pre-cutover path instead: gh workflow run public-image-bump.yaml -R oxy-hq/oxygen -f version=<target>"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: the migration-safety check below diffs between the
+          # internal commits behind two digests.
+          fetch-depth: 0
+
+      # Before anything reads or writes: the gate logic proves itself. It is the
+      # one part of this pipeline whose failure mode is "promoted something it
+      # should not have", so it does not get to be untested at the moment of use.
+      - name: Self-test the gate logic
+        run: node .github/scripts/promote.ts --self-test
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Token for oxy-hq/infrastructure
+        id: infra-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: oxy-hq
+          repositories: infrastructure
+
+      # Pass 1: what is the candidate, and what is each environment serving? The
+      # Sentry gate is unmeasured here, so prod is reported blocked — that is
+      # expected and pass 2 is what decides.
+      - name: Plan
+        id: plan1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          # `--sha` here too, not only on pass 2. Three later steps read THIS
+          # pass's candidate — the migration delta on the PR, the lead-time
+          # comment, and the Sentry release the gate is measured against — and on
+          # a dispatched rollback the unqualified plan answers with the newest
+          # commit instead of the one being rolled back to. The migration delta is
+          # the field that exists precisely to say whether that rollback is safe.
+          args=(--plan --out plan1.json)
+          [[ -n "${SHA:-}" ]] && args+=(--sha "$SHA")
+          node .github/scripts/promote.ts "${args[@]}" > /dev/null
+          jq -r '"candidate=\(.candidate.sha // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"candidate_internal=\(.candidate.internal // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"dev_sha=\(.serving.dev.sha // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"staging_sha=\(.serving.staging.sha // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"staging_version=\(.serving.staging.version // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"prod_sha=\(.serving.prod.sha // "")"' plan1.json >> "$GITHUB_OUTPUT"
+          jq -r '"prod_internal=\(.serving.prod.internal // "")"' plan1.json >> "$GITHUB_OUTPUT"
+
+      # The candidate's Sentry release, as the running process spells it:
+      # `oxy@<version>+<sha>` (crates/core/src/sentry_config.rs → release_id).
+      # Composed from what STAGING reports rather than from anything in this repo,
+      # so the string can only drift if the deployed binary drifts.
+      - name: Count new Sentry issues in the candidate's release
+        id: sentry
+        env:
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          VERSION: ${{ steps.plan1.outputs.staging_version }}
+          SHA: ${{ steps.plan1.outputs.candidate }}
+        run: |
+          # No `-e`: an unreachable Sentry reports "not measured" rather than
+          # failing the run. Blocking is the gate's job, not this step's.
+          set -uo pipefail
+          if [[ -z "${SENTRY_READ_TOKEN:-}" || -z "$VERSION" || -z "$SHA" ]]; then
+            echo "::warning::new-Sentry-issue count not measured (token, version or sha missing)"
+            echo "count=-1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          RELEASE="oxy@${VERSION}+${SHA}"
+          COUNT=$(curl -fsS -m 30 -G \
+            -H "Authorization: Bearer ${SENTRY_READ_TOKEN}" \
+            --data-urlencode "query=is:unresolved first-release:${RELEASE}" \
+            --data-urlencode "environment=staging" \
+            --data-urlencode "statsPeriod=24h" \
+            "${SENTRY_API}/projects/${SENTRY_ORG}/oxy/issues/" | jq 'length') || COUNT=""
+          if [[ -z "$COUNT" ]]; then
+            echo "::warning::Sentry did not answer for ${RELEASE}; not measured"
+            echo "count=-1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "${COUNT} unresolved issue(s) first seen in ${RELEASE} on staging"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      # Pass 2 decides. `--dispatched` only on a manual run: that is what waives
+      # the promote window, because a person asking at 22:00 has taken that call.
+      - name: Decide
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ inputs.sha }}
+          TARGET: ${{ inputs.target || 'all' }}
+          SENTRY_COUNT: ${{ steps.sentry.outputs.count }}
+          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          args=(--plan --out plan.json --target "$TARGET" --sentry-new-issues "$SENTRY_COUNT")
+          [[ -n "$SHA" ]] && args+=(--sha "$SHA")
+          [[ "$DISPATCHED" == "true" ]] && args+=(--dispatched)
+          node .github/scripts/promote.ts "${args[@]}" > /dev/null
+          # ONE jq, reading the file by name. These used to be a { jq; jq; … } group
+          # sharing one redirected stdin: the first jq read it to EOF, every later one
+          # got empty input and printed nothing, and `|| true` hid it — so only the
+          # first output was ever set and every gate downstream read empty.
+          jq -r '
+            "candidate=\(.candidate.sha // "")",
+            "candidate_digest=\(.candidate.digest // "")",
+            "candidate_pin=\(.candidatePin // "")",
+            "pin_drift=\(.pinDrift // "")",
+            "build_broken=\(.buildBroken)",
+            "build_why=\(.buildWhy)",
+            "staging_needs=\(.stagingNeedsPromote)",
+            "staging_why=\(.stagingGateWhy)",
+            "prod_needs_proposal=\(.prodNeedsProposal)",
+            "prod_go=\(.prod.promote)",
+            "prod_kind=\(.prod.kind)",
+            "prod_why=\(.prod.why)",
+            "pr=\(.bumpPr.number // "")",
+            "pr_proposes_candidate=\(.prProposesCandidate)",
+            "checks=\(.bumpPr.checks // "")",
+            "soak_started=\(.soakStartedAt // "")"
+          ' plan.json >> "$GITHUB_OUTPUT"
+          jq . plan.json
+
+      - name: Clone oxy-hq/infrastructure
+        if: vars.PROMOTE_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${INFRA_REPO}.git" infra
+          cd infra
+          git config user.name "oxy-promote[bot]"
+          git config user.email "oxy-promote[bot]@users.noreply.github.com"
+
+      # What gets pinned is `main-<sha>@sha256:<digest>`, and only a digest the
+      # mirror's `public-release.yaml` signed (keyless, GitHub OIDC). The tag is
+      # there for people; the digest is what the kubelet pulls, so a `main-<sha>`
+      # retagged onto other bytes after this point changes nothing. Verifying
+      # here rather than trusting "the tag exists" is what makes the signature
+      # mean something: an image nobody signed never reaches staging or prod.
+      #
+      # A rollback is the exception, and only warns. Every image built before
+      # signing started is unsigned, and "the fix for the outage is refused on
+      # provenance grounds" is the wrong trade at 3am.
+      - name: Install cosign
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && steps.plan.outputs.candidate != '' && (
+            (inputs.rollback != true && steps.plan.outputs.staging_needs == 'true' &&
+              (inputs.target == '' || inputs.target == 'all' || inputs.target == 'staging')) ||
+            ((steps.plan.outputs.prod_needs_proposal == 'true' || inputs.rollback == true) &&
+              (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')))
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify the candidate's signature
+        id: verify
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && steps.plan.outputs.candidate != '' && (
+            (inputs.rollback != true && steps.plan.outputs.staging_needs == 'true' &&
+              (inputs.target == '' || inputs.target == 'all' || inputs.target == 'staging')) ||
+            ((steps.plan.outputs.prod_needs_proposal == 'true' || inputs.rollback == true) &&
+              (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')))
+        env:
+          PIN: ${{ steps.plan.outputs.candidate_pin }}
+          DIGEST: ${{ steps.plan.outputs.candidate_digest }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          ROLLBACK: ${{ inputs.rollback }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$PIN" || -z "$DIGEST" ]]; then
+            # The plan read no digest: `main-<sha>` is not on ghcr at all — a
+            # mistyped or garbage-collected sha, or a build that never published.
+            echo "::error::${IMAGE}:main-${CANDIDATE} is not on ghcr; there is nothing to pin"
+            exit 1
+          fi
+          # Only `refs/heads/main`: `main-<sha>` is published by the main-branch
+          # run and nothing else, so a signature from a tag-triggered run (the
+          # hotfix build) is not one this train should accept for it.
+          if cosign verify \
+              --certificate-identity-regexp '^https://github\.com/oxy-hq/oxygen/\.github/workflows/public-release\.yaml@refs/heads/main$' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE}@${DIGEST}" > /dev/null 2> cosign.err; then
+            echo "::notice::${PIN} is signed by oxy-hq/oxygen public-release.yaml on main"
+            exit 0
+          fi
+          # Unsigned and "could not check" are different problems with different
+          # owners: one is the image, the other is Sigstore or ghcr being down.
+          if grep -q 'no signatures found' cosign.err; then
+            WHAT="carries no signature"
+          elif grep -q 'no matching CertificateIdentity\|expected SAN\|certificate identity' cosign.err; then
+            WHAT="is signed, but not by oxy-hq/oxygen public-release.yaml on main"
+          else
+            WHAT="could not be verified ($(grep -v '^$' cosign.err | tail -1 | cut -c1-200))"
+          fi
+          if [[ "$ROLLBACK" == "true" ]]; then
+            echo "::warning::rolling back to ${PIN}, which ${WHAT}. Proceeding: a rollback is not refused on provenance."
+          else
+            echo "::error::${PIN} ${WHAT}; not promoting it"
+            exit 1
+          fi
+
+      # Staging waits for dev to have actually served the digest — `stagingGate`
+      # in promote.ts, which is self-tested. dev is the first rung: it catches
+      # "this image does not boot" and "this migration wedges startup" one
+      # environment earlier, which is what a first rung is for and is provable
+      # even though dev is unmonitored. It expires, so a broken dev holds staging
+      # for a while and never forever.
+      #
+      # Staging is written by direct commit, not a PR: it is not gated beyond
+      # that, and a bad staging is repaired by the next pass. `oxy-staging-image-updater` must be
+      # retired for this to be the only writer — two writers on one field race.
+      - name: Pin staging
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && inputs.rollback != true &&
+          steps.plan.outputs.staging_needs == 'true' && steps.verify.outcome == 'success' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'staging')
+        env:
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          PIN: ${{ steps.plan.outputs.candidate_pin }}
+          WHY: ${{ steps.plan.outputs.staging_why }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PIN" ]] || { echo "::error::no digest pin for main-${CANDIDATE}; refusing to write the values file"; exit 1; }
+          cd infra
+          BEFORE=$(grep -m1 'imageTag:' "$STAGING_VALUES")
+          node "${GITHUB_WORKSPACE}/.github/scripts/promote.ts" \
+            --set-image-tag "$STAGING_VALUES" --tag "$PIN"
+          # `staging_needs` is derived from what staging SERVES, not from this
+          # file, so between the pin and the pod actually rolling — and forever if
+          # the image will not start — the file is already correct. Without this
+          # guard `git commit` exits 1 under `set -e` and the reconciler goes red
+          # every 15 minutes for doing exactly the right thing.
+          if git diff --quiet; then
+            echo "::notice::staging values already pin main-${CANDIDATE}; waiting for the rollout"
+            exit 0
+          fi
+          git commit --quiet -am "chore(oxy-staging): pin main-${CANDIDATE}"
+          git push --quiet origin HEAD:main
+          echo "::notice::staging pinned to main-${CANDIDATE} (${WHY}; was: ${BEFORE#*imageTag: })"
+
+      # Prod's proposal. The PR has to exist and name the candidate before the
+      # checks can record a verdict on it, so proposing and merging are separate
+      # acts — often separate reconciler passes.
+      - name: Propose prod
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && steps.verify.outcome == 'success' &&
+          (steps.plan.outputs.prod_needs_proposal == 'true' || inputs.rollback == true) &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          PIN: ${{ steps.plan.outputs.candidate_pin }}
+          CANDIDATE_INTERNAL: ${{ steps.plan1.outputs.candidate_internal }}
+          CURRENT: ${{ steps.plan1.outputs.prod_sha }}
+          CURRENT_INTERNAL: ${{ steps.plan1.outputs.prod_internal }}
+          ROLLBACK: ${{ inputs.rollback }}
+          REASON: ${{ inputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PIN" ]] || { echo "::error::no digest pin for main-${CANDIDATE}; refusing to write the values file"; exit 1; }
+          cd infra
+          git fetch --quiet --depth 1 origin main
+          git checkout --quiet -B "$BUMP_BRANCH" origin/main
+          node "${GITHUB_WORKSPACE}/.github/scripts/promote.ts" \
+            --set-image-tag "$PROD_VALUES" --tag "$PIN"
+          if git diff --quiet; then
+            echo "::notice::prod already proposes main-${CANDIDATE}"
+            exit 0
+          fi
+
+          # Whether a rollback would land on a schema the older binary cannot
+          # read. Reported, never enforced here: the guard
+          # (crates/app/tests/platform/migration_rollback_safety.rs) is what makes
+          # a one-step rollback legal, and this says out loud when a step is more
+          # than one.
+          MIGRATIONS="not determined (one side's internal commit is unknown)"
+          if [[ -n "$CANDIDATE_INTERNAL" && -n "$CURRENT_INTERNAL" ]]; then
+            cd "$GITHUB_WORKSPACE"
+            # What prod currently runs, against what is proposed. `git diff A B`,
+            # not `A...B`: a merge base would hide a migration that reached the
+            # candidate by another route.
+            FILES=$(git diff --name-only "$CURRENT_INTERNAL" "$CANDIDATE_INTERNAL" -- crates/migration 2>/dev/null | wc -l | tr -d ' ') || FILES=""
+            if [[ -z "$FILES" ]]; then
+              MIGRATIONS="not determined (a commit is missing from this checkout)"
+            elif [[ "$FILES" == "0" ]]; then
+              MIGRATIONS="none — the schema does not move"
+            else
+              MIGRATIONS="${FILES} file(s) under crates/migration; additive by the guard, so a one-step rollback stays legal"
+            fi
+            cd infra
+          fi
+
+          # These two titles are a CROSS-REPO CONTRACT. The merge is a squash, so
+          # the subject that lands on infrastructure's main is this title plus
+          # ` (#N)` — and `oxy-prod-announce.yaml` there matches
+          # `^chore\(oxy-prod\): roll back ` on it to tell a rollback from a
+          # release, because shas have no order to compare. Change either string
+          # and change that grep in the same PR.
+          #
+          # `custom-app-checks.yaml` has the other half: it finds this PR by the
+          # title's `→ <ref>` suffix.
+          if [[ "$ROLLBACK" == "true" ]]; then
+            TITLE="chore(oxy-prod): roll back oxy image main-${CURRENT} → main-${CANDIDATE}"
+            git commit --quiet -am "chore(oxy-prod): roll back imageTag main-${CURRENT} -> main-${CANDIDATE}"
+          else
+            TITLE="chore(oxy-prod): bump oxy image main-${CURRENT} → main-${CANDIDATE}"
+            git commit --quiet -am "chore(oxy-prod): bump imageTag main-${CURRENT} -> main-${CANDIDATE}"
+          fi
+          git push --force --quiet origin "$BUMP_BRANCH"
+
+          BODY="${RUNNER_TEMP}/pr-body.md"
+          {
+            if [[ "$ROLLBACK" == "true" ]]; then
+              printf 'Rolls prod back from `main-%s` to `main-%s`.\n\n**Reason:** %s\n\n' \
+                "$CURRENT" "$CANDIDATE" "$REASON"
+              printf '> A rollback is never held and runs no release checks: this PR carries\n'
+              printf '> `release-rollback` in place of a release-checks label.\n\n'
+            else
+              printf 'Moves prod from `main-%s` to `main-%s`.\n\n' "$CURRENT" "$CANDIDATE"
+            fi
+            printf '- **Migrations vs the candidate:** %s\n' "$MIGRATIONS"
+            printf '- **Pins:** `%s` (signature checked before this PR was written)\n' "$PIN"
+            printf '- **Proposed by:** [this run](%s)\n\n' "$RUN_URL"
+            printf 'Merging deploys: the prod `oxy` ArgoCD app is `syncPolicy.automated`.\n'
+            printf 'This branch is force-pushed on every promotion — do not commit anything else onto it.\n'
+          } > "$BODY"
+
+          PR=$(gh pr list --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$PR" ]]; then
+            gh pr edit "$PR" --repo "$INFRA_REPO" --title "$TITLE" --body-file "$BODY"
+          else
+            PR_URL=$(gh pr create --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --base main --title "$TITLE" --body-file "$BODY")
+            PR="${PR_URL##*/}"
+          fi
+          if [[ "$ROLLBACK" == "true" ]]; then
+            gh pr edit "$PR" --repo "$INFRA_REPO" \
+              --add-label release-rollback \
+              --remove-label release-hold,release-checks-pending,release-checks-passed,release-checks-failed,release-checks-not-run
+            gh pr comment "$PR" --repo "$INFRA_REPO" --body "Rollback to \`main-${CANDIDATE}\`: ${REASON}
+
+          No release checks were dispatched and any \`release-hold\` was cleared. Migrations vs the candidate: ${MIGRATIONS}."
+          else
+            # Clears the previous sha's verdict, and does NOT claim a new one is
+            # coming: `release-checks-pending` is added by the step that actually
+            # dispatches. Stamping it here made `pending` mean "a proposal
+            # happened", which the dispatch gate then read as "a run is in
+            # flight" — and the only thing that clears pending is the run that
+            # was therefore never dispatched. Nothing ever asked staging
+            # anything, and prod could not promote.
+            gh pr edit "$PR" --repo "$INFRA_REPO" \
+              --remove-label release-checks-passed,release-checks-failed,release-checks-not-run
+          fi
+          echo "::notice::prod PR ${INFRA_REPO}#${PR} proposes main-${CANDIDATE}"
+
+      # `Decide` above ran BEFORE `Propose prod`, so it describes the PR as it
+      # stood before this pass retargeted it. Every step below acts on what the
+      # proposal left behind, so it gets a plan of its own rather than reasoning
+      # about a stale one — which is what made the soak marker and the checks
+      # dispatch wait a whole extra 15-minute pass, and what let `pending` be read
+      # as something it was not.
+      #
+      # Read-only, and pinned to the candidate with `--sha`, so it costs a handful
+      # of API calls and never re-walks the commit list.
+      - name: Re-decide from the state the proposal left
+        id: plan2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          TARGET: ${{ inputs.target || 'all' }}
+          SENTRY_COUNT: ${{ steps.sentry.outputs.count }}
+          DISPATCHED: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          args=(--plan --out plan2.json --target "$TARGET" --sentry-new-issues "$SENTRY_COUNT")
+          [[ -n "${CANDIDATE:-}" ]] && args+=(--sha "$CANDIDATE")
+          [[ "$DISPATCHED" == "true" ]] && args+=(--dispatched)
+          node .github/scripts/promote.ts "${args[@]}" > /dev/null
+          # ONE jq, reading the file by name. These used to be a { jq; jq; … } group
+          # sharing one redirected stdin: the first jq read it to EOF, every later one
+          # got empty input and printed nothing, and `|| true` hid it — so only the
+          # first output was ever set and every gate downstream read empty.
+          jq -r '
+            "pr=\(.bumpPr.number // "")",
+            "dispatch_checks=\(.dispatchChecks)",
+            "dispatch_why=\(.dispatchChecksWhy)",
+            "mark_soak=\(.markSoak)",
+            "checks=\(.bumpPr.checks // "")",
+            "soak_started=\(.soakStartedAt // "")",
+            "prod_go=\(.prod.promote)",
+            "prod_kind=\(.prod.kind)",
+            "prod_why=\(.prod.why)",
+            "notify_ready=\(.notifyReady)",
+            "stuck=\(.stuck.alert)",
+            "stuck_why=\(.stuck.why)"
+          ' plan2.json >> "$GITHUB_OUTPUT"
+          jq '{dispatchChecks, dispatchChecksWhy, markSoak, prod}' plan2.json
+
+      # When the soak started, written where a stateless reconciler can read it
+      # back. Not inferred from "a comment mentioning the sha": on a PASSING run
+      # the checks workflow adds a label and no comment at all, so that inference
+      # made the soak depend on an unrelated Sentry step happening to post — and
+      # when it did not, prod sat at `soaked 0m of 30m` forever. Written once;
+      # `soak_started` being empty is the "not yet" that guards it.
+      - name: Mark the soak start
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && inputs.rollback != true &&
+          steps.plan2.outputs.mark_soak == 'true' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+        run: |
+          set -euo pipefail
+          gh pr comment "$PR" --repo "$INFRA_REPO" --body "soak-start: main-${CANDIDATE}
+
+          Staging is serving this digest. It is eligible for prod after 30 minutes green."
+          echo "::notice::soak started for main-${CANDIDATE} on ${INFRA_REPO}#${PR}"
+
+      # Checks run against STAGING for the candidate, and record the verdict on
+      # the prod PR. Dispatched only once staging already serves the sha — the
+      # checks workflow confirms rather than waits, and the waiting is this
+      # reconciler's job.
+      #
+      # Whether to ask is `shouldDispatchChecks` in promote.ts, which is
+      # self-tested — deliberately, because the first version of this decision was
+      # three `if:` expressions here and deadlocked where no test could see it.
+      # This step's job is to ask, and to leave behind the two facts that make the
+      # answer true next pass: the label, and a marker saying when.
+      - name: Dispatch staging checks for the candidate
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && inputs.rollback != true &&
+          steps.plan2.outputs.dispatch_checks == 'true' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          WHY: ${{ steps.plan2.outputs.dispatch_why }}
+        run: |
+          set -euo pipefail
+          gh workflow run custom-app-checks.yaml -R "$GITHUB_REPOSITORY" \
+            -f environment=staging -f expect_sha="$CANDIDATE"
+          # `pending` now means dispatched, and the marker is what lets a
+          # dispatched-but-dead run be told from a slow one.
+          if [[ -n "${PR:-}" ]]; then
+            GH_TOKEN="$INFRA_TOKEN" gh pr edit "$PR" --repo "$INFRA_REPO" \
+              --add-label release-checks-pending \
+              --remove-label release-checks-passed,release-checks-failed,release-checks-not-run
+            GH_TOKEN="$INFRA_TOKEN" gh pr comment "$PR" --repo "$INFRA_REPO" \
+              --body "checks-dispatched: main-${CANDIDATE}
+
+          Staging checks were dispatched for this digest (${WHY})."
+          fi
+          echo "::notice::dispatched staging checks for main-${CANDIDATE} (${WHY})"
+
+      # A gate a person has to notice is a gate that waits for somebody to go
+      # looking. When every gate has passed and no one is going to merge it
+      # automatically, the bump PR is somebody's to click — so it says so, once
+      # per digest (the marker is the "once").
+      - name: Tell a human the bump is ready
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && vars.PROMOTE_PROD_AUTOMERGE != 'true' &&
+          inputs.rollback != true && steps.plan2.outputs.prod_go == 'true' &&
+          steps.plan2.outputs.notify_ready == 'true' && steps.plan2.outputs.pr != '' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          CURRENT: ${{ steps.plan1.outputs.prod_sha }}
+          CANDIDATE_INTERNAL: ${{ steps.plan1.outputs.candidate_internal }}
+          CURRENT_INTERNAL: ${{ steps.plan1.outputs.prod_internal }}
+        run: |
+          set -euo pipefail
+          COMPARE="https://github.com/oxy-hq/oxygen-internal/compare/${CURRENT_INTERNAL}...${CANDIDATE_INTERNAL}"
+          PR_URL="https://github.com/${INFRA_REPO}/pull/${PR}"
+          TEXT=":rocket: *Prod bump ready to merge* — \`main-${CURRENT}\` → \`main-${CANDIDATE}\`
+          Every gate passed. Merging deploys.
+          • <${PR_URL}|bump PR #${PR}>
+          • <${COMPARE}|what is in it>"
+          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
+          # The marker is what stops this repeating every 15 minutes.
+          gh pr comment "$PR" --repo "$INFRA_REPO" --body "ready-for-merge: main-${CANDIDATE}
+
+          Every gate passed; this is ready for a human to merge. Merging deploys."
+
+      # The reconciler's own run summary is not telling anybody. A train that
+      # stops quietly is the exact failure the reconciler was built to end, and
+      # it would come back one layer up without this.
+      - name: Say the train is not moving
+        if: >-
+          always() && vars.PROMOTE_ENABLED == 'true' && inputs.rollback != true &&
+          steps.plan2.outputs.stuck == 'true' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          WHY: ${{ steps.plan2.outputs.prod_why }}
+          STUCK_WHY: ${{ steps.plan2.outputs.stuck_why }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          PR_LINK=""
+          [[ -n "${PR:-}" ]] && PR_LINK="
+          • <https://github.com/${INFRA_REPO}/pull/${PR}|bump PR #${PR}>"
+          TEXT=":warning: *Deploy train is not moving* — \`main-${CANDIDATE:-none}\`
+          ${STUCK_WHY}. Prod gate says: ${WHY}
+          • <${RUN_URL}|this run>${PR_LINK}"
+          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
+          if [[ -n "${PR:-}" ]]; then
+            gh pr comment "$PR" --repo "$INFRA_REPO" --body "stuck-alert: main-${CANDIDATE}
+
+          ${STUCK_WHY}. Prod gate says: ${WHY}. ${RUN_URL}"
+          fi
+
+      # A signing (or any) failure in the mirror's release run publishes no
+      # `main-<sha>`, which the plan reads as "no image yet" — the train then sits
+      # on the last signed build and every gate stays quietly green. Nobody reads
+      # the mirror's Actions tab, so it is said here, on the passes within
+      # BUILD_ALERT_MINUTES of the failure (see `buildAlert`).
+      - name: Say the mirror build is broken
+        if: >-
+          always() && vars.PROMOTE_ENABLED == 'true' &&
+          steps.plan.outputs.build_broken == 'true' &&
+          (inputs.target == '' || inputs.target == 'all')
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          BUILD_WHY: ${{ steps.plan.outputs.build_why }}
+        run: |
+          set -euo pipefail
+          echo "::warning::${BUILD_WHY}"
+          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" ":red_circle: *Image build failed* — ${BUILD_WHY}"
+
+      # Reads the post-proposal plan, and is still safe against merging a
+      # just-retargeted PR on the previous sha's verdict: `Propose prod` clears
+      # `release-checks-passed` when it retargets, so the fresh plan sees no
+      # verdict and the gate answers `waiting` rather than `go`. The safety comes
+      # from the label being cleared, not from reading a stale plan.
+      - name: Merge the prod PR
+        id: merge
+        if: >-
+          vars.PROMOTE_ENABLED == 'true' && vars.PROMOTE_PROD_AUTOMERGE == 'true' &&
+          inputs.rollback != true && steps.plan2.outputs.prod_go == 'true' &&
+          steps.plan2.outputs.pr != '' &&
+          (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+        run: |
+          # No `-e`, and deliberately no `--admin`. `release-checks-gate.yaml` in
+          # oxy-hq/infrastructure reads the same labels and is a required check, so
+          # bypassing it would mean the bot and a human are held to different bars —
+          # and the gate would quietly become decorative. If it has not re-run yet
+          # the merge is refused; that is a wait, not a failure, and the next pass
+          # retries. A red run every 15 minutes over a transient race is how a
+          # reconciler trains people to ignore it.
+          set -uo pipefail
+          if gh pr merge "$PR" --repo "$INFRA_REPO" --squash; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::merged ${INFRA_REPO}#${PR}; prod moves to main-${CANDIDATE}"
+          else
+            echo "::warning::${INFRA_REPO}#${PR} would not merge (the required gate has probably not re-run for this sha yet); retrying next pass"
+          fi
+
+      # Lead time, recorded where it cannot be lost: on the PR that deployed it.
+      # "It feels faster" is not something anyone can act on.
+      - name: Record the lead time
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          PR: ${{ steps.plan2.outputs.pr }}
+          CANDIDATE_INTERNAL: ${{ steps.plan1.outputs.candidate_internal }}
+        run: |
+          set -uo pipefail
+          [[ -n "$CANDIDATE_INTERNAL" ]] || exit 0
+          MERGED_AT=$(git -C "$GITHUB_WORKSPACE" log -1 --format=%ct "$CANDIDATE_INTERNAL" 2>/dev/null) || exit 0
+          NOW=$(date +%s)
+          MINUTES=$(( (NOW - MERGED_AT) / 60 ))
+          gh pr comment "$PR" --repo "$INFRA_REPO" \
+            --body "Lead time from merge on \`main\` to prod: **${MINUTES} minutes**."
+          echo "::notice::lead time ${MINUTES}m"
+
+      # After a merge, prod is watched rather than assumed. A regression here
+      # dispatches this same workflow with rollback=true — the reason a rollback
+      # takes a reason is that this is one of its callers.
+      - name: Watch prod, and roll back on a regression
+        if: steps.merge.outputs.merged == 'true'
+        timeout-minutes: 25
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          PREVIOUS: ${{ steps.plan1.outputs.prod_sha }}
+          VERSION: ${{ steps.plan1.outputs.staging_version }}
+        run: |
+          set -uo pipefail
+          BASE=$(jq -r '.prod.baseUrl' .github/custom-app-checks.json)
+
+          # ArgoCD syncs within minutes; "Synced" is not "serving", so ask the
+          # process (internal-docs/deploy-pipeline.md).
+          for _ in $(seq 1 30); do
+            served=$(curl -fsS -m 10 "${BASE}/api/version" | jq -r '.build_info.git_commit_short // empty') || served=""
+            [[ "$served" == "$CANDIDATE" ]] && break
+            sleep 20
+          done
+          if [[ "${served:-}" != "$CANDIDATE" ]]; then
+            echo "::warning::prod is serving '${served:-unreachable}' 10m after the merge, not ${CANDIDATE}; not rolling back on this alone"
+            exit 0
+          fi
+          echo "prod is serving ${CANDIDATE}; watching for 10 minutes"
+          sleep 600
+
+          REGRESSION=""
+          if [[ -n "${SENTRY_READ_TOKEN:-}" && -n "$VERSION" ]]; then
+            NEW=$(curl -fsS -m 30 -G \
+              -H "Authorization: Bearer ${SENTRY_READ_TOKEN}" \
+              --data-urlencode "query=is:unresolved first-release:oxy@${VERSION}+${CANDIDATE}" \
+              --data-urlencode "environment=production" \
+              --data-urlencode "statsPeriod=1h" \
+              "${SENTRY_API}/projects/${SENTRY_ORG}/oxy/issues/" | jq 'length') || NEW=""
+            if [[ -n "$NEW" && "$NEW" != "0" ]]; then
+              REGRESSION="${NEW} new unresolved Sentry issue(s) in this release on prod"
+            fi
+          fi
+          if ! curl -fsS -m 15 "${BASE}/api/version" > /dev/null; then
+            REGRESSION="${REGRESSION:+${REGRESSION}; }prod stopped answering /api/version"
+          fi
+
+          if [[ -z "$REGRESSION" ]]; then
+            echo "::notice::prod is healthy on main-${CANDIDATE} after 10 minutes"
+            exit 0
+          fi
+          if [[ -z "$PREVIOUS" ]]; then
+            echo "::error::regression on main-${CANDIDATE} (${REGRESSION}) but the previous sha is unknown; roll back by hand"
+            exit 1
+          fi
+          echo "::error::rolling prod back to main-${PREVIOUS}: ${REGRESSION}"
+          gh workflow run promote.yaml -R "$GITHUB_REPOSITORY" \
+            -f target=prod -f sha="$PREVIOUS" -f rollback=true \
+            -f reason="automatic: ${REGRESSION} within 10 minutes of promoting main-${CANDIDATE}"
+
+      # What the run decided, always — including "nothing to do". A reconciler
+      # that only speaks when it acts is how the last one went quiet.
+      - name: Summary
+        if: always()
+        env:
+          CANDIDATE: ${{ steps.plan.outputs.candidate }}
+          DEV: ${{ steps.plan1.outputs.dev_sha }}
+          STAGING: ${{ steps.plan1.outputs.staging_sha }}
+          STAGING_WHY: ${{ steps.plan.outputs.staging_why }}
+          PROD: ${{ steps.plan1.outputs.prod_sha }}
+          KIND: ${{ steps.plan2.outputs.prod_kind }}
+          WHY: ${{ steps.plan2.outputs.prod_why }}
+          SENTRY_COUNT: ${{ steps.sentry.outputs.count }}
+          CHECKS: ${{ steps.plan2.outputs.checks }}
+          SOAK: ${{ steps.plan2.outputs.soak_started }}
+          DISPATCH_WHY: ${{ steps.plan2.outputs.dispatch_why }}
+          STUCK_WHY: ${{ steps.plan2.outputs.stuck_why }}
+          PIN: ${{ steps.plan.outputs.candidate_pin }}
+          DRIFT: ${{ steps.plan.outputs.pin_drift }}
+          BUILD_WHY: ${{ steps.plan.outputs.build_why }}
+          MERGED: ${{ steps.merge.outputs.merged }}
+          ENABLED: ${{ vars.PROMOTE_ENABLED }}
+          AUTOMERGE: ${{ vars.PROMOTE_PROD_AUTOMERGE }}
+        run: |
+          {
+            echo "### Promote"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Candidate | \`main-${CANDIDATE:-none}\` |"
+            echo "| Pins | \`${PIN:-no digest}\` |"
+            echo "| Digest drift | ${DRIFT:-none} |"
+            echo "| Mirror build | ${BUILD_WHY:-not evaluated} |"
+            echo "| Dev serves | \`${DEV:-unreachable}\` |"
+            echo "| Staging serves | \`${STAGING:-unreachable}\` |"
+            echo "| Staging gate | ${STAGING_WHY:-not evaluated} |"
+            echo "| Prod serves | \`${PROD:-unreachable}\` |"
+            echo "| Prod verdict | **${KIND:-unknown}** — ${WHY:-no plan} |"
+            echo "| Staging checks | ${CHECKS:-none} |"
+            echo "| Soak started | ${SOAK:-not yet} |"
+            echo "| Checks dispatch | ${DISPATCH_WHY:-not evaluated} |"
+            echo "| Anyone told? | ${STUCK_WHY:-nothing to say} |"
+            echo "| New Sentry issues | ${SENTRY_COUNT} (-1 = not measured) |"
+            echo "| Merged this run | ${MERGED:-no} |"
+            echo "| PROMOTE_ENABLED / AUTOMERGE | ${ENABLED:-unset} / ${AUTOMERGE:-unset} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -72,6 +72,7 @@ mod frontline_pin;
 mod frontline_roster;
 mod local_mode_router;
 mod metric_tree_fit_panel;
+mod migration_rollback_safety;
 mod no_dropped_partner_tables;
 mod notification_devices;
 mod oltp_provisioner;

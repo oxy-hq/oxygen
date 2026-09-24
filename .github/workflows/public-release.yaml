@@ -108,7 +108,13 @@ jobs:
             NEEDS_CHANGESETS="false"
             IS_STABLE="true"
           else
-            # Push to main or manual edge — defer to changesets
+            # Push to main or manual edge — defer to changesets.
+            #
+            # "Edge" here is the NIGHTLY CLI CHANNEL and nothing else: VERSION is
+            # the GitHub release tag in oxy-hq/oxygen-nightly, installed from
+            # nightly.oxy.tech. It is not a docker tag — the image from this same
+            # build is `main-<sha>` (see the tag step below). The two used to share
+            # the name and it was never the same artifact.
             CHANNEL="edge"
             VERSION="edge-${SHORT_SHA}"
             DISPLAY_NAME="Edge Build ${SHORT_SHA}"
@@ -560,16 +566,61 @@ jobs:
   # ============================================================================
   # Job 6: Build and Publish Docker Images (linux/amd64 + linux/arm64)
   # ============================================================================
+  # Can the stable image be a RETAG rather than a rebuild?
+  #
+  # Under the deploy train (oxygen-internal internal-docs/deploy-pipeline.md) a
+  # release is cut from a commit whose `main-<sha>` image has already served prod,
+  # so building `X.Y.Z` from the same source produces a second artifact to trust
+  # for no reason — and costs ~55 minutes on the critical path. When the tag's
+  # commit has a `main-` image, `X.Y.Z` and `latest` are made to point at that
+  # exact digest instead.
+  #
+  # It FALLS BACK to building, on purpose: a hotfix tagged on an `X.Y.x` branch
+  # never had a `main-` image because that branch is not main. Publishing must keep
+  # working there, so an absent digest is a build, not an error.
+  resolve-stable-digest:
+    name: Resolve the stable digest
+    needs: [determine-build-type]
+    if: needs.determine-build-type.outputs.is_stable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      retag_from: ${{ steps.probe.outputs.retag_from }}
+    steps:
+      - name: Look for main-<sha> on ghcr
+        id: probe
+        env:
+          SHORT_SHA: ${{ needs.determine-build-type.outputs.short_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ github.repository_owner }}/oxygen"
+          PULL=$(curl -fsS -u "x:${GH_TOKEN}" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:${{ github.repository_owner }}/oxygen:pull" \
+            | jq -r .token)
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -I \
+            -H "Authorization: Bearer ${PULL}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/oxygen/manifests/main-${SHORT_SHA}")
+          if [[ "$CODE" == "200" ]]; then
+            echo "retag_from=main-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+            echo "::notice::${IMAGE}:main-${SHORT_SHA} exists; the stable image will be a retag, not a rebuild"
+          else
+            echo "retag_from=" >> "$GITHUB_OUTPUT"
+            echo "::notice::no main-${SHORT_SHA} on ghcr (HTTP ${CODE}); building the stable image"
+          fi
+
   build-docker-images:
     name: Build ${{ needs.determine-build-type.outputs.channel }} Docker for ${{
       matrix.arch }}
     # Only depends on the Linux binaries — Docker images consume just the two
     # linux/amd64 + linux/arm64 builds, so it must not wait for the macOS job.
-    needs: [determine-build-type, build-cli-linux]
+    needs: [determine-build-type, build-cli-linux, resolve-stable-digest]
     if: |
       always() &&
       needs.build-cli-linux.result == 'success' &&
-      needs.determine-build-type.outputs.should_build_docker == 'true'
+      needs.determine-build-type.outputs.should_build_docker == 'true' &&
+      needs.resolve-stable-digest.outputs.retag_from == ''
     concurrency:
       group: docker-${{ needs.determine-build-type.outputs.channel }}-${{
         matrix.arch }}
@@ -634,8 +685,14 @@ jobs:
           if [ "$CHANNEL" = "stable" ]; then
             TAGS="${IMAGE}:${VERSION}-${ARCH},${IMAGE}:latest-${ARCH}"
           else
-            TAGS="${IMAGE}:edge-${SHORT_SHA}-${ARCH}"
-            TAGS="${TAGS},${IMAGE}:edge-latest-${ARCH}"
+            # Two names for the main build, both saying `main`:
+            #   main-<sha>   what promote.yaml pins (internal-docs/deploy-pipeline.md)
+            #   main-latest  a convenience for `docker run`; NOTHING may pin it
+            # `edge-<sha>` and `edge-latest` were a third and fourth name for the
+            # same digest, from before `main-` existed. "Edge" survives only as the
+            # nightly CLI channel, which is a different artifact.
+            TAGS="${IMAGE}:main-${SHORT_SHA}-${ARCH}"
+            TAGS="${TAGS},${IMAGE}:main-latest-${ARCH}"
           fi
 
           echo "tags=${TAGS}" >> $GITHUB_OUTPUT
@@ -682,7 +739,7 @@ jobs:
           if [ "$CHANNEL" = "stable" ]; then
             echo "ref=${IMAGE}:${VERSION}-amd64" >> $GITHUB_OUTPUT
           else
-            echo "ref=${IMAGE}:edge-${SHORT_SHA}-amd64" >> $GITHUB_OUTPUT
+            echo "ref=${IMAGE}:main-${SHORT_SHA}-amd64" >> $GITHUB_OUTPUT
           fi
 
       - name: Run Trivy vulnerability scanner (image)
@@ -718,13 +775,16 @@ jobs:
   # ============================================================================
   create-manifests:
     name: Create ${{ needs.determine-build-type.outputs.channel }} manifest
-    needs: [determine-build-type, build-docker-images]
+    needs: [determine-build-type, build-docker-images, resolve-stable-digest]
     concurrency:
       group: manifest-${{ needs.determine-build-type.outputs.channel }}
       cancel-in-progress: false
+    # Either the arch builds succeeded, or there is a digest to retag and they
+    # were skipped for that reason.
     if: |
       always() &&
-      needs.build-docker-images.result == 'success'
+      (needs.build-docker-images.result == 'success' ||
+       needs.resolve-stable-digest.outputs.retag_from != '')
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
@@ -735,29 +795,193 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Keyless: Sigstore mints a short-lived certificate against this workflow's
+      # GitHub OIDC identity, so there is no key to hold or rotate. The same
+      # pattern edge-image.yaml already uses for the camera image.
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Create and push multi-arch manifests
         run: |
+          set -euo pipefail
           VERSION="${{ needs.determine-build-type.outputs.version }}"
           CHANNEL="${{ needs.determine-build-type.outputs.channel }}"
           SHORT_SHA="${{ needs.determine-build-type.outputs.short_sha }}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/oxygen"
+          RETAG_FROM="${{ needs.resolve-stable-digest.outputs.retag_from }}"
 
-          push_manifest() {
-            local tag="$1"
-            docker manifest create "${IMAGE}:${tag}" \
-              "${IMAGE}:${tag}-amd64" \
-              "${IMAGE}:${tag}-arm64"
-            docker manifest push "${IMAGE}:${tag}"
-            echo "✅ Published ${IMAGE}:${tag}"
+          # The certificate identity a signature from this workflow carries. A
+          # `main-<sha>` is signed by a push to main and by nothing else, which is
+          # all promote.yaml accepts — so the edge path verifies against exactly
+          # that, and an image promote would refuse (a dispatch from a branch or
+          # a tag) fails HERE instead of reaching ghcr as a "built and signed"
+          # marker. A stable build also runs on an X.Y.x hotfix TAG push, so its
+          # own check accepts tags as well.
+          ID_PREFIX="^https://github\\.com/${{ github.repository }}/\\.github/workflows/public-release\\.yaml@refs/"
+          MAIN_IDENTITY="${ID_PREFIX}heads/main\$"
+          RELEASE_IDENTITY="${ID_PREFIX}(heads/main|tags/.+)\$"
+          OIDC_ISSUER="https://token.actions.githubusercontent.com"
+
+          # Every helper below checks each step itself, explicitly. Some run as
+          # `$(…)`, and bash IGNORES `set -e` inside a command substitution — so
+          # a failed step would fall through and hand the caller a digest anyway,
+          # and the caller would publish `main-<sha>`, the tag promote.yaml reads
+          # as "built AND signed", over bytes nobody signed. A stubbed harness
+          # showed exactly that before this was written this way.
+
+          # The manifest-list digest REF resolves to, on stdout.
+          digest_of() {
+            local digest
+            digest=$(docker buildx imagetools inspect "$1" \
+              --format '{{json .Manifest}}' | jq -r .digest)
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] \
+              || { echo "::error::no digest for $1" >&2; exit 1; }
+            echo "$digest"
           }
 
-          if [ "$CHANNEL" = "stable" ]; then
-            push_manifest "${VERSION}"
-            push_manifest "latest"
+          # Assemble the multi-arch list from SRC-amd64 + SRC-arm64 under the
+          # scratch tag STAGING, and print its digest. STAGING is a `build-…`
+          # tag: this job's workspace, where a list is assembled and signed
+          # BEFORE any name a consumer reads points at it. Nothing reads a
+          # `build-` tag — promote.ts looks up exactly `main-<sha>`,
+          # public-image-bump exactly `X.Y.Z`, the image updaters match
+          # `^\d+\.\d+\.\d+$` — and they are left behind on purpose: buildx has
+          # no delete, and a stale one is inert.
+          assemble() {
+            local staging="$1" src="$2"
+            docker manifest create "${IMAGE}:${staging}" \
+              "${IMAGE}:${src}-amd64" "${IMAGE}:${src}-arm64" >&2 \
+              || { echo "::error::could not assemble ${IMAGE}:${staging} from ${src}-{amd64,arm64}" >&2; exit 1; }
+            docker manifest push "${IMAGE}:${staging}" >&2 \
+              || { echo "::error::could not push ${IMAGE}:${staging}" >&2; exit 1; }
+            digest_of "${IMAGE}:${staging}" || exit 1
+          }
+
+          # Sign DIGEST, then verify it against IDENTITY the way a consumer will
+          # — so a change to this workflow's identity (a rename, a moved file)
+          # fails HERE, before an unverifiable image reaches promote.yaml.
+          sign_and_verify() {
+            local digest="$1" identity="$2"
+            cosign sign --yes "${IMAGE}@${digest}" >&2 \
+              || { echo "::error::cosign sign failed for ${IMAGE}@${digest}" >&2; exit 1; }
+            cosign verify \
+              --certificate-identity-regexp "$identity" \
+              --certificate-oidc-issuer "$OIDC_ISSUER" \
+              "${IMAGE}@${digest}" > /dev/null \
+              || { echo "::error::cosign verify failed for ${IMAGE}@${digest} (want ${identity})" >&2; exit 1; }
+            echo "🔏 Signed and verified ${IMAGE}@${digest}" >&2
+          }
+
+          # Point TAG at DIGEST, then read TAG back and require exactly DIGEST.
+          # A single-source `imagetools create` from an index is expected to copy
+          # the index as-is; this is where that is CHECKED rather than assumed,
+          # because a tool that re-wrapped it would mint a new digest carrying no
+          # signature under a name that promises one. Each path runs it on its
+          # `build-` scratch tag first, so a tool that breaks the expectation
+          # fails before any name a consumer reads has moved.
+          publish_digest() {
+            local tag="$1" digest="$2" got
+            docker buildx imagetools create -t "${IMAGE}:${tag}" "${IMAGE}@${digest}" \
+              || { echo "::error::could not tag ${IMAGE}:${tag}" >&2; exit 1; }
+            got=$(digest_of "${IMAGE}:${tag}") || exit 1
+            [[ "$got" == "$digest" ]] \
+              || { echo "::error::${IMAGE}:${tag} resolves to ${got}, not ${digest}; refusing to go on" >&2; exit 1; }
+            echo "✅ Published ${IMAGE}:${tag} → ${digest}"
+          }
+
+          if [ -n "$RETAG_FROM" ]; then
+            # One digest, two more names. `imagetools create` copies the manifest
+            # list by reference — nothing is pulled, nothing is rebuilt, and the
+            # bytes customers are served are byte-identical to the ones prod ran.
+            #
+            # From the DIGEST, resolved once, never the tag: `main-<sha>` is a
+            # tag, and a tag can move between the probe and here.
+            SRC_DIGEST=$(digest_of "${IMAGE}:${RETAG_FROM}") || exit 1
+            # A main image is signed by main. Every image built before signing
+            # started is legitimately unsigned, and the release must not be
+            # refused for that — so "no valid signature at all" warns. A valid
+            # signature from anyone ELSE is a different claim about these bytes,
+            # and fails. The second verify accepts any identity from any issuer:
+            # it asks only "is there a signature here", never "is it ours".
+            if cosign verify \
+                --certificate-identity-regexp "$MAIN_IDENTITY" \
+                --certificate-oidc-issuer "$OIDC_ISSUER" \
+                "${IMAGE}@${SRC_DIGEST}" > /dev/null; then
+              echo "🔏 ${IMAGE}:${RETAG_FROM} (${SRC_DIGEST}) is signed by this workflow on main"
+            elif cosign verify \
+                --certificate-identity-regexp '.*' \
+                --certificate-oidc-issuer-regexp '.*' \
+                "${IMAGE}@${SRC_DIGEST}" > /dev/null 2>&1; then
+              echo "::error::${IMAGE}:${RETAG_FROM} (${SRC_DIGEST}) is signed, but not by public-release.yaml on main; not releasing it"
+              exit 1
+            else
+              echo "::warning::${IMAGE}:${RETAG_FROM} (${SRC_DIGEST}) carries no signature (built before signing started); releasing it unsigned"
+            fi
+            publish_digest "build-${VERSION}" "$SRC_DIGEST"
+            publish_digest "latest" "$SRC_DIGEST"
+            publish_digest "${VERSION}" "$SRC_DIGEST"
+          elif [ "$CHANNEL" = "stable" ]; then
+            # The build fallback — a hotfix tagged on an X.Y.x branch, which has
+            # no `main-` image to retag. Assembled from the per-VERSION arch tags
+            # (never `latest-<arch>`, which the next stable build overwrites),
+            # signed, and only THEN given public names — `X.Y.Z` last, since that
+            # is the one public-image-bump waits for.
+            DIGEST=$(assemble "build-${VERSION}" "${VERSION}") || exit 1
+            sign_and_verify "$DIGEST" "$RELEASE_IDENTITY"
+            publish_digest "build-${VERSION}" "$DIGEST"
+            publish_digest "latest" "$DIGEST"
+            publish_digest "${VERSION}" "$DIGEST"
           else
-            push_manifest "edge-${SHORT_SHA}"
-            push_manifest "edge-latest"
+            # Assembled from the per-SHA arch tags, which only this commit's
+            # build writes. Not from `main-latest-<arch>`: the arch builds run in
+            # their own concurrency group, so an overlapping run, a "re-run failed
+            # jobs", or an edge dispatch from a branch can move those under this
+            # job — and `main-<sha>` would then name another commit's bytes,
+            # signed under main's identity.
+            DIGEST=$(assemble "build-main-${SHORT_SHA}" "main-${SHORT_SHA}") || exit 1
+            sign_and_verify "$DIGEST" "$MAIN_IDENTITY"
+            publish_digest "build-main-${SHORT_SHA}" "$DIGEST"
+            publish_digest "main-latest" "$DIGEST"
+            # `main-<sha>` LAST, deliberately: promote.yaml treats its presence on
+            # ghcr as "this build finished AND is signed", so nothing may come
+            # after it, and it may only ever name a digest that was just signed.
+            publish_digest "main-${SHORT_SHA}" "$DIGEST"
           fi
+
+  # ============================================================================
+  # Job 8b: Wake the promote reconciler in oxygen-internal
+  # ============================================================================
+  #
+  # Latency only. `promote.yaml` runs on a 15-minute schedule and re-derives
+  # everything from scratch, so a lost dispatch costs minutes, never correctness —
+  # which is why this job never fails the release and needs no retry.
+  notify-promote:
+    name: Notify promote
+    needs: [determine-build-type, create-manifests]
+    if: |
+      always() &&
+      needs.create-manifests.result == 'success' &&
+      needs.determine-build-type.outputs.is_stable == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch image-published
+        continue-on-error: true
+        env:
+          # Same secret the release checks hop on, and the same reason: a mirror
+          # workflow cannot reach oxygen-internal with its own GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.CHECKS_DISPATCH_TOKEN }}
+          SHORT_SHA: ${{ needs.determine-build-type.outputs.short_sha }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::warning::CHECKS_DISPATCH_TOKEN is not set; the promote reconciler will pick this up on its next scheduled pass"
+            exit 0
+          fi
+          gh api /repos/oxy-hq/oxygen-internal/dispatches \
+            -f event_type=image-published \
+            -F "client_payload[sha]=${SHORT_SHA}" \
+            || echo "::warning::dispatch failed; the scheduled pass will pick main-${SHORT_SHA} up"
 
   # ============================================================================
   # Job 9: Create Deployment Summary
@@ -779,7 +1003,7 @@ jobs:
           if [ "$CHANNEL" = "stable" ]; then
             TAG="${VERSION}"
           else
-            TAG="edge-latest"
+            TAG="main-latest"
           fi
 
           cat >> $GITHUB_STEP_SUMMARY << EOF

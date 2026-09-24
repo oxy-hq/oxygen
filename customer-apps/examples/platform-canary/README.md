@@ -246,7 +246,7 @@ that step fails.
   and set `CANARY_CHECKIN_URL`. The URL exists only once the All Quiet
   monitors are applied: it is `platform_canary_prod` in
   `terraform output -json cron_checkin_urls` (setup step 2 in
-  [release-process.md § Release checks](../../../internal-docs/release-process.md#release-checks)).
+  [deploy-pipeline.md § One-time setup for the checks](../../../internal-docs/deploy-pipeline.md#one-time-setup-for-the-checks)).
   Until it's set, every prod run fails `check_in`, and three failed runs page.
 - **Staging** has no check-in monitor yet. It gets one when Better Stack's
   escalation flag flips (design doc §5.2). Until then, staging sets

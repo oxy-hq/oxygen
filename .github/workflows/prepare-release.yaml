@@ -9,11 +9,54 @@ on:
       - "docs/**"
 
 jobs:
+  # Under the deploy train (internal-docs/deploy-pipeline.md) a release is a
+  # *publish*, not a deploy, so a push to main no longer OPENS a release PR — that
+  # would re-open one after every merge, the ceremony the train removed. It is
+  # opened weekly by `publish-release.yaml`, by hand (`just release-trigger`), or by
+  # a push to an `X.Y.x` hotfix branch.
+  #
+  # But a push to main still REFRESHES one that is already open. Release PRs sit
+  # for hours to days before someone merges them, and the tag lands on the merge,
+  # so everything merged meanwhile is in the release. The PR body is what
+  # `content-changelog.yaml` drafts the public changelog from: frozen at Thursday
+  # 10:00, it would silently drop every PR merged while the release waited.
+  release-pr-open:
+    name: Is a release PR open?
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      !startsWith(github.event.head_commit.message, 'chore: release')
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
+      'ubuntu-latest' }}
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    outputs:
+      open: ${{ steps.check.outputs.open }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          N=$(gh pr list -R "$GITHUB_REPOSITORY" --label autorelease --base main \
+            --state open --json number --jq 'length')
+          if [[ "$N" -gt 0 ]]; then OPEN=true; else OPEN=false; fi
+          echo "open=${OPEN}" >> "$GITHUB_OUTPUT"
+          echo "::notice::open release PRs on main: ${N} — $([[ "$OPEN" == true ]] && echo refreshing || echo 'none; not opening one')"
+
   # Create or update the release PR with version bump and changelog.
   # Skipped when a release PR is being merged (commit message starts with "chore: release").
   release-pr:
     name: Create/Update Release PR
-    if: "!startsWith(github.event.head_commit.message, 'chore: release')"
+    needs: [ release-pr-open ]
+    # `!cancelled()` because the gate is SKIPPED on every trigger but a main push,
+    # and a skipped `needs` skips this job too without it. A gate that failed
+    # leaves `open` empty, which reads as "do not open one" — the safe direction.
+    if: >-
+      !cancelled() &&
+      !startsWith(github.event.head_commit.message, 'chore: release') &&
+      (!(github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        needs.release-pr-open.outputs.open == 'true')
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
       'ubuntu-latest' }}
     timeout-minutes: 20

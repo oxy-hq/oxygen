@@ -308,6 +308,29 @@ pub async fn fresh_db(schema: Schema) -> (DatabaseConnection, String) {
     (db, url)
 }
 
+/// A per-test database with **nothing applied** — no template, no chain.
+///
+/// The opposite of [`fresh_db`], and needed by exactly one kind of test: one
+/// that reasons about the migration chain itself and so has to drive it a step
+/// at a time (`migration_rollback_safety`). Everything else wants `fresh_db`,
+/// which is two orders of magnitude cheaper.
+pub async fn empty_db() -> (DatabaseConnection, String) {
+    assert_process_per_test();
+
+    let admin_url = admin_url().await;
+    // Same naming rule as `fresh_db`: the run tag has to be in the name or
+    // `drop_stale_databases` cannot tell this from a stray and sweeps it.
+    let tag = run_tag().expect("nextest sets NEXTEST_RUN_ID with NEXTEST_EXECUTION_MODE");
+    let db_name = format!("oxytest_{tag}_{}", Uuid::new_v4().simple());
+
+    create_plain_database(&admin_url, &db_name).await;
+    let url = swap_database(&admin_url, &db_name);
+    let db = Database::connect(&url)
+        .await
+        .expect("connect to per-test database");
+    (db, url)
+}
+
 /// A migrated, per-test database, with the process pointed at it.
 ///
 /// The env writes are what make the *seed's own* connection land on this

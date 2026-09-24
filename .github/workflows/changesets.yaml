@@ -133,6 +133,15 @@ jobs:
               # matches none of those globs: a Python-only diff would spend a
               # checkout and a pnpm install to format nothing.
               - ".github/scripts/**/*.{js,mjs,ts,tsx,css,json,html}"
+              # The promote workflow is gated here too: it is the one consumer of
+              # `.github/scripts/promote.ts`, and the self-test now asserts an
+              # invariant ACROSS the two files (every effecting step carries a
+              # target clause). A workflow-only edit that broke it would
+              # otherwise run neither tsc nor the self-test.
+              - ".github/workflows/promote.yaml"
+              # Same reason: deploy-metrics.ts's self-test checks that every flag
+              # this workflow passes is one the script reads.
+              - ".github/workflows/deploy-metrics.yaml"
               # Biome's ROOT includes, mirrored as globs rather than enumerated.
               # `biome.json` lists `*.json`, `*.js`, `*.ts`, and neither its
               # globs nor paths-filter's cross `/` — so these match root-level

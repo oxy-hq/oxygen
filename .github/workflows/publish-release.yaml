@@ -1,0 +1,200 @@
+name: Publish release
+
+# Train B: the weekly semver publish. See internal-docs/deploy-pipeline.md.
+#
+# A release is now a SELECTION, not a build. Prod is already serving a digest that
+# went through the gates days ago; publishing takes that digest, gives it a semver
+# name, and ships the things prod does not ship — the CLI binaries, homebrew, the
+# GitHub Release, the public changelog. `Public Release` in the mirror then makes
+# `X.Y.Z` and `latest` point at the digest prod ran rather than building it again
+# (see `resolve-stable-digest` there).
+#
+# This workflow deliberately does NOT re-implement the publish machinery. It is the
+# trigger and the honesty check in front of `prepare-release.yaml`, which still
+# opens the `chore: release X.Y.Z` PR, and whose merge still tags, cuts the GitHub
+# Release, tags the mirror and opens the content changelog PR. What changed is that
+# nothing opens that PR per commit any more.
+#
+# One asymmetry worth knowing, because it is deliberate and not a bug: the **image**
+# published for `X.Y.Z` is prod's digest, retagged. The **CLI binaries** are built
+# from the release commit on `main`, which may be ahead of that digest. The property
+# that matters — the bytes customers are served are bytes we have already run — holds
+# for the image; the CLI is a different artifact with a different risk profile, and
+# building it from `main` is what has always happened. The delta is reported below so
+# whoever merges the release PR can see it rather than discover it.
+
+on:
+  schedule:
+    # Thursday 03:00 UTC = 10:00 Asia/Ho_Chi_Minh, the slot the old private release
+    # used, kept so nobody has to learn a new day.
+    - cron: "0 3 * * 4"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report what would be published and stop.
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Select the prod digest and open the release PR
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # What prod is actually serving, asked of the running process. Not ArgoCD's
+      # sync status, which is true before a pod serves anything, and not a values
+      # file, which says what was requested.
+      - name: Read the digest prod is serving
+        id: prod
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE=$(jq -r '.prod.baseUrl' .github/custom-app-checks.json)
+          BODY=$(curl -fsS -m 15 "${BASE}/api/version")
+          SHA=$(jq -r '.build_info.git_commit_short // empty' <<<"$BODY")
+          VERSION=$(jq -r '.version // empty' <<<"$BODY")
+          if [[ -z "$SHA" ]]; then
+            echo "::error::${BASE}/api/version reported no commit; nothing to publish"
+            exit 1
+          fi
+          # The image is built in the mirror, so that sha is a MIRROR commit. The
+          # internal commit is only recoverable from copybara's trailer.
+          INTERNAL=$(gh api "/repos/oxy-hq/oxygen/commits/${SHA}" \
+            --jq '.commit.message' \
+            | sed -n 's/^GitOrigin-RevId:[[:space:]]*\([0-9a-f]\{7,40\}\).*$/\1/p' | head -1)
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "internal=${INTERNAL}" >> "$GITHUB_OUTPUT"
+          echo "running_version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "::notice::prod serves main-${SHA} (internal ${INTERNAL:-unknown}), reporting ${VERSION}"
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+        with:
+          tool: git-cliff
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      # What this publish would be called, and how far main has moved past the
+      # digest being published. Both go in the summary whether or not we proceed:
+      # "nothing to publish" is a normal Thursday and should still say so.
+      - name: Work out the version and the delta
+        id: plan
+        env:
+          INTERNAL: ${{ steps.prod.outputs.internal }}
+        run: |
+          set -euo pipefail
+          VERSION=$(uv run scripts/release/bump-version.py --dry-run)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+          AHEAD="unknown"
+          MIGRATIONS="unknown"
+          if [[ -n "$INTERNAL" ]]; then
+            AHEAD=$(git rev-list --count "${INTERNAL}..HEAD" 2>/dev/null || echo unknown)
+            COUNT=$(git diff --name-only "${INTERNAL}" HEAD -- crates/migration 2>/dev/null | wc -l | tr -d ' ' || echo unknown)
+            MIGRATIONS="$COUNT"
+          fi
+          echo "ahead=${AHEAD}" >> "$GITHUB_OUTPUT"
+          echo "migrations=${MIGRATIONS}" >> "$GITHUB_OUTPUT"
+
+          UNRELEASED=$(git cliff --unreleased --strip all 2>/dev/null | head -60 || true)
+          if [[ -z "${UNRELEASED// }" ]]; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::no conventional commits since the last release tag; nothing to publish"
+          fi
+
+      - name: Open the release PR
+        if: steps.plan.outputs.nothing != 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # prepare-release.yaml owns the bump, the changelog and the PR. Dispatched
+          # rather than duplicated: two implementations of "what is the next
+          # version" is how a release ends up named two things.
+          gh workflow run prepare-release.yaml --ref main -R "$GITHUB_REPOSITORY"
+          echo "::notice::dispatched prepare-release.yaml; the release PR will appear on main"
+
+      # The release PR's reviewer needs to know which digest the image will be
+      # retagged from, and that is knowledge only this run has. Written onto the PR
+      # so it survives the run's log retention.
+      - name: Annotate the release PR with the digest
+        if: steps.plan.outputs.nothing != 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SHA: ${{ steps.prod.outputs.sha }}
+          INTERNAL: ${{ steps.prod.outputs.internal }}
+          AHEAD: ${{ steps.plan.outputs.ahead }}
+          MIGRATIONS: ${{ steps.plan.outputs.migrations }}
+        run: |
+          set -uo pipefail
+          # The PR is opened by another workflow, so wait briefly for it rather than
+          # assuming it is there. A missing PR is a warning: the dispatch above is
+          # the deliverable, this comment is the convenience.
+          for _ in $(seq 1 20); do
+            PR=$(gh pr list -R "$GITHUB_REPOSITORY" --label autorelease --state open \
+              --json number --jq '.[0].number // empty')
+            [[ -n "$PR" ]] && break
+            sleep 15
+          done
+          if [[ -z "${PR:-}" ]]; then
+            echo "::warning::no open autorelease PR appeared; the digest note was not posted"
+            exit 0
+          fi
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body "Publishing **${VERSION}** from the digest prod is serving.
+
+          | | |
+          | --- | --- |
+          | Image | \`ghcr.io/oxy-hq/oxygen:main-${SHA}\` — retagged as \`${VERSION}\` and \`latest\`, **not rebuilt** |
+          | Internal commit | \`${INTERNAL:-unknown}\` |
+          | \`main\` is ahead by | ${AHEAD} commit(s) |
+          | Migration files differing | ${MIGRATIONS} |
+
+          The CLI binaries are built from this PR's commit on \`main\`, so they include those ${AHEAD} commits; the image does not. That asymmetry is deliberate — see \`internal-docs/deploy-pipeline.md\`, Train B."
+
+      - name: Summary
+        if: always()
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          SHA: ${{ steps.prod.outputs.sha }}
+          INTERNAL: ${{ steps.prod.outputs.internal }}
+          RUNNING: ${{ steps.prod.outputs.running_version }}
+          AHEAD: ${{ steps.plan.outputs.ahead }}
+          MIGRATIONS: ${{ steps.plan.outputs.migrations }}
+          NOTHING: ${{ steps.plan.outputs.nothing }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### Publish release"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Next version | \`${VERSION:-none}\` |"
+            echo "| Prod digest | \`main-${SHA:-unknown}\` |"
+            echo "| Internal commit | \`${INTERNAL:-unknown}\` |"
+            echo "| Prod reports version | \`${RUNNING:-unknown}\` |"
+            echo "| main ahead by | ${AHEAD:-unknown} commit(s) |"
+            echo "| Migration files differing | ${MIGRATIONS:-unknown} |"
+            echo "| Nothing to publish | ${NOTHING:-no} |"
+            echo "| Dry run | ${DRY:-false} |"
+          } >> "$GITHUB_STEP_SUMMARY"

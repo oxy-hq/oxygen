@@ -21,6 +21,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.3
         version: 21.2.3
+      '@types/node':
+        specifier: ^26.0.0
+        version: 26.6.2
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -33,6 +36,9 @@ importers:
       turbo:
         specifier: ^2.11.2
         version: 2.11.2
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
 
   sdk/cli:
     dependencies:

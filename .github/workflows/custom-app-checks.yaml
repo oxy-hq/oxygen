@@ -21,15 +21,20 @@ name: Custom app checks
 #     required on prod only, and a staging run without it skips the check-in
 #     with a notice.
 #
-#   - `workflow_dispatch`: one environment. `public-image-bump.yaml` dispatches
-#     staging with `expect_version` when it proposes a prod image bump. That run
-#     waits for staging to serve the version, then records the result as labels
-#     on the bump PR in oxy-hq/infrastructure (see the last step).
+#   - `workflow_dispatch`: one environment. `promote.yaml` dispatches staging with
+#     `expect_sha` before it will promote that digest to prod: the run confirms
+#     staging serves the sha, then records the result as labels on the prod bump
+#     PR in oxy-hq/infrastructure (see the last step). `expect_version` is the
+#     same contract for a semver (Train B, or a manual check) and still works.
 #
-# Targets: `.github/custom-app-checks.json`. Setup: `just release-checks-setup`
-# (scripts/release/custom-app-checks-setup.sh) sets everything below that a
-# person has to provide and reports what each scope holds; the order around it
-# is in internal-docs/release-process.md, "Release checks".
+# Targets: `.github/custom-app-checks.json`. That file also carries a `dev`
+# entry with no apps — it is there for `promote.yaml`, which reads every
+# environment's baseUrl from one place. The checks never run against dev:
+# the matrix is staging/prod and so is the dispatch input. Setup:
+# `just release-checks-setup` (scripts/release/custom-app-checks-setup.sh) sets
+# everything below that a person has to provide and reports what each scope
+# holds; the order around it is in internal-docs/deploy-pipeline.md, "One-time
+# setup for the checks".
 #
 # Secrets. A job that names an environment reads the environment's secrets AND
 # the repository's, so every token here reads the environment secret if set,
@@ -109,6 +114,17 @@ on:
         description: >-
           Release version (X.Y.Z) the environment must be serving before the
           checks run. On staging, the result is recorded on the prod bump PR.
+          Train B / manual use; the deploy train passes expect_sha instead.
+        type: string
+        required: false
+        default: ""
+      expect_sha:
+        description: >-
+          Short commit sha (the MIRROR's, as `main-<sha>` and /api/version's
+          build_info.git_commit_short spell it) the environment must already be
+          serving.
+          This is what `promote.yaml` passes. Takes precedence over
+          expect_version.
         type: string
         required: false
         default: ""
@@ -150,7 +166,7 @@ jobs:
     # would let a 15-minute tick drop a release check. Scheduled runs share a
     # group, and a new tick cancels one still in progress: its result is stale.
     concurrency:
-      group: custom-app-checks-${{ matrix.environment }}-${{ inputs.expect_version || github.event_name }}
+      group: custom-app-checks-${{ matrix.environment }}-${{ inputs.expect_sha || inputs.expect_version || github.event_name }}
       cancel-in-progress: ${{ github.event_name == 'schedule' }}
     steps:
       # First, before any install: a misconfigured environment should fail in
@@ -176,6 +192,7 @@ jobs:
           INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
           INFRA_PR_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
+          EXPECT_SHA: ${{ inputs.expect_sha }}
         run: |
           set -euo pipefail
           # The check-in URL feeds the prod All Quiet monitor. Staging has no
@@ -197,7 +214,8 @@ jobs:
           case "$ENVIRONMENT" in
             prod) required+=(CHECKIN_URL) ;;
             staging)
-              if [[ -n "${EXPECT_VERSION:-}" ]]; then
+              # Either gate means this run records a verdict on the prod bump PR.
+              if [[ -n "${EXPECT_VERSION:-}" || -n "${EXPECT_SHA:-}" ]]; then
                 required+=(INFRA_PR_TOKEN)
               fi
               ;;
@@ -222,7 +240,7 @@ jobs:
             if [[ "$ENVIRONMENT" == prod ]]; then
               echo "check-in URL: ${CHECKIN_URL_SOURCE}"
             fi
-            if [[ -n "${EXPECT_VERSION:-}" ]]; then
+            if [[ -n "${EXPECT_VERSION:-}" || -n "${EXPECT_SHA:-}" ]]; then
               echo "bump-PR token: ${INFRA_PR_TOKEN_SOURCE}"
             fi
             exit 0
@@ -232,7 +250,7 @@ jobs:
           # runs the checks. Only the key buys this exit — see the header.
           if [[ "$EVENT_NAME" == schedule && -z "${OXY_API_KEY:-}" ]]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::custom-app-checks-${ENVIRONMENT}: setup is incomplete, so this scheduled run checked nothing. Missing: ${missing[*]}. Run \`just release-checks-setup\` (internal-docs/release-process.md, \"Release checks\"); the schedule starts on the first tick after OXY_API_KEY is set."
+            echo "::notice::custom-app-checks-${ENVIRONMENT}: setup is incomplete, so this scheduled run checked nothing. Missing: ${missing[*]}. Run \`just release-checks-setup\` (internal-docs/deploy-pipeline.md, \"One-time setup for the checks\"); the schedule starts on the first tick after OXY_API_KEY is set."
             exit 0
           fi
           for name in "${missing[@]}"; do
@@ -300,9 +318,54 @@ jobs:
       #
       # The step timeout sits above the 30-minute loop: one more poll can run
       # past the deadline, and the timeout only catches a hang.
+      # The deploy train's version gate. Unlike the semver wait below this does
+      # NOT poll for half an hour: `promote.yaml` dispatches these checks only
+      # after it has already seen the environment serving the sha, so the only
+      # two answers are "still is" and "the reconciler has moved on". Waiting for
+      # a sha to arrive is the reconciler's job, and it is already a loop; a
+      # second 30-minute wait here would just hold a runner while the answer got
+      # staler. Its verdict is folded into `id: version` below, which is what the
+      # rest of the job reads.
+      - name: Confirm the expected sha
+        id: version_sha
+        if: github.event_name == 'workflow_dispatch' && inputs.expect_sha != ''
+        timeout-minutes: 5
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          BASE_URL: ${{ steps.targets.outputs.base_url }}
+          EXPECT_SHA: ${{ inputs.expect_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXPECT_SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error::expect_sha '${EXPECT_SHA}' is not a commit sha"
+            exit 1
+          fi
+          # A few attempts, for a pod mid-roll or a blip — not for a deploy that
+          # has not happened yet.
+          served=""
+          for _ in 1 2 3 4 5 6; do
+            served=$(curl -fsS -m 10 "${BASE_URL}/api/version" \
+              | jq -r '.build_info.git_commit_short // empty') || served=""
+            [[ -n "$served" ]] && break
+            sleep 10
+          done
+          if [[ -z "$served" ]]; then
+            echo "::error::${BASE_URL}/api/version did not answer; no verdict"
+            exit 1
+          fi
+          # Prefix compare: /api/version is short but a caller may pass a long
+          # sha, and refusing that would be a papercut with no upside.
+          if [[ "$EXPECT_SHA" == "$served"* || "$served" == "$EXPECT_SHA"* ]]; then
+            echo "${BASE_URL} is serving ${served}"
+            exit 0
+          fi
+          echo "::notice::${ENVIRONMENT} serves ${served}, not ${EXPECT_SHA}; this run was superseded"
+          echo "superseded=true" >> "$GITHUB_OUTPUT"
+
       - name: Wait for the expected version
-        id: version
-        if: github.event_name == 'workflow_dispatch' && inputs.expect_version != ''
+        id: version_semver
+        if: github.event_name == 'workflow_dispatch' && inputs.expect_sha == ''
+          && inputs.expect_version != ''
         timeout-minutes: 35
         env:
           ENVIRONMENT: ${{ matrix.environment }}
@@ -338,6 +401,48 @@ jobs:
             sleep 30
           done
 
+      # One `superseded` for the two gates above. They are mutually exclusive by
+      # their `if`, but the steps that care ("did this run judge the thing it was
+      # asked about?") should not have to know which one ran — that is how a third
+      # gate would quietly stop being honoured.
+      - name: Resolve the version gate
+        id: version
+        if: always()
+        env:
+          SHA_SUPERSEDED: ${{ steps.version_sha.outputs.superseded }}
+          SEMVER_SUPERSEDED: ${{ steps.version_semver.outputs.superseded }}
+        run: |
+          set -euo pipefail
+          if [[ "$SHA_SUPERSEDED" == "true" || "$SEMVER_SUPERSEDED" == "true" ]]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The release id the RUNNING BINARY reports — `oxy@<version>+<sha>`, as
+      # crates/core/src/sentry_config.rs `release_id` composes it. Read off the
+      # environment rather than built from the dispatch input, because the input
+      # is only ever half of it: `expect_version` has no sha and `expect_sha` has
+      # no version, and a marker or a query built from half attaches to a release
+      # that holds no events — which degrades the new-issues comment below to a
+      # permanent "no new issues", i.e. a pass nobody earned.
+      - name: Resolve the Sentry release
+        id: release
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BASE_URL: ${{ steps.targets.outputs.base_url }}
+        run: |
+          set -uo pipefail
+          BODY=$(curl -fsS -m 10 "${BASE_URL}/api/version") || BODY=""
+          VERSION=$(jq -r '.version // empty' <<<"${BODY:-null}" 2>/dev/null) || VERSION=""
+          SHA=$(jq -r '.build_info.git_commit_short // empty' <<<"${BODY:-null}" 2>/dev/null) || SHA=""
+          if [[ -z "$VERSION" || -z "$SHA" ]]; then
+            echo "::warning::${BASE_URL}/api/version did not report a version and a commit; Sentry steps will say so rather than guess"
+            exit 0
+          fi
+          echo "release=oxy@${VERSION}+${SHA}" >> "$GITHUB_OUTPUT"
+          echo "resolved oxy@${VERSION}+${SHA}"
+
       # Sentry's release signal, not a check: a `staging` deploy of
       # `oxy@<expect_version>` in project `oxy`, so Sentry knows when staging
       # started serving the release. Only when the wait above saw staging serve
@@ -350,7 +455,7 @@ jobs:
       # copies this shape.
       - name: Mark the staging deploy in Sentry
         id: sentry_deploy
-        if: matrix.environment == 'staging' && inputs.expect_version != '' && steps.version.outcome == 'success' && steps.version.outputs.superseded != 'true'
+        if: matrix.environment == 'staging' && (inputs.expect_version != '' || inputs.expect_sha != '') && (steps.version_semver.outcome == 'success' || steps.version_sha.outcome == 'success') && steps.version.outputs.superseded != 'true' && steps.release.outputs.release != ''
         continue-on-error: true
         timeout-minutes: 2
         env:
@@ -358,12 +463,11 @@ jobs:
           # (needs project:releases — see the header).
           SENTRY_RELEASE_TOKEN: ${{ secrets.SENTRY_RELEASE_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_TOKEN_SOURCE: ${{ secrets.SENTRY_RELEASE_TOKEN && 'SENTRY_RELEASE_TOKEN (environment custom-app-checks-staging)' || 'SENTRY_AUTH_TOKEN (repository)' }}
-          EXPECT_VERSION: ${{ inputs.expect_version }}
+          RELEASE: ${{ steps.release.outputs.release }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # No `-e`: every failure below is reported, then exits 0.
           set -uo pipefail
-          RELEASE="oxy@${EXPECT_VERSION}"
           if [[ -z "${SENTRY_RELEASE_TOKEN:-}" ]]; then
             echo "::warning::neither SENTRY_RELEASE_TOKEN (environment custom-app-checks-staging) nor SENTRY_AUTH_TOKEN (repository) is set: no Sentry deploy marker for ${RELEASE}"
             exit 0
@@ -573,7 +677,12 @@ jobs:
       # `always()`, so a timed-out or cancelled step still reaches this step.
       - name: Record the result on the prod bump PR
         id: record
-        if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && inputs.expect_version != '' }}
+        # Either gate. The deploy train dispatches `expect_sha` and never
+        # `expect_version`, so a version-only condition here skipped this step on
+        # every train run: no label was ever written, `promote.yaml` read a null
+        # verdict forever, and prod could not promote — silently, which is the one
+        # property that workflow's header says a reconciler must not have.
+        if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && (inputs.expect_version != '' || inputs.expect_sha != '') }}
         timeout-minutes: 5
         env:
           # Environment INFRA_PR_TOKEN, else repository OXY_HQ_GIT_TOKEN (needs
@@ -581,6 +690,7 @@ jobs:
           GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
           GH_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment custom-app-checks-staging)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
+          EXPECT_SHA: ${{ inputs.expect_sha }}
           SUPERSEDED: ${{ steps.version.outputs.superseded == 'true' }}
           SERVER: ${{ steps.server.outcome }}
           VERDICT: ${{ steps.server.outputs.verdict }}
@@ -593,8 +703,19 @@ jobs:
           BUMP_BRANCH: chore/bump-oxy-prod-image
         run: |
           set -euo pipefail
+          # What this run judged, spelled the way the bump PR's title spells it.
+          # `promote.yaml` titles a train PR `… → main-<sha>`; the semver path
+          # titles it `… → X.Y.Z`. One variable so the lookup, the labels and
+          # every message below say the same thing.
+          if [[ -n "${EXPECT_SHA:-}" ]]; then
+            REF="main-${EXPECT_SHA}"
+            REDISPATCH="expect_sha=${EXPECT_SHA}"
+          else
+            REF="$EXPECT_VERSION"
+            REDISPATCH="expect_version=${EXPECT_VERSION}"
+          fi
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::neither INFRA_PR_TOKEN (environment custom-app-checks-staging) nor OXY_HQ_GIT_TOKEN (repository) is set: the release-check result for ${EXPECT_VERSION} cannot reach the prod bump PR"
+            echo "::error::neither INFRA_PR_TOKEN (environment custom-app-checks-staging) nor OXY_HQ_GIT_TOKEN (repository) is set: the release-check result for ${REF} cannot reach the prod bump PR"
             exit 1
           fi
           echo "bump-PR token: ${GH_TOKEN_SOURCE}; a 403 or 404 from gh below means it lacks \`repo\` on ${INFRA_REPO}"
@@ -629,7 +750,8 @@ jobs:
               "setup:Set up pnpm, Node, and Playwright" \
               "build:Build oxyc" \
               "targets:Resolve targets" \
-              "version:Wait for the expected version" \
+              "version_sha:Confirm the expected sha" \
+              "version_semver:Wait for the expected version" \
               "server:Run server-side checks" \
               "browser:Run browser check"; do
               id="${entry%%:*}"
@@ -643,14 +765,14 @@ jobs:
             echo "the run was cancelled between steps"
           }
 
-          # The PR that proposes this version, not any PR mentioning it. Its
-          # title ends `→ <version>` (public-image-bump.yaml sets it). A plain
-          # `contains` would also match a PR that has since moved on FROM this
-          # version, and 0.5.14 inside 0.5.140.
+          # The PR that proposes this ref, not any PR mentioning it. Its title
+          # ends `→ <ref>` (promote.yaml sets it). A plain `contains` would also
+          # match a PR that has since moved on FROM this ref, and 0.5.14 inside
+          # 0.5.140.
           PR=$(gh pr list --repo "$INFRA_REPO" --head "$BUMP_BRANCH" --state open --json number,title \
-            | jq -r --arg v "$EXPECT_VERSION" '[.[] | select(.title | endswith("→ " + $v))][0].number // empty')
+            | jq -r --arg v "$REF" '[.[] | select(.title | endswith("→ " + $v))][0].number // empty')
           if [[ -z "$PR" ]]; then
-            echo "::warning::no open ${INFRA_REPO} PR from ${BUMP_BRANCH} proposes ${EXPECT_VERSION}; the release-check result (${RESULT}) was not recorded"
+            echo "::warning::no open ${INFRA_REPO} PR from ${BUMP_BRANCH} proposes ${REF}; the release-check result (${RESULT}) was not recorded"
             exit 0
           fi
           # The Sentry comment step below posts to the same PR.
@@ -670,7 +792,7 @@ jobs:
               gh pr edit "$PR" --repo "$INFRA_REPO" \
                 --add-label release-checks-passed \
                 --remove-label release-checks-pending,release-checks-failed,release-checks-not-run
-              echo "::notice::release checks passed for ${EXPECT_VERSION}; labelled ${INFRA_REPO}#${PR}"
+              echo "::notice::release checks passed for ${REF}; labelled ${INFRA_REPO}#${PR}"
               ;;
             failed)
               if [[ "$VERDICT" == "failed" ]]; then
@@ -687,12 +809,12 @@ jobs:
               gh pr edit "$PR" --repo "$INFRA_REPO" \
                 --add-label release-checks-failed,release-hold \
                 --remove-label release-checks-pending,release-checks-passed,release-checks-not-run
-              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${EXPECT_VERSION}\` failed on staging: ${RUN_URL}
+              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${REF}\` failed on staging: ${RUN_URL}
 
           ${WHY}
 
           This PR now carries \`release-hold\`, so a newer release will not replace it. A person removes the label once the failure is understood."
-              echo "::notice::release checks failed for ${EXPECT_VERSION}; held ${INFRA_REPO}#${PR}"
+              echo "::notice::release checks failed for ${REF}; held ${INFRA_REPO}#${PR}"
               ;;
             superseded)
               # Staging already serves something newer, so this version was never
@@ -700,7 +822,7 @@ jobs:
               gh pr edit "$PR" --repo "$INFRA_REPO" \
                 --add-label release-checks-not-run \
                 --remove-label release-checks-pending
-              echo "::notice::staging moved past ${EXPECT_VERSION}; labelled ${INFRA_REPO}#${PR} release-checks-not-run"
+              echo "::notice::staging moved past ${REF}; labelled ${INFRA_REPO}#${PR} release-checks-not-run"
               ;;
             not-run)
               # Nothing reached a verdict: a missing secret, a failed install, a
@@ -714,16 +836,16 @@ jobs:
               gh pr edit "$PR" --repo "$INFRA_REPO" \
                 --add-label release-checks-not-run \
                 --remove-label release-checks-pending
-              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${EXPECT_VERSION}\` gave no verdict on staging: ${STOPPED}. ${RUN_URL}
+              gh pr comment "$PR" --repo "$INFRA_REPO" --body "Release checks for \`${REF}\` gave no verdict on staging: ${STOPPED}. ${RUN_URL}
 
           No \`release-hold\`: no check reached a verdict, so there is nothing to hold on, and \`release-checks-not-run\` is not a pass. Once the cause is fixed, re-dispatch:
-          \`gh workflow run custom-app-checks.yaml -R oxy-hq/oxygen-internal -f environment=staging -f expect_version=${EXPECT_VERSION}\`"
-              echo "::warning::release checks for ${EXPECT_VERSION} gave no verdict (${STOPPED}); labelled ${INFRA_REPO}#${PR} release-checks-not-run"
+          \`gh workflow run custom-app-checks.yaml -R oxy-hq/oxygen-internal -f environment=staging -f ${REDISPATCH}\`"
+              echo "::warning::release checks for ${REF} gave no verdict (${STOPPED}); labelled ${INFRA_REPO}#${PR} release-checks-not-run"
               ;;
           esac
 
       # Sentry's view of the same release, for whoever merges the bump PR: the
-      # unresolved issues in project `oxy` first seen in `oxy@<expect_version>`
+      # unresolved issues in project `oxy` first seen in `oxy@<version>+<sha>`
       # on staging, or a line saying there are none. Information, never a
       # verdict: it adds no label and no hold, and a Sentry failure never fails
       # the run (the comment says what went wrong instead). Only when staging
@@ -731,7 +853,7 @@ jobs:
       # only when the record step found the PR.
       - name: Comment new Sentry issues on the prod bump PR
         id: sentry_comment
-        if: ${{ always() && steps.record.outputs.pr != '' && inputs.expect_version != '' && steps.version.outcome == 'success' && steps.version.outputs.superseded != 'true' }}
+        if: ${{ always() && steps.record.outputs.pr != '' && (inputs.expect_version != '' || inputs.expect_sha != '') && (steps.version_semver.outcome == 'success' || steps.version_sha.outcome == 'success') && steps.version.outputs.superseded != 'true' }}
         continue-on-error: true
         timeout-minutes: 3
         env:
@@ -741,13 +863,16 @@ jobs:
           GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
           SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_TOKEN_SOURCE: ${{ secrets.SENTRY_READ_TOKEN && 'SENTRY_READ_TOKEN (environment custom-app-checks-staging)' || 'SENTRY_AUTH_TOKEN (repository)' }}
-          EXPECT_VERSION: ${{ inputs.expect_version }}
+          RELEASE: ${{ steps.release.outputs.release }}
           PR: ${{ steps.record.outputs.pr }}
           INFRA_REPO: oxy-hq/infrastructure
         run: |
           # No `-e`: every Sentry failure becomes a sentence in the comment.
           set -uo pipefail
-          RELEASE="oxy@${EXPECT_VERSION}"
+          if [[ -z "${RELEASE:-}" ]]; then
+            gh pr comment "$PR" --repo "$INFRA_REPO" --body "Sentry was not checked: staging did not report a version and commit, so there is no release id to query. This is not a pass."
+            exit 0
+          fi
           ISSUES="${RUNNER_TEMP}/sentry-issues.json"
           if [[ -z "${SENTRY_READ_TOKEN:-}" ]]; then
             SUMMARY="Sentry was not checked for \`${RELEASE}\`: neither \`SENTRY_READ_TOKEN\` (environment \`custom-app-checks-staging\`) nor \`SENTRY_AUTH_TOKEN\` (repository) is set."

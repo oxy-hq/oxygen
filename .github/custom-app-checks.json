@@ -1,4 +1,8 @@
 {
+  "dev": {
+    "baseUrl": "https://aip.dev.oxy.tech",
+    "apps": []
+  },
   "staging": {
     "baseUrl": "https://aip.staging.oxy.tech",
     "apps": [

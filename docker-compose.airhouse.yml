@@ -20,7 +20,7 @@
 #   psql -h localhost -p 5445 -U alice -d demo   # password: alice
 #
 # Override the default Airhouse image tag (defaults to `0.1.48`). Use
-# `edge-latest` to track the rolling edge build, or pin to a commit:
+# `main-latest` to track the newest main build, or pin to a commit:
 #   AIRHOUSE_IMAGE_TAG=edge-abcdef0 docker compose -f docker-compose.airhouse.yml up -d
 #
 # Tear down (drops the local Postgres + MinIO volumes):

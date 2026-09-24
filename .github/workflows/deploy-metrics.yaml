@@ -1,0 +1,97 @@
+name: Deploy metrics
+
+# The deploy train's weekly DORA roll-up: deploy frequency, lead time for
+# changes, change failure rate and time to restore, posted where the promote
+# notifications go. Definitions and the reasoning behind them live in
+# .github/scripts/deploy-metrics.ts (with a `--self-test`); how to read the
+# numbers is in internal-docs/deploy-pipeline.md, "Deploy metrics".
+#
+# Read-only everywhere. It asks three repos what happened and writes nothing but
+# a Slack message and this run's summary.
+#
+# Secrets and variables — the same ones promote.yaml uses:
+#   vars.ARGO_APP_CLIENT_ID + secrets.ARGO_APP_PRIVATE_KEY — the GitHub App,
+#     minted here with read permissions only, for oxy-hq/infrastructure.
+#   secrets.SLACK_BOT_TOKEN — optional; unset, the summary is printed in the
+#     log with a warning (slack-post.sh's rule).
+
+on:
+  schedule:
+    # Monday 02:00 UTC = 09:00 Asia/Ho_Chi_Minh, so the week's numbers are there
+    # when the week starts.
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Window length in days, 1–365. A trailing 30-day line is added unless it is 30.
+        type: string
+        required: false
+        default: "7"
+      post:
+        description: Post the summary to Slack (off for a look without telling the channel).
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-metrics
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  report:
+    name: Roll up deploy metrics
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ubuntu-latest
+    # A few hundred API reads at most; 15m is hang insurance.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # The script is TypeScript run by Node's type stripping, and imports
+      # promote.ts by its `.ts` name — the Node CI typechecks it with.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 26
+
+      - name: Self-test the metric logic
+        run: node .github/scripts/deploy-metrics.ts --self-test
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Token for oxy-hq/infrastructure
+        id: infra-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: oxy-hq
+          repositories: infrastructure
+          # Commits, file contents and the PR a commit merged through. Nothing
+          # here writes, so nothing here may.
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Compute
+        env:
+          # oxy-hq/oxygen is public and oxygen-internal is this repo.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}
+          DAYS: ${{ inputs.days || '7' }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/deploy-metrics.ts --days "$DAYS" \
+            --summary-file "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/deploy-metrics.txt"
+          cat "$RUNNER_TEMP/deploy-metrics.txt"
+
+      - name: Post to Slack
+        if: github.event_name == 'schedule' || inputs.post
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$(cat "$RUNNER_TEMP/deploy-metrics.txt")"

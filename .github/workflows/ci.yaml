@@ -594,6 +594,45 @@ jobs:
       - name: Scaffold, install and build every template
         run: node scripts/ci/verify-templates.mjs
 
+  # Node strips types at load and does NOT check them, so a `.ts` script in
+  # `.github/scripts` would otherwise carry annotations nobody verifies. Same job
+  # as the formatter because it has the same gate and the same pnpm install.
+  typecheck-ci-scripts:
+    name: Typecheck CI scripts
+    needs: [changesets]
+    concurrency:
+      group: typecheck-ci-scripts-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.ci-scripts == 'true'
+    runs-on:
+      ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
+      'ubuntu-latest' }}
+    # Install plus one tsc over a handful of files; 15m is hang insurance.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: "pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: tsc --noEmit
+        run: pnpm exec tsc --noEmit --project .github/scripts/tsconfig.json
+      # The types are only worth checking if the thing still runs, and the
+      # self-test is where every gate decision is pinned.
+      - name: promote.ts self-test
+        run: node .github/scripts/promote.ts --self-test
+      # The weekly DORA roll-up: its classifier and metrics, and the flags its
+      # workflow passes.
+      - name: deploy-metrics.ts self-test
+        run: node .github/scripts/deploy-metrics.ts --self-test
+
   cargo-fmt:
     name: Format cargo (rustfmt --check)
     needs: [changesets]
