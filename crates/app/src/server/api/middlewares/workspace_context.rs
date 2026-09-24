@@ -1067,6 +1067,62 @@ const LAZY_COMPILE_BACKOFF_MAX_SECS: i64 = 6 * 60 * 60;
 /// Enough to reach the ceiling: 300s doubled 7 times passes 6h.
 const LAZY_COMPILE_FAILURE_LOOKBACK: u64 = 8;
 
+/// Every terminal state a compile task can reach.
+///
+/// All four, deliberately — the backoff window must be "the last N terminal
+/// compile tasks", not "the last N failed ones". Reading only the failures
+/// makes the run unbreakable: `completed` and `cancelled` are purged after 7
+/// days while `failed`/`dead` are kept for 30 (`purge_old_terminal_tasks`), so
+/// a workspace that broke one afternoon, was fixed, and ran clean for three
+/// weeks would have its eight old failures counted as consecutive with one
+/// fresh one — six hours of suppressed self-heal from a single transient
+/// failure. The revisions guard above reads every status and does not have
+/// this hazard; this list is what keeps the two from drifting apart.
+const COMPILE_TASK_TERMINAL_STATUSES: [&str; 4] = ["completed", "failed", "dead", "cancelled"];
+
+/// The backoff window read, frozen against the index that serves it.
+///
+/// `idx_task_queue_compile_terminal` (runtime migration `AddCompileTaskBackoffIndex`)
+/// is `((spec->>'workspace_id'), updated_at DESC) WHERE spec->>'type' = 'compile'`.
+/// Without it this is a sequential scan plus a sort over every retained
+/// terminal row in the table — 7 days of `completed` and 30 of `failed`/`dead`
+/// for every workspace and every `TaskSpec` variant — run on the request hot
+/// path while holding an advisory lock. The two existing indexes cannot help:
+/// both are partial on `queued` / `claimed`, the non-terminal rows.
+///
+/// Change either predicate, the ordering, or the column list and the index
+/// silently stops being used. That is a planner regression, not an error, so
+/// `the_backoff_window_matches_the_index_that_serves_it` pins it.
+const RECENT_COMPILE_TASKS_SQL: &str = "SELECT queue_status, updated_at FROM agentic_task_queue \
+     WHERE spec->>'type' = 'compile' \
+       AND spec->>'workspace_id' = $1 \
+       AND queue_status IN ('completed', 'failed', 'dead', 'cancelled') \
+     ORDER BY updated_at DESC \
+     LIMIT $2";
+
+/// Length of the leading run of failures in a NEWEST-FIRST status list.
+///
+/// Both backoff guards below count this way, over two different tables, so it
+/// is one function: they must not drift. Leading, not total — a success (or a
+/// cancel) breaks the run, because the backoff answers "is this workspace
+/// failing right now", not "has it ever failed".
+fn leading_failure_count<'a>(
+    statuses: impl IntoIterator<Item = &'a str>,
+    is_failure: impl Fn(&str) -> bool,
+) -> u32 {
+    statuses.into_iter().take_while(|s| is_failure(s)).count() as u32
+}
+
+/// Terminal `agentic_task_queue` states that mean the compile could not be done.
+///
+/// `cancelled` is terminal too and is deliberately NOT here: someone stopped
+/// the work, which says nothing about whether it would have succeeded. It is
+/// still *fetched*, so it breaks the run rather than being skipped over and
+/// letting two failures separated by a cancel read as consecutive.
+fn compile_task_status_is_failure(status: &str) -> bool {
+    matches!(status, "failed" | "dead")
+}
+
 /// Backoff after `consecutive_failures` failed compiles in a row.
 ///
 /// Self-heal (`content_change == false`) doubles per failure: a workspace whose
@@ -1191,10 +1247,8 @@ pub(crate) async fn enqueue_compile_deduped(
                 Vec::new()
             }
         };
-    let consecutive_failures = recent
-        .iter()
-        .take_while(|(status, _)| status == "failed")
-        .count() as u32;
+    let consecutive_failures =
+        leading_failure_count(recent.iter().map(|(s, _)| s.as_str()), |s| s == "failed");
     let backoff_secs = lazy_compile_backoff_secs(consecutive_failures, git_sha.is_some());
     let last_failed_at = recent.first().and_then(|(_, finished_at)| *finished_at);
     if let Some(finished_at) = last_failed_at
@@ -1206,6 +1260,74 @@ pub(crate) async fn enqueue_compile_deduped(
             consecutive_failures,
             backoff_secs,
             "lazy compile: backing off (recent compiles failed)"
+        );
+        let _ = txn.rollback().await;
+        return;
+    }
+
+    // SECOND BACKOFF, over the TASK QUEUE rather than revisions — because the
+    // one above cannot see a compile that failed before it started.
+    //
+    // `insert_compiling_revision` runs inside the compile itself, so a compile
+    // rejected by `OxyCompileDispatcher::dispatch` (the workspace working copy
+    // is not on this node) writes NO revision row at all. The read above then
+    // finds zero failures, `lazy_compile_backoff_secs(0, _)` returns 0, and the
+    // next request enqueues again — forever, at whatever rate requests arrive.
+    //
+    // Measured on oxy-staging 2026-09-24, which is what prompted this: workspace
+    // 64ac780e for 724 of 737 failures in six hours, a NEW run and task id every
+    // single time, exactly every 30 seconds. 246 failures in two hours, 246
+    // distinct task ids — not one task retrying, a fresh one each pass. The
+    // backoff designed to stop precisely that was blind to it.
+    //
+    // So this reads the terminal states the queue DOES record — ALL of them,
+    // not just the failures, so that a success truncates the run exactly as it
+    // does in the revisions guard — through the same counter and the same
+    // window function as above. The two guards are independent: a failure
+    // visible to either one suppresses the enqueue.
+    let recent_tasks: Vec<(String, Option<sea_orm::prelude::DateTimeWithTimeZone>)> = match txn
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            RECENT_COMPILE_TASKS_SQL,
+            [
+                workspace_id.to_string().into(),
+                (LAZY_COMPILE_FAILURE_LOOKBACK as i64).into(),
+            ],
+        ))
+        .await
+    {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| {
+                Some((
+                    r.try_get::<String>("", "queue_status").ok()?,
+                    r.try_get::<sea_orm::prelude::DateTimeWithTimeZone>("", "updated_at")
+                        .ok(),
+                ))
+            })
+            .collect(),
+        Err(e) => {
+            // Same posture as the revisions read: degrade to "no known
+            // failures" and say so, rather than block an enqueue on a
+            // bookkeeping query.
+            tracing::warn!(?e, %workspace_id, "lazy compile: reading recent compile tasks failed");
+            Vec::new()
+        }
+    };
+    let consecutive_task_failures = leading_failure_count(
+        recent_tasks.iter().map(|(s, _)| s.as_str()),
+        compile_task_status_is_failure,
+    );
+    let task_backoff_secs = lazy_compile_backoff_secs(consecutive_task_failures, git_sha.is_some());
+    if let Some((_, Some(updated_at))) = recent_tasks.first()
+        && task_backoff_secs > 0
+        && Utc::now().fixed_offset() - *updated_at < chrono::Duration::seconds(task_backoff_secs)
+    {
+        tracing::debug!(
+            %workspace_id,
+            consecutive_task_failures,
+            backoff_secs = task_backoff_secs,
+            "lazy compile: backing off (recent compile TASKS failed before starting)"
         );
         let _ = txn.rollback().await;
         return;
@@ -1568,6 +1690,124 @@ mod tests {
             6 * 60 * 60,
             "no overflow at the extreme"
         );
+    }
+
+    /// The storm this second guard was added for.
+    ///
+    /// oxy-staging, 2026-09-24: workspace 64ac780e re-enqueued a compile every
+    /// 30 seconds for hours — 246 failures in two hours, 246 DISTINCT task ids,
+    /// so a fresh task each pass rather than one retrying. Every one of them
+    /// was rejected by `OxyCompileDispatcher::dispatch` at the
+    /// `!workspace_path.is_dir()` check, which fires BEFORE
+    /// `insert_compiling_revision` runs. Zero revision rows were written, so
+    /// the revisions-based count below saw a clean history and waived the
+    /// backoff, forever.
+    #[test]
+    fn a_compile_that_dies_before_it_starts_still_counts_as_a_failure() {
+        use super::{compile_task_status_is_failure, leading_failure_count};
+
+        // What the revisions table held during the storm: nothing.
+        assert_eq!(
+            leading_failure_count(std::iter::empty(), |s| s == "failed"),
+            0,
+            "the revisions guard could not see the storm — this is the hole"
+        );
+
+        // What the task queue held: the failures, newest first.
+        let queue = ["failed", "failed", "failed", "failed"];
+        let n = leading_failure_count(queue, compile_task_status_is_failure);
+        assert_eq!(n, 4);
+        assert!(
+            super::lazy_compile_backoff_secs(n, false) >= 2400,
+            "four dispatch failures must buy at least the 40-minute step, \
+             not the zero wait that produced a 30-second cadence"
+        );
+    }
+
+    /// The window must fetch EVERY terminal status, or a success can never
+    /// truncate the run and old failures accumulate into a permanent backoff.
+    ///
+    /// The first version of this guard fetched only `('failed','dead','cancelled')`.
+    /// `completed` rows were therefore unreachable, which made
+    /// `only_the_leading_run_of_real_failures_counts`'s "a success in between"
+    /// case assert behaviour production could not produce — and left the real
+    /// hazard open: `failed`/`dead` are retained 30 days while
+    /// `completed`/`cancelled` are purged at 7, so a workspace that broke once,
+    /// was fixed, and ran clean for three weeks would have counted eight stale
+    /// failures as consecutive with one fresh one — six hours of suppressed
+    /// self-heal from a single transient failure.
+    #[test]
+    fn the_backoff_window_reads_every_terminal_status() {
+        let in_list = super::RECENT_COMPILE_TASKS_SQL
+            .split("queue_status IN (")
+            .nth(1)
+            .expect("the window must filter on queue_status")
+            .split(')')
+            .next()
+            .expect("unterminated IN list");
+        let listed: Vec<&str> = in_list
+            .split(',')
+            .map(|s| s.trim().trim_matches('\''))
+            .collect();
+
+        assert_eq!(
+            listed,
+            super::COMPILE_TASK_TERMINAL_STATUSES,
+            "the SQL and the status list have drifted"
+        );
+        assert!(
+            super::COMPILE_TASK_TERMINAL_STATUSES
+                .iter()
+                .any(|s| !super::compile_task_status_is_failure(s)),
+            "at least one FETCHED status must be a non-failure, or the leading run \
+             can never be broken and every old failure counts forever"
+        );
+    }
+
+    /// A query whose shape no longer matches its index degrades to a seq scan
+    /// plus a sort, silently — a planner regression, not an error. This runs on
+    /// the request hot path inside an advisory-lock transaction, so pin it.
+    #[test]
+    fn the_backoff_window_matches_the_index_that_serves_it() {
+        // idx_task_queue_compile_terminal:
+        //   ON agentic_task_queue ((spec->>'workspace_id'), updated_at DESC)
+        //   WHERE spec->>'type' = 'compile'
+        let sql = super::RECENT_COMPILE_TASKS_SQL;
+        for fragment in [
+            "spec->>'type' = 'compile'",  // the index PREDICATE
+            "spec->>'workspace_id' = $1", // the leading index KEY
+            "ORDER BY updated_at DESC",   // the trailing key, so no sort is needed
+        ] {
+            assert!(
+                sql.contains(fragment),
+                "the window dropped {fragment:?}, which idx_task_queue_compile_terminal \
+                 is built around — add a NEW migration reshaping the index, do not \
+                 edit the shipped one"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_leading_run_of_real_failures_counts() {
+        use super::{compile_task_status_is_failure as f, leading_failure_count as n};
+
+        assert_eq!(n(["failed", "dead", "failed"], f), 3, "dead is a failure");
+        assert_eq!(
+            n(["failed", "completed", "failed"], f),
+            1,
+            "a success in between means the workspace recovered once"
+        );
+        assert_eq!(
+            n(["cancelled", "failed", "failed"], f),
+            0,
+            "a cancel is someone stopping the work, not the work failing"
+        );
+        assert_eq!(
+            n(["failed", "cancelled", "failed"], f),
+            1,
+            "and it breaks the run rather than being skipped over"
+        );
+        assert_eq!(n(["claimed", "failed"], f), 0, "in-flight is not failed");
     }
 
     #[test]
