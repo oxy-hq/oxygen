@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.152] - 2026-09-24
+
+### 🚀 Features
+
+- Custom-app environments phase 1a returns, and the last pager and sdk gaps close (#3308)
+- Give the canary an anonymous entry point an external probe can call (#3315)
+- Airway cursor reset — rewind a pipeline without dropping what it landed (#3268)
+
+### 🐛 Bug Fixes
+
+- Ship the admission ceilings loose — a tight guess manufactures the incident (#3314)
+- The probe needs no signature, so it needs no secret anywhere outside the app (#3318)
+
+### 📚 Documentation
+
+- Record what the 0.5.151 cut actually did — and that ancestry was the wrong test (#3312)
+- The 0.5.152 checklist, for the release that is forward-only (#3310)
+- The custom-app shell already survives a Postgres outage — readiness does not (#3317)
+
+### 🧪 Testing
+
+- The route label's cardinality argument had no test that could fail (#3306)
+
 ## [0.5.151] - 2026-09-23
 
 ### 🚀 Features
@@ -57,6 +80,7 @@ All notable changes to this project will be documented in this file.
 
 - Canary coverage follow-ups — refusal-step rollout note, backend-agnostic storage list, one source-scan helper (#3284)
 - Every platform pull request publishes and runs the platform canary (checkpoint 1) (#3281)
+- Release 0.5.151 (#3280)
 
 ### ◀️ Revert
 
