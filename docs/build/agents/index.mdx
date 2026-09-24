@@ -101,7 +101,9 @@ The file stem is the agent's ID — `analytics.agentic.yml` is referenced as
 | `context` | Globs, relative to the file, that ground the agent and grant affordances: `*.view.yml` / `*.topic.yml` (semantic model), `*.sql` (example or verified queries), `*.md` (domain docs), `*.automation.yml` (discoverable automations). See [Context & affordances](/guide/build/agents/provide-context). |
 | `instructions` | A system prompt injected across stages — persona, domain conventions, terminology. |
 | `states` | Per-stage overrides (see below). |
-| `thinking` | Reasoning mode: `adaptive`, `disabled`, or an explicit token budget. Never `thinking: false` — use `thinking: disabled`. |
+| `thinking` | Reasoning mode: `adaptive`, `disabled`, `{ effort: <level> }` (`low`, `medium`, `high`, `xhigh`, or `max`), or `{ budget_tokens: N }` (Claude 4.6 and earlier only — prefer `effort`). Never `thinking: false` — use `thinking: disabled`. |
+| `timezone` | IANA timezone (e.g. `America/Los_Angeles`) for resolving relative dates like "yesterday". Overrides the project-wide `timezone` in `config.yml`; defaults to UTC. |
+| `validation` | Tune or disable the built-in result checks, e.g. `validation: { rules: { solved: [ { name: outlier_detection, threshold_sigma: 3.0 } ] } }`. All rules run with defaults when omitted. |
 
 ### Per-stage overrides
 

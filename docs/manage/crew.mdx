@@ -1,0 +1,62 @@
+---
+title: Crew & kiosks
+sidebarTitle: Crew & kiosks
+description: Give frontline workers PIN sign-in to your custom apps on shared store tablets
+type: how-to
+audience: admin
+tier: standard
+---
+
+**Crew** are your organization's frontline workers — the people who use a
+[custom app](/guide/build/sdk) on a shared tablet in a store, not at a desk.
+They don't need an email address or an Oxygen account: a worker signs in with
+their identifier and a PIN, and only on a tablet you've enrolled as a
+**kiosk**.
+
+Crew are managed by organization Owners and Admins from
+**Settings → Organization → Crew**.
+
+## Enroll a worker
+
+1. Open **Settings → Organization → Crew** and select **Enroll worker**.
+2. Enter their **Name**, an **Identifier** (an employee number or short
+   handle, unique within the organization), and a 4–8 digit **PIN**.
+3. Choose the **Apps** they can open.
+
+From a worker's row you can change their apps, record **where they work**
+(location, position, and who they report to), **Reset PIN…**, or **Suspend**
+them — a suspended worker can't sign in until you **Reinstate** them.
+
+## Enroll a kiosk
+
+A PIN only works on an enrolled kiosk, so a worker's PIN is useless on any
+other device.
+
+1. On the **Kiosks** tab, select **New kiosk**.
+2. Name it (for example, *Front counter*), and optionally choose the
+   **Location** it sits at and the app it **Opens** to.
+3. Set how long it waits before it **signs itself out** — 30 minutes by
+   default.
+4. Open the **Enroll link** on the tablet — copy it, or scan its QR code.
+
+If a link is lost, create a new one from the kiosk's row. **Revoke kiosk**
+stops the tablet from accepting sign-ins.
+
+## Signing in on a kiosk
+
+An enrolled kiosk's login page shows **Who's on shift?** instead of the normal
+sign-in. The worker enters their ID and PIN, and lands in the kiosk's app.
+Admins can still reach the normal sign-in from the kiosk with **Sign in as an
+admin**.
+
+When a custom app signs a worker out, the kiosk returns to **Who's on shift?**
+for the next person.
+
+## What crew can and can't do
+
+- Crew only see the apps you grant them. They are not organization members and
+  don't appear in **Settings → Organization → Members**.
+- Inside an app's functions, a crew member is identified by `ctx.user` with
+  `email: null`, and their **reach** — the locations they're assigned to —
+  decides what data the app shows them. See
+  [Oxygen Functions](/guide/build/sdk/functions).

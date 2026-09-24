@@ -24,7 +24,7 @@ tasks:
     tasks:
       - name: get_number_of_animals
         type: agent
-        agent_ref: default
+        agent_ref: analytics.agentic.yml
         prompt: |
           Get the number of {{ loop_through_animals.value }}s in the ocean.
 ```

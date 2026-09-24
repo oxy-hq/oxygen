@@ -59,7 +59,6 @@
             "group": "Data Infrastructure",
             "pages": [
               "build/data-infrastructure/index",
-              "build/data-infrastructure/airhouse",
               "build/data-infrastructure/airlayer",
               "build/data-infrastructure/airform"
             ]
@@ -155,8 +154,6 @@
                 "pages": [
                   "build/embed-extend/mcp",
                   "build/embed-extend/slack",
-                  "build/embed-extend/a2a",
-                  "build/embed-extend/v0",
                   "build/embed-extend/lovable",
                   "build/embed-extend/lovable-starter-prompt",
                   "build/embed-extend/oxy-proxy"
@@ -177,6 +174,7 @@
             "pages": [
               "manage/index",
               "manage/teams",
+              "manage/crew",
               "manage/permissions",
               "manage/secrets",
               "manage/api-keys",

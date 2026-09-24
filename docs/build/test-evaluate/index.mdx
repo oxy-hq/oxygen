@@ -4,223 +4,79 @@ type: tutorial
 audience: end-user
 tier: standard
 ---
-import RewriteBanner from "/snippets/rewrite-banner.mdx";
-
-<RewriteBanner />
-
 
 Now that you have an agent working, you need to write tests to ensure
 that the quality of your answers doesn't degrade as you add context or
 change the system instructions.
 
-Add tests inline in your `.agent.yml` file (the same place the agent
-lives):
+Tests live in a `.test.yml` file next to the agent. Name it after the agent —
+`sleep.agentic.test.yml` tests `sleep.agentic.yml` — and list the questions
+you care about along with the answer you expect:
 
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "how many nights did I get high quality sleep?"
+```yaml sleep.agentic.test.yml
+settings:
+  runs: 5
+
+cases:
+  - prompt: "How many nights did I get high quality sleep?"
+    expected: "23 nights"
+  - prompt: "How many hours do I sleep on average?"
+    expected: "About 7.2 hours per night"
+    tags: [critical]
+  - prompt: "What day do I typically get the most sleep?"
+    expected: "Sunday"
 ```
 
-You can add as many tests as you'd like, for as many prompts as you like. For example:
+You can add as many cases as you like. Each case runs `runs` times, and an LLM
+judge checks whether each answer is factually consistent with `expected`.
 
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "how many nights did I get high quality sleep?"
-  - type: consistency
-    n: 10
-    task_description: "how many hours do I sleep on average?"
-  - type: consistency
-    n: 10
-    task_description: "what day do I typically get the most sleep?"
-```
+<Note>
+Only `.agentic.yml` agents can be tested, and only from `.test.yml` files.
+Inline `tests:` blocks in `.agent.yml` or `.workflow.yml` files are no longer
+supported.
+</Note>
 
-Run the test from the **Tests** dashboard in the Oxygen IDE — open the
-agent file, click **Run tests**, and Oxygen executes each prompt the
-configured number of times and surfaces a final accuracy score plus
-any consistency errors the judge LLM finds.
+## Run your tests
 
-To automate the same run from CI, call the
-[Tests REST API](/guide/reference/rest-api).
+Open the **Tests** page in the Oxygen IDE to see every test file in the
+project, run them, and review past runs. Oxygen executes each case the
+configured number of times and reports the results for each case.
 
-<img height="300" class="rounded-md" src="../../images/test-run.png" />
-
-## Understanding Consistency Tests
-
-Since Oxygen is built for **data analysis**, consistency tests are optimized for numerical data and analytical insights. The evaluator intelligently handles common data analysis scenarios:
-
-### What Gets Ignored (Not Considered Errors)
-
-**Numerical Rounding (< 0.1% difference)**:
-
-- `$1,081,396` vs `$1,081,395.67` ✅ Consistent
-- `$1,065,619` vs `$1,065,618.90` ✅ Consistent
-- Different database precision settings
-- Rounding from visualization tools
-
-**Grammar & Style Variations**:
-
-- `"Revenue amounts to $1M"` vs `"Revenue amount to $1M"` ✅ Consistent
-- Different phrasing of the same insight
-- Synonym usage in descriptions
-
-**Formatting Differences**:
-
-- Date formats, number formatting, whitespace
-
-### What Actually Fails Tests
-
-**Material disagreements** like:
-
-- `$500,000` vs `$450,000` ❌ (10% difference)
-- `"Sales increased"` vs `"Sales decreased"` ❌ (contradictory)
-- Different conclusions or incompatible recommendations
-
-This approach ensures your tests focus on **factual correctness** while being practical about data analysis realities.
-
-<Info>
-  **See the default logic:** The built-in consistency evaluator uses a detailed
-  prompt optimized for data analysis. You can view the [full default
-  prompt](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L159)
-  to understand exactly how it evaluates consistency.
-</Info>
-
-## Customizing Evaluation Logic
-
-For specific use cases, you can customize how consistency is evaluated by providing a custom `prompt`:
-
-```yaml
-tests:
-  # Default behavior - uses built-in smart evaluator
-  - type: consistency
-    n: 10
-    task_description: "How many hours do I sleep on average?"
-
-  # Financial data - strict exact matching
-  - type: consistency
-    n: 10
-    task_description: "What is our Q4 revenue?"
-    prompt: |
-      Financial data requires exact precision.
-      Task: {{ task_description }}
-      Submission 1: {{ submission_1 }}
-      Submission 2: {{ submission_2 }}
-
-      CONSISTENT (A) only if numbers match exactly.
-      Answer A or B.
-
-  # Trend analysis - focus on direction, not exact numbers
-  - type: consistency
-    n: 10
-    task_description: "What's the sleep quality trend?"
-    prompt: |
-      Evaluate if these describe the same overall trend.
-      Ignore exact percentages, focus on direction.
-
-      Task: {{ task_description }}
-      Submission 1: {{ submission_1 }}
-      Submission 2: {{ submission_2 }}
-
-      Answer A (same trend) or B (different trends).
-```
-
-**When to customize:**
-
-- **Default prompt** (recommended): General data analysis, handles rounding intelligently
-- **Strict custom prompt**: Financial calculations, compliance reports requiring exact values
-- **Lenient custom prompt**: Trend analysis, qualitative insights, high-level summaries
-- **Modified default**: Start with the [default prompt source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L199) and adapt it for your domain
-
-**Example: Adapting the default prompt**
-
-You can copy the default CONSISTENCY_PROMPT and modify specific rules:
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "Calculate inventory costs"
-    # Custom prompt based on default but with stricter rounding rules
-    prompt: |
-      You are evaluating if two submissions are FACTUALLY CONSISTENT for inventory analysis.
-
-      **MANDATORY OVERRIDE RULES - READ THIS FIRST:**
-
-      If you see ANY of these, you MUST answer A immediately:
-      ✓ Rounding difference < $0.10 (stricter than default $1) → IMMEDIATELY Answer: A
-      ✓ One submission includes additional details the other lacks → IMMEDIATELY Answer: A
-      ✓ Grammar/style/formatting differences only → IMMEDIATELY Answer: A
-
-      [BEGIN DATA]
-      ************
-      [Question]: {{ task_description }}
-      ************
-      [Submission 1]: {{ submission_1 }}
-      ************
-      [Submission 2]: {{ submission_2 }}
-      ************
-      [END DATA]
-
-      ## EVALUATION RULES
-
-      ### ALWAYS CONSISTENT (Answer: A)
-
-      1. **Rounding differences < $0.10** (stricter for inventory)
-         * Any difference under 10 cents → A
-
-      2. **Additional Details**
-         * One submission has more context → A
-         * "Doesn't mention X" is NOT the same as "Contradicts X"
-
-      ### ONLY INCONSISTENT (Answer: B) when:
-      * Different item counts or SKUs
-      * Material numerical difference (> $1)
-      * Contradictory inventory status
-
-      Now evaluate. Answer A (consistent) or B (inconsistent).
-
-      Reasoning:
-```
-
-## Advanced Testing Options
-
-### CI/CD Integration
-
-For automated testing in CI/CD pipelines, use the JSON output format:
+To run the same tests from a terminal or CI, use the CLI:
 
 ```bash
-oxy test my-agent.agent.yml --format json
+# Every .test.yml file in the project
+oxy test
+
+# Just this agent's tests
+oxy test sleep.agentic.test.yml
 ```
 
-This outputs machine-readable JSON like `{"accuracy": 0.855}` that can be parsed by your CI tools.
+## What the judge ignores
 
-### Quality Gates
+Oxygen is built for data analysis, so the judge focuses on factual
+correctness and ignores differences that don't change the answer:
 
-Enforce minimum accuracy thresholds to prevent regressions:
+- **Rounding and precision** — `$1,081,396` vs `$1,081,395.67`
+- **Wording** — "Sales fell by 10%" vs "Sales decreased by 10%"
+- **Formatting** — date formats, number formatting, whitespace
+
+A run fails when its answer materially disagrees with `expected` — a different
+number, the opposite trend, or a different conclusion.
+
+## Quality gates in CI
+
+Fail the build when accuracy drops below a threshold:
 
 ```bash
-# Fail the build if accuracy drops below 80%
-oxy test my-agent.agent.yml --format json --min-accuracy 0.8
+oxy test --min-accuracy 0.8
 ```
 
-The command will exit with code 1 if the threshold isn't met, making it perfect for CI quality gates.
+The command exits with code 1 if the score is below the threshold. Add
+`--format json` for machine-readable output, or `--tag critical` to gate on a
+subset of cases.
 
-### Multiple Test Management
-
-If you have multiple tests in your agent file, control how thresholds are evaluated:
-
-```bash
-# Average mode: average of all tests must meet threshold (default)
-oxy test my-agent.agent.yml --min-accuracy 0.8 --threshold-mode average
-
-# All mode: every individual test must meet threshold
-oxy test my-agent.agent.yml --min-accuracy 0.8 --threshold-mode all
-```
-
-For complete documentation on testing features, see the [Testing Guide](/guide/build/test-evaluate/testing).
+For every field and flag, see the [Testing reference](/guide/build/test-evaluate/testing).
 
 At this point, you have a working agent as well as the ability to modify and
 test this agent. Congratulations!

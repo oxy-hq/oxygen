@@ -4,7 +4,8 @@ description: How to configure your `config.yml` file
 ---
 
 The `config.yml` file at the root of your repository is the configuration file
-you'll use to define three entities, specified as the following top-level keys:
+you'll use to define your project's connections and project-wide settings. The
+two keys most projects need are:
 
 1. `databases`: database connections
 2. `models`: foundation model connections
@@ -19,7 +20,6 @@ databases:
     dataset: dataset-name
   - name: local
     type: duckdb
-    key_path: None
     dataset: /path/to/local/files
 
 models:
@@ -33,6 +33,62 @@ models:
     api_url: http://localhost:11434/v1
     api_key: secret
 ```
+
+## Top-level keys
+
+| Key | Description |
+| --- | --- |
+| `databases` | Database connections. See [Databases](/guide/build/connect-data). |
+| `models` | LLM connections. See [OpenAI](/guide/build/connect-models/openai), [Anthropic](/guide/build/connect-models/anthropic), [Gemini](/guide/build/connect-models/gemini), and [Gateways](/guide/build/connect-models/gateways). |
+| `defaults` | Project defaults. `defaults.database` names the database used when a task or query doesn't specify one. |
+| `integrations` | External integrations such as [Looker](/guide/build/connect-data/looker). |
+| `timezone` | IANA timezone (e.g. `America/Los_Angeles`) used to resolve relative dates such as "yesterday" or "last week" in agent runs. Defaults to UTC. An agent's own `timezone:` overrides it. |
+| `builder_agent` | Model for the built-in builder agent, e.g. `builder_agent: { model: claude-sonnet-4-6 }`. |
+| `mcp` | Which files the [MCP server](/guide/build/embed-extend/mcp) exposes as tools. |
+| `health_check` | Opt-in scheduled health checks for the workspace. See [Health checks](#health-checks). |
+| `protected_branches`, `base_branch` | Git branch behavior in the IDE. See [Branches](/guide/manage/workspaces/branches). |
+| `repositories` | External repositories (dbt, LookML, …) to show in the IDE. Each entry has a `name` and either a local `path` or a `git_url` (with optional `branch`). |
+| `pre_aggregations` | Pre-aggregation settings for the semantic model: `schema` (default `AIRLAYER`), `database`, and `refresh_worker` (`enabled`, `heartbeat`, `renewal_threshold`). |
+
+A legacy top-level `slack:` block is ignored — Slack is connected per org from
+the web app. `admins:` is also ignored; platform owners are set with the
+`OXY_OWNER` environment variable.
+
+## Health checks
+
+Health checks are off until a workspace opts in by adding a `health_check:`
+block. Once on, Oxygen evaluates the workspace on a schedule and runs a cheap
+smoke test that checks every database connection with `SELECT 1`. Heavier
+probes are opt-in:
+
+```yaml
+health_check:
+  interval: 1h            # how often to evaluate (10m–24h, default 1h)
+  smoke_test:
+    interval: 6h          # how often to run probes (10m–7d, default 6h)
+    connections: true     # SELECT 1 against every database (default true)
+    semantic:             # one measure query per topic — true for every topic
+      - topic: orders
+        measures: [orders.total_revenue]
+    apps:                 # run every task of these apps — true for all apps
+      - app: apps/sales.app.yml
+        variables:
+          region: us-east
+    agents:               # ask an agent a fixed question; any answer passes
+      - agent_ref: agents/analytics.agentic.yml
+        prompt: How many orders did we get yesterday?
+    max_targets: 25       # cap per probe kind (default 25)
+```
+
+`health_check: {}` turns checks on with the defaults; `enabled: false` inside
+the block (or inside `smoke_test`) turns them off again.
+
+<Warning>
+The `semantic`, `apps`, and `agents` probes run real warehouse queries (and,
+for agents, LLM calls) on every smoke run. On bytes-billed warehouses a
+semantic probe over a large fact table is a recurring cost, and on Snowflake
+even the connection check resumes a suspended warehouse.
+</Warning>
 
 ## Environment Variables
 

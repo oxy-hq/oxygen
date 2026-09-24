@@ -9,7 +9,7 @@ The [World Model](/guide/build/world-model) isn't just a set of numbers — it's
 graph: metrics connected to the drivers that move them, the components they're
 built from, and (soon) the actions that change them. The `@oxy-hq/sdk`
 **World Model interface** exposes that graph to a
-[customer app](/guide/build/embed-extend/v0) so you can build experiences that
+[custom app](/guide/build/sdk) so you can build experiences that
 let people *navigate* their business, not just read a dashboard.
 
 <Note>
@@ -37,7 +37,7 @@ let the user pick a verb, get more nodes back, recurse.
 ## Get the interface
 
 A single hook — `useWorldModel` — returns the whole interface, scoped to the
-customer app's project. It must run inside an `OxyAppProvider`. Everything else
+custom app's project. It must run inside an `OxyAppProvider`. Everything else
 hangs off it: grab a **node** with `metric(id)` and the node speaks the verbs.
 
 ```tsx

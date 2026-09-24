@@ -104,6 +104,45 @@ so it's safe to render model output.
 <OxyAnswer answer={run.answer} state={run.state} artifacts={run.artifacts} />
 ```
 
+## Viewer identity and sign-out
+
+`@oxy-hq/sdk/shell` exposes who is viewing the app and a way to end their
+session:
+
+```tsx
+import { useOxyApp } from "@oxy-hq/sdk";
+import { signOut, useIdentity, useShellContext } from "@oxy-hq/sdk/shell";
+
+function Header() {
+  const me = useIdentity();
+  const { fetcher } = useOxyApp();
+  const { data } = useShellContext();
+  if (me.loading) return null;
+  return (
+    <header>
+      Hi, {me.name}
+      <button onClick={() => signOut(fetcher, data?.links?.login)}>Sign out</button>
+    </header>
+  );
+}
+```
+
+- **`useIdentity()`** returns `{ id, name, email, picture, kind, reach, loading }`.
+  `kind` is `"member"` or `"frontline"`; `email` is `null` for a frontline
+  worker. `reach` (`{ everywhere, via, locations }`) is for display only — a
+  greeting, a default store — never for authorization; gate on
+  `ctx.user.reach` inside a [function](/guide/build/sdk/functions).
+- **`signOut(fetcher, loginUrl?)`** ends the platform session and sends the
+  viewer to the login page with the app as the place to return to. It throws if
+  the server refuses, so the app never navigates away from a session that still
+  exists.
+
+Inside functions, `@oxy-hq/sdk/ops` turns `ctx.user.reach` into checks:
+`requireReach(ctx, locationId)` returns a `403` response (or `null` to proceed),
+`predicate(reach, column, params)` returns a SQL condition limiting rows to the
+caller's locations, and `isAdmin(ctx)` / `adminOnly(what)` gate app-admin
+actions.
+
 ## Errors
 
 `OxyApiError` is the structured `{ message, code? }` envelope the server returns.

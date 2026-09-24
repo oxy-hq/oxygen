@@ -20,7 +20,7 @@ frontend by `oxyc publish`.
 An Oxygen Function is a bundled TypeScript handler — **not** a YAML
 [Automation](/guide/build/automations) task or a Data App `task`. It runs with
 the app's project-level access, not the invoking visitor's — with one exception,
-[warehouse writes](#who-a-write-runs-as).
+[`ctx.warehouse` writes to a managed warehouse](#who-a-write-runs-as).
 </Note>
 
 ## Authoring a function
@@ -70,20 +70,71 @@ export default async function (req, ctx) {
 }
 ```
 
-- **`req`** is `{ body: string }` — the raw POST body. `Response` /
-  `Response.json(...)` are polyfilled by the runtime.
+- **`req`** is `{ method, headers, body }` — `body` is the raw request body as
+  a string, and header names are lower-case. A scheduled or Airway run sees
+  `POST` with no headers. `Response` / `Response.json(...)` are polyfilled by
+  the runtime.
 - **`ctx`** is the data plane:
-  - `ctx.query` / `ctx.queryStream` — read-only, row-capped SQL
+  - `ctx.query` / `ctx.queryStream` — read-only, row-capped SQL. `ctx.query`
+    resolves to `{ rows, truncated }`
   - `ctx.semantic.query` — a [semantic-model](/guide/build/semantic-model/simple-model) query
-  - `ctx.warehouse.{insert, exec, upsert}` — writes, allowlisted to project databases
+  - `ctx.warehouse.query(db, sql)` and `ctx.warehouse.{insert, exec, upsert}` — reads, and writes allowlisted by `destinations`
+  - `ctx.airhouse` — append the app's own facts (see [Where data goes](#where-data-goes))
+  - `ctx.oltp` — read and write the app's own records
+  - `ctx.storage` — the app's file storage
   - `ctx.airway.run` — kick off an ELT pipeline
   - `ctx.fetch` — outbound HTTP, SSRF-allowlisted, HTTPS-only, size/time-capped
-  - `ctx.env` — per-app secrets
+  - `ctx.env` — per-app secrets; `ctx.secrets.set` writes them back
+  - `ctx.email.send` — email the app's users
+  - `ctx.org.people()` — the org's people directory, read-only
+  - `ctx.crypto.{hmac, verifyHmac, timingSafeEqual}` — synchronous HMAC helpers (SHA-256 and hex by default)
   - `ctx.user`, `ctx.log`
+
+Capabilities that reach beyond the app's own reads are **off until the
+function's manifest entry declares them** — see [Capabilities](#capabilities).
+
+## Where data goes
+
+Pick the store by the shape of the data:
+
+| The data | Store | In a function | Declare |
+| --- | --- | --- | --- |
+| **Facts** — something happened and won't change: an order, a completed checklist | The workspace's Airhouse, in the schema `app_<slug>` | `ctx.airhouse.append(table, rows)`, `ctx.airhouse.query(sql)`, `ctx.airhouse.exec(sql)` | function: `"airhouse": { "enabled": true }`; app: `"airhouseMigrations": { "dir": "airhouse-migrations" }` |
+| **Records** the app edits — bookings, assignments, templates | The org's OLTP Postgres, in the schema `app_<slug>` | `ctx.oltp.query(sql, params)`, `ctx.oltp.exec(sql, params)`, `ctx.oltp.tx(async (tx) => …)` | function: `"oltp": { "enabled": true }`; app: `"migrations": { "dir": "migrations" }` |
+| **Files** — photos, PDFs, exports | The app's storage | `ctx.storage` | function: `"storage": { "read": true, "write": true }` |
+| **The customer's warehouse** — ClickHouse, Snowflake, BigQuery, their Postgres | Theirs | `ctx.query`, `ctx.warehouse.query(db, sql)` | read-only (see below) |
+
+`<slug>` is the app's slug with `-` replaced by `_` (`store-ops` →
+`app_store_ops`). The schema is always derived from the slug — a manifest can't
+name another app's schema. Tables are created by the SQL files in the declared
+migrations directory when the app is published. `ctx.airhouse` and `ctx.oltp`
+write **as the app**, whoever invoked the function, so a scheduled run writes
+the same way a click does.
+
+Airhouse tables take no primary keys, unique constraints, or indexes, so give
+every fact the id its source assigned plus a `recorded_at`, and record
+corrections as new facts rather than updates. For records, always use bound
+parameters (`$1`, `$2`), and put statements that must land together in one
+`ctx.oltp.tx`.
+
+```ts functions/complete-checklist.ts
+export default async function (req, ctx) {
+  const { runId, storeGuid } = JSON.parse(req.body);
+  await ctx.oltp.tx(async (tx) => {
+    await tx.exec("UPDATE checklist_runs SET status = 'done' WHERE id = $1", [runId]);
+    await tx.exec("DELETE FROM open_reminders WHERE run_id = $1", [runId]);
+  });
+  await ctx.airhouse.append("checklist_completions", [
+    { completion_id: runId, store_guid: storeGuid, completed_by: ctx.user.id, recorded_at: new Date().toISOString() },
+  ]);
+  return Response.json({ ok: true });
+}
+```
 
 ## Who a write runs as
 
-Reads always run with the app's project-level access. Writes to an
+Reads always run with the app's project-level access, and `ctx.airhouse` /
+`ctx.oltp` always write as the app. `ctx.warehouse` writes to an
 **Oxygen-managed warehouse** are the one place the *invoker* matters: the
 connection is opened with a short-lived credential whose role follows the
 workspace role of the person who called the function.
@@ -92,17 +143,57 @@ workspace role of the person who called the function.
 | --- | --- |
 | Workspace **Owner** or **Admin** | yes |
 | Workspace **Member** or **Viewer** | no — the same answer they'd get querying it directly |
-| A **scheduled** or **Airway-step** run (no human caller) | no |
+| A **scheduled**, **Airway-step**, or **webhook** run (no human caller) | no — use `ctx.airhouse` instead |
 
 A denied write surfaces as a permission error on the statement (`Reader role
 cannot execute Update statements`) while queries in the same function keep
 working — that combination means the *caller's* role, not a broken
 `destinations` allowlist.
 
+### Customer warehouses are read-only
+
 Databases you configure with your own credentials (BigQuery, Snowflake,
-ClickHouse, …) are unaffected — they always connect as the credentials in the
-project config — so a function that must write on a schedule should target one
-of those.
+ClickHouse, …) are **read-only** to functions. A write to one is refused unless
+the function lists the database in `destinations` **and** says why in
+`customerWarehouseWrites`:
+
+```json oxy-app.json
+"functions": {
+  "post-journal": {
+    "destinations": ["clickhouse"],
+    "customerWarehouseWrites": {
+      "clickhouse": "Journal entries stay beside the legacy ClickHouse facts until they move to Airhouse"
+    }
+  }
+}
+```
+
+Prefer moving the data instead: facts to `ctx.airhouse`, records to `ctx.oltp`.
+
+## Capabilities
+
+Each function's entry in `oxy-app.json` declares what it may do. Every
+capability is **fail-closed** — omit it and the call is rejected before any
+connection is opened.
+
+| Manifest key | Grants |
+| --- | --- |
+| `destinations: ["<db>", …]` | `ctx.warehouse` writes to those databases |
+| `customerWarehouseWrites: { "<db>": "<reason>" }` | Writes to a customer warehouse (also list it in `destinations`) |
+| `airhouse: { enabled: true }` | `ctx.airhouse` |
+| `oltp: { enabled: true }` | `ctx.oltp` (the org's OLTP store must be provisioned first) |
+| `storage: { read, write }` | `ctx.storage` reads and writes |
+| `secrets: { write: true }` | `ctx.secrets.set`, limited to the app's own secrets |
+| `email: { send: true }` | `ctx.email.send`. The sender is platform-controlled; a function may set `replyTo` but not `from` |
+| `org: { read: true }` | `ctx.org.people()` — names and roles, no contact details |
+
+Other per-function keys: `route`, `schedule` and `timezone`, `airwayStep`,
+`webhook` (see [Webhooks](#webhooks)), `timeoutSeconds`, `cache`, and
+`retries` — `{ maxAttempts, minTimeoutMs, maxTimeoutMs }` for scheduled and
+background runs (route calls are never retried).
+
+`oxyc publish` refuses a function that calls a `ctx` capability its manifest
+entry doesn't declare.
 
 ## Invocation modes
 
@@ -118,6 +209,33 @@ timeout (a ceiling; max 300s):
 The route endpoint (`POST /customer-apps/<org>/<slug>/fn/<name>`) is **POST-only**
 (405 otherwise), rate-limited per `(user, app, function)`, and every invocation
 is audited.
+
+## Webhooks
+
+A function can receive an unauthenticated POST from a third party — a payment
+provider, a delivery platform — by declaring a `webhook` block:
+
+```json oxy-app.json
+"functions": {
+  "orders-webhook": {
+    "route": false,
+    "webhook": {
+      "secretVar": "UBER_WEBHOOK_SECRET",
+      "signatureHeader": "x-uber-signature",
+      "encoding": "hex"
+    }
+  }
+}
+```
+
+The sender posts to `POST /api/webhooks/apps/<org>/<app>/<name>`. **Oxygen
+verifies every request** — an HMAC-SHA256 of the raw body, keyed by the app
+secret named in `secretVar`, compared in constant time against
+`signatureHeader` — before the function is queued, so your code never sees an
+unverified request. `secretVar` may hold several comma-separated keys, so a
+provider's key rotation doesn't drop events. A verified request is answered
+`202` immediately and the function runs in the background with no invoking
+user. Without a `webhook` block the endpoint answers `404`.
 
 ## Calling a route function from React
 

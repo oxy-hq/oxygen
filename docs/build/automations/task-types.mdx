@@ -1,6 +1,6 @@
 ---
 title: "Task types"
-description: "The task types an Automation can run — agent, execute_sql, formatter, and sub-automations"
+description: "The task types an Automation can run — agents, SQL and semantic queries, conditionals, HTTP requests, pipelines, and sub-automations"
 ---
 
 Every task declares a `type` that selects the tool it runs. This page covers the
@@ -13,10 +13,11 @@ Runs an [agent](/guide/build/agents) with a prompt.
 
 | Component          | Description                                                                                                                                                                       | Type                       |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| agent_ref          | The agent to use within the `agents` directory, referenced by the agent's `name`.                                                                                                 | required for `type: agent` |
+| agent_ref          | Path to the `.agentic.yml` agent to run, relative to the project root.                                                                                                            | required for `type: agent` |
 | prompt             | The input prompt passed to the agent for this task.                                                                                                                               | required for `type: agent` |
 | consistency_run    | Number of times to run the agent and select the most consistent output. Must be > 1 to enable.                                                                                    | optional (default: 1)      |
 | consistency_prompt | Custom evaluation prompt for consistency checking. Overrides Automation-level prompt. Supports Jinja templating with variables: `submission_1`, `submission_2`, `task_description`. | optional                   |
+| output.mode        | `answer` (default) returns the agent's natural-language answer. `sql` stops once the agent has produced SQL and returns the SQL text instead. See [SQL output mode](#sql-output-mode). | optional (default: `answer`) |
 
 ### Agent task consistency runs
 
@@ -33,13 +34,13 @@ consistency_prompt: |
 tasks:
   - name: calculate_revenue
     type: agent
-    agent_ref: default
+    agent_ref: analytics.agentic.yml
     prompt: "What was our total revenue last quarter?"
     consistency_run: 5 # Run 5 times and pick the most consistent result
 
   - name: analyze_trends
     type: agent
-    agent_ref: default
+    agent_ref: analytics.agentic.yml
     prompt: "What are the key sales trends?"
     consistency_run: 3
     # Task-level prompt overrides Automation-level prompt
@@ -60,7 +61,7 @@ This is particularly useful for:
 
 - **Automation-level**: Add `consistency_prompt` at the root to apply to all agent tasks
 - **Task-level**: Add `consistency_prompt` to a specific task to override the Automation prompt
-- **Default**: If not specified, uses the built-in evaluation prompt optimized for data analysis (view the [default prompt source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L199))
+- **Default**: If not specified, uses the built-in evaluation prompt optimized for data analysis (view the [default prompt source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs))
 
 **Available template variables:**
 
@@ -68,9 +69,37 @@ This is particularly useful for:
 - `{{ submission_2 }}` - Second output
 - `{{ task_description }}` - The task prompt
 
-**Note:** Custom prompts completely replace the default. To adapt the default for your domain, copy the [source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L199) and modify the specific rules you need.
+**Note:** Custom prompts completely replace the default. To adapt the default for your domain, copy the [source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs) and modify the specific rules you need.
 
-See the [Testing](/guide/build/test-evaluate/testing#consistency-runs-in-workflow-agent-tasks) documentation for more details on consistency checking.
+### SQL output mode
+
+Set `output.mode: sql` to use an agent as a SQL generator. The agent stops once
+it has SQL — skipping the natural-language answer — and the SQL text becomes the
+task's result. SQL compiled from the semantic model or matched from a verified
+query is returned without running it; SQL the agent wrote itself gets a
+`LIMIT 0` check first. Pair it with [`cache`](#caching-a-tasks-output) to save
+the SQL to a file and an `execute_sql` task to run it:
+
+```yaml
+tasks:
+  - name: query
+    type: agent
+    agent_ref: analytics.agentic.yml
+    prompt: Aggregate total weekly sales by month.
+    output:
+      mode: sql
+    cache:
+      enabled: true
+      path: results/cache/monthly_sales.sql
+
+  - name: run_query
+    type: execute_sql
+    database: local
+    sql_file: results/cache/monthly_sales.sql
+```
+
+Automations that the agent would otherwise delegate to can't be used in SQL
+mode.
 
 ## `type: execute_sql`
 
@@ -138,6 +167,138 @@ Automation task into a loop:
       variables:
         brand_rollup: "{{ loop_brands.value }}"
 ```
+
+## `type: semantic_query`
+
+Runs a query against your [semantic model](/guide/build/semantic-model/simple-model)
+— measures, dimensions, filters, and ordering by name, with the SQL compiled for
+you. See [Using the Semantic Model](/guide/build/semantic-model/use-in-agents#in-automations)
+for every property.
+
+```yaml
+- name: sales_metrics
+  type: semantic_query
+  topic: sales
+  dimensions:
+    - orders.order_status
+  measures:
+    - orders.total_revenue
+  limit: 10
+```
+
+Looker and Omni integrations add `looker_query` and `omni_query` task types —
+see [Looker](/guide/build/connect-data/looker#using-looker-in-automations).
+
+## `type: conditional`
+
+Runs a different set of tasks depending on earlier results. Each branch's `if`
+is a Jinja expression (without the surrounding braces) evaluated against the
+outputs of previous tasks; the first truthy branch runs. An expression that
+renders empty, `false`, `0`, or `none` is falsy.
+
+| Component  | Description                                                        | Type     |
+| ---------- | ------------------------------------------------------------------ | -------- |
+| conditions | List of branches, each with an `if` expression and its own `tasks` | required |
+| else       | Tasks to run when no branch matches                                | optional |
+
+```yaml
+- name: check_orders
+  type: execute_sql
+  database: local
+  sql_query: SELECT count(*) AS n FROM orders WHERE created_at > current_date - 1
+
+- name: alert_if_quiet
+  type: conditional
+  conditions:
+    - if: check_orders.n[0] == 0
+      tasks:
+        - name: explain
+          type: agent
+          agent_ref: analytics.agentic.yml
+          prompt: No orders came in yesterday. Check for upstream data issues.
+  else:
+    - name: summary
+      type: formatter
+      template: "{{ check_orders.n[0] }} orders yesterday."
+```
+
+## `type: http_request`
+
+Makes an outbound HTTP request — for example, to post results to another
+system's API. `url`, `headers`, `body`, and `form` values are Jinja templates
+rendered against earlier task outputs, and `{{ secrets.NAME }}` resolves any
+project [secret](/guide/manage/secrets) listed in `secrets`.
+
+| Component         | Description                                                                                      | Type                     |
+| ----------------- | ------------------------------------------------------------------------------------------------ | ------------------------ |
+| url               | Request URL                                                                                      | required                 |
+| method            | `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`                                                       | optional (default: `POST`) |
+| headers           | Request headers                                                                                  | optional                 |
+| body              | Raw request body. Mutually exclusive with `form`                                                 | optional                 |
+| form              | Form fields, sent as `application/x-www-form-urlencoded`                                         | optional                 |
+| secrets           | Names of project secrets to make available as `{{ secrets.NAME }}`                               | optional                 |
+| timeout_secs      | Request timeout, 1–120 seconds                                                                   | optional (default: 30)   |
+| expected_status   | Accepted status codes. When empty, any 2xx succeeds and anything else fails the task              | optional                 |
+| allow_hosts       | Hostnames the request may target. When empty, any public host is allowed                          | optional                 |
+| persist_to_secret | Write a field of the JSON response back to a project secret: `from` (a JSON pointer such as `/refresh_token`) and `name` (the secret) | optional |
+
+Requests to private, loopback, and link-local addresses are always blocked.
+
+```yaml
+- name: notify
+  type: http_request
+  url: https://api.example.com/v1/reports
+  method: POST
+  secrets: [EXAMPLE_API_KEY]
+  headers:
+    Authorization: "Bearer {{ secrets.EXAMPLE_API_KEY }}"
+    Content-Type: application/json
+  body: '{"text": "Weekly report is ready"}'
+  allow_hosts: [api.example.com]
+```
+
+## `type: airway`
+
+Runs an Airway ELT pipeline (`.airway.yml`) as a step. The step completes only
+once the pipeline's load has committed, so a following `execute_sql` task reads
+fully loaded tables.
+
+| Component | Description                                                         | Type     |
+| --------- | ------------------------------------------------------------------- | -------- |
+| pipeline  | Path to the `.airway.yml` pipeline, relative to the project root     | required |
+| resources | Subset of the pipeline's resources to run. Omit to run all of them  | optional |
+
+```yaml
+tasks:
+  - name: ingest
+    type: airway
+    pipeline: pipelines/restaurant_analytics.airway.yml
+    resources: [orders, order_checks]
+  - name: sales_rollup
+    type: execute_sql
+    database: warehouse
+    sql_file: rollups/sales_daily_metrics.sql
+```
+
+## Common task options
+
+Any task can also take:
+
+| Component | Description |
+| --------- | ----------- |
+| export    | Write the task's result to a file: `path` (relative to the project root; may use Jinja) and `format` (`csv` or `json` for tabular results; `sql` for `execute_sql` and `semantic_query`, which writes the executed SQL). |
+| cache     | File-backed cache: `path` (may use Jinja) and `enabled` (default `true`). The first run writes the task's result to `path`; later runs skip the task and use the file's contents instead. Edit the file to change what downstream tasks see; delete it to regenerate. |
+
+### Caching a task's output
+
+`cache` is useful for LLM-generated artifacts you want to review and pin — for
+example, SQL from an agent in [SQL output mode](#sql-output-mode). After the
+first run, edits you make to the cached file are used on every later run.
+
+<Note>
+The `visualize` task type has been retired. Automations that still use it fail
+with an "unknown task type" error — use an agent task instead.
+</Note>
 
 ## Next steps
 

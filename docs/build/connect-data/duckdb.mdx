@@ -3,16 +3,34 @@ title: DuckDB
 ---
 
 A `duckdb` database entry can be added by specifying `type: duckdb` in your
-[`~/.config/oxy/config.yml` file](/guide/reference/yaml/config). The `dataset`
-field should point to the directory where your data is stored. We run `SET
-file_search_path = '{}'` within duckdb against the path you provide before any
-query.
+project's [`config.yml`](/guide/reference/yaml/config). There are two ways to
+point it at your data.
 
-# Sample config entry
+## A directory of files
+
+Set `dataset` to the directory where your data files (CSV, Parquet, …) are
+stored. Oxygen runs `SET file_search_path = '<dataset>'` before every query, so
+you can query files by name.
 
 ```yaml
 databases:
   - name: local
     type: duckdb
-    dataset: /Users/robertyi/repos/oxykelihi/.db/
+    dataset: .db/
 ```
+
+Directory sources are read-only.
+
+## A DuckDB database file
+
+Set `path` to a `.db` file:
+
+```yaml
+databases:
+  - name: analytics
+    type: duckdb
+    path: data/analytics.db
+```
+
+Use a file database when you need to write to it — for example, as the output
+of [modeling](/guide/build/semantic-model/modeling).

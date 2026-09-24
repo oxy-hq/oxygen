@@ -92,25 +92,21 @@ The `type:` field must match the Oxygen database type for the mapped target (see
 
 **Not supported:** DuckDB directory sources (`file_search_path`), DuckLake, and Domo. DuckDB directory sources are read-only and cannot be used as a model output — use a DuckDB file database (`path: /path/to/file.db`) instead.
 
-## Using Models in Agents
+## Running Models
 
-Expose modeling operations to an agent via tool configuration in your `.agentic.yml`:
+Open **Modeling** in the IDE sidebar to see every discovered project, browse its
+models, and run operations against it:
 
-```yaml
-name: my_agent
-model: claude-3-5-sonnet-latest
-system_prompt: |
-  You help users transform and analyze data.
-tools:
-  - type: dbt_run
-    selector: "tag:daily"   # optional node selector
-  - type: dbt_compile
-    model: stg_orders        # optional; omit to compile all models
-```
+| Operation | Description |
+|---|---|
+| **Run** | Compile and execute models in topological order. Accepts a dbt node selector |
+| **Compile** | Resolve Jinja macros and `ref()`/`source()` calls to SQL without executing anything |
+| **Test** | Run schema and data tests |
+| **Seed** | Load CSV seed files |
+| **Analyze** | Infer column schemas and detect contract violations |
+| **Lineage** | Show the model DAG, and column-level lineage |
 
-### `dbt_run`
-
-Executes models against the configured database. Supports dbt node selectors:
+Run accepts dbt node selectors:
 
 | Selector | Description |
 |---|---|
@@ -119,34 +115,10 @@ Executes models against the configured database. Supports dbt node selectors:
 | `my_model+` | `my_model` and all its descendants |
 | `my_model` | Exactly `my_model` |
 
-### `dbt_compile`
-
-Resolves Jinja templates and `ref()`/`source()` calls to plain SQL without executing anything. Useful for previewing generated SQL before a run.
-
-## Available Operations
-
-| Operation | Description |
-|---|---|
-| **run** | Compile and execute models in topological order |
-| **compile** | Resolve Jinja macros and `ref()`/`source()` calls to SQL |
-| **test** | Run schema and data tests |
-| **seed** | Load CSV seed files |
-| **parse** | Validate the project manifest and dependency graph |
-| **analyze** | Infer column schemas and detect contract violations |
-| **lineage** | Return node and edge lists for the full DAG |
-| **column_lineage** | Return column-level data lineage |
-| **docs generate** | Write `manifest.json` to the project `target/` directory |
-| **format** | Uppercase SQL keywords across all model files |
-| **clean** | Remove `target/` and `dbt_packages/` directories |
-| **debug** | Health-check the project (profiles, compilation) |
-| **init** | Scaffold a new project under `modeling/` |
-
 ## Initialising a New Project
 
-```bash
-# Creates modeling/my_transforms/ with dbt_project.yml, profiles.yml, and README.md
-oxy airform init my_transforms
-```
+Create a folder under `modeling/` with a `dbt_project.yml` and `profiles.yml`
+(the Oxygen builder agent can scaffold these for you).
 
 Then add `oxy.yml` and a matching database entry in `config.yml`:
 
@@ -166,7 +138,7 @@ mappings:
 
 ## Troubleshooting
 
-**`oxy.yml` not found** — `oxy.yml` must be present next to `dbt_project.yml` when running models through Oxygen. Run `oxy airform debug` to confirm it is detected.
+**`oxy.yml` not found** — `oxy.yml` must be present next to `dbt_project.yml` when running models through Oxygen. If the project doesn't appear under **Modeling** in the IDE, check that both files are present.
 
 **Unmapped dbt target** — Every key under `outputs:` in `profiles.yml` must appear in `oxy.yml mappings`. The error message lists which targets are missing.
 

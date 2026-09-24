@@ -1,6 +1,6 @@
 ---
 title: "MCP Server"
-description: "Learn how to use the Model Context Protocol (MCP) server in Oxygen to expose your data agents, workflows, SQL files, and semantic topics to AI assistants like Claude."
+description: "Learn how to use the Model Context Protocol (MCP) server in Oxygen to expose your automations, SQL files, and semantic topics to AI assistants like Claude."
 ---
 import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
@@ -20,7 +20,7 @@ Oxygen supports two transport options for the MCP server:
 To run the MCP SSE server use the `oxy mcp sse` command:
 
 ```sh
-oxy mcp sse --port <port> --project-path <path>
+oxy mcp sse <project-path> --port <port>
 ```
 
 ### Stdio
@@ -49,63 +49,50 @@ Example configuration for Claude Desktop:
 
 ## Configuring Resource Exposure
 
-By default, Oxygen exposes all agents and workflows in your project as MCP tools. You can customize which resources are exposed by adding an `mcp` section to your `config.yml`:
+By default, Oxygen exposes all automations in your project as MCP tools. You can customize which resources are exposed by adding an `mcp` section to your `config.yml`:
 
 ```yaml
 mcp:
   tools:
     - semantics/topics/*.topic.yml
-    - agents/sql-generator.agentic.yml
-    - workflows/*.workflow.yml
+    - automations/*.automation.yml
     - data/*.sql
 ```
 
+**Supported resource types:** automations (`.automation.yml`, `.procedure.yml`), semantic topics (`.topic.yml`), and SQL files (`.sql`). Other files matched by a pattern are skipped.
+
 **Supported patterns:**
 
-- Direct file paths: `agents/my-agent.agentic.yml`
-- Glob patterns: `agents/*.agentic.yml`, `semantics/**/*.topic.yml`
+- Direct file paths: `automations/monthly-report.automation.yml`
+- Glob patterns: `automations/*.automation.yml`, `semantics/**/*.topic.yml`
 - Multiple resource types in a single configuration
 
 **Configuration behavior:**
 
 - When `mcp.tools` is defined: Only specified resources are exposed
-- When `mcp.tools` is omitted: All agents and workflows are exposed by default
+- When `mcp.tools` is omitted: All automations are exposed by default
 - Empty `mcp.tools` list: No tools are exposed
+
+<Note>
+Agents are not exposed over MCP. To make an agent's work available to an MCP
+client, wrap it in an automation with an `agent` task.
+</Note>
 
 ## Resource Types
 
-### Agents
+### Automations
 
-Agents are exposed as MCP tools that answer questions using context from your data.
+Automations are exposed as MCP tools that run the automation and return its results.
 
-**Tool naming:** `agent-{agent_name}`
+**Tool naming:** `workflow-{name}`, where `{name}` is the automation's file name up to the first dot (`monthly-report.automation.yml` becomes `workflow-monthly-report`)
 
 **Input schema:**
 
 ```json
 {
-  "question": "string (required)"
+  "variables": "object (optional) — values for the automation's variables"
 }
 ```
-
-**Example:**
-
-```json
-{
-  "name": "agent-sql-generator",
-  "arguments": {
-    "question": "Show me total revenue by product category"
-  }
-}
-```
-
-### Workflows
-
-Workflows are exposed as MCP tools with dynamic input schemas based on their variable definitions.
-
-**Tool naming:** `workflow-{workflow_name}`
-
-**Input schema:** Dynamically generated from workflow variables
 
 **Example:**
 
@@ -113,8 +100,10 @@ Workflows are exposed as MCP tools with dynamic input schemas based on their var
 {
   "name": "workflow-monthly-report",
   "arguments": {
-    "month": "2024-11",
-    "metric": "revenue"
+    "variables": {
+      "month": "2024-11",
+      "metric": "revenue"
+    }
   }
 }
 ```
@@ -172,7 +161,8 @@ Semantic topics from your semantic model can be exposed as structured query tool
 {
   "dimensions": ["string"],
   "measures": ["string"],
-  "filters": [{ "field": "string", "operator": "string", "value": "any" }],
+  "filters": [{ "field": "string", "op": "string", "value": "any" }],
+  "time_dimensions": [{ "dimension": "string", "granularity": "string" }],
   "limit": "number",
   "order_by": [{ "field": "string", "direction": "asc|desc" }],
   "variables": { "type": "object" }
@@ -190,7 +180,7 @@ Semantic topics from your semantic model can be exposed as structured query tool
     "filters": [
       {
         "field": "time.year",
-        "operator": "equals",
+        "op": "eq",
         "value": 2024
       }
     ],
@@ -209,9 +199,10 @@ Session filters enable row-level security and data filtering across all tool typ
 
 ```json
 {
-  "name": "agent-analytics",
+  "name": "semantic-team-performance",
   "arguments": {
-    "question": "Show my team's performance"
+    "measures": ["sales.total_revenue"],
+    "dimensions": ["sales.rep_name"]
   },
   "_meta": {
     "filters": {
@@ -272,7 +263,9 @@ Variables can be passed via `_meta` and are merged with tool arguments using a d
 {
   "name": "workflow-report",
   "arguments": {
-    "include_tax": false
+    "variables": {
+      "include_tax": false
+    }
   },
   "_meta": {
     "variables": {

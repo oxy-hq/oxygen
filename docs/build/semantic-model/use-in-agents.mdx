@@ -1,54 +1,21 @@
 ---
 title: "Using the Semantic Model"
-description: "How to use your semantic model in agents, workflows, and routing agents"
+description: "How to use your semantic model in agents and automations"
 ---
-import RewriteBanner from "/snippets/rewrite-banner.mdx";
-
-<RewriteBanner />
-
-
-## Building the Semantic Model
-
-Once you've defined your semantic model with views, entities, dimensions, and measures, you need to build it before use:
-
-```bash
-oxy build
-```
-
-This command validates and compiles your semantic model definitions, making them available to agents, workflows, and routing agents. Always run `oxy build` after creating or modifying semantic model files to ensure your changes are picked up.
 
 ## In Agents
 
-Add the `semantic_query` tool to your agent to enable it to query the semantic model directly. The agent can then answer business questions using your defined metrics and dimensions.
+Give an agent your semantic model by adding the view and topic files to the
+`context:` block of its `.agentic.yml` file. The agent then resolves questions
+against your defined measures and dimensions, and the semantic engine compiles
+the SQL — see [Context & affordances](/guide/build/agents/provide-context) for
+how each kind of context is used.
 
-### Basic Setup
-
-```yaml agents/analytics.agent.yml
-model: "openai-4o-mini"
-description: "Data analyst agent that can answer business questions"
-
-system_instructions: |
-  You are a data analyst expert. Your task is to help users answer 
-  questions based on data using the semantic model.
-
-  Use the semantic_query tool to query data. The tool gives you access
-  to pre-defined business metrics and dimensions.
-
-tools:
-  - name: semantic_query
-    type: semantic_query
-    topic: ecommerce_analytics # The topic to query
+```yaml analytics.agentic.yml
+context:
+  - ./semantics/**/*.view.yml
+  - ./semantics/**/*.topic.yml
 ```
-
-### Tool Configuration
-
-The `semantic_query` tool has the following properties:
-
-| Property | Type   | Required | Description                         |
-| -------- | ------ | -------- | ----------------------------------- |
-| `name`   | string | Yes      | Unique identifier for the tool      |
-| `type`   | string | Yes      | Must be `semantic_query`            |
-| `topic`  | string | Yes      | Name of the semantic topic to query |
 
 <Note>
   When querying a topic with **default_filters**, those filters are
@@ -68,35 +35,25 @@ Once configured, your agent can handle queries like:
 
 The agent will use the semantic model to understand available dimensions and measures, then construct appropriate queries.
 
-### Multiple Topics
+### Multiple Domains
 
-You can add multiple `semantic_query` tools for different topics:
+Glob patterns decide which parts of the semantic model an agent sees. Point
+one agent at everything, or give each agent only the topics for its domain:
 
-```yaml agents/multi_domain.agent.yml
-model: "openai-4o-mini"
-description: "Multi-domain analyst with access to various business areas"
-
-tools:
-  - name: sales_query
-    type: semantic_query
-    topic: sales
-
-  - name: marketing_query
-    type: semantic_query
-    topic: marketing
-
-  - name: finance_query
-    type: semantic_query
-    topic: finance
+```yaml sales.agentic.yml
+context:
+  - ./semantics/views/orders.view.yml
+  - ./semantics/views/customers.view.yml
+  - ./semantics/topics/sales.topic.yml
 ```
 
-## In Workflows
+## In Automations
 
-Use the `semantic_query` task type in workflows to execute structured queries against your semantic model. This is ideal for automated reporting, data pipelines, and scheduled analytics.
+Use the `semantic_query` task type in [automations](/guide/build/automations) to execute structured queries against your semantic model. This is ideal for automated reporting, data pipelines, and scheduled analytics.
 
-### Basic Workflow Task
+### Basic Automation Task
 
-```yaml workflows/sales_report.workflow.yml
+```yaml automations/sales_report.automation.yml
 name: weekly_sales_report
 description: Generate weekly sales performance report
 
@@ -118,7 +75,7 @@ tasks:
 
   - name: create_report
     type: agent
-    agent_ref: agents/report_generator.agent.yml
+    agent_ref: report_generator.agentic.yml
     prompt: |
       Create a weekly sales report based on this data:
       {{ sales_metrics }}
@@ -131,15 +88,18 @@ tasks:
 
 ### Semantic Query Task Properties
 
-| Property     | Type   | Required | Description                                       |
-| ------------ | ------ | -------- | ------------------------------------------------- |
-| `type`       | string | Yes      | Must be `semantic_query`                          |
-| `topic`      | string | Yes      | Name of the semantic topic to query               |
-| `dimensions` | array  | No       | List of dimensions to include (view.field format) |
-| `measures`   | array  | No       | List of measures to calculate (view.field format) |
-| `filters`    | array  | No       | Filters to apply to the query                     |
-| `orders`     | array  | No       | Sort order for results                            |
-| `limit`      | number | No       | Maximum number of rows to return                  |
+| Property          | Type   | Required | Description                                                         |
+| ----------------- | ------ | -------- | ------------------------------------------------------------------- |
+| `type`            | string | Yes      | Must be `semantic_query`                                            |
+| `topic`           | string | No       | Name of the semantic topic to query                                 |
+| `dimensions`      | array  | No       | List of dimensions to include (view.field format)                   |
+| `measures`        | array  | No       | List of measures to calculate (view.field format)                   |
+| `time_dimensions` | array  | No       | Time dimensions, each with a `dimension` and optional `granularity` (`year`, `quarter`, `month`, `week`, `day`, `hour`, `minute`, `second`) |
+| `filters`         | array  | No       | Filters to apply to the query                                       |
+| `orders`          | array  | No       | Sort order for results                                              |
+| `limit`           | number | No       | Maximum number of rows to return                                    |
+| `offset`          | number | No       | Number of rows to skip                                              |
+| `variables`       | object | No       | Values for variables used in the semantic model                     |
 
 ### Field Referencing
 
@@ -159,7 +119,16 @@ measures:
 
 ### Filtering Data
 
-Apply filters to narrow down your results. These filters are combined with any **default_filters** defined in the topic using AND logic:
+Apply filters to narrow down your results. Each filter names a `field` and an
+`op`:
+
+| `op`                                  | Takes                  |
+| ------------------------------------- | ---------------------- |
+| `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains` | `value`    |
+| `in`, `not_in`                        | `values` (a list)      |
+| `in_date_range`, `not_in_date_range`  | `from` and `to`        |
+
+These filters are combined with any **default_filters** defined in the topic using AND logic:
 
 ```yaml
 - name: high_value_orders
@@ -172,11 +141,11 @@ Apply filters to narrow down your results. These filters are combined with any *
     - orders.total_revenue
   filters:
     - field: orders.total_amount
-      operator: ">="
+      op: gte
       value: 1000
     - field: orders.order_status
-      operator: "="
-      value: "delivered"
+      op: in
+      values: ["delivered", "shipped"]
   orders:
     - field: orders.total_revenue
       direction: desc
@@ -203,7 +172,7 @@ orders:
 
 ### Advanced Example
 
-```yaml workflows/customer_analysis.workflow.yml
+```yaml automations/customer_analysis.automation.yml
 name: customer_segmentation_analysis
 description: Analyze customer segments and buying patterns
 
@@ -226,7 +195,7 @@ tasks:
       - orders.avg_order_value
     filters:
       - field: orders.total_orders
-        operator: ">="
+        op: gte
         value: "{{ min_orders }}"
     orders:
       - field: orders.total_revenue
@@ -248,7 +217,7 @@ tasks:
 
   - name: generate_insights
     type: agent
-    agent_ref: agents/analyst.agent.yml
+    agent_ref: analyst.agentic.yml
     prompt: |
       Analyze this customer data and provide strategic insights:
 
@@ -264,96 +233,18 @@ tasks:
       3. Recommendations for optimization
 ```
 
-## In Routing Agents
-
-Routing agents can include semantic topics as routes, enabling intelligent task routing based on semantic understanding.
-
-### Adding Topics to Routes
-
-```yaml agents/_routing.agent.yml
-model: "openai-4o-mini"
-type: routing
-description: "Main routing agent for data analysis"
-
-routes:
-  # Include specific topics
-  - "semantics/topics/ecommerce_analytics.topic.yml"
-  - "semantics/topics/sales.topic.yml"
-
-  # Or use glob patterns to include all topics
-  - "semantics/topics/*.topic.yml"
-
-  # Mix with other route types
-  - "agents/specialized_analyst.agent.yml"
-  - "workflows/*.workflow.yml"
-
-route_fallback: agents/default.agent.yml
-```
-
-### Complete Routing Example
-
-```yaml agents/_data_router.agent.yml
-model: "openai-4o-mini"
-type: routing
-description: "Intelligent data analysis router"
-
-system_instructions: |
-  You are a routing agent for data analysis tasks.
-
-  Route to semantic topics for:
-  - Metrics and KPI queries
-  - Standard business questions
-  - Data exploration requests
-
-  Route to specialized agents for:
-  - Complex analysis requiring custom logic
-  - Tasks needing multiple data sources
-
-  Route to workflows for:
-  - Automated reporting
-  - Multi-step processes
-
-routes:
-  # Semantic model topics
-  - "semantics/topics/sales.topic.yml"
-  - "semantics/topics/marketing.topic.yml"
-  - "semantics/topics/finance.topic.yml"
-  - "semantics/topics/operations.topic.yml"
-
-  # Specialized agents
-  - "agents/data_scientist.agent.yml"
-  - "agents/report_generator.agent.yml"
-
-  # Automated workflows
-  - "workflows/daily_reports.workflow.yml"
-  - "workflows/data_quality.workflow.yml"
-
-route_fallback: agents/general_assistant.agent.yml
-
-reasoning:
-  effort: low
-```
-
 ## Best Practices
 
 ### Agent Usage
 
-- Provide clear system instructions on when to use semantic queries
-- Include multiple topics for agents that span business domains
+- Scope each agent's `context:` to the views and topics its domain needs
 - Let the agent decide which dimensions and measures to use based on the question
 
-### Workflow Usage
+### Automation Usage
 
 - Use semantic queries for repeatable analysis patterns
 - Leverage variables for dynamic filtering
 - Chain semantic queries with agent tasks for insights generation
-
-### Routing Agent Usage
-
-- Include semantic topics alongside specialized agents and workflows
-- Use glob patterns to automatically include all topics
-- Provide clear routing instructions in system_instructions
-- Configure appropriate fallback routes
 
 ### Performance
 
@@ -382,8 +273,8 @@ reasoning:
   <Card title="Agents" icon="robot" href="/guide/build/agents">
     Learn more about agents
   </Card>
-  <Card title="Workflows" icon="sitemap" href="/guide/build/automations">
-    Learn more about workflows
+  <Card title="Automations" icon="sitemap" href="/guide/build/automations">
+    Learn more about automations
   </Card>
   <Card title="Overview" icon="book" href="/guide/build/semantic-model/simple-model">
     Back to semantic model overview

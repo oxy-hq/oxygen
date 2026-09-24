@@ -276,20 +276,21 @@ default_filters:
 
 ## Using Topics
 
-Topics are used in three main ways:
+Topics are used in two main ways:
 
 ### 1. In Agents
 
-```yaml agents/analytics.agentic.yml
-tools:
-  - name: semantic_query
-    type: semantic_query
-    topic: ecommerce_analytics
+Add topic files to the agent's `context:` block:
+
+```yaml analytics.agentic.yml
+context:
+  - ./semantics/**/*.view.yml
+  - ./semantics/topics/ecommerce_analytics.topic.yml
 ```
 
-### 2. In Workflows
+### 2. In Automations
 
-```yaml workflows/sales_report.workflow.yml
+```yaml automations/sales_report.automation.yml
 tasks:
   - name: sales_metrics
     type: semantic_query
@@ -298,15 +299,6 @@ tasks:
       - orders.order_date
     measures:
       - orders.total_revenue
-```
-
-### 3. In Routing Agents
-
-```yaml agents/_routing.agent.yml
-routes:
-  - "semantics/topics/sales.topic.yml"
-  - "semantics/topics/marketing.topic.yml"
-  - "semantics/topics/*.topic.yml" # Include all topics
 ```
 
 See [Using the Semantic Model](/guide/build/semantic-model/use-in-agents) for detailed examples.
@@ -326,7 +318,7 @@ See [Using the Semantic Model](/guide/build/semantic-model/use-in-agents) for de
     icon="rocket"
     href="/guide/build/semantic-model/use-in-agents"
   >
-    Use topics in agents and workflows
+    Use topics in agents and automations
   </Card>
   <Card title="Overview" icon="book" href="/guide/build/semantic-model/simple-model">
     Back to semantic model overview

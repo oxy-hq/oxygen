@@ -18,8 +18,10 @@ from one to the input of another — the output of each task is accessible with
 Jinja as `{{ name_of_task }}`.
 
 You build, run, and replay Automations from the Oxygen IDE. Each Automation is
-stored as an `.automation.yml` file (the older `.procedure.yml` extension is
-still recognized for back-compat).
+stored as an `.automation.yml` file. The older `.procedure.yml` and
+`.workflow.yml` extensions are still recognized; run
+`oxy migrate-automations` (add `--dry-run` to preview) to rename them and
+update every reference in your project.
 
 ## Automation components
 
@@ -43,11 +45,11 @@ tasks:
     sql_file: month_over_month_overall_performance.sql # A sql file to execute deterministically
   - name: month_over_month_metrics # An identifier for the task. Results can be referenced by jinja-wrapping this name
     type: agent
-    agent_ref: default # The agent .yml file to use for this task
+    agent_ref: analytics.agentic.yml # The .agentic.yml agent to use for this task
     prompt: Calculate month-over-month performance of views and clicks for the entire ad portfolio. # The prompt given to the agent
   - name: monthly_report
     type: agent
-    agent_ref: local
+    agent_ref: analytics.agentic.yml
     prompt: |
       Create a report using the provided data that looks as follows:
       The overall portfolio brought in X views and Y clicks in MM/YYYY, up A% and B%, respectively.
@@ -78,7 +80,7 @@ results around between different agents.
 
 <CardGroup cols={3}>
   <Card title="Task types" icon="diagram-subtask" href="/guide/build/automations/task-types">
-    `agent`, `execute_sql`, `formatter`, and sub-automations
+    `agent`, `execute_sql`, `semantic_query`, `conditional`, `http_request`, `airway`, and more
   </Card>
   <Card title="Loops" icon="repeat" href="/guide/build/automations/loops">
     Iterate over values with `loop_sequential`

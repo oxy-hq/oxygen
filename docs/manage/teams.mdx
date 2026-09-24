@@ -6,19 +6,36 @@ audience: admin
 tier: standard
 ---
 
-Oxygen workspaces have three roles:
+Everyone in your organization holds one of three roles:
 
-- **Owner** — full control of the workspace, including billing.
+- **Owner** — full control of the organization, including billing.
 - **Admin** — can invite members, change settings, and edit any project.
 - **Member** — can build agents, run Automations, and ask questions.
 
-Manage members from **Manage → Members**. Bulk invites are supported.
+Manage members from **Settings → Organization → Members**. Bulk invites are
+supported.
 
-Two rules protect the workspace: only an **Owner** can change another Owner or Admin,
-and a workspace always keeps at least one Owner (transfer ownership before removing
-the last one).
+Two rules protect the organization: only an **Owner** can change another Owner or
+Admin, and an organization always keeps at least one Owner (transfer ownership
+before removing the last one).
+
+## Workspace roles
+
+A member's organization role carries into every workspace. To give someone a
+different role in one workspace, change it in **Settings → Workspace →
+Members**. Workspace roles are **Owner**, **Admin**, **Member**, and
+**Viewer** — a Viewer can read but not change the workspace.
+
+## Teams and app access
+
+Admins can group members into **Teams** (**Settings → Organization → Teams**)
+and decide which [custom apps](/guide/build/sdk) each team can open from
+**Settings → Organization → App access**.
+
+Frontline workers who sign in on shared store tablets are managed separately —
+see [Crew & kiosks](/guide/manage/crew).
 
 For the full picture — including **partner roles**, where one organization manages
-another — see [Permissions](/manage/permissions).
+another — see [Permissions](/guide/manage/permissions).
 
 {/* TODO: Screenshot — members table. */}

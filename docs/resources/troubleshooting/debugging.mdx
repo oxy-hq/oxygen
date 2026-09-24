@@ -2,10 +2,6 @@
 title: Debugging & Logs
 sidebarTitle: Debugging
 ---
-import RewriteBanner from "/snippets/rewrite-banner.mdx";
-
-<RewriteBanner />
-
 
 ## Debugging Oxygen CLI & Viewing Logs
 
@@ -13,26 +9,37 @@ Oxygen provides detailed logs to help you debug issues and understand what is ha
 
 ### Enable Debug Logging
 
-To see more detailed logs, set the `RUST_LOG` environment variable to `debug` when running any Oxygen CLI command:
+By default the CLI logs warnings and errors only. For more detail, set
+`OXY_DEBUG=true` (a shortcut for `OXY_LOG_LEVEL=debug`) when running any Oxygen
+CLI command:
 
 ```bash
-RUST_LOG=debug oxy run path/to/agent.agentic.yml "How many users do we have?"
+OXY_DEBUG=true oxy run my_report.automation.yml
 ```
 
-You can use this with any Oxygen CLI command (e.g., `oxy run`, `oxy test`, `oxy build`, etc.).
+`OXY_LOG_LEVEL` accepts the usual levels (`error`, `warn`, `info`, `debug`,
+`trace`) and keeps noisy framework libraries quiet. For full control, set
+`RUST_LOG` instead — it takes a standard `tracing` filter and overrides both.
 
-### Where to Find Log Files
+### Where to Find Logs
 
-- **Most Oxygen CLI commands** (such as `oxy run`, `oxy test`, etc.) write logs to a file at:
+- **In your terminal** — every command, including `oxy serve` and `oxy start`,
+  writes logs to stderr, so program output on stdout stays pipeable.
+- **In a log file** — local runs also write to a daily log file,
+  `oxy.YYYY-MM-DD.log`, in the Oxygen state directory:
 
   ```
-  ~/.local/share/oxy/oxy.log
+  ~/.local/share/oxy/
   ```
 
-- **`oxy serve` command** logs directly to your terminal (stdout), so you can see logs in real time.
+  Set `OXY_STATE_DIR` to use a different directory. The last 7 daily files are
+  kept; older ones are deleted automatically.
+
+In containers on Kubernetes (or when `OXY_LOG_FORMAT=json` is set), Oxygen
+writes one JSON object per line to stderr for your log aggregator and skips the
+log file. Set `OXY_LOG_FORMAT=text` to force the human-readable format.
 
 ### Tips
 
 - If you encounter an error or unexpected behavior, check the log file above for details.
-- For persistent issues, always try running with `RUST_LOG=debug` to get more context.
-- You can safely delete the log file if it grows too large; a new one will be created automatically.
+- For persistent issues, run with `OXY_DEBUG=true` to get more context.

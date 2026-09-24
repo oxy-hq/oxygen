@@ -15,5 +15,23 @@ For the full, always-current list of endpoints — with request/response schemas
 and a try-it console — browse the **Swagger UI at `/apidoc`** on your Oxygen
 instance (for example `https://app.oxygen-hq.com/apidoc`).
 
+## Calling the API from a terminal
+
+The `oxyc` CLI (`npm install -g @oxy-hq/cli`, Node 20+) is a `gh api`-style
+client for the same API. It signs you in, discovers routes from the running
+server, and shows each endpoint's request and response shape:
+
+```bash
+oxyc login                                    # browser sign-in; stores a token
+oxyc routes threads                           # find an endpoint
+oxyc schema {workspace}/threads -X POST       # see the body it takes
+oxyc api {workspace}/threads --workspace <id> # call it
+```
+
+`oxyc` targets `https://app.oxygen-hq.com` by default; pass `--target <url>`
+for another deployment. For the `/external/api` surface it reads an API key
+from `OXY_API_KEY` (or the variable named by `--api-key-env`). Run
+`oxyc --help` for every command.
+
 {/* TODO: Generate per-domain pages from the OpenAPI spec (utoipa). Each
 page includes try-it widgets and curl/JS/Python tabs. */}

@@ -77,6 +77,7 @@ any subcommand. The commands you'll reach for most:
 | `oxy start` | Start Oxygen locally with PostgreSQL in Docker (recommended) |
 | `oxy serve` | Start the Oxygen web server (requires `OXY_DATABASE_URL`) |
 | `oxy build` | Build vector embeddings and sync integrations |
+| `oxy test` | Run agent tests defined in `.test.yml` files |
 | `oxy mcp stdio` | Start an MCP server so editors (Cursor, Claude Desktop) can use Oxygen as a tool |
 | `oxy self-update` | Update the CLI to the latest release |
 
@@ -137,8 +138,9 @@ oxy start --local --enterprise
 ```
 
 Use `oxy serve` instead if you're supplying your own database via
-`OXY_DATABASE_URL`, `oxy start --clean` for a fresh slate, and `oxy status` to
-check what's running.
+`OXY_DATABASE_URL`, `oxy start --clean` for a fresh slate, `oxy start --db-only`
+to bring up the database and exit without starting the server, and
+`oxy status` to check what's running.
 
 ### Expose Oxygen to your editor over MCP
 
@@ -146,7 +148,7 @@ Start an MCP server so MCP-compatible tools can query your project. This is the
 usual way to wire Oxygen into Cursor or Claude Desktop:
 
 ```bash
-oxy mcp stdio --project /path/to/your/project
+oxy mcp stdio /path/to/your/project
 ```
 
 See [MCP →](/guide/build/embed-extend/mcp) for editor configuration.

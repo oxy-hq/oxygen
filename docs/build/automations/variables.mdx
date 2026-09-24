@@ -23,7 +23,7 @@ Variables can be referenced within task fields using Jinja syntax:
 tasks:
   - name: analyze_brand
     type: agent
-    agent_ref: default
+    agent_ref: analytics.agentic.yml
     prompt: |
       Analyze performance for {{ brand }} on {{ date }}
 ```

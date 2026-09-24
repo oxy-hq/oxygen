@@ -3,575 +3,161 @@ title: Testing reference
 description: How tests are defined and run in Oxygen
 type: reference
 ---
-import RewriteBanner from "/snippets/rewrite-banner.mdx";
 
-<RewriteBanner />
+Tests live in their own `.test.yml` files. Each file points at one agent
+(its **target**), lists a set of **cases** — a prompt plus the answer you
+expect — and says how many times to run each one. An LLM judge scores every
+run against the expected answer.
 
+<Note>
+Only `.agentic.yml` agents can be tested. Inline `tests:` blocks in
+`.agent.yml` or `.workflow.yml` files are no longer supported — `.test.yml` is
+the only way to define tests.
+</Note>
 
-Tests are a core part of oxy. Tests can be written either as a part of
-`agents` or `workflows`.
+## Test file format
 
-## Test Types
+```yaml sales.agentic.test.yml
+target: sales.agentic.yml   # optional — inferred from the filename
 
-At present, we support a single type of test, `type: consistency`, which
-measures the consistency between two results. Within agents, this can be
-implemented as follows:
+settings:
+  concurrency: 5            # runs executed in parallel
+  runs: 3                   # times to run each case
+  judge_model: gpt-5-mini   # model that scores each run
 
-```yaml
-tests:
-  - type: consistency
-    n: 5 # number of runs to test
-    task_description: "how many users do we have?"
+cases:
+  - name: signups-last-month
+    prompt: "How many users signed up last month?"
+    expected: "1,247 new user signups"
+    tags: [users, critical]
+
+  - prompt: "Show me top 5 customers by lifetime value"
+    expected: |
+      A ranked list of 5 customers ordered by total spend,
+      including customer names and their LTV amounts.
+    tags: [customers]
 ```
 
-The `task_description` field is the question that you want to test the LLM's
-performance on (note: we don't call this `prompt` because we are nesting this
-`task_description` within a separate prompt that runs the evaluation, so
-`prompt` in this situation would be ambiguous). `n` indicates the number of
-times to run the agent to produce a response to the `task_description` request.
+### Top-level fields
 
-For workflows, `task_description` is not required, but instead a `task_ref`
-value should be provided, as shown below:
+| Field      | Type   | Default                | Description |
+| ---------- | ------ | ---------------------- | ----------- |
+| `target`   | string | inferred from filename | Path to the `.agentic.yml` agent under test. If omitted, `sales.agentic.test.yml` targets `sales.agentic.yml` in the same directory. |
+| `name`     | string | —                      | Optional display name for the test file. |
+| `settings` | object | see below              | Run settings. |
+| `cases`    | list   | required               | The test cases. |
 
-```yaml
-tests:
-  - type: consistency
-    task_ref: task_name
-    n: 5 # number of runs to test
-```
+### `settings`
 
-The `task_ref` field indicates the `task` name that is to be tested. No
-`task_description` is required because the given `prompt` will be used for
-evaluation.
+| Field         | Type    | Default | Description |
+| ------------- | ------- | ------- | ----------- |
+| `runs`        | integer | `3`     | Number of times each case is run. Consistency is measured as agreement across these runs. |
+| `concurrency` | integer | `5`     | How many runs execute in parallel. |
+| `judge_model` | string  | —       | Model used as the LLM judge. Prefer a different model family than the agent's to avoid self-preference bias. |
 
-### Consistency Runs in Workflow Agent Tasks
+### `cases`
 
-For agent tasks within workflows, you can enable consistency checking directly on the task by using the `consistency_run` field. This runs the agent multiple times and selects the most consistent output:
+| Field      | Type            | Default  | Description |
+| ---------- | --------------- | -------- | ----------- |
+| `prompt`   | string          | required | The question sent to the agent. |
+| `expected` | string          | required | The expected answer. The judge checks each run's answer for factual consistency with it. |
+| `name`     | string          | —        | Stable label for the case, used by `--case` and shown in progress output instead of the prompt. |
+| `tags`     | list of strings | `[]`     | Tags for filtering with `--tag`. |
+| `tool`     | string          | —        | Accepted by the schema, but tool-use assertions are not enforced yet — setting it has no effect on pass/fail. |
 
-```yaml
-# Workflow-level consistency prompt (optional, applies to all agent tasks)
-consistency_prompt: |
-  Evaluate if these outputs are factually consistent:
-  Submission 1: {{ submission_1 }}
-  Submission 2: {{ submission_2 }}
-  Task: {{ task_description }}
-  Answer A (consistent) or B (disagreement).
+## How evaluation works
 
-tasks:
-  - name: analyze_sales
-    type: agent
-    agent_ref: default
-    prompt: "Calculate total monthly sales"
-    consistency_run: 5 # Run the agent 5 times and pick the most consistent result
+For each case, Oxygen:
 
-  - name: calculate_revenue
-    type: agent
-    agent_ref: default
-    prompt: "What was our quarterly revenue?"
-    consistency_run: 3
-    # Task-level prompt overrides workflow-level prompt
-    consistency_prompt: |
-      Focus on numerical accuracy when comparing these revenue calculations.
-      {{ submission_1 }} vs {{ submission_2 }}
-      Answer A or B.
-```
+1. Runs the target agent `runs` times with the case's `prompt`
+2. Asks the judge model whether each answer is factually consistent with
+   `expected` — formatting and wording differences are ignored
+3. Records a pass rate per case, and whether all runs reached the same verdict
 
-This is useful when you want inline consistency checking as part of your workflow execution, rather than running separate tests.
+Across the file, the **score** is the overall pass rate over every case and
+run, and **consistency** is the fraction of cases whose runs all agreed.
 
-**Configuration Options for Agent Task Consistency:**
+## Running tests
 
-| Field                | Type    | Default    | Description                                                                                              |
-| -------------------- | ------- | ---------- | -------------------------------------------------------------------------------------------------------- |
-| `consistency_run`    | integer | 1          | Number of times to run the agent (must be > 1 to enable)                                                 |
-| `consistency_prompt` | string  | (built-in) | Custom evaluation prompt for consistency checking. Supports workflow-level and task-level configuration. |
-
-**Custom Evaluation Prompts:**
-
-You can fully customize how outputs are evaluated for consistency:
-
-- **Workflow-level**: Add `consistency_prompt` at the workflow root to apply to all agent tasks
-- **Task-level**: Add `consistency_prompt` to a specific task to override the workflow prompt
-- **Default**: If not specified, uses a built-in evaluation prompt optimized for data analysis
-
-**Available template variables:**
-
-- `{{ submission_1 }}` - First agent output
-- `{{ submission_2 }}` - Second agent output
-- `{{ task_description }}` - The task prompt being evaluated
-
-## How Consistency Testing Works
-
-Consistency tests evaluate whether your agent produces **factually consistent** results across multiple runs. Since Oxygen is primarily used for **data analysis** (not general factual Q&A), the consistency evaluator is optimized for numerical data and analytical insights.
-
-### The Evaluation Process
-
-When you run a consistency test with `n: 10`:
-
-1. **Generate N outputs**: Your agent runs 10 times with the same input
-2. **Pairwise comparison**: Outputs are compared in pairs (e.g., output 1 vs 2, 1 vs 3, etc.)
-3. **LLM evaluation**: An LLM judge evaluates if each pair is factually consistent
-4. **Consistency score**: Each output receives a score based on how many comparisons it passed
-5. **Best output selected**: The most consistent output is returned
-
-### What Consistency Testing Ignores
-
-For data analysis use cases, the evaluator intelligently ignores:
-
-#### 1. **Numerical Rounding & Precision** (< 0.1% difference)
-
-```yaml
-✅ CONSISTENT:
-  - "$1,081,396" vs "$1,081,395.67"     # Rounding difference
-  - "$1,065,619" vs "$1,065,618.90"     # 2 decimal places
-  - "42.67%" vs "42.7%"                  # Precision difference
-
-❌ DISAGREEMENT (material difference):
-  - "$500,000" vs "$450,000"             # 10% difference - actual disagreement
-```
-
-#### 2. **Grammar & Style Variations**
-
-```yaml
-✅ CONSISTENT:
-  - "Revenue amounts to $1M" vs "Revenue amount to $1M"    # Verb agreement
-  - "There are 42 users" vs "There're 42 users"            # Contractions
-  - "Sales decreased by 10%" vs "Sales fell by 10%"        # Synonyms
-
-❌ DISAGREEMENT (factual conflict):
-  - "Sales increased" vs "Sales decreased"                 # Opposite meanings
-```
-
-#### 3. **Formatting Differences**
-
-```yaml
-✅ CONSISTENT:
-  - "2024-01-15" vs "January 15, 2024"   # Date formats
-  - "1000" vs "1,000"                     # Number formatting
-  - Extra whitespace, line breaks, etc.
-```
-
-### Why This Matters for Data Analysis
-
-In data analysis workflows:
-
-- **SQL queries** may return slightly different precision depending on database settings
-- **Different phrasing** of the same insight is acceptable ("revenue increased" vs "revenue went up")
-- **Rounding** is common and expected (databases, visualization tools, reporting systems)
-- **Trends and insights** matter more than exact decimal places
-
-The consistency evaluator focuses on **factual correctness** while being lenient about these data analysis realities.
-
-## Configuring Consistency Tests
-
-### Basic Configuration
-
-The simplest consistency test uses the default evaluation prompt:
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "What is the total weekly sales for all stores?"
-```
-
-The default evaluator is optimized for data analysis and intelligently handles:
-
-- **Minor numerical differences** from rounding (e.g., $1,081,396 vs $1,081,395.67)
-- **Grammar and style variations** (e.g., "amounts to" vs "amount to")
-- **Formatting differences** (e.g., "1000" vs "1,000")
-
-<Info>
-  **Default Prompt Reference:** The built-in `CONSISTENCY_PROMPT` provides
-  detailed evaluation guidelines optimized for data analysis. View the [full
-  default prompt in the source
-  code](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L159)
-  to understand its logic or use it as a starting point for custom prompts.
-</Info>
-
-### Advanced Configuration with Custom Prompts
-
-For specific use cases, you can fully customize the evaluation logic by providing a custom `prompt`:
-
-```yaml
-tests:
-  # Default behavior - uses built-in evaluator
-  - type: consistency
-    n: 10
-    task_description: "How many customers do we have?"
-
-  # Custom prompt for strict financial validation
-  - type: consistency
-    n: 10
-    task_description: "What is our Q4 revenue?"
-    prompt: |
-      You are evaluating financial data where precision is critical.
-
-      Task: {{ task_description }}
-      Submission 1: {{ submission_1 }}
-      Submission 2: {{ submission_2 }}
-
-      These are CONSISTENT (answer A) only if:
-      - Numbers match exactly (no rounding tolerance)
-      - All amounts are identical
-
-      Answer A (consistent) or B (disagreement).
-
-  # Custom prompt for trend analysis (more lenient)
-  - type: consistency
-    n: 10
-    task_description: "What's the sales trend over time?"
-    prompt: |
-      Evaluate if these trend analyses convey the same directional insight.
-
-      Task: {{ task_description }}
-      Submission 1: {{ submission_1 }}
-      Submission 2: {{ submission_2 }}
-
-      Focus on:
-      - Same overall trend direction (up/down/stable)
-      - Similar magnitude of change
-      - Ignore exact percentages if directionally consistent
-
-      Answer A (consistent) or B (disagreement).
-```
-
-### Configuration Options
-
-| Field              | Type    | Default    | Description                                                                                                                                       |
-| ------------------ | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `n`                | integer | 10         | Number of times to run the test                                                                                                                   |
-| `task_description` | string  | required   | The question/query to test                                                                                                                        |
-| `prompt`           | string  | (built-in) | Custom evaluation prompt template. Must include `{{ submission_1 }}`, `{{ submission_2 }}`, `{{ task_description }}` variables and return A or B. |
-
-### When to Customize the Evaluation Prompt
-
-**Use default prompt** for general analysis (recommended):
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "Calculate monthly revenue"
-    # No prompt field - uses smart default evaluator
-```
-
-- General data analysis
-- Sales reporting, KPIs, dashboards
-- Most analytical queries
-- Handles minor numerical differences intelligently
-
-**Use custom prompt for strict validation:**
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "Calculate account balance"
-    prompt: |
-      Financial precision required. Numbers must match exactly.
-      {{ submission_1 }} vs {{ submission_2 }}
-      Answer A (exact match) or B (any difference).
-```
-
-- Financial calculations where precision matters
-- Critical metrics that must be exact
-- Compliance reporting
-- Zero-tolerance scenarios
-
-**Use custom prompt for qualitative analysis:**
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "Summarize customer sentiment"
-    prompt: |
-      Evaluate if these sentiment summaries convey the same overall assessment.
-      Ignore specific wording differences, focus on sentiment direction.
-      {{ submission_1 }} vs {{ submission_2 }}
-      Answer A or B.
-```
-
-- Trend analysis and directional insights
-- Sentiment or qualitative analysis
-- High-level summaries
-- Focus on meaning over exact wording
-
-**Adapt the default prompt for your domain:**
-
-You can view the [default CONSISTENCY_PROMPT source](https://github.com/oxy-hq/oxygen-internal/blob/main/crates/core/src/config/constants.rs#L52-L199), copy it, and modify the specific rules you need:
-
-```yaml
-tests:
-  - type: consistency
-    n: 10
-    task_description: "Calculate quarterly product margins"
-    # Based on default prompt but adapted for product margin analysis
-    prompt: |
-      You are evaluating if two submissions are FACTUALLY CONSISTENT for product margin analysis.
-
-      **MANDATORY OVERRIDE RULES - READ THIS FIRST:**
-
-      If you see ANY of these, you MUST answer A immediately:
-      ✓ Margin difference < 0.05% → IMMEDIATELY Answer: A
-      ✓ Rounding difference < $5 → IMMEDIATELY Answer: A
-      ✓ One submission includes additional product details → IMMEDIATELY Answer: A
-
-      [BEGIN DATA]
-      [Question]: {{ task_description }}
-      [Submission 1]: {{ submission_1 }}
-      [Submission 2]: {{ submission_2 }}
-      [END DATA]
-
-      ### ALWAYS CONSISTENT (Answer: A)
-      1. Small margin differences (< 0.05%)
-      2. Rounding < $5 for product costs
-      3. Additional context like SKU codes, product names, category info
-
-      ### ONLY INCONSISTENT (Answer: B) when:
-      * Different product identification (wrong SKU)
-      * Margin calculations differ by > 1%
-      * Contradictory profitability status
-
-      Reasoning:
-```
-
-This approach gives you full control while building on proven evaluation patterns.
-
-## Running Tests
-
-### Basic Usage
-
-These tests can be run by running either, for an agent:
+Run tests from the **Tests** page in the Oxygen IDE, which lists every test
+file in the project along with past runs, or from the CLI:
 
 ```sh
-oxy test agent-name.agent.yml
+# Run every .test.yml file in the project
+oxy test
+
+# Run one file
+oxy test sales.agentic.test.yml
+
+# Only cases tagged "critical"
+oxy test --tag critical
+
+# One case, by 0-based index, name, or exact prompt
+oxy test sales.agentic.test.yml --case signups-last-month
 ```
 
-Or, for a workflow:
+### Accuracy thresholds
+
+Use `--min-accuracy` to fail the command (exit code 1) when the score is below
+a threshold — useful as a CI quality gate:
 
 ```sh
-oxy test workflow-name.workflow.yml
+oxy test --min-accuracy 0.8
 ```
 
-### Output Formats
-
-The `oxy test` command supports two output formats for flexibility in different environments:
-
-#### Pretty Format (Default)
-
-The default format provides colored, human-readable output with detailed metrics:
+Each test file produces one score. When several files run,
+`--threshold-mode` controls how the threshold is applied: `average` (default)
+checks the average score across files; `all` requires every file's score to
+meet it.
 
 ```sh
-oxy test agent.yml
+oxy test --min-accuracy 0.8 --threshold-mode all
 ```
 
-**Output:**
+### Machine-readable output
 
-```
-✅Eval finished with metrics:
-Accuracy: 85.50%
-Recall: 72.30%
-```
-
-#### JSON Format (CI/CD)
-
-For continuous integration and automated pipelines, use the `--format json` flag to get machine-readable output:
+`--format json` prints the full results as JSON on stdout. `--output-json`
+also writes the JSON to a file next to the test file
+(`sales.agentic.test.results.json`, or `test-results.json` when running every
+file).
 
 ```sh
-oxy test agent.yml --format json
+oxy test sales.agentic.test.yml --format json --quiet
 ```
 
-**Output:**
-
-```json
-{ "accuracy": 0.855, "recall": 0.723 }
-```
-
-When running multiple tests in a single file, the JSON output contains arrays:
-
-```json
-{ "accuracy": [0.85, 0.92, 0.78] }
-```
-
-This format is ideal for:
-
-- CI/CD pipelines
-- Automated quality gates
-- Parsing with tools like `jq`
-
-### Accuracy Thresholds
-
-You can enforce minimum accuracy requirements using the `--min-accuracy` flag. This is useful for CI/CD pipelines to prevent regressions:
+## CLI reference
 
 ```sh
-oxy test agent.yml --format json --min-accuracy 0.8
+oxy test [FILE] [OPTIONS]
 ```
 
-This command will:
+- `FILE` — path to a `.test.yml` file. Omit it to run every `.test.yml` file in
+  the project.
 
-- Exit with code 0 if accuracy meets or exceeds 80%
-- Exit with code 1 if accuracy falls below 80%
-- Output results to stdout regardless of pass/fail
+| Flag                         | Short | Description | Default |
+| ---------------------------- | ----- | ----------- | ------- |
+| `--tag <tag>`                |       | Only run cases with this tag | — |
+| `--case <case>`              |       | Only run one case, by 0-based index, `name`, or exact prompt. Requires `FILE` | — |
+| `--format <format>`          |       | Output format: `pretty` or `json` | `pretty` |
+| `--output-json`              |       | Also write full JSON results to a file | `false` |
+| `--min-accuracy <threshold>` |       | Minimum score (0.0–1.0). Exit code 1 if below | — |
+| `--threshold-mode <mode>`    |       | `average` or `all` | `average` |
+| `--quiet`                    | `-q`  | Show only the results summary | `false` |
+| `--verbose`                  | `-v`  | Show agent steps, actual output, and judge reasoning | `false` |
 
-### Threshold Modes for Multiple Tests
-
-When your test file contains multiple tests, you can control how the threshold is evaluated:
-
-#### Average Mode (Default)
-
-Checks if the **average** of all test accuracies meets the threshold:
-
-```sh
-oxy test agent.yml --min-accuracy 0.8 --threshold-mode average
-```
-
-**Example:** Tests with accuracies `[0.85, 0.92, 0.78]` average to `0.85`, which passes the `0.8` threshold.
-
-#### All Mode
-
-Requires **every individual test** to meet the threshold:
-
-```sh
-oxy test agent.yml --min-accuracy 0.8 --threshold-mode all
-```
-
-**Example:** Tests with accuracies `[0.85, 0.92, 0.78]` would **fail** because Test 3 (`0.78`) is below the threshold.
-
-**Error output:**
-
-```
-2 test(s) below threshold 0.8000: Test 3: 0.7800
-```
-
-### Quiet Mode
-
-Suppress progress bars and detailed output during test execution:
-
-```sh
-oxy test agent.yml --quiet --format json
-```
-
-This is useful for:
-
-- Clean CI logs
-- Parsing output programmatically
-- Reducing noise in automated environments
-
-## CLI Reference
-
-### `oxy test` Command
-
-**Syntax:**
-
-```sh
-oxy test <file> [OPTIONS]
-```
-
-**Arguments:**
-
-- `<file>` - Path to the `.agent.yml` or `.workflow.yml` file to test (required)
-
-**Options:**
-
-| Flag                         | Short | Description                                                          | Default   |
-| ---------------------------- | ----- | -------------------------------------------------------------------- | --------- |
-| `--format <format>`          |       | Output format: `pretty` or `json`                                    | `pretty`  |
-| `--min-accuracy <threshold>` |       | Minimum accuracy threshold (0.0-1.0). Exit code 1 if below threshold | None      |
-| `--threshold-mode <mode>`    |       | Threshold evaluation mode: `average` or `all`                        | `average` |
-| `--quiet`                    | `-q`  | Suppress detailed output and show only results summary               | `false`   |
-
-## CI/CD Integration Examples
-
-### GitHub Actions
+## CI example
 
 ```yaml
-- name: Run Tests
-  run: |
-    oxy test agent.yml --format json --min-accuracy 0.8 > results.json
-
-- name: Extract Accuracy
-  run: |
-    ACCURACY=$(jq -r '.accuracy' results.json)
-    echo "Test accuracy: $ACCURACY"
+- name: Run agent tests
+  run: oxy test --min-accuracy 0.8 --quiet
 ```
 
-### Docker
+## Error handling
 
-```dockerfile
-RUN oxy test agent.yml --format json --quiet --min-accuracy 0.8
-```
-
-### Parsing JSON Output
-
-Extract specific metrics using `jq`:
-
-```sh
-# Get accuracy score
-oxy test agent.yml --format json | jq .accuracy
-
-# Get all metrics
-oxy test agent.yml --format json | jq .
-
-# Check if accuracy > 80%
-ACCURACY=$(oxy test agent.yml --format json | jq -r '.accuracy')
-if (( $(echo "$ACCURACY < 0.8" | bc -l) )); then
-  echo "Accuracy too low: $ACCURACY"
-  exit 1
-fi
-```
-
-## Best Practices
-
-1. **Multiple Tests**: Write multiple tests to cover different aspects of your agent's behavior
-2. **Threshold Mode**: Use `--threshold-mode all` for critical quality gates, `average` for overall performance monitoring
-3. **Version Control**: Commit your test files (`.agent.yml`, `.workflow.yml`) to track test definitions
-4. **CI Integration**: Always use `--format json` in CI pipelines for reliable parsing
-5. **Quiet Mode**: Combine `--quiet` with `--format json` in automated environments for clean logs
-
-## Error Handling
-
-- **Execution Errors**: If tests fail to run (e.g., connection issues), they are written to stderr and don't affect the JSON output on stdout
-- **Threshold Failures**: Only exit with code 1 when `--min-accuracy` is specified and the threshold isn't met
-- **Missing Metrics**: If no accuracy metrics are found but `--min-accuracy` is specified, a warning is displayed but the command succeeds (exit code 0)
-
-## Examples
-
-### Local Development
-
-```sh
-# Run tests with pretty output
-oxy test my-agent.agent.yml
-
-# Test with quiet mode for cleaner output
-oxy test my-agent.agent.yml --quiet
-```
-
-### CI/CD Pipeline
-
-```sh
-# Fail build if average accuracy < 85%
-oxy test my-agent.agent.yml \
-  --format json \
-  --min-accuracy 0.85 \
-  --threshold-mode average
-
-# Require all tests to pass 80% threshold
-oxy test my-agent.agent.yml \
-  --format json \
-  --min-accuracy 0.8 \
-  --threshold-mode all \
-  --quiet
-```
-
-### Monitoring
-
-```sh
-# Run tests and save results for tracking
-oxy test agent.yml --format json > results-$(date +%Y%m%d).json
-
-# Compare against baseline
-BASELINE=0.85
-CURRENT=$(oxy test agent.yml --format json | jq -r '.accuracy')
-echo "Current: $CURRENT, Baseline: $BASELINE"
-```
+- **Wrong file type** — `oxy test` rejects any file that doesn't end in
+  `.test.yml`, and any test whose target isn't an `.agentic.yml` agent.
+- **No tests found** — running `oxy test` with no file fails if the project has
+  no `.test.yml` files.
+- **Threshold failures** — the command exits with code 1 only when
+  `--min-accuracy` is set and not met. If no score was produced, it prints a
+  warning and exits 0.
