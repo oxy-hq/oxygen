@@ -34,6 +34,7 @@ credentials = [
     "dep:entity",
     "dep:sea-orm",
     "dep:sea-orm-migration",
+    "dep:oxy-migration-tolerance",
     "dep:async-trait",
     "dep:serde",
     "dep:tokio",
@@ -77,6 +78,7 @@ oxy-auth = { workspace = true, optional = true }
 entity = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
 sea-orm-migration = { workspace = true, optional = true }
+oxy-migration-tolerance = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true, features = ["json"] }
 thiserror = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }

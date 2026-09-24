@@ -29,6 +29,8 @@ impl MigratorTrait for AirwayMigrator {
     fn migration_table_name() -> sea_orm::DynIden {
         Alias::new("seaql_migrations_airway").into_iden()
     }
+
+    oxy_migration_tolerance::tolerate_schema_ahead!();
 }
 
 // ── Iden enums ───────────────────────────────────────────────────────────────

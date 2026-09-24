@@ -19,6 +19,7 @@ members = [
   "crates/metric-monitoring",
   "crates/integration/unifi",
   "crates/migration",
+  "crates/migration-tolerance",
   "crates/oxy-compile",
   "crates/integration/omni",
   "crates/observability",
@@ -101,6 +102,7 @@ oxy-llm = { path = "crates/infrastructure/llm/oxy-llm" }
 oxy-looker = { path = "crates/integration/looker" }
 oxy-slack-client = { path = "crates/integration/slack-client" }
 oxy-metric-monitoring = { path = "crates/metric-monitoring" }
+oxy-migration-tolerance = { path = "crates/migration-tolerance" }
 oxy-observability = { path = "crates/observability" }
 oxy-telemetry = { path = "crates/telemetry" }
 oxy-airform = { path = "crates/airform" }
@@ -162,6 +164,12 @@ sea-orm-migration = { version = "2.0.1", features = [
   "sqlx-postgres",
   "runtime-tokio-rustls",
   "with-uuid",
+  # Bumping this? `oxy-migration-tolerance` overrides the ledger read
+  # (`get_migration_models`) that `up()` reaches indirectly. Re-run
+  # `cargo nextest run -p oxy-migration-tolerance`: its seam test fails if the
+  # new version stopped routing through that read, and a second test fails if
+  # anything started using the read-only status family, which bypasses the
+  # override and cannot be overridden from outside the crate.
 ] }
 # Keep in lockstep with `sentry-core` below. The two must resolve to ONE crate
 # version: `oxy-app` binds a hub through `sentry`, `agentic-core` reads it back

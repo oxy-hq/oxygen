@@ -64,6 +64,7 @@ minijinja = { workspace = true }
 # Persistence
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+oxy-migration-tolerance = { workspace = true }
 # Cross-aggregate read of the workspaces row (budget column).
 # Loose-coupled — we only read/write `monthly_vlm_budget_micros`;
 # we do not own the workspaces lifecycle.

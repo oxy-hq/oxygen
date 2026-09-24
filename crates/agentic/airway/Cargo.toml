@@ -20,6 +20,9 @@ airway = { workspace = true }
 # `AirwayPgStateStore` impl of `airway::StateStore`.
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+# Leaf crate: sea-orm + sea-orm-migration + tracing only. Not a platform crate,
+# so this does not breach the "no platform deps" rule above.
+oxy-migration-tolerance = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 
 # Standard cohort

@@ -365,4 +365,6 @@ impl MigratorTrait for Migrator {
             Box::new(m20260922_000001_app_environments::Migration),
         ]
     }
+
+    oxy_migration_tolerance::tolerate_schema_ahead!();
 }

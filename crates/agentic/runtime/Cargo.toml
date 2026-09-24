@@ -12,6 +12,7 @@ authors.workspace = true
 agentic-core = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+oxy-migration-tolerance = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 chrono-tz = { workspace = true }

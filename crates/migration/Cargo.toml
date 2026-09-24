@@ -17,6 +17,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tokio = { workspace = true }
 sea-orm = { workspace = true }
+oxy-migration-tolerance = { workspace = true }
 oxy-shared = { workspace = true }
 uuid = { workspace = true }
 

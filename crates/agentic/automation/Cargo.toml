@@ -31,6 +31,7 @@ minijinja = { workspace = true }
 reqwest = { workspace = true, features = ["form"] }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+oxy-migration-tolerance = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_jcs = { workspace = true }
 serde_json = { workspace = true }

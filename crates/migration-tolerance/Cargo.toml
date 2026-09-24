@@ -1,0 +1,22 @@
+[package]
+name = "oxy-migration-tolerance"
+version.workspace = true
+authors.workspace = true
+description = "Lets a Sea-ORM migrator tolerate ledger rows written by a NEWER binary, so an image rollback is not blocked by its own bookkeeping."
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# Deliberately a LEAF crate: `sea-orm` + `sea-orm-migration` + `tracing` only.
+# All eight migrators depend on this, and they span the platform (`migration`,
+# `airhouse`, `oxy-cameras`) and agentic (`agentic-runtime`, `-analytics`,
+# `-automation`, `-airway`) stacks. Anything heavier here would create an edge
+# that `internal-docs/backend-architecture.md` forbids.
+[dependencies]
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

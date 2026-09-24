@@ -22,6 +22,7 @@ agentic-runtime = { workspace = true }
 agentic-semantic = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }
+oxy-migration-tolerance = { workspace = true }
 duckdb = { workspace = true, optional = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }

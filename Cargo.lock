@@ -210,6 +210,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "minijinja",
+ "oxy-migration-tolerance",
  "oxy-test-utils",
  "sea-orm",
  "sea-orm-migration",
@@ -244,6 +245,7 @@ dependencies = [
  "futures-core",
  "glob",
  "oxy-airlayer-compat",
+ "oxy-migration-tolerance",
  "oxy-shared",
  "reqwest 0.13.4",
  "rusqlite",
@@ -279,6 +281,7 @@ dependencies = [
  "omni",
  "oxy-airlayer-compat",
  "oxy-looker",
+ "oxy-migration-tolerance",
  "oxy-shared",
  "reqwest 0.13.4",
  "sea-orm",
@@ -466,6 +469,7 @@ dependencies = [
  "croner",
  "dashmap",
  "futures",
+ "oxy-migration-tolerance",
  "oxy-test-utils",
  "rustls 0.23.43",
  "sea-orm",
@@ -688,6 +692,7 @@ dependencies = [
  "chrono",
  "entity",
  "oxy-auth",
+ "oxy-migration-tolerance",
  "oxy-platform",
  "oxy-shared",
  "rand 0.10.2",
@@ -7912,6 +7917,7 @@ version = "0.5.152"
 dependencies = [
  "async-std",
  "clap",
+ "oxy-migration-tolerance",
  "oxy-shared",
  "sea-orm",
  "sea-orm-migration",
@@ -9587,6 +9593,7 @@ dependencies = [
  "migration",
  "minijinja",
  "oxy-auth",
+ "oxy-migration-tolerance",
  "oxy-platform",
  "oxy-shared",
  "oxy-slack-client",
@@ -9710,6 +9717,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-migration-tolerance"
+version = "0.5.152"
+dependencies = [
+ "sea-orm",
+ "sea-orm-migration",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "oxy-observability"
 version = "0.5.152"
 dependencies = [
@@ -9736,6 +9753,7 @@ dependencies = [
  "chrono",
  "entity",
  "oxy-auth",
+ "oxy-migration-tolerance",
  "oxy-platform",
  "oxy-shared",
  "reqwest 0.13.4",
