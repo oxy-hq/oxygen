@@ -636,11 +636,16 @@ function buildProgram(): Command {
       .option("--app <org/app>", "the app to publish (default: this directory's oxy-app.json)")
       .option("--environment <name>", "GitHub environment the publish job runs in", "oxy-publish")
       .option("--force", "overwrite an existing workflow")
+      .option(
+        "--promote",
+        "publish straight to the live channel, and verify it with the app's checks"
+      )
   ).action((opts: Record<string, unknown>) => {
     runInitCi(createContext(globals(opts)), {
       app: opts.app as string | undefined,
       environment: opts.environment as string | undefined,
-      force: opts.force as boolean | undefined
+      force: opts.force as boolean | undefined,
+      promote: opts.promote as boolean | undefined
     });
   });
 

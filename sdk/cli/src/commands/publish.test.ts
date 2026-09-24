@@ -31,6 +31,8 @@ interface Received {
 let server: Server;
 let target: string;
 let received: Received[] = [];
+/** Stand in for a deployment predating `app_id` on the exchange response. */
+let noAppId = false;
 /** What the fake answers the upload with. */
 let uploadStatus = 200;
 /** What the fake answers the project's database list with. */
@@ -72,7 +74,16 @@ beforeAll(async () => {
     if (path === "/api/customer-apps/publish/oidc-exchange") {
       record.exchangeBody = raw.toString();
       return req.headers.authorization === "Bearer gh-jwt"
-        ? reply(200, { token: "minted", expires_at: "later" })
+        ? reply(
+            200,
+            noAppId
+              ? { token: "minted", expires_at: "later" }
+              : {
+                  token: "minted",
+                  expires_at: "later",
+                  app_id: "0b0e5a10-1111-4222-8333-944455556666"
+                }
+          )
         : reply(401, { error: "invalid OIDC token" });
     }
     if (path === "/api/customer-apps/publish") {
@@ -114,6 +125,7 @@ let work: string;
 beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), "oxyc-publish-"));
   received = [];
+  noAppId = false;
   uploadStatus = 200;
   databasesStatus = 200;
 });
@@ -309,6 +321,20 @@ describe("oxyc publish", () => {
       expect(result.status, result.stderr).toBe(0);
       const exchange = received.find((r) => r.path.endsWith("/oidc-exchange"));
       expect(JSON.parse(exchange?.exchangeBody ?? "{}")).toEqual({ app: "acme/sales" });
+      expect(uploads()[0]?.authorization).toBe("Bearer minted");
+    });
+
+    /**
+     * `publish` never reads the exchange's `app_id` — only `checks run` does —
+     * so a deployment predating that field must still publish. The field was
+     * briefly required here, which would have failed the load-bearing path over
+     * something it does not use.
+     */
+    it("publishes against a deployment whose exchange returns no app_id", async () => {
+      noAppId = true;
+      const dir = app();
+      const result = await publish(dir, ["--dir", "out"], oidcEnv());
+      expect(result.status, result.stderr).toBe(0);
       expect(uploads()[0]?.authorization).toBe("Bearer minted");
     });
 

@@ -270,7 +270,7 @@ async function uploadToken(
     );
   }
   log.info("exchanging the GitHub OIDC token for a publish credential");
-  return exchangeGithubOidc(ctx.target(), identity.org, identity.app);
+  return (await exchangeGithubOidc(ctx.target(), identity.org, identity.app)).token;
 }
 
 function printResult(

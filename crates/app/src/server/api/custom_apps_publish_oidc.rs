@@ -328,6 +328,10 @@ pub struct ExchangeResponse {
     /// the normal publish call. Returned once, never stored in plaintext.
     pub token: String,
     pub expires_at: String,
+    /// The app the token is scoped to. Returned so a CI job never has to look
+    /// one up: the run routes are keyed by app id, and the app-listing route a
+    /// slug→id lookup would use is not something a publish token may reach.
+    pub app_id: Uuid,
 }
 
 fn bad(status: StatusCode, msg: &str) -> (StatusCode, String) {
@@ -463,6 +467,7 @@ async fn mint_app_scoped_token(
     Ok(ExchangeResponse {
         token: generated.plaintext,
         expires_at: expires_at.to_rfc3339(),
+        app_id,
     })
 }
 

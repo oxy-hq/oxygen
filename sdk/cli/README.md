@@ -273,7 +273,9 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
 **`init-ci`** writes `.github/workflows/oxy-publish.yml` at the repo root: a
 `build` job (no id-token) that runs `publish --build-only`, and an
 environment-gated `publish` job whose only work is `publish --prebuilt` with
-OIDC. It prints the `oxyc api …/publishers` call that registers the workflow.
+OIDC. `--promote` makes that publish go live and adds a `checks run` step after
+it, when the manifest declares a check. It prints the `oxyc api …/publishers`
+call that registers the workflow.
 
 ## Checks
 
@@ -302,11 +304,47 @@ difference: `checks run` talks to `/api/admin/**`, which is not the
 `X-API-Key` only when **no bearer resolves** — never both. A bearer from
 `oxyc login` (or `--token-env`) always wins when one is present.
 
+**In CI, nothing is stored.** With neither a token nor an API key set, a job
+holding `id-token: write` exchanges its GitHub OIDC token for the same
+short-lived, app-scoped publish credential `oxyc publish` uses, and drives
+`/api/customer-apps/**` instead — the same three handlers, mounted where a
+publish token may reach them. The exchange returns the app id, so no lookup is
+needed, and `<app>` must be `<org-slug>/<app-slug>` in this mode (a UUID names
+an app the exchange cannot verify a publisher for). A publish token set in
+`OXY_TOKEN` takes the same surface without minting.
+
+What that credential may do is deliberately small, and enforced server-side
+rather than by the client. An app-scoped token is **confined to its app**: it
+reaches `/customer-apps/{its own id}/…` and the upload, and answers `404` for
+everything else on that surface — another app's id, the registry listing, and
+the fleet-wide rollups. That is the same answer an out-of-scope App Operator
+gets, so it cannot learn which apps exist. Within its app it may publish, read,
+and run a function **the manifest marks `"check": true`**; a function without
+the flag is `403`. The
+argument for allowing the run at all is narrow: a token that may publish
+arbitrary code to an app can already cause anything that app can, so running
+that app's own declared checks adds nothing. It would stop being true the moment
+it admitted any function.
+
+**A check runs against the app's live build** — the server resolves
+`published_build_id`, else `draft_build_id`, for the pre-flight lookup and for
+the execution alike. So `checks run` after a plain `oxyc publish` verifies the
+*previously promoted* code, not the draft just uploaded. `oxyc init-ci` writes
+the step only with `--promote`, where the build just published is the one the
+check runs, and only when the manifest declares a check.
+
+With a publish token, `<app>` must be the **UUID** — resolving a slug means
+listing every app, which such a token may not do. The OIDC path needs no id at
+all (the exchange returns it) but does need `<org-slug>/<app-slug>`, since the
+exchange is registered by slug.
+
 **Exit codes:** `0` every check passed; `9` (`CHECK_FAILED`) at least one check
 failed or timed out; `1` the app declares no checks; `5` the app was not
 found; `4` no credential resolved, or the API rejected it (401/403 — an
 expired 90-day API key reads this way, not as a missing one); `2` a bad
-`--timeout` (not a positive number of seconds).
+`--timeout`, or a slug where the credential needs a UUID; `7` (`UNAVAILABLE`)
+the deployment answered the OIDC exchange without an `app_id`, meaning it
+predates trusted checks.
 
 ## Development commands
 

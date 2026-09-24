@@ -21,6 +21,12 @@ export interface FunctionSpec {
    */
   customerWarehouseWrites?: Record<string, string>;
   secrets?: { write?: boolean };
+  /**
+   * A function a release gate may run to verify what it just shipped.
+   * `oxyc checks run` runs exactly these, and it is the only function a
+   * machine credential is allowed to trigger.
+   */
+  check?: boolean;
 }
 
 export interface PublishManifest {

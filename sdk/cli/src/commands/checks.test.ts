@@ -98,6 +98,7 @@ describe("runChecks", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("resolves an org/slug across pages of GET /api/admin/apps", async () => {
@@ -133,6 +134,117 @@ describe("runChecks", () => {
       `${TARGET}/api/admin/apps?limit=100&offset=0`,
       `${TARGET}/api/admin/apps?limit=100&offset=100`
     ]);
+  });
+
+  it("mints a credential in CI and drives the machine surface", async () => {
+    // No stored token and no API key: a job holding `id-token: write` exchanges
+    // for the same short-lived app-scoped token `oxyc publish` uses, and then
+    // talks to `/api/customer-apps/…` — the surface that token may reach. The
+    // app-listing route is NOT reachable with it, so the app id has to come
+    // from the exchange; if it did not, every call below would 404 on the stub.
+    let runs = 0;
+    stubFetch(
+      {
+        "GET /__gh/token?audience=oxy-publish": () => ({
+          status: 200,
+          body: { value: "gh-jwt" }
+        }),
+        "POST /api/customer-apps/publish/oidc-exchange": () => ({
+          status: 200,
+          body: { token: "oxypublish_minted", expires_at: "later", app_id: APP_ID }
+        }),
+        [`GET /api/customer-apps/${APP_ID}/functions`]: () => ({
+          status: 200,
+          body: [{ name: "canary", check: true }]
+        }),
+        [`POST /api/customer-apps/${APP_ID}/functions/canary/runs`]: () => {
+          runs += 1;
+          return { status: 200, body: { run_id: "run-1" } };
+        },
+        [`GET /api/customer-apps/${APP_ID}/function-runs/run-1`]: () => ({
+          status: 200,
+          body: { run_id: "run-1", status: "done", trigger: "manual", answer: null, error: null }
+        })
+      },
+      calls
+    );
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_URL", `${TARGET}/__gh/token`);
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "gh-request-token");
+
+    await runChecks(fakeContext(), "oxy-canary/platform-canary", {
+      json: false,
+      timeoutSeconds: 5,
+      pollMs: 0
+    });
+
+    expect(runs).toBe(1);
+    expect(calls.some((c) => c.url.includes("/api/admin/"))).toBe(false);
+    const run = calls.find((c) => c.method === "POST" && c.url.includes("/runs"));
+    expect(run?.headers.authorization).toBe("Bearer oxypublish_minted");
+  });
+
+  it("uses the machine surface for a publish token handed in directly", async () => {
+    // Same token, minted elsewhere (a long-lived CI publish token). It is the
+    // credential that picks the surface, not the environment: the admin routes
+    // refuse it, so sending it there would 403 on a path the user cannot fix.
+    stubFetch(
+      {
+        [`GET /api/customer-apps/${APP_ID}/functions`]: () => ({ status: 200, body: [] })
+      },
+      calls
+    );
+
+    await expect(
+      runChecks(fakeContext({ bearer: "oxypublish_stored" }), APP_ID, {
+        json: false,
+        timeoutSeconds: 5,
+        pollMs: 0
+      })
+    ).rejects.toThrow(/declares no checks/);
+    expect(calls.every((c) => c.url.includes("/api/customer-apps/"))).toBe(true);
+  });
+
+  it("names the version skew when the exchange returns no app_id", async () => {
+    // The other half of the same decision: `publish` must not fail over a field
+    // it never reads, so the check lives here, where the id is actually needed.
+    stubFetch(
+      {
+        "GET /__gh/token?audience=oxy-publish": () => ({ status: 200, body: { value: "gh-jwt" } }),
+        "POST /api/customer-apps/publish/oidc-exchange": () => ({
+          status: 200,
+          body: { token: "oxypublish_minted", expires_at: "later" }
+        })
+      },
+      calls
+    );
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_URL", `${TARGET}/__gh/token`);
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "gh-request-token");
+
+    await expect(
+      runChecks(fakeContext(), "oxy-canary/platform-canary", {
+        json: false,
+        timeoutSeconds: 5,
+        pollMs: 0
+      })
+    ).rejects.toThrow(/returned no app_id/);
+    // It stopped at the exchange — no doomed request to a route it cannot reach.
+    expect(calls.filter((c) => c.url.includes("/functions"))).toHaveLength(0);
+  });
+
+  it("refuses a slug when the credential cannot resolve one", async () => {
+    // `resolveApp` pages `/api/admin/apps`, which a publish token may not
+    // reach — the request would 403 on a route the caller cannot be given, so
+    // it is never sent. No route stub: any request at all fails this test.
+    stubFetch({}, calls);
+
+    await expect(
+      runChecks(fakeContext({ bearer: "oxypublish_stored" }), "oxy-canary/platform-canary", {
+        json: false,
+        timeoutSeconds: 5,
+        pollMs: 0
+      })
+    ).rejects.toThrow(/cannot resolve <org>\/<app>/);
+    expect(calls).toHaveLength(0);
   });
 
   it("runs only check:true functions, in name order", async () => {

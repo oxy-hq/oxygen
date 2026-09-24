@@ -141,12 +141,25 @@ export const OIDC_AUDIENCE = "oxy-publish";
  * publisher registered for the app — repository owner id, repo, workflow path,
  * environment — so a 403 here almost always means a registration mismatch.
  */
+export interface ExchangedCredential {
+  /** The short-lived, app-scoped publish token. */
+  token: string;
+  /**
+   * The app it is scoped to, so a caller never looks one up — absent on a
+   * deployment predating trusted checks. Optional on purpose: publishing does
+   * not need it, and a `publish` that refused to run because a field it never
+   * reads was missing would be a new failure on the load-bearing path. The
+   * caller that needs it says so.
+   */
+  appId?: string;
+}
+
 export async function exchangeGithubOidc(
   target: string,
   orgSlug: string,
   app: string,
   env: NodeJS.ProcessEnv = process.env
-): Promise<string> {
+): Promise<ExchangedCredential> {
   const requestUrl = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL ?? "");
   requestUrl.searchParams.set("audience", OIDC_AUDIENCE);
   const minted = await send(
@@ -182,7 +195,7 @@ export async function exchangeGithubOidc(
       hint: `is this workflow registered as a publisher for ${orgSlug}/${app}, with the same repository, workflow file and environment?`
     });
   }
-  const token = (await json<{ token?: string }>(exchanged, "exchange")).token;
-  if (!token) throw new CliError("the exchange returned no token", { code: ExitCode.AUTH });
-  return token;
+  const body = await json<{ token?: string; app_id?: string }>(exchanged, "exchange");
+  if (!body.token) throw new CliError("the exchange returned no token", { code: ExitCode.AUTH });
+  return { token: body.token, appId: body.app_id };
 }

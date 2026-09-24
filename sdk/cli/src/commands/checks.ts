@@ -8,14 +8,24 @@
  * can branch on the exit code alone, the same contract every other `oxyc`
  * command keeps.
  *
- * Talks only to four admin routes (`GET /api/admin/apps`, `GET .../functions`,
+ * Talks only to four routes (`GET /api/admin/apps`, `GET .../functions`,
  * `POST .../functions/{name}/runs`, `GET .../function-runs/{run_id}`); nothing
  * here decides whether a function IS a check — that is `FunctionSummary.check`,
  * which the server projects from the manifest flag.
+ *
+ * Two surfaces, same handlers. A human runs this with their own credential and
+ * hits `/api/admin/apps/…`. CI has no credential to store: in a job with
+ * `id-token: write` it exchanges a GitHub OIDC token for the same short-lived,
+ * app-scoped publish token `oxyc publish` uses, and then hits
+ * `/api/customer-apps/…` — the same three handlers, mounted where a publish
+ * token may reach them. The app-listing route is NOT one of them (a publish
+ * token may not enumerate apps), which is why the exchange returns the app id
+ * rather than leaving the CLI to look one up.
  */
 
 import { errorForResponse, parseJson, request } from "../api/request.js";
 import type { Context } from "../context/resolve.js";
+import { exchangeGithubOidc, githubOidcAvailable } from "../publish/server.js";
 import { err } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
 
@@ -73,11 +83,27 @@ export async function runChecks(
     );
   }
   const target = ctx.target();
-  const { bearer, apiKey } = resolveCredentials(ctx);
-  const headers = apiKey ? { "X-API-Key": apiKey } : undefined;
-  const creds = { target, bearer, headers };
+  const machine = await resolveCredentials(ctx, target, app);
+  const creds: Creds = {
+    target,
+    bearer: machine.bearer,
+    headers: machine.apiKey ? { "X-API-Key": machine.apiKey } : undefined,
+    surface: machine.surface
+  };
 
-  const { appId, label } = await resolveApp(creds, app);
+  // `resolveApp` pages `/api/admin/apps`, which a publish token may not reach:
+  // sending it there would 403 on a route the caller cannot be given. The OIDC
+  // branch never gets here (the exchange hands back the id); a token supplied
+  // through `OXY_TOKEN` does, and it needs the UUID.
+  if (!machine.appId && creds.surface === MACHINE_SURFACE && !UUID_RE.test(app)) {
+    throw usageError(
+      "a publish token cannot resolve <org>/<app> — pass the app UUID",
+      "resolving a slug means listing every app, which a publish token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
+    );
+  }
+  const { appId, label } = machine.appId
+    ? { appId: machine.appId, label: app }
+    : await resolveApp(creds, app);
   const checks = await listChecks(creds, appId);
   if (checks.length === 0) {
     throw new CliError(`${label} declares no checks (no function has "check": true)`, {
@@ -107,25 +133,82 @@ export async function runChecks(
   }
 }
 
+/** The prefix `oxyc publish` mints and the exchange returns. */
+const PUBLISH_TOKEN_PREFIX = "oxypublish_";
+/** Where the three function routes live for each kind of credential. */
+const ADMIN_SURFACE = "/api/admin/apps";
+const MACHINE_SURFACE = "/api/customer-apps";
+
+interface ResolvedCredentials {
+  bearer?: string;
+  apiKey?: string;
+  surface: string;
+  /** Set only when the exchange told us which app the token is scoped to. */
+  appId?: string;
+}
+
 /**
- * Bearer wins when one resolves; otherwise the API key. Neither resolving
- * throws the SAME `authError` every other command throws — reusing
+ * A stored credential if there is one, a minted one if there is not.
+ *
+ * Bearer wins when one resolves; otherwise the API key. Neither resolving is
+ * not yet an error in CI: a job holding `id-token: write` can mint, so the
+ * exchange is tried before giving up. Only when that is unavailable too does
+ * this throw the SAME `authError` every other command throws — reusing
  * `ctx.bearer()` for that throw keeps the message and the `oxyc login …` hint
  * defined in exactly one place (`context/resolve.ts`) rather than duplicated
- * here. `ctx.bearer()` itself is not called first because it throws the
- * moment nothing resolves, which would skip the API-key fallback below.
+ * here.
+ *
+ * A publish token — minted here or handed in through `OXY_TOKEN` — reads the
+ * machine surface, because the admin one refuses it.
  */
-function resolveCredentials(ctx: Context): { bearer?: string; apiKey?: string } {
+async function resolveCredentials(
+  ctx: Context,
+  target: string,
+  app: string
+): Promise<ResolvedCredentials> {
   const bearer = ctx.maybeBearer();
-  const apiKey = bearer ? undefined : ctx.apiKey();
-  if (!bearer && !apiKey) ctx.bearer();
-  return { bearer, apiKey };
+  if (bearer) {
+    return {
+      bearer,
+      surface: bearer.startsWith(PUBLISH_TOKEN_PREFIX) ? MACHINE_SURFACE : ADMIN_SURFACE
+    };
+  }
+  const apiKey = ctx.apiKey();
+  if (apiKey) return { apiKey, surface: ADMIN_SURFACE };
+
+  if (githubOidcAvailable()) {
+    const [orgSlug, ...rest] = app.split("/");
+    const appSlug = rest.join("/");
+    if (!orgSlug || !appSlug) {
+      throw usageError(
+        'trusted publishing needs <app> as "<org-slug>/<app-slug>"',
+        "the exchange is keyed by slug; a UUID names an app it cannot verify a publisher for"
+      );
+    }
+    const minted = await exchangeGithubOidc(target, orgSlug, appSlug);
+    // Only this caller needs the id — `oxyc publish` takes the token and goes.
+    // So the version check is here, not in the exchange: a deployment without
+    // the field can still be published to.
+    if (!minted.appId) {
+      throw new CliError("the OIDC exchange returned no app_id", {
+        code: ExitCode.UNAVAILABLE,
+        hint: "this deployment predates trusted checks — upgrade it, or set OXY_TOKEN and pass the app UUID"
+      });
+    }
+    return { bearer: minted.token, surface: MACHINE_SURFACE, appId: minted.appId };
+  }
+
+  // Throws — nothing resolved and nothing can be minted.
+  ctx.bearer();
+  return { surface: ADMIN_SURFACE };
 }
 
 interface Creds {
   target: string;
   bearer?: string;
   headers?: Record<string, string>;
+  /** `/api/admin/apps` for a human, `/api/customer-apps` for a publish token. */
+  surface: string;
 }
 
 function ensureOk(response: Awaited<ReturnType<typeof request>>): void {
@@ -171,7 +254,7 @@ async function resolveApp(creds: Creds, app: string): Promise<{ appId: string; l
 async function listChecks(creds: Creds, appId: string): Promise<FunctionSummary[]> {
   const response = await request({
     target: creds.target,
-    path: `/api/admin/apps/${appId}/functions`,
+    path: `${creds.surface}/${appId}/functions`,
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers
@@ -203,7 +286,7 @@ async function runOneCheck(
 async function startRun(creds: Creds, appId: string, name: string): Promise<string> {
   const response = await request({
     target: creds.target,
-    path: `/api/admin/apps/${appId}/functions/${encodeURIComponent(name)}/runs`,
+    path: `${creds.surface}/${appId}/functions/${encodeURIComponent(name)}/runs`,
     method: "POST",
     body: "{}",
     bearer: creds.bearer,
@@ -222,7 +305,7 @@ async function startRun(creds: Creds, appId: string, name: string): Promise<stri
 async function getRunDetail(creds: Creds, appId: string, runId: string): Promise<RunDetail> {
   const response = await request({
     target: creds.target,
-    path: `/api/admin/apps/${appId}/function-runs/${runId}`,
+    path: `${creds.surface}/${appId}/function-runs/${runId}`,
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers

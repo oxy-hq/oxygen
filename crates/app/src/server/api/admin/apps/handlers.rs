@@ -5,9 +5,8 @@ use axum::Json;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use chrono::Utc;
-use entity::apps;
-use entity::org_members;
-use entity::prelude::{AppBuilds, Apps, OrgMembers, Organizations, Workspaces};
+use entity::prelude::{AppBuilds, AppFunctions, Apps, OrgMembers, Organizations, Workspaces};
+use entity::{app_functions, apps, org_members};
 use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::ActiveModelTrait;
@@ -843,6 +842,9 @@ pub async fn unpublish_app(
 /// `custom_apps_functions::trigger_function_job`).
 pub async fn run_function_job(
     oxy_auth::extractor::AuthenticatedUserExtractor(_user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    // Present iff authenticated via an app publish token. Such a token may run
+    // an app's **checks** and nothing else — see `machine_may_run` below.
+    marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     Path((id, name)): Path<(Uuid, String)>,
     body: axum::body::Bytes,
 ) -> Result<Json<RunFunctionJobResponse>, StatusCode> {
@@ -859,6 +861,9 @@ pub async fn run_function_job(
         tracing::error!("run_function_job DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    if let Some(axum::Extension(marker)) = marker {
+        machine_may_run(&db, &marker, id, &name).await?;
+    }
     let run_id = crate::server::api::custom_apps_functions::trigger_function_job(
         &db,
         id,
@@ -872,6 +877,88 @@ pub async fn run_function_job(
         StatusCode::BAD_REQUEST
     })?;
     Ok(Json(RunFunctionJobResponse { run_id }))
+}
+
+/// Whether an app-scoped publish token names the app being asked for.
+///
+/// `app_publish_token_scope` already refuses another app's id for every path on
+/// the surface, so by the time a request reaches here this is true. It is
+/// re-checked anyway because it is one comparison and the alternative is a
+/// handler whose only protection is a middleware someone could reorder: the
+/// manifest check below cannot be moved up there, so this one stays down here
+/// beside it. A token with no `app_id` is not app-scoped at all and passes.
+fn token_names_app(marker: &oxy_auth::types::AppPublishTokenAuth, id: Uuid) -> bool {
+    marker.app_id.is_none_or(|scoped| scoped == id)
+}
+
+/// Whether the manifest marks this function as a check. Absent, non-boolean and
+/// `false` all mean no: the grant is to run what the app DECLARED as a check,
+/// so anything the manifest does not say yes to is a no. A manifest that is
+/// missing entirely is the same answer for the same reason.
+fn manifest_marks_check(manifest: Option<&serde_json::Value>) -> bool {
+    manifest
+        .and_then(|m| m.get("check"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// Whether an app-publish-token request may run `name` on app `id`.
+///
+/// Two conditions, both fail-closed, because the scope middleware admits the
+/// path and a path says nothing about what the function does:
+///
+/// 1. **Its own app.** An app-scoped token (OIDC-minted, or partner-minted)
+///    carries the app it was issued for; running any other app's function is
+///    refused even when the token's user could reach it by other means.
+/// 2. **A declared check.** The manifest must mark the function
+///    `"check": true`. The grant's justification is that a token which may
+///    already publish arbitrary code to an app can already cause any side
+///    effect that app can — so letting it run *that app's own declared checks*
+///    adds nothing. That argument holds only while the function is one the app
+///    declared as a check; it does not extend to "any function of that app",
+///    which could email customers or move money.
+///
+/// A staff token with no `app_id` still faces condition 2: it is a machine
+/// credential either way.
+async fn machine_may_run(
+    db: &sea_orm::DatabaseConnection,
+    marker: &oxy_auth::types::AppPublishTokenAuth,
+    id: Uuid,
+    name: &str,
+) -> Result<(), StatusCode> {
+    if !token_names_app(marker, id) {
+        tracing::warn!(
+            token_app = ?marker.app_id,
+            requested_app = %id,
+            "app publish token tried to run a function of another app"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let app = apps::Entity::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    // The build the run will use, resolved the way `list_functions` does.
+    let Some(build_id) = app.published_build_id.or(app.draft_build_id) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let row = AppFunctions::find()
+        .filter(app_functions::Column::BuildId.eq(build_id))
+        .filter(app_functions::Column::Name.eq(name))
+        .one(db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if !manifest_marks_check(row.manifest_json.as_ref()) {
+        tracing::warn!(
+            app = %id,
+            function = %name,
+            "app publish token tried to run a function the manifest does not mark as a check"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(())
 }
 
 /// `GET /api/customer-apps/{id}/builds` — newest-first build history. Empty
@@ -1155,6 +1242,54 @@ pub async fn batch_delete_apps(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn marker(app_id: Option<Uuid>) -> oxy_auth::types::AppPublishTokenAuth {
+        oxy_auth::types::AppPublishTokenAuth {
+            token_id: Uuid::new_v4(),
+            app_id,
+        }
+    }
+
+    #[test]
+    fn an_app_scoped_token_names_its_own_app_and_no_other() {
+        let mine = Uuid::new_v4();
+        let theirs = Uuid::new_v4();
+        assert!(token_names_app(&marker(Some(mine)), mine));
+        // The whole point of the route being on the allow-list: publishing to
+        // an app already lets a token cause anything that app can cause, and
+        // that argument covers exactly the app the token may publish to.
+        assert!(!token_names_app(&marker(Some(mine)), theirs));
+    }
+
+    #[test]
+    fn an_unscoped_token_is_bounded_by_the_allow_list_alone() {
+        // A staff token carries no app id; nothing here narrows it, and the
+        // scope middleware is what keeps it to publish + checks.
+        assert!(token_names_app(&marker(None), Uuid::new_v4()));
+    }
+
+    #[test]
+    fn only_a_function_the_manifest_declares_a_check_may_be_run() {
+        assert!(manifest_marks_check(Some(
+            &serde_json::json!({ "check": true })
+        )));
+
+        // Everything else is a no, and each of these is a shape a real manifest
+        // produces: a handler with no `check` key, one that opted out, one
+        // whose value is a truthy non-boolean, and a row with no manifest.
+        assert!(!manifest_marks_check(Some(&serde_json::json!({}))));
+        assert!(!manifest_marks_check(Some(
+            &serde_json::json!({ "check": false })
+        )));
+        assert!(!manifest_marks_check(Some(
+            &serde_json::json!({ "check": "yes" })
+        )));
+        assert!(!manifest_marks_check(Some(
+            &serde_json::json!({ "check": 1 })
+        )));
+        assert!(!manifest_marks_check(Some(&serde_json::json!(null))));
+        assert!(!manifest_marks_check(None));
+    }
 
     #[test]
     fn validate_template_id_accepts_vite() {

@@ -18,6 +18,7 @@ import { WORKFLOW_PATH, type WorkflowOptions, workflowYaml } from "./init-ci.js"
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
 
 interface Step {
+  name?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -39,7 +40,9 @@ const OPTIONS: WorkflowOptions = {
   outDir: "out",
   pnpmFromPackageJson: false,
   nodeVersionFile: false,
-  cliVersion: "9.9.9"
+  cliVersion: "9.9.9",
+  hasChecks: false,
+  promote: false
 };
 
 function jobs(options: WorkflowOptions): { build: Job; publish: Job } {
@@ -47,6 +50,36 @@ function jobs(options: WorkflowOptions): { build: Job; publish: Job } {
 }
 
 describe("workflowYaml", () => {
+  it("adds a checks step only when the workflow promotes AND a check is declared", () => {
+    const names = (o: WorkflowOptions) => jobs(o).publish.steps.map((s) => s.name ?? s.uses);
+
+    // `oxyc checks run` errors on an app with no checks, so a step that was
+    // always written would fail the first run of every generated workflow.
+    expect(names(OPTIONS)).not.toContain("Run the app's checks");
+
+    // And a check runs against the app's LIVE build, so after a draft publish
+    // it would verify the previously promoted code — passing while the build
+    // this job uploaded is broken, and failing outright the first time a check
+    // is added, because the live build predates the flag.
+    expect(names({ ...OPTIONS, hasChecks: true })).not.toContain("Run the app's checks");
+    expect(names({ ...OPTIONS, promote: true })).not.toContain("Run the app's checks");
+
+    const steps = jobs({ ...OPTIONS, hasChecks: true, promote: true }).publish.steps;
+    expect(steps.at(-2)?.run).toContain("publish --prebuilt --promote");
+    const step = steps.at(-1);
+    expect(step?.name).toBe("Run the app's checks");
+    expect(step?.run).toContain("checks run acme/sales --env production");
+    // It mints its own; nothing is carried over and nothing is stored.
+    expect(step?.run).not.toContain("OXY_TOKEN");
+  });
+
+  it("publishes a draft unless --promote", () => {
+    const publishStep = (o: WorkflowOptions) =>
+      jobs(o).publish.steps.find((s) => s.name === "Publish")?.run ?? "";
+    expect(publishStep(OPTIONS)).not.toContain("--promote");
+    expect(publishStep({ ...OPTIONS, promote: true })).toContain("--promote");
+  });
+
   it("gives the id-token to the publish job only", () => {
     const { build, publish } = jobs(OPTIONS);
     expect(build.permissions?.["id-token"]).toBeUndefined();
