@@ -190,6 +190,11 @@ jobs:
             canary-zoo:
               - "fixtures/data-shapes/**"
               - "customer-apps/examples/platform-canary/**"
+              # The SDK's own byte copy (`@oxy-hq/sdk/testing` answers reads
+              # from it), written by the same sync script and checked by the
+              # same job.
+              - "sdk/typescript/src/testing/shape-zoo.json"
+              - "sdk/typescript/src/testing/shape-zoo-sha256.ts"
               # And where the job is defined, and where these filters are —
               # the same self-reference the two filters above document.
               - ".github/workflows/ci.yaml"

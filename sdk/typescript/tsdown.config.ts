@@ -14,7 +14,11 @@ export default defineConfig({
     // `@oxy-hq/sdk/ops` — reach applied inside a function. Pure TS, no
     // React, no isolate-hostile builtins; its own entry so a bundle that
     // only needs the browser half never carries it.
-    ops: "src/ops/index.ts"
+    ops: "src/ops/index.ts",
+    // `@oxy-hq/sdk/testing` — a typed test context for a function's unit
+    // tests. Pure TS, no React; its own entry so a test's value import never
+    // pulls in the root entry, and a function bundle never carries it.
+    testing: "src/testing/index.ts"
   },
   format: ["cjs", "esm"],
   dts: true,

@@ -1,0 +1,2277 @@
+{
+  "version": 1,
+  "engines": {
+    "clickhouse": {
+      "cases": [
+        {
+          "key": "clickhouse/Bool/plain",
+          "native_type": "Bool",
+          "class": "plain",
+          "value_sql": "true",
+          "expect": { "warehouse": true }
+        },
+        {
+          "key": "clickhouse/Nullable(Bool)/null",
+          "native_type": "Nullable(Bool)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Boolean/plain",
+          "native_type": "Boolean",
+          "class": "plain",
+          "value_sql": "false",
+          "expect": { "warehouse": false }
+        },
+        {
+          "key": "clickhouse/Int8/plain",
+          "native_type": "Int8",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/Int8/negative",
+          "native_type": "Int8",
+          "class": "negative",
+          "value_sql": "-128",
+          "expect": { "warehouse": -128 }
+        },
+        {
+          "key": "clickhouse/Int8/zero",
+          "native_type": "Int8",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(Int8)/null",
+          "native_type": "Nullable(Int8)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Int16/plain",
+          "native_type": "Int16",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/Int16/negative",
+          "native_type": "Int16",
+          "class": "negative",
+          "value_sql": "-32768",
+          "expect": { "warehouse": -32768 }
+        },
+        {
+          "key": "clickhouse/Int16/zero",
+          "native_type": "Int16",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(Int16)/null",
+          "native_type": "Nullable(Int16)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Int32/plain",
+          "native_type": "Int32",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/Int32/negative",
+          "native_type": "Int32",
+          "class": "negative",
+          "value_sql": "-2147483648",
+          "expect": { "warehouse": -2147483648 }
+        },
+        {
+          "key": "clickhouse/Int32/zero",
+          "native_type": "Int32",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(Int32)/null",
+          "native_type": "Nullable(Int32)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Int64/plain",
+          "native_type": "Int64",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/Int64/negative",
+          "native_type": "Int64",
+          "class": "negative",
+          "value_sql": "-9007199254740991",
+          "expect": { "warehouse": -9007199254740991 }
+        },
+        {
+          "key": "clickhouse/Int64/zero",
+          "native_type": "Int64",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Int64/precision_gt_18",
+          "native_type": "Int64",
+          "class": "precision_gt_18",
+          "value_sql": "9223372036854775807",
+          "expect": { "warehouse": 9223372036854776000 }
+        },
+        {
+          "key": "clickhouse/Nullable(Int64)/null",
+          "native_type": "Nullable(Int64)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt8/plain",
+          "native_type": "UInt8",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/UInt8/zero",
+          "native_type": "UInt8",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt8)/null",
+          "native_type": "Nullable(UInt8)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt16/plain",
+          "native_type": "UInt16",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/UInt16/zero",
+          "native_type": "UInt16",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt16)/null",
+          "native_type": "Nullable(UInt16)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt32/plain",
+          "native_type": "UInt32",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/UInt32/zero",
+          "native_type": "UInt32",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt32)/null",
+          "native_type": "Nullable(UInt32)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt64/plain",
+          "native_type": "UInt64",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "clickhouse/UInt64/zero",
+          "native_type": "UInt64",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/UInt64/precision_gt_18",
+          "native_type": "UInt64",
+          "class": "precision_gt_18",
+          "value_sql": "18446744073709551615",
+          "expect": { "warehouse": "18446744073709551615" }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt64)/null",
+          "native_type": "Nullable(UInt64)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Int128/plain",
+          "native_type": "Int128",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "clickhouse/Int128/negative",
+          "native_type": "Int128",
+          "class": "negative",
+          "value_sql": "-42",
+          "expect": { "warehouse": "-42" }
+        },
+        {
+          "key": "clickhouse/Int128/zero",
+          "native_type": "Int128",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "clickhouse/Int128/precision_gt_18",
+          "native_type": "Int128",
+          "class": "precision_gt_18",
+          "value_sql": "toInt128('-170141183460469231731687303715884105728')",
+          "expect": { "warehouse": "-170141183460469231731687303715884105728" }
+        },
+        {
+          "key": "clickhouse/Nullable(Int128)/null",
+          "native_type": "Nullable(Int128)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt128/plain",
+          "native_type": "UInt128",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "clickhouse/UInt128/zero",
+          "native_type": "UInt128",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "clickhouse/UInt128/precision_gt_18",
+          "native_type": "UInt128",
+          "class": "precision_gt_18",
+          "value_sql": "toUInt128('340282366920938463463374607431768211455')",
+          "expect": { "warehouse": "340282366920938463463374607431768211455" }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt128)/null",
+          "native_type": "Nullable(UInt128)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Int256/plain",
+          "native_type": "Int256",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "clickhouse/Int256/negative",
+          "native_type": "Int256",
+          "class": "negative",
+          "value_sql": "-42",
+          "expect": { "warehouse": "-42" }
+        },
+        {
+          "key": "clickhouse/Int256/zero",
+          "native_type": "Int256",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "clickhouse/Int256/precision_gt_18",
+          "native_type": "Int256",
+          "class": "precision_gt_18",
+          "value_sql": "toInt256('-57896044618658097711785492504343953926634992332820282019728792003956564819968')",
+          "expect": { "warehouse": "-57896044618658097711785492504343953926634992332820282019728792003956564819968" }
+        },
+        {
+          "key": "clickhouse/Nullable(Int256)/null",
+          "native_type": "Nullable(Int256)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UInt256/plain",
+          "native_type": "UInt256",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "clickhouse/UInt256/zero",
+          "native_type": "UInt256",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "clickhouse/UInt256/precision_gt_18",
+          "native_type": "UInt256",
+          "class": "precision_gt_18",
+          "value_sql": "toUInt256('115792089237316195423570985008687907853269984665640564039457584007913129639935')",
+          "expect": { "warehouse": "115792089237316195423570985008687907853269984665640564039457584007913129639935" }
+        },
+        {
+          "key": "clickhouse/Nullable(UInt256)/null",
+          "native_type": "Nullable(UInt256)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Float32/plain",
+          "native_type": "Float32",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.1 }
+        },
+        {
+          "key": "clickhouse/Float32/negative",
+          "native_type": "Float32",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5 }
+        },
+        {
+          "key": "clickhouse/Float32/zero",
+          "native_type": "Float32",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Float32/nan_inf",
+          "native_type": "Float32",
+          "class": "nan_inf",
+          "value_sql": "nan",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Nullable(Float32)/null",
+          "native_type": "Nullable(Float32)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Float64/plain",
+          "native_type": "Float64",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.1 }
+        },
+        {
+          "key": "clickhouse/Float64/negative",
+          "native_type": "Float64",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5 }
+        },
+        {
+          "key": "clickhouse/Float64/zero",
+          "native_type": "Float64",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "clickhouse/Float64/nan_inf",
+          "native_type": "Float64",
+          "class": "nan_inf",
+          "value_sql": "inf",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Nullable(Float64)/null",
+          "native_type": "Nullable(Float64)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Decimal(18, 4)/plain",
+          "native_type": "Decimal(18, 4)",
+          "class": "plain",
+          "value_sql": "1234.5678",
+          "expect": { "warehouse": "1234.5678" }
+        },
+        {
+          "key": "clickhouse/Decimal(18, 4)/negative",
+          "native_type": "Decimal(18, 4)",
+          "class": "negative",
+          "value_sql": "-1.25",
+          "expect": { "warehouse": "-1.25" }
+        },
+        {
+          "key": "clickhouse/Decimal(18, 4)/zero",
+          "native_type": "Decimal(18, 4)",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "clickhouse/Nullable(Decimal(18, 4))/null",
+          "native_type": "Nullable(Decimal(18, 4))",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Decimal(38, 10)/precision_gt_18",
+          "native_type": "Decimal(38, 10)",
+          "class": "precision_gt_18",
+          "value_sql": "toDecimal128('1234567890123456789.0123456789', 10)",
+          "expect": { "warehouse": "1.2345678901234568e+18" }
+        },
+        {
+          "key": "clickhouse/Decimal(38, 0)/precision_gt_18",
+          "native_type": "Decimal(38, 0)",
+          "class": "precision_gt_18",
+          "value_sql": "toDecimal128('12345678901234567890123456789012345678', 0)",
+          "expect": { "warehouse": "12345678901234567890123456789012345678" }
+        },
+        {
+          "key": "clickhouse/Decimal32(4)/plain",
+          "native_type": "Decimal32(4)",
+          "class": "plain",
+          "value_sql": "1.5",
+          "expect": { "warehouse": "1.5" }
+        },
+        {
+          "key": "clickhouse/Date/plain",
+          "native_type": "Date",
+          "class": "plain",
+          "value_sql": "'2024-03-10'",
+          "expect": { "warehouse": "2024-03-10" }
+        },
+        {
+          "key": "clickhouse/Date/date_before_1970",
+          "native_type": "Date",
+          "class": "date_before_1970",
+          "value_sql": "'1969-12-31'",
+          "expect": { "warehouse": "1970-01-01" }
+        },
+        {
+          "key": "clickhouse/Date/date_after_2100",
+          "native_type": "Date",
+          "class": "date_after_2100",
+          "value_sql": "'2149-06-06'",
+          "expect": { "warehouse": "2149-06-06" }
+        },
+        {
+          "key": "clickhouse/Nullable(Date)/null",
+          "native_type": "Nullable(Date)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Date32/plain",
+          "native_type": "Date32",
+          "class": "plain",
+          "value_sql": "'2024-03-10'",
+          "expect": { "warehouse": "2024-03-10" }
+        },
+        {
+          "key": "clickhouse/Date32/date_before_1970",
+          "native_type": "Date32",
+          "class": "date_before_1970",
+          "value_sql": "'1900-01-01'",
+          "expect": { "warehouse": "1900-01-01" }
+        },
+        {
+          "key": "clickhouse/Date32/date_after_2100",
+          "native_type": "Date32",
+          "class": "date_after_2100",
+          "value_sql": "'2299-12-31'",
+          "expect": { "warehouse": "2299-12-31" }
+        },
+        {
+          "key": "clickhouse/Nullable(Date32)/null",
+          "native_type": "Nullable(Date32)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/DateTime/plain",
+          "native_type": "DateTime",
+          "class": "plain",
+          "value_sql": "'2024-03-10 12:34:56'",
+          "expect": { "warehouse": "2024-03-10 12:34:56" }
+        },
+        {
+          "key": "clickhouse/DateTime/date_before_1970",
+          "native_type": "DateTime",
+          "class": "date_before_1970",
+          "value_sql": "'1969-12-31 23:59:59'",
+          "expect": { "warehouse": "1970-01-01 00:00:00" }
+        },
+        {
+          "key": "clickhouse/DateTime/date_after_2100",
+          "native_type": "DateTime",
+          "class": "date_after_2100",
+          "value_sql": "'2105-12-31 23:59:59'",
+          "expect": { "warehouse": "2105-12-31 23:59:59" }
+        },
+        {
+          "key": "clickhouse/Nullable(DateTime)/null",
+          "native_type": "Nullable(DateTime)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/DateTime('Asia/Kolkata')/tz_bearing",
+          "native_type": "DateTime('Asia/Kolkata')",
+          "class": "tz_bearing",
+          "value_sql": "'2024-03-10 12:34:56'",
+          "expect": { "warehouse": "2024-03-10 12:34:56" }
+        },
+        {
+          "key": "clickhouse/DateTime64(3)/plain",
+          "native_type": "DateTime64(3)",
+          "class": "plain",
+          "value_sql": "'2024-03-10 12:34:56.789'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "clickhouse/DateTime64(3)/date_before_1970",
+          "native_type": "DateTime64(3)",
+          "class": "date_before_1970",
+          "value_sql": "'1969-07-20 20:17:40.500'",
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
+        },
+        {
+          "key": "clickhouse/DateTime64(3)/date_after_2100",
+          "native_type": "DateTime64(3)",
+          "class": "date_after_2100",
+          "value_sql": "'2150-01-01 00:00:00.000'",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "clickhouse/Nullable(DateTime64(3))/null",
+          "native_type": "Nullable(DateTime64(3))",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/DateTime64(6, 'America/New_York')/tz_bearing",
+          "native_type": "DateTime64(6, 'America/New_York')",
+          "class": "tz_bearing",
+          "value_sql": "'2024-03-10 12:34:56.123456'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.123456" }
+        },
+        {
+          "key": "clickhouse/String/plain",
+          "native_type": "String",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "clickhouse/String/empty",
+          "native_type": "String",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "" }
+        },
+        {
+          "key": "clickhouse/String/whitespace",
+          "native_type": "String",
+          "class": "whitespace",
+          "value_sql": "' \\t\\n '",
+          "expect": { "warehouse": " \t\n " }
+        },
+        {
+          "key": "clickhouse/String/non_bmp",
+          "native_type": "String",
+          "class": "non_bmp",
+          "value_sql": "'𝔘nicode'",
+          "expect": { "warehouse": "𝔘nicode" }
+        },
+        {
+          "key": "clickhouse/String/len_gt_1k",
+          "native_type": "String",
+          "class": "len_gt_1k",
+          "value_sql": "repeat('0123456789', 101)",
+          "expect": { "warehouse": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789" }
+        },
+        {
+          "key": "clickhouse/Nullable(String)/null",
+          "native_type": "Nullable(String)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/FixedString(4)/plain",
+          "native_type": "FixedString(4)",
+          "class": "plain",
+          "value_sql": "'ab'",
+          "expect": { "warehouse": "ab\u0000\u0000" }
+        },
+        {
+          "key": "clickhouse/FixedString(4)/empty",
+          "native_type": "FixedString(4)",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "\u0000\u0000\u0000\u0000" }
+        },
+        {
+          "key": "clickhouse/Nullable(FixedString(4))/null",
+          "native_type": "Nullable(FixedString(4))",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/LowCardinality(String)/plain",
+          "native_type": "LowCardinality(String)",
+          "class": "plain",
+          "value_sql": "'low cardinality'",
+          "expect": { "warehouse": "low cardinality" }
+        },
+        {
+          "key": "clickhouse/LowCardinality(Nullable(String))/null",
+          "native_type": "LowCardinality(Nullable(String))",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/Enum8('a' = 1, 'b' = 2)/plain",
+          "native_type": "Enum8('a' = 1, 'b' = 2)",
+          "class": "plain",
+          "value_sql": "'b'",
+          "expect": { "warehouse": "b" }
+        },
+        {
+          "key": "clickhouse/Nullable(Enum8('a' = 1, 'b' = 2))/null",
+          "native_type": "Nullable(Enum8('a' = 1, 'b' = 2))",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/UUID/plain",
+          "native_type": "UUID",
+          "class": "plain",
+          "value_sql": "'00000000-0000-4000-8000-000000000001'",
+          "expect": { "warehouse": "00000000-0000-4000-8000-000000000001" }
+        },
+        {
+          "key": "clickhouse/Nullable(UUID)/null",
+          "native_type": "Nullable(UUID)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/IPv4/plain",
+          "native_type": "IPv4",
+          "class": "plain",
+          "value_sql": "'10.0.0.1'",
+          "expect": { "warehouse": "10.0.0.1" }
+        },
+        {
+          "key": "clickhouse/Nullable(IPv4)/null",
+          "native_type": "Nullable(IPv4)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/IPv6/plain",
+          "native_type": "IPv6",
+          "class": "plain",
+          "value_sql": "'2001:db8::1'",
+          "expect": { "warehouse": "2001:db8::1" }
+        },
+        {
+          "key": "clickhouse/Nullable(IPv6)/null",
+          "native_type": "Nullable(IPv6)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "clickhouse/JSON/nested_json",
+          "native_type": "JSON",
+          "class": "nested_json",
+          "value_sql": "'{\"a\":{\"b\":\"x\",\"n\":1.5}}'",
+          "expect": { "warehouse": {"a": {"b": "x", "n": 1.5}} }
+        },
+        {
+          "key": "clickhouse/JSON/empty",
+          "native_type": "JSON",
+          "class": "empty",
+          "value_sql": "'{}'",
+          "expect": { "warehouse": {} }
+        },
+        {
+          "key": "clickhouse/Array(Int32)/array",
+          "native_type": "Array(Int32)",
+          "class": "array",
+          "value_sql": "[1, -2, 3]",
+          "expect": { "warehouse": [1, -2, 3] }
+        },
+        {
+          "key": "clickhouse/Array(Int32)/empty",
+          "native_type": "Array(Int32)",
+          "class": "empty",
+          "value_sql": "[]",
+          "expect": { "warehouse": [] }
+        },
+        {
+          "key": "clickhouse/Array(Nullable(String))/array",
+          "native_type": "Array(Nullable(String))",
+          "class": "array",
+          "value_sql": "['a', NULL]",
+          "expect": { "warehouse": ["a", null] }
+        },
+        {
+          "key": "clickhouse/Tuple(Int32, String)/array",
+          "native_type": "Tuple(Int32, String)",
+          "class": "array",
+          "value_sql": "(1, 'a')",
+          "expect": { "warehouse": [1, "a"] }
+        },
+        {
+          "key": "clickhouse/Map(String, Int32)/nested_json",
+          "native_type": "Map(String, Int32)",
+          "class": "nested_json",
+          "value_sql": "map('a', 1, 'b', 2)",
+          "expect": { "warehouse": {"a": 1, "b": 2} }
+        },
+        {
+          "key": "clickhouse/Map(String, Int32)/empty",
+          "native_type": "Map(String, Int32)",
+          "class": "empty",
+          "value_sql": "map()",
+          "expect": { "warehouse": {} }
+        },
+        {
+          "key": "clickhouse/SimpleAggregateFunction(sum, UInt64)/plain",
+          "native_type": "SimpleAggregateFunction(sum, UInt64)",
+          "class": "plain",
+          "value_sql": "3",
+          "expect": { "warehouse": 3 }
+        },
+        {
+          "key": "clickhouse/AggregateFunction(sum, UInt64)/plain",
+          "native_type": "AggregateFunction(sum, UInt64)",
+          "class": "plain",
+          "value_sql": "arrayReduce('sumState', [toUInt64(3)])",
+          "expect": { "warehouse": "\u0003\u0000\u0000\u0000\u0000\u0000\u0000\u0000" }
+        }
+      ]
+    },
+    "postgres": {
+      "cases": [
+        {
+          "key": "postgres/bool/plain",
+          "native_type": "bool",
+          "class": "plain",
+          "value_sql": "true",
+          "expect": { "warehouse": true, "oltp": true }
+        },
+        {
+          "key": "postgres/bool/null",
+          "native_type": "bool",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/int2/plain",
+          "native_type": "int2",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42, "oltp": 42 }
+        },
+        {
+          "key": "postgres/int2/negative",
+          "native_type": "int2",
+          "class": "negative",
+          "value_sql": "-32768",
+          "expect": { "warehouse": -32768, "oltp": -32768 }
+        },
+        {
+          "key": "postgres/int2/zero",
+          "native_type": "int2",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0, "oltp": 0 }
+        },
+        {
+          "key": "postgres/int2/null",
+          "native_type": "int2",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/int4/plain",
+          "native_type": "int4",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42, "oltp": 42 }
+        },
+        {
+          "key": "postgres/int4/negative",
+          "native_type": "int4",
+          "class": "negative",
+          "value_sql": "-2147483648",
+          "expect": { "warehouse": -2147483648, "oltp": -2147483648 }
+        },
+        {
+          "key": "postgres/int4/zero",
+          "native_type": "int4",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0, "oltp": 0 }
+        },
+        {
+          "key": "postgres/int4/null",
+          "native_type": "int4",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/int8/plain",
+          "native_type": "int8",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42, "oltp": 42 }
+        },
+        {
+          "key": "postgres/int8/negative",
+          "native_type": "int8",
+          "class": "negative",
+          "value_sql": "-9007199254740991",
+          "expect": { "warehouse": -9007199254740991, "oltp": -9007199254740991 }
+        },
+        {
+          "key": "postgres/int8/zero",
+          "native_type": "int8",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0, "oltp": 0 }
+        },
+        {
+          "key": "postgres/int8/precision_gt_18",
+          "native_type": "int8",
+          "class": "precision_gt_18",
+          "value_sql": "9223372036854775807",
+          "expect": { "warehouse": 9223372036854776000, "oltp": 9223372036854776000 }
+        },
+        {
+          "key": "postgres/int8/null",
+          "native_type": "int8",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/float4/plain",
+          "native_type": "float4",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.10000000149011612, "oltp": 0.10000000149011612 }
+        },
+        {
+          "key": "postgres/float4/negative",
+          "native_type": "float4",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5, "oltp": -1.5 }
+        },
+        {
+          "key": "postgres/float4/zero",
+          "native_type": "float4",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0, "oltp": 0 }
+        },
+        {
+          "key": "postgres/float4/nan_inf",
+          "native_type": "float4",
+          "class": "nan_inf",
+          "value_sql": "'NaN'",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/float4/null",
+          "native_type": "float4",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/float8/plain",
+          "native_type": "float8",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.1, "oltp": 0.1 }
+        },
+        {
+          "key": "postgres/float8/negative",
+          "native_type": "float8",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5, "oltp": -1.5 }
+        },
+        {
+          "key": "postgres/float8/zero",
+          "native_type": "float8",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0, "oltp": 0 }
+        },
+        {
+          "key": "postgres/float8/nan_inf",
+          "native_type": "float8",
+          "class": "nan_inf",
+          "value_sql": "'Infinity'",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/float8/null",
+          "native_type": "float8",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/numeric/plain",
+          "native_type": "numeric",
+          "class": "plain",
+          "value_sql": "1234.5678",
+          "expect": {
+            "warehouse": "1234.5678",
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/numeric/negative",
+          "native_type": "numeric",
+          "class": "negative",
+          "value_sql": "-1.25",
+          "expect": {
+            "warehouse": "-1.25",
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/numeric/zero",
+          "native_type": "numeric",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": {
+            "warehouse": "0.0",
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/numeric/nan_inf",
+          "native_type": "numeric",
+          "class": "nan_inf",
+          "value_sql": "'NaN'",
+          "expect": {
+            "warehouse": "NaN",
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/numeric/precision_gt_18",
+          "native_type": "numeric",
+          "class": "precision_gt_18",
+          "value_sql": "1234567890123456789.0123456789",
+          "expect": {
+            "warehouse": "1234567890123456768.0",
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/numeric/null",
+          "native_type": "numeric",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": {
+            "warehouse": null,
+            "oltp": {"$error": "Postgres type `numeric`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/text/plain",
+          "native_type": "text",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text", "oltp": "plain text" }
+        },
+        {
+          "key": "postgres/text/empty",
+          "native_type": "text",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "", "oltp": "" }
+        },
+        {
+          "key": "postgres/text/whitespace",
+          "native_type": "text",
+          "class": "whitespace",
+          "value_sql": "E' \\t\\n '",
+          "expect": { "warehouse": " \t\n ", "oltp": " \t\n " }
+        },
+        {
+          "key": "postgres/text/non_bmp",
+          "native_type": "text",
+          "class": "non_bmp",
+          "value_sql": "'𝔘nicode'",
+          "expect": { "warehouse": "𝔘nicode", "oltp": "𝔘nicode" }
+        },
+        {
+          "key": "postgres/text/len_gt_1k",
+          "native_type": "text",
+          "class": "len_gt_1k",
+          "value_sql": "repeat('0123456789', 101)",
+          "expect": {
+            "warehouse": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+            "oltp": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
+          }
+        },
+        {
+          "key": "postgres/text/null",
+          "native_type": "text",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/varchar(2000)/plain",
+          "native_type": "varchar(2000)",
+          "class": "plain",
+          "value_sql": "'plain varchar'",
+          "expect": { "warehouse": "plain varchar", "oltp": "plain varchar" }
+        },
+        {
+          "key": "postgres/varchar(2000)/empty",
+          "native_type": "varchar(2000)",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "", "oltp": "" }
+        },
+        {
+          "key": "postgres/varchar(2000)/whitespace",
+          "native_type": "varchar(2000)",
+          "class": "whitespace",
+          "value_sql": "E' \\t\\n '",
+          "expect": { "warehouse": " \t\n ", "oltp": " \t\n " }
+        },
+        {
+          "key": "postgres/varchar(2000)/non_bmp",
+          "native_type": "varchar(2000)",
+          "class": "non_bmp",
+          "value_sql": "'𝔘nicode'",
+          "expect": { "warehouse": "𝔘nicode", "oltp": "𝔘nicode" }
+        },
+        {
+          "key": "postgres/varchar(2000)/len_gt_1k",
+          "native_type": "varchar(2000)",
+          "class": "len_gt_1k",
+          "value_sql": "repeat('0123456789', 101)",
+          "expect": {
+            "warehouse": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+            "oltp": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
+          }
+        },
+        {
+          "key": "postgres/varchar(2000)/null",
+          "native_type": "varchar(2000)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/bpchar(8)/plain",
+          "native_type": "bpchar(8)",
+          "class": "plain",
+          "value_sql": "'ab'",
+          "expect": { "warehouse": "ab      ", "oltp": "ab      " }
+        },
+        {
+          "key": "postgres/bpchar(8)/empty",
+          "native_type": "bpchar(8)",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "        ", "oltp": "        " }
+        },
+        {
+          "key": "postgres/bpchar(8)/whitespace",
+          "native_type": "bpchar(8)",
+          "class": "whitespace",
+          "value_sql": "E' \\t\\n '",
+          "expect": { "warehouse": " \t\n     ", "oltp": " \t\n     " }
+        },
+        {
+          "key": "postgres/bpchar(8)/non_bmp",
+          "native_type": "bpchar(8)",
+          "class": "non_bmp",
+          "value_sql": "'𝔘'",
+          "expect": { "warehouse": "𝔘       ", "oltp": "𝔘       " }
+        },
+        {
+          "key": "postgres/bpchar(8)/null",
+          "native_type": "bpchar(8)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/\"char\"/plain",
+          "native_type": "\"char\"",
+          "class": "plain",
+          "value_sql": "'a'",
+          "expect": {
+            "warehouse": "a",
+            "oltp": {"$error": "Postgres type `char`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/\"char\"/null",
+          "native_type": "\"char\"",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": {
+            "warehouse": null,
+            "oltp": {"$error": "Postgres type `char`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/name/plain",
+          "native_type": "name",
+          "class": "plain",
+          "value_sql": "'plain_name'",
+          "expect": { "warehouse": "plain_name", "oltp": "plain_name" }
+        },
+        {
+          "key": "postgres/name/empty",
+          "native_type": "name",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "", "oltp": "" }
+        },
+        {
+          "key": "postgres/name/len_gt_1k",
+          "native_type": "name",
+          "class": "len_gt_1k",
+          "value_sql": "repeat('0123456789', 101)",
+          "expect": {
+            "warehouse": "012345678901234567890123456789012345678901234567890123456789012",
+            "oltp": "012345678901234567890123456789012345678901234567890123456789012"
+          }
+        },
+        {
+          "key": "postgres/name/null",
+          "native_type": "name",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/bytea/plain",
+          "native_type": "bytea",
+          "class": "plain",
+          "value_sql": "decode('0001ff', 'hex')",
+          "expect": {
+            "warehouse": "<3 bytes>",
+            "oltp": {"$error": "Postgres type `bytea`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/bytea/empty",
+          "native_type": "bytea",
+          "class": "empty",
+          "value_sql": "decode('', 'hex')",
+          "expect": {
+            "warehouse": "<0 bytes>",
+            "oltp": {"$error": "Postgres type `bytea`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/bytea/null",
+          "native_type": "bytea",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": {
+            "warehouse": null,
+            "oltp": {"$error": "Postgres type `bytea`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/date/plain",
+          "native_type": "date",
+          "class": "plain",
+          "value_sql": "DATE '2024-03-10'",
+          "expect": { "warehouse": "2024-03-10", "oltp": "2024-03-10" }
+        },
+        {
+          "key": "postgres/date/date_before_1970",
+          "native_type": "date",
+          "class": "date_before_1970",
+          "value_sql": "DATE '1969-12-31'",
+          "expect": { "warehouse": "1969-12-31", "oltp": "1969-12-31" }
+        },
+        {
+          "key": "postgres/date/date_after_2100",
+          "native_type": "date",
+          "class": "date_after_2100",
+          "value_sql": "DATE '2150-06-01'",
+          "expect": { "warehouse": "2150-06-01", "oltp": "2150-06-01" }
+        },
+        {
+          "key": "postgres/date/null",
+          "native_type": "date",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/timestamp/plain",
+          "native_type": "timestamp",
+          "class": "plain",
+          "value_sql": "TIMESTAMP '2024-03-10 12:34:56.789'",
+          "expect": {
+            "warehouse": "2024-03-10 12:34:56.789000",
+            "oltp": "2024-03-10T12:34:56.789000"
+          }
+        },
+        {
+          "key": "postgres/timestamp/date_before_1970",
+          "native_type": "timestamp",
+          "class": "date_before_1970",
+          "value_sql": "TIMESTAMP '1969-07-20 20:17:40.5'",
+          "expect": {
+            "warehouse": "1969-07-20 20:17:40.500000",
+            "oltp": "1969-07-20T20:17:40.500000"
+          }
+        },
+        {
+          "key": "postgres/timestamp/date_after_2100",
+          "native_type": "timestamp",
+          "class": "date_after_2100",
+          "value_sql": "TIMESTAMP '2150-01-01 00:00:00'",
+          "expect": { "warehouse": "2150-01-01 00:00:00", "oltp": "2150-01-01T00:00:00.000000" }
+        },
+        {
+          "key": "postgres/timestamp/null",
+          "native_type": "timestamp",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/timestamptz/plain",
+          "native_type": "timestamptz",
+          "class": "plain",
+          "value_sql": "TIMESTAMPTZ '2024-03-10 12:34:56.789+00'",
+          "expect": {
+            "warehouse": "2024-03-10 12:34:56.789000",
+            "oltp": "2024-03-10T12:34:56.789000Z"
+          }
+        },
+        {
+          "key": "postgres/timestamptz/tz_bearing",
+          "native_type": "timestamptz",
+          "class": "tz_bearing",
+          "value_sql": "TIMESTAMPTZ '2024-03-10 12:34:56+05:30'",
+          "expect": { "warehouse": "2024-03-10 07:04:56", "oltp": "2024-03-10T07:04:56.000000Z" }
+        },
+        {
+          "key": "postgres/timestamptz/date_before_1970",
+          "native_type": "timestamptz",
+          "class": "date_before_1970",
+          "value_sql": "TIMESTAMPTZ '1969-07-20 20:17:40.5+00'",
+          "expect": {
+            "warehouse": "1969-07-20 20:17:40.500000",
+            "oltp": "1969-07-20T20:17:40.500000Z"
+          }
+        },
+        {
+          "key": "postgres/timestamptz/date_after_2100",
+          "native_type": "timestamptz",
+          "class": "date_after_2100",
+          "value_sql": "TIMESTAMPTZ '2150-01-01 00:00:00+00'",
+          "expect": { "warehouse": "2150-01-01 00:00:00", "oltp": "2150-01-01T00:00:00.000000Z" }
+        },
+        {
+          "key": "postgres/timestamptz/null",
+          "native_type": "timestamptz",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/time/plain",
+          "native_type": "time",
+          "class": "plain",
+          "value_sql": "TIME '12:34:56.789'",
+          "expect": { "warehouse": "12:34:56.789", "oltp": "12:34:56.789000" }
+        },
+        {
+          "key": "postgres/time/null",
+          "native_type": "time",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/json/nested_json",
+          "native_type": "json",
+          "class": "nested_json",
+          "value_sql": "'{\"a\":{\"b\":[1,2]},\"s\":\"x\"}'",
+          "expect": {
+            "warehouse": {"a": {"b": [1, 2]}, "s": "x"},
+            "oltp": {"a": {"b": [1, 2]}, "s": "x"}
+          }
+        },
+        {
+          "key": "postgres/json/null",
+          "native_type": "json",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/jsonb/nested_json",
+          "native_type": "jsonb",
+          "class": "nested_json",
+          "value_sql": "'{\"a\":{\"b\":[1,2]},\"s\":\"x\"}'",
+          "expect": {
+            "warehouse": {"a": {"b": [1, 2]}, "s": "x"},
+            "oltp": {"a": {"b": [1, 2]}, "s": "x"}
+          }
+        },
+        {
+          "key": "postgres/jsonb/array",
+          "native_type": "jsonb",
+          "class": "array",
+          "value_sql": "'[1,\"two\",null]'",
+          "expect": { "warehouse": [1, "two", null], "oltp": [1, "two", null] }
+        },
+        {
+          "key": "postgres/jsonb/null",
+          "native_type": "jsonb",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/uuid/plain",
+          "native_type": "uuid",
+          "class": "plain",
+          "value_sql": "'00000000-0000-4000-8000-000000000001'",
+          "expect": {
+            "warehouse": "00000000-0000-4000-8000-000000000001",
+            "oltp": "00000000-0000-4000-8000-000000000001"
+          }
+        },
+        {
+          "key": "postgres/uuid/null",
+          "native_type": "uuid",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null, "oltp": null }
+        },
+        {
+          "key": "postgres/int4[]/array",
+          "native_type": "int4[]",
+          "class": "array",
+          "value_sql": "ARRAY[1, -2, 3]",
+          "expect": {
+            "warehouse": "{1,-2,3}",
+            "oltp": {"$error": "Postgres type `_int4`, which cannot be returned directly"}
+          }
+        },
+        {
+          "key": "postgres/int4[]/empty",
+          "native_type": "int4[]",
+          "class": "empty",
+          "value_sql": "'{}'",
+          "expect": {
+            "warehouse": "{}",
+            "oltp": {"$error": "Postgres type `_int4`, which cannot be returned directly"}
+          }
+        }
+      ]
+    },
+    "duckdb": {
+      "cases": [
+        {
+          "key": "duckdb/BOOLEAN/plain",
+          "native_type": "BOOLEAN",
+          "class": "plain",
+          "value_sql": "true",
+          "expect": { "warehouse": true }
+        },
+        {
+          "key": "duckdb/BOOLEAN/null",
+          "native_type": "BOOLEAN",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/BOOL/plain",
+          "native_type": "BOOL",
+          "class": "plain",
+          "value_sql": "false",
+          "expect": { "warehouse": false }
+        },
+        {
+          "key": "duckdb/TINYINT/plain",
+          "native_type": "TINYINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/TINYINT/negative",
+          "native_type": "TINYINT",
+          "class": "negative",
+          "value_sql": "-128",
+          "expect": { "warehouse": -128 }
+        },
+        {
+          "key": "duckdb/TINYINT/zero",
+          "native_type": "TINYINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/TINYINT/null",
+          "native_type": "TINYINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/INT1/plain",
+          "native_type": "INT1",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/SMALLINT/plain",
+          "native_type": "SMALLINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/SMALLINT/negative",
+          "native_type": "SMALLINT",
+          "class": "negative",
+          "value_sql": "-32768",
+          "expect": { "warehouse": -32768 }
+        },
+        {
+          "key": "duckdb/SMALLINT/zero",
+          "native_type": "SMALLINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/SMALLINT/null",
+          "native_type": "SMALLINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/INT2/plain",
+          "native_type": "INT2",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/INTEGER/plain",
+          "native_type": "INTEGER",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/INTEGER/negative",
+          "native_type": "INTEGER",
+          "class": "negative",
+          "value_sql": "-2147483648",
+          "expect": { "warehouse": -2147483648 }
+        },
+        {
+          "key": "duckdb/INTEGER/zero",
+          "native_type": "INTEGER",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/INTEGER/null",
+          "native_type": "INTEGER",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/INT/plain",
+          "native_type": "INT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/INT4/plain",
+          "native_type": "INT4",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/BIGINT/plain",
+          "native_type": "BIGINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/BIGINT/negative",
+          "native_type": "BIGINT",
+          "class": "negative",
+          "value_sql": "-9007199254740991",
+          "expect": { "warehouse": -9007199254740991 }
+        },
+        {
+          "key": "duckdb/BIGINT/zero",
+          "native_type": "BIGINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/BIGINT/precision_gt_18",
+          "native_type": "BIGINT",
+          "class": "precision_gt_18",
+          "value_sql": "9223372036854775807",
+          "expect": { "warehouse": 9223372036854776000 }
+        },
+        {
+          "key": "duckdb/BIGINT/null",
+          "native_type": "BIGINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/INT8/plain",
+          "native_type": "INT8",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/UTINYINT/plain",
+          "native_type": "UTINYINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/UTINYINT/zero",
+          "native_type": "UTINYINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/UTINYINT/null",
+          "native_type": "UTINYINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/USMALLINT/plain",
+          "native_type": "USMALLINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/USMALLINT/zero",
+          "native_type": "USMALLINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/USMALLINT/null",
+          "native_type": "USMALLINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/UINTEGER/plain",
+          "native_type": "UINTEGER",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/UINTEGER/zero",
+          "native_type": "UINTEGER",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/UINTEGER/null",
+          "native_type": "UINTEGER",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/UBIGINT/plain",
+          "native_type": "UBIGINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": 42 }
+        },
+        {
+          "key": "duckdb/UBIGINT/zero",
+          "native_type": "UBIGINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/UBIGINT/precision_gt_18",
+          "native_type": "UBIGINT",
+          "class": "precision_gt_18",
+          "value_sql": "'18446744073709551615'::UBIGINT",
+          "expect": { "warehouse": "18446744073709551615" }
+        },
+        {
+          "key": "duckdb/UBIGINT/null",
+          "native_type": "UBIGINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/HUGEINT/plain",
+          "native_type": "HUGEINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "duckdb/HUGEINT/negative",
+          "native_type": "HUGEINT",
+          "class": "negative",
+          "value_sql": "-42",
+          "expect": { "warehouse": "-42" }
+        },
+        {
+          "key": "duckdb/HUGEINT/zero",
+          "native_type": "HUGEINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "duckdb/HUGEINT/precision_gt_18",
+          "native_type": "HUGEINT",
+          "class": "precision_gt_18",
+          "value_sql": "'12345678901234567890123456789012345678'::HUGEINT",
+          "expect": { "warehouse": "12345678901234567890123456789012345678" }
+        },
+        {
+          "key": "duckdb/HUGEINT/null",
+          "native_type": "HUGEINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/UHUGEINT/plain",
+          "native_type": "UHUGEINT",
+          "class": "plain",
+          "value_sql": "42",
+          "expect": { "warehouse": "42" }
+        },
+        {
+          "key": "duckdb/UHUGEINT/zero",
+          "native_type": "UHUGEINT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0" }
+        },
+        {
+          "key": "duckdb/UHUGEINT/precision_gt_18",
+          "native_type": "UHUGEINT",
+          "class": "precision_gt_18",
+          "value_sql": "'12345678901234567890123456789012345678'::UHUGEINT",
+          "expect": { "warehouse": "12345678901234567890123456789012345678" }
+        },
+        {
+          "key": "duckdb/UHUGEINT/null",
+          "native_type": "UHUGEINT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/FLOAT/plain",
+          "native_type": "FLOAT",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.10000000149011612 }
+        },
+        {
+          "key": "duckdb/FLOAT/negative",
+          "native_type": "FLOAT",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5 }
+        },
+        {
+          "key": "duckdb/FLOAT/zero",
+          "native_type": "FLOAT",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/FLOAT/nan_inf",
+          "native_type": "FLOAT",
+          "class": "nan_inf",
+          "value_sql": "'nan'::FLOAT",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/FLOAT/null",
+          "native_type": "FLOAT",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/REAL/plain",
+          "native_type": "REAL",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.10000000149011612 }
+        },
+        {
+          "key": "duckdb/FLOAT4/plain",
+          "native_type": "FLOAT4",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.10000000149011612 }
+        },
+        {
+          "key": "duckdb/DOUBLE/plain",
+          "native_type": "DOUBLE",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.1 }
+        },
+        {
+          "key": "duckdb/DOUBLE/negative",
+          "native_type": "DOUBLE",
+          "class": "negative",
+          "value_sql": "-1.5",
+          "expect": { "warehouse": -1.5 }
+        },
+        {
+          "key": "duckdb/DOUBLE/zero",
+          "native_type": "DOUBLE",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": 0 }
+        },
+        {
+          "key": "duckdb/DOUBLE/nan_inf",
+          "native_type": "DOUBLE",
+          "class": "nan_inf",
+          "value_sql": "'inf'::DOUBLE",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/DOUBLE/null",
+          "native_type": "DOUBLE",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/FLOAT8/plain",
+          "native_type": "FLOAT8",
+          "class": "plain",
+          "value_sql": "0.1",
+          "expect": { "warehouse": 0.1 }
+        },
+        {
+          "key": "duckdb/DECIMAL(18,4)/plain",
+          "native_type": "DECIMAL(18,4)",
+          "class": "plain",
+          "value_sql": "1234.5678",
+          "expect": { "warehouse": "1234.5678" }
+        },
+        {
+          "key": "duckdb/DECIMAL(18,4)/negative",
+          "native_type": "DECIMAL(18,4)",
+          "class": "negative",
+          "value_sql": "-1.25",
+          "expect": { "warehouse": "-1.2500" }
+        },
+        {
+          "key": "duckdb/DECIMAL(18,4)/zero",
+          "native_type": "DECIMAL(18,4)",
+          "class": "zero",
+          "value_sql": "0",
+          "expect": { "warehouse": "0.0000" }
+        },
+        {
+          "key": "duckdb/DECIMAL(18,4)/null",
+          "native_type": "DECIMAL(18,4)",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/DECIMAL(38,10)/precision_gt_18",
+          "native_type": "DECIMAL(38,10)",
+          "class": "precision_gt_18",
+          "value_sql": "'1234567890123456789.0123456789'::DECIMAL(38,10)",
+          "expect": { "warehouse": "1234567890123456789.0123456789" }
+        },
+        {
+          "key": "duckdb/VARCHAR/plain",
+          "native_type": "VARCHAR",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "duckdb/VARCHAR/empty",
+          "native_type": "VARCHAR",
+          "class": "empty",
+          "value_sql": "''",
+          "expect": { "warehouse": "" }
+        },
+        {
+          "key": "duckdb/VARCHAR/whitespace",
+          "native_type": "VARCHAR",
+          "class": "whitespace",
+          "value_sql": "chr(32) || chr(9) || chr(10) || chr(32)",
+          "expect": { "warehouse": " \t\n " }
+        },
+        {
+          "key": "duckdb/VARCHAR/non_bmp",
+          "native_type": "VARCHAR",
+          "class": "non_bmp",
+          "value_sql": "'𝔘nicode'",
+          "expect": { "warehouse": "𝔘nicode" }
+        },
+        {
+          "key": "duckdb/VARCHAR/len_gt_1k",
+          "native_type": "VARCHAR",
+          "class": "len_gt_1k",
+          "value_sql": "repeat('0123456789', 101)",
+          "expect": { "warehouse": "01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789" }
+        },
+        {
+          "key": "duckdb/VARCHAR/null",
+          "native_type": "VARCHAR",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/CHAR/plain",
+          "native_type": "CHAR",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "duckdb/BPCHAR/plain",
+          "native_type": "BPCHAR",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "duckdb/TEXT/plain",
+          "native_type": "TEXT",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "duckdb/STRING/plain",
+          "native_type": "STRING",
+          "class": "plain",
+          "value_sql": "'plain text'",
+          "expect": { "warehouse": "plain text" }
+        },
+        {
+          "key": "duckdb/UUID/plain",
+          "native_type": "UUID",
+          "class": "plain",
+          "value_sql": "'00000000-0000-4000-8000-000000000001'",
+          "expect": { "warehouse": "00000000-0000-4000-8000-000000000001" }
+        },
+        {
+          "key": "duckdb/UUID/null",
+          "native_type": "UUID",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/BLOB/plain",
+          "native_type": "BLOB",
+          "class": "plain",
+          "value_sql": "'\\x00\\x01\\xFF'::BLOB",
+          "expect": { "warehouse": "<3 bytes>" }
+        },
+        {
+          "key": "duckdb/BLOB/empty",
+          "native_type": "BLOB",
+          "class": "empty",
+          "value_sql": "''::BLOB",
+          "expect": { "warehouse": "<0 bytes>" }
+        },
+        {
+          "key": "duckdb/BLOB/null",
+          "native_type": "BLOB",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/BYTEA/plain",
+          "native_type": "BYTEA",
+          "class": "plain",
+          "value_sql": "'\\x00\\x01\\xFF'::BLOB",
+          "expect": { "warehouse": "<3 bytes>" }
+        },
+        {
+          "key": "duckdb/BINARY/plain",
+          "native_type": "BINARY",
+          "class": "plain",
+          "value_sql": "'\\x00\\x01\\xFF'::BLOB",
+          "expect": { "warehouse": "<3 bytes>" }
+        },
+        {
+          "key": "duckdb/VARBINARY/plain",
+          "native_type": "VARBINARY",
+          "class": "plain",
+          "value_sql": "'\\x00\\x01\\xFF'::BLOB",
+          "expect": { "warehouse": "<3 bytes>" }
+        },
+        {
+          "key": "duckdb/DATE/plain",
+          "native_type": "DATE",
+          "class": "plain",
+          "value_sql": "DATE '2024-03-10'",
+          "expect": { "warehouse": "2024-03-10" }
+        },
+        {
+          "key": "duckdb/DATE/date_before_1970",
+          "native_type": "DATE",
+          "class": "date_before_1970",
+          "value_sql": "DATE '1969-12-31'",
+          "expect": { "warehouse": "1969-12-31" }
+        },
+        {
+          "key": "duckdb/DATE/date_after_2100",
+          "native_type": "DATE",
+          "class": "date_after_2100",
+          "value_sql": "DATE '2150-06-01'",
+          "expect": { "warehouse": "2150-06-01" }
+        },
+        {
+          "key": "duckdb/DATE/null",
+          "native_type": "DATE",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/TIMESTAMP/plain",
+          "native_type": "TIMESTAMP",
+          "class": "plain",
+          "value_sql": "TIMESTAMP '2024-03-10 12:34:56.789'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP/date_before_1970",
+          "native_type": "TIMESTAMP",
+          "class": "date_before_1970",
+          "value_sql": "TIMESTAMP '1969-07-20 20:17:40.5'",
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP/date_after_2100",
+          "native_type": "TIMESTAMP",
+          "class": "date_after_2100",
+          "value_sql": "TIMESTAMP '2150-01-01 00:00:00'",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP/null",
+          "native_type": "TIMESTAMP",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/DATETIME/plain",
+          "native_type": "DATETIME",
+          "class": "plain",
+          "value_sql": "TIMESTAMP '2024-03-10 12:34:56.789'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_US/plain",
+          "native_type": "TIMESTAMP_US",
+          "class": "plain",
+          "value_sql": "TIMESTAMP '2024-03-10 12:34:56.789'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_S/plain",
+          "native_type": "TIMESTAMP_S",
+          "class": "plain",
+          "value_sql": "'2024-03-10 12:34:56'::TIMESTAMP_S",
+          "expect": { "warehouse": "2024-03-10 12:34:56" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_S/date_before_1970",
+          "native_type": "TIMESTAMP_S",
+          "class": "date_before_1970",
+          "value_sql": "'1969-07-20 20:17:40'::TIMESTAMP_S",
+          "expect": { "warehouse": "1969-07-20 20:17:40" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_S/date_after_2100",
+          "native_type": "TIMESTAMP_S",
+          "class": "date_after_2100",
+          "value_sql": "'2150-01-01 00:00:00'::TIMESTAMP_S",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_S/null",
+          "native_type": "TIMESTAMP_S",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_MS/plain",
+          "native_type": "TIMESTAMP_MS",
+          "class": "plain",
+          "value_sql": "'2024-03-10 12:34:56.789'::TIMESTAMP_MS",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_MS/date_before_1970",
+          "native_type": "TIMESTAMP_MS",
+          "class": "date_before_1970",
+          "value_sql": "'1969-07-20 20:17:40.5'::TIMESTAMP_MS",
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_MS/date_after_2100",
+          "native_type": "TIMESTAMP_MS",
+          "class": "date_after_2100",
+          "value_sql": "'2150-01-01 00:00:00'::TIMESTAMP_MS",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_MS/null",
+          "native_type": "TIMESTAMP_MS",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_NS/plain",
+          "native_type": "TIMESTAMP_NS",
+          "class": "plain",
+          "value_sql": "'2024-03-10 12:34:56.789123456'::TIMESTAMP_NS",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789123" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_NS/date_before_1970",
+          "native_type": "TIMESTAMP_NS",
+          "class": "date_before_1970",
+          "value_sql": "'1969-07-20 20:17:40.500000001'::TIMESTAMP_NS",
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_NS/date_after_2100",
+          "native_type": "TIMESTAMP_NS",
+          "class": "date_after_2100",
+          "value_sql": "'2150-01-01 00:00:00'::TIMESTAMP_NS",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP_NS/null",
+          "native_type": "TIMESTAMP_NS",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/TIMESTAMP WITH TIME ZONE/plain",
+          "native_type": "TIMESTAMP WITH TIME ZONE",
+          "class": "plain",
+          "value_sql": "TIMESTAMPTZ '2024-03-10 12:34:56.789+00'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP WITH TIME ZONE/tz_bearing",
+          "native_type": "TIMESTAMP WITH TIME ZONE",
+          "class": "tz_bearing",
+          "value_sql": "TIMESTAMPTZ '2024-03-10 12:34:56+05:30'",
+          "expect": { "warehouse": "2024-03-10 07:04:56" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP WITH TIME ZONE/date_before_1970",
+          "native_type": "TIMESTAMP WITH TIME ZONE",
+          "class": "date_before_1970",
+          "value_sql": "TIMESTAMPTZ '1969-07-20 20:17:40.5+00'",
+          "expect": { "warehouse": "1969-07-20 20:17:40.500000" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP WITH TIME ZONE/date_after_2100",
+          "native_type": "TIMESTAMP WITH TIME ZONE",
+          "class": "date_after_2100",
+          "value_sql": "TIMESTAMPTZ '2150-01-01 00:00:00+00'",
+          "expect": { "warehouse": "2150-01-01 00:00:00" }
+        },
+        {
+          "key": "duckdb/TIMESTAMP WITH TIME ZONE/null",
+          "native_type": "TIMESTAMP WITH TIME ZONE",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/TIMESTAMPTZ/plain",
+          "native_type": "TIMESTAMPTZ",
+          "class": "plain",
+          "value_sql": "TIMESTAMPTZ '2024-03-10 12:34:56.789+00'",
+          "expect": { "warehouse": "2024-03-10 12:34:56.789000" }
+        },
+        {
+          "key": "duckdb/JSON/nested_json",
+          "native_type": "JSON",
+          "class": "nested_json",
+          "value_sql": "'{\"a\":{\"b\":[1,2]},\"s\":\"x\"}'",
+          "expect": { "warehouse": "{\"a\":{\"b\":[1,2]},\"s\":\"x\"}" }
+        },
+        {
+          "key": "duckdb/JSON/array",
+          "native_type": "JSON",
+          "class": "array",
+          "value_sql": "'[1,\"two\",null]'",
+          "expect": { "warehouse": "[1,\"two\",null]" }
+        },
+        {
+          "key": "duckdb/JSON/null",
+          "native_type": "JSON",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        },
+        {
+          "key": "duckdb/INTEGER[]/array",
+          "native_type": "INTEGER[]",
+          "class": "array",
+          "value_sql": "[1, -2, 3]",
+          "expect": { "warehouse": "List([Int(1), Int(-2), Int(3)])" }
+        },
+        {
+          "key": "duckdb/INTEGER[]/empty",
+          "native_type": "INTEGER[]",
+          "class": "empty",
+          "value_sql": "[]",
+          "expect": { "warehouse": "List([])" }
+        },
+        {
+          "key": "duckdb/INTEGER[]/null",
+          "native_type": "INTEGER[]",
+          "class": "null",
+          "value_sql": "NULL",
+          "expect": { "warehouse": null }
+        }
+      ]
+    }
+  }
+}

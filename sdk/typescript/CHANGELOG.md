@@ -5,6 +5,32 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.16.0] - 2026-09-23
+
+### Added
+
+- **`@oxy-hq/sdk/testing` — a typed test context for Oxy Functions.**
+  `createTestContext(manifest, { function, databases })` returns an
+  `OxyFunctionContext` backed by in-memory stores that refuses exactly where the
+  host refuses, in the host's own words: the manifest's capability gates
+  (`secrets.write`, `email.send`, `org.read`, `storage.read` / `storage.write`,
+  `oltp`, `airhouse`), the `destinations` allowlist and the customer-warehouse
+  rule, `ctx.tx` on a non-Postgres database, `warehouse.upsert` where
+  `ON CONFLICT` does not parse, `ctx.fetch`'s SSRF allowlist and byte cap. Every
+  refusal is quoted from the host's source and held there by a Rust drift test,
+  so a reworded refusal reaches an app's tests on its next SDK bump rather than
+  never. Reads answer from a byte copy of the platform's shape zoo, so a
+  `UInt64` above `i64::MAX` arrives as a string in a test as it does in
+  production; `t.state.<store>.zoo()`, `.table(name, columns)` and `.raw(name,
+  rows)` seed rows, the last marked `source: "author"` on every read of it.
+  `t.calls`, `t.ops()`, `t.callsTo(op)` and `t.override(op, impl)` are typed by
+  the host's closed `HostOp` list, and `t.run(fn)` evaluates a handler with the
+  isolate's absent globals (`Buffer`, `TextEncoder`, `process`, …) removed.
+  What it is not: a server, an engine, or a replacement for `oxyc checks run` —
+  a test that passes here and fails there has found the host's words drifting
+  from its behaviour, which is a platform bug to file. Spec and open questions:
+  `internal-docs/sdk-testing-context.md`.
+
 ## [2.15.0] - 2026-09-23
 
 ### Added

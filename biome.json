@@ -112,6 +112,7 @@
       "scripts/ci/**",
       "!sdk/cli/template",
       "!sdk/cli/skills",
+      "!sdk/typescript/src/testing/shape-zoo.json",
       "!**/dist",
       "!**/node_modules",
       "!**/styled-system",

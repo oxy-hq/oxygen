@@ -282,6 +282,73 @@ await ctx.email.send({ to: ctx.user.email, subject: `Hi ${ctx.user.name}`, html 
 Use it for an avatar or a greeting. Hiding a tab with it is fine; the endpoint
 behind that tab is what actually has to say no.
 
+### Testing a function (`@oxy-hq/sdk/testing`)
+
+A typed test context for an Oxy Function's unit tests, so a test meets the
+host's real gates instead of a hand-rolled fake that is more permissive than
+production:
+
+```ts
+import { createTestContext, type HostOp } from "@oxy-hq/sdk/testing";
+import manifest from "../oxy-app.json";
+import handler from "./notify";
+
+const t = createTestContext(manifest, {
+  function: "notify",
+  databases: { warehouse: { dialect: "clickhouse", kind: "customer" } }
+});
+
+await t.run(() => handler({ method: "POST", headers: {}, body: "{}" }, t.ctx));
+
+t.ops();                              // HostOp[] — first-call order, de-duplicated
+t.calls;                              // every host op, in order: { op, args, outcome, message?, result? }
+t.callsTo("warehouse.insert");        // one op's calls
+t.state.warehouse("warehouse").rows("events");
+t.override("warehouse.upsert", async () => ({}));   // replace one host op, typed by name
+```
+
+What it enforces, in the host's own words (every refusal is quoted from the
+host's source and held there by a Rust drift test): the manifest's capability
+gates (`secrets.write`, `email.send`, `org.read`, `storage.read` /
+`storage.write`, `oltp`, `airhouse`); the `destinations` allowlist and the
+customer-warehouse rule for `ctx.warehouse` writes and `ctx.tx`; `ctx.tx` on a
+non-Postgres database; `warehouse.upsert` where `ON CONFLICT` does not parse
+(on Airhouse it refuses in its own words, because there the *engine* refuses);
+`ctx.fetch`'s SSRF allowlist and byte cap. A refusal is an `Error` named
+`HostError` whose message is `"<surface>: <host message>"`, as the runtime
+throws it.
+
+Rows come from a byte copy of the platform's shape zoo, so a ClickHouse
+`UInt64` above `i64::MAX` arrives as a string in a test as it does in
+production: `t.state.warehouse(db).zoo()` creates the zoo table (column `cNNN`
+is case NNN), `.table(name, { id: "UInt64" }).insert(rows)` renders SQL-side
+values through the case for each type, and `.raw(name, rows)` takes JS values
+as-is — every read of those is marked `source: "author"` on its `HostCall`.
+`ctx.oltp` and `ctx.airhouse` have the same stores; `ctx.fetch` answers from
+`t.state.fetch.on(url, { status, body })`; `ctx.org.*` from
+`t.state.org.people` / `.places` / `.assignments`.
+
+`t.run(fn)` evaluates `fn` with the isolate's absent globals removed —
+`Buffer`, `TextEncoder`, `TextDecoder`, `Blob`, `File`, `FormData`, `crypto`,
+`process` — and `btoa` / `atob` replaced by the runtime's own, so a handler
+that reaches for one throws the `ReferenceError` it throws in production. It
+is per call; a vitest environment that removes them for a whole file may
+follow later.
+
+What it is not: a server, a real engine, or a replacement for `oxyc checks
+run`. The context's SQL is a small subset (`CREATE TABLE`, `INSERT … VALUES`,
+`SELECT … FROM … WHERE … = …`, `DELETE`, `UPDATE`), and it says so — an
+unrecognised statement throws a `TestContextError` naming `t.override` and
+`t.state.<store>.raw` as the ways out, rather than answering something the host
+would not. `UPDATE … SET` follows the same rule as a projection: an assignment
+the subset cannot read as a value (`SET n = n + 1`, `SET at = now()`) is
+refused rather than stored as its own SQL text. Nothing here reaches the
+network or the filesystem.
+
+It also needs Node: `@oxy-hq/sdk/testing` imports `node:crypto` at module load
+(the context's `ctx.crypto` is the real one), so it runs under vitest's `node`
+environment and not under browser mode. The rest of the SDK does not.
+
 ## Docs
 
 - Hands-on dev + deploy guide: `docs/local-development.md` in the

@@ -28,13 +28,13 @@ const HOST_RS: &str = include_str!("host.rs");
 /// TypeScript file carries the same two names in its own doc comment, and a
 /// third non-gate field has to be added here on purpose — the test below fails
 /// until it is, which is the point.
-const NOT_GATES: &[&str] = &["storage_retention", "fetch_max_bytes"];
+pub(super) const NOT_GATES: &[&str] = &["storage_retention", "fetch_max_bytes"];
 
 /// Strip full-line `//` comments and `/* … */` blocks, trimming what is left.
 /// The same conservative, line-oriented shape as `custom_apps_client.rs`: a
 /// trailing comment on a line of code is left alone, because deciding where it
 /// starts needs a tokenizer, and nothing scanned here puts a field behind one.
-fn strip_comments(src: &str) -> String {
+pub(super) fn strip_comments(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     let mut in_block = false;
     for line in src.lines() {
@@ -65,7 +65,7 @@ fn strip_comments(src: &str) -> String {
 }
 
 /// Every `"quoted"` string on a line, in order.
-fn quoted(line: &str) -> Vec<String> {
+pub(super) fn quoted(line: &str) -> Vec<String> {
     line.split('"')
         .skip(1)
         .step_by(2)
@@ -74,7 +74,7 @@ fn quoted(line: &str) -> Vec<String> {
 }
 
 /// The `pub <name>:` fields of `pub struct FunctionCapabilities`, in order.
-fn host_capability_fields(host: &str) -> Vec<String> {
+pub(super) fn host_capability_fields(host: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut in_struct = false;
     for line in host.lines() {
@@ -100,7 +100,7 @@ fn host_capability_fields(host: &str) -> Vec<String> {
 /// The `check_storage_capability` arms: which `ctx.storage` op needs
 /// `storage.read`, which `storage.write`. Parsed from lines shaped
 /// `"a" | "b" => (needs_read, needs_write),`.
-fn host_storage_arms(host: &str) -> (BTreeSet<String>, BTreeSet<String>) {
+pub(super) fn host_storage_arms(host: &str) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut read = BTreeSet::new();
     let mut write = BTreeSet::new();
     let mut in_fn = false;
@@ -139,14 +139,14 @@ fn host_storage_arms(host: &str) -> (BTreeSet<String>, BTreeSet<String>) {
 
 /// One entry of `GATED_CAPABILITIES` as the text scan sees it.
 #[derive(Debug, PartialEq, Eq)]
-struct CliEntry {
-    host_field: String,
-    ops: Vec<String>,
+pub(super) struct CliEntry {
+    pub(super) host_field: String,
+    pub(super) ops: Vec<String>,
 }
 
 /// Every `hostField: "…"` in the TypeScript, with the `ops: […]` that follows
 /// it — across lines if the formatter wrapped the array.
-fn cli_entries(ts: &str) -> Vec<CliEntry> {
+pub(super) fn cli_entries(ts: &str) -> Vec<CliEntry> {
     let mut entries: Vec<CliEntry> = Vec::new();
     let mut lines = ts.lines().peekable();
     while let Some(line) = lines.next() {

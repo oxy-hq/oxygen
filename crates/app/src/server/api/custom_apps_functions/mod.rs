@@ -45,6 +45,12 @@ pub mod limits;
 mod result_cache;
 #[cfg(feature = "custom-app-functions")]
 pub mod runtime;
+/// Drift guard: `@oxy-hq/sdk/testing`'s copy of the host's words, gates, op
+/// names and fetch rules (`sdk/typescript/src/testing/host-contract.ts`) says
+/// what the host says. Same shape as `cli_capabilities_drift`: text scans, no
+/// feature, no database.
+#[cfg(test)]
+mod sdk_testing_drift;
 /// The always-compiled dependency-inversion seam (see `seam.rs`).
 pub mod seam;
 /// Per-invocation registry of open `ctx.tx()` transactions.

@@ -350,10 +350,18 @@ jobs:
           # them in anyway). Pooled, fixing one ambient-types error in src would
           # mask a new fixture drift and the step would stay green on exactly
           # what it exists to catch.
-          SDK_TEST_ERROR_BASELINE: 12
-          SDK_TESTFILE_ERROR_BASELINE: 5
-          # 12 test files today; floor just under. See the web-app ratchet.
-          SDK_TESTFILE_FLOOR: 10
+          # Lowered from 12 / 5 when `src/testing/shape-zoo-sync.test.ts`
+          # brought `/// <reference types="node" />` into the program, which
+          # resolved the `process` / `Buffer` / `node:fs` diagnostics the old
+          # baseline was mostly made of. What is left is the two dependency
+          # gaps the advisory step above describes, plus one fixture cast.
+          SDK_TEST_ERROR_BASELINE: 3
+          SDK_TESTFILE_ERROR_BASELINE: 1
+          # 23 test files today; floor just under. See the web-app ratchet.
+          # Raised with the count: the floor exists to catch the project being
+          # narrowed, so slack of 13 measured nothing and the step's own
+          # "raise the floor" notice fired on every run.
+          SDK_TESTFILE_FLOOR: 21
         run: |
           # See the web-app ratchet above for $DIAG, --fail-if-no-match and
           # the `|| rc=$?` form.
@@ -648,21 +656,27 @@ jobs:
         run: |
           set -euo pipefail
           fixture=fixtures/data-shapes/zoo.json
-          copy=customer-apps/examples/platform-canary/functions/shape-zoo.json
-          digest=customer-apps/examples/platform-canary/functions/shape-zoo-sha256.ts
           sync="run node scripts/data-shapes/sync-canary-zoo.mjs from the repo root"
-          if ! cmp -s "$fixture" "$copy"; then
-            echo "::error file=$copy::stale zoo copy: it differs from $fixture. To fix, $sync"
-            diff -u "$fixture" "$copy" || true
-            exit 1
-          fi
           want="$(sha256sum "$fixture" | cut -d " " -f 1)"
-          got="$(grep -oE "[0-9a-f]{64}" "$digest" | head -n 1)"
-          if [ "$want" != "$got" ]; then
-            echo "::error file=$digest::stale ZOO_SHA256: it is $got, the fixture hashes to $want. To fix, $sync"
-            exit 1
-          fi
-          echo "zoo copy and digest match $fixture ($want)"
+          # Two consumers carry a byte copy, for the same reason: neither can
+          # read the fixture when it needs it (the canary's bundle is
+          # self-contained; `@oxy-hq/sdk/testing` runs from the installed
+          # package). The sync script writes both; this checks both.
+          for dir in customer-apps/examples/platform-canary/functions sdk/typescript/src/testing; do
+            copy="$dir/shape-zoo.json"
+            digest="$dir/shape-zoo-sha256.ts"
+            if ! cmp -s "$fixture" "$copy"; then
+              echo "::error file=$copy::stale zoo copy: it differs from $fixture. To fix, $sync"
+              diff -u "$fixture" "$copy" || true
+              exit 1
+            fi
+            got="$(grep -oE "[0-9a-f]{64}" "$digest" | head -n 1)"
+            if [ "$want" != "$got" ]; then
+              echo "::error file=$digest::stale ZOO_SHA256: it is $got, the fixture hashes to $want. To fix, $sync"
+              exit 1
+            fi
+            echo "zoo copy and digest in $dir match $fixture ($want)"
+          done
       - name: Canary timeout is sized for the zoo
         run: |
           set -euo pipefail
