@@ -45,7 +45,8 @@ name: Promote
 #     can write oxy-hq/infrastructure (contents + pull requests). Same app the
 #     release workflows already use.
 #   secrets.SENTRY_READ_TOKEN (scopes event:read, org:read) — the new-issues gate.
-#     REQUIRED. Without it the count reads "not measured" and the prod gate stays
+#     Falls back to the repository's SENTRY_AUTH_TOKEN when unset.
+#     One of the two is REQUIRED. Without either, the count reads "not measured" and the prod gate stays
 #     blocked, because a gate that passes unmeasured is not a gate — and since the
 #     gate passing is what tells a human the bump is theirs to merge, an unset
 #     token means nobody is ever told. It fails closed in the loud direction.
@@ -174,6 +175,9 @@ jobs:
         id: plan1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The bump PR, its markers and the values files live in the private
+          # infra repo, which GITHUB_TOKEN cannot see (every pass 404'd on it).
+          INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}
           SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
@@ -201,7 +205,10 @@ jobs:
       - name: Count new Sentry issues in the candidate's release
         id: sentry
         env:
-          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          # Else the repository's SENTRY_AUTH_TOKEN, as custom-app-checks.yaml does
+          # (#3319). A token without event:read fails the query, which reads as
+          # "not measured" — and that blocks prod, the safe direction.
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
           VERSION: ${{ steps.plan1.outputs.staging_version }}
           SHA: ${{ steps.plan1.outputs.candidate }}
         run: |
@@ -234,6 +241,9 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The bump PR, its markers and the values files live in the private
+          # infra repo, which GITHUB_TOKEN cannot see (every pass 404'd on it).
+          INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}
           SHA: ${{ inputs.sha }}
           TARGET: ${{ inputs.target || 'all' }}
           SENTRY_COUNT: ${{ steps.sentry.outputs.count }}
@@ -512,6 +522,9 @@ jobs:
         id: plan2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The bump PR, its markers and the values files live in the private
+          # infra repo, which GITHUB_TOKEN cannot see (every pass 404'd on it).
+          INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}
           CANDIDATE: ${{ steps.plan.outputs.candidate }}
           TARGET: ${{ inputs.target || 'all' }}
           SENTRY_COUNT: ${{ steps.sentry.outputs.count }}
@@ -741,7 +754,10 @@ jobs:
         timeout-minutes: 25
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
+          # Else the repository's SENTRY_AUTH_TOKEN, as custom-app-checks.yaml does
+          # (#3319). A token without event:read fails the query, which reads as
+          # "not measured" — and that blocks prod, the safe direction.
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
           CANDIDATE: ${{ steps.plan.outputs.candidate }}
           PREVIOUS: ${{ steps.plan1.outputs.prod_sha }}
           VERSION: ${{ steps.plan1.outputs.staging_version }}

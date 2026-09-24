@@ -920,6 +920,7 @@ async function plan({
   sha,
   now,
   token,
+  infraToken,
   envs,
   sentryNewIssues,
   dispatched
@@ -928,6 +929,14 @@ async function plan({
   sha: string | null;
   now: Date;
   token: Token;
+  /**
+   * For oxy-hq/infrastructure only — the bump PR, its markers, the values files.
+   * A separate token because no one token reads both sides: the workflow's
+   * GITHUB_TOKEN cannot see the private infra repo (every scheduled pass died at
+   * `GET …/pulls → 404`), and the infra App token is scoped to that repo alone,
+   * so it cannot read oxygen-internal's CI status.
+   */
+  infraToken: Token;
   envs: Record<string, { baseUrl: string }>;
   sentryNewIssues: number;
   dispatched: boolean;
@@ -959,23 +968,23 @@ async function plan({
   const prod = await servedSha(baseUrl("prod"));
   if (prod?.sha) prod.internal = await internalShaFor(prod.sha, token);
   if (staging?.sha) staging.internal = await internalShaFor(staging.sha, token);
-  const pr = await bumpPr(token, {
+  const pr = await bumpPr(infraToken, {
     repo: "oxy-hq/infrastructure",
     branch: "chore/bump-oxy-prod-image"
   });
 
   const infra = { repo: "oxy-hq/infrastructure", pr: pr?.number };
   const since = candidate
-    ? await markerAt(token, { ...infra, marker: SOAK_MARKER(candidate.sha) })
+    ? await markerAt(infraToken, { ...infra, marker: SOAK_MARKER(candidate.sha) })
     : null;
   const readyAt = candidate
-    ? await markerAt(token, { ...infra, marker: READY_MARKER(candidate.sha) })
+    ? await markerAt(infraToken, { ...infra, marker: READY_MARKER(candidate.sha) })
     : null;
   const alertedAt = candidate
-    ? await markerAt(token, { ...infra, marker: STUCK_MARKER(candidate.sha), pick: "latest" })
+    ? await markerAt(infraToken, { ...infra, marker: STUCK_MARKER(candidate.sha), pick: "latest" })
     : null;
   const dispatchedAt = candidate
-    ? await markerAt(token, {
+    ? await markerAt(infraToken, {
         ...infra,
         marker: CHECKS_MARKER(candidate.sha),
         // The MOST RECENT dispatch: the age of the oldest one only grows, so
@@ -989,7 +998,7 @@ async function plan({
   const drift = pinDrift({
     candidateSha: candidate?.sha ?? null,
     candidatePin,
-    stagingPin: (await pinnedAt(STAGING_VALUES, "main", token)) ?? null
+    stagingPin: (await pinnedAt(STAGING_VALUES, "main", infraToken)) ?? null
   });
   const build = buildAlert(await latestReleaseRun(token), { now });
   const stagingServesCandidate = Boolean(candidate && staging?.sha === candidate.sha);
@@ -1604,6 +1613,20 @@ function selfTest(): void {
     drained,
     []
   );
+  // Every plan reads the private infra repo — the bump PR, its markers, the
+  // values files — and the workflow's GITHUB_TOKEN cannot see it. The first
+  // scheduled passes after this merged all died at `GET …/pulls → 404`, because
+  // locally the plan had only ever run with a personal token that reads both.
+  const planSteps = steps.filter(({ chunk }) => chunk.includes("args=(--plan"));
+  const tokenless = planSteps
+    .filter(({ chunk }) => !chunk.includes("INFRA_TOKEN: ${{ steps.infra-token.outputs.token }}"))
+    .map(({ name }) => name);
+  is(
+    `every --plan step passes the infra token (missing: ${tokenless.join(", ") || "none"})`,
+    tokenless,
+    []
+  );
+  is(`...and all three plan steps are found (${planSteps.length})`, planSteps.length, 3);
   // The plan reads the values files the workflow writes. Two spellings of one
   // path drift apart silently: the drift check would read a file nobody pins.
   is(
@@ -1682,6 +1705,9 @@ if (!invokedDirectly) {
     console.error("GH_TOKEN is required for --plan");
     process.exit(1);
   }
+  // A person running --plan with their own token can read both repos with it;
+  // the workflow cannot, and the self-test holds every --plan step to passing one.
+  const infraToken = process.env.INFRA_TOKEN || token;
   const envsPath = arg("envs", ".github/custom-app-checks.json");
   const envs = JSON.parse(await readFile(envsPath, "utf8"));
   const result = await plan({
@@ -1689,6 +1715,7 @@ if (!invokedDirectly) {
     sha: arg("sha") || null,
     now: arg("now") ? new Date(arg("now") as string) : new Date(),
     token,
+    infraToken,
     envs,
     // -1 is "not measured", and anything that is not a number has to land there
     // too: `Number("")` is 0, so a flag passed with an empty value would have read
