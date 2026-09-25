@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.153] - 2026-09-25
+
+### 🚀 Features
+
+- A typed test context so a function's unit tests meet the host's real gates (#3316)
+- Ci can run an app's checks with a trusted role, and store no key (#3325)
+- Sign and digest-pin the oxy image, weekly dora metrics, kargo decision (#3326)
+- Tolerate migration ledger rows from a newer release (revert-safe migrations) (#2786)
+- Make 0.5.153 the carrier release for ledger tolerance (#3334)
+- Label every custom app and function by default — no watchlist env var to maintain (#3333)
+
+### 🐛 Bug Fixes
+
+- A compile that dies before it starts must still trigger the backoff (#3329)
+- Promote reads infra with the infra token, and sentry with the repository token (#3332)
+- Web-app acting-as banner no longer pushes the rail's user menu off screen (#3331)
+
+### 💼 Other
+
+- *(deps-dev)* Bump the dev-npm-minor-dependencies group across 2 directories with 12 updates (#3324)
+
+### 📚 Documentation
+
+- Bring docs/ in line with the code on main (#3330)
+
+### ⚙️ Miscellaneous Tasks
+
+- The release checks need three secrets, not seven, and the schedule turns itself on (#3319)
+
 ## [0.5.152] - 2026-09-24
 
 ### 🚀 Features
@@ -24,6 +53,10 @@ All notable changes to this project will be documented in this file.
 ### 🧪 Testing
 
 - The route label's cardinality argument had no test that could fail (#3306)
+
+### ⚙️ Miscellaneous Tasks
+
+- Release 0.5.152 (#3309)
 
 ## [0.5.151] - 2026-09-23
 
