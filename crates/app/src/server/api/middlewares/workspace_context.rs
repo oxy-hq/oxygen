@@ -1090,11 +1090,11 @@ const COMPILE_TASK_TERMINAL_STATUSES: [&str; 4] = ["completed", "failed", "dead"
 /// path while holding an advisory lock. The two existing indexes cannot help:
 /// both are partial on `queued` / `claimed`, the non-terminal rows.
 ///
-/// **The index is absent in 0.5.153.** Its migration's registration is held
-/// back for that release — the carrier for ledger tolerance — so a fresh
-/// 0.5.153 database runs this query as the sequential scan described above,
-/// exactly as 0.5.152 did. It re-lands for 0.5.154; the reason is on
-/// `RuntimeMigrator::migrations()` in `crates/agentic/runtime/src/migration.rs`.
+/// The index ships in the 0.5.154 release. The 0.5.153 *release* — tag
+/// `0.5.153`, the carrier for ledger tolerance — held its registration back,
+/// so a database that only ever ran that image serves this query with the
+/// sequential scan described above. A `main` build still reporting 0.5.153
+/// after the cut does carry it: the version names the release, not the build.
 ///
 /// Change either predicate, the ordering, or the column list and the index
 /// silently stops being used. That is a planner regression, not an error, so
