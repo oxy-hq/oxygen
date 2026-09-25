@@ -164,7 +164,7 @@ pub async fn create_invitation(
             tracing::error!("Failed to lookup inviter: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let base_url = crate::server::api::auth::extract_base_url_from_headers(&headers);
+    let base_url = crate::server::api::auth::extract_link_base_for_authenticated_request(&headers);
     let inviter_name = inviter
         .as_ref()
         .map(|u| u.name.clone())
@@ -322,7 +322,7 @@ pub async fn create_bulk_invitations(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let base_url = crate::server::api::auth::extract_base_url_from_headers(&headers);
+    let base_url = crate::server::api::auth::extract_link_base_for_authenticated_request(&headers);
     let inviter_name = inviter
         .as_ref()
         .map(|u| u.name.clone())

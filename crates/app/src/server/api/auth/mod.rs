@@ -29,4 +29,4 @@ pub use handlers::*;
 pub(crate) use ops::clear_session_cookie;
 pub(crate) use ops::validate_return_to_url;
 // `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
-pub use ops::extract_base_url_from_headers;
+pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};

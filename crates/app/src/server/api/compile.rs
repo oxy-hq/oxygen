@@ -169,8 +169,12 @@ pub async fn enqueue_compile(
     //     click, the idempotency lookup never finds a match and each
     //     compile lands as its own row. The partial unique index also
     //     doesn't collide because the SHAs differ.
-    let default_branch =
-        crate::server::default_branch::resolve_default_branch(&db, workspace_id).await;
+    let default_branch = crate::server::default_branch::compile_default_branch(
+        &db,
+        workspace_id,
+        std::path::Path::new(workspace_path),
+    )
+    .await;
 
     let (target_branch, git_sha) = match default_branch.as_deref() {
         Some(default) => {
@@ -332,8 +336,17 @@ pub async fn compile_status(
     // identity and there's no branch state to gate against. When a
     // default branch IS known, restrict Compile to it — non-default
     // branches read from FS and don't need to update Postgres.
-    let default_branch =
-        crate::server::default_branch::resolve_default_branch(&db, workspace_id).await;
+    let default_branch = match workspace.path.as_deref() {
+        Some(path) => {
+            crate::server::default_branch::compile_default_branch(
+                &db,
+                workspace_id,
+                std::path::Path::new(path),
+            )
+            .await
+        }
+        None => None,
+    };
     let can_compile = match default_branch.as_deref() {
         Some(default) => q.branch == default,
         None => true,

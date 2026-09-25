@@ -530,7 +530,101 @@ fn extract_base_url_raw(headers: &HeaderMap) -> String {
         let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
         return format!("{}://{}{}", url.scheme(), host, port);
     }
+
     "http://localhost:3000".to_string()
+}
+
+/// The origin for a link an AUTHENTICATED caller causes to be sent — an
+/// invitation, an org's Owner invite. As [`extract_base_url_from_headers`],
+/// plus one step before its localhost default: a request with no `Origin` and
+/// no `Referer` (`oxyc`, a script) gets `Host` and the proxy's scheme, as the
+/// frontline enrol link has always composed it. An invitation `oxyc` created
+/// on staging used to email `http://localhost:3000/invite/…`.
+///
+/// Authenticated callers only, deliberately. `Host` is attacker-supplied on an
+/// anonymous request, so the magic-link path must not use this: a forged
+/// `Host` would mail someone else's sign-in link to the forger's server. Here
+/// the only person who can forge it is the one sending their own invitation.
+pub fn extract_link_base_for_authenticated_request(headers: &HeaderMap) -> String {
+    let browser_told_us = headers.contains_key("origin") || headers.contains_key("referer");
+    let host = headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .map(str::trim)
+        .filter(|h| !h.is_empty());
+    let (false, Some(host)) = (browser_told_us, host) else {
+        return extract_base_url_from_headers(headers);
+    };
+    let scheme = match headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+    {
+        Some(p) if p.eq_ignore_ascii_case("http") => "http",
+        Some(_) => "https",
+        None if is_request_secure(headers) => "https",
+        None if host.starts_with("localhost") || host.starts_with("127.0.0.1") => "http",
+        None => "https",
+    };
+    pin_org_subdomain_to_app_host(format!("{scheme}://{host}"))
+}
+
+#[cfg(test)]
+mod base_url_tests {
+    use super::{extract_base_url_raw, extract_link_base_for_authenticated_request};
+    use axum::http::HeaderMap;
+
+    fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        for (k, v) in pairs {
+            h.insert(*k, v.parse().unwrap());
+        }
+        h
+    }
+
+    #[test]
+    fn a_cli_request_links_to_the_host_it_addressed() {
+        let h = headers(&[
+            ("host", "aip.staging.oxy.tech"),
+            ("x-forwarded-proto", "https"),
+        ]);
+        assert_eq!(
+            extract_link_base_for_authenticated_request(&h),
+            "https://aip.staging.oxy.tech"
+        );
+    }
+
+    #[test]
+    fn a_local_host_without_a_proxy_stays_http() {
+        let h = headers(&[("host", "localhost:3000")]);
+        assert_eq!(
+            extract_link_base_for_authenticated_request(&h),
+            "http://localhost:3000"
+        );
+    }
+
+    #[test]
+    fn origin_still_wins_over_host() {
+        let h = headers(&[
+            ("origin", "https://app.oxygen-hq.com"),
+            ("host", "internal:3000"),
+        ]);
+        assert_eq!(extract_base_url_raw(&h), "https://app.oxygen-hq.com");
+    }
+
+    #[test]
+    fn the_anonymous_helper_never_trusts_host() {
+        // The magic-link path: a forged Host must not reach the emailed link.
+        let h = headers(&[("host", "evil.example"), ("x-forwarded-proto", "https")]);
+        assert_eq!(extract_base_url_raw(&h), "http://localhost:3000");
+    }
+
+    #[test]
+    fn no_headers_at_all_keeps_the_dev_default() {
+        assert_eq!(
+            extract_base_url_raw(&HeaderMap::new()),
+            "http://localhost:3000"
+        );
+    }
 }
 
 /// Centralized auth: OAuth callbacks and magic-link emails must resolve to a

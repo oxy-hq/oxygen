@@ -291,7 +291,8 @@ pub async fn create_org(
     // token are already the source of truth, so a send failure never fails
     // the request). Seeded owners get no email by design.
     if let Some((to_email, token)) = pending_invite {
-        let base_url = crate::server::api::auth::extract_base_url_from_headers(&headers);
+        let base_url =
+            crate::server::api::auth::extract_link_base_for_authenticated_request(&headers);
         let inviter_name = actor.name.clone();
         // The inviter's ADDRESS, not their display label — this is the
         // reply-to an invitation carries. Empty when the actor has none, which

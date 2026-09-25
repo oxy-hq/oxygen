@@ -73,6 +73,27 @@ pub async fn resolve_default_branch(db: &DatabaseConnection, workspace_id: Uuid)
     Some(branch)
 }
 
+/// The default branch the Compile action gates on and ships HEAD of, or `None`
+/// for a workspace with no repository at all.
+///
+/// Not the same question as [`resolve_default_branch`], which inherits the git
+/// client's `"main"` fallback when the lookup fails — right for the compiled
+/// reader, wrong here. The blank `Default` workspace every admin-created org
+/// starts with has no `.git`, so that fallback sent it down the git path and
+/// every Compile answered 409 "could not resolve HEAD commit on main": the
+/// workspace could never pick up an edit. With no repository, Compile takes
+/// the snapshot path meant for exactly this case.
+pub async fn compile_default_branch(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+    workspace_path: &std::path::Path,
+) -> Option<String> {
+    if !oxy::github::default_git_client().is_git_repo(workspace_path) {
+        return None;
+    }
+    resolve_default_branch(db, workspace_id).await
+}
+
 fn read_cache(workspace_id: Uuid) -> Option<String> {
     let guard = cache().read().ok()?;
     let entry = guard.get(&workspace_id)?;
@@ -91,5 +112,22 @@ fn write_cache(workspace_id: Uuid, branch: &str) {
                 fetched_at: Instant::now(),
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_default_branch;
+    use sea_orm::DatabaseConnection;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn a_workspace_with_no_repository_compiles_as_a_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        // No `.git`: answered before any DB read, so a disconnected handle is fine.
+        let branch =
+            compile_default_branch(&DatabaseConnection::default(), Uuid::new_v4(), dir.path())
+                .await;
+        assert_eq!(branch, None);
     }
 }
