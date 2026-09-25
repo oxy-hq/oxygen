@@ -35,6 +35,13 @@ use std::env;
 /// (`oxy run`, `oxy validate`) has no reader for its trace ids, and in a shell
 /// that happens to carry `OTEL_EXPORTER_OTLP_ENDPOINT` — `.env` is
 /// auto-loaded — it would pay the exporter's flush at every exit.
+///
+/// Only these three get the product `SpanCollectorLayer` either, and for a
+/// harder reason: they are the commands that call
+/// `observability_boot::finalize()`, the only thing that drains its unbounded
+/// channel. Anything else would hold every span it closes until it exits.
+/// `oxy-app`'s `observability_boot::entry_point_tests` reads this list, so a
+/// command added here without a `finalize` fails the build.
 fn server_command(args: &[String]) -> Option<&str> {
     args.iter()
         .skip(1)
@@ -138,14 +145,16 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async {
-            // Install the subscriber: Sentry + stderr/file + (if enterprise)
-            // the SpanCollectorLayer + (if an OTLP endpoint is configured) the
+            // Install the subscriber: Sentry + stderr/file + (for a server
+            // command with OXY_OBSERVABILITY_BACKEND set) the
+            // SpanCollectorLayer + (if an OTLP endpoint is configured) the
             // OpenTelemetry exporters. The observability *store* isn't wired
             // yet — the `oxy start` path boots its ClickHouse container and
             // only then are `OXY_CLICKHOUSE_*` set; `observability_boot::
             // finalize()` is called from `serve.rs` once that endpoint is
-            // available. The OTel resource needs the fleet role now, before
-            // clap has parsed anything, so it is read from OXY_ROLE + argv.
+            // available, and from `worker.rs` at boot. The OTel resource needs
+            // the fleet role now, before clap has parsed anything, so it is
+            // read from OXY_ROLE + argv.
             let command = server_command(&args);
             let role =
                 oxy_telemetry::resource::role_hint(command, env::var("OXY_ROLE").ok().as_deref());
@@ -153,7 +162,10 @@ fn main() {
             if command.is_none() {
                 otel.sdk_disabled = true;
             }
-            let telemetry_problems = logging::init(observability_enabled, &otel, command.is_some());
+            // Only a command that drains the span channel may fill it — see
+            // `server_command`.
+            let collect_product_spans = observability_enabled && command.is_some();
+            let telemetry_problems = logging::init(collect_product_spans, &otel, command.is_some());
             for problem in telemetry_problems {
                 tracing::warn!(%problem, "platform telemetry degraded");
             }

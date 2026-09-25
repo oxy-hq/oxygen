@@ -222,9 +222,10 @@ pub fn init(observability_enabled: bool, otel: &OtelConfig, server_command: bool
 
     // Product observability: the SpanCollectorLayer is built here so startup
     // spans are captured, but its store is not ready yet (under `oxy start`
-    // Postgres has not booted) — the receiver is stashed and `serve.rs` wires
-    // the bridge once the DB URL is set. Its own filter keeps agent/automation
-    // spans flowing regardless of OXY_LOG_LEVEL.
+    // Postgres has not booted) — the receiver is stashed and `serve.rs` or
+    // `worker.rs` wires the bridge (`observability_boot::finalize`). `main`
+    // only asks for this layer on the commands that do. Its own filter keeps
+    // agent/automation spans flowing regardless of OXY_LOG_LEVEL.
     if observability_enabled {
         let (layer, receiver) = oxy_observability::build_layer_and_receiver();
         observability_boot::stash_receiver(receiver);

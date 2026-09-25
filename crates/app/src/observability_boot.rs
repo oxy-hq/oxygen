@@ -6,14 +6,27 @@
 //! startup begins. We bridge this gap by:
 //!
 //! 1. In `main.rs`, create the SpanCollectorLayer + its channel and install
-//!    the layer into the subscriber. Stash the receiver in [`stash_receiver`].
-//! 2. Later, in `serve.rs` — by which point `OXY_CLICKHOUSE_*` is set for both
-//!    paths (externally for `oxy serve`, by `oxy start` once its container is
-//!    ready) — call [`finalize`] to resolve the backend, spawn the bridge
-//!    task, and register the global store.
+//!    the layer into the subscriber — for the server commands only (`serve`,
+//!    `start`, `worker`). Stash the receiver in [`stash_receiver`].
+//! 2. Later, in each of those commands' boot, call [`finalize`] to resolve the
+//!    backend, spawn the bridge task, and register the global store:
+//!    - `serve.rs` (`start_server_and_web_app`, which `oxy start` delegates
+//!      to) — by which point `OXY_CLICKHOUSE_*` is set for both paths
+//!      (externally for `oxy serve`, by `oxy start` once its container is
+//!      ready);
+//!    - `worker.rs` (`run_worker`), before the run drivers start.
 //!
 //! Spans emitted between step 1 and step 2 accumulate in the unbounded channel
 //! and get flushed as soon as the bridge spawns.
+//!
+//! Step 2 is not optional. A process that installs the layer and never calls
+//! [`finalize`] keeps every span it closes, for as long as it lives: the
+//! channel is unbounded and nothing reads it. `oxy worker` was that process
+//! until 2026-09 — its latency worker closes a span every poll, and prod
+//! worker pods grew ~10 MiB/h until the 1 GiB limit OOM-killed them. Every
+//! other command (one-shot CLI, `oxy mcp`) never reaches a `finalize`, which
+//! is why `main.rs` does not give them the layer. `entry_point_tests` holds
+//! `main.rs`'s list and the `finalize` call sites together.
 //!
 //! If ClickHouse is unavailable at step 2, [`finalize`] keeps retrying in the
 //! background ([`retry`]) instead of giving up. It used to drop the receiver on
@@ -25,6 +38,8 @@
 //! A store installed by the retry is only in the global, so request handlers
 //! must read it through `AppState::observability()`, never the boot-time field.
 
+#[cfg(test)]
+mod entry_point_tests;
 mod retry;
 
 use std::sync::Arc;
@@ -186,9 +201,10 @@ fn install(receiver: UnboundedReceiver<SpanRecord>, store: Arc<dyn Observability
 /// Resolve the backend, spawn the bridge task against the stashed receiver,
 /// and register the global store.
 ///
-/// Called from `serve.rs` once `OXY_CLICKHOUSE_*` is guaranteed set. Safe to
-/// call when no receiver was stashed (OXY_OBSERVABILITY_BACKEND unset) — it
-/// becomes a no-op.
+/// Called from `serve.rs` once `OXY_CLICKHOUSE_*` is guaranteed set, and from
+/// `worker.rs` before the run drivers start — every command `main.rs`
+/// installs the layer for (see the module doc). Safe to call when no receiver
+/// was stashed (OXY_OBSERVABILITY_BACKEND unset) — it becomes a no-op.
 ///
 /// The first attempt runs inline, so on a healthy ClickHouse the store is
 /// registered before the router serves. Boot waits for it at most

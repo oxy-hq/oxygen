@@ -266,6 +266,26 @@ pub async fn run_worker(args: WorkerArgs) -> Result<(), OxyError> {
     // where the operator can see it.
     crate::airway_boot::install_deployment_tier_from_env().await;
 
+    // Wire the product observability store, as `start_server_and_web_app`
+    // does. `main` installs the `SpanCollectorLayer` for this command too
+    // whenever `OXY_OBSERVABILITY_BACKEND` is set, and parks its receiver
+    // until someone calls `finalize`. Nobody did here, so on every worker pod:
+    //
+    //   - the span channel was never drained. It is unbounded, and the
+    //     latency worker closes a `driver_tick` span every poll (300ms in
+    //     dev and prod), so it grew for the life of the pod: ~10 MiB/h of
+    //     RSS from 0.5.145 on, until the 1 GiB limit OOM-killed it.
+    //   - the custom-app sinks were never installed, so `record_event` and
+    //     `record_logs` were no-ops: no `custom_app_events` / `custom_app_logs`
+    //     row for any function invocation the worker ran.
+    //   - the global store stayed unset, so agentic runs driven here recorded
+    //     no metric usage either.
+    //
+    // Before `WorkerRuntime::start` and the run drivers, so the sinks exist
+    // before the first invocation this process can run. `OXY_CLICKHOUSE_*`
+    // comes from the pod spec, so unlike `oxy start` nothing has to boot first.
+    crate::observability_boot::finalize().await;
+
     // Initialize the feature-flag cache — which wires the `oltp` kill-switch
     // bridge, starts the refresh, and reads the flags. Without it the worker's
     // OLTP resolutions (Airway landing into `raw_*`, the analyst for agentic
