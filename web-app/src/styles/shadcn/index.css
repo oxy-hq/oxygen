@@ -336,6 +336,14 @@ body.is-acting [data-slot="sidebar"] > div.fixed {
   height: calc(100svh - var(--acting-banner-h));
 }
 
+/* In-flow chrome sized to the viewport has the opposite problem: it sits inside
+ * the shrunk `.root` but still claims `100svh`, so it overflows by the banner's
+ * height and `overflow: hidden` clips its bottom — for `SidebarProvider`'s
+ * `min-h-svh` wrapper, that was the rail's user menu. */
+body.is-acting [data-slot="sidebar-wrapper"] {
+  min-height: calc(100svh - var(--acting-banner-h));
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--sidebar-border) transparent;
