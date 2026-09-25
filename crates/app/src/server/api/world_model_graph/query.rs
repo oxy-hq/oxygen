@@ -65,8 +65,8 @@ pub(super) async fn load_layer_and_promotions(
 /// incantation verbatim, so it lives here in one place.
 pub(super) async fn resolve_world_model_config(
     workspace_manager: &WorkspaceManager<WorkingCopy>,
-) -> Option<crate::server::api::world_model_config::WorldModelConfig> {
-    crate::server::api::world_model_config::WorldModelConfig::resolve(
+) -> Option<oxy_world_model::world_model_config::WorldModelConfig> {
+    oxy_world_model::world_model_config::WorldModelConfig::resolve(
         &workspace_manager.config_manager,
     )
     .await
@@ -771,9 +771,9 @@ fn measure_agg(measure_type: MeasureType, expr: &str) -> Option<String> {
 pub(super) fn apply_world_model_config(
     entities: &mut Vec<WmEntity>,
     edges: &mut Vec<WmEdge>,
-    cfg: &crate::server::api::world_model_config::WorldModelConfig,
+    cfg: &oxy_world_model::world_model_config::WorldModelConfig,
 ) {
-    use crate::server::api::world_model_config::{WmEntityConfig, WmFieldConfig};
+    use oxy_world_model::world_model_config::{WmEntityConfig, WmFieldConfig};
     use std::collections::{HashMap, HashSet};
 
     let entity_map: HashMap<&str, &WmEntityConfig> =
@@ -859,7 +859,7 @@ mod wm_config_tests {
     use oxy_airlayer_compat::schema::models::AdditivityClass;
 
     use super::*;
-    use crate::server::api::world_model_config::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
+    use oxy_world_model::world_model_config::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
 
     fn make_entity(id: &str) -> WmEntity {
         WmEntity {
@@ -1312,7 +1312,7 @@ mod wm_config_tests {
 pub(super) fn build_entity_metas(
     layer: &oxy_airlayer_compat::SemanticLayer,
     promotions: &Promotions,
-    wm_cfg: Option<&crate::server::api::world_model_config::WorldModelConfig>,
+    wm_cfg: Option<&oxy_world_model::world_model_config::WorldModelConfig>,
 ) -> Vec<EntityMeta> {
     let get_display_field = |entity_id: &str| -> Option<String> {
         wm_cfg

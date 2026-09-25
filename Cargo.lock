@@ -9449,6 +9449,7 @@ dependencies = [
  "oxy-telemetry",
  "oxy-test-utils",
  "oxy-workspace-fs",
+ "oxy-world-model",
  "parking_lot 0.12.5",
  "parquet",
  "rand 0.10.2",
@@ -10053,6 +10054,17 @@ dependencies = [
  "async-trait",
  "oxy-shared",
  "workspace-hack",
+]
+
+[[package]]
+name = "oxy-world-model"
+version = "0.5.151"
+dependencies = [
+ "oxy",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tracing",
 ]
 
 [[package]]

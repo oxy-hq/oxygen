@@ -70,6 +70,7 @@ oxy-cameras = { workspace = true }
 oxy-compile = { workspace = true }
 oxy-project = { workspace = true }
 oxy-semantic = { workspace = true }
+oxy-world-model = { workspace = true }
 oxy-metric-monitoring = { workspace = true }
 entity = { workspace = true }
 

@@ -234,7 +234,7 @@ pub(crate) async fn build_world_model_response<S: oxy::config::DiskSlot>(
     // overrides). Compile boundary first (serve replicas have no working
     // copy), FS fallback — see `WorldModelConfig::resolve`.
     if let Some(cfg) =
-        crate::server::api::world_model_config::WorldModelConfig::resolve(config_manager).await?
+        oxy_world_model::world_model_config::WorldModelConfig::resolve(config_manager).await?
     {
         apply_world_model_config(&mut entities, &mut edges, &cfg);
     }
@@ -342,7 +342,7 @@ pub(crate) async fn instances_core(
     // Look up display_field from .world-model.yml (silently ignore load errors here —
     // the instances endpoint is a picker convenience, not security-critical).
     // Compile boundary first (serve replicas have no working copy), FS fallback.
-    let display_field = crate::server::api::world_model_config::WorldModelConfig::resolve(
+    let display_field = oxy_world_model::world_model_config::WorldModelConfig::resolve(
         &workspace_manager.config_manager,
     )
     .await

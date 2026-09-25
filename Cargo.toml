@@ -30,6 +30,7 @@ members = [
   "crates/shared",
   "crates/simulation",
   "crates/test-utils",
+  "crates/world-model",
   "crates/infrastructure/llm/oxy-llm",
   "crates/infrastructure/semantic",
   "crates/agentic/analytics",
@@ -115,6 +116,7 @@ oxy-shared = { path = "crates/shared" }
 oxy-test-utils = { path = "crates/test-utils" }
 oxy-unifi = { path = "crates/integration/unifi" }
 oxy-workspace-fs = { path = "crates/workspace-fs" }
+oxy-world-model = { path = "crates/world-model" }
 
 # External dependencies
 async-openai = { version = "0.41.3" }
