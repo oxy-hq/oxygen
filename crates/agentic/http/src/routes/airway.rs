@@ -338,7 +338,7 @@ pub struct ChunkedBackfillRequest {
     #[serde(default)]
     pub resources: Vec<String>,
     /// Accepted for compatibility and IGNORED: chunks of one pipeline run one
-    /// at a time. They share a single `<table>_raw` staging buffer whose fold
+    /// at a time. They share a single `<schema>_raw.<table>` staging buffer whose fold
     /// watermark spans the whole buffer, so a parallel chunk's fold drains
     /// another's partially-loaded rows. Defaults to 1; the driver clamps
     /// regardless, and a higher value only logs a warning.
@@ -394,7 +394,7 @@ pub async fn chunked_backfill(
     };
     let workspace_id = platform.workspace_id();
     // 1, not 4: chunks of one pipeline are serialized (they share a single
-    // `<table>_raw` staging buffer whose fold watermark spans the whole buffer).
+    // `<schema>_raw.<table>` staging buffer whose fold watermark spans the whole buffer).
     // The driver clamps regardless, so a persisted 4 only bought an
     // ignored-value warning on every drive of every HTTP-created range.
     let concurrency = body.concurrency.unwrap_or(1).clamp(1, 16);

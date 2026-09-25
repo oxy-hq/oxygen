@@ -505,9 +505,12 @@ enum WriteDispositionLabel {
     Append,
     Replace,
     Merge,
-    /// Append to a `<table>_raw` buffer; a scheduled airhouse vacuum
-    /// compaction rebuilds the public table latest-wins. Avoids the
-    /// O(target) `MERGE INTO` that OOMs the data plane on large tables.
+    /// Append to a buffer table in a sibling schema, `<schema>_raw.<table>`,
+    /// then fold it into the public table latest-wins. The fold runs inline
+    /// at the end of every successful load, and airhouse's scheduled vacuum
+    /// runs the same fold again as a safety net — the vacuum is not the only
+    /// thing that rebuilds the table. Avoids the O(target) `MERGE INTO` that
+    /// OOMs the data plane on large tables.
     Replacing,
 }
 

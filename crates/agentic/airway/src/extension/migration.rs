@@ -447,7 +447,7 @@ impl MigrationTrait for AddRetryStateToRunExtensions {
 ///     row. The optimistic `version` check makes the loser *fail its save*
 ///     rather than merge — leaving a window silently skipped or re-pulled.
 ///  2. **Duplicate rows downstream.** Each run ends with a merge-on-read fold
-///     of `<table>_raw` into the served table. Two folds whose snapshots
+///     of `<schema>_raw.<table>` into the served table. Two folds whose snapshots
 ///     overlap each purge against a base the other has not committed yet, so
 ///     both versions of a changed row survive. Measured on pokehouse
 ///     (2026-08-05): 34 excess rows in `toast_pos.orders`, 104 in

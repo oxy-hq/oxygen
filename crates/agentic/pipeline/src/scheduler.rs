@@ -1675,7 +1675,7 @@ pub async fn backfill_schedule(
     // Cron-replay seeds every occurrence at once, which is a request for N
     // concurrent runs of one pipeline — exactly what single-flight forbids, and
     // for the same reason chunked backfill is now pinned to one chunk at a time:
-    // every run of a pipeline shares one `<table>_raw` staging buffer, and a
+    // every run of a pipeline shares one `<schema>_raw.<table>` staging buffer, and a
     // fold's watermark spans the whole buffer, so concurrent runs consume each
     // other's half-loaded rows.
     //

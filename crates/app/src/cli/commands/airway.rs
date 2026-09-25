@@ -141,7 +141,7 @@ pub struct AirwayBackfillArgs {
     /// higher value is ignored — concurrent chunks of one pipeline are unsafe
     /// for three reasons, only the first of which was previously understood:
     ///
-    ///  1. All chunks append to the SAME `<table>_raw`, and the fold's
+    ///  1. All chunks append to the SAME `<schema>_raw.<table>`, and the fold's
     ///     watermark is `max(_aw_ingested_at)` over that whole buffer — so one
     ///     chunk's fold folds and DRAINS another chunk's partially-loaded rows
     ///     mid-flight. Not data loss (rows are valid, deduped by guid), but the

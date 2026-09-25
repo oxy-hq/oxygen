@@ -1198,7 +1198,7 @@ pub async fn find_or_create_backfill_range(
 /// This doc previously recommended ≈4 as a "sweet spot", on the reasoning that
 /// concurrency trades parallel extract for DuckLake commit-retries. That
 /// reasoning was incomplete: chunks of one pipeline share a single
-/// `<table>_raw` staging buffer, and the fold's watermark spans the WHOLE
+/// `<schema>_raw.<table>` staging buffer, and the fold's watermark spans the WHOLE
 /// buffer — so one chunk's fold drains another's partially-loaded rows
 /// mid-flight. Per-chunk cursor isolation (run-scoped store) covers the cursor
 /// and nothing else.
@@ -1221,7 +1221,7 @@ pub async fn drive_backfill_range(
         ChunkGranularity::parse(&range.granularity).unwrap_or(ChunkGranularity::Month);
     // Clamped to 1, not merely defaulted: `range.concurrency` is read from a
     // stored row, so existing ranges (and the HTTP path) would otherwise still
-    // fan out. Concurrent chunks of one pipeline share a single `<table>_raw`
+    // fan out. Concurrent chunks of one pipeline share a single `<schema>_raw.<table>`
     // buffer whose fold watermark spans the WHOLE buffer, so one chunk's fold
     // drains another's partially-loaded rows; and concurrent folds of one table
     // are the exact shape of the duplicate rows measured on pokehouse. Per-chunk
@@ -1388,7 +1388,7 @@ pub async fn resume_backfill_range(
         })?;
     // Clamped to 1, not merely defaulted: `range.concurrency` is read from a
     // stored row, so existing ranges (and the HTTP path) would otherwise still
-    // fan out. Concurrent chunks of one pipeline share a single `<table>_raw`
+    // fan out. Concurrent chunks of one pipeline share a single `<schema>_raw.<table>`
     // buffer whose fold watermark spans the WHOLE buffer, so one chunk's fold
     // drains another's partially-loaded rows; and concurrent folds of one table
     // are the exact shape of the duplicate rows measured on pokehouse. Per-chunk
