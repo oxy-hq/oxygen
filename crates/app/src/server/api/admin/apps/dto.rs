@@ -162,6 +162,18 @@ pub struct AppResponse {
     /// nothing is deployed, so nothing is orphaned yet.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub source_unrecorded: bool,
+    /// Who put the live (published) build there: `"ci"` for trusted-publishing
+    /// CI (GitHub OIDC — `oxyc init-ci --promote`), `"person"` for a user. A CI
+    /// job holding a long-lived publish token is `"person"` too: that token
+    /// records the human who minted it, and it is not the path the
+    /// availability guidelines ask for. `None` when nothing is live, or the
+    /// live build names no publisher (it predates the column).
+    ///
+    /// Drives the list's "Not from CI" badge — an app off the CI path is one
+    /// nobody republishes when a platform change requires it. Populated by
+    /// `list_apps` via one batched query; `None` on the cheap single responses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_published_via: Option<String>,
 }
 
 impl AppResponse {
@@ -202,6 +214,7 @@ impl AppResponse {
             icon_url: None,
             art_url: None,
             source_unrecorded: false,
+            live_published_via: None,
         }
     }
 }

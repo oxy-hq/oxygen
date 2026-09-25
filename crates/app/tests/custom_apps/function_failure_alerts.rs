@@ -8,8 +8,8 @@
 use chrono::{DateTime, Duration, Utc};
 use entity::{app_builds, app_function_invocations, apps, organizations, workspaces};
 use oxy_app::server::api::custom_apps_functions::failure_alert::{
-    DELIVERY_GRACE_MINUTES, FUNCTION_PAGE_WINDOW_HOURS, FailureKey, PAGES_PER_HOUR, RETENTION_DAYS,
-    THRESHOLD, Verdict, claim, mark_delivered,
+    DELIVERY_GRACE_MINUTES, FUNCTION_PAGE_WINDOW_HOURS, FailureKey, LOOKBACK_DAYS, PAGES_PER_HOUR,
+    PERSISTENT_AFTER_HOURS, RETENTION_DAYS, THRESHOLD, Verdict, claim, mark_delivered,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, DatabaseConnection,
@@ -141,6 +141,43 @@ async fn failed_as(
 
 async fn failed(db: &DatabaseConnection, s: &Seeded, ago: Duration) {
     failed_as(db, s, FUNCTION, Some(FINGERPRINT), ago).await;
+}
+
+/// A finished call, `ago` in the past. `fingerprint: Some` is a `success` the
+/// pager still counted as a failure — it answered 5xx, or caught a failed
+/// `ctx.*` call — which is exactly what must not read as the function working.
+async fn succeeded(db: &DatabaseConnection, s: &Seeded, ago: Duration, fingerprint: Option<&str>) {
+    app_function_invocations::ActiveModel {
+        id: Set(Uuid::new_v4()),
+        app_id: Set(s.app_id),
+        build_id: Set(s.build_id),
+        function_name: Set(FUNCTION.into()),
+        mode: Set("route".into()),
+        user_id: Set(None),
+        status: Set("success".into()),
+        duration_ms: Set(Some(12)),
+        error: Set(None),
+        cancel_requested_at: Set(None),
+        created_at: Set((Utc::now() - ago).into()),
+        idempotency_key: Set(None),
+        result_body: Set(None),
+        result_status: Set(None),
+        request_hash: Set(None),
+        failure_fingerprint: Set(fingerprint.map(str::to_string)),
+    }
+    .insert(db)
+    .await
+    .expect("seed success");
+}
+
+fn persistent_page(verdict: &Verdict) -> bool {
+    matches!(
+        verdict,
+        Verdict::Page {
+            persistent: true,
+            ..
+        }
+    )
 }
 
 /// An alerts row written directly — history the test needs without replaying it.
@@ -428,7 +465,71 @@ async fn a_rate_held_failure_pages_once_its_window_passes_however_late() {
     let verdict = claim(&db, s.key(), day_and_a_half_later, long_ago())
         .await
         .unwrap();
-    assert!(is_page(&verdict), "the held failure pages: {verdict:?}");
+    assert!(
+        matches!(
+            verdict,
+            Verdict::Page {
+                persistent: false,
+                ..
+            }
+        ),
+        "the held failure pages, as the {THRESHOLD}+ calls it was: {verdict:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_rate_held_low_traffic_break_still_says_it_is_one_when_it_goes_out() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    alert_row(
+        &db,
+        s.key_for(FUNCTION, "aaaaaaaaaaaaaaaa"),
+        Duration::hours(1),
+        "paged",
+    )
+    .await;
+    succeeded(&db, &s, Duration::days(3), None).await;
+    failed(&db, &s, Duration::hours(30)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+    let now = Utc::now();
+    assert_eq!(
+        claim(&db, s.key(), now, long_ago()).await.unwrap(),
+        Verdict::Suppressed("suppressed:function_rate")
+    );
+
+    // Two failures, not three: the page must not say "3+" when the hold lifts.
+    let past_window = now + Duration::hours(FUNCTION_PAGE_WINDOW_HOURS + 1);
+    let verdict = claim(&db, s.key(), past_window, long_ago()).await.unwrap();
+    assert!(persistent_page(&verdict), "{verdict:?}");
+}
+
+#[tokio::test]
+async fn a_rate_held_low_traffic_break_that_recovered_stays_quiet() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    alert_row(
+        &db,
+        s.key_for(FUNCTION, "aaaaaaaaaaaaaaaa"),
+        Duration::hours(1),
+        "paged",
+    )
+    .await;
+    succeeded(&db, &s, Duration::days(3), None).await;
+    failed(&db, &s, Duration::hours(30)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+    let now = Utc::now();
+    assert_eq!(
+        claim(&db, s.key(), now, long_ago()).await.unwrap(),
+        Verdict::Suppressed("suppressed:function_rate")
+    );
+
+    // It answered during the hold: "no success in between" is no longer true.
+    succeeded(&db, &s, Duration::zero(), None).await;
+    let past_window = now + Duration::hours(FUNCTION_PAGE_WINDOW_HOURS + 1);
+    assert_eq!(
+        claim(&db, s.key(), past_window, long_ago()).await.unwrap(),
+        Verdict::Quiet
+    );
 }
 
 #[tokio::test]
@@ -491,4 +592,114 @@ async fn a_page_prunes_alert_rows_past_retention() {
         .try_get::<i64>("", "n")
         .unwrap();
     assert_eq!(left, 0, "a row past retention is gone after the next page");
+}
+
+// ── The persistent route: a function that worked, broke, and stayed broken ──
+//
+// The shape of `warehouse/submit-receiving` in the Sep 2026 incident: it worked
+// until a release, then every call failed for days, but calls were rare, so
+// the fast route's three-in-a-day happened late or never. Each test below
+// satisfies every condition but the one it is named for, so it cannot pass for
+// the wrong reason.
+
+#[tokio::test]
+async fn a_low_traffic_break_pages_on_the_persistent_route() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    succeeded(&db, &s, Duration::days(3), None).await; // it worked
+    failed(&db, &s, Duration::hours(30)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert!(
+        persistent_page(&verdict),
+        "worked, then two failures a day apart and no success since: {verdict:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_function_that_never_answered_is_having_its_own_failure() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    // Everything else holds; there is simply no success on record before it.
+    failed(&db, &s, Duration::hours(30)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Quiet,
+        "with no evidence it ever worked, this is the function's failure, not a break"
+    );
+}
+
+#[tokio::test]
+async fn a_success_in_between_keeps_a_flaky_failure_quiet() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    succeeded(&db, &s, Duration::days(3), None).await;
+    failed(&db, &s, Duration::hours(30)).await;
+    succeeded(&db, &s, Duration::hours(10), None).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Quiet,
+        "the function answered in between, so this is flaky, not broken"
+    );
+}
+
+#[tokio::test]
+async fn a_success_that_caught_a_failure_is_not_the_function_working() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    succeeded(&db, &s, Duration::days(3), None).await;
+    failed(&db, &s, Duration::hours(30)).await;
+    // A call that returned 2xx but caught a failed `ctx.*` call: fingerprinted,
+    // so the pager counted it. The warehouse app looked exactly like this.
+    succeeded(&db, &s, Duration::hours(10), Some("0f0f0f0f0f0f0f0f")).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert!(
+        persistent_page(&verdict),
+        "a success the pager counted as a failure must not clear the break: {verdict:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_failure_the_function_had_the_week_before_is_not_a_new_break() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    succeeded(&db, &s, Duration::days(LOOKBACK_DAYS + 1), None).await;
+    // Just outside the lookback, so the first in-window occurrence is the one
+    // 30h ago — but inside the week before that, which is what "new" checks.
+    failed(&db, &s, Duration::days(LOOKBACK_DAYS) + Duration::hours(2)).await;
+    failed(&db, &s, Duration::hours(30)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Quiet,
+        "a failure the function already had the week before is not a new break"
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_pair_waits_out_the_persistent_window() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    succeeded(&db, &s, Duration::days(3), None).await;
+    failed(&db, &s, Duration::hours(PERSISTENT_AFTER_HOURS - 1)).await;
+    failed(&db, &s, Duration::minutes(1)).await;
+
+    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Quiet,
+        "under {PERSISTENT_AFTER_HOURS}h, two failures are the fast route's to judge, and it \
+         needs {THRESHOLD}"
+    );
 }

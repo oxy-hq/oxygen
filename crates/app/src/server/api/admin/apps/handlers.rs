@@ -526,12 +526,19 @@ pub async fn list_apps_scoped(
             tracing::warn!("unsourced_active_build_apps failed (no warnings shown): {e}");
             Default::default()
         });
+    // Who published each live build — same batched shape, same fail-soft posture.
+    let live_publishers = live_build_publishers(&db, &rows).await.unwrap_or_else(|e| {
+        tracing::warn!("live_build_publishers failed (no CI badges shown): {e}");
+        Default::default()
+    });
     // Manifest-derived icon/art for the whole page in ONE batched query — same
     // N+1-avoidance as the promoter/last-active lookups above.
     let mut icon_art = icon_art_by_app(&db, &rows, &org_slugs).await;
     let mut items = rows_to_responses(rows, &org_slugs);
     for item in items.iter_mut() {
         item.source_unrecorded = unsourced.contains(&item.id);
+        item.live_published_via =
+            live_published_via(live_publishers.get(&item.id).copied()).map(str::to_string);
         if let Some(ts) = last_active.get(&item.id) {
             item.last_active_at = Some(ts.to_rfc3339());
         }
@@ -552,6 +559,65 @@ pub async fn list_apps_scoped(
         None
     };
     Ok(Json(ListAppsResponse { items, next_offset }))
+}
+
+/// How an app's live build was published, for the list's "Not from CI" badge:
+/// `"ci"` for trusted-publishing CI, `"person"` for anyone else, `None` when
+/// there is nothing to say.
+///
+/// `live` is the live build's `app_builds.published_by` — outer `None` means
+/// no live build, inner `None` a build that names no publisher (it predates
+/// the column, or was seeded).
+///
+/// The machine principal is CI, and only CI: an OIDC exchange mints a
+/// creator-less token, `resolve_app_publish_token` authenticates it as
+/// `AuthenticatedUser::machine_publisher()`, and `publish_handler` stamps
+/// `Some(user.id)` on the build. Every other path — a session, or a long-lived
+/// publish token, which authenticates as the human who minted it — records a
+/// real user, so a CI job holding such a token reads as `"person"`. Intended:
+/// it is not the path the availability guidelines ask for.
+fn live_published_via(live: Option<Option<Uuid>>) -> Option<&'static str> {
+    static MACHINE: std::sync::LazyLock<Uuid> =
+        std::sync::LazyLock::new(|| oxy_auth::types::AuthenticatedUser::machine_publisher().id);
+    match live.flatten()? {
+        id if id == *MACHINE => Some("ci"),
+        _ => Some("person"),
+    }
+}
+
+/// `app id → published_by` of its live build, for every app on the page that
+/// has one — ONE `IN` query, like `unsourced_active_build_apps`.
+///
+/// Only the `published_build_id` pointer, not that helper's draft fallback:
+/// the question is how the build in front of users got there, and a draft is
+/// in front of nobody. `select_only`, because `app_builds` carries the
+/// `manifest_json` blob.
+async fn live_build_publishers(
+    db: &sea_orm::DatabaseConnection,
+    rows: &[apps::Model],
+) -> Result<std::collections::HashMap<Uuid, Option<Uuid>>, sea_orm::DbErr> {
+    use entity::app_builds::Column as BuildCol;
+
+    // app_builds.id → the app whose live pointer names it.
+    let build_to_app: std::collections::HashMap<Uuid, Uuid> = rows
+        .iter()
+        .filter_map(|r| r.published_build_id.map(|b| (b, r.id)))
+        .collect();
+    if build_to_app.is_empty() {
+        return Ok(Default::default());
+    }
+    let builds: Vec<(Uuid, Option<Uuid>)> = AppBuilds::find()
+        .select_only()
+        .column(BuildCol::Id)
+        .column(BuildCol::PublishedBy)
+        .filter(BuildCol::Id.is_in(build_to_app.keys().copied().collect::<Vec<_>>()))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(builds
+        .into_iter()
+        .filter_map(|(build, by)| build_to_app.get(&build).map(|app| (*app, by)))
+        .collect())
 }
 
 pub async fn list_my_apps(
@@ -1248,6 +1314,33 @@ mod tests {
             token_id: Uuid::new_v4(),
             app_id,
         }
+    }
+
+    #[test]
+    fn a_live_build_published_by_the_oidc_machine_principal_is_ci() {
+        // Pinned to the principal itself, not to a literal nil: if the OIDC
+        // identity ever stops being nil, every CI app would silently read as
+        // "person" — this is where that should break instead.
+        let machine = oxy_auth::types::AuthenticatedUser::machine_publisher().id;
+        assert_eq!(live_published_via(Some(Some(machine))), Some("ci"));
+    }
+
+    #[test]
+    fn a_live_build_published_by_a_user_is_a_person() {
+        // A session publish and a long-lived-token CI job both land here: the
+        // token records the human who minted it.
+        assert_eq!(
+            live_published_via(Some(Some(Uuid::new_v4()))),
+            Some("person")
+        );
+    }
+
+    #[test]
+    fn nothing_live_or_no_publisher_says_nothing() {
+        // No live build: a draft serves nobody, so there is no path to judge.
+        assert_eq!(live_published_via(None), None);
+        // A live build that predates `published_by`: unknown is not "person".
+        assert_eq!(live_published_via(Some(None)), None);
     }
 
     #[test]

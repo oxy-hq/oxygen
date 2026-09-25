@@ -148,6 +148,10 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("app_functions", Control("functions per build")),
     ("app_members", Control("per-app membership")),
+    (
+        "app_preflight_refusals",
+        Control("deploy preflight's accepted host refusals; ids and host messages"),
+    ),
     ("app_publish_tokens", Control("CI publish token hashes")),
     ("app_publishers", Control("OIDC trusted publishers")),
     (

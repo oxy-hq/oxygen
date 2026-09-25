@@ -5,12 +5,27 @@
 //! `app_function_invocations`, and nothing read the table until a customer
 //! asked. This reads it — at the moment a failure is written.
 //!
-//! **What pages.** One (app, function, [fingerprint]) whose first occurrence in
-//! the last [`LOOKBACK_DAYS`] days falls inside the last [`NEW_WITHIN_HOURS`]
-//! hours, once it has happened [`THRESHOLD`] times. A deploy that breaks a path
-//! is exactly that shape: a failure the function never had, now on every call.
+//! **What pages.** One (app, function, [fingerprint]) that is new — its first
+//! occurrence in the last [`LOOKBACK_DAYS`] days — by either of two routes:
+//!
+//! - **Fast:** the first occurrence falls inside the last [`NEW_WITHIN_HOURS`]
+//!   hours and it has happened [`THRESHOLD`] times. A deploy that breaks a busy
+//!   path is exactly that shape: a failure the function never had, now on
+//!   every call.
+//! - **Persistent:** it has happened [`PERSISTENT_THRESHOLD`] times, the first at
+//!   least [`PERSISTENT_AFTER_HOURS`] hours ago; it was absent the whole week
+//!   before that, while the function *did* answer in that week; and it has not
+//!   answered once since. It worked, then it broke, and it stayed broken — a
+//!   function with no success on record is having its own failure, not a break.
+//!   This is the low-traffic shape the fast route cannot see. In the Sep 2026
+//!   warehouse incident `submit-receiving` failed on every call for days and
+//!   paged only when a third call happened to land inside 24 hours of the
+//!   first; a function called less often than that would never have paged.
+//!
 //! A function's usual failures — the validation error it throws every day — are
-//! not new and never page, and a one-off stays under the threshold.
+//! not new and never page. A one-off stays under both routes, and a flaky
+//! failure that the function has succeeded past stays quiet on the persistent
+//! route.
 //!
 //! **Held back** (recorded as `suppressed:<reason>`):
 //! - `function_rate` — the function already paged in the last
@@ -47,6 +62,12 @@ use uuid::Uuid;
 
 /// Occurrences of a new failure before it pages.
 pub const THRESHOLD: i64 = 3;
+/// Occurrences of a new failure before the persistent route pages it.
+pub const PERSISTENT_THRESHOLD: i64 = 2;
+/// How long a new failure must have gone on, with no success in between,
+/// before the persistent route pages it. Long enough that a retry burst or a
+/// minutes-long vendor blip is the fast route's to judge, not this one's.
+pub const PERSISTENT_AFTER_HOURS: i64 = 6;
 /// How recently a failure must first have appeared to count as new.
 pub const NEW_WITHIN_HOURS: i64 = 24;
 /// How far back "has this function failed this way before?" looks.
@@ -77,7 +98,11 @@ pub enum Verdict {
     /// New and due, but held back for the named reason, and recorded.
     Suppressed(&'static str),
     /// New and due; the caller now owns sending it, then [`mark_delivered`].
-    Page { first_seen: DateTime<Utc> },
+    /// `persistent` says which route found it, so the page can say why.
+    Page {
+        first_seen: DateTime<Utc>,
+        persistent: bool,
+    },
 }
 
 /// What the alerts table already says about a key.
@@ -101,11 +126,23 @@ pub async fn claim(
     now: DateTime<Utc>,
     history_since: DateTime<Utc>,
 ) -> Result<Verdict, DbErr> {
-    let first_seen = match prior(db, key, now).await? {
+    let (first_seen, persistent) = match prior(db, key, now).await? {
         Prior::Handled => return Ok(Verdict::Quiet),
-        Prior::Due => first_seen(db, key, now).await?.unwrap_or(now),
+        Prior::Due => {
+            // Re-checking the caps, not newness — but the page states facts,
+            // and they must be true now. Under the threshold it is the
+            // persistent route's page, which says nothing succeeded since; a
+            // success during the hold makes that false, and by that route's own
+            // rule a failure the function answered past is flaky, not broken.
+            let first = first_seen(db, key, now).await?.unwrap_or(now);
+            let persistent = !reached_threshold(db, key, first, THRESHOLD).await?;
+            if persistent && answered_since(db, key, first).await? {
+                return Ok(Verdict::Quiet);
+            }
+            (first, persistent)
+        }
         Prior::Open => match new_and_due(db, key, now).await? {
-            Some(first_seen) => first_seen,
+            Some(due) => due,
             None => return Ok(Verdict::Quiet),
         },
     };
@@ -120,7 +157,10 @@ pub async fn claim(
         if let Err(e) = prune(db, now).await {
             tracing::warn!(target: "oxy::app_function", error = %e, "failure alert: prune failed");
         }
-        return Ok(Verdict::Page { first_seen });
+        return Ok(Verdict::Page {
+            first_seen,
+            persistent,
+        });
     };
     Ok(Verdict::Suppressed(reason))
 }
@@ -180,20 +220,127 @@ async fn prior(
     )
 }
 
-/// The first occurrence of `key` when it is new and has reached the threshold.
+/// The first occurrence of `key`, and whether the persistent route found it,
+/// when it is new and due by either route (module docs, **What pages**).
 async fn new_and_due(
     db: &impl ConnectionTrait,
     key: FailureKey<'_>,
     now: DateTime<Utc>,
-) -> Result<Option<DateTime<Utc>>, DbErr> {
+) -> Result<Option<(DateTime<Utc>, bool)>, DbErr> {
     let new_since = now - Duration::hours(NEW_WITHIN_HOURS);
     let Some(first) = first_seen(db, key, now).await? else {
         return Ok(None);
     };
-    if first < new_since || !reached_threshold(db, key, new_since).await? {
-        return Ok(None);
+    if first >= new_since && reached_threshold(db, key, new_since, THRESHOLD).await? {
+        return Ok(Some((first, false)));
     }
-    Ok(Some(first))
+    if persistent(db, key, first, now).await? {
+        return Ok(Some((first, true)));
+    }
+    Ok(None)
+}
+
+/// The persistent route, for any failure the fast route did not page — a
+/// low-traffic one, or one whose first occurrence is over a day old. Checks
+/// run cheapest first: the fingerprint probes use
+/// `idx_app_function_invocations_failure`, the two success probes
+/// `idx_app_function_invocations_success`, so neither scans the function's
+/// history.
+async fn persistent(
+    db: &impl ConnectionTrait,
+    key: FailureKey<'_>,
+    first: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Result<bool, DbErr> {
+    if first > now - Duration::hours(PERSISTENT_AFTER_HOURS) {
+        return Ok(false);
+    }
+    // New, not merely new to the lookback: a failure older than the window
+    // shows its first in-window occurrence near the window's start, and must
+    // not read as a fresh break every week.
+    if occurred_between(db, key, first - Duration::days(LOOKBACK_DAYS), first).await? {
+        return Ok(false);
+    }
+    if !reached_threshold(db, key, first, PERSISTENT_THRESHOLD).await? {
+        return Ok(false);
+    }
+    // It worked before it broke. Without this, a function that has never once
+    // succeeded — its own failure, every call — would read as a fresh break.
+    if !answered_between(db, key, first - Duration::days(LOOKBACK_DAYS), first).await? {
+        return Ok(false);
+    }
+    Ok(!answered_since(db, key, first).await?)
+}
+
+/// Whether `key` occurred in `[from, until)`: one probe of the partial index.
+async fn occurred_between(
+    db: &impl ConnectionTrait,
+    key: FailureKey<'_>,
+    from: DateTime<Utc>,
+    until: DateTime<Utc>,
+) -> Result<bool, DbErr> {
+    let row = db
+        .query_one_raw(keyed(
+            "SELECT EXISTS (SELECT 1 FROM app_function_invocations \
+               WHERE app_id = $1 AND function_name = $2 AND failure_fingerprint = $3 \
+                 AND created_at >= $4 AND created_at < $5) AS occurred",
+            key,
+            [at(from), at(until)],
+        ))
+        .await?;
+    Ok(match row {
+        Some(row) => row.try_get::<bool>("", "occurred")?,
+        None => false,
+    })
+}
+
+/// Whether the function has succeeded since `since`. A success is a finished
+/// call the pager did not count as a failure — no fingerprint — so a `success`
+/// that answered 5xx, or caught a failed `ctx.*` call, is not one.
+async fn answered_since(
+    db: &impl ConnectionTrait,
+    key: FailureKey<'_>,
+    since: DateTime<Utc>,
+) -> Result<bool, DbErr> {
+    answered(db, key, since, None).await
+}
+
+/// Whether the function succeeded in `[from, until)` — the same definition of
+/// a success as [`answered_since`].
+async fn answered_between(
+    db: &impl ConnectionTrait,
+    key: FailureKey<'_>,
+    from: DateTime<Utc>,
+    until: DateTime<Utc>,
+) -> Result<bool, DbErr> {
+    answered(db, key, from, Some(until)).await
+}
+
+async fn answered(
+    db: &impl ConnectionTrait,
+    key: FailureKey<'_>,
+    from: DateTime<Utc>,
+    until: Option<DateTime<Utc>>,
+) -> Result<bool, DbErr> {
+    // `until` NULL means open-ended; one statement serves both callers.
+    let until: Value = match until {
+        Some(t) => at(t),
+        None => Value::ChronoDateTimeWithTimeZone(None),
+    };
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT EXISTS (SELECT 1 FROM app_function_invocations \
+               WHERE app_id = $1 AND function_name = $2 AND created_at >= $3 \
+                 AND ($4::timestamptz IS NULL OR created_at < $4) \
+                 AND status = 'success' AND failure_fingerprint IS NULL) AS answered",
+            [key.app_id.into(), key.function_name.into(), at(from), until],
+        ))
+        .await?;
+    Ok(match row {
+        Some(row) => row.try_get::<bool>("", "answered")?,
+        None => false,
+    })
 }
 
 /// The first occurrence of `key` in the lookback: one probe of the partial index.
@@ -217,12 +364,13 @@ async fn first_seen(
     Ok(Some(first.with_timezone(&Utc)))
 }
 
-/// Whether `key` has happened [`THRESHOLD`] times since `since` — counting no
+/// Whether `key` has happened `threshold` times since `since` — counting no
 /// further than that, however long the failure has gone on.
 async fn reached_threshold(
     db: &impl ConnectionTrait,
     key: FailureKey<'_>,
     since: DateTime<Utc>,
+    threshold: i64,
 ) -> Result<bool, DbErr> {
     let row = db
         .query_one_raw(keyed(
@@ -230,14 +378,14 @@ async fn reached_threshold(
                WHERE app_id = $1 AND function_name = $2 AND failure_fingerprint = $3 \
                  AND created_at >= $4 LIMIT $5) capped",
             key,
-            [at(since), THRESHOLD.into()],
+            [at(since), threshold.into()],
         ))
         .await?;
     let n: i64 = match row {
         Some(row) => row.try_get("", "n")?,
         None => 0,
     };
-    Ok(n >= THRESHOLD)
+    Ok(n >= threshold)
 }
 
 /// The two caps, over the last [`FUNCTION_PAGE_WINDOW_HOURS`] of the alerts

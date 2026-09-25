@@ -31,7 +31,11 @@ use agentic_connector::SqlTransaction;
 mod airhouse_ops;
 mod destinations;
 
-use destinations::{WriteSurface, destination_kind, destination_write_policy};
+// Visible to the rest of custom_apps_functions so the preflight judges live
+// manifests with the host's own write rule, not a copy of it.
+pub(in crate::server::api::custom_apps_functions) use destinations::{
+    DestinationKind, WriteSurface, destination_kind, destination_write_policy,
+};
 
 /// Outbound fetch response size cap (design doc §11.9).
 const FETCH_MAX_BYTES: u64 = 10 * 1024 * 1024;

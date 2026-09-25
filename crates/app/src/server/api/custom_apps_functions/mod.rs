@@ -42,6 +42,9 @@ mod host_call_attrs;
 /// thread and heap count the per-isolate ceiling cannot.
 #[cfg(feature = "custom-app-functions")]
 pub mod limits;
+/// `oxy migrate`'s check that a release does not stop a working live function.
+#[cfg(feature = "custom-app-functions")]
+pub mod preflight;
 mod result_cache;
 #[cfg(feature = "custom-app-functions")]
 pub mod runtime;

@@ -24,15 +24,19 @@ runs:
         node-version: 26
         cache: pnpm
 
+    # Keyed by architecture as well as OS: the browser build is per-arch, and
+    # an exact-key hit skips the install below. Keyed by OS alone, an x64
+    # job's cache restored on a warp arm64 runner left no
+    # chrome-headless-shell-linux-arm64 and nothing to install it.
     - name: Cache Playwright browsers
       if: inputs.install-playwright == 'true'
       id: playwright-cache
       uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ~/.cache/ms-playwright
-        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: |
-          playwright-${{ runner.os }}-
+          playwright-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Install dependencies
       shell: bash

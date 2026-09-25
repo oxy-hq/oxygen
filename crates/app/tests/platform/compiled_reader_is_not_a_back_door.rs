@@ -72,6 +72,14 @@ const ALLOWED: &[(&str, &str)] = &[
          authoritative, and building a context to re-learn that on every eval \
          pass is the cost this avoids.",
     ),
+    (
+        "src/server/api/custom_apps_functions/preflight.rs",
+        "Runs inside `oxy migrate`, before any server or manager exists, and takes \
+         the `databases` key from the compiled config of every workspace that has \
+         a live custom app — the promoted revision the serve fleet reads. Building \
+         a workspace context per workspace in a deploy hook to learn a list of \
+         names is the cost this avoids.",
+    ),
 ];
 
 fn app_src() -> PathBuf {

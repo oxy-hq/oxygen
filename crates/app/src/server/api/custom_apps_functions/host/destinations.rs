@@ -9,7 +9,7 @@ use oxy::config::model::DatabaseType;
 /// Where a `ctx.warehouse` / `ctx.tx` write would land, as the read-only rule
 /// for customer warehouses sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DestinationKind {
+pub(in crate::server::api::custom_apps_functions) enum DestinationKind {
     /// The workspace's Airhouse — the facts store Oxy runs.
     Airhouse,
     /// The org's managed OLTP, which `ctx.warehouse` reaches as the read-only analyst.
@@ -20,7 +20,7 @@ pub(super) enum DestinationKind {
 
 /// Which surface is writing, so a refusal can speak to what the author did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum WriteSurface {
+pub(in crate::server::api::custom_apps_functions) enum WriteSurface {
     /// `ctx.warehouse.insert / upsert / exec`.
     Warehouse,
     /// `ctx.tx(database, fn)` — checked as a write even when the callback only
@@ -30,7 +30,9 @@ pub(super) enum WriteSurface {
 
 /// Unknown and future database types land on `CustomerWarehouse`: the rule
 /// fails closed.
-pub(super) fn destination_kind(database_type: &DatabaseType) -> DestinationKind {
+pub(in crate::server::api::custom_apps_functions) fn destination_kind(
+    database_type: &DatabaseType,
+) -> DestinationKind {
     match database_type {
         DatabaseType::Airhouse(_) | DatabaseType::AirhouseManaged(_) => DestinationKind::Airhouse,
         DatabaseType::PostgresManaged(_) => DestinationKind::ManagedOltp,
@@ -41,7 +43,7 @@ pub(super) fn destination_kind(database_type: &DatabaseType) -> DestinationKind 
 /// Customer warehouses are read-only to apps (`internal-docs/data-placement.md`).
 /// A function writes one only when its manifest names the database in
 /// `customerWarehouseWrites` with a non-blank reason.
-pub(super) fn destination_write_policy(
+pub(in crate::server::api::custom_apps_functions) fn destination_write_policy(
     database: &str,
     kind: DestinationKind,
     exceptions: &BTreeMap<String, String>,

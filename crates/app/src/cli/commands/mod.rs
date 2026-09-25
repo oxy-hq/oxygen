@@ -920,8 +920,24 @@ pub async fn cli(
             if let Err(e) = migrate().await {
                 eprintln!("{}", format!("Migration failed: {e}").error());
                 exit(1);
-            } else {
-                println!("{}", "Migration completed successfully".success());
+            }
+            println!("{}", "Migration completed successfully".success());
+            // After, not before: the migrations are additive and tolerated, so a
+            // blocked rollout leaves the old pods on a schema they can use, and
+            // the preflight reads prod's rows with entities that match them.
+            // `oxy migrate` is the chart's pre-upgrade hook, so an error here
+            // stops the rollout before a pod serves the new binary.
+            #[cfg(feature = "custom-app-functions")]
+            {
+                let preflight =
+                    crate::server::api::custom_apps_functions::preflight::run_from_env().await;
+                if !preflight.log.is_empty() {
+                    eprintln!("{}", preflight.log);
+                }
+                if let Some(blocked) = preflight.blocked {
+                    eprintln!("{}", blocked.error());
+                    exit(1);
+                }
             }
         }
         Some(SubCommand::MigrateAutomations(args)) => {

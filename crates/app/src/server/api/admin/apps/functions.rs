@@ -70,12 +70,34 @@ pub struct InvocationSummary {
     pub mode: String,
     /// `"running"` | `"success"` | `"error"` | `"cancelled"` | `"timeout"` |
     /// `"shed"` (the platform declined to start it — no concurrency permit).
+    /// The recorded outcome, verbatim: `success` means only that the handler
+    /// returned without throwing, so read `failed` for whether it worked.
     pub status: String,
+    /// The platform counted this invocation as a failure — see
+    /// `counted_as_failure`. True for a `success` that answered 5xx or caught
+    /// a failed `ctx.*` call, which `status` alone reports as a success.
+    pub failed: bool,
+    /// The HTTP status the function answered. Stored only beside a kept
+    /// response body (keyed route calls), so usually `None`.
+    pub result_status: Option<i16>,
     pub duration_ms: Option<i64>,
     pub error: Option<String>,
     pub created_at: String,
     /// A stored response body is available (kept for keyed route calls).
     pub has_result: bool,
+}
+
+/// Whether the platform counted an invocation as a failure: the rule
+/// `custom_apps_functions::failure_signal::Failure::of` applies at
+/// finalization, read back from the row it finalized. Every invocation that
+/// rule counts gets a `failure_fingerprint` — including a `success` that
+/// answered 5xx or caught a failed host call — so the fingerprint is the
+/// signal; `error` / `timeout` also count on their own, for rows written
+/// before the column existed. `result_status` can't stand in for it: it is
+/// only stored for keyed calls. `cancelled`, `shed` and `running` are not
+/// failures.
+fn counted_as_failure(status: &str, failure_fingerprint: Option<&str>) -> bool {
+    failure_fingerprint.is_some() || matches!(status, "error" | "timeout")
 }
 
 /// A single function-job run's status + persisted logs, for the trigger-and-watch
@@ -230,6 +252,8 @@ pub async fn list_invocations(
         tracing::error!("list_invocations DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    // `find()` selects every column, so `failure_fingerprint` and
+    // `result_status` are on each row for `failed` / `result_status` below.
     let rows = AppFunctionInvocations::find()
         .filter(app_function_invocations::Column::AppId.eq(id))
         .filter(app_function_invocations::Column::FunctionName.eq(name))
@@ -246,7 +270,9 @@ pub async fn list_invocations(
         .map(|r| InvocationSummary {
             id: r.id,
             mode: r.mode,
+            failed: counted_as_failure(&r.status, r.failure_fingerprint.as_deref()),
             status: r.status,
+            result_status: r.result_status,
             duration_ms: r.duration_ms,
             error: r.error,
             created_at: r.created_at.to_rfc3339(),
@@ -351,9 +377,30 @@ pub async fn get_function_run(
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_run_status, run_belongs_to_app, to_summary};
+    use super::{counted_as_failure, effective_run_status, run_belongs_to_app, to_summary};
     use serde_json::json;
     use uuid::Uuid;
+
+    /// The Sep 2026 warehouse incident: a function that caught every refused
+    /// write and answered its own 500 was recorded `success`, and the history
+    /// showed a week of green. `failed` must agree with the pager instead.
+    #[test]
+    fn failed_mirrors_what_the_pager_counted() {
+        // A clean success is not a failure.
+        assert!(!counted_as_failure("success", None));
+        // A success the pager fingerprinted (answered 5xx, or caught a failed
+        // ctx call) is — the case `status` alone reports as green.
+        assert!(counted_as_failure("success", Some("af597dfd3a7536b8")));
+        // Errors and timeouts count with or without a fingerprint (rows from
+        // before the column carry none).
+        assert!(counted_as_failure("error", None));
+        assert!(counted_as_failure("error", Some("af597dfd3a7536b8")));
+        assert!(counted_as_failure("timeout", None));
+        // Cancelled, shed and in-flight invocations are not failures.
+        assert!(!counted_as_failure("cancelled", None));
+        assert!(!counted_as_failure("shed", None));
+        assert!(!counted_as_failure("running", None));
+    }
 
     #[test]
     fn effective_status_reports_queued_vs_running() {

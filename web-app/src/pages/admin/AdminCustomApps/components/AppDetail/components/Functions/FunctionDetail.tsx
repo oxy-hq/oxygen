@@ -148,16 +148,32 @@ const ConfigChips = ({ fn }: { fn: AppFunctionSummary }) => {
   );
 };
 
+/** Tooltip on a `success` the platform counted as a failure. */
+const FAILED_SUCCESS_HINT =
+  "Returned without throwing, but the platform counted it as a failure — it answered 5xx or caught a failed ctx call.";
+
 const InvocationRow = ({ iv }: { iv: FunctionInvocation }) => {
-  const tone =
-    iv.status === "success"
+  // A `success` that answered 5xx or caught a failed ctx call is a failure to
+  // the pager; showing it green is how a week of refused writes looked fine.
+  const failedSuccess = iv.status === "success" && iv.failed;
+  const tone = failedSuccess
+    ? "text-destructive"
+    : iv.status === "success"
       ? "text-success"
       : iv.status === "running"
         ? "text-primary"
         : "text-destructive";
   return (
     <li className='flex items-center gap-2 border-border/40 border-b py-1 text-xs last:border-b-0'>
-      <span className={cn("w-14 shrink-0 font-medium", tone)}>{iv.status}</span>
+      {/* Wide enough for "failed · 500", so every row's columns line up. */}
+      <span
+        className={cn("w-20 shrink-0 font-medium", tone)}
+        title={failedSuccess ? FAILED_SUCCESS_HINT : undefined}
+      >
+        {failedSuccess
+          ? `failed${iv.result_status != null ? ` · ${iv.result_status}` : ""}`
+          : iv.status}
+      </span>
       <span className='w-16 shrink-0 text-muted-foreground'>{iv.mode}</span>
       <span className='w-14 shrink-0 text-muted-foreground'>
         {iv.duration_ms != null ? formatMs(iv.duration_ms) : "—"}

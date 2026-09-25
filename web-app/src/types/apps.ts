@@ -86,6 +86,14 @@ export interface CustomApp {
    * all — nothing deployed, nothing orphaned.
    */
   source_unrecorded?: boolean;
+  /**
+   * Who put the live build there: `ci` when trusted-publishing CI (GitHub OIDC,
+   * `oxyc init-ci --promote`) published it, `person` when a user did — including
+   * a CI job holding a long-lived token, which records the human who minted it.
+   * Absent/null when nothing is live or the build names no publisher. Populated
+   * on list responses (batched); absent elsewhere. Drives "Not from CI".
+   */
+  live_published_via?: "ci" | "person" | null;
 }
 
 /**
@@ -241,8 +249,16 @@ export interface FunctionInvocation {
   id: string;
   /** `route` | `schedule` | `airway`. */
   mode: string;
-  /** `running` | `success` | `error` | `cancelled` | `timeout`. */
+  /** `running` | `success` | `error` | `cancelled` | `timeout` | `shed`.
+   *  Recorded verbatim: `success` only means the handler returned without
+   *  throwing — read `failed` for whether it worked. */
   status: string;
+  /** The platform counted it as a failure (the pager's rule): an `error` or
+   *  `timeout`, or a `success` that answered 5xx or caught a failed ctx call. */
+  failed: boolean;
+  /** The HTTP status the function answered — stored only for keyed route
+   *  calls, so usually null. */
+  result_status: number | null;
   duration_ms: number | null;
   error: string | null;
   created_at: string;

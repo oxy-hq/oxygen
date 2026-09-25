@@ -8,6 +8,7 @@ import { relativeTime } from "../AppDetail/components/Activity/relativeTime";
 import { AppIdentity } from "../AppIdentity";
 import { statusTone } from "../AppSwitcher";
 import { formatBytes } from "../StorageTab/utils";
+import { NotFromCiBadge } from "./NotFromCiBadge";
 
 /**
  * One app in the fleet.
@@ -54,7 +55,10 @@ export const FleetRow = ({
         return <AppIdentity app={app} />;
       case "published":
         return app.published_at ? (
-          <span className='text-muted-foreground'>{relativeTime(app.published_at)}</span>
+          <span className='flex items-center gap-2'>
+            <span className='text-muted-foreground'>{relativeTime(app.published_at)}</span>
+            <NotFromCiBadge app={app} />
+          </span>
         ) : (
           <span className='text-muted-foreground/60'>Draft</span>
         );

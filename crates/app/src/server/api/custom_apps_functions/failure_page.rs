@@ -10,7 +10,9 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use sentry::SentryFutureExt;
 use uuid::Uuid;
 
-use super::failure_alert::{FailureKey, LOOKBACK_DAYS, THRESHOLD, Verdict, claim, mark_delivered};
+use super::failure_alert::{
+    FailureKey, LOOKBACK_DAYS, PERSISTENT_AFTER_HOURS, THRESHOLD, Verdict, claim, mark_delivered,
+};
 use super::failure_signal::Failure;
 
 /// The migration that added `failure_fingerprint`. Invocations from before it
@@ -36,8 +38,11 @@ pub(super) async fn observe(
         function_name,
         fingerprint: &failure.fingerprint,
     };
-    let first_seen = match claim(db, key, Utc::now(), history_since(db).await).await {
-        Ok(Verdict::Page { first_seen }) => first_seen,
+    let (first_seen, persistent) = match claim(db, key, Utc::now(), history_since(db).await).await {
+        Ok(Verdict::Page {
+            first_seen,
+            persistent,
+        }) => (first_seen, persistent),
         Ok(Verdict::Quiet) => return,
         Ok(Verdict::Suppressed(reason)) => {
             tracing::info!(target: "oxy::app_function", reason, "failure alert: held back");
@@ -48,7 +53,7 @@ pub(super) async fn observe(
             return;
         }
     };
-    let text = message(app, key, invocation_id, failure, first_seen);
+    let text = message(app, key, invocation_id, failure, first_seen, persistent);
     let (db, app_id) = (db.clone(), app.id);
     let (function_name, fingerprint) = (function_name.to_string(), failure.fingerprint.clone());
     // Spawned, not a TaskSpec (a deliberate departure from
@@ -126,16 +131,28 @@ fn message(
     invocation_id: Uuid,
     failure: &Failure,
     first_seen: DateTime<Utc>,
+    persistent: bool,
 ) -> String {
+    let first = first_seen.format("%Y-%m-%d %H:%M");
+    // The persistent route pages below the threshold, so the fast route's
+    // "3+ failed invocations" would be false there. Say what is true: it is
+    // new, it has not stopped, and nothing succeeded in between.
+    let how = if persistent {
+        format!(
+            "every call since {first} UTC has failed ({PERSISTENT_AFTER_HOURS}h+, no success \
+             in between) — low traffic, so it never reached {THRESHOLD} calls in a day"
+        )
+    } else {
+        format!("{THRESHOLD}+ failed invocations since {first} UTC")
+    };
     format!(
         ":rotating_light: Custom-app function `{slug}/{function}` is failing in a way it has \
-         not in {LOOKBACK_DAYS} days: {THRESHOLD}+ failed invocations since {first} UTC.\n\
+         not in {LOOKBACK_DAYS} days: {how}.\n\
          • kind `{kind}` · fingerprint `{fingerprint}`\n\
          • app `{app_id}` in org `{org_id}` · latest invocation `{invocation_id}`\n\
          {where_to_look}",
         slug = app.slug,
         function = key.function_name,
-        first = first_seen.format("%Y-%m-%d %H:%M"),
         kind = failure.kind,
         fingerprint = key.fingerprint,
         app_id = app.id,
@@ -162,21 +179,76 @@ fn where_to_look(failure: &Failure) -> String {
     }
 }
 
-/// The ops Slack bot token and channel — the env pair Workspace Health pages
-/// with, read here too because that module sits outside the custom-apps
-/// boundary. Unset or empty turns failure alerts off.
-fn ops_slack_target() -> Option<(String, String)> {
-    let var = |name| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
-    Some((
-        var("OXY_OPS_SLACK_BOT_TOKEN")?,
-        var("OXY_OPS_SLACK_CHANNEL")?,
-    ))
+/// The ops Slack bot token and the channel custom-app pages go to.
+///
+/// `OXY_OPS_SLACK_CUSTOM_APPS_CHANNEL` when it is set, else
+/// `OXY_OPS_SLACK_CHANNEL` — the channel Workspace Health pages with. The
+/// split exists because of the Sep 2026 warehouse incident: this module paged
+/// correctly, eleven hours after the release that broke the app, into a
+/// channel where 54 of 57 messages that week were one workspace's health
+/// check, red for three weeks over an unrelated connection. A page nobody can
+/// find among the noise is a page nobody reads. Unset or empty token turns
+/// failure alerts off.
+pub(crate) fn ops_slack_target() -> Option<(String, String)> {
+    ops_slack_target_from(|name| std::env::var(name).ok())
+}
+
+fn ops_slack_target_from(var: impl Fn(&str) -> Option<String>) -> Option<(String, String)> {
+    let set = |name: &str| var(name).filter(|v| !v.trim().is_empty());
+    let channel =
+        set("OXY_OPS_SLACK_CUSTOM_APPS_CHANNEL").or_else(|| set("OXY_OPS_SLACK_CHANNEL"))?;
+    Some((set("OXY_OPS_SLACK_BOT_TOKEN")?, channel))
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::failure_signal::HostCallFailure;
     use super::*;
+
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_string())
+        }
+    }
+
+    #[test]
+    fn custom_app_pages_prefer_their_own_channel_and_fall_back_to_the_ops_one() {
+        let both = [
+            ("OXY_OPS_SLACK_BOT_TOKEN", "xoxb"),
+            ("OXY_OPS_SLACK_CHANNEL", "C_OPS"),
+            ("OXY_OPS_SLACK_CUSTOM_APPS_CHANNEL", "C_APPS"),
+        ];
+        assert_eq!(
+            ops_slack_target_from(env(&both)),
+            Some(("xoxb".into(), "C_APPS".into()))
+        );
+        // Unset or blank: the ops channel, exactly as before.
+        let ops_only = [
+            ("OXY_OPS_SLACK_BOT_TOKEN", "xoxb"),
+            ("OXY_OPS_SLACK_CHANNEL", "C_OPS"),
+        ];
+        assert_eq!(
+            ops_slack_target_from(env(&ops_only)),
+            Some(("xoxb".into(), "C_OPS".into()))
+        );
+        let blank = [
+            ("OXY_OPS_SLACK_BOT_TOKEN", "xoxb"),
+            ("OXY_OPS_SLACK_CHANNEL", "C_OPS"),
+            ("OXY_OPS_SLACK_CUSTOM_APPS_CHANNEL", "  "),
+        ];
+        assert_eq!(
+            ops_slack_target_from(env(&blank)),
+            Some(("xoxb".into(), "C_OPS".into()))
+        );
+        // No token, no pages — whichever channel is set.
+        assert_eq!(
+            ops_slack_target_from(env(&[("OXY_OPS_SLACK_CUSTOM_APPS_CHANNEL", "C_APPS")])),
+            None
+        );
+    }
 
     #[test]
     fn a_host_call_page_names_the_op_and_kind_instead_of_the_null_error_column() {
