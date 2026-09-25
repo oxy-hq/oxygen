@@ -525,9 +525,9 @@ jobs:
             else
               printf 'Moves prod from `main-%s` to `main-%s`.\n\n' "$CURRENT" "$CANDIDATE"
             fi
-            printf '- **Migrations vs the candidate:** %s\n' "$MIGRATIONS"
-            printf '- **Pins:** `%s` (signature checked before this PR was written)\n' "$PIN"
-            printf '- **Proposed by:** [this run](%s)\n\n' "$RUN_URL"
+            printf -- '- **Migrations vs the candidate:** %s\n' "$MIGRATIONS"
+            printf -- '- **Pins:** `%s` (signature checked before this PR was written)\n' "$PIN"
+            printf -- '- **Proposed by:** [this run](%s)\n\n' "$RUN_URL"
             printf 'Merging deploys: the prod `oxy` ArgoCD app is `syncPolicy.automated`.\n'
             printf 'This branch is force-pushed on every promotion — do not commit anything else onto it.\n'
           } > "$BODY"

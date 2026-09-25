@@ -1627,6 +1627,12 @@ function selfTest(): void {
     []
   );
   is(`...and all three plan steps are found (${planSteps.length})`, planSteps.length, 3);
+  // A printf format that starts with `-` is read as an option: the first live
+  // proposal died at `printf: - : invalid option` while writing the PR body,
+  // after the branch was pushed and before the PR existed — and every pass
+  // after it would have died the same way. Markdown list lines start with `-`.
+  const dashFormats = [...workflow.matchAll(/printf '-/g)].length;
+  is(`no printf format in promote.yaml starts with '-' without a '--' first (${dashFormats})`, dashFormats, 0);
   // The plan reads the values files the workflow writes. Two spellings of one
   // path drift apart silently: the drift check would read a file nobody pins.
   is(
