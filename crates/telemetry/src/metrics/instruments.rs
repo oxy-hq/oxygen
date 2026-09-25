@@ -24,13 +24,19 @@
 //!    secret-shaped parameters. `crate::http_trace` owns that logic and this
 //!    module reuses its output rather than re-deriving it, so a token can never
 //!    reach a label.
-//! 2. **Custom-app metrics are labelled by org, not by app, unless the app is
-//!    on an explicit watchlist.** At 44 apps across 6 orgs the difference is
-//!    small; the point is that it stays small when there are 4,400. See
-//!    [`app_label`].
+//! 2. **Custom-app metrics label every app and function by default, inside a
+//!    fixed per-process budget.** At 44 apps across 6 orgs labelling all of
+//!    them is cheap; the budget is what keeps the app and function axes from
+//!    growing with the estate. There is nothing to configure. See
+//!    [`app_label`]. It is not the only bound: the OpenTelemetry SDK caps every
+//!    instrument at 2,000 attribute sets and folds the rest into one
+//!    `otel.metric.overflow` series, which carries no org. The budget sits well
+//!    inside that, so the SDK's overflow is a backstop that should never fire —
+//!    and if it does, attribution is lost, not just detail.
 
 use std::borrow::Cow;
 use std::collections::BTreeSet;
+use std::sync::RwLock;
 use std::sync::atomic::Ordering;
 
 use opentelemetry::metrics::{
@@ -39,20 +45,44 @@ use opentelemetry::metrics::{
 
 use super::sources;
 
-/// The label a custom-app series carries in place of an app identifier when the
-/// app is not on the watchlist. Deliberately not empty: an empty label value is
-/// indistinguishable from an absent one in Prometheus, and "we folded this"
-/// should be visible rather than inferred.
+/// The label a custom-app series carries in place of an app or function
+/// identifier once this process has spent its label budget. Deliberately not
+/// empty: an empty label value is indistinguishable from an absent one in
+/// Prometheus, and "we folded this" should be visible rather than inferred.
+///
+/// In practice it should never appear. If it does, the estate has outgrown
+/// [`MAX_LABELLED_APPS`] or [`MAX_LABELLED_FUNCTIONS`] within one process
+/// lifetime, and that is the signal to revisit them.
 pub const APP_LABEL_OTHER: &str = "__other__";
 
-/// Comma-separated app **ids** — UUIDs, not slugs — whose metrics carry a
-/// per-app label.
+/// The most distinct apps one process labels by id; the rest fold to
+/// [`APP_LABEL_OTHER`].
 ///
-/// Ids rather than slugs because that is what the recording sites have:
-/// `custom_apps_telemetry` holds `app_id: Uuid` and never resolves a slug on
-/// the hot path. Configuring this with slugs is not an error, it simply never
-/// matches, so the wording here has to be unambiguous.
-pub const APP_WATCHLIST_ENV: &str = "OXY_METRICS_APP_WATCHLIST";
+/// A built-in default rather than a setting, deliberately. This replaced an
+/// `OXY_METRICS_APP_WATCHLIST` env var that had to hold a hand-maintained list
+/// of app UUIDs per environment — the kind of knob that makes operations hard
+/// and was unset everywhere, so in practice every app folded and the per-app
+/// and per-function panels were permanently empty.
+///
+/// First-come: an app is admitted the first time it records, and a process
+/// restarts on every deploy, so what the budget has to cover is the apps that
+/// see traffic within one process lifetime. Sized from prod, 2026-09-24: 36
+/// apps had any traffic over 7 days and 45 over 14, so 64 leaves headroom for
+/// a long-lived pod without letting the axis scale with the estate. Ids, not
+/// slugs, because that is what the recording sites hold. The worst case the two
+/// budgets allow is pinned by `the_label_budget_bounds_series_per_process`.
+pub const MAX_LABELLED_APPS: usize = 64;
+
+/// The most distinct `(app, function)` pairs one process labels by function
+/// name; past it the function axis folds to [`APP_LABEL_OTHER`] while the app
+/// keeps its id.
+///
+/// Budgeted per pair, not per name: two apps each exporting `handler` are two
+/// sets of series. Function names are author-chosen, which is why this axis —
+/// not the app axis — is the one that could otherwise run away. Sized from
+/// prod, 2026-09-24: 95 distinct pairs ran over 7 days, 60 of them in the two
+/// store-ops apps alone.
+pub const MAX_LABELLED_FUNCTIONS: usize = 128;
 
 /// Seconds buckets for inbound HTTP. The semconv-recommended set for
 /// `http.server.request.duration`, unchanged — a shared boundary set is what
@@ -69,12 +99,21 @@ const FUNCTION_DURATION_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
 ];
 
-/// Seconds buckets for isolate setup. Mean init is 6 ms, so the whole
-/// interesting range is below what [`FUNCTION_DURATION_BUCKETS`] can resolve.
-/// This is the series that would justify (or, more likely, keep deferring) the
-/// startup-snapshot work.
-const INIT_DURATION_BUCKETS: &[f64] =
-    &[0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0];
+/// Seconds buckets for isolate setup. Measured 2026-09-24 in dev and prod:
+/// p50 ~40 ms, p95 ~95 ms, none under 10 ms, and 7-9% of invocation wall time.
+/// (An earlier "mean 6 ms" here was wrong by several times.) Those are
+/// worker-run isolates only — route-mode runs on the ide, which is not scraped —
+/// so treat the ide's init as unmeasured. This is the series that decides the
+/// startup-snapshot work: init's share of wall time is the ceiling on what a
+/// snapshot could save.
+///
+/// Ranged over that distribution: four edges across the 25-100 ms band where
+/// the mass sits, so `histogram_quantile` resolves p50 and p95 to within ~10 ms
+/// instead of a factor of two. The previous set spent four of its ten edges
+/// below 10 ms, where nothing has ever landed.
+const INIT_DURATION_BUCKETS: &[f64] = &[
+    0.005, 0.01, 0.02, 0.03, 0.04, 0.05, 0.075, 0.1, 0.15, 0.25, 0.5, 1.0,
+];
 
 /// Host calls (warehouse, fetch, storage, …) per invocation. Separates "one
 /// slow dependency" from "a function looping queries", which a duration alone
@@ -405,9 +444,12 @@ fn observables(meter: &Meter) -> Vec<ObservableHandle> {
                 .with_description(
                     "Isolate threads detached after the termination grace period — a tenant \
                      function wedged in a host call that never returned. Healthy is zero, so \
-                     there is no threshold to tune. Emitted by every role: the worker's own \
-                     endpoint had been the only exporter, and it sees scheduled invocations \
-                     only, so route-mode traffic — the bulk of it — went uncounted.",
+                     there is no threshold to tune. Counted by whichever process ran the \
+                     isolate: route-mode invocations run on the ide (the /fn/ route is \
+                     IdeOnly), and task-queued ones (schedules, webhooks, manual and \
+                     Airway-step runs) on whichever of the worker or the ide claims them — \
+                     the ide runs in-process task drivers too. A role whose /metrics is not \
+                     scraped contributes nothing, so an absent series is not a healthy zero.",
                 )
                 .with_unit("{isolate}")
                 .with_callback(|observer| {
@@ -509,35 +551,91 @@ fn kv(key: &'static str, value: &'static str) -> opentelemetry::KeyValue {
     opentelemetry::KeyValue::new(key, value)
 }
 
-/// The app watchlist, parsed once from [`APP_WATCHLIST_ENV`].
-fn watchlist() -> &'static BTreeSet<String> {
-    static WATCHLIST: std::sync::OnceLock<BTreeSet<String>> = std::sync::OnceLock::new();
-    WATCHLIST.get_or_init(|| parse_watchlist(std::env::var(APP_WATCHLIST_ENV).ok().as_deref()))
-}
-
-fn parse_watchlist(raw: Option<&str>) -> BTreeSet<String> {
-    raw.unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-/// The value a custom-app series carries for the app axis.
+/// A first-come, fixed-size set of label values.
 ///
-/// Returns the app's own **id** when it is on the watchlist (see
-/// [`APP_WATCHLIST_ENV`] — ids, not slugs), and [`APP_LABEL_OTHER`] otherwise.
-/// Org is always labelled, so folding here costs the ability to name *which*
-/// app inside an org moved, not the ability to see that one did — and a
-/// watchlist entry buys that back for the app under investigation without
-/// paying for every app forever.
+/// Values already admitted are always admitted again, so a label never flips
+/// between its own value and [`APP_LABEL_OTHER`] within one process; only a
+/// value first seen after the budget is spent folds.
+struct LabelBudget {
+    cap: usize,
+    admitted: RwLock<BTreeSet<String>>,
+}
+
+impl LabelBudget {
+    const fn new(cap: usize) -> Self {
+        Self {
+            cap,
+            admitted: RwLock::new(BTreeSet::new()),
+        }
+    }
+
+    fn admit(&self, value: &str) -> bool {
+        // A poisoned lock only means another thread panicked mid-insert; the
+        // set is still a valid set, and a metric label is no reason to spread
+        // that panic into a request path.
+        {
+            let admitted = self.admitted.read().unwrap_or_else(|e| e.into_inner());
+            if admitted.contains(value) {
+                return true;
+            }
+            // Full: answer from the shared lock. Without this, every request
+            // for a folded app would take the exclusive lock just to be told
+            // no — and a waiting writer blocks new readers, so a folded app's
+            // asset burst would stall the admitted apps' requests too.
+            if admitted.len() >= self.cap {
+                return false;
+            }
+        }
+        let mut admitted = self.admitted.write().unwrap_or_else(|e| e.into_inner());
+        if admitted.contains(value) {
+            return true; // admitted by another thread between the two locks
+        }
+        if admitted.len() >= self.cap {
+            return false;
+        }
+        admitted.insert(value.to_owned());
+        true
+    }
+}
+
+static LABELLED_APPS: LabelBudget = LabelBudget::new(MAX_LABELLED_APPS);
+static LABELLED_FUNCTIONS: LabelBudget = LabelBudget::new(MAX_LABELLED_FUNCTIONS);
+
+/// The value a custom-app series carries for the app axis: the app's own
+/// **id**, until this process has labelled [`MAX_LABELLED_APPS`] distinct apps,
+/// and [`APP_LABEL_OTHER`] for any app first seen after that.
+///
+/// Within one process, serve-plane requests and function invocations share the
+/// one budget. That is a per-process property only: asset requests record on
+/// the serve fleet, route-mode invocations on the ide, and task-queued ones on
+/// whichever of the worker or the ide claimed them — each with its own budget. Below the cap — the normal state —
+/// every process labels every app, so the distinction only shows under
+/// overflow, when an app can be labelled on one pod and folded on another.
 pub fn app_label(app_id: &str) -> Cow<'static, str> {
-    if watchlist().contains(app_id) {
+    if LABELLED_APPS.admit(app_id) {
         Cow::Owned(app_id.to_owned())
     } else {
         Cow::Borrowed(APP_LABEL_OTHER)
     }
+}
+
+/// The value a function series carries for the function axis, for an app that
+/// is itself labelled: the function's name, until this process has labelled
+/// [`MAX_LABELLED_FUNCTIONS`] distinct `(app, function)` pairs, and
+/// [`APP_LABEL_OTHER`] after that.
+pub fn function_label(app_id: &str, function: &str) -> Cow<'static, str> {
+    if LABELLED_FUNCTIONS.admit(&function_key(app_id, function)) {
+        Cow::Owned(function.to_owned())
+    } else {
+        Cow::Borrowed(APP_LABEL_OTHER)
+    }
+}
+
+/// The budget key for one `(app, function)` pair. The separator is a control
+/// character no app id or function name contains, so two different pairs can
+/// never produce the same key.
+fn function_key(app_id: &str, function: &str) -> String {
+    format!("{app_id}\u{1f}{function}")
 }
 
 #[cfg(test)]
@@ -545,24 +643,82 @@ mod tests {
     use super::*;
 
     #[test]
-    fn watchlist_parsing_tolerates_spacing_and_empties() {
-        // Ids, matching what the recording sites actually pass — the fixtures
-        // used to read as slugs, which is how the rustdoc drifted.
-        let set = parse_watchlist(Some(
-            " 0f8fad5b-d9cb-469f-a165-70867728950e , ,7c9e6679-7425-40de-944b-e07fc1f90ae7,",
-        ));
-        assert_eq!(set.len(), 2);
-        assert!(set.contains("0f8fad5b-d9cb-469f-a165-70867728950e"));
-        assert!(set.contains("7c9e6679-7425-40de-944b-e07fc1f90ae7"));
+    fn a_label_budget_admits_up_to_its_cap_and_never_evicts() {
+        let budget = LabelBudget::new(2);
+        assert!(budget.admit("a"));
+        assert!(budget.admit("b"));
+        assert!(!budget.admit("c"), "past the cap a NEW value must fold");
+        // An admitted value stays admitted, so its series never flips between
+        // its own label and __other__ inside one process lifetime.
+        assert!(budget.admit("a"));
+        assert!(budget.admit("b"));
+        assert!(!budget.admit("c"), "and a folded value stays folded");
+    }
+
+    /// The whole point of replacing the watchlist: an app is labelled by its id
+    /// with nothing configured. The watchlist's default was "fold everything",
+    /// which left every per-app panel empty in every environment.
+    #[test]
+    fn apps_and_functions_are_labelled_by_default() {
+        let app = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        assert_eq!(app_label(app), app);
+        assert_eq!(function_label(app, "handler"), "handler");
     }
 
     #[test]
-    fn an_unset_watchlist_is_empty_not_everything() {
-        // The failure mode this guards: treating "no watchlist configured" as
-        // "label every app", which is how a 44-series axis quietly becomes a
-        // 4,400-series one.
-        assert!(parse_watchlist(None).is_empty());
-        assert!(parse_watchlist(Some("")).is_empty());
+    fn the_function_budget_is_per_app_function_pair() {
+        // Two apps that both export `handler` are two sets of series, so they
+        // must cost two slots — and must not collide into one key.
+        assert_ne!(
+            function_key("app-a", "handler"),
+            function_key("app-b", "handler")
+        );
+        assert_ne!(function_key("ab", "c"), function_key("a", "bc"));
+    }
+
+    /// The worst case the budgets allow, per process, must stay bounded — this
+    /// is what the watchlist used to buy by folding everything. Raising a cap
+    /// past this ceiling should be a decision, so it fails here first.
+    #[test]
+    fn the_label_budget_bounds_series_per_process() {
+        // `success | error | timeout | cancelled | shed` — every status a run
+        // records in custom_apps_functions (`shed` is an unadmitted run).
+        const FUNCTION_OUTCOMES: usize = 5;
+        // An allowance, not a count: prod showed ~4 statuses per (app, kind)
+        // over 14 days.
+        const REQUEST_STATUSES: usize = 8;
+        // Org is on every series and no budget bounds it. It does not multiply
+        // a labelled app (an app has one org), but a FOLDED app becomes
+        // `(org, __other__)`, so the fold bucket fans out per org. 6 today.
+        const ORGS: usize = 16;
+
+        // A histogram exposes its buckets plus +Inf, _sum and _count.
+        let hist = |b: &[f64]| b.len() + 3;
+        let per_function_slot = FUNCTION_OUTCOMES
+            * (1 // the invocations counter
+                + hist(FUNCTION_DURATION_BUCKETS)
+                + hist(INIT_DURATION_BUCKETS)
+                + hist(HOST_CALL_BUCKETS));
+        // Function slots: every labelled pair; plus, once the function budget
+        // is spent, one `oxy_function="__other__"` slot per labelled app; plus
+        // one function-less slot per org for apps that folded.
+        let function_series =
+            per_function_slot * (MAX_LABELLED_FUNCTIONS + MAX_LABELLED_APPS + ORGS);
+        // Request slots: kind is html|asset, per labelled app and per org fold.
+        let request_series =
+            2 * REQUEST_STATUSES * hist(HTTP_DURATION_BUCKETS) * (MAX_LABELLED_APPS + ORGS);
+
+        // 220 x (128 + 64 + 16) + 272 x (64 + 16) = 45,760 + 21,760 = 67,520.
+        // A ceiling, not an expectation: a real week of prod is about 4k. The
+        // SDK's own 2,000-attribute-set cap per instrument is the absolute
+        // backstop above this (~120k across these five instruments).
+        let worst = function_series + request_series;
+        assert!(
+            worst <= 70_000,
+            "the label budgets allow {worst} custom-app series per process \
+             ({function_series} function + {request_series} request) — past the \
+             70k ceiling. That is per pod, across every pod that serves /metrics."
+        );
     }
 
     /// Bucket sets must be sorted and free of duplicates or the SDK rejects

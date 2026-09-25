@@ -13,7 +13,7 @@
 use opentelemetry::KeyValue;
 
 use super::Instruments;
-use super::instruments::app_label;
+use super::instruments::{APP_LABEL_OTHER, app_label, function_label};
 use super::with_instruments;
 
 /// Attribute keys, spelled once. A typo in a label key produces a second
@@ -125,11 +125,12 @@ pub fn custom_app_request(org_id: &str, app_id: &str, kind: &str, status: u16, s
 /// was instantaneous on exactly the invocations where it was not, so the
 /// sample is skipped instead.
 ///
-/// The `function` label is carried **only for watchlisted apps**. Function
-/// names are author-chosen and unbounded, so `org × app × function × outcome`
-/// is the one product here that can actually run away; for everything else the
-/// question this answers is "which org's functions are failing", which org and
-/// outcome already answer.
+/// Every app and function is labelled by default, inside the per-process
+/// budgets in [`super::instruments`]. Function names are author-chosen, so
+/// `app × function × outcome` is the one product here that could run away; the
+/// budget is what keeps it from doing so, with no list to maintain. An app that
+/// itself folded to `__other__` carries no function label at all — a function
+/// name under a folded app would describe a mix of unrelated apps.
 pub fn custom_app_function(
     org_id: &str,
     app_id: &str,
@@ -140,15 +141,18 @@ pub fn custom_app_function(
     host_calls: u32,
 ) {
     let app = app_label(app_id);
-    let watchlisted = app != super::instruments::APP_LABEL_OTHER;
+    let labelled = app != APP_LABEL_OTHER;
 
     let mut attrs = vec![
         KeyValue::new(ORG, org_id.to_owned()),
         KeyValue::new(APP, app.clone().into_owned()),
         KeyValue::new(OUTCOME, outcome.to_owned()),
     ];
-    if watchlisted {
-        attrs.push(KeyValue::new(FUNCTION, function.to_owned()));
+    if labelled {
+        attrs.push(KeyValue::new(
+            FUNCTION,
+            function_label(app_id, function).into_owned(),
+        ));
     }
 
     with_instruments(|i| {
@@ -165,8 +169,8 @@ pub fn custom_app_function(
 
 /// One isolate terminated for breaching its heap ceiling.
 ///
-/// Labelled by org only. The app is deliberately not carried even for a
-/// watchlisted app: this is a **host-health** fact — which tenant is taking
+/// Labelled by org only. The app is deliberately not carried even though apps
+/// are labelled elsewhere: this is a **host-health** fact — which tenant is taking
 /// memory from the box everyone shares — and the org is the unit an operator
 /// acts on. The invocation row and its logs are where you then find the app.
 pub fn custom_app_heap_termination(org_id: &str) {

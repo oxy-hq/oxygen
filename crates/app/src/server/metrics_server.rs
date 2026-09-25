@@ -238,8 +238,12 @@ mod tests {
             "org must always be labelled:\n{body}"
         );
         assert!(
-            body.contains(r#"oxy_app="__other__""#),
-            "an app off the watchlist must fold, not carry its id:\n{body}"
+            body.contains(r#"oxy_app="app-1""#),
+            "an app is labelled by its id by default, with nothing configured:\n{body}"
+        );
+        assert!(
+            body.contains(r#"oxy_function="handler""#),
+            "and so is its function:\n{body}"
         );
         assert!(
             body.contains("oxy_db_pool_connections"),
