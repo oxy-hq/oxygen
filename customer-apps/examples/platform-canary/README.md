@@ -276,6 +276,36 @@ that step fails.
   The "drop it until you have timed it" advice above is for any *other*
   deployment, not for these two.
 
+### What actually runs (2026-09-25)
+
+The canary first ran on 2026-09-25: staging at 04:52Z, prod at 06:35Z.
+Before that it existed in no deployment, so the 7-day green streak in
+[How a failure reaches anyone](#how-a-failure-reaches-anyone) starts there.
+Neither deployment runs the lists above yet:
+
+| Deployment | `CANARY_STEPS` |
+| --- | --- |
+| Prod | `org_read,storage_roundtrip,secrets_roundtrip,check_in` |
+| Staging | `org_read,storage_roundtrip,secrets_roundtrip` |
+
+The reason for both: `canary_warehouse` is an `airhouse_managed` database in
+both deployments, not the `oxy_canary` ClickHouse database that
+[Per-deployment setup](#per-deployment-setup) names. The warehouse steps
+create a `MergeTree` table and pin ClickHouse's refusal wording, and a
+scheduled run on an `airhouse_managed` destination writes as Reader, so they
+can't pass there. The OLTP steps are out with them. They need the OLTP
+provision box done first.
+
+- **The cost:** `warehouse_insert` and `warehouse_exec`, the steps written
+  for the `Code: 27` regression, run only in CI's checkpoint 1. They don't
+  run against staging or prod.
+- **To lift it:** do the ClickHouse, `config.yml` and OLTP boxes of
+  [Per-deployment setup](#per-deployment-setup), then set the lists above
+  (prod: unset).
+- **Until then, set the secret back to this table's value, not to "unset".**
+  That includes after a fire drill. An unset list runs the ClickHouse steps
+  and fails every run.
+
 ## How a failure reaches anyone
 
 A failed run is an ordinary failed invocation:
@@ -309,7 +339,10 @@ rollback-and-redeploy, check the canary's invocations in the admin console.
 
 ## Per-deployment setup
 
-Once per deployment (dev, staging, prod), by a human:
+Once per deployment, by a human. The canary runs on staging and prod. Dev has
+none on purpose: it is the unmonitored rung
+([deploy-pipeline.md](../../../internal-docs/deploy-pipeline.md)), and
+checkpoint 1 runs the canary on pull requests.
 
 - [ ] **Org and workspace.** Staff creates org `oxy-canary` with workspace
       `canary`.
