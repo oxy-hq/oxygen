@@ -1,7 +1,8 @@
 //! One `SERVER` span per HTTP request, shaped the way HyperDX's request views
 //! expect: named `"{method} {route}"`, attributes from the OpenTelemetry HTTP
-//! semantic conventions, an inbound `traceparent` honoured as the parent,
-//! and the server-minted `x-oxy-request-id` on the span so a support ticket's
+//! semantic conventions, a sampled inbound `traceparent` honoured as the
+//! parent (an unsampled one is linked, see `adopt_or_link`), and the
+//! server-minted `x-oxy-request-id` on the span so a support ticket's
 //! id is one click from the trace.
 //!
 //! This replaces `tower_http::trace::DefaultMakeSpan`, whose span was named
@@ -184,11 +185,30 @@ impl<B> MakeSpan<B> for OxyMakeSpan {
             oxy.request_id = header_str(headers, self.request_id_header),
         );
         if let Some(parent) = crate::propagation::extract(headers) {
-            // Err means no export layer is installed (or the span somehow
-            // started already); in both cases there is nothing to link to.
-            let _ = span.set_parent(parent);
+            adopt_or_link(&span, parent);
         }
         span
+    }
+}
+
+/// A sampled inbound parent becomes the request span's parent. An unsampled
+/// one (`traceparent` flags `00`) is only linked: as a parent it hands the
+/// caller's sampling decision to the SDK's default `ParentBased` sampler,
+/// which then drops the span, and the request is missing from the trace store
+/// while the RED metrics still count it. Uptime vendors send exactly that
+/// (All Quiet's canary probe lost two spans in three this way), so the
+/// decision is ours. Oxy's own serve → ide hop is always sampled (the serve
+/// span is), so that hop still lands in one trace.
+fn adopt_or_link(span: &Span, parent: opentelemetry::Context) {
+    use opentelemetry::trace::TraceContextExt as _;
+    let parent_span = parent.span();
+    let parent_cx = parent_span.span_context();
+    if parent_cx.is_sampled() {
+        // Err means no export layer is installed (or the span somehow
+        // started already); in both cases there is nothing to link to.
+        let _ = span.set_parent(parent.clone());
+    } else {
+        span.add_link(parent_cx.clone());
     }
 }
 
@@ -754,6 +774,43 @@ mod tests {
             Some("11111111-2222-3333-4444-555555555555")
         );
         assert_eq!(span.status, Status::Unset, "a 200 leaves the status unset");
+    }
+
+    /// An external caller's `traceparent` with the sampled flag clear (`-00`)
+    /// must not erase the request from the trace store. Adopted as the parent,
+    /// the SDK's default `ParentBased` sampler drops the span, and that is what
+    /// happened to the All Quiet probe of the platform canary: its requests
+    /// were counted by the RED metrics and missing from the traces.
+    #[tokio::test]
+    async fn an_unsampled_inbound_traceparent_is_linked_not_adopted() {
+        let req = Request::builder()
+            .uri("/items/42")
+            .header(
+                "traceparent",
+                "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00",
+            )
+            .body(Body::empty())
+            .unwrap();
+        let (status, spans) = spans_for(req).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let span = spans
+            .iter()
+            .find(|s| s.name == "GET /items/{id}")
+            .expect("an unsampled inbound parent still yields the request span");
+        let inbound = TraceId::from_hex("0af7651916cd43dd8448eb211c80319c").unwrap();
+        assert_ne!(span.span_context.trace_id(), inbound, "a new root trace");
+        assert_eq!(span.parent_span_id, SpanId::INVALID);
+        let linked: Vec<_> = span
+            .links
+            .iter()
+            .map(|l| (l.span_context.trace_id(), l.span_context.span_id()))
+            .collect();
+        assert_eq!(
+            linked,
+            vec![(inbound, SpanId::from_hex("b7ad6b7169203331").unwrap())],
+            "the caller's trace stays reachable as a link"
+        );
     }
 
     #[tokio::test]

@@ -1,8 +1,9 @@
 //! W3C `traceparent` / `tracestate` on the wire.
 //!
-//! Inbound, the HTTP span in [`crate::http_trace`] adopts a valid
+//! Inbound, the HTTP span in [`crate::http_trace`] adopts a valid, sampled
 //! `traceparent` as its parent, so a browser SDK or an upstream service can
-//! hand Oxy the trace it started. Outbound, the one internal hop Oxy makes on
+//! hand Oxy the trace it started (an unsampled one is only linked, so a
+//! caller's sampling decision can't drop Oxy's span). Outbound, the one internal hop Oxy makes on
 //! its own behalf — a stateless `serve` replica forwarding an `IdeOnly` route
 //! to the `ide` pod — stamps the current span's context on the forwarded
 //! request, so both pods' spans land in one trace instead of two that share
