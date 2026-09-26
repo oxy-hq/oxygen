@@ -34,7 +34,7 @@ mod destinations;
 // Visible to the rest of custom_apps_functions so the preflight judges live
 // manifests with the host's own write rule, not a copy of it.
 pub(in crate::server::api::custom_apps_functions) use destinations::{
-    DestinationKind, WriteSurface, destination_kind, destination_write_policy,
+    WriteSurface, destination_kind, destination_write_policy,
 };
 
 /// Outbound fetch response size cap (design doc §11.9).

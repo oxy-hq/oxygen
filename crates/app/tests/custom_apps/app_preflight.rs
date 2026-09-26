@@ -11,13 +11,9 @@ use entity::{
 };
 use oxy::config::model::Database;
 use oxy_app::server::api::custom_apps_functions::preflight::{
-    BASELINE_HOURS, Findings, LiveFunction, WORKING_WITHIN_DAYS, evaluate, first_run, judge,
-    ledger, live_functions, worked_recently,
+    WORKING_WITHIN_DAYS, evaluate, live_functions, worked_recently,
 };
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    IntoActiveModel, Statement,
-};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, IntoActiveModel};
 use uuid::Uuid;
 
 use crate::common::test_db;
@@ -212,7 +208,7 @@ async fn only_the_live_build_is_read_and_the_incident_function_is_refused() {
     );
     assert!(live[0].app.starts_with("preflight-") && live[0].app.contains("/warehouse-"));
 
-    let refusals = evaluate(&live, &HashMap::from([(s.workspace_id, poke_house())])).refusals;
+    let (refusals, _) = evaluate(&live, &HashMap::from([(s.workspace_id, poke_house())]));
     assert_eq!(refusals.len(), 1, "{refusals:?}");
     assert_eq!(refusals[0].function, "submit-receiving");
     assert!(refusals[0].reason.contains("customerWarehouseWrites"));
@@ -262,150 +258,4 @@ async fn working_means_a_clean_success_this_week() {
 
     invocation(&db, &s, "success", None, Duration::days(1)).await;
     assert!(worked().await.unwrap());
-}
-
-async fn live(db: &DatabaseConnection, s: &Seeded) -> Vec<LiveFunction> {
-    live_functions(db)
-        .await
-        .expect("live functions")
-        .into_iter()
-        .filter(|f| f.app_id == s.app_id)
-        .collect()
-}
-
-async fn ledger_rows(db: &DatabaseConnection, app_id: Uuid) -> i64 {
-    db.query_one_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "SELECT count(*) AS n FROM app_preflight_refusals WHERE app_id = $1",
-        [app_id.into()],
-    ))
-    .await
-    .unwrap()
-    .unwrap()
-    .try_get::<i64>("", "n")
-    .unwrap()
-}
-
-fn breaking(findings: &Findings) -> Vec<(bool, bool)> {
-    findings
-        .judged
-        .iter()
-        .map(|j| (j.new, j.breaks_working))
-        .collect()
-}
-
-/// The release blocks on what IT changes. A function the running binary
-/// already refuses on one path, while it answers on others, looks "working" —
-/// only the ledger can say the refusal is not this release's doing.
-#[tokio::test]
-async fn a_refusal_the_last_rollout_recorded_is_carried_over_not_blocking() {
-    let db = test_db().await;
-    let s = seed(&db).await;
-    invocation(&db, &s, "success", None, Duration::days(1)).await;
-    let functions = live(&db, &s).await;
-    let dbs = HashMap::from([(s.workspace_id, poke_house())]);
-
-    let first = judge(&db, &functions, &dbs).await.unwrap();
-    assert_eq!(
-        breaking(&first),
-        [(true, true)],
-        "first sight of a refusal on a function that answers: new, and it breaks"
-    );
-
-    // A rollout the preflight let through records what it saw…
-    ledger::record(&db, &first).await.unwrap();
-    assert_eq!(ledger_rows(&db, s.app_id).await, 1);
-
-    // …so the next release carries it over, though the function still answers.
-    let next = judge(&db, &functions, &dbs).await.unwrap();
-    assert_eq!(breaking(&next), [(false, false)]);
-
-    // Republished with the declaration: the row goes, so a regression is new again.
-    let fixed: Vec<LiveFunction> = functions
-        .iter()
-        .cloned()
-        .map(|mut f| {
-            if f.function == "submit-receiving" {
-                f.manifest = Some(serde_json::json!({
-                    "destinations": ["clickhouse"],
-                    "customerWarehouseWrites": { "clickhouse": "receiving reports land here" }
-                }));
-            }
-            f
-        })
-        .collect();
-    let after_fix = judge(&db, &fixed, &dbs).await.unwrap();
-    assert!(after_fix.judged.is_empty());
-    ledger::record(&db, &after_fix).await.unwrap();
-    assert_eq!(ledger_rows(&db, s.app_id).await, 0);
-}
-
-/// A blocked hook is retried by the Job and again by Argo; each attempt reruns
-/// the preflight. Attempts keep telling the channel until a post lands, then
-/// stop.
-#[tokio::test]
-async fn a_retried_block_is_counted_and_told_until_a_post_lands() {
-    let db = test_db().await;
-    let s = seed(&db).await;
-    invocation(&db, &s, "success", None, Duration::days(1)).await;
-    let functions = live(&db, &s).await;
-    let dbs = HashMap::from([(s.workspace_id, poke_house())]);
-    let blocked = judge(&db, &functions, &dbs).await.unwrap();
-    assert_eq!(breaking(&blocked), [(true, true)]);
-
-    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (1, false));
-    // The first post failed (Slack down, a timeout): the retry must try again.
-    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (2, false));
-    ledger::mark_told(&db, &blocked).await.unwrap();
-    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (3, true));
-    assert_eq!(
-        ledger_rows(&db, s.app_id).await,
-        0,
-        "a block records nothing in the ledger, so its retry blocks again"
-    );
-
-    // A different set of breaks is a different block, and is told.
-    let other = seed(&db).await;
-    invocation(&db, &other, "success", None, Duration::days(1)).await;
-    let other_blocked = judge(
-        &db,
-        &live(&db, &other).await,
-        &HashMap::from([(other.workspace_id, poke_house())]),
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        ledger::note_block(&db, &other_blocked).await.unwrap(),
-        (1, false)
-    );
-}
-
-/// The first run on a deployment is dated by the ledger's own migration: the
-/// `oxy migrate` that created it (or a retry of that rollout) records a
-/// baseline instead of blocking. Sep 2026: `block` was merged before any
-/// preflight had run in prod, which is exactly this case.
-#[tokio::test]
-async fn the_run_that_created_the_ledger_is_the_first() {
-    let db = test_db().await;
-    let applied = |hours_ago: i64| {
-        Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE seaql_migrations SET applied_at = extract(epoch FROM now())::bigint - $1 \
-             WHERE version = 'm20260925_000001_app_preflight_refusals'",
-            [(hours_ago * 3600).into()],
-        )
-    };
-
-    let dated = db.execute_raw(applied(1)).await.unwrap().rows_affected();
-    assert_eq!(
-        dated, 1,
-        "the ledger's migration must be recorded to date the first run"
-    );
-    assert!(first_run(&db).await, "an hour after the ledger appeared");
-
-    db.execute_raw(applied(BASELINE_HOURS + 1)).await.unwrap();
-    assert!(
-        !first_run(&db).await,
-        "past the window, a run with nothing recorded is a deployment with nothing refused"
-    );
 }
