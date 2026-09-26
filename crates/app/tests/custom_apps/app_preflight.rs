@@ -339,3 +339,43 @@ async fn a_refusal_the_last_rollout_recorded_is_carried_over_not_blocking() {
     ledger::record(&db, &after_fix).await.unwrap();
     assert_eq!(ledger_rows(&db, s.app_id).await, 0);
 }
+
+/// A blocked hook is retried by the Job and again by Argo; each attempt reruns
+/// the preflight. Attempts keep telling the channel until a post lands, then
+/// stop.
+#[tokio::test]
+async fn a_retried_block_is_counted_and_told_until_a_post_lands() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    invocation(&db, &s, "success", None, Duration::days(1)).await;
+    let functions = live(&db, &s).await;
+    let dbs = HashMap::from([(s.workspace_id, poke_house())]);
+    let blocked = judge(&db, &functions, &dbs).await.unwrap();
+    assert_eq!(breaking(&blocked), [(true, true)]);
+
+    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (1, false));
+    // The first post failed (Slack down, a timeout): the retry must try again.
+    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (2, false));
+    ledger::mark_told(&db, &blocked).await.unwrap();
+    assert_eq!(ledger::note_block(&db, &blocked).await.unwrap(), (3, true));
+    assert_eq!(
+        ledger_rows(&db, s.app_id).await,
+        0,
+        "a block records nothing in the ledger, so its retry blocks again"
+    );
+
+    // A different set of breaks is a different block, and is told.
+    let other = seed(&db).await;
+    invocation(&db, &other, "success", None, Duration::days(1)).await;
+    let other_blocked = judge(
+        &db,
+        &live(&db, &other).await,
+        &HashMap::from([(other.workspace_id, poke_house())]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ledger::note_block(&db, &other_blocked).await.unwrap(),
+        (1, false)
+    );
+}

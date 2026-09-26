@@ -72,18 +72,21 @@ pub enum Mode {
 }
 
 impl Mode {
-    /// Unknown values warn rather than block: a typo in a values file must not
-    /// be what stops a release.
-    pub fn parse(value: Option<&str>) -> Self {
+    /// The mode, and a note when `value` names none. An unknown value warns
+    /// rather than blocks — a typo in a values file must not be what stops a
+    /// release — so the note is the only sign the guardrail is off.
+    pub fn parse(value: Option<&str>) -> (Self, Option<String>) {
         match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
-            Some("off") => Mode::Off,
-            Some("block") => Mode::Block,
-            Some("warn") | Some("") | None => Mode::Warn,
-            Some(other) => {
-                tracing::warn!(target: "oxy::app_preflight", value = other,
-                    "{ENV} is not off|warn|block; treating it as warn");
-                Mode::Warn
-            }
+            Some("off") => (Mode::Off, None),
+            Some("block") => (Mode::Block, None),
+            Some("warn") | Some("") | None => (Mode::Warn, None),
+            Some(_) => (
+                Mode::Warn,
+                Some(format!(
+                    "{ENV}={:?} is not off|warn|block; running as warn.",
+                    value.unwrap_or_default()
+                )),
+            ),
         }
     }
 }
@@ -257,34 +260,52 @@ pub struct Outcome {
 
 /// Run the preflight as `OXY_APP_PREFLIGHT` says.
 pub async fn run_from_env() -> Outcome {
-    let mode = Mode::parse(std::env::var(ENV).ok().as_deref());
+    let (mode, note) = Mode::parse(std::env::var(ENV).ok().as_deref());
+    run(mode, note).await
+}
+
+/// `note` names a misspelt mode. It leads the log and always reaches the
+/// channel: the hook passes in `warn`, so a green Job's log is otherwise the
+/// only place it would appear.
+async fn run(mode: Mode, note: Option<String>) -> Outcome {
     if mode == Mode::Off {
         return Outcome::default();
     }
+    let lead = |text: String| match &note {
+        Some(note) => format!("{note}\n{text}"),
+        None => text,
+    };
     let (db, findings) = match load().await {
         Ok(found) => found,
         Err(e) => {
             // Never block on the preflight's own failure — a fresh install, a
             // table this binary reads differently. Say so loudly instead.
             tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight could not run");
-            return Outcome {
-                log: format!("custom-app preflight could not run ({e}); continuing"),
-                blocked: None,
-            };
+            let log = lead(format!(
+                "custom-app preflight could not run ({e}); continuing"
+            ));
+            if note.is_some() {
+                post(&log).await;
+            }
+            return Outcome { log, blocked: None };
         }
     };
     let blocking = mode == Mode::Block && findings.judged.iter().any(|j| j.breaks_working);
-    let mut log = report::report(&findings, blocking);
-    if !blocking && let Err(e) = ledger::record(&db, &findings).await {
-        tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: ledger not recorded");
-        log.push_str(&format!(
-            "\nThe refusals above were not recorded ({e}); the next release will report them \
-             as new."
-        ));
-    }
-    // Only news reaches the channel; what is carried over stays in this log.
-    if findings.judged.iter().any(|j| j.new) {
-        post(&log).await;
+    let mut log = lead(report::report(&findings, blocking));
+    if blocking {
+        announce_block(&db, &findings, &mut log).await;
+    } else {
+        if let Err(e) = ledger::record(&db, &findings).await {
+            tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: ledger not recorded");
+            log.push_str(&format!(
+                "\nThe refusals above were not recorded ({e}); the next release will report \
+                 them as new."
+            ));
+        }
+        // Only news reaches the channel; what is carried over stays in this log.
+        if note.is_some() || findings.judged.iter().any(|j| j.new) {
+            post(&log).await;
+        }
     }
     let blocked = blocking.then(|| {
         format!(
@@ -294,6 +315,39 @@ pub async fn run_from_env() -> Outcome {
         )
     });
     Outcome { log, blocked }
+}
+
+/// Tell the channel about a block until a post lands, then stop. A failed hook
+/// is retried — by the Job's `backoffLimit`, then by each Argo sync retry,
+/// which recreates the Job — and every attempt reruns the preflight; the log
+/// counts them.
+async fn announce_block(db: &DatabaseConnection, findings: &Findings, log: &mut String) {
+    let told = match ledger::note_block(db, findings).await {
+        Ok((attempt, told)) => {
+            if attempt > 1 {
+                log.push_str(&format!(
+                    "\nBlocked attempt {attempt} of this release over these breaks; {}.",
+                    if told {
+                        "the channel has been told"
+                    } else {
+                        "the channel has not been told yet"
+                    }
+                ));
+            }
+            told
+        }
+        Err(e) => {
+            // Cannot tell whether anyone was told: say it again rather than risk silence.
+            tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: block not counted");
+            false
+        }
+    };
+    if !told
+        && post(log).await
+        && let Err(e) = ledger::mark_told(db, findings).await
+    {
+        tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: block not marked told");
+    }
 }
 
 async fn load() -> Result<(DatabaseConnection, Findings), DbErr> {
@@ -425,19 +479,24 @@ pub async fn worked_recently(
     })
 }
 
-/// Best effort: the preflight's verdict never depends on Slack.
-async fn post(text: &str) {
+/// Best effort: the preflight's verdict never depends on Slack. Says whether
+/// the post landed, so a block keeps trying until someone has been told.
+async fn post(text: &str) -> bool {
     let Some((token, channel)) = super::failure_page::ops_slack_target() else {
-        return;
+        return false;
     };
     let client = oxy_slack_client::SlackClient::new();
     let post = client.chat_post_message(&token, &channel, text, None);
     match tokio::time::timeout(std::time::Duration::from_secs(10), post).await {
-        Ok(Ok(_)) => {}
+        Ok(Ok(_)) => true,
         Ok(Err(e)) => {
-            tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: Slack post failed")
+            tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: Slack post failed");
+            false
         }
-        Err(_) => tracing::warn!(target: "oxy::app_preflight", "preflight: Slack post timed out"),
+        Err(_) => {
+            tracing::warn!(target: "oxy::app_preflight", "preflight: Slack post timed out");
+            false
+        }
     }
 }
 
@@ -548,11 +607,17 @@ mod tests {
     }
 
     #[test]
-    fn mode_defaults_to_warn_and_a_typo_never_blocks() {
-        assert_eq!(Mode::parse(None), Mode::Warn);
-        assert_eq!(Mode::parse(Some("")), Mode::Warn);
-        assert_eq!(Mode::parse(Some("BLOCK")), Mode::Block);
-        assert_eq!(Mode::parse(Some("off")), Mode::Off);
-        assert_eq!(Mode::parse(Some("blokc")), Mode::Warn);
+    fn mode_defaults_to_warn_and_a_typo_never_blocks_but_says_so() {
+        assert_eq!(Mode::parse(None), (Mode::Warn, None));
+        assert_eq!(Mode::parse(Some("")), (Mode::Warn, None));
+        assert_eq!(Mode::parse(Some(" BLOCK ")), (Mode::Block, None));
+        assert_eq!(Mode::parse(Some("off")), (Mode::Off, None));
+        let (mode, note) = Mode::parse(Some("blokc"));
+        assert_eq!(mode, Mode::Warn);
+        assert!(
+            note.as_deref()
+                .is_some_and(|n| n.contains("\"blokc\"") && n.contains("running as warn")),
+            "{note:?}"
+        );
     }
 }

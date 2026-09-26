@@ -178,6 +178,7 @@ mod m20260915_000002_custom_app_migrations_store;
 mod m20260922_000001_app_environments;
 mod m20260925_000001_app_preflight_refusals;
 mod m20260925_000002_function_success_index;
+mod m20260925_000003_app_preflight_blocks;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 
@@ -367,6 +368,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260922_000001_app_environments::Migration),
             Box::new(m20260925_000001_app_preflight_refusals::Migration),
             Box::new(m20260925_000002_function_success_index::Migration),
+            Box::new(m20260925_000003_app_preflight_blocks::Migration),
         ]
     }
 

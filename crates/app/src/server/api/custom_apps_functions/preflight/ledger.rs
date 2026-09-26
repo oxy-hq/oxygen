@@ -5,12 +5,16 @@
 //!
 //! Keyed on the rule and the database, never on the host's message: a reworded
 //! refusal is the same refusal, and must not block a rollout as new.
+//!
+//! Blocked attempts are counted separately, in `app_preflight_blocks`, so a
+//! retried hook tells the channel once.
 
 use std::collections::{HashMap, HashSet};
 
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
 };
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::{Findings, Refusal};
@@ -126,10 +130,85 @@ pub async fn record(db: &DatabaseConnection, findings: &Findings) -> Result<(), 
     txn.commit().await
 }
 
+/// Count one more blocked attempt of this release over this set of breaks.
+/// Returns the attempt (1 is the first) and whether a post about this block
+/// has landed — not whether one was tried, which is what keeps a failed first
+/// post from silencing every retry.
+pub async fn note_block(
+    db: &impl ConnectionTrait,
+    findings: &Findings,
+) -> Result<(i32, bool), DbErr> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO app_preflight_blocks (release, digest) VALUES ($1, $2) \
+             ON CONFLICT (release, digest) DO UPDATE \
+               SET attempts = app_preflight_blocks.attempts + 1, last_blocked_at = now() \
+             RETURNING attempts, told",
+            block_key(findings),
+        ))
+        .await?
+        .ok_or_else(|| DbErr::Custom("app_preflight_blocks returned no row".into()))?;
+    Ok((row.try_get("", "attempts")?, row.try_get("", "told")?))
+}
+
+/// Record that a post about this block landed.
+pub async fn mark_told(db: &impl ConnectionTrait, findings: &Findings) -> Result<(), DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE app_preflight_blocks SET told = true WHERE release = $1 AND digest = $2",
+        block_key(findings),
+    ))
+    .await?;
+    Ok(())
+}
+
+fn block_key(findings: &Findings) -> [sea_orm::Value; 2] {
+    [
+        env!("CARGO_PKG_VERSION").into(),
+        block_digest(findings).into(),
+    ]
+}
+
+/// The set of breaks that blocks, independent of order. A different set is a
+/// different block, and is told.
+pub fn block_digest(findings: &Findings) -> String {
+    let mut breaks: Vec<Entry> = findings
+        .judged
+        .iter()
+        .filter(|j| j.breaks_working)
+        .map(|j| entry(&j.refusal))
+        .collect();
+    breaks.sort();
+    let mut hasher = Sha256::new();
+    for (app, function, rule, database) in breaks {
+        hasher.update(format!(
+            "{app}\u{1f}{function}\u{1f}{rule}\u{1f}{database}\u{1e}"
+        ));
+    }
+    hex::encode(hasher.finalize())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Judged, rule};
     use super::*;
+
+    #[test]
+    fn a_block_is_the_same_block_in_any_order_and_a_different_one_otherwise() {
+        let breaking = |function: &str| Judged {
+            breaks_working: true,
+            ..judged(function, "read-only")
+        };
+        let ab = findings(vec![breaking("a"), breaking("b")], &[], &[], &[]);
+        let ba = findings(vec![breaking("b"), breaking("a")], &[], &[], &[]);
+        let a = findings(vec![breaking("a")], &[], &[], &[]);
+        assert_eq!(block_digest(&ab), block_digest(&ba));
+        assert_ne!(block_digest(&ab), block_digest(&a));
+        // What does not block is not part of the block.
+        let a_and_quiet = findings(vec![breaking("a"), judged("b", "read-only")], &[], &[], &[]);
+        assert_eq!(block_digest(&a), block_digest(&a_and_quiet));
+    }
 
     const APP: Uuid = Uuid::from_u128(1);
 
