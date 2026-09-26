@@ -11,8 +11,8 @@ use entity::{
 };
 use oxy::config::model::Database;
 use oxy_app::server::api::custom_apps_functions::preflight::{
-    Findings, LiveFunction, WORKING_WITHIN_DAYS, evaluate, judge, ledger, live_functions,
-    worked_recently,
+    BASELINE_HOURS, Findings, LiveFunction, WORKING_WITHIN_DAYS, evaluate, first_run, judge,
+    ledger, live_functions, worked_recently,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, DatabaseConnection,
@@ -377,5 +377,35 @@ async fn a_retried_block_is_counted_and_told_until_a_post_lands() {
     assert_eq!(
         ledger::note_block(&db, &other_blocked).await.unwrap(),
         (1, false)
+    );
+}
+
+/// The first run on a deployment is dated by the ledger's own migration: the
+/// `oxy migrate` that created it (or a retry of that rollout) records a
+/// baseline instead of blocking. Sep 2026: `block` was merged before any
+/// preflight had run in prod, which is exactly this case.
+#[tokio::test]
+async fn the_run_that_created_the_ledger_is_the_first() {
+    let db = test_db().await;
+    let applied = |hours_ago: i64| {
+        Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE seaql_migrations SET applied_at = extract(epoch FROM now())::bigint - $1 \
+             WHERE version = 'm20260925_000001_app_preflight_refusals'",
+            [(hours_ago * 3600).into()],
+        )
+    };
+
+    let dated = db.execute_raw(applied(1)).await.unwrap().rows_affected();
+    assert_eq!(
+        dated, 1,
+        "the ledger's migration must be recorded to date the first run"
+    );
+    assert!(first_run(&db).await, "an hour after the ledger appeared");
+
+    db.execute_raw(applied(BASELINE_HOURS + 1)).await.unwrap();
+    assert!(
+        !first_run(&db).await,
+        "past the window, a run with nothing recorded is a deployment with nothing refused"
     );
 }

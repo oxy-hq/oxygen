@@ -248,6 +248,7 @@ mod tests {
             checked: keys(checked),
             unchecked: keys(unchecked),
             known: known.iter().cloned().collect(),
+            baseline: false,
         }
     }
 

@@ -22,13 +22,17 @@ pub fn report(findings: &Findings, blocking: bool) -> String {
         .collect();
     let carried: Vec<&Judged> = findings.judged.iter().filter(|j| !j.new).collect();
 
-    let mut out = header(
-        version,
-        blocking,
-        &breaking,
-        (quiet_new.len(), carried.len()),
-        !findings.unchecked.is_empty(),
-    );
+    let mut out = if findings.baseline && !findings.judged.is_empty() {
+        baseline_header(version, findings.judged.len(), breaking.len())
+    } else {
+        header(
+            version,
+            blocking,
+            &breaking,
+            (quiet_new.len(), carried.len()),
+            !findings.unchecked.is_empty(),
+        )
+    };
     let mut budget = LISTED;
     list(&mut out, &mut budget, None, &breaking);
     let quiet_heading = (!breaking.is_empty())
@@ -59,6 +63,25 @@ pub fn report(findings: &Findings, blocking: bool) -> String {
         );
     }
     out
+}
+
+/// The first run on a deployment records instead of blocking. It cannot tell
+/// which refusals this release introduced, so it says so, and lists the ones on
+/// working functions first.
+fn baseline_header(version: &str, refused: usize, on_working: usize) -> String {
+    let check = if on_working > 0 {
+        format!(
+            " Refusals on functions that answered this week ({on_working}) are listed first: the \
+             first run cannot tell whether this release caused them, so check them."
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        ":information_source: First custom-app preflight on this deployment (release {version}): \
+         recording the {refused} refusal(s) live apps already carry as the baseline, not \
+         blocking. From the next release on, only a refusal a release adds can block.{check}"
+    )
 }
 
 /// `(quiet_new, carried)`: refusals new but breaking nothing working, and
@@ -152,6 +175,31 @@ mod tests {
             judged,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_first_run_records_a_baseline_and_says_what_to_check() {
+        let mut f = findings(vec![
+            judged("admin-settings", true, true),
+            judged("retired", true, false),
+        ]);
+        f.baseline = true;
+        let text = report(&f, false);
+        assert!(text.contains("First custom-app preflight"), "{text}");
+        assert!(text.contains("recording the 2 refusal(s)"), "{text}");
+        assert!(
+            text.contains("answered this week (1) are listed first"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("rolling out anyway") && !text.contains("blocked"),
+            "{text}"
+        );
+
+        // Nothing refused: the ordinary all-clear, not a baseline notice.
+        let mut clean = findings(vec![]);
+        clean.baseline = true;
+        assert!(report(&clean, false).contains("every live function passes"));
     }
 
     #[test]

@@ -35,15 +35,18 @@
 //! records nothing, so its retry blocks again.
 //!
 //! **The first run records a baseline.** With nothing recorded, every refusal
-//! reads as new. Turn `block` on only after one rollout has run in `warn`.
+//! reads as new, so the first run on a deployment — the `oxy migrate` that
+//! created the ledger, or a retry of it within [`BASELINE_HOURS`] — never
+//! blocks: it records what live apps already carry and reports it. Turning
+//! `block` on therefore needs no warm-up rollout in `warn`.
 //!
 //! **Tightening a host gate?** Add its rule here, or the preflight cannot see
 //! the apps your change breaks.
 //!
-//! `OXY_APP_PREFLIGHT` = `off` | `warn` (default) | `block`. Prod runs `block`;
-//! dev and staging report. To roll out a release knowingly, set `warn` for that
-//! rollout — it records the refusals, so the next release does not block on
-//! them either.
+//! `OXY_APP_PREFLIGHT` = `off` | `warn` (default) | `block`. Staging and prod
+//! run `block`; dev reports. To roll out a release knowingly, set `warn` for
+//! that rollout — it records the refusals, so the next release does not block
+//! on them either.
 
 pub mod ledger;
 pub mod report;
@@ -61,6 +64,11 @@ use super::host::{DestinationKind, WriteSurface, destination_kind, destination_w
 
 /// A function counts as working when it answered this recently.
 pub const WORKING_WITHIN_DAYS: i64 = 7;
+/// How long after the ledger's migration a run still counts as the first — long
+/// enough for the Job's and Argo's retries of that same rollout.
+pub const BASELINE_HOURS: i64 = 6;
+/// The migration that creates the ledger; its `applied_at` dates the first run.
+const LEDGER_MIGRATION: &str = "m20260925_000001_app_preflight_refusals";
 const ENV: &str = "OXY_APP_PREFLIGHT";
 
 /// What the preflight does with what it finds.
@@ -246,6 +254,8 @@ pub struct Findings {
     pub unchecked: HashSet<FunctionKey>,
     /// The ledger as this run found it.
     pub known: HashSet<ledger::Entry>,
+    /// The first run on this deployment ([`first_run`]): it records, never blocks.
+    pub baseline: bool,
 }
 
 /// What the preflight concluded, for `oxy migrate` to print — this module
@@ -290,7 +300,9 @@ async fn run(mode: Mode, note: Option<String>) -> Outcome {
             return Outcome { log, blocked: None };
         }
     };
-    let blocking = mode == Mode::Block && findings.judged.iter().any(|j| j.breaks_working);
+    let blocking = mode == Mode::Block
+        && !findings.baseline
+        && findings.judged.iter().any(|j| j.breaks_working);
     let mut log = lead(report::report(&findings, blocking));
     if blocking {
         announce_block(&db, &findings, &mut log).await;
@@ -389,7 +401,33 @@ pub async fn judge(
         checked: evaluation.checked,
         unchecked: evaluation.unchecked,
         known,
+        baseline: first_run(db).await,
     })
+}
+
+/// Whether this is the preflight's first run on this deployment: the ledger's
+/// migration was applied within the last [`BASELINE_HOURS`] — by this
+/// `oxy migrate`, or a retry of the same rollout. With nothing recorded yet,
+/// every refusal would read as new and a working app the running binary
+/// already refuses would block the rollout that introduces the preflight. A
+/// read that fails is not a first run: the preflight behaves as it always does.
+pub async fn first_run(db: &impl ConnectionTrait) -> bool {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT applied_at > extract(epoch FROM now())::bigint - $2 AS fresh \
+             FROM seaql_migrations WHERE version = $1",
+            [LEDGER_MIGRATION.into(), (BASELINE_HOURS * 3600).into()],
+        ))
+        .await;
+    match row {
+        Ok(Some(row)) => row.try_get::<bool>("", "fresh").unwrap_or(false),
+        Ok(None) => false,
+        Err(e) => {
+            tracing::warn!(target: "oxy::app_preflight", error = %e, "preflight: first-run check failed");
+            false
+        }
+    }
 }
 
 /// Every function of every app's published build. Raw SQL over columns that
