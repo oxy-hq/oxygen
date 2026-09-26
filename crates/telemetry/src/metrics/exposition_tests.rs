@@ -409,14 +409,13 @@ fn seeding_makes_a_first_event_visible_to_increase() {
 
     let body = render(&reader);
 
-    for name in [
-        "oxy_custom_app_bundle_cache_evictions_total",
-        r#"oxy_db_pool_probe_failures_total{oxy_reason="error"}"#,
-        r#"oxy_db_pool_probe_failures_total{oxy_reason="timeout"}"#,
-    ] {
+    for name in ["oxy_custom_app_bundle_cache_evictions_total".to_owned()]
+        .into_iter()
+        .chain(probe_failure_series())
+    {
         let line = body
             .lines()
-            .find(|l| l.starts_with(name) && !l.starts_with('#'))
+            .find(|l| l.starts_with(name.as_str()) && !l.starts_with('#'))
             .unwrap_or_else(|| panic!("seeded series is missing: {name}\n{body}"));
         let (_, value) = line.rsplit_once(' ').expect("sample has a value");
         assert_eq!(value, "0", "a seed must be zero, not a count: {line}");
@@ -434,4 +433,52 @@ fn seeding_makes_a_first_event_visible_to_increase() {
              series is born elsewhere:\n{body}"
         );
     }
+}
+
+/// One exposition name per pool-probe reason, spelled from the constants.
+///
+/// Built from each **named** constant rather than by iterating
+/// `DB_POOL_PROBE_FAILURE_REASONS`: iterating the list would pass for a
+/// constant the probe records but the list forgot, which is exactly the
+/// un-seeded series this exists to rule out.
+fn probe_failure_series() -> Vec<String> {
+    use crate::metrics::record::{
+        DB_POOL_PROBE_FAILURE_ERROR, DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE,
+        DB_POOL_PROBE_FAILURE_TIMEOUT,
+    };
+    [
+        DB_POOL_PROBE_FAILURE_TIMEOUT,
+        DB_POOL_PROBE_FAILURE_SERVER_UNAVAILABLE,
+        DB_POOL_PROBE_FAILURE_ERROR,
+    ]
+    .iter()
+    .map(|reason| format!(r#"oxy_db_pool_probe_failures_total{{oxy_reason="{reason}"}}"#))
+    .collect()
+}
+
+/// The seeded list is exactly the named reasons — no more, no fewer.
+///
+/// A new reason has to be added in three places: its constant, the list the
+/// seed walks, and [`probe_failure_series`]. The length pin fails when the list
+/// grows without the helper; the helper's assertion above fails when a named
+/// constant is missing from the list's seed.
+#[test]
+fn probe_failure_reasons_are_the_named_constants() {
+    use crate::metrics::record::DB_POOL_PROBE_FAILURE_REASONS;
+
+    let named = probe_failure_series();
+    assert_eq!(
+        DB_POOL_PROBE_FAILURE_REASONS.len(),
+        named.len(),
+        "DB_POOL_PROBE_FAILURE_REASONS and probe_failure_series() disagree on how many \
+         reasons exist: {DB_POOL_PROBE_FAILURE_REASONS:?} vs {named:?}"
+    );
+    let mut distinct = DB_POOL_PROBE_FAILURE_REASONS.to_vec();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(
+        distinct.len(),
+        DB_POOL_PROBE_FAILURE_REASONS.len(),
+        "a reason is listed twice, so another is not seeded: {DB_POOL_PROBE_FAILURE_REASONS:?}"
+    );
 }

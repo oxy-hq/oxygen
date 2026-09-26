@@ -54,7 +54,7 @@ pub static DB_POOL_STARVED: AtomicBool = AtomicBool::new(false);
 ///
 /// Monotonic and per-process. The gauge above says "right now"; this says "has
 /// it been happening", which is what distinguishes a blip from a pattern
-/// between two scrapes. For failure *volume* and the error-vs-timeout split,
+/// between two scrapes. For failure *volume* and the split by cause,
 /// read `oxy_db_pool_probe_failures_total`, which counts every failed probe —
 /// the two answer different questions and neither substitutes for the other.
 pub static DB_POOL_STARVATION_EVENTS: AtomicU64 = AtomicU64::new(0);

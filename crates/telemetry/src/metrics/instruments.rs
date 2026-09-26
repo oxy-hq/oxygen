@@ -170,12 +170,15 @@ pub struct Instruments {
     /// `oxy.db.pool.probe.failures` — probes that did not acquire, by
     /// `oxy.reason`.
     ///
-    /// Two shapes, two incidents. **`timeout`** is the pool being full —
-    /// nothing freed within the probe's 2 s budget. **`error`** is the *server*
-    /// refusing us, which is what the `max_connections` pending-reboot stall
-    /// looked like from in here.
+    /// Three shapes, two opposite fixes. **`timeout`** is the pool exhausted —
+    /// every connection it may open is open and none freed within the probe's
+    /// 2 s. **`server_unavailable`** is the same 2 s running out while the pool
+    /// still had room, so the wait was on Postgres (down, restarting, or
+    /// refusing with `too many clients` — sqlx retries all three inside
+    /// `acquire()`, so none surfaces as an error). **`error`** is a checkout
+    /// that failed outright: credentials, TLS, DNS, a closed pool.
     ///
-    /// Neither records a duration: a timeout never finished, and an error
+    /// None records a duration: a timeout never finished, and an error
     /// finished without acquiring, so its elapsed time measures how fast the
     /// server said no rather than how long a checkout takes. So this counter is
     /// not redundant with the histogram's `_count` — the difference between
@@ -273,8 +276,9 @@ impl Instruments {
             db_pool_probe_failures: meter
                 .u64_counter("oxy.db.pool.probe.failures")
                 .with_description(
-                    "Pool health probes that timed out. These record no duration, so this is not \
-                     the histogram's _count.",
+                    "Pool health probes that did not acquire, by reason: timeout (pool exhausted), \
+                     server_unavailable (pool had room; waited on Postgres), error (checkout \
+                     failed). These record no duration, so this is not the histogram's _count.",
                 )
                 .with_unit("{probe}")
                 .build(),

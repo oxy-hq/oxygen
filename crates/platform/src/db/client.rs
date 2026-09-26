@@ -7,6 +7,7 @@ use tokio::sync::OnceCell;
 
 use super::auth_mode::{DatabaseAuthMode, IamConfig, SslMode};
 use super::iam;
+use super::pool_probe;
 
 static DB_POOL: OnceCell<DatabaseConnection> = OnceCell::const_new();
 
@@ -188,25 +189,18 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
             );
             let probe_started = std::time::Instant::now();
             let probe = tokio::time::timeout(POOL_HEALTH_PROBE_TIMEOUT, pool.acquire()).await;
-            // The two failure shapes are genuinely different incidents and the
-            // label keeps them apart. `timeout` is the pool being full — every
-            // connection checked out, nothing freed within the probe's 2s.
-            // `error` is the *server* refusing us, which is the shape of the
-            // prod incident where `max_connections` sat pending-reboot: sqlx
-            // swallows the Postgres `FATAL`, so without this the only evidence
-            // was latency that looked like slow queries.
-            // These come from `record` rather than being spelled here: the
-            // same two values are seeded at zero on install so an alert can
-            // see the first failure, and a literal that drifted from the
-            // seeded one would create a second series while the seeded decoy
-            // stayed calm.
-            let failure_reason = match &probe {
-                Ok(Ok(_)) => None,
-                Ok(Err(_)) => Some(oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_ERROR),
-                Err(_) => Some(oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_TIMEOUT),
-            };
-            match probe {
-                Ok(Ok(_conn)) => {
+            // `timeout` (pool exhausted), `server_unavailable` (the pool had
+            // room, so the wait was on Postgres) and `error` call for opposite
+            // fixes, and sqlx hides which one this is: it retries a server
+            // that is down or out of slots inside `acquire()`, so a server
+            // outage times out exactly like a full pool. The pool's size once
+            // the timeout has fired tells them apart — see `pool_probe`. The
+            // values come from `record`, where the same set is seeded at zero.
+            let failure_reason = pool_probe::failure_reason(&probe, pool.size(), max);
+            // `probe` still holds the connection on success; it goes back to
+            // the pool when the loop body ends.
+            match failure_reason {
+                None => {
                     oxy_telemetry::metrics::record::db_pool_probe(
                         probe_started.elapsed().as_secs_f64(),
                     );
@@ -221,28 +215,27 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
                         starved = false;
                     }
                 }
-                _ => {
-                    // No duration sample on either failure path. A timeout was
+                Some(reason) => {
+                    // No duration sample on any failure path. A timeout was
                     // cancelled and never finished; an error finished without
                     // acquiring, so its elapsed time measures how fast the
                     // server said no, not how long a checkout takes. Recording
                     // either would put a number in the histogram that answers a
                     // different question from every other sample in it.
-                    oxy_telemetry::metrics::record::db_pool_probe_failure(
-                        failure_reason.unwrap_or(
-                            oxy_telemetry::metrics::record::DB_POOL_PROBE_FAILURE_TIMEOUT,
-                        ),
-                    );
+                    oxy_telemetry::metrics::record::db_pool_probe_failure(reason);
                     oxy_telemetry::metrics::sources::set_db_pool_starved(true);
                     // Resolve the cause BEFORE the macro: awaiting inside a
                     // `tracing` argument holds the macro's non-`Send` internals
                     // across the await and makes the whole task unspawnable.
-                    let cause = diagnose_pool_starvation(&pool).await;
+                    let cause = diagnose_pool_starvation(&pool, reason).await;
                     tracing::error!(
                         pool_size = size,
                         pool_idle = idle,
                         pool_max = max,
                         acquire_timeout_secs = ACQUIRE_TIMEOUT.as_secs(),
+                        // The metric's label, so a log line and a counter
+                        // increment can be matched without re-deriving it.
+                        oxy_reason = reason,
                         %cause,
                         "database connection pool is starved — requests will block up to \
                          acquire_timeout and then fail"
@@ -256,11 +249,13 @@ fn spawn_pool_health_monitor(pool: sqlx::PgPool) {
 
 /// Recover the error the pool swallows, by opening ONE connection outside it.
 ///
-/// The distinction this draws is the one that decides the fix: a server that
-/// accepts the probe means the pool's own ceiling (or something holding
-/// connections) is the constraint; a server that refuses it hands back the
-/// verbatim `FATAL`, which is what tells you the ceiling is on the *other* side.
-async fn diagnose_pool_starvation(pool: &sqlx::PgPool) -> String {
+/// A server that refuses it hands back the verbatim `FATAL`, which is what
+/// tells you the ceiling is on the *other* side. A server that accepts it means
+/// something different per `reason` — only an exhausted pool (`timeout`) makes
+/// the pool the constraint — so that wording comes from
+/// [`pool_probe::cause_when_server_accepts`] and stays consistent with the
+/// label recorded beside it.
+async fn diagnose_pool_starvation(pool: &sqlx::PgPool, reason: &str) -> String {
     use sqlx::Connection;
     let options = (*pool.connect_options()).clone();
     match tokio::time::timeout(
@@ -271,9 +266,7 @@ async fn diagnose_pool_starvation(pool: &sqlx::PgPool) -> String {
     {
         Ok(Ok(conn)) => {
             let _ = conn.close().await;
-            "the server still accepts new connections, so the limit is local: the pool is at \
-             its own ceiling, or something is holding connections without releasing them"
-                .to_string()
+            pool_probe::cause_when_server_accepts(reason).to_string()
         }
         Ok(Err(e)) => format!("the server refused a new connection: {e}"),
         Err(_) => format!(

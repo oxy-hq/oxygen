@@ -13,6 +13,7 @@ pub(crate) mod auth_mode;
 mod client;
 pub(crate) mod iam;
 mod listener;
+mod pool_probe;
 
 pub use auth_mode::{DatabaseAuthMode, IamConfig};
 pub use client::establish_connection;
