@@ -413,17 +413,46 @@ impl AnalyticsSolver {
         use crate::types::SolutionPayload;
         match self.preagg.as_ref() {
             Some(preagg) => {
-                // `None`, not an empty set: this solver's `engine` is the
-                // vendor abstraction (cube / looker), which carries no
-                // airlayer view list to derive the live set from. `None`
-                // means "don't check liveness" and keeps the name-only
-                // matching this path already shipped; an empty set would
-                // decline every rollup. A rollup the schema has since
-                // dropped can still answer here — the narrower risk of the
-                // two, and the one that does not silently disable preagg
-                // for the analytics agent.
-                match agentic_semantic::compile::try_resolve_preagg(preagg, request, &sql, "", None)
-                {
+                // The live set comes from the CATALOG, which is an airlayer
+                // engine and always carries the view list. This used to pass
+                // `None` — "don't check liveness" — on the reasoning that the
+                // solver's `engine` is the vendor abstraction (cube / looker)
+                // and has no airlayer views, so an empty set would decline
+                // every rollup and silently switch pre-aggregation off for the
+                // analytics agent. The premise was about the wrong field:
+                // `self.engine` never reaches this method. Both callers
+                // (`specifying`, `clarifying`) compiled `sql` through
+                // `self.catalog.engine()` immediately above, so the schema
+                // that produced the query is right here, and `None` was giving
+                // up a check it could afford.
+                //
+                // It is not a missed optimisation. `covers()` matches member
+                // NAMES, so an edit that renames nothing — `expr: amount` to
+                // `expr: amount - refunds`, `type: sum` to `type: avg`, a new
+                // measure `filters:` entry — moves the rollup's hash and
+                // leaves the old manifest row matching. Under `None` that row
+                // answered, and the pre-edit numbers went out under the
+                // Pre-aggregated badge with nothing to say which definition
+                // they came from. Declining sends the query to the warehouse,
+                // which is slower and right.
+                //
+                // How long "slower" lasts is not this call's to promise. The
+                // heartbeat rebuilds a rollup only when it has a refresh key
+                // to judge staleness by (`preagg_executor`, which skips the
+                // rest as `RollupSkippedNoRefreshKey`), so a keyless rollup
+                // edited in place stays declined until someone forces a
+                // rebuild. That is the pre-existing shape of the rebuild
+                // cycle, not something this check introduces — `compile_against`
+                // and the metric-tree runner have always declined the same
+                // rows — and the status surface now reads "not built" rather
+                // than "cached", which points at the button that fixes it.
+                match agentic_semantic::compile::try_resolve_preagg(
+                    preagg,
+                    request,
+                    &sql,
+                    "",
+                    Some(self.catalog.live_rollups()),
+                ) {
                     Some(agentic_semantic::compile::CompiledQuery::Preaggregation {
                         preagg_sql,
                         source,

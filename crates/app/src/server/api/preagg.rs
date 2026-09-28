@@ -54,6 +54,15 @@ pub struct ManifestMeasure {
 struct ManifestRollupEntry {
     view_name: String,
     rollup_name: String,
+    /// The hash of the definition this artifact was built FROM — already on
+    /// disk (airlayer's `ManifestEntry` writes it), just previously dropped
+    /// on the floor here.
+    ///
+    /// Defaulted rather than required so a row missing it degrades to "not
+    /// built" on its own — without the default, one such row makes the whole
+    /// manifest unparsable and blanks the cache columns for every rollup.
+    #[serde(default)]
+    rollup_hash: String,
     file: String,
     build_date: Option<String>,
     refresh_key_checked_at: Option<String>,
@@ -166,31 +175,37 @@ fn normalize_manifest_timestamp(raw: &str) -> Option<String> {
     None
 }
 
-/// Read the local cache manifest into per-rollup facts, keyed `(view, rollup)`.
+/// Read the local cache manifest into per-rollup facts, keyed
+/// `(view, rollup, hash)`.
 ///
 /// A missing or unparsable manifest is an empty map, not an error: nothing has
 /// been built here, and every declared rollup then reports "not cached" — which
 /// is the truth, and is now visible instead of being an empty screen.
 ///
-/// Keyed by `(view, rollup)`, NOT by rollup hash — unlike the `empty_since`
-/// lookup beside it, and on purpose. `ManifestRollupEntry` carries the hash
-/// only inside `file`, but the deeper reason is that the query path does not
-/// require hash equality either: `check_coverage` asks whether the STORED
-/// rollup covers the request, so a rollup that has since lost a dimension still
-/// legitimately answers from the artifact built before the edit. "Cached" is
-/// therefore true in cases where the hashes differ, and switching this to a
-/// hash join would report "Not built" for artifacts that are actively serving.
+/// The hash is in the key, not carried alongside a `(view, rollup)` key,
+/// because one identity can have two rows: publish reaps the superseded one,
+/// but a manifest from an older builder or mirrored from S3 may still hold it,
+/// and a rollup with no `refresh_key` is never republished to dedup it. A
+/// name-keyed map collapsed those last-wins, so a stale row sitting after the
+/// live one hid an artifact that was actively serving. `check_coverage` scans
+/// every row and serves the declared hash; [`declared_rollups`] looks up that
+/// same hash, so the two pick the same row whatever order they are in.
 ///
-/// The cost of the asymmetry is bounded and worth it: for up to one cadence
-/// after an edit, the row reads Cached with the previous spec's build time —
-/// which is what the query is actually using — while correctly declining to
-/// call it Empty.
+/// This used to stop at the name join and say so, on the reasoning that the
+/// query path did not require hash equality either — `check_coverage` asks
+/// whether the STORED rollup covers the request, so an artifact built before
+/// an edit still legitimately answered. That stopped being true: every read
+/// path now passes airlayer's `live` set, which declines a manifest row whose
+/// hash the schema no longer declares, because a rename-free edit (`expr:`,
+/// `type:`, a measure `filters:` entry) moves the hash while leaving every
+/// name the coverage check inspects identical. A row nothing may serve must
+/// not read as Cached with the old build time.
 ///
 /// Blocking (one `read_to_string`, one `is_file` per entry) — call it inside
 /// `spawn_blocking`.
 pub(crate) fn read_cache_facts(
     cache_dir: &std::path::Path,
-) -> HashMap<(String, String), CacheFacts> {
+) -> HashMap<(String, String, String), CacheFacts> {
     let manifest_path = cache_dir.join("manifest.json");
     std::fs::read_to_string(&manifest_path)
         .ok()
@@ -214,7 +229,10 @@ pub(crate) fn read_cache_facts(
                             .as_deref()
                             .and_then(normalize_manifest_timestamp),
                     };
-                    ((entry.view_name, entry.rollup_name), facts)
+                    (
+                        (entry.view_name, entry.rollup_name, entry.rollup_hash),
+                        facts,
+                    )
                 })
                 .collect()
         })
@@ -320,9 +338,16 @@ fn refresh_key_label(key: &oxy_airlayer_compat::schema::models::RefreshKey) -> O
 ///
 /// Order is (view, rollup) so the table groups by view without a second pass,
 /// and so two calls with the same config produce the same page.
+///
+/// On a feature branch that edits a rollup, that row reads "not built" and the
+/// panel's Rebuild cannot flip it: `layer` comes from the branch checkout, while
+/// the cache — and every rebuild cycle — is the default branch's, so what gets
+/// built carries main's hash. Expected, not stuck: the analytics agent on that
+/// branch declines the old artifact too, so status and read path agree, and
+/// the row resolves once the edit merges and main rebuilds.
 pub(crate) fn declared_rollups(
     layer: &oxy_airlayer_compat::SemanticLayer,
-    cache: &HashMap<(String, String), CacheFacts>,
+    cache: &HashMap<(String, String, String), CacheFacts>,
     // Zero-row instants by rollup HASH — see `read_empty_since`. Keyed by hash
     // rather than name on purpose: a rollup whose `dimensions:` were edited is
     // a different rollup, so its predecessor's empty answer must not describe it.
@@ -368,7 +393,17 @@ pub(crate) fn declared_rollups(
                             .unwrap_or_default(),
                     })
                     .collect();
-                let facts = cache.get(&(view.name.clone(), rollup.name.clone()));
+                // The hash has to agree, not just the name. A manifest row
+                // under this identity's OLD hash describes the definition
+                // before the last edit; the read path declines it (see
+                // `read_cache_facts`), so reporting it as Built — with that
+                // build's timestamp, under the current spec's dimensions and
+                // measures — would describe an artifact nothing serves. The
+                // row reads "not built" until the rebuild lands, which is the
+                // state it is actually in.
+                let facts = hashes.get(&rollup.name).and_then(|hash| {
+                    cache.get(&(view.name.clone(), rollup.name.clone(), hash.clone()))
+                });
                 PreaggRollupStatus {
                     view_name: view.name.clone(),
                     rollup_name: rollup.name.clone(),
@@ -556,12 +591,14 @@ pre_aggregations:
     fn cache_facts_are_joined_onto_the_declared_rollup() {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path().join(".airlayer").join("cache");
+        let layer = layer_from_yaml(&[ORDERS_VIEW]);
         write_manifest(
             &cache_dir,
             serde_json::json!({
                 "rollups": [{
                     "view_name": "orders",
                     "rollup_name": "orders_by_month",
+                    "rollup_hash": declared_hash(&layer, "orders_by_month"),
                     "file": "orders__aabbccdd.parquet",
                     "build_date": "2026-05-11 14:03:22"
                 }]
@@ -569,7 +606,6 @@ pre_aggregations:
         );
         std::fs::write(cache_dir.join("orders__aabbccdd.parquet"), b"").unwrap();
 
-        let layer = layer_from_yaml(&[ORDERS_VIEW]);
         let rollups = declared_rollups(
             &layer,
             &read_cache_facts(&cache_dir),
@@ -586,6 +622,53 @@ pre_aggregations:
         assert!(!rollups[1].is_built);
         assert!(!rollups[1].has_parquet);
         assert_eq!(rollups[1].build_date, None);
+    }
+
+    /// A manifest written by an older builder, or mirrored from S3, can list one
+    /// identity under two hashes — publish reaps the superseded row, but a rollup
+    /// with no `refresh_key` is never republished. The read path scans every
+    /// row and serves the one the schema declares; the status has to pick the
+    /// same one, whatever order the rows sit in.
+    #[test]
+    fn a_superseded_duplicate_row_does_not_hide_the_one_being_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path().join(".airlayer").join("cache");
+        let layer = layer_from_yaml(&[ORDERS_VIEW]);
+        write_manifest(
+            &cache_dir,
+            serde_json::json!({
+                "rollups": [
+                    {
+                        "view_name": "orders",
+                        "rollup_name": "orders_by_month",
+                        "rollup_hash": declared_hash(&layer, "orders_by_month"),
+                        "file": "orders__live.parquet",
+                        "build_date": "2026-05-11 14:03:22"
+                    },
+                    {
+                        "view_name": "orders",
+                        "rollup_name": "orders_by_month",
+                        "rollup_hash": "a-hash-no-longer-declared",
+                        "file": "orders__stale.parquet",
+                        "build_date": "2026-04-01 09:00:00"
+                    }
+                ]
+            }),
+        );
+        std::fs::write(cache_dir.join("orders__live.parquet"), b"").unwrap();
+
+        let rollups = declared_rollups(
+            &layer,
+            &read_cache_facts(&cache_dir),
+            &read_empty_since(&cache_dir),
+        );
+
+        assert!(rollups[0].is_built, "the declared hash's row is serving");
+        assert!(rollups[0].has_parquet);
+        assert_eq!(
+            rollups[0].build_date.as_deref(),
+            Some("2026-05-11T14:03:22+00:00")
+        );
     }
 
     /// A rollup this node rebuilt to zero rows has NO manifest entry — the
@@ -695,6 +778,7 @@ pre_aggregations:
                 "rollups": [{
                     "view_name": "orders",
                     "rollup_name": "orders_by_month",
+                    "rollup_hash": declared_hash(&layer, "orders_by_month"),
                     "file": "orders__aabbccdd.parquet",
                     "build_date": "2026-05-11 14:03:22"
                 }]
@@ -764,18 +848,19 @@ pre_aggregations:
     fn a_manifest_entry_without_its_parquet_is_built_but_not_local() {
         let dir = tempfile::tempdir().unwrap();
         let cache_dir = dir.path().join(".airlayer").join("cache");
+        let layer = layer_from_yaml(&[ORDERS_VIEW]);
         write_manifest(
             &cache_dir,
             serde_json::json!({
                 "rollups": [{
                     "view_name": "orders",
                     "rollup_name": "orders_by_month",
+                    "rollup_hash": declared_hash(&layer, "orders_by_month"),
                     "file": "orders__aabbccdd.parquet"
                 }]
             }),
         );
 
-        let layer = layer_from_yaml(&[ORDERS_VIEW]);
         let rollups = declared_rollups(
             &layer,
             &read_cache_facts(&cache_dir),
@@ -786,6 +871,47 @@ pre_aggregations:
             "the manifest lists it, so it was built"
         );
         assert!(!rollups[0].has_parquet, "but not on this node's disk");
+    }
+
+    /// The edit window: the rollup's `expr:` changed, the manifest still holds
+    /// the row the last build wrote, and nothing has rebuilt yet. No read path
+    /// will serve that row — they all pass airlayer's `live` set now — so the
+    /// status must not show it as Built with the old build time under the new
+    /// spec's dimensions and measures. "Not built" is the state it is in.
+    #[test]
+    fn a_rollup_built_from_a_superseded_definition_reads_as_not_built() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path().join(".airlayer").join("cache");
+        write_manifest(
+            &cache_dir,
+            serde_json::json!({
+                "rollups": [{
+                    "view_name": "orders",
+                    "rollup_name": "orders_by_month",
+                    // Every NAME still matches what the view declares — the
+                    // hash is the only thing that moved, which is exactly
+                    // what a rename-free edit does.
+                    "rollup_hash": "deadbeef",
+                    "file": "orders__deadbeef.parquet",
+                    "build_date": "2026-05-11 14:03:22"
+                }]
+            }),
+        );
+        std::fs::write(cache_dir.join("orders__deadbeef.parquet"), b"").unwrap();
+
+        let layer = layer_from_yaml(&[ORDERS_VIEW]);
+        let rollups = declared_rollups(
+            &layer,
+            &read_cache_facts(&cache_dir),
+            &read_empty_since(&cache_dir),
+        );
+        let by_month = rollups
+            .iter()
+            .find(|r| r.rollup_name == "orders_by_month")
+            .expect("still declared, so still listed");
+        assert!(!by_month.is_built, "nothing serves the superseded artifact");
+        assert!(!by_month.has_parquet, "and its file is not this spec's");
+        assert_eq!(by_month.build_date, None, "nor is its build time");
     }
 
     #[test]

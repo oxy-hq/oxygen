@@ -80,6 +80,10 @@ mod tests;
 ///   [`crate::catalog::CatalogError::TooComplex`] for queries that airlayer cannot compile.
 pub struct SemanticCatalog {
     pub(super) engine: oxy_airlayer_compat::SemanticEngine,
+    /// Memoized [`SemanticCatalog::live_rollups`]. The views behind it are
+    /// fixed at construction, so the resolve is worth doing once — the solver
+    /// asks for this set once per query spec.
+    live_rollups: std::sync::OnceLock<oxy_airlayer_compat::preagg::LiveRollups>,
 }
 
 impl std::fmt::Debug for SemanticCatalog {
@@ -100,7 +104,7 @@ impl SemanticCatalog {
         let dialects = oxy_airlayer_compat::DatasourceDialectMap::new();
         let engine = oxy_airlayer_compat::SemanticEngine::from_semantic_layer(layer, dialects)
             .expect("empty semantic model should always be valid");
-        Self { engine }
+        Self::from_engine(engine)
     }
 
     /// Return `true` when this catalog has no views.
@@ -110,7 +114,33 @@ impl SemanticCatalog {
 
     /// Wrap a pre-built engine (useful for testing).
     pub fn from_engine(engine: oxy_airlayer_compat::SemanticEngine) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            live_rollups: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The `(view_name, rollup_hash)` pairs this catalog's schema declares
+    /// right now — airlayer's `live` set, which is what stops a rollup built
+    /// from a since-edited definition answering a query.
+    ///
+    /// The coverage check that picks a rollup (`covers`) compares member
+    /// *names* only, and never looks at the stored artifact. An edit that
+    /// renames nothing — `expr: amount` to `expr: amount - refunds`,
+    /// `type: sum` to `type: avg`, a new measure `filters:` entry, a repointed
+    /// `table:` — moves the rollup's hash while leaving every name identical,
+    /// so the old row keeps matching and the old numbers keep answering under
+    /// the Pre-aggregated badge. Handing this set to `try_resolve_preagg` is
+    /// what declines that row.
+    ///
+    /// This is the airlayer view list, not the vendor (cube/looker)
+    /// abstraction: `SemanticCatalog` IS an airlayer engine, so the set is
+    /// always derivable here.
+    pub fn live_rollups(&self) -> &oxy_airlayer_compat::preagg::LiveRollups {
+        self.live_rollups.get_or_init(|| {
+            let views: Vec<&oxy_airlayer_compat::View> = self.engine.views().iter().collect();
+            oxy_airlayer_compat::preagg::live_rollups(&views)
+        })
     }
 
     /// Load from a `semantics/` directory containing `views/` and `topics/`
@@ -133,7 +163,7 @@ impl SemanticCatalog {
             Box::new(std::io::Error::other(e.to_string()))
         })?;
 
-        Ok(Self { engine })
+        Ok(Self::from_engine(engine))
     }
 
     /// Load from an explicit list of `.view.yml` and `.topic.yml` paths.
@@ -156,7 +186,7 @@ impl SemanticCatalog {
                 Box::new(std::io::Error::other(e.to_string()))
             })?;
 
-        Ok(Self { engine })
+        Ok(Self::from_engine(engine))
     }
 
     // ── Validation helpers (used by validation rules) ────────────────────────

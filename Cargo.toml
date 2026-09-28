@@ -538,8 +538,8 @@ aho-corasick = "1.1"
 #   * **`None` and an empty `LiveRollups` are opposites.** `None` means "don't
 #     check liveness" and keeps the old name-only matching; an EMPTY set declines
 #     every rollup (`719228c`). Oxy passes a real set everywhere the semantic
-#     layer is in scope; the analytics solver passes `None` deliberately, because
-#     its `engine` is the vendor abstraction and carries no airlayer view list.
+#     layer is in scope, the analytics solver included — it passes the catalog's
+#     set via `SemanticCatalog::live_rollups()`, not its vendor `engine`.
 #
 #   * **One upstream fragility found landing this, worth knowing before the next
 #     bump.** `aa4bf15` wraps a rollup's stored time bucket in

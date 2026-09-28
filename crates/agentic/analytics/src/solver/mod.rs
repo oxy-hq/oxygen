@@ -66,3 +66,6 @@ pub fn build_analytics_handlers()
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod preagg_liveness_tests;
