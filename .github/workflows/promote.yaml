@@ -157,7 +157,9 @@ jobs:
       # one part of this pipeline whose failure mode is "promoted something it
       # should not have", so it does not get to be untested at the moment of use.
       - name: Self-test the gate logic
-        run: node .github/scripts/promote.ts --self-test
+        run: |
+          node .github/scripts/promote.ts --self-test
+          node .github/scripts/deploy-messages.ts --self-test
 
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         name: Token for oxy-hq/infrastructure
@@ -677,20 +679,20 @@ jobs:
           (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
         env:
           GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          # Read on this repository, for the change counts (deploy-messages.ts).
+          INTERNAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           PR: ${{ steps.plan2.outputs.pr }}
           CANDIDATE: ${{ steps.plan.outputs.candidate }}
-          CURRENT: ${{ steps.plan1.outputs.prod_sha }}
-          CANDIDATE_INTERNAL: ${{ steps.plan1.outputs.candidate_internal }}
-          CURRENT_INTERNAL: ${{ steps.plan1.outputs.prod_internal }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          COMPARE="https://github.com/oxy-hq/oxygen-internal/compare/${CURRENT_INTERNAL}...${CANDIDATE_INTERNAL}"
-          PR_URL="https://github.com/${INFRA_REPO}/pull/${PR}"
-          TEXT=":rocket: *Prod bump ready to merge* — \`main-${CURRENT}\` → \`main-${CANDIDATE}\`
-          Every gate passed. Merging deploys.
-          • <${PR_URL}|bump PR #${PR}>
-          • <${COMPARE}|what is in it>"
+          # The words live in deploy-messages.ts, self-tested. If it fails, a plain
+          # line still goes out: a pretty message is not worth a missed handoff.
+          if ! TEXT="$(node .github/scripts/deploy-messages.ts ready --plan plan2.json --run-url "$RUN_URL")"; then
+            echo "::warning::deploy-messages.ts failed; posting the plain fallback"
+            TEXT=":large_green_circle: *Oxygen build \`${CANDIDATE}\` is ready to go live* — an engineer merges <https://github.com/${INFRA_REPO}/pull/${PR}|release PR #${PR}>."
+          fi
           "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
           # The marker is what stops this repeating every 15 minutes.
           gh pr comment "$PR" --repo "$INFRA_REPO" --body "ready-for-merge: main-${CANDIDATE}
@@ -707,6 +709,8 @@ jobs:
           (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
         env:
           GH_TOKEN: ${{ steps.infra-token.outputs.token }}
+          # Read on this repository, for the change counts (deploy-messages.ts).
+          INTERNAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           PR: ${{ steps.plan2.outputs.pr }}
           CANDIDATE: ${{ steps.plan.outputs.candidate }}
@@ -715,12 +719,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          PR_LINK=""
-          [[ -n "${PR:-}" ]] && PR_LINK="
-          • <https://github.com/${INFRA_REPO}/pull/${PR}|bump PR #${PR}>"
-          TEXT=":warning: *Deploy train is not moving* — \`main-${CANDIDATE:-none}\`
-          ${STUCK_WHY}. Prod gate says: ${WHY}
-          • <${RUN_URL}|this run>${PR_LINK}"
+          # The words live in deploy-messages.ts (why it is not moving, said for
+          # people, and who acts). The fallback keeps the alert when it fails: a
+          # silent stuck train is the failure this step exists to end.
+          if ! TEXT="$(node .github/scripts/deploy-messages.ts stuck --plan plan2.json --run-url "$RUN_URL")"; then
+            echo "::warning::deploy-messages.ts failed; posting the plain fallback"
+            TEXT=":hourglass_flowing_sand: *Changes are waiting to reach customers* — build \`${CANDIDATE:-none}\` (${STUCK_WHY}; ${WHY}). <${RUN_URL}|pipeline run>"
+          fi
           "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
           if [[ -n "${PR:-}" ]]; then
             gh pr comment "$PR" --repo "$INFRA_REPO" --body "stuck-alert: main-${CANDIDATE}
@@ -744,7 +749,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "::warning::${BUILD_WHY}"
-          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" ":red_circle: *Image build failed* — ${BUILD_WHY}"
+          if ! TEXT="$(node .github/scripts/deploy-messages.ts build-broken --plan plan.json)"; then
+            TEXT=":red_circle: *The newest Oxygen build failed to package* — ${BUILD_WHY}"
+          fi
+          "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
 
       # Reads the post-proposal plan, and is still safe against merging a
       # just-retargeted PR on the previous sha's verdict: `Propose prod` clears

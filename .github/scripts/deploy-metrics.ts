@@ -39,6 +39,7 @@
 import { readFileSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { humanDuration } from "./deploy-messages.ts";
 import { originRevId, proposedSha } from "./promote.ts";
 
 // ── Shapes ──────────────────────────────────────────────────────────────────
@@ -493,27 +494,32 @@ function windowLines(m: WindowMetrics, b: (s: string) => string): string[] {
       : "",
     lead.unresolvedDeploys ? `${plural(lead.unresolvedDeploys, "deploy")} unresolved` : ""
   ].filter(Boolean);
+  // Said for the whole channel, not only engineers (see deploy-messages.ts):
+  // plain names first, and "not measured — why" where a number would mislead.
+  const via = `${m.viaPr} through a reviewed release PR${m.viaPush ? `, ${m.viaPush} changed production directly with no PR` : ""}`;
   return [
-    `${b(plural(m.deploys, "deploy"))}, ${plural(m.rollbacks, "rollback")} — ${m.viaPr} by PR, ${plural(m.viaPush, "direct push", "direct pushes")}`,
+    `${b("Releases")}: ${m.deploys ? `${m.deploys} (${via})` : "none"}`,
     lead.medianMs === null
-      ? `${b("Lead time")} n/a — ${lead.why}`
-      : `${b("Lead time")} median ${fmtDuration(lead.medianMs)} · p90 ${fmtDuration(lead.p90Ms)} (${plural(lead.commits, "commit")}${caveats.length ? `; ${caveats.join(", ")}` : ""})`,
+      ? `${b("Time from merge to customers")}: not measured — ${lead.why}`
+      : `${b("Time from merge to customers")}: typically ${human(lead.medianMs)}; the slowest 10% took ${human(lead.p90Ms)} (${plural(lead.commits, "change")} shipped${caveats.length ? `; ${caveats.join(", ")}` : ""})`,
     cfr.rate === null
-      ? `${b("Change failure rate")} n/a — ${cfr.why}`
-      : `${b("Change failure rate")} ${pct(cfr.rate)} (${m.rollbacks} of ${plural(m.deploys, "deploy")}${failed})`,
+      ? `${b("Releases rolled back")}: not measured — ${cfr.why}`
+      : `${b("Releases rolled back")}: ${m.rollbacks ? `${m.rollbacks} of ${m.deploys} (${pct(cfr.rate)})${failed}` : `none (0 of ${m.deploys})`}`,
     ttr.medianMs === null
-      ? `${b("Time to restore")} n/a — ${ttr.why}`
-      : `${b("Time to restore")} median ${fmtDuration(ttr.medianMs)} (${plural(ttr.restores.length, "rollback")})`
+      ? `${b("Time to recover from a bad release")}: ${m.rollbacks ? `not measured — ${ttr.why}` : "nothing to recover from — no rollbacks"}`
+      : `${b("Time to recover from a bad release")}: typically ${human(ttr.medianMs)} (${plural(ttr.restores.length, "rollback")})`
   ];
 }
+
+/** "24 hours", or "n/a" when there is nothing to say. */
+const human = (ms: number | null) => (ms === null ? "n/a" : humanDuration(ms / 60000));
 
 function contextLine(m: WindowMetrics): string {
   const lead =
     m.leadTime.medianMs === null
-      ? "n/a"
-      : `${fmtDuration(m.leadTime.medianMs)} / p90 ${fmtDuration(m.leadTime.p90Ms)}`;
-  const cfr = m.changeFailureRate.rate === null ? "n/a" : pct(m.changeFailureRate.rate);
-  return `${m.days}d: ${plural(m.deploys, "deploy")} · ${plural(m.rollbacks, "rollback")} · lead ${lead} · CFR ${cfr} · restore ${fmtDuration(m.timeToRestore.medianMs)}`;
+      ? "not measured"
+      : `typically ${human(m.leadTime.medianMs)}, slowest 10% ${human(m.leadTime.p90Ms)}`;
+  return `Last ${m.days} days: ${plural(m.deploys, "release")} · ${m.rollbacks ? `${m.rollbacks} rolled back` : "none rolled back"} · merge to customers ${lead}`;
 }
 
 /** The human summary: Slack mrkdwn, or GitHub markdown for a step summary. */
@@ -521,9 +527,12 @@ export function render(report: Report, format: "slack" | "markdown"): string {
   const b = format === "slack" ? (s: string) => `*${s}*` : (s: string) => `**${s}**`;
   const bullet = format === "slack" ? "•" : "-";
   const w = report.window;
-  const head = `${b(`Deploy train, last ${w.days} days`)} (${w.start.slice(0, 10)} → ${w.end.slice(0, 10)} UTC)`;
+  const day = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const head = `${b(`Releases to production, last ${w.days} days`)} (${day(w.start)} – ${day(w.end)})`;
   const lines = [head, ...windowLines(w, b).map((l) => `${bullet} ${l}`)];
-  if (report.context) lines.push(`_Trailing ${contextLine(report.context)}_`);
+  if (report.context) lines.push(`_${contextLine(report.context)}_`);
+  lines.push("_The four DORA delivery measures: deploy frequency, lead time, change failure rate, time to restore._");
   return `${lines.join("\n")}\n`;
 }
 
@@ -1041,8 +1050,9 @@ function selfTest(): void {
     { generatedAt: now.toISOString(), basis: BASIS, window: empty, context: null, changes: [] },
     "slack"
   );
-  is("the rendered empty window says n/a", shown.includes("n/a"), true);
+  is("the rendered empty window says it was not measured", shown.includes("not measured"), true);
   is("...and never claims a 0% failure rate", shown.includes("0%"), false);
+  is("...or a rollback count", shown.includes("0 of"), false);
 
   // A rollback with nothing before it to have undone.
   const orphan = windowMetrics([change(ago(1), "0.5.9", "0.5.8")], week);

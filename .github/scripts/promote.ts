@@ -108,7 +108,7 @@ interface StagingState {
   candidateCommittedAt?: Date | null;
 }
 
-interface ProdState {
+export interface ProdState {
   candidate: string | null;
   prodSha?: string | null;
   stagingSha?: string | null;
@@ -161,7 +161,7 @@ const INTERNAL = "oxy-hq/oxygen-internal";
 const API = "https://api.github.com";
 
 /** How long a digest must have been serving staging, green, before prod may have it. */
-const SOAK_MINUTES = 30;
+export const SOAK_MINUTES = 30;
 
 /**
  * How long a `pending` verdict may stand before the checks are dispatched again.
@@ -1000,7 +1000,8 @@ async function plan({
     candidatePin,
     stagingPin: (await pinnedAt(STAGING_VALUES, "main", infraToken)) ?? null
   });
-  const build = buildAlert(await latestReleaseRun(token), { now });
+  const releaseRun = await latestReleaseRun(token);
+  const build = buildAlert(releaseRun, { now });
   const stagingServesCandidate = Boolean(candidate && staging?.sha === candidate.sha);
   const dispatch = shouldDispatchChecks(
     {
@@ -1064,6 +1065,9 @@ async function plan({
     pinDrift: drift,
     buildBroken: build.alert,
     buildWhy: build.why,
+    // The same facts as `buildWhy`, unflattened, so the Slack message can link
+    // the failed run instead of pasting a URL into a sentence.
+    buildRun: build.alert && releaseRun ? { sha: releaseRun.sha, url: releaseRun.url } : null,
     stagingServesCandidate,
     soakStartedAt: since ? since.toISOString() : null,
     checksDispatchedAt: dispatchedAt ? dispatchedAt.toISOString() : null,
