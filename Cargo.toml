@@ -1033,11 +1033,23 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # the existing `transaction_lines` (which is `Merge` and never dropped), but
 # it is lazy — existing Parquet keeps its layout until compaction rewrites it.
 # The benefit accrues, it does not switch on.
-# Pinned at 0.1.48 — the SP-API merchant-fulfilled channel: `merchant_listings`
-# (airway-internal#201) and `orders` (#203), which are the only resources that
-# see Amazon's FBM side at all. Also carries 0.1.47's `vendor_orders` and the
-# Uber Eats "Chargeback Amount" rename, without which every Uber report
-# generated since ~2026-09-07 failed upload validation.
+# Pinned at rev ddf7562 — airway-internal#211, NOT a release: the filesystem
+# source emits files in 10k-row batches instead of one batch per file. A parsed
+# 30-column CSV row is ~7 KB here (serde_json `preserve_order`) and the
+# streaming pipeline holds ~7 batches, so bmg's `amazon_shipments` (a few
+# ~20k-row S3 exports) needed ~1 GiB and OOM-killed 1 GiB workers seven times on
+# 2026-09-23/24. A file whose column types would resolve differently split than
+# whole is still emitted whole, with a warning naming the columns. Swap this rev
+# for the `0.1.49` tag once that release is cut — the tag will also carry
+# #205 (`merchant_listings` does not return only active rows) and #210 (a
+# DuckLake write conflict re-runs instead of failing the run), which this rev
+# already includes, since the branch sits on airway's main.
+#
+# Before that it was pinned at 0.1.48 — the SP-API merchant-fulfilled channel:
+# `merchant_listings` (airway-internal#201) and `orders` (#203), which are the
+# only resources that see Amazon's FBM side at all. Also carries 0.1.47's
+# `vendor_orders` and the Uber Eats "Chargeback Amount" rename, without which
+# every Uber report generated since ~2026-09-07 failed upload validation.
 #
 # NOTE for whoever bumps this next: a seller `sp_api` pipeline that omits
 # `resources:` extracts EVERY resource the source advertises, so adding one to
@@ -1050,7 +1062,7 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # connected `NoTls` and could not.) That note said "Pinned at 0.1.35" through
 # every bump since, which is how a running log goes stale: the surrounding prose
 # stayed true and only the version was wrong.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.48", default-features = false, features = [
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", rev = "961bfdfc6e90f2cdf04f8c6e4cb679f0618cb8df", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
