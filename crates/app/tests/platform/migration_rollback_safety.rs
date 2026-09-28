@@ -93,6 +93,14 @@ enum Why {
 const DECLARED: &[(&str, &str, Why)] = &[
     // ("central", "m20260930_000001_drop_orders_total",
     //  Why::Phase2 { after: "m20260922_000001_stop_writing_orders_total" }),
+    (
+        "central",
+        "m20260928_000001_drop_app_preflight_tables",
+        Why::Phase2 {
+            after: "#3362: the preflight went report-only and stopped using both tables; \
+                    in prod since 0.5.153 (b7f49d7)",
+        },
+    ),
 ];
 
 /// One thing a migration took away.
