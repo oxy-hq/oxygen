@@ -1,6 +1,6 @@
 use entity::prelude::Users;
 use entity::users;
-use oxy_platform::db::establish_connection;
+use oxy_platform::db::{DbFailure, establish_connection};
 use oxy_platform::filters::UserQueryFilterExt;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ActiveValue, DbErr, EntityTrait, Set, prelude::*};
@@ -12,6 +12,22 @@ use entity::users::UserStatus;
 /// Email address for the built-in local guest user (no-auth local mode).
 /// This user is always granted Owner role so local installs work out of the box.
 pub const LOCAL_GUEST_EMAIL: &str = "<local-user@example.com>";
+
+/// Turn a failed user lookup into an `OxyError` that still says which side of
+/// the wire broke.
+///
+/// This is the last place the `DbErr` exists — every caller sees a string. The
+/// custom-app gate renders one of these as a 500 whose body carries a code, and
+/// without the split here the answer would be the same for a reset connection
+/// and for bad SQL. That ambiguity is what made a DNS problem read as an
+/// application bug for an afternoon.
+fn user_query_err(e: DbErr) -> OxyError {
+    let msg = format!("Failed to query user: {e}");
+    match DbFailure::classify(&e) {
+        DbFailure::Unreachable => OxyError::DatabaseUnreachable(msg),
+        DbFailure::Query => OxyError::DBError(msg),
+    }
+}
 
 pub struct UserService;
 
@@ -33,14 +49,14 @@ impl UserService {
             let user = Users::find_by_id(user_id)
                 .one(&connection)
                 .await
-                .map_err(|e| OxyError::DBError(format!("Failed to query user: {e}")))?;
+                .map_err(user_query_err)?;
             return Ok(user.map(|u| u.into()));
         }
         let user = Users::find()
             .filter_by_email(&identity.email)
             .one(&connection)
             .await
-            .map_err(|e| OxyError::DBError(format!("Failed to query user: {e}")))?;
+            .map_err(user_query_err)?;
         Ok(user.map(|u| u.into()))
     }
 

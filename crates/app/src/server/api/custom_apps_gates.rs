@@ -40,10 +40,11 @@ use axum::response::{IntoResponse, Response};
 use entity::prelude::Workspaces;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::{builder::WorkspaceBuilder, effective_workspace_path};
-use oxy::database::client::establish_connection;
+use oxy::database::client::{DbFailure, establish_connection};
 use oxy_auth::authenticator::Authenticator;
 use oxy_auth::built_in::BuiltInAuthenticator;
 use oxy_auth::user::UserService;
+use oxy_shared::errors::OxyError;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Deserialize;
 use tracing::{error, warn};
@@ -92,6 +93,15 @@ impl CustomAppContext {
 /// with `query.rs`'s `ApiErr` — both deliberately use the same
 /// `{ message, code? }` JSON envelope so callers can render errors
 /// uniformly across endpoints.
+///
+/// Every 500 this chain raises off a `DbErr` carries a `code` from
+/// [`DbFailure`], because the two failures behind one need opposite
+/// responses and the message cannot tell them apart. A local box spent an
+/// afternoon on `{"message":"workspace lookup failed"}` on ~40% of requests:
+/// `localhost` resolved to `::1` first and the IPv6 loopback reset every new
+/// connection mid-handshake, while warm ones kept serving. That is
+/// `database_unreachable` on the wire — a different thing to go looking at
+/// than `database_query_failed`, which is ours.
 #[derive(serde::Serialize)]
 struct GateErr {
     message: String,
@@ -169,8 +179,13 @@ pub async fn check_custom_app_gates(
         Ok(Some(u)) => u,
         Ok(None) => return Err(err(StatusCode::UNAUTHORIZED, "user not found")),
         Err(e) => {
-            error!("user lookup failed: {e}");
-            return Err(err(StatusCode::INTERNAL_SERVER_ERROR, "user lookup failed"));
+            let code = user_lookup_failure_code(&e);
+            error!(code, error = %e, "user lookup failed");
+            return Err(err_with_code(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "user lookup failed",
+                code,
+            ));
         }
     };
 
@@ -178,10 +193,18 @@ pub async fn check_custom_app_gates(
     let db = match establish_connection().await {
         Ok(d) => d,
         Err(e) => {
-            error!("DB connection failed: {e}");
-            return Err(err(
+            // No `DbErr` to classify — failing to build the pool at all is
+            // unreachable by construction, so state the same code the two
+            // lookups below reach by inspection.
+            error!(
+                code = DbFailure::Unreachable.code(),
+                error = %e,
+                "DB connection failed"
+            );
+            return Err(err_with_code(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "database unavailable",
+                DbFailure::Unreachable.code(),
             ));
         }
     };
@@ -191,10 +214,17 @@ pub async fn check_custom_app_gates(
         Ok(Some(ws)) => ws,
         Ok(None) => return Err(err(StatusCode::NOT_FOUND, "project not found")),
         Err(e) => {
-            error!("workspace lookup failed: {e}");
-            return Err(err(
+            let failure = DbFailure::classify(&e);
+            error!(
+                code = failure.code(),
+                error = %e,
+                workspace = %project_id,
+                "workspace lookup failed"
+            );
+            return Err(err_with_code(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "workspace lookup failed",
+                failure.code(),
             ));
         }
     };
@@ -258,10 +288,17 @@ pub async fn check_custom_app_gates(
                     .await
         }
         Err(e) => {
-            error!("org membership check failed: {e}");
-            return Err(err(
+            let failure = DbFailure::classify(&e);
+            error!(
+                code = failure.code(),
+                error = %e,
+                workspace = %project_id,
+                "org membership check failed"
+            );
+            return Err(err_with_code(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "org membership check failed",
+                failure.code(),
             ));
         }
     };
@@ -539,11 +576,43 @@ pub(crate) async fn build_project_context_with_role(
     })
 }
 
+/// The code a failed user lookup ships with.
+///
+/// `oxy-auth` classified the error while it still held the `DbErr`; by here it
+/// is a string wearing a variant, so read the variant. `Database` is
+/// `establish_connection` failing to build the pool at all — the lookup's first
+/// call — so it gets the same verdict step 4 states for that failure.
+fn user_lookup_failure_code(e: &OxyError) -> &'static str {
+    match e {
+        OxyError::DatabaseUnreachable(_) | OxyError::Database(_) => DbFailure::Unreachable.code(),
+        _ => DbFailure::Query.code(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde::Deserialize;
     use serde_json::json;
+
+    /// `establish_connection` failing to build the pool arrives as `Database`,
+    /// and `find_user_by_identity` calls it first — that is a connect failure,
+    /// the same verdict step 4 states, not a bad query.
+    #[test]
+    fn a_pool_that_cannot_be_built_reads_as_unreachable() {
+        assert_eq!(
+            user_lookup_failure_code(&OxyError::Database("pool timed out".into())),
+            DbFailure::Unreachable.code()
+        );
+        assert_eq!(
+            user_lookup_failure_code(&OxyError::DatabaseUnreachable("reset".into())),
+            DbFailure::Unreachable.code()
+        );
+        assert_eq!(
+            user_lookup_failure_code(&OxyError::DBError("syntax error".into())),
+            DbFailure::Query.code()
+        );
+    }
 
     #[derive(Debug, Deserialize, PartialEq)]
     #[serde(deny_unknown_fields)]

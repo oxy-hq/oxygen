@@ -26,6 +26,15 @@ pub enum OxyError {
     IOError(String),
     #[error("{0}")]
     DBError(String),
+    /// A database call that never reached a usable connection — the statement
+    /// was never sent. Split out of [`OxyError::DBError`] so the distinction
+    /// survives the point where a `DbErr` becomes a string: the two need
+    /// opposite people, and by the time a handler is rendering a 500 there is
+    /// nothing typed left to ask. Classify with `oxy_platform::db::DbFailure`
+    /// while the `DbErr` is still in hand, then carry the verdict in the
+    /// variant.
+    #[error("{0}")]
+    DatabaseUnreachable(String),
     #[error("{0}")]
     Database(String),
     #[error("{0}")]
@@ -89,6 +98,7 @@ impl OxyError {
             OxyError::SerializerError(_) => "serializer",
             OxyError::IOError(_) => "io",
             OxyError::DBError(_) => "database",
+            OxyError::DatabaseUnreachable(_) => "database_unreachable",
             OxyError::Database(_) => "database",
             OxyError::SecretManager(_) => "secret_manager",
             OxyError::SecretNotFound(_) => "secret_not_found",
@@ -126,6 +136,7 @@ impl OxyError {
             OxyError::SerializerError(_) => sentry::Level::Error,
             OxyError::IOError(_) => sentry::Level::Error,
             OxyError::DBError(_) => sentry::Level::Error,
+            OxyError::DatabaseUnreachable(_) => sentry::Level::Error,
             OxyError::Database(_) => sentry::Level::Error,
             OxyError::SecretManager(_) => sentry::Level::Error,
             OxyError::SecretNotFound(_) => sentry::Level::Warning,
@@ -267,6 +278,7 @@ impl From<OxyError> for StatusCode {
             OxyError::SerializerError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OxyError::IOError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OxyError::DBError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            OxyError::DatabaseUnreachable(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OxyError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OxyError::SecretManager(_) => StatusCode::INTERNAL_SERVER_ERROR,
             OxyError::SecretNotFound(_) => StatusCode::INTERNAL_SERVER_ERROR,

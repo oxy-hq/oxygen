@@ -81,8 +81,18 @@ pub use oxy_shared::log_noise::FRAMEWORK_NOISE_DIRECTIVES;
 
 /// `"{level},{NOISY_CRATE_DIRECTIVES}"` — the directive string both the stderr
 /// and the export filters are built from when the operator gives only a level.
+///
+/// At `debug` and `trace` it also lets `sqlx::query` through: that target is
+/// the statement log, and `sqlx=warn` in the noise list would otherwise hold it
+/// — so raising the level *because* the database is the suspect showed nothing
+/// from the database. Below `debug` nothing changes; `oxy-platform` only turns
+/// sea-orm's statement logging on at that level too.
 pub fn directives_for_level(level: &str) -> String {
-    format!("{level},{NOISY_CRATE_DIRECTIVES}")
+    let base = format!("{level},{NOISY_CRATE_DIRECTIVES}");
+    match level.trim() {
+        "debug" | "trace" => format!("{base},sqlx::query={level}"),
+        _ => base,
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +153,58 @@ mod tests {
             "framework debug (tower family included) and a tenant's ctx.log() info are \
              suppressed on the platform side; warns and oxy's own debug pass"
         );
+    }
+
+    /// sqlx logs each statement under `sqlx::query` — at `info` from sea-orm's
+    /// `sqlx_logging(true)`, at `debug` by sqlx's own default on the IAM pool.
+    /// `sqlx=warn` held both, so raising the level to look at the database
+    /// showed nothing from it. They must pass at `debug` and stay quiet below.
+    #[test]
+    fn statements_pass_only_when_the_level_was_raised_to_debug() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::Layer;
+        use tracing_subscriber::layer::SubscriberExt;
+
+        #[derive(Clone, Default)]
+        struct Seen(Arc<Mutex<Vec<String>>>);
+        impl<S: tracing::Subscriber> Layer<S> for Seen {
+            fn on_event(
+                &self,
+                event: &tracing::Event<'_>,
+                _ctx: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                self.0.lock().unwrap().push(format!(
+                    "{}:{}",
+                    event.metadata().target(),
+                    event.metadata().level()
+                ));
+            }
+        }
+        let seen_at = |level: &str| {
+            let seen = Seen::default();
+            let filter = EnvFilter::new(directives_for_level(level));
+            let subscriber = tracing_subscriber::registry().with(seen.clone().with_filter(filter));
+            let _guard = tracing::subscriber::set_default(subscriber);
+            tracing::info!(target: "sqlx::query", "sea-orm statement");
+            tracing::debug!(target: "sqlx::query", "sqlx default statement");
+            tracing::debug!(target: "sqlx::postgres::notice", "the rest of sqlx");
+            let seen = seen.0.lock().unwrap().clone();
+            seen
+        };
+
+        for level in ["debug", "trace"] {
+            assert_eq!(
+                seen_at(level),
+                vec![
+                    "sqlx::query:INFO".to_string(),
+                    "sqlx::query:DEBUG".to_string()
+                ],
+                "{level}: statements pass, the rest of sqlx stays at warn"
+            );
+        }
+        for level in ["warn", "info"] {
+            assert!(seen_at(level).is_empty(), "{level} must not log statements");
+        }
     }
 
     #[test]
