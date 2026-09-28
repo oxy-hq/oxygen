@@ -171,6 +171,8 @@ export interface ReleaseFacts {
   version: string | null;
   /** What customers run now. */
   prodVersion: string | null;
+  /** Prod's build id: the only thing that tells it apart when both report one version. */
+  prodBuild: string | null;
   prUrl: string | null;
   prNumber: number | null;
   compareUrl: string | null;
@@ -212,7 +214,18 @@ export function stuckMessage(
   const head = blocked
     ? `:octagonal_sign: *A release needs a person before it can reach customers* — ${name(f)}`
     : `:hourglass_flowing_sand: *Changes are waiting to reach customers* — ${name(f)}${waited === null ? "" : ` has been on staging for ${humanDuration(waited)}`}`;
-  const customers = `Customers are still on ${f.prodVersion ? `Oxygen ${f.prodVersion}` : "the previous release"}; production itself is fine.`;
+  // Builds between two releases report the same version, so "still on Oxygen
+  // 0.5.153" next to "Oxygen 0.5.153 is waiting" reads as a contradiction. The
+  // version names prod only when it differs; otherwise the build does.
+  const prodName =
+    f.prodVersion && f.prodVersion !== f.version
+      ? `Oxygen ${f.prodVersion}`
+      : f.prodBuild
+        ? `build \`${f.prodBuild}\``
+        : f.prodVersion
+          ? `Oxygen ${f.prodVersion}`
+          : "the previous release";
+  const customers = `Customers are still on ${prodName}; production itself is fine.`;
   return lines(
     head,
     `${customers}${f.changes ? ` Waiting to ship: ${changesText(f.changes)}.` : ""}${onStagingSince ? ` On staging since ${slackTime(onStagingSince)}.` : ""}`,
@@ -276,6 +289,7 @@ async function factsFrom(plan: Plan, runUrl: string | null, infraRepo: string): 
     build,
     version: staging?.sha === build ? (staging?.version ?? null) : null,
     prodVersion: prod?.version ?? null,
+    prodBuild: prod?.sha ?? null,
     prNumber: plan.bumpPr?.number ?? null,
     prUrl: plan.bumpPr ? `https://github.com/${infraRepo}/pull/${plan.bumpPr.number}` : null,
     compareUrl: from && to ? `https://github.com/${INTERNAL}/compare/${from}...${to}` : null,
@@ -362,6 +376,7 @@ function selfTest(): void {
     build: "b7f49d7",
     version: "0.5.153",
     prodVersion: "0.5.152",
+    prodBuild: "2ef5e38",
     prUrl: "https://github.com/oxy-hq/infrastructure/pull/2139",
     prNumber: 2139,
     compareUrl: "https://github.com/oxy-hq/oxygen-internal/compare/a...b",
@@ -383,7 +398,11 @@ function selfTest(): void {
   const blocked = stuckMessage(facts, { blocked: true, gateWhy: "the bump PR carries release-hold; a person clears it", onStagingSince: null, now: "2026-09-28T01:36:00.000Z" });
   has("a blocked release", blocked, ":octagonal_sign: *A release needs a person before it can reach customers*");
   has("a blocked release", blocked, "*Why:* someone put this release on hold.");
-  const bare = stuckMessage({ ...facts, version: null, prodVersion: null, changes: null, compareUrl: null, prUrl: null, prNumber: null, runUrl: null }, { blocked: false, gateWhy: "staging checks are pending", onStagingSince: null, now: "2026-09-28T01:36:00.000Z" });
+  const sameVersion = stuckMessage({ ...facts, version: "0.5.153", prodVersion: "0.5.153", prodBuild: "b7f49d7", build: "c3bed2e" }, { blocked: false, gateWhy: "staging checks are pending", onStagingSince: null, now: "2026-09-28T01:36:00.000Z" });
+  has("when both report one version, prod is named by its build", sameVersion, "Customers are still on build `b7f49d7`; production itself is fine.");
+  has("...never by a version that reads as the one waiting", sameVersion, "still on Oxygen 0.5.153", false);
+  const bare = stuckMessage({ ...facts, version: null, prodVersion: null, prodBuild: null, changes: null, compareUrl: null, prUrl: null, prNumber: null, runUrl: null }, { blocked: false, gateWhy: "staging checks are pending", onStagingSince: null, now: "2026-09-28T01:36:00.000Z" });
+  has("...and with nothing known it says so plainly", bare, "Customers are still on the previous release");
   has("with nothing known it still names the build", bare, "Oxygen build `b7f49d7`");
   has("...and has no empty Details line", bare, "Details:", false);
   const ready = readyMessage(facts);
