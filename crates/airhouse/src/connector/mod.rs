@@ -170,8 +170,21 @@ impl AirhouseConnector {
         let alive = Arc::new(AtomicBool::new(true));
         let alive_for_driver = Arc::clone(&alive);
         tokio::spawn(async move {
+            // WARN, not ERROR: a driver ending is the *notification* of a
+            // dropped connection, and the very next line handles it — every
+            // `AirhouseConnector` is built inside `airhouse_pool::get_or_build`,
+            // which checks `is_live()` on checkout and rebuilds a dead slot in
+            // place. A DP restart is expected to produce this line and nothing
+            // is broken when it does; queries lost in the window report
+            // themselves at their own call sites. ERROR filed it as a Sentry
+            // issue (`crates/server/src/logging.rs`: error → event, warn →
+            // breadcrumb) implying someone must act on a self-healing event —
+            // 31 of them in the week to 2026-09-28. The cameras driver already
+            // logs the identical situation at WARN ("cameras airhouse
+            // connection dropped"). Breadcrumb still carries the transport
+            // cause, which is what explains a burst of query failures.
             if let Err(e) = connection.await {
-                tracing::error!("airhouse connection driver error: {e}");
+                tracing::warn!("airhouse connection driver error: {e}");
             }
             // The driver future resolves only when the connection is gone
             // (clean close or error). Mark the connector dead so the pool
