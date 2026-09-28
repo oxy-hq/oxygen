@@ -24,8 +24,14 @@ pub struct Model {
     pub manifest_json: Option<Json>,
     pub created_at: DateTimeWithTimeZone,
     /// User (app-admin) who ran the publish. NULL for builds created before
-    /// this column existed. Powers the "who deployed" audit in the admin UI.
+    /// this column existed, and for a trusted-publishing (OIDC) build, which no
+    /// user published — see `published_via`. Powers the "who deployed" audit.
     pub published_by: Option<Uuid>,
+    /// The verified machine identity that published this build via trusted
+    /// publishing (GitHub OIDC), e.g.
+    /// `github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production`.
+    /// NULL for a user's publish. At most one of this and `published_by` is set.
+    pub published_via: Option<String>,
     /// Git remote URL of the app's source at publish time (raw, e.g.
     /// `git@github.com:org/repo.git` or `https://github.com/org/repo`).
     /// Captured best-effort by `oxyc publish`; NULL for non-git / legacy builds.

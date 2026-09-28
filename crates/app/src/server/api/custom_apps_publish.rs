@@ -68,7 +68,8 @@ pub struct PublishInput {
     /// Commit sha the build was published from (best-effort).
     pub commit_sha: Option<String>,
     /// Authenticated publisher (app-admin). Recorded on the build for the
-    /// "who deployed" audit in the admin UI.
+    /// "who deployed" audit in the admin UI. `None` for a machine publish: see
+    /// [`Publisher::from_request`].
     pub published_by: Option<Uuid>,
     /// Email of the publisher — needed to resolve partner / staff authority for
     /// the third-party publish path (a partner uploading into a client).
@@ -79,6 +80,61 @@ pub struct PublishInput {
     /// "this token's app == the target app AND the client consents", and it can
     /// publish to that one app and nowhere else — not the user's broader gates.
     pub machine_app_id: Option<Uuid>,
+    /// The OIDC-verified workflow identity of a trusted-publishing (machine)
+    /// publish, recorded as `app_builds.published_via`. `None` for a user.
+    pub published_via: Option<String>,
+}
+
+/// Who a publish request is recorded as — the publisher fields of [`PublishInput`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Publisher {
+    pub published_by: Option<Uuid>,
+    pub published_by_email: Option<String>,
+    pub machine_app_id: Option<Uuid>,
+    pub published_via: Option<String>,
+}
+
+impl Publisher {
+    /// Resolve the request's authenticated identity into what the build records.
+    ///
+    /// An OIDC-minted machine token authenticates as
+    /// [`AuthenticatedUser::machine_publisher`](oxy_auth::types::AuthenticatedUser::machine_publisher),
+    /// whose nil id has no `users` row. Every "who" column a publish writes
+    /// (`app_builds.published_by`, `app_environments.updated_by`,
+    /// `app_environment_events.actor`) references `users(id)`, so a machine
+    /// publish records **no user** and the verified workflow identity in
+    /// `published_via` instead. Stamping the nil id 500'd every trusted publish.
+    ///
+    /// Authorization is unaffected: the machine branch of `authorize_publish`
+    /// decides by `machine_app_id` + consent and returns before the human path
+    /// that requires `published_by` and an email.
+    pub fn from_request(
+        user: &oxy_auth::types::AuthenticatedUser,
+        marker: Option<&oxy_auth::types::AppPublishTokenAuth>,
+    ) -> Self {
+        let machine_app_id = marker.and_then(|m| m.app_id);
+        if let Some(identity) = marker.and_then(|m| m.machine_identity.clone()) {
+            return Self {
+                published_by: None,
+                published_by_email: None,
+                machine_app_id,
+                published_via: Some(identity),
+            };
+        }
+        Self {
+            published_by: Some(user.id),
+            // `user.email`, never a display label. This value is not decoration:
+            // `publish_authz::resolve_actor` feeds it to `platform_reaches`, so a
+            // label that fell back to the non-unique `name` would let a user named
+            // after a staff address publish with STAFF authority into any org that
+            // grant reaches. `publish` already denies a `None` here, which is the
+            // right answer — publishing is a developer action and a worker
+            // enrolled without a mailbox has no path to it.
+            published_by_email: user.email.clone(),
+            machine_app_id,
+            published_via: None,
+        }
+    }
 }
 
 /// How the publisher referred to the target org. Accepting both lets
@@ -862,6 +918,7 @@ async fn record_build(
         manifest_json: ActiveValue::Set(manifest_json),
         created_at: ActiveValue::Set(Utc::now().fixed_offset()),
         published_by: ActiveValue::Set(input.published_by),
+        published_via: ActiveValue::Set(input.published_via.clone()),
         source_repo: ActiveValue::Set(input.source_repo.clone()),
         commit_sha: ActiveValue::Set(input.commit_sha.clone()),
         source_branch: ActiveValue::Set(input.branch.clone()),
@@ -1657,7 +1714,7 @@ pub async fn publish_handler(
     marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     mut multipart: Multipart,
 ) -> Result<Json<PublishResult>, (StatusCode, String)> {
-    let machine_app_id = marker.and_then(|axum::Extension(m)| m.app_id);
+    let publisher = Publisher::from_request(&user, marker.as_ref().map(|axum::Extension(m)| m));
     let mut org: Option<String> = None;
     let mut org_id: Option<Uuid> = None;
     // Tracks whether the publisher sent a non-empty `org_id` that
@@ -1791,22 +1848,74 @@ pub async fn publish_handler(
         manifest,
         source_repo,
         commit_sha,
-        published_by: Some(user.id),
-        // `user.email`, never a display label. This value is not decoration:
-        // `publish_authz::resolve_actor` feeds it to `platform_reaches`, so a
-        // label that fell back to the non-unique `name` would let a user named
-        // after a staff address publish with STAFF authority into any org that
-        // grant reaches. `publish` already denies a `None` here, which is the
-        // right answer — publishing is a developer action and a worker
-        // enrolled without a mailbox has no path to it.
-        published_by_email: user.email.clone(),
-        machine_app_id,
+        published_by: publisher.published_by,
+        published_by_email: publisher.published_by_email,
+        machine_app_id: publisher.machine_app_id,
+        published_via: publisher.published_via,
     };
 
     publish(input)
         .await
         .map(Json)
         .map_err(|e| (e.status(), e.to_string()))
+}
+
+#[cfg(test)]
+mod publisher_tests {
+    use super::*;
+    use oxy_auth::types::{AppPublishTokenAuth, AuthenticatedUser};
+
+    fn human() -> AuthenticatedUser {
+        AuthenticatedUser {
+            id: Uuid::new_v4(),
+            email: Some("admin@example.com".into()),
+            ..AuthenticatedUser::machine_publisher()
+        }
+    }
+
+    #[test]
+    fn a_machine_publish_records_no_user_and_its_workflow() {
+        let app = Uuid::new_v4();
+        let marker = AppPublishTokenAuth {
+            token_id: Uuid::new_v4(),
+            app_id: Some(app),
+            machine_identity: Some(
+                "github-oidc:acme/app/.github/workflows/p.yml@refs/heads/main env=prod".into(),
+            ),
+        };
+        let p = Publisher::from_request(&AuthenticatedUser::machine_publisher(), Some(&marker));
+        // The nil principal id must never reach a `users(id)` FK.
+        assert_eq!(p.published_by, None);
+        assert_eq!(p.published_by_email, None);
+        assert_eq!(p.machine_app_id, Some(app));
+        assert_eq!(p.published_via, marker.machine_identity);
+    }
+
+    #[test]
+    fn a_session_publish_stamps_its_user() {
+        let user = human();
+        let p = Publisher::from_request(&user, None);
+        assert_eq!(p.published_by, Some(user.id));
+        assert_eq!(p.published_by_email, user.email);
+        assert_eq!(p.machine_app_id, None);
+        assert_eq!(p.published_via, None);
+    }
+
+    #[test]
+    fn a_partner_minted_app_scoped_token_stamps_its_minter() {
+        // App-scoped but human-owned: confined to the app, attributed to a person.
+        let user = human();
+        let app = Uuid::new_v4();
+        let marker = AppPublishTokenAuth {
+            token_id: Uuid::new_v4(),
+            app_id: Some(app),
+            machine_identity: None,
+        };
+        let p = Publisher::from_request(&user, Some(&marker));
+        assert_eq!(p.published_by, Some(user.id));
+        assert_eq!(p.machine_app_id, Some(app));
+        assert_eq!(p.published_via, None);
+    }
 }
 
 #[cfg(test)]

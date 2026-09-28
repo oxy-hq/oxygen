@@ -194,6 +194,7 @@ pub(crate) async fn publish_app(
         published_by: Some(t.guest_id),
         published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
         machine_app_id: None,
+        published_via: None,
     })
     .await
     .expect("a bundle carrying every declared function publishes and promotes")

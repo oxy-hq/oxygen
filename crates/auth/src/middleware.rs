@@ -196,6 +196,7 @@ async fn authenticate_app_publish_token(
         .insert(crate::types::AppPublishTokenAuth {
             token_id: resolved.token_id,
             app_id: resolved.app_id,
+            machine_identity: resolved.machine_identity,
         });
     request.extensions_mut().insert(resolved.user);
     Ok(next.run(request).await)

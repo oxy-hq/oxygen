@@ -538,7 +538,7 @@ pub async fn list_apps_scoped(
     for item in items.iter_mut() {
         item.source_unrecorded = unsourced.contains(&item.id);
         item.live_published_via =
-            live_published_via(live_publishers.get(&item.id).copied()).map(str::to_string);
+            live_published_via(live_publishers.get(&item.id)).map(str::to_string);
         if let Some(ts) = last_active.get(&item.id) {
             item.last_active_at = Some(ts.to_rfc3339());
         }
@@ -565,27 +565,35 @@ pub async fn list_apps_scoped(
 /// `"ci"` for trusted-publishing CI, `"person"` for anyone else, `None` when
 /// there is nothing to say.
 ///
-/// `live` is the live build's `app_builds.published_by` — outer `None` means
-/// no live build, inner `None` a build that names no publisher (it predates
-/// the column, or was seeded).
+/// `live` is the live build's publisher — `None` means no live build.
 ///
-/// The machine principal is CI, and only CI: an OIDC exchange mints a
-/// creator-less token, `resolve_app_publish_token` authenticates it as
-/// `AuthenticatedUser::machine_publisher()`, and `publish_handler` stamps
-/// `Some(user.id)` on the build. Every other path — a session, or a long-lived
-/// publish token, which authenticates as the human who minted it — records a
-/// real user, so a CI job holding such a token reads as `"person"`. Intended:
-/// it is not the path the availability guidelines ask for.
-fn live_published_via(live: Option<Option<Uuid>>) -> Option<&'static str> {
-    static MACHINE: std::sync::LazyLock<Uuid> =
-        std::sync::LazyLock::new(|| oxy_auth::types::AuthenticatedUser::machine_publisher().id);
-    match live.flatten()? {
-        id if id == *MACHINE => Some("ci"),
-        _ => Some("person"),
+/// Trusted-publishing CI, and only it, stamps `app_builds.published_via` (the
+/// OIDC-verified workflow identity) and leaves `published_by` NULL: the machine
+/// principal has no `users` row to point at. Every other path — a session, or
+/// a long-lived publish token, which authenticates as the human who minted it —
+/// records a real user, so a CI job holding such a token reads as `"person"`.
+/// Intended: it is not the path the availability guidelines ask for. A build
+/// naming neither (it predates both columns, or was seeded) says nothing.
+fn live_published_via(live: Option<&LivePublisher>) -> Option<&'static str> {
+    let live = live?;
+    if live.via.is_some() {
+        Some("ci")
+    } else if live.by.is_some() {
+        Some("person")
+    } else {
+        None
     }
 }
 
-/// `app id → published_by` of its live build, for every app on the page that
+/// Who published an app's live build: `app_builds.published_by` (a user) and
+/// `app_builds.published_via` (a trusted-publishing identity).
+#[derive(Debug, Default)]
+struct LivePublisher {
+    by: Option<Uuid>,
+    via: Option<String>,
+}
+
+/// `app id → publisher` of its live build, for every app on the page that
 /// has one — ONE `IN` query, like `unsourced_active_build_apps`.
 ///
 /// Only the `published_build_id` pointer, not that helper's draft fallback:
@@ -595,7 +603,7 @@ fn live_published_via(live: Option<Option<Uuid>>) -> Option<&'static str> {
 async fn live_build_publishers(
     db: &sea_orm::DatabaseConnection,
     rows: &[apps::Model],
-) -> Result<std::collections::HashMap<Uuid, Option<Uuid>>, sea_orm::DbErr> {
+) -> Result<std::collections::HashMap<Uuid, LivePublisher>, sea_orm::DbErr> {
     use entity::app_builds::Column as BuildCol;
 
     // app_builds.id → the app whose live pointer names it.
@@ -606,17 +614,22 @@ async fn live_build_publishers(
     if build_to_app.is_empty() {
         return Ok(Default::default());
     }
-    let builds: Vec<(Uuid, Option<Uuid>)> = AppBuilds::find()
+    let builds: Vec<(Uuid, Option<Uuid>, Option<String>)> = AppBuilds::find()
         .select_only()
         .column(BuildCol::Id)
         .column(BuildCol::PublishedBy)
+        .column(BuildCol::PublishedVia)
         .filter(BuildCol::Id.is_in(build_to_app.keys().copied().collect::<Vec<_>>()))
         .into_tuple()
         .all(db)
         .await?;
     Ok(builds
         .into_iter()
-        .filter_map(|(build, by)| build_to_app.get(&build).map(|app| (*app, by)))
+        .filter_map(|(build, by, via)| {
+            build_to_app
+                .get(&build)
+                .map(|app| (*app, LivePublisher { by, via }))
+        })
         .collect())
 }
 
@@ -1076,6 +1089,7 @@ pub async fn list_builds(Path(id): Path<Uuid>) -> Result<Json<BuildHistoryRespon
             is_draft: app.draft_build_id == Some(b.id),
             is_published: app.published_build_id == Some(b.id),
             published_by_email: b.published_by.and_then(|uid| emails.get(&uid).cloned()),
+            published_via: b.published_via,
             id: b.id,
             build_id: b.build_id,
             created_at: b.created_at.to_rfc3339(),
@@ -1313,34 +1327,38 @@ mod tests {
         oxy_auth::types::AppPublishTokenAuth {
             token_id: Uuid::new_v4(),
             app_id,
+            machine_identity: None,
         }
     }
 
     #[test]
-    fn a_live_build_published_by_the_oidc_machine_principal_is_ci() {
-        // Pinned to the principal itself, not to a literal nil: if the OIDC
-        // identity ever stops being nil, every CI app would silently read as
-        // "person" — this is where that should break instead.
-        let machine = oxy_auth::types::AuthenticatedUser::machine_publisher().id;
-        assert_eq!(live_published_via(Some(Some(machine))), Some("ci"));
+    fn a_live_build_published_via_trusted_publishing_is_ci() {
+        // The OIDC path records its workflow identity and NO user — the machine
+        // principal has no `users` row, so `published_by` stays NULL.
+        let live = LivePublisher {
+            by: None,
+            via: Some("github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production".into()),
+        };
+        assert_eq!(live_published_via(Some(&live)), Some("ci"));
     }
 
     #[test]
     fn a_live_build_published_by_a_user_is_a_person() {
         // A session publish and a long-lived-token CI job both land here: the
         // token records the human who minted it.
-        assert_eq!(
-            live_published_via(Some(Some(Uuid::new_v4()))),
-            Some("person")
-        );
+        let live = LivePublisher {
+            by: Some(Uuid::new_v4()),
+            via: None,
+        };
+        assert_eq!(live_published_via(Some(&live)), Some("person"));
     }
 
     #[test]
     fn nothing_live_or_no_publisher_says_nothing() {
         // No live build: a draft serves nobody, so there is no path to judge.
         assert_eq!(live_published_via(None), None);
-        // A live build that predates `published_by`: unknown is not "person".
-        assert_eq!(live_published_via(Some(None)), None);
+        // A live build that predates both columns: unknown is not "person".
+        assert_eq!(live_published_via(Some(&LivePublisher::default())), None);
     }
 
     #[test]

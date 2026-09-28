@@ -303,6 +303,9 @@ pub struct BuildSummary {
     /// Email of the app-admin who ran the publish. `None` for builds
     /// created before the `published_by` column existed.
     pub published_by_email: Option<String>,
+    /// The workflow identity of a trusted-publishing (OIDC) build, which no
+    /// user published — `published_by_email` is `None` for it.
+    pub published_via: Option<String>,
     /// Git provenance captured by `oxyc publish` (all `None` for legacy /
     /// non-git builds). `source_repo` is the raw remote URL; the frontend
     /// normalizes it to a GitHub link against `commit_sha`.

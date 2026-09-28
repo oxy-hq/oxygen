@@ -83,6 +83,10 @@ pub struct ResolvedAppPublishToken {
     /// Set iff this is an app-scoped machine token. Flows into
     /// `AppPublishTokenAuth.app_id`.
     pub app_id: Option<uuid::Uuid>,
+    /// Set iff `user` is the synthetic machine principal: the verified identity
+    /// the OIDC exchange wrote as the token's name. Flows into
+    /// `AppPublishTokenAuth.machine_identity`.
+    pub machine_identity: Option<String>,
 }
 
 /// Resolve a presented plaintext app publish token to its owning user.
@@ -135,6 +139,7 @@ pub async fn resolve_app_publish_token(
                 user: AuthenticatedUser::from(user),
                 token_id: token.id,
                 app_id: token.app_id,
+                machine_identity: None,
             }))
         }
         // OIDC-minted machine token — no human. It MUST carry an app_id (the
@@ -152,6 +157,7 @@ pub async fn resolve_app_publish_token(
                 user: AuthenticatedUser::machine_publisher(),
                 token_id: token.id,
                 app_id: Some(app_id),
+                machine_identity: Some(token.name.clone()),
             }))
         }
     }

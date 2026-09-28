@@ -479,6 +479,7 @@ async fn upsert_build(
         manifest_json: ActiveValue::Set(manifest),
         created_at: ActiveValue::Set(Utc::now().fixed_offset()),
         published_by: ActiveValue::Set(None),
+        published_via: ActiveValue::Set(None),
         source_repo: ActiveValue::Set(Some("oxy-hq/oxygen".to_string())),
         commit_sha: ActiveValue::Set(None),
         source_branch: ActiveValue::Set(Some("main".to_string())),

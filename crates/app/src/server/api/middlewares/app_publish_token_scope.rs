@@ -314,6 +314,7 @@ mod tests {
         req.extensions_mut().insert(AppPublishTokenAuth {
             token_id: uuid::Uuid::nil(),
             app_id: None,
+            machine_identity: None,
         });
         next.run(req).await
     }
@@ -327,6 +328,7 @@ mod tests {
         req.extensions_mut().insert(AppPublishTokenAuth {
             token_id: uuid::Uuid::nil(),
             app_id: Some(uuid::Uuid::parse_str(SCOPED_APP).unwrap()),
+            machine_identity: Some("github-oidc:test".to_string()),
         });
         next.run(req).await
     }

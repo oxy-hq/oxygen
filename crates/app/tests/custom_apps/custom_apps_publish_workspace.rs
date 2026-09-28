@@ -131,6 +131,7 @@ fn input(t: &Tenant, slug: &str, project_id: Uuid, build_id: &str) -> PublishInp
         published_by: Some(t.user_id),
         published_by_email: Some(t.email.clone()),
         machine_app_id: None,
+        published_via: None,
     }
 }
 

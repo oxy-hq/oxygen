@@ -51,6 +51,10 @@ impl AuthenticatedUser {
     /// confines it to the publish path, and the publish path authorizes by the
     /// token's `app_id` + client consent, never by this identity. The nil id makes
     /// it unmistakable in any log that it is not a real user.
+    ///
+    /// **Never persist this id.** No `users` row has it, so writing it to any
+    /// column that references `users(id)` fails the FK (it 500'd every trusted
+    /// publish). Record `AppPublishTokenAuth::machine_identity` instead.
     pub fn machine_publisher() -> Self {
         Self {
             id: uuid::Uuid::nil(),
@@ -81,7 +85,7 @@ impl From<users::Model> for AuthenticatedUser {
 /// admin surface only. This marker is what the scope-enforcement middleware
 /// keys off to reject an app-publish-token request that targets any other route.
 /// Its presence means "downstream must treat this identity as scope-limited."
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct AppPublishTokenAuth {
     pub token_id: uuid::Uuid,
     /// Set for any **app-scoped** publish token — OIDC-minted (no human) or
@@ -89,6 +93,11 @@ pub struct AppPublishTokenAuth {
     /// such a token strictly by this app id + the client's consent, so it is
     /// confined to that one app. `None` for an app-unscoped staff token.
     pub app_id: Option<uuid::Uuid>,
+    /// Set iff this is an OIDC-minted machine token: the identity the exchange
+    /// verified (the token's `name`). The request's user is then
+    /// [`AuthenticatedUser::machine_publisher`], which has no `users` row, so
+    /// anything recording "who did this" must write this, never that user's id.
+    pub machine_identity: Option<String>,
 }
 
 #[cfg(test)]

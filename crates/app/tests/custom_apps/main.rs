@@ -11,6 +11,7 @@
 //! | ------ | ------ |
 //! | `warehouse_writes_on_engines` | host writes land on real engines — Rust to host, no V8 |
 //! | `custom_apps_publish_function_artifacts` | a bundle declaring functions it lacks is refused |
+//! | `custom_apps_publish_machine` | a trusted (OIDC) publish records its build with no user, attributed to its workflow |
 //! | `function_failure_alerts` | the pager's SQL over invocation rows inserted by hand |
 //! | `custom_app_functions_e2e` | publish, route call, isolate, invocation row; success and throw |
 //! | `custom_app_functions_host_failures` | a caught paging host-call failure writes its fingerprint; a caught `not_found` does not |
@@ -56,6 +57,7 @@ mod custom_app_visibility;
 mod custom_apps_boundary;
 mod custom_apps_cache_invalidation;
 mod custom_apps_publish_function_artifacts;
+mod custom_apps_publish_machine;
 mod custom_apps_publish_workspace;
 mod example_app_serving;
 mod function_failure_alerts;

@@ -410,7 +410,7 @@ pub async fn oidc_exchange_handler(
     }
 
     // 4. Mint the app-scoped machine token.
-    let minted = mint_app_scoped_token(&db, app.id)
+    let minted = mint_app_scoped_token(&db, app.id, &machine_identity(&claims))
         .await
         .map_err(|e| bad(StatusCode::INTERNAL_SERVER_ERROR, &e))?;
 
@@ -440,17 +440,31 @@ async fn resolve_app_by_slugs(
         .map_err(|e| e.to_string())
 }
 
+/// The verified identity a machine publish is attributed to, e.g.
+/// `github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production`.
+///
+/// Written as the minted token's `name`; the publish that token authenticates
+/// copies it onto the build as `app_builds.published_via`, because the machine
+/// principal has no `users` row for `published_by` to reference. Only verified
+/// claims go in: `job_workflow_ref` already carries repo, workflow and ref.
+pub fn machine_identity(claims: &GithubOidcClaims) -> String {
+    let env = claims.environment.as_deref().unwrap_or("-");
+    format!("github-oidc:{} env={env}", claims.job_workflow_ref)
+}
+
 /// Insert an app-scoped, expiring, creator-less token row and return its plaintext.
 async fn mint_app_scoped_token(
     db: &DatabaseConnection,
     app_id: Uuid,
+    identity: &str,
 ) -> Result<ExchangeResponse, String> {
     let generated = oxy_auth::app_publish_token_domain::generate_token();
     let expires_at =
         (chrono::Utc::now() + chrono::Duration::minutes(EXCHANGE_TTL_MINUTES)).fixed_offset();
     entity::app_publish_tokens::ActiveModel {
         id: ActiveValue::Set(Uuid::new_v4()),
-        name: ActiveValue::Set(format!("oidc:{app_id}")),
+        // The attested workflow identity — carried to the build it publishes.
+        name: ActiveValue::Set(identity.to_string()),
         token_hash: ActiveValue::Set(generated.token_hash),
         token_prefix: ActiveValue::Set(generated.token_prefix),
         // No human — this is the machine principal (design §6, Option A).
@@ -624,6 +638,14 @@ mod tests {
             runner_environment: "github-hosted".into(),
             jti: "abc123".into(),
         }
+    }
+
+    #[test]
+    fn machine_identity_names_the_verified_workflow_and_environment() {
+        assert_eq!(
+            machine_identity(&claims()),
+            "github-oidc:acme-consulting/northwind-dashboard/.github/workflows/oxy-publish.yml@refs/heads/main env=oxy-publish"
+        );
     }
 
     #[test]
