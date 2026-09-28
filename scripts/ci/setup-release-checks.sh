@@ -2,7 +2,8 @@
 # Set the secrets the custom-app release checks need, in one pass.
 #
 # There are three, because everything else falls back to a token the repository
-# already holds (`custom-app-checks.yaml`'s header lists the chain):
+# already holds or, for the prod bump PR, is minted from the org GitHub App
+# (`custom-app-checks.yaml`'s header lists the chain):
 #
 #   OXY_API_KEY   on custom-app-checks-staging   an API key for the canary user
 #   OXY_API_KEY   on custom-app-checks-prod      on that deployment
@@ -71,6 +72,10 @@ repo_has() { # repo_has <name>
 mirror_has() { # mirror_has <name>
   gh secret list --repo "${MIRROR}" --json name --jq '.[].name' 2> /dev/null | grep -qx "$1"
 }
+org_has() { # org_has <name> — an organization secret this repository can read
+  gh api "repos/${REPO}/actions/organization-secrets" --jq '.secrets[].name' 2> /dev/null |
+    grep -qx "$1"
+}
 mark() { if "$1"; then echo "set"; else echo "MISSING"; fi; }
 
 report() {
@@ -87,8 +92,8 @@ report() {
   )")"
   echo
   echo "  Fallbacks in play (set the per-environment secret to override):"
-  printf '    %-44s %s\n' "INFRA_PR_TOKEN → repo/OXY_HQ_GIT_TOKEN" "$(mark "$(
-    repo_has OXY_HQ_GIT_TOKEN && echo true || echo false
+  printf '    %-44s %s\n' "bump-PR token ← org/ARGO_APP_PRIVATE_KEY" "$(mark "$(
+    org_has ARGO_APP_PRIVATE_KEY && echo true || echo false
   )")"
   printf '    %-44s %s\n' "SENTRY_*_TOKEN → repo/SENTRY_AUTH_TOKEN" "$(mark "$(
     repo_has SENTRY_AUTH_TOKEN && echo true || echo false

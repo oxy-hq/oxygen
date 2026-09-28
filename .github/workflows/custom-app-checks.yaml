@@ -71,11 +71,16 @@ name: Custom app checks
 #                        it is prod-only, so the repository secret is the normal
 #                        home; the qualified name keeps it from reading as any
 #                        check-in at repository scope.
-#   INFRA_PR_TOKEN       environment, else repository OXY_HQ_GIT_TOKEN. Labels
-#                        and comments on the bump PR in oxy-hq/infrastructure:
-#                        needs `repo` on that repository (classic) or
-#                        Issues + Pull requests: write (fine-grained). A 403 or
-#                        404 from `gh` in "Record the result" is this scope.
+#   ARGO_APP_PRIVATE_KEY organization secret (with the organization variable
+#                        ARGO_APP_CLIENT_ID): the GitHub App promote.yaml mints
+#                        its oxy-hq/infrastructure token from. "Token for
+#                        oxy-hq/infrastructure" mints one per release run for
+#                        the labels and comments on the bump PR. There is no
+#                        fallback: the old one, repository OXY_HQ_GIT_TOKEN,
+#                        cannot see oxy-hq/infrastructure, and because it was
+#                        SET, "Require secrets" passed while every verdict
+#                        failed to land ("Could not resolve to a Repository"),
+#                        leaving the bump PR on release-checks-pending.
 #   SENTRY_RELEASE_TOKEN environment, else repository SENTRY_AUTH_TOKEN. Needs
 #                        `project:releases` (create the release, POST a deploy).
 #   SENTRY_READ_TOKEN    environment, else repository SENTRY_AUTH_TOKEN. Needs
@@ -85,7 +90,8 @@ name: Custom app checks
 #                        token or set the environment-specific one.
 #
 # The fallback tokens' scopes are an assumption until a run proves them: none
-# of this widens a token, and the step messages say which token was used.
+# of this widens a token, and the step messages say which token was used. One
+# was disproved — OXY_HQ_GIT_TOKEN for the bump PR, see ARGO_APP_PRIVATE_KEY.
 #
 # A scheduled leg with no OXY_API_KEY is the only quiet ending. Once the key is
 # in, `Require secrets` is deliberately loud again: a prod leg with a key and no
@@ -207,8 +213,7 @@ jobs:
           # The repository check-in URL is prod's, so only the prod leg reads it.
           CHECKIN_URL: ${{ secrets.CHECKIN_URL || (matrix.environment == 'prod' && secrets.CUSTOM_APP_CHECKS_CHECKIN_URL || '') }}
           CHECKIN_URL_SOURCE: ${{ secrets.CHECKIN_URL && 'CHECKIN_URL (environment)' || 'CUSTOM_APP_CHECKS_CHECKIN_URL (repository)' }}
-          INFRA_PR_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
-          INFRA_PR_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
+          ARGO_APP_PRIVATE_KEY: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
           EXPECT_SHA: ${{ inputs.expect_sha }}
         run: |
@@ -216,9 +221,10 @@ jobs:
           # The check-in URL feeds the prod All Quiet monitor. Staging has no
           # monitor yet, so there it is optional (see "Check in").
           #
-          # INFRA_PR_TOKEN is how staging's result reaches the prod bump PR
-          # ("Record the result"), and it is required ONLY on the run that does
-          # that: staging, dispatched with a version. The schedule trigger runs
+          # ARGO_APP_PRIVATE_KEY mints the token that carries staging's result
+          # to the prod bump PR ("Record the result"), and it is required ONLY
+          # on the run that does that: staging, dispatched with a version. The
+          # schedule trigger runs
           # both environments every 15 minutes with expect_version empty, and a
           # bare dispatch defaults it to "" too — neither touches the PR. Requiring
           # the token on those runs killed the staging leg in two seconds whenever
@@ -234,7 +240,7 @@ jobs:
             staging)
               # Either gate means this run records a verdict on the prod bump PR.
               if [[ -n "${EXPECT_VERSION:-}" || -n "${EXPECT_SHA:-}" ]]; then
-                required+=(INFRA_PR_TOKEN)
+                required+=(ARGO_APP_PRIVATE_KEY)
               fi
               ;;
           esac
@@ -244,7 +250,7 @@ jobs:
             case "$1" in
               OXY_API_KEY) echo "environment custom-app-checks-${ENVIRONMENT}" ;;
               CHECKIN_URL) echo "environment custom-app-checks-${ENVIRONMENT} (CHECKIN_URL) or the repository (CUSTOM_APP_CHECKS_CHECKIN_URL)" ;;
-              INFRA_PR_TOKEN) echo "environment custom-app-checks-${ENVIRONMENT} (INFRA_PR_TOKEN) or the repository (OXY_HQ_GIT_TOKEN)" ;;
+              ARGO_APP_PRIVATE_KEY) echo "the organization (the GitHub App promote.yaml mints its oxy-hq/infrastructure token from)" ;;
             esac
           }
           missing=()
@@ -259,7 +265,7 @@ jobs:
               echo "check-in URL: ${CHECKIN_URL_SOURCE}"
             fi
             if [[ -n "${EXPECT_VERSION:-}" || -n "${EXPECT_SHA:-}" ]]; then
-              echo "bump-PR token: ${INFRA_PR_TOKEN_SOURCE}"
+              echo "bump-PR token: minted from the ARGO_APP GitHub App at \"Record the result\""
             fi
             exit 0
           fi
@@ -665,6 +671,20 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+      # The bump PR lives in oxy-hq/infrastructure, which no repository token
+      # here can see. Mint one from the org GitHub App promote.yaml uses, scoped
+      # to that repository, on exactly the runs that write to the PR (the
+      # record step's condition), and `always()` for the same reason it has it.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Token for oxy-hq/infrastructure
+        id: infra-token
+        if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && (inputs.expect_version != '' || inputs.expect_sha != '') }}
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: oxy-hq
+          repositories: infrastructure
+
       # Release gate. A dispatch from public-image-bump.yaml names the version it
       # proposed for prod; staging's result lands on that PR as labels. Four
       # endings, and every one removes release-checks-pending:
@@ -703,10 +723,8 @@ jobs:
         if: ${{ always() && matrix.environment == 'staging' && github.event_name == 'workflow_dispatch' && (inputs.expect_version != '' || inputs.expect_sha != '') }}
         timeout-minutes: 5
         env:
-          # Environment INFRA_PR_TOKEN, else repository OXY_HQ_GIT_TOKEN (needs
-          # `repo` on oxy-hq/infrastructure — see the header).
-          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
-          GH_TOKEN_SOURCE: ${{ secrets.INFRA_PR_TOKEN && 'INFRA_PR_TOKEN (environment custom-app-checks-staging)' || 'OXY_HQ_GIT_TOKEN (repository)' }}
+          # Minted by "Token for oxy-hq/infrastructure" (see the header).
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
           EXPECT_VERSION: ${{ inputs.expect_version }}
           EXPECT_SHA: ${{ inputs.expect_sha }}
           SUPERSEDED: ${{ steps.version.outputs.superseded == 'true' }}
@@ -733,10 +751,10 @@ jobs:
             REDISPATCH="expect_version=${EXPECT_VERSION}"
           fi
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::neither INFRA_PR_TOKEN (environment custom-app-checks-staging) nor OXY_HQ_GIT_TOKEN (repository) is set: the release-check result for ${REF} cannot reach the prod bump PR"
+            echo "::error::\"Token for oxy-hq/infrastructure\" minted no token (organization ARGO_APP_CLIENT_ID / ARGO_APP_PRIVATE_KEY): the release-check result for ${REF} cannot reach the prod bump PR"
             exit 1
           fi
-          echo "bump-PR token: ${GH_TOKEN_SOURCE}; a 403 or 404 from gh below means it lacks \`repo\` on ${INFRA_REPO}"
+          echo "bump-PR token: the ARGO_APP GitHub App, scoped to ${INFRA_REPO}; a 403 from gh below means the app lacks Issues or Pull requests: write there"
 
           if [[ "$SUPERSEDED" == "true" ]]; then
             RESULT=superseded
@@ -875,10 +893,10 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
-          # Same fallbacks as the record step and the deploy marker: the GitHub
-          # token needs `repo` on oxy-hq/infrastructure, the Sentry token
-          # `event:read` (and `org:read`) — see the header.
-          GH_TOKEN: ${{ secrets.INFRA_PR_TOKEN || secrets.OXY_HQ_GIT_TOKEN }}
+          # The record step's app token; the Sentry token falls back as the
+          # deploy marker's does and needs `event:read` (and `org:read`) — see
+          # the header.
+          GH_TOKEN: ${{ steps.infra-token.outputs.token }}
           SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN || secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_TOKEN_SOURCE: ${{ secrets.SENTRY_READ_TOKEN && 'SENTRY_READ_TOKEN (environment custom-app-checks-staging)' || 'SENTRY_AUTH_TOKEN (repository)' }}
           RELEASE: ${{ steps.release.outputs.release }}
