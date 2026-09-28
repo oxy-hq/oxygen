@@ -276,35 +276,215 @@ that step fails.
   The "drop it until you have timed it" advice above is for any *other*
   deployment, not for these two.
 
-### What actually runs (2026-09-25)
+### What actually runs (2026-09-26)
 
 The canary first ran on 2026-09-25: staging at 04:52Z, prod at 06:35Z.
 Before that it existed in no deployment, so the 7-day green streak in
 [How a failure reaches anyone](#how-a-failure-reaches-anyone) starts there.
 Neither deployment runs the lists above yet:
 
-| Deployment | `CANARY_STEPS` |
-| --- | --- |
-| Prod | `org_read,storage_roundtrip,secrets_roundtrip,check_in` |
-| Staging | `org_read,storage_roundtrip,secrets_roundtrip` |
+| Deployment | `canary_warehouse` | OLTP writer | `CANARY_STEPS` |
+| --- | --- | --- | --- |
+| Prod | `airhouse_managed` | none | `org_read,storage_roundtrip,secrets_roundtrip,check_in` |
+| Staging | ClickHouse `oxy_canary`, since 2026-09-26 | `app_platform_canary`, since 2026-09-26 | `warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,org_read,storage_roundtrip,secrets_roundtrip` |
 
-The reason for both: `canary_warehouse` is an `airhouse_managed` database in
-both deployments, not the `oxy_canary` ClickHouse database that
-[Per-deployment setup](#per-deployment-setup) names. The warehouse steps
-create a `MergeTree` table and pin ClickHouse's refusal wording, and a
-scheduled run on an `airhouse_managed` destination writes as Reader, so they
-can't pass there. The OLTP steps are out with them. They need the OLTP
-provision box done first.
+- **Prod can't run the warehouse steps yet.** Its `canary_warehouse` is an
+  `airhouse_managed` database, not the `oxy_canary` ClickHouse database that
+  [Per-deployment setup](#per-deployment-setup) names. The warehouse steps
+  create a `MergeTree` table and pin ClickHouse's refusal wording, and a
+  scheduled run on an `airhouse_managed` destination writes as Reader, so
+  they can't pass there. The OLTP steps need a provisioned writer.
+  [Restoring the full list on prod](#restoring-the-full-list-on-prod) is the
+  runbook.
+- **`sql_read` and `sql_stream` don't need ClickHouse.** Both read
+  `SELECT 1 AS one` from the workspace's default database, whatever its
+  engine. On 2026-09-26 both passed on staging's then-`airhouse_managed`
+  `canary_warehouse`, run by hand and on the schedule. So prod can add them
+  before anything else changes: step 1 of the runbook.
+- **Staging has an OLTP writer, but none of the steps that use it.** On
+  2026-09-26 staging's `oltp` flag went on (it had never been set) and
+  `app:platform_canary` was provisioned on Neon. `oltp_roundtrip`,
+  `oltp_transaction` and `shape_zoo` have not run there yet. `shape_zoo`
+  needs the writer too, for its Postgres half. They are steps 4 and 5 of the
+  runbook, staging first.
+- **The cost, until prod is done:** `warehouse_insert` and `warehouse_exec`,
+  the steps written for the `Code: 27` regression, run on staging and in
+  CI's checkpoint 1, not on prod.
+- **Until then, set each secret back to this table's value, not to
+  "unset".** That includes after a fire drill. An unset list runs every step,
+  and on prod the ClickHouse ones fail every run.
 
-- **The cost:** `warehouse_insert` and `warehouse_exec`, the steps written
-  for the `Code: 27` regression, run only in CI's checkpoint 1. They don't
-  run against staging or prod.
-- **To lift it:** do the ClickHouse, `config.yml` and OLTP boxes of
-  [Per-deployment setup](#per-deployment-setup), then set the lists above
-  (prod: unset).
-- **Until then, set the secret back to this table's value, not to "unset".**
-  That includes after a fire drill. An unset list runs the ClickHouse steps
-  and fails every run.
+### Restoring the full list on prod
+
+Do the steps in order. Each ends with a green run before the next starts.
+Staging did steps 1–3 on 2026-09-26, in this order. Every command is
+read-only unless its step says it writes. If a step's run fails, put
+`CANARY_STEPS` back to the value it had before that step. One failed run
+doesn't page. Three do, which at the five-minute schedule takes about
+fifteen minutes.
+
+**0. Shell.** None of these values is a secret. `oxyc checks run` needs oxyc
+0.5.0. npm has 0.4.0 as of 2026-09-26, which has no `checks`, so build it from
+a checkout of `main`:
+
+```sh
+export ENV=prod
+export ORG=1934c186-4b62-4043-b093-b214fdb2c1ed   # oxy-canary on prod
+export WS=6bdbe169-5d2d-4ad0-8331-265c7a23b327    # its workspace, "Default"
+export APP=$(oxyc api /api/orgs/$ORG/apps --env $ENV -q '.[] | select(.slug=="platform-canary") | .id')
+export CH_POD=chi-oxy-obs-chi-oxy-obs-chi-0-0-0   # namespace clickhouse, container clickhouse
+oxyc api /api/version --env $ENV -q .version       # 0.5.151 or later, for upsert_refusal and tx_refusal
+
+pnpm install --filter @oxy-hq/cli... && pnpm --filter @oxy-hq/cli build
+alias oxyc5='node sdk/cli/dist/main.mjs'
+oxyc5 checks run oxy-canary/platform-canary --env $ENV   # exit 0 passed; 9 a check failed or timed out
+
+steps() {   # set CANARY_STEPS (writes the app secret)
+  oxyc api /api/customer-apps/$APP/secrets --env $ENV -X POST -f key=CANARY_STEPS -f value="$1" >/dev/null &&
+  oxyc api /api/customer-apps/$APP/secrets/CANARY_STEPS/value --env $ENV -q .value
+}
+```
+
+**1. `sql_read` and `sql_stream`.** Writes the app secret only.
+
+```sh
+oxyc api /api/customer-apps/$APP/secrets/CANARY_STEPS/value --env $ENV -q .value
+# before: org_read,storage_roundtrip,secrets_roundtrip,check_in
+steps sql_read,sql_stream,org_read,storage_roundtrip,secrets_roundtrip,check_in
+oxyc5 checks run oxy-canary/platform-canary --env $ENV
+```
+
+**2. ClickHouse database and user.** Writes the prod oxy-obs-chi. The SQL, with
+the password as a placeholder:
+
+```sql
+CREATE DATABASE IF NOT EXISTS oxy_canary;
+CREATE USER IF NOT EXISTS oxy_canary IDENTIFIED WITH sha256_password BY '<password>'
+  HOST IP '10.0.0.0/8' DEFAULT DATABASE oxy_canary;
+GRANT CREATE TABLE, INSERT, SELECT ON oxy_canary.* TO oxy_canary;
+```
+
+Run it as `default`. That user connects only from inside the pod, and the pod
+already holds its password in `CONFIGURATION_USERS_DEFAULT_PASSWORD`. Keep the
+new password in a file so it never reaches your shell history or the terminal:
+
+```sh
+umask 077; openssl rand -hex 24 | tr -d '\n' > ~/.canary-ch-pw
+kubectl --context oxy-prod -n clickhouse get pods -o wide | awk 'NR>1{print $6}' | head -3
+# pod IPs; HOST IP '10.0.0.0/8' must cover the oxy pods' range. Widen it if not
+cat > canary-ch.sql <<'SQL'
+CREATE DATABASE IF NOT EXISTS oxy_canary;
+CREATE USER IF NOT EXISTS oxy_canary IDENTIFIED WITH sha256_password BY '<password>'
+  HOST IP '10.0.0.0/8' DEFAULT DATABASE oxy_canary;
+GRANT CREATE TABLE, INSERT, SELECT ON oxy_canary.* TO oxy_canary;
+SHOW GRANTS FOR oxy_canary;
+SQL
+sed "s/<password>/$(cat ~/.canary-ch-pw)/" canary-ch.sql |
+  kubectl --context oxy-prod -n clickhouse exec -i $CH_POD -c clickhouse -- \
+    bash -c 'clickhouse-client --user default --password "$CONFIGURATION_USERS_DEFAULT_PASSWORD" --multiquery'
+# last line: GRANT SELECT, INSERT, CREATE TABLE ON oxy_canary.* TO oxy_canary
+kubectl --context oxy-prod -n clickhouse get svc | grep oxy-obs
+# the service name for `host:` in step 3. Staging's is clickhouse-oxy-obs-chi
+kubectl --context oxy-prod -n clickhouse exec -i $CH_POD -c clickhouse -- bash -c \
+  'read -r CLICKHOUSE_PASSWORD; export CLICKHOUSE_PASSWORD; clickhouse-client --host clickhouse-oxy-obs-chi.clickhouse.svc.cluster.local --user oxy_canary --query "SELECT currentUser(), version()"' \
+  < <(cat ~/.canary-ch-pw; echo)
+# oxy_canary  25.8.x. That login comes from a pod IP, over the service
+```
+
+The user is SQL-created. It lives in the server's local access directory,
+`/var/lib/clickhouse/access/`, on the CHI's data volume. It is not in the CHI
+spec, so a GitOps sync neither creates nor removes it. ClickHouse writes
+`[HIDDEN]` in place of the password in `system.query_log`.
+
+**3. Point `canary_warehouse` at it, then add the warehouse steps.** Writes the
+workspace secret, `config.yml`, a compile, and the app secret.
+
+```sh
+jq -n --rawfile v ~/.canary-ch-pw '{name:"CANARY_CLICKHOUSE_PASSWORD", value:$v}' |
+  oxyc api /api/$WS/secrets --env $ENV -X POST --input - -q .name
+P=$(printf config.yml | base64)
+oxyc api /api/$WS/files/$P --env $ENV -q . > config.before.yml   # keep: the revert
+cat config.before.yml   # expect only the canary_warehouse entry, plus nulls and empty lists
+cat > config.after.yml <<'YML'
+defaults: null
+models: []
+databases:
+- name: canary_warehouse
+  type: clickhouse
+  host: http://clickhouse-oxy-obs-chi.clickhouse.svc.cluster.local:8123
+  user: oxy_canary
+  password_var: CANARY_CLICKHOUSE_PASSWORD
+  database: oxy_canary
+builder_agent: null
+integrations: []
+YML
+# carry over anything else config.before.yml holds; change only the canary_warehouse entry
+jq -n --rawfile d config.after.yml '{data:$d}' |
+  oxyc api /api/$WS/files/$P --env $ENV -X POST --input -
+oxyc api /api/admin/compiles/run --env $ENV -X POST --input - <<<"{\"workspace_id\":\"$WS\",\"promote\":true}"
+oxyc api "/api/$WS/compile/status?branch=main" --env $ENV \
+  -q '{current: .current_revision_id, latest: .latest.revision_id, status: .latest.status}'
+# repeat until status is "ready" and current == latest (seconds)
+oxyc api /api/$WS/databases --env $ENV -q '.[] | "\(.name) \(.db_type)"'   # canary_warehouse clickhouse
+oxyc5 checks run oxy-canary/platform-canary --env $ENV   # sql_read now reads ClickHouse
+steps warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,org_read,storage_roundtrip,secrets_roundtrip,check_in
+oxyc5 checks run oxy-canary/platform-canary --env $ENV
+oxyc api /api/customer-apps/oxy-canary/platform-canary/errors --env $ENV   # {"errors":[]}
+```
+
+The refusal steps are classified `bad_request` on 0.5.151 and later, so they
+leave no `host_call` error. A non-empty `errors` after this step means the
+server predates that release: drop the two refusal steps (see the paragraph
+under the step table).
+
+**4. OLTP.** Writes: provisions a Neon database for `oxy-canary`. Prod's `oltp`
+flag has been on since 2026-09-17. Staging already has the writer, so add the
+steps there first, with `ENV=staging` and staging's `APP`, then on prod:
+
+```sh
+oxyc api /api/admin/feature-flags --env $ENV -q '.[] | select(.key=="oltp") | .enabled'   # true
+oxyc api /api/admin/orgs/$ORG/oltp/provision --env $ENV -X POST \
+  --input - <<<'{"writers":["app:platform_canary"]}' -q '{database, provider, status}'
+oxyc api /api/admin/orgs/$ORG/oltp --env $ENV -q '{is_provisioned, schemas: [.schemas[].schema]}'
+# is_provisioned true, schemas ["app_platform_canary"]
+steps warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,oltp_roundtrip,oltp_transaction,org_read,storage_roundtrip,secrets_roundtrip,check_in
+oxyc5 checks run oxy-canary/platform-canary --env $ENV
+```
+
+The route is what `oxyc oltp provision` (0.5.0) and the admin console call.
+The Rust `oxy oltp provision` works too, but only from a shell on a server:
+it reads that machine's `OXY_DATABASE_URL`.
+
+**5. `shape_zoo`, then unset.** Staging first again: it runs 25.3.6, the
+oldest server the zoo's `JSON` columns accept. Prod runs 25.8. One zoo run
+issues about 200 statements inside the 180-second timeout, and the first run
+also creates its two tables. The passing run logs
+`shape_zoo: <cases> cases in <ms> ms`; read it from `/logs` (see
+[Scheduled steps](#scheduled-steps)).
+
+```sh
+steps warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,oltp_roundtrip,oltp_transaction,shape_zoo,org_read,storage_roundtrip,secrets_roundtrip,check_in
+oxyc5 checks run oxy-canary/platform-canary --env $ENV
+oxyc api /api/customer-apps/$APP/secrets/CANARY_STEPS --env $ENV -X DELETE   # prod: unset means all
+oxyc5 checks run oxy-canary/platform-canary --env $ENV
+rm ~/.canary-ch-pw canary-ch.sql
+```
+
+On staging, stop at the list in [Per environment](#per-environment): every
+step except `check_in`. Then update the table in
+[What actually runs](#what-actually-runs-2026-09-26), or delete that section
+once both deployments run their full lists.
+
+**Undoing a step.**
+
+- **Steps 1, 3, 4 and 5:** `steps <the value before that step>`.
+- **Step 3's config:** save `config.before.yml` back with the same
+  `files` POST, then compile. The `CANARY_CLICKHOUSE_PASSWORD` secret can
+  stay.
+- **Step 2:** `DROP USER oxy_canary; DROP DATABASE oxy_canary;`, as `default`,
+  the same way.
+- **Step 4:** `oxyc api /api/admin/orgs/$ORG/oltp/deprovision-writer --env $ENV -X POST --input - <<<'{"writer":"app:platform_canary"}'`.
+  This drops the schema and its role, and the org's other writers stay.
 
 ## How a failure reaches anyone
 
@@ -359,9 +539,12 @@ checkpoint 1 runs the canary on pull requests.
   - **Grant:** `app_operator`, scoped to `oxy-canary`.
 - [ ] **ClickHouse.** Create database `oxy_canary` and user `oxy_canary`, with
       `CREATE TABLE`, `INSERT` and `SELECT` on that database and nothing else.
+      The exact SQL and how to run it are step 2 of
+      [Restoring the full list on prod](#restoring-the-full-list-on-prod).
       Where it lives:
-  - **prod:** the oxy-observability CHI.
-  - **staging:** oxy-dev's observability CHI.
+  - **prod:** `oxy-obs-chi`, namespace `clickhouse`, on oxy-prod.
+  - **staging:** `oxy-obs-chi`, namespace `clickhouse`, on oxy-dev (done
+    2026-09-26).
   - `shape_zoo` creates `JSON`, `Tuple`, `Map`, `AggregateFunction` and wide-integer columns.
     Before enabling it, check `SELECT version()` on that server: `JSON` needs 25.3 or later.
 - [ ] **`canary_warehouse` in the workspace `config.yml`,** under the name the
@@ -371,26 +554,35 @@ checkpoint 1 runs the canary on pull requests.
   databases:
     - name: canary_warehouse
       type: clickhouse
-      host: https://<clickhouse-host>:8443
+      host: http://clickhouse-oxy-obs-chi.clickhouse.svc.cluster.local:8123
       user: oxy_canary
       password_var: CANARY_CLICKHOUSE_PASSWORD
       database: oxy_canary
   ```
 
+  - The host is the CHI's in-cluster service, the one the deployment's own
+    `OXY_CLICKHOUSE_URL` names. The server connects from inside the cluster,
+    so it needs no public endpoint.
   - Store `CANARY_CLICKHOUSE_PASSWORD` in the workspace's secrets.
+  - The workspace has no git remote. Edit `config.yml` through the files API,
+    then compile and promote (step 3 of the runbook).
   - Keep `canary_warehouse` the workspace's default database. `sql_read` calls
     `ctx.query`, which only reaches the default.
 - [ ] **OLTP provision.** The writer name is the slug with hyphens as
-      underscores. `--org` takes the org's UUID or the email of a user in exactly
-      one org, not a slug. This uses the canary user, who belongs only to
-      `oxy-canary`; the org's UUID works too:
+      underscores. From a laptop, with staff standing, post to the admin route
+      with the org's UUID (step 4 of the runbook):
 
   ```sh
-  oxy oltp provision --org canary@oxygen-hq.com --writer app:platform_canary
+  oxyc api /api/admin/orgs/<org-uuid>/oltp/provision --env <env> -X POST \
+    --input - <<<'{"writers":["app:platform_canary"]}'
   ```
 
-  That mints the `app_platform_canary_rw` role and its schema. The `oltp`
-  feature flag must be on.
+  From a shell on a server, `oxy oltp provision --org <org-uuid> --writer
+  app:platform_canary` does the same. `--org` takes the org's UUID, or the
+  email of a user in exactly one org, but never a slug. Either one mints the
+  `app_platform_canary_rw` role and its schema. The `oltp` feature flag must
+  be on. It is off by default, and was first turned on on staging on
+  2026-09-26.
 - [ ] **A place.** Add one location under Settings → Organization. `org_read`
       passes on an empty registry, but then it has no place whose shape to check.
 - [ ] **Storage.** The deployment needs `OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET`.
