@@ -77,6 +77,10 @@ crates/authz/                                      @luong-komorebi @hotay
 crates/app/src/server/authz/                       @luong-komorebi @hotay
 crates/auth/                                       @luong-komorebi @hotay
 crates/server-authz/                               @luong-komorebi @hotay
+# The login page carries both halves of sign-in and was uncovered until now:
+# magic link / SSO is Luong's, the crew PIN and the store's kiosk roster are
+# Mars's (#3243, #3248, #3267) — hence the backup.
+web-app/src/pages/login/                           @luong-komorebi @NTtanh
 
 # Frontline & crew operations (new 2026-09, #3042 → #3111) — worker identity
 # (PIN sign-in, valid only on an enrolled kiosk), the assignment graph
@@ -113,6 +117,13 @@ internal-docs/observability-analytics.md           @luong-komorebi @hotay
 crates/telemetry/                                  @luong-komorebi @hotay
 internal-docs/platform-telemetry.md                @luong-komorebi @hotay
 
+# Platform services — the db pool and its probe, poller lifecycle, and the
+# instrument set behind platform metrics. Moved from Tay 2026-09-28 on the
+# server-authz precedent above: his three commits here are May airhouse work
+# passing through, and every commit since 2026-07 is Luong's.
+crates/platform/                                   @luong-komorebi @hotay
+internal-docs/platform-metrics.md                  @luong-komorebi @hotay
+
 # Partner distribution platform
 crates/api-partner-console/                        @luong-komorebi @NTtanh
 web-app/src/pages/partners/                        @luong-komorebi @NTtanh
@@ -127,15 +138,17 @@ crates/api-github/                                 @luong-komorebi @NTtanh
 sdk/cli/                                           @luong-komorebi @NTtanh
 internal-docs/oxy-api-cli.md                       @luong-komorebi @NTtanh
 
-# LLM vendor infrastructure + build/CI
-# agentic/llm was uncovered until now (102 focus touches, four contributors).
-# Luong stays primary on the vendor routing itself (#2751 openai_compat and the
-# llm.vendor override) but Tay is the second here rather than Hai: he is
-# consolidating the whole LLM stack onto this crate (#3190, part 1 of N). If
-# that lands the rest of the way, the primary should follow it to him.
-crates/infrastructure/llm/                         @luong-komorebi @haitrr
-crates/agentic/llm/                                @luong-komorebi @hotay
+# Build / CI / the deploy train.
+# (The LLM crates that used to sit here moved to Tay's section 2026-09-28 — the
+# consolidation the old rule was waiting on landed. See there.)
 /Dockerfile                                        @luong-komorebi @nresh
+scripts/ci/                                        @luong-komorebi @nresh
+internal-docs/deploy-pipeline.md                   @luong-komorebi @nresh
+# Revert-safe migrations — the ledger tolerance a carrier release rides on (new
+# 2026-09, #2786). Mars backs up on the fleet reasoning above: it runs on every
+# instance's boot path.
+crates/migration-tolerance/                        @luong-komorebi @NTtanh
+internal-docs/revert-safe-migrations.md            @luong-komorebi @NTtanh
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -198,6 +211,10 @@ internal-docs/airhouse-service-accounts-migration.md  @hotay @luong-komorebi
 # Airway ELT
 crates/agentic/airway/                             @hotay @nresh
 web-app/src/pages/airway/                          @hotay @nresh
+# The airway UI is not all under pages/: the backfill, reset-schema and
+# cursor-reset controls live in components/, which was uncovered until now
+# (13 of its 14 commits are Tay's, incl. cursor reset #3268).
+web-app/src/components/airway/                     @hotay @nresh
 web-app/src/pages/quickbooks/                      @hotay @nresh
 # Airway admission policy (override: carved out of admin/ above — Tay owns airway)
 crates/app/src/server/api/admin/airway_config/     @hotay @luong-komorebi
@@ -211,8 +228,16 @@ internal-docs/worker-fleet.md                      @hotay @luong-komorebi
 internal-docs/adr-postgres-as-worker-queue.md      @hotay @luong-komorebi
 .claude/skills/oxy-task-spec-default/              @hotay @luong-komorebi
 
-# Platform services (server-authz moved to Luong's section above, 2026-09)
-crates/platform/                                   @hotay @luong-komorebi
+# LLM stack — moved from Luong 2026-09-28, on the condition the old rule named:
+# Tay consolidated the whole stack onto agentic-llm in two parts (#3190, #3254),
+# and part 2 retired the anthropic/gemini/ollama/openai crates outright, leaving
+# oxy-llm. Luong backs up — the vendor routing (#2751 openai_compat, the
+# llm.vendor override) and the GenAI-semconv spans on model calls (#3119) are his.
+crates/agentic/llm/                                @hotay @luong-komorebi
+crates/infrastructure/llm/                         @hotay @luong-komorebi
+
+# (crates/platform/ and crates/server-authz/ both moved to Luong's section —
+# Tay extracted or seeded them, the work in them since is Luong's.)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
