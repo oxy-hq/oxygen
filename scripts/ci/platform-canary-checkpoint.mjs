@@ -35,7 +35,7 @@
  *      rule in Chromium and a login page this server may not embed.
  *
  * Every identity comes from a supported path: `dev-login` mints the users, the
- * admin API creates the org, membership, grant and flag, the workspace API adds
+ * admin API creates the org, membership and grant, the workspace API adds
  * the database and mints the key. Nothing writes to Postgres by hand.
  *
  * The server must have dev sign-in on for two addresses — a staff one in
@@ -426,40 +426,19 @@ async function ensureOrg(opts, staff, canary) {
 
 async function ensureOltp(opts, staff, orgId) {
   step("per-org OLTP");
-  // The global kill switch: off by default, and provisioning fails closed.
-  await must(
+  // Per-org OLTP is always on, so the configured provider is all provisioning
+  // needs.
+  const r = await must(
     opts.target,
     staff.token,
-    "PATCH",
-    "/api/admin/feature-flags/oltp",
-    { enabled: true },
-    "enable oltp flag"
+    "POST",
+    `/api/admin/orgs/${orgId}/oltp/provision`,
+    { writers: [OLTP_WRITER] },
+    "provision OLTP"
   );
-  // Every instance's flag cache refreshes within ~15s; provisioning reads it, so
-  // a refusal right after the flip is the cache, not the provider. Retry briefly.
-  const deadline = Date.now() + 45_000;
-  for (;;) {
-    const r = await api(
-      opts.target,
-      staff.token,
-      "POST",
-      `/api/admin/orgs/${orgId}/oltp/provision`,
-      {
-        writers: [OLTP_WRITER]
-      }
-    );
-    if (r.status >= 200 && r.status < 300) {
-      note(
-        `provisioned ${r.json?.database ?? "?"} on ${r.json?.host ?? "?"} (${r.json?.provider ?? "?"}), writer ${OLTP_WRITER}`
-      );
-      return;
-    }
-    if (Date.now() >= deadline) {
-      fail(`provision OLTP: ${r.status} ${r.text.slice(0, 300)}`);
-    }
-    note(`provision answered ${r.status}; retrying`);
-    await sleep(3000);
-  }
+  note(
+    `provisioned ${r.json?.database ?? "?"} on ${r.json?.host ?? "?"} (${r.json?.provider ?? "?"}), writer ${OLTP_WRITER}`
+  );
 }
 
 async function ensureClickHouse(opts) {

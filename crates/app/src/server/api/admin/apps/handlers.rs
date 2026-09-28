@@ -762,7 +762,7 @@ pub async fn update_app(
         // which would then resolve the SAME schema: the cross-app reach the
         // derivation exists to prevent, reopened by two ordinary admin edits. The
         // store must be deprovisioned before the app can be renamed. Checked
-        // regardless of the kill-switch, since the schema exists either way. This
+        // whatever the tenant's status, since the schema exists either way. This
         // 409 shares its status with the slug-taken one above but carries a
         // distinct body, so the operator gets the deprovision instruction rather
         // than concluding the slug is taken.

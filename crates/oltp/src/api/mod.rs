@@ -17,12 +17,11 @@ use axum::http::StatusCode;
 use axum::routing::get;
 
 /// A `ResolveError` as an HTTP status, shared by every route that resolves an
-/// OLTP connection. Absent is 404, mid-transition 409, disabled 503, broken
-/// 500 — so `Disabled` cannot read as 409 on one route and 503 on another.
+/// OLTP connection. Absent is 404, mid-transition 409, broken 500 — so one
+/// error cannot read as 409 on one route and 404 on another.
 pub(crate) fn resolve_status(e: crate::resolver::ResolveError) -> (StatusCode, String) {
     use crate::resolver::ResolveError as R;
     let code = match &e {
-        R::Disabled => StatusCode::SERVICE_UNAVAILABLE,
         R::WorkspaceNotFound(_)
         | R::WorkspaceHasNoOrg(_)
         | R::NotProvisioned(_)

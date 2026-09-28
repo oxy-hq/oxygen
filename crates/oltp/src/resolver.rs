@@ -23,12 +23,6 @@ use crate::schema::{GrantLevel, WriterRef};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
-    /// The feature is switched off at runtime (the `oltp` flag). Fails closed:
-    /// a `postgres_managed` query resolves nothing while OLTP is disabled,
-    /// rather than handing back a credential to a feature that is meant to be
-    /// off. Maps to 503.
-    #[error("per-org OLTP is disabled")]
-    Disabled,
     #[error("workspace {0} not found")]
     WorkspaceNotFound(Uuid),
     #[error("workspace {0} has no organization; postgres_managed needs an org-scoped tenant")]
@@ -134,9 +128,6 @@ async fn analyst_connection_for_org(
     db: &DatabaseConnection,
     org_id: Uuid,
 ) -> Result<AnalystConnection, ResolveError> {
-    if !crate::flag::is_enabled() {
-        return Err(ResolveError::Disabled);
-    }
     let tenant = OltpTenants::find()
         .filter(oltp_tenants::Column::OrgId.eq(org_id))
         .one(db)
@@ -226,11 +217,11 @@ pub async fn resolve_writer_connection(
 /// Whether a writer role is physically provisioned for this org — a cheap
 /// existence check (tenant + role row), no decrypt and no provider round-trip.
 ///
-/// Deliberately does NOT consult the kill-switch, unlike
+/// Deliberately ignores the tenant's status, unlike
 /// [`resolve_writer_connection_for_org`]: the role and its schema exist on the
-/// tenant regardless of whether the feature is switched on, so a guard that
-/// protects them — refusing an app rename that would orphan the schema, or free
-/// its slug for another app to claim — must see them even while OLTP is off.
+/// tenant whether or not it is `Active`, so a guard that protects them —
+/// refusing an app rename that would orphan the schema, or free its slug for
+/// another app to claim — must see them in every state.
 pub async fn writer_is_provisioned(
     db: &DatabaseConnection,
     org_id: Uuid,
@@ -268,9 +259,6 @@ pub async fn resolve_writer_connection_for_org(
     org_id: Uuid,
     writer: &WriterRef,
 ) -> Result<WriterConnection, ResolveError> {
-    if !crate::flag::is_enabled() {
-        return Err(ResolveError::Disabled);
-    }
     let tenant = OltpTenants::find()
         .filter(oltp_tenants::Column::OrgId.eq(org_id))
         .one(db)

@@ -156,18 +156,6 @@ pub async fn start_database_and_server(
 
     println!("{}", "🔗 Per-org OLTP".text());
     println!("   {}", oltp_line.text());
-    // Stated as a REQUIREMENT, not a state — this prints before the server runs
-    // the migrations that create the flag table, so it cannot read the live
-    // value, and asserting "disabled" would be wrong the moment the flag is on.
-    // The provider line above configures the provider; server-side OLTP also
-    // needs the flag. (The `oxy oltp` CLI is not flag-gated and works
-    // regardless; that asymmetry is deliberate.)
-    println!(
-        "   {}",
-        "server-side OLTP also requires the `oltp` feature flag (off by default) \
-         — /admin/feature-flags"
-            .text()
-    );
     println!();
 
     // 7. Start the web server (runs on host, not in Docker). Its in-process

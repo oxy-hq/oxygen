@@ -90,8 +90,9 @@ pub async fn get_erd(
         .await
         .map_err(|e| {
             error!("could not resolve OLTP analyst connection: {e}");
-            // Shared mapping, so `Disabled` is 503 here as in the admin routes,
-            // not 409. The handler surfaces the code; the detail is logged.
+            // Shared mapping, so a status here matches every other route that
+            // resolves a connection. The handler surfaces the code; the detail
+            // is logged.
             super::resolve_status(e).0
         })?;
 

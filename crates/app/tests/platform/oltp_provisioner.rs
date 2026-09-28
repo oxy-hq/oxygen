@@ -912,59 +912,6 @@ async fn a_database_left_without_its_row_is_adopted_not_collided_with() {
     .await;
 }
 
-/// The runtime kill-switch refuses provisioning when the `oltp` flag is off.
-///
-/// nextest runs each test in its own process, so `flag::set_check` here is
-/// isolated — it does not leak into the other tests, which rely on the
-/// unregistered-is-permissive default.
-#[tokio::test]
-async fn provisioning_is_refused_when_the_oltp_flag_is_off() {
-    oxy_oltp::flag::set_check(Box::new(|| false));
-    with_fx(|fx| async move {
-        let err = fx
-            .provisioner
-            .provision(fx.org_id)
-            .await
-            .expect_err("provisioning must be refused while the flag is off");
-        assert!(
-            matches!(err, ProvisionerError::Disabled),
-            "expected Disabled, got {err}"
-        );
-        // And it created nothing on the way to refusing.
-        assert!(
-            fx.tenant_row().await.is_none(),
-            "a refused provision must leave no tenant row"
-        );
-    })
-    .await;
-}
-
-/// And serving fails closed: an existing tenant resolves nothing once the flag
-/// goes off.
-///
-/// Provisions with the flag at its permissive default, THEN flips it off — the
-/// `OnceLock` is unset until that call, so the provision above still ran.
-#[tokio::test]
-async fn serving_fails_closed_when_the_oltp_flag_goes_off() {
-    with_fx(|fx| async move {
-        fx.provisioner
-            .provision(fx.org_id)
-            .await
-            .expect("provision (flag permissive by default in tests)");
-
-        oxy_oltp::flag::set_check(Box::new(|| false));
-
-        let err = oxy_oltp::resolver::resolve_analyst_connection_for_org(&fx.db, fx.org_id)
-            .await
-            .expect_err("serving must fail closed while the flag is off");
-        assert!(
-            matches!(err, oxy_oltp::resolver::ResolveError::Disabled),
-            "expected Disabled, got {err}"
-        );
-    })
-    .await;
-}
-
 /// A stale `pg_version` must be corrected on the next provision.
 ///
 /// The row is written once at creation, and `mark_active`'s early return used

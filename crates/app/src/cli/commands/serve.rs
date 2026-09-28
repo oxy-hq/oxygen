@@ -376,12 +376,10 @@ pub async fn start_server_and_web_app(
 }
 
 async fn init_feature_flags() -> Result<(), OxyError> {
-    // `cache::init` opens its own connection, wires the `oxy-oltp` flag bridge,
-    // starts the refresh, and does the first load. FAIL-FAST here (`?`): an
-    // unloaded cache reads the registry default for `billing` (OFF = paywall
-    // skipped for every org), so serve must not accept requests with an unknown
-    // billing state. The worker discards this same error because it enforces no
-    // paywall and reads only `oltp`, whose unloaded value is already safe.
+    // `cache::init` opens its own connection, starts the refresh, and does the
+    // first load. FAIL-FAST here (`?`): an unloaded cache reads the registry
+    // default for `billing` (OFF = paywall skipped for every org), so serve must
+    // not accept requests with an unknown billing state.
     crate::server::feature_flags::cache::init().await
 }
 

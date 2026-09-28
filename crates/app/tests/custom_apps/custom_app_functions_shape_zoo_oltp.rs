@@ -3,8 +3,7 @@
 //! `ctx.oltp` reaches a per-org tenant database through the app's writer role, so this test
 //! provisions one the way `tests/platform/oltp_provisioner.rs` does: `OltpProvisioner` over
 //! `LocalProvider`, on the control plane's own cluster (`common::admin_url`). It never uses CI's
-//! `oltp-postgres` service, whose suite refuses a cluster holding `oxy_org_*` databases. No flag
-//! is set: `oxy_oltp::flag::is_enabled` is `true` in a process that registered no check.
+//! `oltp-postgres` service, whose suite refuses a cluster holding `oxy_org_*` databases.
 //!
 //! The zoo table is loaded through the writer's own DSN, the connection `ctx.oltp` uses, then
 //! read one column at a time by a published function. Each column is compared with its case's

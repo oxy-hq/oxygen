@@ -52,8 +52,7 @@ pub enum Settled {
     /// causality race on its own. Nothing to do.
     NotDeferred(Promotion),
     /// The revision carries DDL, but there is nowhere to apply it: the
-    /// workspace has no org, the org has no provisioned OLTP database, or
-    /// the feature flag is off.
+    /// workspace has no org, or the org has no provisioned OLTP database.
     ///
     /// **Promoted anyway.** A workspace whose OLTP database does not exist
     /// is a workspace where nothing can call `ctx.oltp` in the first place,
@@ -163,11 +162,6 @@ pub async fn settle_deferred_promotion(
         return Settled::NotDeferred(outcome.promotion.clone());
     };
 
-    if !oxy_oltp::flag::is_enabled() {
-        return promote_without_ddl(db, workspace_id, outcome, "the OLTP feature flag is off")
-            .await;
-    }
-
     let org_id = match org_for_workspace(db, workspace_id).await {
         Ok(Some(id)) => id,
         Ok(None) => {
@@ -271,8 +265,8 @@ pub async fn settle_deferred_promotion(
 
 /// Promote a deferred revision that has no database to apply DDL to.
 ///
-/// Split out because the three ways of getting here read very differently
-/// at the call site but must all end the same way — promoted, with the
+/// Split out because the two ways of getting here read very differently
+/// at the call site but must both end the same way — promoted, with the
 /// reason logged once.
 async fn promote_without_ddl(
     db: &DatabaseConnection,
@@ -353,7 +347,7 @@ mod tests {
         assert!(!lost_the_race.effective_promotion(&deferred).is_live());
 
         let won = Settled::NoTenant {
-            reason: "the OLTP feature flag is off",
+            reason: "the workspace does not belong to an org",
             promotion: Promotion::Promoted,
         };
         assert!(won.effective_promotion(&deferred).is_live());

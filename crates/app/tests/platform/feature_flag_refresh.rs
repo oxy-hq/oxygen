@@ -1,6 +1,6 @@
-//! The feature-flag cache's periodic refresh — the property that makes the
-//! `oltp` kill-switch fleet-wide. Without it a PATCH reaches only the instance
-//! it lands on; nothing else in the repo pins that a DB change propagates.
+//! The feature-flag cache's periodic refresh — the property that makes a flag
+//! flip fleet-wide. Without it a PATCH reaches only the instance it lands on;
+//! nothing else in the repo pins that a DB change propagates.
 
 use std::time::Duration;
 
@@ -34,29 +34,53 @@ async fn a_db_change_propagates_to_the_cache_via_the_refresh() {
     // would make the pre-condition below pass for the wrong reason).
     cache::init().await.expect("feature flag cache init");
     assert!(
-        !is_enabled("oltp"),
-        "cache loaded and the DB has no oltp row, so it reads the default (off)"
+        !is_enabled("billing"),
+        "cache loaded and the DB has no billing row, so it reads the default (off)"
     );
 
     // Another instance flips it on (its PATCH commits this row + updates ITS
     // cache; ours only sees the row).
-    store::upsert(&db, "oltp", true)
+    store::upsert(&db, "billing", true)
         .await
-        .expect("upsert oltp=true");
+        .expect("upsert billing=true");
 
     // Our cache still reads off until a refresh tick picks the row up.
     let mut flipped = false;
     for _ in 0..40 {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        if is_enabled("oltp") {
+        if is_enabled("billing") {
             flipped = true;
             break;
         }
     }
     assert!(
         flipped,
-        "the refresh must propagate a DB change to this process — without it the \
-         kill-switch reaches only the instance the PATCH lands on"
+        "the refresh must propagate a DB change to this process — without it a \
+         flag flip reaches only the instance the PATCH lands on"
+    );
+}
+
+/// A row for a flag the registry no longer declares — `oltp`, removed when
+/// per-org OLTP went always-on, still sits in staging and prod — is ignored at
+/// load rather than failing it. A failed load is fatal for serve, so choking on
+/// a leftover row would stop every instance from booting.
+#[tokio::test]
+async fn a_row_for_a_removed_flag_does_not_break_the_load() {
+    let db = common::test_db().await;
+    store::upsert(&db, "oltp", true)
+        .await
+        .expect("upsert the leftover oltp row");
+
+    cache::init()
+        .await
+        .expect("a leftover row must not fail the load");
+    assert!(
+        !is_enabled("billing"),
+        "the registered flag still reads its own value (default off)"
+    );
+    assert!(
+        !is_enabled("oltp"),
+        "an unregistered key reads false, whatever its row says"
     );
 }
 

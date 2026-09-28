@@ -43,7 +43,6 @@ pub mod api;
 pub mod config;
 pub mod connect;
 pub mod entity;
-pub mod flag;
 pub mod local_seed;
 pub mod migration;
 pub mod migrator;

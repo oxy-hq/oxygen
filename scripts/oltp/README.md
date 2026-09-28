@@ -36,15 +36,10 @@ export OXY_OLTP_PROVIDER=local
 export OXY_OLTP_ADMIN_URL="$OXY_DATABASE_URL"   # neon: OXY_OLTP_NEON_API_KEY + _ORG_ID instead
 ```
 
-The provider vars are only half of it. Per-org OLTP is also gated by the `oltp`
-**feature flag** (off by default — the runtime kill-switch), so the server side
-(the console Provision button, `postgres_managed` queries) stays disabled until
-you flip it on. Flip it in the **admin UI** at `/admin/feature-flags` (the
-`/admin/*` API is owner-gated, so a bare `curl` 401s); every instance picks up
-the change within ~15s, no restart.
-
-The `oxy oltp` CLI verbs below are NOT flag-gated, so they work regardless — the
-flag governs the serving/HTTP side.
+The provider vars are all of it. Per-org OLTP is always on — there is no
+runtime flag — so once a provider is configured the server side (the console
+Provision button, `postgres_managed` queries) and the `oxy oltp` CLI verbs below
+both work.
 
 ```bash
 # 1. a database, its writers and the analyst credential (idempotent)

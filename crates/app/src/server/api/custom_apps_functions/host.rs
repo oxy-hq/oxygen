@@ -545,8 +545,8 @@ impl ProjectFunctionHost {
     /// `ctx.oltp` calls and `ctx.oltp.tx` handles cost one control-plane resolve
     /// (a query + decrypt), not N. The isolate drives calls sequentially, so
     /// holding this lock across the first resolve serialises nothing real. The
-    /// kill-switch is checked on that first resolve — an invocation is short
-    /// enough that a mid-run flag flip need not be observed. The cached
+    /// tenant's status is checked on that first resolve — an invocation is short
+    /// enough that a mid-run status change need not be observed. The cached
     /// `WriterConnection` holds the DECRYPTED writer DSN for the rest of the
     /// invocation; that is the same lifetime as the isolate that already drives
     /// this credential, and the host is dropped when the invocation ends, so the
@@ -1208,10 +1208,9 @@ impl FunctionHost for ProjectFunctionHost {
     /// **writer** role, whose DML rights are scoped to the one `app_<writer>`
     /// schema — narrower on reads (no `raw_*`) and finally writable.
     ///
-    /// Fail-closed on the `oltp` capability, gated by the OLTP kill-switch
-    /// (`resolve_writer_connection_for_org` checks `oxy_oltp::flag`), and run in
-    /// a one-shot transaction so parameters are bound (never string-concatenated)
-    /// and a failed statement rolls back rather than leaving a partial write.
+    /// Fail-closed on the `oltp` capability, and run in a one-shot transaction
+    /// so parameters are bound (never string-concatenated) and a failed
+    /// statement rolls back rather than leaving a partial write.
     async fn oltp(
         &self,
         op: String,

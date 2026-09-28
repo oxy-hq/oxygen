@@ -5,15 +5,14 @@
 //! DB every [`refresh_interval`] so a PATCH on ANY instance reaches every other
 //! within that window. That refresh is what makes the fleet-wide claim true:
 //! the PATCHed instance flips instantly, the rest converge on the next tick.
-//! (The `oltp` kill-switch is the reason this exists — an instant-revert lever
-//! that only reverted one pod would be a trap during an incident.)
+//! A switch that only flipped one pod would be a trap during an incident.
 //!
 //! A tighter bound would be Postgres LISTEN/NOTIFY on the flag table; the
 //! interval is the cheaper approximation and enough for a safety switch.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Once, OnceLock, RwLock};
+use std::sync::{Mutex, Once, OnceLock, RwLock};
 use std::time::Duration;
 
 use oxy_shared::errors::OxyError;
@@ -59,27 +58,20 @@ fn parse_refresh_interval(raw: Option<&str>) -> Duration {
     }
 }
 
-/// Wire the `oltp` bridge, start the periodic refresh, and do one load — the
-/// caller decides whether a failed load is fatal.
+/// Start the periodic refresh and do one load — the caller decides whether a
+/// failed load is fatal.
 ///
-/// **Fallible on purpose, because the uninitialized fallback is not uniformly
-/// safe.** While the cache is unloaded, `is_enabled` returns the registry
-/// default: OFF for `oltp` (fail-closed — the switch reads disabled), but also
-/// OFF for `billing`, which means paywall enforcement SKIPPED for every org.
-/// So an unloaded cache is fail-OPEN on the money flag. `serve` therefore treats
-/// this `Result` as fatal (`?`) — it will not accept requests with an unknown
-/// billing state — and `worker` discards it, because the worker enforces no
-/// paywall and reads only `oltp`, whose unloaded value is already the safe one.
-/// That split is why the only reader of an unloaded cache is a context where OFF
-/// is safe.
+/// **Fallible on purpose, because the uninitialized fallback is not safe.**
+/// While the cache is unloaded, `is_enabled` returns the registry default, and
+/// that is OFF for `billing` — paywall enforcement SKIPPED for every org. So an
+/// unloaded cache is fail-OPEN on the money flag, and `serve` treats this
+/// `Result` as fatal (`?`): it will not accept requests with an unknown billing
+/// state.
 ///
-/// The hook is wired FIRST (before the fallible load) so a failure still leaves
-/// it delegating to `is_enabled`, and the refresh is spawned UNCONDITIONALLY so
-/// the worker's discarded failure self-heals on a later tick. Takes NO
-/// connection argument — it opens its own, so no caller can have an arm that
-/// reaches it without wiring the hook (the worker had exactly that gap).
+/// The refresh is spawned UNCONDITIONALLY, before the fallible load, so a
+/// caller that tolerates a failed load still self-heals on a later tick. Takes
+/// NO connection argument — it opens its own.
 pub async fn init() -> Result<(), OxyError> {
-    oxy_oltp::flag::set_check(Box::new(|| is_enabled("oltp")));
     spawn_refresh();
     load_and_install().await
 }
@@ -105,7 +97,7 @@ async fn load_map(db: &DatabaseConnection) -> Result<HashMap<&'static str, bool>
         if registry::get(&row.key).is_some() {
             by_key.insert(row.key.as_str(), row.enabled);
         } else {
-            tracing::warn!(key = %row.key, "stale feature flag in DB, ignoring");
+            warn_stale_once(&row.key);
         }
     }
     let mut map: HashMap<&'static str, bool> = HashMap::new();
@@ -119,6 +111,22 @@ async fn load_map(db: &DatabaseConnection) -> Result<HashMap<&'static str, bool>
         );
     }
     Ok(map)
+}
+
+/// Warn once per process about a DB row whose key the registry no longer
+/// declares. `load_map` runs on every refresh tick, so warning per call would
+/// log every 15s on every instance for as long as a removed flag's row stays.
+/// The row is left in place on purpose: a rollback to a build that still
+/// declares the flag reads it back.
+fn warn_stale_once(key: &str) {
+    static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let mut seen = WARNED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if seen.insert(key.to_string()) {
+        tracing::warn!(key, "stale feature flag in DB, ignoring");
+    }
 }
 
 /// Install a freshly-loaded map — unless a local PATCH landed since `gen_before`
@@ -185,9 +193,8 @@ fn spawn_refresh() {
 
 /// Returns whether `key` is enabled. Synchronous — pure HashMap lookup after
 /// init. While the cache is uninitialized, returns the registry default for
-/// `key` (so a safety flag reads OFF) and warns ONCE — the OLTP hook calls this
-/// per resolution, so a per-call log would flood and bury the init warning.
-/// Unknown keys return `false`.
+/// `key` and warns ONCE — read sites call this per request, so a per-call log
+/// would flood and bury the init warning. Unknown keys return `false`.
 pub fn is_enabled(key: &'static str) -> bool {
     if !INITIALIZED.load(Ordering::Acquire) {
         static WARNED: Once = Once::new();

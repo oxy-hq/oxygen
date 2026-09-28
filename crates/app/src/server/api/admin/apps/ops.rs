@@ -512,8 +512,8 @@ pub(super) async fn delete_one(db: &DatabaseConnection, id: Uuid) -> Result<(), 
     // slug, so deleting the app would leave `app_<slug>` as residue that a new app
     // reusing the freed slug would adopt (the asset silo below is reclaimed on
     // delete; OLTP rows are the tenant's live data, so dropping them on an app
-    // delete is the wrong default — deprovision explicitly). Checked regardless of
-    // the kill-switch, since the schema exists either way.
+    // delete is the wrong default — deprovision explicitly). Checked whatever the
+    // tenant's status, since the schema exists either way.
     if let Some(writer) = oxy_oltp::schema::app_writer_name(&row.slug)
         .and_then(|w| oxy_oltp::schema::WriterRef::app(w).ok())
         && oxy_oltp::resolver::writer_is_provisioned(db, row.org_id, &writer)

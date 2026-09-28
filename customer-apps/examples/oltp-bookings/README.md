@@ -49,8 +49,9 @@ and every `ctx.oltp` call is rejected before any connection is opened.
    oxyc publish
    ```
 
-The kill-switch applies: if the `oltp` feature flag is off, `ctx.oltp` resolution
-fails closed with a clear error rather than reaching the database.
+Per-org OLTP is always on, so step 1 is the only precondition: until the store
+is provisioned, `ctx.oltp` fails with an error naming the missing database or
+writer rather than reaching anything.
 
 ## Using it
 

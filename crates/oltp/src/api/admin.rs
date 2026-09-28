@@ -44,7 +44,7 @@ use super::handlers::{ConnectionInfoResponse, status_for_org};
 fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (StatusCode, String) {
     use crate::provisioner::ProvisionerError as P;
     let code = match &e {
-        P::NotConfigured(_) | P::Disabled => StatusCode::SERVICE_UNAVAILABLE,
+        P::NotConfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
         P::OrgNotFound(_) | P::NotProvisioned(_) => StatusCode::NOT_FOUND,
         // Operator error, not an Oxy fault: a state the caller has to resolve
         // (deprovision first, wait for the tenant to settle, rename a writer).

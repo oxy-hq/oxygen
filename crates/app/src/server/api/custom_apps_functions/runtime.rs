@@ -392,8 +392,7 @@ pub trait FunctionHost: Send + Sync {
     /// `ctx.oltp.{query,exec}` — read/write the app's OWN per-org OLTP schema
     /// (`app_<writer>`) on the managed Postgres tenant. `op` is `query` or
     /// `exec`; `payload` carries `{ sql, params? }`. Gated by the fail-closed
-    /// `oltp` manifest capability and the OLTP kill-switch, and scoped to the
-    /// app's own writer role — so unlike `ctx.warehouse` (read-only analyst on a
+    /// `oltp` manifest capability, and scoped to the app's own writer role — so unlike `ctx.warehouse` (read-only analyst on a
     /// managed database) it can write, and cannot see another app's data.
     async fn oltp(
         &self,

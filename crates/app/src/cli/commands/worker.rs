@@ -286,26 +286,6 @@ pub async fn run_worker(args: WorkerArgs) -> Result<(), OxyError> {
     // comes from the pod spec, so unlike `oxy start` nothing has to boot first.
     crate::observability_boot::finalize().await;
 
-    // Initialize the feature-flag cache — which wires the `oltp` kill-switch
-    // bridge, starts the refresh, and reads the flags. Without it the worker's
-    // OLTP resolutions (Airway landing into `raw_*`, the analyst for agentic
-    // runs) ran with the switch permanently permissive.
-    //
-    // Non-fatal here — unlike serve. init wires the hook and spawns the refresh
-    // BEFORE the fallible load, so a failure leaves `oltp` reading its unloaded
-    // default (OFF = disabled = fail-closed) and the refresh self-heals on the
-    // next tick. The worker enforces no paywall, so `billing`'s fail-open
-    // default cannot bite here. ONE call, no arm that can skip the hook:
-    // `--skip-migrations` makes this the process's first DB touch, and the
-    // earlier `match establish_connection()` had an `Err` arm that skipped init
-    // entirely and left the hook unwired (permissive) for the process's life.
-    if let Err(e) = crate::server::feature_flags::cache::init().await {
-        tracing::warn!(
-            ?e,
-            "worker: feature flag load failed; oltp reads disabled until refresh"
-        );
-    }
-
     let max_inflight = read_max_inflight();
     let recovery_interval = resolve_recovery_interval(args.recovery_interval_secs);
     let health_port = resolve_health_port(args.health_port);

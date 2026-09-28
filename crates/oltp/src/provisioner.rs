@@ -37,12 +37,6 @@ use crate::sql::{SqlError, TenantSqlExecutor};
 
 #[derive(Debug, Error)]
 pub enum ProvisionerError {
-    /// The feature is switched off at runtime (the `oltp` flag is not enabled).
-    /// Distinct from `NotConfigured` (no provider env): this is a deliberate
-    /// kill-switch, and both map to 503 so a caller sees "unavailable", not a
-    /// fault.
-    #[error("per-org OLTP is disabled")]
-    Disabled,
     #[error("org {0} not found")]
     OrgNotFound(Uuid),
     #[error("org {0} has no OLTP database; provision it first")]
@@ -190,11 +184,6 @@ impl OltpProvisioner {
     /// it rather than creating a second one.
     #[instrument(skip(self), fields(org_id = %org_id))]
     pub async fn provision(&self, org_id: Uuid) -> Result<oltp_tenants::Model, ProvisionerError> {
-        // Runtime kill-switch: refuse to create anything when the feature is
-        // off, whatever the provider env says.
-        if !crate::flag::is_enabled() {
-            return Err(ProvisionerError::Disabled);
-        }
         self.assert_org_exists(org_id).await?;
 
         let existing = self.find_tenant(org_id).await?;

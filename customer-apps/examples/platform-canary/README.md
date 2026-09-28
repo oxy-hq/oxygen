@@ -202,8 +202,8 @@ names the step.
 - **What it creates**, all through the API: an org (default `oxy-canary`) whose
   Owner is `canary@oxygen-hq.com`, minted by dev sign-in — Owner rather than the
   Member prod uses, because minting the API key needs workspace Admin; the
-  `app_operator` grant scoped to that org, as on prod; the `oltp` flag on and a
-  writer provisioned; the ClickHouse database and the `canary_warehouse`
+  `app_operator` grant scoped to that org, as on prod; an OLTP writer
+  provisioned; the ClickHouse database and the `canary_warehouse`
   workspace database; a compiled, promoted revision; an API key that expires in
   a day. Re-runs reuse the org and leave its database configuration alone, so
   point a fresh `--org-slug` at a different ClickHouse database.
@@ -236,9 +236,9 @@ Both are app secrets (the app's Secrets panel):
 set it by hand.
 
 `CANARY_STEPS` is the only way to drop a step, so an omission is always a
-recorded decision. Note why next to it. For example, the `oltp` feature flag is a
-global kill switch: where it's off and the list still names `oltp_roundtrip`,
-that step fails.
+recorded decision. Note why next to it. For example, `oltp_roundtrip` needs the
+app's OLTP writer: where the org has none provisioned and the list still names
+that step, it fails.
 
 ### Per environment
 
@@ -302,8 +302,8 @@ Neither deployment runs the lists above yet:
   `canary_warehouse`, run by hand and on the schedule. So prod can add them
   before anything else changes: step 1 of the runbook.
 - **Staging has an OLTP writer, but none of the steps that use it.** On
-  2026-09-26 staging's `oltp` flag went on (it had never been set) and
-  `app:platform_canary` was provisioned on Neon. `oltp_roundtrip`,
+  2026-09-26 `app:platform_canary` was provisioned on staging's Neon (per-org
+  OLTP is now always on, with no flag to check). `oltp_roundtrip`,
   `oltp_transaction` and `shape_zoo` have not run there yet. `shape_zoo`
   needs the writer too, for its Postgres half. They are steps 4 and 5 of the
   runbook, staging first.
@@ -437,12 +437,12 @@ leave no `host_call` error. A non-empty `errors` after this step means the
 server predates that release: drop the two refusal steps (see the paragraph
 under the step table).
 
-**4. OLTP.** Writes: provisions a Neon database for `oxy-canary`. Prod's `oltp`
-flag has been on since 2026-09-17. Staging already has the writer, so add the
-steps there first, with `ENV=staging` and staging's `APP`, then on prod:
+**4. OLTP.** Writes: provisions a Neon database for `oxy-canary`. Per-org OLTP
+is always on, so provisioning is the only precondition. Staging already has the
+writer, so add the steps there first, with `ENV=staging` and staging's `APP`,
+then on prod:
 
 ```sh
-oxyc api /api/admin/feature-flags --env $ENV -q '.[] | select(.key=="oltp") | .enabled'   # true
 oxyc api /api/admin/orgs/$ORG/oltp/provision --env $ENV -X POST \
   --input - <<<'{"writers":["app:platform_canary"]}' -q '{database, provider, status}'
 oxyc api /api/admin/orgs/$ORG/oltp --env $ENV -q '{is_provisioned, schemas: [.schemas[].schema]}'
@@ -580,9 +580,8 @@ checkpoint 1 runs the canary on pull requests.
   From a shell on a server, `oxy oltp provision --org <org-uuid> --writer
   app:platform_canary` does the same. `--org` takes the org's UUID, or the
   email of a user in exactly one org, but never a slug. Either one mints the
-  `app_platform_canary_rw` role and its schema. The `oltp` feature flag must
-  be on. It is off by default, and was first turned on on staging on
-  2026-09-26.
+  `app_platform_canary_rw` role and its schema. Nothing else gates it: per-org
+  OLTP is always on.
 - [ ] **A place.** Add one location under Settings → Organization. `org_read`
       passes on an empty registry, but then it has no place whose shape to check.
 - [ ] **Storage.** The deployment needs `OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET`.
