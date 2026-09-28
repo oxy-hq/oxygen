@@ -21,9 +21,17 @@ use uuid::Uuid;
 use crate::server::service::secret_manager::SecretManagerService;
 
 /// Build a [`WorkspaceManager`] for `workspace_id` from nothing but a
-/// database handle — compiled config first (fleet-safe: works on any node,
-/// including one with no working copy), FS fallback second (works only on the
-/// node that has this workspace checked out, i.e. the ide singleton).
+/// database handle.
+///
+/// **Reads the working copy, not the compiled revision.** This doc used to
+/// claim "compiled config first (fleet-safe), FS fallback second", which is
+/// the shape the request path has and this one does not: the builder is given
+/// no revision hint, and `WorkspaceBuilder::origin_for` maps that to
+/// `Origin::Disk`, so `compiled_semantic_views()` answers `None` without ever
+/// querying Postgres. A cycle therefore reads whatever is checked out on the
+/// node that drew the task — a feature branch, or on a node with no working
+/// copy at all, nothing. See the comment at the `with_working_copy` call
+/// below, and the "what this does not promise" note in `preagg_promote`.
 ///
 /// Trimmed relative to the request-path resolver
 /// (`workspace_context::try_attach_workspace_manager`): no branch parameter
@@ -51,8 +59,15 @@ pub(super) async fn build_workspace_manager(
 
     // `with_working_copy` is the one terminal this branch kept: it takes the
     // root, an optional pinned revision, and what to do when `config.yml` is
-    // absent. The pre-aggregation cycle always targets the default branch, so
-    // the revision hint is `None` — the builder resolves the promoted one.
+    // absent.
+    //
+    // The revision hint is `None`, and that is NOT "resolve the promoted one"
+    // — `WorkspaceBuilder::origin_for` maps `None` to `Origin::Disk`, so the
+    // compiled rows are never consulted and the cycle reads the working copy
+    // as checked out on this node, whatever branch that is. The comment here
+    // used to claim the opposite. Left as-is rather than corrected in code
+    // because pinning the promoted revision changes what every cycle reads;
+    // see the "what this does not promise" note in `preagg_promote`.
     //
     // `OnMissing::Empty` rather than a hard error because a workspace that has
     // never been compiled is a real state here, and the rebuild has nothing to

@@ -16,9 +16,10 @@ use std::sync::Arc;
 use agentic_airway::AirwayMigrator;
 use agentic_pipeline::scheduler::{
     ScheduleError, ScheduleInput, create_schedule, delete_schedule, delete_workspace_schedules,
-    enqueue_health_eval, enqueue_preagg_cycle, get_schedule, health_interval_cron, list_schedules,
-    reconcile_health_schedule, reconcile_preagg_schedule, run_schedule_now, tick_health_schedules,
-    tick_monitor_schedules, tick_preagg_schedules, tick_schedules, update_schedule,
+    enqueue_health_eval, enqueue_preagg_cycle, enqueue_preagg_cycle_for_promote, get_schedule,
+    health_interval_cron, list_schedules, reconcile_health_schedule, reconcile_preagg_schedule,
+    run_schedule_now, tick_health_schedules, tick_monitor_schedules, tick_preagg_schedules,
+    tick_schedules, update_schedule,
 };
 use agentic_runtime::migration::RuntimeMigrator;
 use async_trait::async_trait;
@@ -845,6 +846,179 @@ async fn enqueue_preagg_cycle_is_forced_and_carries_the_target() {
     assert!(tasks[1].target.is_none(), "Rebuild all carries no target");
 
     delete_workspace_schedules(&db, ws).await.unwrap();
+}
+
+/// The post-promote nudge is a TICK, not a Rebuild click: unforced and
+/// untargeted, exactly like a cron fire, so the executor still consults each
+/// rollup's refresh key and only builds what a changed definition made stale.
+/// Forcing here would rebuild every rollup the promote never touched.
+///
+/// It also attributes to the workspace's schedule row when there is one, so
+/// the run shows up in the same history as its scheduled siblings — with
+/// `trigger: "promote"`, which is neither of the two triggers that existed.
+#[tokio::test]
+async fn a_promote_nudge_is_an_unforced_untargeted_cycle() {
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+
+    reconcile_preagg_schedule(&db, ws, std::time::Duration::from_secs(600), true)
+        .await
+        .unwrap();
+    let row = &list_schedules(&db, ws).await.unwrap()[0];
+    let schedule_id = row.id.clone();
+    let next_before = row.next_run_at;
+
+    let run_id = enqueue_preagg_cycle_for_promote(&db, ws)
+        .await
+        .unwrap()
+        .expect("nothing queued yet, so this promote seeds a cycle");
+
+    let tasks = preagg_tasks_for(&db, ws).await;
+    assert_eq!(tasks.len(), 1, "one queued cycle for the workspace");
+    assert!(
+        !tasks[0].force,
+        "a definition change is genuinely stale; the tick was what was missing, not an override"
+    );
+    assert!(
+        tasks[0].target.is_none(),
+        "one promote can re-hash rollups across several views"
+    );
+    assert!(!tasks[0].scope_owned, "preagg task is TaskScope::Global");
+
+    assert_eq!(
+        trigger_of(&db, &run_id).await.as_deref(),
+        Some("promote"),
+        "the run log must be able to say why this fired"
+    );
+
+    // The cadence is untouched: the nudge adds a fire, it does not move one.
+    // A nudge that also reset `next_run_at` would push the scheduled sweep out
+    // by a full interval every time someone promoted.
+    assert_eq!(
+        get_schedule(&db, ws, &schedule_id)
+            .await
+            .unwrap()
+            .next_run_at,
+        next_before
+    );
+
+    delete_workspace_schedules(&db, ws).await.unwrap();
+}
+
+/// A workspace that has never compiled has no schedule row to attribute to,
+/// and the nudge must still seed the cycle — a first promote is the case where
+/// waiting out a heartbeat is least defensible.
+#[tokio::test]
+async fn a_promote_nudge_without_a_schedule_row_still_seeds_the_cycle() {
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+
+    enqueue_preagg_cycle_for_promote(&db, ws)
+        .await
+        .unwrap()
+        .expect("an unattributed cycle is still a cycle");
+    assert_eq!(preagg_tasks_for(&db, ws).await.len(), 1);
+
+    delete_workspace_schedules(&db, ws).await.unwrap();
+}
+
+/// A second promote while a cycle is still QUEUED joins it instead of stacking
+/// a second one. The tick cannot double-fire — it CAS-advances `next_run_at` —
+/// but this path fires on an event a person repeats, so without the guard a
+/// burst of promotes queues a cycle each.
+#[tokio::test]
+async fn a_promote_joins_a_cycle_that_is_still_queued() {
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+
+    let first = enqueue_preagg_cycle_for_promote(&db, ws)
+        .await
+        .unwrap()
+        .expect("first promote seeds one");
+    let second = enqueue_preagg_cycle_for_promote(&db, ws).await.unwrap();
+
+    assert!(
+        second.is_none(),
+        "the second promote joined the queued cycle"
+    );
+    let tasks = preagg_tasks_for(&db, ws).await;
+    assert_eq!(tasks.len(), 1, "still exactly one queued cycle");
+    assert!(!first.is_empty());
+
+    // ...and once that cycle is CLAIMED it no longer counts: a running cycle
+    // may have loaded its views before this promote landed, so joining one
+    // would put the new hash back on the heartbeat — the defect this path
+    // exists to fix.
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE agentic_task_queue SET queue_status = 'claimed' \
+         WHERE spec->>'kind' = 'preagg_cycle' \
+           AND spec->'payload'->>'workspace_id' = $1",
+        [ws.to_string().into()],
+    ))
+    .await
+    .unwrap();
+
+    let third = enqueue_preagg_cycle_for_promote(&db, ws).await.unwrap();
+    assert!(
+        third.is_some(),
+        "a claimed cycle may already have read the old definitions; queue a fresh one"
+    );
+    assert_eq!(preagg_tasks_for(&db, ws).await.len(), 2);
+
+    delete_workspace_schedules(&db, ws).await.unwrap();
+}
+
+/// A queued cycle only counts if it is UNTARGETED. The Rebuild button enqueues
+/// a targeted one, which covers exactly the rollup it names, so a promote that
+/// joined it would have its own rollup silently dropped — this PR's defect,
+/// logged as if it had been handled.
+#[tokio::test]
+async fn a_promote_does_not_join_a_targeted_rebuild() {
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+
+    // What clicking Rebuild on one rollup leaves in the queue.
+    enqueue_preagg_cycle(
+        &db,
+        ws,
+        Some(("orders".to_string(), "orders_by_month".to_string())),
+    )
+    .await
+    .unwrap();
+
+    // A promote that re-hashed something in a different view entirely.
+    let seeded = enqueue_preagg_cycle_for_promote(&db, ws).await.unwrap();
+    assert!(
+        seeded.is_some(),
+        "a targeted cycle builds one rollup; it is not a cycle this promote can join"
+    );
+
+    let tasks = preagg_tasks_for(&db, ws).await;
+    assert_eq!(tasks.len(), 2);
+    assert!(
+        tasks[1].target.is_none(),
+        "the promote's own cycle is untargeted"
+    );
+
+    delete_workspace_schedules(&db, ws).await.unwrap();
+}
+
+/// `metadata.trigger` on a run, so a test can assert what the run log will say.
+async fn trigger_of(db: &DatabaseConnection, run_id: &str) -> Option<String> {
+    #[derive(sea_orm::FromQueryResult)]
+    struct Row {
+        trigger: Option<String>,
+    }
+    Row::find_by_statement(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT metadata->>'trigger' AS trigger FROM agentic_runs WHERE id = $1",
+        [run_id.into()],
+    ))
+    .one(db)
+    .await
+    .unwrap()
+    .and_then(|r| r.trigger)
 }
 
 /// Regression: "Run now" on the Pre-aggregation cycle job failed with

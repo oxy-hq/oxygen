@@ -165,6 +165,29 @@ async fn drive(
         return;
     }
 
+    // The revision this workspace is serving RIGHT NOW, captured before the
+    // compile can move the pointer. It is the baseline the post-promote
+    // pre-aggregation nudge diffs against (`preagg_promote`), and the only
+    // moment it can be read — afterwards the previous revision is not
+    // recoverable from `workspaces` at all, and the `revisions` history cannot
+    // say which of its rows was the one being served.
+    let served_before = if spec.promote {
+        crate::server::preagg_promote::promoted_revision(&db, spec.workspace_id)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: "preagg",
+                    error = %e,
+                    workspace_id = %spec.workspace_id,
+                    "could not read the served revision before compiling; the post-promote \
+                     pre-aggregation nudge will treat this as a first promote"
+                );
+                None
+            })
+    } else {
+        None
+    };
+
     let outcome = compile_workspace(CompileRequest {
         db: &db,
         workspace_id: spec.workspace_id,
@@ -231,7 +254,34 @@ async fn drive(
                 // compiled `health_check`. Best-effort — never fail the compile.
                 if spec.promote {
                     reconcile_health_from_compiled(&db, spec.workspace_id).await;
-                    reconcile_preagg_from_compiled(&db, spec.workspace_id).await;
+                    // The reconcile settles the CADENCE and deliberately keeps
+                    // the next fire slot; it is not a tick. A promote that
+                    // re-hashed a rollup has work that would otherwise sit out
+                    // the whole interval, so the nudge below asks for one —
+                    // gated on the same opt-in the reconcile just resolved.
+                    let preagg_enabled = reconcile_preagg_from_compiled(&db, spec.workspace_id)
+                        .await
+                        .unwrap_or_else(|| {
+                            // `None` and `Some(false)` both mean "no tick", but
+                            // they are different answers to "why didn't my
+                            // promote build it?" — one is the tenant's opt-out,
+                            // the other a read that failed. Only the second is
+                            // worth a line.
+                            tracing::debug!(
+                                target: "preagg",
+                                workspace_id = %spec.workspace_id,
+                                "the preagg reconcile carried no statement of intent; \
+                                 skipping the post-promote cycle"
+                            );
+                            false
+                        });
+                    crate::server::preagg_promote::nudge_after_promote(
+                        &db,
+                        spec.workspace_id,
+                        served_before,
+                        preagg_enabled,
+                    )
+                    .await;
                 }
                 TaskOutcome::Done {
                     answer,
@@ -547,15 +597,19 @@ fn preagg_reconcile_target(
 /// `preagg_cycle` schedule row to the configured cadence. Best-effort: a read
 /// that carries no statement of intent leaves the row alone (see
 /// [`preagg_reconcile_target`]); a reconcile error is logged.
+///
+/// Returns the opt-in it resolved — `Some(enabled)`, or `None` when the read
+/// said nothing and the row was left alone. The promote path needs it so a
+/// workspace with no `pre_aggregations:` block cannot be handed a cycle
+/// through [`crate::server::preagg_promote::nudge_after_promote`]; the startup
+/// reconcile has nothing to do with it and discards it.
 pub(crate) async fn reconcile_preagg_from_compiled(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
-) {
+) -> Option<bool> {
     let read =
         crate::server::api::compiled_reader::resolve_workspace_config(workspace_id, None).await;
-    let Some((interval, enabled)) = preagg_reconcile_target(read, workspace_id) else {
-        return;
-    };
+    let (interval, enabled) = preagg_reconcile_target(read, workspace_id)?;
     if let Err(e) =
         agentic_pipeline::scheduler::reconcile_preagg_schedule(db, workspace_id, interval, enabled)
             .await
@@ -566,7 +620,12 @@ pub(crate) async fn reconcile_preagg_from_compiled(
             %workspace_id,
             "failed to reconcile preagg schedule from compiled config"
         );
+        // The row is not where the config says it should be, so a tick seeded
+        // against it would be attributed to a stale cadence at best. Say
+        // nothing rather than yes.
+        return None;
     }
+    Some(enabled)
 }
 
 fn summarise_outcome(o: &CompileOutcome, settled: &crate::server::compile_oltp::Settled) -> Value {

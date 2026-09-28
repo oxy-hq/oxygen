@@ -43,7 +43,7 @@ pub struct ActiveRunEntry {
     pub attempt: i32,
     /// Set when this run was seeded by a scheduler fire (or `run_now`).
     pub schedule_id: Option<String>,
-    /// `"scheduled"` | `"manual"` | `"backfill"` — extracted from
+    /// `"scheduled"` | `"manual"` | `"backfill"` | `"retry"` | `"promote"` — extracted from
     /// `metadata.trigger`. `None` for legacy runs predating the tag.
     pub trigger: Option<String>,
     pub created_at: String,
@@ -94,7 +94,7 @@ pub struct RunHistoryEntry {
     pub attempt: i32,
     /// Set when this run was seeded by a scheduler fire (or `run_now`).
     pub schedule_id: Option<String>,
-    /// `"scheduled"` | `"manual"` | `"backfill"` — extracted from
+    /// `"scheduled"` | `"manual"` | `"backfill"` | `"retry"` | `"promote"` — extracted from
     /// `metadata.trigger`. `None` for legacy runs predating the tag.
     pub trigger: Option<String>,
     /// Flagged after the fact when a heuristic catches a "healthy but
@@ -537,7 +537,7 @@ pub struct TaskTreeNode {
     pub error_message: Option<String>,
     pub attempt: i32,
     pub task_status: Option<String>,
-    /// "scheduled" | "manual" | "backfill"; from `metadata.trigger`.
+    /// "scheduled" | "manual" | "backfill" | "retry" | "promote"; from `metadata.trigger`.
     pub trigger: Option<String>,
     pub created_at: String,
     pub updated_at: String,

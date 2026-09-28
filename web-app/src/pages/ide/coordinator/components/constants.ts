@@ -14,6 +14,7 @@ import {
   PauseCircle,
   Play,
   RotateCcw,
+  Upload,
   XCircle
 } from "lucide-react";
 import type React from "react";
@@ -227,7 +228,7 @@ export const isSystemSchedule = (schedule: { target_kind?: string; name?: string
 
 // ── Trigger source ──────────────────────────────────────────────────────────
 
-export type Trigger = "scheduled" | "manual" | "backfill" | "retry";
+export type Trigger = "scheduled" | "manual" | "backfill" | "retry" | "promote";
 
 interface TriggerMeta {
   label: string;
@@ -260,6 +261,16 @@ export const TRIGGER: Record<Trigger, TriggerMeta> = {
     fg: "text-primary",
     tint: "bg-primary/10 text-primary",
     icon: RotateCcw
+  },
+  // A promoted compile seeded this itself, because what it promoted changed
+  // the definition the job builds from. Neither "Scheduled" (the cadence did
+  // not fire) nor "Manual" (nobody clicked) — and reading as neither, which
+  // an unrecognized trigger does, is what left a pending build invisible.
+  promote: {
+    label: "Promote",
+    fg: "text-foreground",
+    tint: "bg-muted text-foreground",
+    icon: Upload
   }
 };
 
@@ -270,6 +281,7 @@ export const normalizeTrigger = (raw: string | null | undefined): Trigger | null
     case "manual":
     case "backfill":
     case "retry":
+    case "promote":
       return raw;
     default:
       return null;

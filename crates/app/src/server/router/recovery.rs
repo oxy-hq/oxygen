@@ -1773,7 +1773,9 @@ async fn reconcile_all_preagg_schedules(db: &DatabaseConnection) {
         }
     };
     for ws in workspaces {
-        crate::server::compile_worker::reconcile_preagg_from_compiled(db, ws.id).await;
+        // The resolved opt-in is the promote path's business, not startup's:
+        // this backfills cadences, it does not seed ticks.
+        let _ = crate::server::compile_worker::reconcile_preagg_from_compiled(db, ws.id).await;
     }
 }
 

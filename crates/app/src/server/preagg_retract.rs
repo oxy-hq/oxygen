@@ -171,17 +171,27 @@ pub(super) async fn retract_under_publish_lock(
             refresh_key_value,
         } => {
             {
-                // Not `invalidate`. The in-memory layer is the first thing
-                // `eval_every_refresh_key` consults, and an empty rollup that
-                // forgets its own attempt is one that rebuilds every tick.
+                // `invalidate`, like the `Wrong` arm — the LEDGER below is what
+                // keeps the attempt on record.
                 //
-                // This entry is for the `every:` case only. `eval_sql_refresh_key`
-                // never reads this cache — it compares its probe against the
-                // manifest, then the ledger — so the value stored here is not
-                // load-bearing for a `sql:` key, and the ledger write below is
-                // what actually gates one.
+                // This used to `insert`, so the in-memory layer would vouch for
+                // the empty answer and spare the next tick a ledger read. That
+                // made the suppression window unbounded by anything this node
+                // controls: `eval_every_refresh_key`'s layer 1 trusts an entry
+                // for the full refresh interval, and the cycle only sweeps the
+                // cache at `2 × renewal_threshold` — operator-configurable up to
+                // an hour — so an empty rollup on a 6h key could stay suppressed
+                // for two hours regardless of `EMPTY_RETRY_CEILING`. Layer 1
+                // cannot tell an empty-seeded entry from a real build's without
+                // reading the ledger first, which is the read the seed existed
+                // to avoid. So the seed goes, and the ceiling becomes exact.
+                //
+                // Clearing is not merely neutral here: the entry this removes is
+                // the PREVIOUS, non-empty build's, which layer 1 would otherwise
+                // keep reading as build recency for a rollup whose artifact was
+                // just deleted.
                 let mut guard = cache.write().expect("preagg cache lock poisoned");
-                guard.insert(rollup_hash.to_string(), refresh_key_value.clone());
+                guard.invalidate(rollup_hash);
             }
             preagg_ledger::record_empty(
                 cache_dir,
@@ -382,6 +392,12 @@ mod tests {
         )
         .expect("seed manifest");
         let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        // What the build that produced rows left behind. The retraction has to
+        // clear it: the artifact it vouches for is the one being deleted.
+        cache
+            .write()
+            .expect("cache lock")
+            .insert("gone".to_string(), Some("6".to_string()));
 
         retract_under_publish_lock(
             "gone",
@@ -397,15 +413,15 @@ mod tests {
         .await
         .expect("retraction succeeds");
 
-        let entry = cache
-            .read()
-            .expect("cache lock")
-            .get("gone", std::time::Duration::from_secs(3600))
-            .map(|e| e.value.clone());
-        assert_eq!(
-            entry,
-            Some(Some("7".to_string())),
-            "the in-memory layer still vouches for the probe the empty answer was for"
+        assert!(
+            cache
+                .read()
+                .expect("cache lock")
+                .get("gone", std::time::Duration::from_secs(3600))
+                .is_none(),
+            "the record is the ledger's, not the in-memory layer's — an entry here would \
+             suppress the rebuild for the cache's own sweep window, which is configurable \
+             past EMPTY_RETRY_CEILING"
         );
         let ledger = RollupLedger::load(dir.path());
         assert_eq!(

@@ -26,7 +26,7 @@ use agentic_runtime::lifecycle::crud::runs::{
 use sea_orm::ActiveValue::Set;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
+    EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -1242,14 +1242,7 @@ pub async fn enqueue_preagg_cycle(
     workspace_id: uuid::Uuid,
     target: Option<(String, String)>,
 ) -> Result<String, String> {
-    let schedule_id = schedule::Entity::find()
-        .filter(schedule::Column::TargetKind.eq("preagg_cycle"))
-        .filter(schedule::Column::TargetRef.eq(workspace_id.to_string()))
-        .filter(schedule::Column::WorkspaceId.eq(workspace_id))
-        .one(db)
-        .await
-        .map_err(|e| e.to_string())?
-        .map(|r| r.id);
+    let schedule_id = preagg_schedule_id(db, workspace_id).await?;
     start_preagg_cycle_run(
         db,
         workspace_id,
@@ -1259,6 +1252,116 @@ pub async fn enqueue_preagg_cycle(
         "manual",
     )
     .await
+}
+
+/// Enqueue the cycle a **promote** owes, at the moment the definitions
+/// changed rather than up to a heartbeat later.
+///
+/// [`reconcile_preagg_schedule`] runs on every promoted compile but only ever
+/// reconciles the *cadence* — it preserves `next_run_at` unless the cron
+/// expression itself moved, which is right for a rename or an enable-toggle
+/// and wrong for the one case that has new work: an edit that changes what a
+/// rollup IS. The hash such an edit produces has no built artifact, so the
+/// refresh keys already read it as stale; what was missing is a tick. With no
+/// `heartbeat:` configured that tick is up to ten minutes away, and at the
+/// configured ceiling up to twenty-four hours, with nothing anywhere saying a
+/// build is pending.
+///
+/// **Not** `force`, unlike [`enqueue_preagg_cycle`]. Forcing is the operator
+/// answering "is it stale" by hand; here the refresh keys answer it correctly
+/// on their own, and forcing would additionally rebuild every rollup the
+/// promote did not touch. Untargeted for the same reason the tick is: one
+/// promote can re-hash rollups across several views.
+///
+/// `Ok(None)` means a cycle for this workspace is already **queued** and this
+/// promote joined it. Unlike the tick — which cannot double-fire, because it
+/// CAS-advances `next_run_at` — and unlike a Rebuild click, which an operator
+/// expects to produce a run, this path fires on an event a person can trigger
+/// repeatedly, so it needs its own guard or a rapid series of promotes stacks
+/// a cycle each.
+///
+/// The guard counts a queued cycle only when it is **untargeted**, and
+/// deliberately not one that is `claimed`. Both exclusions are the same
+/// question — *will the row I am joining actually build my hash?* — and a row
+/// fails it two ways. A `claimed` cycle has started and may have loaded its
+/// views before this promote landed. A **targeted** one covers exactly the
+/// rollup it names (`PreaggCycleRequest::covers`), so joining the Rebuild
+/// button's row means a promote to some other view is silently dropped — the
+/// exact defect this path exists to fix, logged as if it had been handled.
+///
+/// `force` needs no such exclusion: a forced untargeted cycle rebuilds every
+/// declared rollup, the new hash included, so joining one is correct.
+///
+/// What is left is promote-during-a-running-cycle, which can queue a second —
+/// the same shape the Rebuild button has always had. What bounds it is that
+/// the next promote then joins that queued row rather than adding a third.
+pub async fn enqueue_preagg_cycle_for_promote(
+    db: &DatabaseConnection,
+    workspace_id: uuid::Uuid,
+) -> Result<Option<String>, String> {
+    if preagg_cycle_is_queued(db, workspace_id).await? {
+        return Ok(None);
+    }
+    let schedule_id = preagg_schedule_id(db, workspace_id).await?;
+    start_preagg_cycle_run(
+        db,
+        workspace_id,
+        schedule_id.as_deref(),
+        false,
+        None,
+        "promote",
+    )
+    .await
+    .map(Some)
+}
+
+/// Whether an **untargeted** `preagg_cycle` task for this workspace is sitting
+/// in the queue unclaimed — i.e. whether there is a cycle a promote can join
+/// and still get its rollup built. See [`enqueue_preagg_cycle_for_promote`]
+/// for why `claimed` and targeted rows deliberately do not count.
+///
+/// `->>` yields SQL `NULL` for a JSON `null` as well as an absent key, and
+/// `start_preagg_cycle_run` writes `"target": null` for an untargeted cycle,
+/// so `IS NULL` covers both spellings. The count rides the partial poll index
+/// on `queue_status = 'queued'`.
+async fn preagg_cycle_is_queued(
+    db: &DatabaseConnection,
+    workspace_id: uuid::Uuid,
+) -> Result<bool, String> {
+    #[derive(sea_orm::FromQueryResult)]
+    struct Queued {
+        queued: i64,
+    }
+    let row = Queued::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT count(*)::int8 AS queued FROM agentic_task_queue \
+         WHERE queue_status = 'queued' \
+           AND spec->>'kind' = 'preagg_cycle' \
+           AND spec->'payload'->>'workspace_id' = $1 \
+           AND spec->'payload'->>'target' IS NULL",
+        [workspace_id.to_string().into()],
+    ))
+    .one(db)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(row.is_some_and(|r| r.queued > 0))
+}
+
+/// The workspace's `preagg_cycle` schedule row id, when it has one. `None`
+/// before the first compile, or when pre-aggregation is disabled entirely —
+/// see [`enqueue_preagg_cycle`] on why an unattributed run is still correct.
+async fn preagg_schedule_id(
+    db: &DatabaseConnection,
+    workspace_id: uuid::Uuid,
+) -> Result<Option<String>, String> {
+    Ok(schedule::Entity::find()
+        .filter(schedule::Column::TargetKind.eq("preagg_cycle"))
+        .filter(schedule::Column::TargetRef.eq(workspace_id.to_string()))
+        .filter(schedule::Column::WorkspaceId.eq(workspace_id))
+        .one(db)
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|r| r.id))
 }
 
 /// Fire due per-workspace `preagg_cycle` schedule rows. Mirrors

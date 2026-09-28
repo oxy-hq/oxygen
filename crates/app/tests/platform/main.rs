@@ -79,6 +79,7 @@ mod notification_devices;
 mod oltp_provisioner;
 mod operating_graph;
 mod org_default_workspace;
+mod preagg_promote_nudge;
 mod projects_query;
 mod run;
 mod run_routes_workspace_scope;

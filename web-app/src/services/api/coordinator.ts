@@ -10,7 +10,7 @@ export interface ActiveRunEntry {
   attempt: number;
   /** Set when this run was seeded by a scheduler fire (or `run_now`). */
   schedule_id?: string | null;
-  /** "scheduled" | "manual" | "backfill"; null for legacy runs. */
+  /** "scheduled" | "manual" | "backfill" | "retry" | "promote"; null for legacy runs. */
   trigger?: string | null;
   /** Active runs aren't anomaly-enriched in v1 — slot reserved for symmetry. */
   anomaly?: AnomalyInfo | null;
@@ -49,7 +49,7 @@ export interface RunHistoryEntry {
   attempt: number;
   /** Set when this run was seeded by a scheduler fire (or `run_now`). */
   schedule_id?: string | null;
-  /** "scheduled" | "manual" | "backfill"; null for legacy runs. */
+  /** "scheduled" | "manual" | "backfill" | "retry" | "promote"; null for legacy runs. */
   trigger?: string | null;
   /** Server-side heuristic flag — "healthy but weird" runs. */
   anomaly?: AnomalyInfo | null;
@@ -127,7 +127,7 @@ export interface TaskTreeNode {
   error_message?: string;
   attempt: number;
   task_status?: string;
-  /** "scheduled" | "manual" | "backfill"; null for legacy runs. */
+  /** "scheduled" | "manual" | "backfill" | "retry" | "promote"; null for legacy runs. */
   trigger?: string | null;
   created_at: string;
   updated_at: string;

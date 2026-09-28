@@ -136,22 +136,59 @@ pub(super) fn eval_every_refresh_key(
     // removed it — so layer 2 reads it as never-built and layer 1 only covers
     // this process. Without this, a legitimately empty rollup would rebuild on
     // every cadence tick for as long as it stayed empty, reported as "Not
-    // built" the whole time. The attempt is what the interval measures.
+    // built" the whole time. The attempt is what the interval measures — but
+    // capped, because an empty attempt is not the same evidence as a build.
+    //
+    // Deliberately does NOT seed layer 1 on the way out, unlike layer 2 above.
+    // An entry there is read as build recency for the full `interval`, and
+    // layer 1 has no way to tell one this branch wrote from one a real build
+    // wrote — so seeding here would hand the empty case back the unbounded
+    // window `EMPTY_RETRY_CEILING` exists to close. The ledger is the record;
+    // re-reading it each tick is one small JSON read, which is what the seed
+    // was saving.
     let empty_at = preagg_ledger::RollupLedger::load(cache_dir)
         .empty_record(rollup_hash)
         .and_then(|e| chrono::DateTime::parse_from_rfc3339(&e.at).ok());
 
     if let Some(at) = empty_at
-        && let Ok(chrono_interval) = chrono::Duration::from_std(interval)
+        && let Ok(chrono_interval) = chrono::Duration::from_std(empty_retry_interval(interval))
         && chrono::Utc::now().signed_duration_since(at.with_timezone(&chrono::Utc))
             < chrono_interval
     {
-        let mut guard = cache.write().expect("preagg cache lock poisoned");
-        guard.insert(rollup_hash.to_string(), None);
         return (None, false);
     }
 
     (None, true)
+}
+
+/// Longest an empty build may suppress the next attempt.
+///
+/// A `refresh_key` says how long the rollup's DATA can be trusted, which is
+/// the right question to ask of an artifact that exists. A zero-row build has
+/// no artifact: the answer it recorded is "nothing here", and the reasons for
+/// it — data that had not landed yet, a window that excluded everything, a
+/// source mid-backfill — resolve on their own schedule and not on the one the
+/// numbers were given. Measuring the retry against a 6h `every:` therefore
+/// bought six hours of live scans under a "Not built" row for a rollup that
+/// would have built on the next tick.
+const EMPTY_RETRY_CEILING: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// How long a zero-row build suppresses the next one: the refresh interval,
+/// but never more than [`EMPTY_RETRY_CEILING`].
+///
+/// The cap is exact because nothing on the empty path writes to layer 1: the
+/// retraction invalidates instead of inserting, and layer 3 above returns
+/// without seeding. That is load-bearing, not tidiness. Layer 1 trusts an
+/// entry for the full `interval` and cannot tell where it came from, and the
+/// only thing that evicts one is the cycle's `sweep(2 × renewal_threshold)` —
+/// operator-configurable to an hour (`MAX_RENEWAL_SECS`), so a two-hour
+/// window. An empty rollup on a 6h key would have been suppressed for those
+/// two hours no matter what this function returned.
+///
+/// A short interval keeps its own cadence: the point is a floor on how often
+/// an empty rollup is retried, not one on how often it is left alone.
+fn empty_retry_interval(interval: std::time::Duration) -> std::time::Duration {
+    interval.min(EMPTY_RETRY_CEILING)
 }
 
 /// Evaluate a SQL-based refresh key by running it against the warehouse.
@@ -253,6 +290,161 @@ mod tests {
         let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
         let (_, stale) = super::eval_every_refresh_key("1ms", "empty", dir.path(), &cache);
         assert!(stale, "a 1ms interval has elapsed by now");
+    }
+
+    /// Write the ledger's zero-row record at an arbitrary instant. `record_empty`
+    /// always stamps `Utc::now()`, and the ceiling is only observable across a
+    /// gap longer than a test may sleep for.
+    fn record_empty_at(cache_dir: &std::path::Path, hash: &str, minutes_ago: i64) {
+        let at = (chrono::Utc::now() - chrono::Duration::minutes(minutes_ago)).to_rfc3339();
+        std::fs::create_dir_all(cache_dir).expect("cache dir");
+        std::fs::write(
+            cache_dir.join("rollup_ledger.json"),
+            serde_json::json!({
+                "entries": {
+                    hash: {
+                        "generation": 1,
+                        "view": "orders",
+                        "rollup": "daily",
+                        "empty": { "at": at, "refresh_key_value": null },
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("seed ledger");
+    }
+
+    /// The second half of the observation: a rollup whose FIRST build came back
+    /// empty stayed unbuilt for the whole `refresh_key` interval — six hours of
+    /// live scans behind a row reading "Not built". A zero-row attempt is
+    /// evidence that the build ran, not that the data can be trusted for as
+    /// long as real rows could, so the suppression is capped.
+    #[tokio::test]
+    async fn a_long_refresh_interval_does_not_suppress_an_empty_rollup_for_hours() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        record_empty_at(dir.path(), "empty", 45);
+
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        let (_, stale) = super::eval_every_refresh_key("6h", "empty", dir.path(), &cache);
+        assert!(
+            stale,
+            "45 minutes is past the retry ceiling, well inside the 6h data interval"
+        );
+    }
+
+    /// ...while the ceiling only ever shortens. A rollup on a cadence finer
+    /// than the ceiling keeps its own — the cap is a floor on retry frequency,
+    /// not a new minimum quiet period.
+    #[tokio::test]
+    async fn a_short_interval_still_governs_its_own_empty_retry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        record_empty_at(dir.path(), "empty", 2);
+
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        let (_, stale) = super::eval_every_refresh_key("15m", "empty", dir.path(), &cache);
+        assert!(!stale, "two minutes into a 15m cadence, still gated");
+    }
+
+    /// The ceiling is only exact while nothing on the empty path writes to
+    /// layer 1 — an entry there is trusted for the FULL interval, and the only
+    /// thing that evicts one is the cycle's `sweep(2 × renewal_threshold)`,
+    /// which an operator may configure out to two hours. The three tests above
+    /// all start from an empty `RefreshKeyCache`, so none of them would notice
+    /// the seed coming back.
+    #[tokio::test]
+    async fn evaluating_an_empty_rollup_leaves_the_in_memory_cache_alone() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        record_empty_at(dir.path(), "empty", 2);
+
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        let (_, stale) = super::eval_every_refresh_key("6h", "empty", dir.path(), &cache);
+        assert!(!stale, "two minutes in, the ledger still gates it");
+        assert!(
+            cache
+                .read()
+                .expect("preagg cache lock poisoned")
+                .get("empty", std::time::Duration::from_secs(6 * 3600))
+                .is_none(),
+            "a cached entry would outlive EMPTY_RETRY_CEILING by the sweep window"
+        );
+    }
+
+    /// ...and the previous cycle's evaluation cannot carry the suppression past
+    /// the ceiling either, which is the case a fresh cache hides: run the
+    /// evaluator twice over one empty record, the second time from past the
+    /// ceiling, and it must come back stale.
+    #[tokio::test]
+    async fn a_prior_cycles_evaluation_does_not_extend_the_ceiling() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+
+        // Cycle one, ten minutes after the empty build: inside the ceiling.
+        record_empty_at(dir.path(), "empty", 10);
+        let (_, stale) = super::eval_every_refresh_key("6h", "empty", dir.path(), &cache);
+        assert!(!stale);
+
+        // Cycle two on the SAME cache, now forty minutes after that build.
+        record_empty_at(dir.path(), "empty", 40);
+        let (_, stale) = super::eval_every_refresh_key("6h", "empty", dir.path(), &cache);
+        assert!(
+            stale,
+            "past the ceiling; whatever cycle one left behind must not answer for cycle two"
+        );
+    }
+
+    /// The layer-1 cache still earns its place for a REAL build — dropping the
+    /// seed on the empty path must not turn every fresh rollup into a manifest
+    /// read on every tick.
+    #[tokio::test]
+    async fn a_built_rollups_cache_entry_is_still_honoured() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        cache
+            .write()
+            .expect("preagg cache lock poisoned")
+            .insert("built".to_string(), None);
+
+        let (_, stale) = super::eval_every_refresh_key("6h", "built", dir.path(), &cache);
+        assert!(!stale, "no ledger, no manifest — layer 1 answered");
+    }
+
+    /// A real build is untouched by the ceiling: its artifact is what the
+    /// refresh key is about, and shortening that would rebuild every rollup on
+    /// a long cadence twelve times more often than asked.
+    #[tokio::test]
+    async fn the_ceiling_does_not_touch_a_manifest_build() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let built_at = (chrono::Utc::now() - chrono::Duration::minutes(45))
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        std::fs::write(
+            dir.path().join("manifest.json"),
+            serde_json::json!({
+                "pulled_at": "2026-08-26T00:00:00Z",
+                "source_database": "wh",
+                "rollups": [{
+                    "view_name": "orders",
+                    "rollup_name": "daily",
+                    "rollup_hash": "built",
+                    "file": "orders__built.parquet",
+                    "dimensions": [],
+                    "measures": [],
+                    "time_dimension": null,
+                    "granularity": null,
+                    "build_date": built_at,
+                }]
+            })
+            .to_string(),
+        )
+        .expect("seed manifest");
+
+        let cache = Arc::new(RwLock::new(RefreshKeyCache::new()));
+        let (_, stale) = super::eval_every_refresh_key("6h", "built", dir.path(), &cache);
+        assert!(
+            !stale,
+            "45 minutes into a 6h interval, the build still holds"
+        );
     }
 
     // ── Read-path seeds vs. build recency ─────────────────────────────────
