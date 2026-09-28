@@ -8,7 +8,8 @@
 //! [`parse_ch_cell`] the parsed `Value` for everything else.
 //!
 //! The type parser understands the wrappers CH sends in column metadata
-//! (`Nullable(...)`, `LowCardinality(...)`) plus the common scalar types.
+//! (`Nullable(...)`, `LowCardinality(...)`, `SimpleAggregateFunction(f, T)`)
+//! plus the common scalar types.
 //! Composites (`Array`, `Tuple`, `Map`, `Nested`, etc.) map to
 //! [`TypedDataType::Json`] — ClickHouse encodes them as JSON arrays /
 //! objects in JSONCompact, so the already-deserialized `Value` threads
@@ -46,7 +47,6 @@ pub(crate) fn ch_type_to_typed(type_str: &str) -> TypedDataType {
         || inner.starts_with("Map")
         || inner.starts_with("Nested")
         || inner.starts_with("AggregateFunction")
-        || inner.starts_with("SimpleAggregateFunction")
     {
         return TypedDataType::Json;
     }
@@ -74,9 +74,13 @@ pub(crate) fn ch_type_to_typed(type_str: &str) -> TypedDataType {
     }
 }
 
-/// Peel off `Nullable(...)` and `LowCardinality(...)` wrappers. Both are
-/// transparent for type mapping — the underlying CH value is still delivered
-/// with the inner type's JSONCompact shape.
+/// Peel off `Nullable(...)`, `LowCardinality(...)` and
+/// `SimpleAggregateFunction(func, T)` wrappers. All three are transparent for
+/// type mapping — the value is still delivered with the inner type's
+/// JSONCompact shape. `SimpleAggregateFunction` stores and returns a plain
+/// `T`, unlike `AggregateFunction`'s opaque state, so a `UInt64` inside one
+/// must decode like any `UInt64`: a server quoting 64-bit integers sends it as
+/// `"3"`, and mapping the column as JSON passed that string through.
 fn strip_type_wrappers(type_str: &str) -> &str {
     let mut s = type_str;
     loop {
@@ -91,10 +95,34 @@ fn strip_type_wrappers(type_str: &str) -> &str {
             .and_then(|v| v.strip_suffix(')'))
         {
             s = inner;
+        } else if let Some(args) = s
+            .strip_prefix("SimpleAggregateFunction(")
+            .and_then(|v| v.strip_suffix(')'))
+        {
+            match top_level_comma(args) {
+                Some(i) => s = &args[i + 1..],
+                None => return s,
+            }
         } else {
             return s;
         }
     }
+}
+
+/// Index of the first comma outside any parentheses — the one separating
+/// `SimpleAggregateFunction`'s function (which may take parameters, as in
+/// `groupUniqArrayArray(10)`) from its value type.
+fn top_level_comma(args: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, b) in args.bytes().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parse `(p,s)` or `(p)` from `Decimal(18,2)` / `Decimal32(4)` / etc.
@@ -364,6 +392,42 @@ mod tests {
             ch_type_to_typed("Nullable(LowCardinality(String))"),
             TypedDataType::Text
         );
+    }
+
+    #[test]
+    fn simple_aggregate_function_maps_as_its_value_type() {
+        assert_eq!(
+            ch_type_to_typed("SimpleAggregateFunction(sum, UInt64)"),
+            TypedDataType::Int64
+        );
+        assert_eq!(
+            ch_type_to_typed("SimpleAggregateFunction(anyLast, Nullable(String))"),
+            TypedDataType::Text
+        );
+        assert_eq!(
+            ch_type_to_typed("SimpleAggregateFunction(groupUniqArrayArray(10), Array(UInt8))"),
+            TypedDataType::Json
+        );
+        // `AggregateFunction` is an opaque state, not a value: still JSON.
+        assert_eq!(
+            ch_type_to_typed("AggregateFunction(sum, UInt64)"),
+            TypedDataType::Json
+        );
+    }
+
+    #[test]
+    fn a_quoted_simple_aggregate_uint64_decodes_as_a_number() {
+        // ClickHouse 25.3 quotes 64-bit integers by default; staging's canary
+        // shape zoo read `"3"` back for `SimpleAggregateFunction(sum, UInt64)`.
+        let spec = ColumnSpec {
+            name: "c".into(),
+            data_type: ch_type_to_typed("SimpleAggregateFunction(sum, UInt64)"),
+        };
+        assert_eq!(
+            parse_ch_raw_cell("\"3\"", &spec).unwrap(),
+            TypedValue::Int64(3)
+        );
+        assert_eq!(parse_ch_raw_cell("3", &spec).unwrap(), TypedValue::Int64(3));
     }
 
     #[test]
