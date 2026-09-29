@@ -73,6 +73,7 @@ AREAS = [
     ("crates/agentic/llm",                                "Agentic LLM client"),
     ("crates/semantic",                                   "Semantic model"),
     ("crates/agentic/semantic",                           "Semantic (agentic shim)"),
+    ("crates/world-model",                                "World Model (backend)"),
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),
     ("crates/metric-monitoring",                          "Metric tree & anomaly monitoring"),

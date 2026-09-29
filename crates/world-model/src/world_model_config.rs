@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::path::Path;
 
 /// Top-level config parsed from `.world-model.yml` at the workspace root.
 /// If the file is absent the world model falls back to showing all entities.
@@ -60,20 +59,6 @@ impl WorldModelConfig {
             }
             Err(e) => Err(format!("world-model config read failed: {e}")),
         }
-    }
-
-    /// Load from `.world-model.yml` at the workspace root.
-    /// Returns `Ok(None)` when the file does not exist — callers treat this as no-op.
-    pub fn load(workspace_path: &Path) -> Result<Option<Self>, String> {
-        let path = workspace_path.join(".world-model.yml");
-        if !path.exists() {
-            return Ok(None);
-        }
-        let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read .world-model.yml: {e}"))?;
-        let config = serde_yaml::from_str::<Self>(&content)
-            .map_err(|e| format!("Failed to parse .world-model.yml: {e}"))?;
-        Ok(Some(config))
     }
 }
 

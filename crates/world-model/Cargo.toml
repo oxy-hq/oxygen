@@ -2,7 +2,7 @@
 name = "oxy-world-model"
 version.workspace = true
 authors.workspace = true
-description.workspace = true
+description = "Shared semantic-query cores for the World Model Graph surfaces"
 documentation.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -12,5 +12,7 @@ rust-version.workspace = true
 oxy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }

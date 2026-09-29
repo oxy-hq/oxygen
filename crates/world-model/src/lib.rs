@@ -9,6 +9,6 @@
 //! It sits below `oxy-app` and above `oxy` / `oxy-semantic`, so the surfaces can
 //! share these cores without a crate cycle.
 
-pub mod world_model_config;
+mod world_model_config;
 
 pub use world_model_config::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
