@@ -30,6 +30,7 @@
 //! process-local broadcaster, and `/ide` has no handler at all.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 /// Routes whose handler takes the extractor but which are deliberately not
 /// IdeOnly. Each needs a reason, because each is a place the derivation is
@@ -62,26 +63,49 @@ const FLEET_OK_DESPITE_EXTRACTOR: &[(&str, &str)] = &[
     // ── Runtime artifacts, mirrored to S3 ───────────────────────────────────
 ];
 
+fn api_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/server/api")
+}
+
+/// Every `.rs` file under `src/server/api`, keyed by its path relative to that
+/// directory (`admin/apps/handlers.rs`), never by its file name.
+///
+/// It was keyed by file stem, and this tree reuses names freely: `mod.rs`,
+/// `handlers.rs`, `dto.rs`, and two `app.rs`. Each collision kept whichever
+/// file `read_dir` reached last, and that order belongs to the filesystem, so
+/// one tree passed on one CI runner and failed on another. The failure that
+/// surfaced it: `api/admin/workspace_health/smoke/probes/app.rs` overwrote
+/// `api/app.rs`, every `/apps` handler vanished, and `/apps` read as a stale
+/// override. The same loss hides handlers from the guard below, which fails
+/// OPEN on a body it never sees.
+///
+/// Directories are visited in sorted order so the walk is deterministic as
+/// well, though with path keys the result no longer depends on it.
 fn api_sources() -> BTreeMap<String, String> {
-    fn walk(dir: &std::path::Path, out: &mut BTreeMap<String, String>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
+    fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
+        let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap_or_else(|e| panic!("read {}: {e}", dir.display()))
+            .map(|entry| entry.expect("a directory entry").path())
+            .collect();
+        paths.sort();
+        for path in paths {
             if path.is_dir() {
-                walk(&path, out);
-            } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
-                && let Ok(body) = std::fs::read_to_string(&path)
-                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-            {
-                out.insert(stem.to_string(), body);
+                walk(root, &path, out);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let body = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+                let key = path
+                    .strip_prefix(root)
+                    .expect("the walk starts at the root")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.insert(key, body);
             }
         }
     }
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/server/api");
+    let root = api_root();
     let mut out = BTreeMap::new();
-    walk(&root, &mut out);
+    walk(&root, &root, &mut out);
     out
 }
 
@@ -282,5 +306,47 @@ fn the_override_list_has_no_stale_entries() {
         stale.is_empty(),
         "these are overridden but no longer ask for a working copy — remove them:\n  {}",
         stale.join("\n  ")
+    );
+}
+
+/// `api_sources` keeps one entry per FILE, not one per file name.
+///
+/// Keyed by name it dropped every file but one per name, silently, in an order
+/// the filesystem chose, which is how one tree went green on the PR and red on
+/// `main`. The count comes from a second walk that keys nothing, so any
+/// overwrite in `api_sources` shows up here as a shortfall, in every order.
+#[test]
+fn api_sources_keeps_every_file_even_when_names_repeat() {
+    let sources = api_sources();
+
+    let mut on_disk = 0;
+    let mut stack = vec![api_root()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read an api directory") {
+            let path = entry.expect("a directory entry").path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                on_disk += 1;
+            }
+        }
+    }
+    assert_eq!(
+        sources.len(),
+        on_disk,
+        "api_sources holds {} entries for {on_disk} .rs files: files that share a \
+         key overwrote each other, and the handlers in the lost ones are invisible \
+         to both guards above",
+        sources.len(),
+    );
+
+    // The collision that turned `main` red, named so a regression says which
+    // handlers went missing rather than only that a count is off.
+    let app = sources
+        .get("app.rs")
+        .expect("api/app.rs is where the router's `app::` handlers live");
+    assert!(
+        app.contains("fn get_app_data("),
+        "the `app.rs` entry is not api/app.rs, so every `/apps` handler is missing",
     );
 }
