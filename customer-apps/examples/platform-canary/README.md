@@ -276,17 +276,17 @@ that step, it fails.
   The "drop it until you have timed it" advice above is for any *other*
   deployment, not for these two.
 
-### What actually runs (2026-09-26)
+### What actually runs (2026-09-29)
 
 The canary first ran on 2026-09-25: staging at 04:52Z, prod at 06:35Z.
 Before that it existed in no deployment, so the 7-day green streak in
 [How a failure reaches anyone](#how-a-failure-reaches-anyone) starts there.
-Neither deployment runs the lists above yet:
+Staging runs its full list; prod doesn't yet:
 
 | Deployment | `canary_warehouse` | OLTP writer | `CANARY_STEPS` |
 | --- | --- | --- | --- |
 | Prod | `airhouse_managed` | none | `org_read,storage_roundtrip,secrets_roundtrip,check_in` |
-| Staging | ClickHouse `oxy_canary`, since 2026-09-26 | `app_platform_canary`, since 2026-09-26 | `warehouse_insert,warehouse_exec,warehouse_readback,upsert_refusal,tx_refusal,sql_read,sql_stream,org_read,storage_roundtrip,secrets_roundtrip` |
+| Staging | ClickHouse `oxy_canary`, since 2026-09-26 | `app_platform_canary`, since 2026-09-26 | the full staging list in [Per environment](#per-environment), since 2026-09-29 |
 
 - **Prod can't run the warehouse steps yet.** Its `canary_warehouse` is an
   `airhouse_managed` database, not the `oxy_canary` ClickHouse database that
@@ -301,12 +301,16 @@ Neither deployment runs the lists above yet:
   engine. On 2026-09-26 both passed on staging's then-`airhouse_managed`
   `canary_warehouse`, run by hand and on the schedule. So prod can add them
   before anything else changes: step 1 of the runbook.
-- **Staging has an OLTP writer, but none of the steps that use it.** On
-  2026-09-26 `app:platform_canary` was provisioned on staging's Neon (per-org
-  OLTP is now always on, with no flag to check). `oltp_roundtrip`,
-  `oltp_transaction` and `shape_zoo` have not run there yet. `shape_zoo`
-  needs the writer too, for its Postgres half. They are steps 4 and 5 of the
-  runbook, staging first.
+- **Staging did steps 4 and 5 on 2026-09-28 and 2026-09-29.** `oltp_roundtrip`
+  and `oltp_transaction` passed on their first run. `shape_zoo`'s first run
+  failed on `clickhouse/SimpleAggregateFunction(sum, UInt64)/plain`: expected
+  `3`, got `"3"`. Staging's ClickHouse 25.3 quotes 64-bit integers, and the
+  connector mapped a `SimpleAggregateFunction` column as raw JSON, so the
+  quoted string came through. Prod (25.8) and CI send bare numbers, which is
+  why only staging's run caught it. It passed once
+  oxygen-internal#3367 reached staging. Prod's steps 4 and 5 run on 25.8, so
+  that case can't catch the regression there; staging's run is the one that
+  does.
 - **The cost, until prod is done:** `warehouse_insert` and `warehouse_exec`,
   the steps written for the `Code: 27` regression, run on staging and in
   CI's checkpoint 1, not on prod.
@@ -317,7 +321,7 @@ Neither deployment runs the lists above yet:
 ### Restoring the full list on prod
 
 Do the steps in order. Each ends with a green run before the next starts.
-Staging did steps 1–3 on 2026-09-26, in this order. Every command is
+Staging did steps 1–3 on 2026-09-26 and steps 4–5 on 2026-09-28/29, in this order. Every command is
 read-only unless its step says it writes. If a step's run fails, put
 `CANARY_STEPS` back to the value it had before that step. One failed run
 doesn't page. Three do, which at the five-minute schedule takes about
@@ -472,7 +476,7 @@ rm ~/.canary-ch-pw canary-ch.sql
 
 On staging, stop at the list in [Per environment](#per-environment): every
 step except `check_in`. Then update the table in
-[What actually runs](#what-actually-runs-2026-09-26), or delete that section
+[What actually runs](#what-actually-runs-2026-09-29), or delete that section
 once both deployments run their full lists.
 
 **Undoing a step.**
