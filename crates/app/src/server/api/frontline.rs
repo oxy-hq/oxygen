@@ -203,7 +203,20 @@ async fn roster_body(headers: &HeaderMap, q: RosterQuery) -> axum::response::Res
     // device it discloses nothing to anyone who is not already standing at
     // the counter, and the same empty answer covers "no kiosk", "wrong org"
     // and "no such org".
-    let device = super::frontline_devices::bound_device(&db, headers).await;
+    let device = match super::frontline_devices::bound_device(&db, headers).await {
+        Ok(device) => device,
+        // Ours, and unknown: not "this browser is no kiosk". The same 503 and
+        // body as a connection that never opened, so a picker renders empty
+        // and the kiosk tries again rather than concluding it was unbound.
+        Err(e) => {
+            warn!(error = %e, "roster: kiosk lookup failed");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "staff": [] })),
+            )
+                .into_response();
+        }
+    };
     let bound_to = device.as_ref().map(|d| d.org_id);
     let Ok(Some(org)) = organizations::Entity::find()
         .filter(organizations::Column::Slug.eq(&q.org))
@@ -701,7 +714,13 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
     // nothing about whether the identifier exists. This is the binding the
     // design record required before any of this faced a user.
     let device = match super::frontline_devices::bound_device(&db, &req_headers).await {
-        Some(d) if d.org_id == org.id => d,
+        Ok(Some(d)) if d.org_id == org.id => d,
+        // The lookup failed: ours, not the caller's, so nothing is charged
+        // against the org — the same 503 a failed verify answers.
+        Err(e) => {
+            warn!(error = %e, "frontline login: kiosk lookup failed");
+            return refuse(StatusCode::SERVICE_UNAVAILABLE);
+        }
         _ => {
             record_org_attempt(org.id);
             oxy_auth::frontline::burn_verify_time(&body.pin);

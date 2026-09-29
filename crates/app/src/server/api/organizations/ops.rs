@@ -55,6 +55,8 @@ const RESERVED_ORG_SLUGS: &[&str] = &[
     "github",
     "invite",
     "invitations",
+    // `/kiosk` — managing the store tablet this browser is.
+    "kiosk",
     "login",
     "logout",
     "onboarding",
@@ -336,5 +338,7 @@ mod reserved_slug_tests {
     #[test]
     fn route_collisions_are_still_reserved() {
         assert!(is_reserved_slug("admin"));
+        // The web app's `/kiosk` page would shadow an org named "kiosk".
+        assert!(is_reserved_slug("kiosk"));
     }
 }

@@ -26,7 +26,11 @@ import { apiClient } from "./axios";
  * the admin side and needs an org-admin session.
  */
 export class FrontlineService {
-  /** Always 200: `{ bound: false }` when this browser holds no kiosk cookie. */
+  /**
+   * `{ bound: false }` when this browser holds no live kiosk cookie. 503 when
+   * it holds one the server could not look up — unknown, which callers must
+   * never read as "not a kiosk".
+   */
   static async deviceStatus(): Promise<KioskDevice> {
     const response = await apiClient.get("/frontline/device");
     return response.data;
@@ -156,8 +160,22 @@ export class FrontlineService {
     return response.data;
   }
 
-  /** Revokes; the row remains with `revoked_at` set. */
+  /**
+   * Revokes; the row remains with `revoked_at` set. When the kiosk is the one
+   * this browser is, the response also clears its kiosk cookie and hint.
+   */
   static async revokeDevice(orgId: string, deviceId: KioskDeviceRow["id"]): Promise<void> {
     await apiClient.delete(`/orgs/${orgId}/frontline/devices/${deviceId}`);
+  }
+
+  /**
+   * "Leave kiosk mode", from the kiosk itself: revokes the kiosk THIS browser's
+   * cookie names — no id, the cookie says which — and clears the cookie and
+   * its hint. 204; 404 when this browser is not a live kiosk of `orgId`; 403
+   * for anyone but an owner or admin of that org, or for a call from another
+   * origin; 503 when the server could not look the kiosk up (nothing changed).
+   */
+  static async leaveKioskMode(orgId: string): Promise<void> {
+    await apiClient.post(`/orgs/${orgId}/frontline/device/leave`);
   }
 }

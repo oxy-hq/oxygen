@@ -1,4 +1,4 @@
-import { Ban, Loader2, Plus, QrCode } from "lucide-react";
+import { Ban, Loader2, MonitorSmartphone, Plus, QrCode } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import TableWrapper from "@/components/settings/components/TableWrapper";
@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/shadcn/alert-dialog";
+import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Table,
@@ -22,6 +23,7 @@ import {
   TableRow
 } from "@/components/ui/shadcn/table";
 import { useReissueEnrolLink, useRevokeDevice } from "@/hooks/api/organizations";
+import { useKioskDevice } from "@/hooks/auth/useFrontline";
 import { type KioskState, kioskState } from "@/libs/frontline";
 import { timeAgo } from "@/libs/utils/date";
 import type { AppAccessSummary } from "@/types/appAccess";
@@ -54,6 +56,11 @@ export function KiosksPane({
   const [pendingRevoke, setPendingRevoke] = useState<KioskDeviceRow | null>(null);
   const revokeDevice = useRevokeDevice();
   const reissueLink = useReissueEnrolLink();
+  // The kiosk this very browser is, if any — so an admin looking at the list
+  // on the tablet (or on a phone that got enrolled by mistake) can tell which
+  // row is the one in their hand.
+  const { data: thisBrowser } = useKioskDevice();
+  const thisBrowserId = thisBrowser?.bound ? thisBrowser.id : undefined;
 
   const handleReissue = (device: KioskDeviceRow) => {
     reissueLink.mutate(
@@ -132,7 +139,19 @@ export function KiosksPane({
                 return (
                   <TableRow key={device.id} data-testid={`settings-crew-kiosk-${device.id}`}>
                     <TableCell data-label='Name' className='px-4 py-3 max-md:px-0 max-md:py-0'>
-                      <span className='font-medium text-sm'>{device.name}</span>
+                      <div className='flex flex-wrap items-center gap-1.5'>
+                        <span className='font-medium text-sm'>{device.name}</span>
+                        {thisBrowserId !== undefined && device.id === thisBrowserId && (
+                          <Badge
+                            variant='secondary'
+                            className='gap-1'
+                            data-testid={`settings-crew-kiosk-this-browser-${device.id}`}
+                          >
+                            <MonitorSmartphone className='h-3 w-3' />
+                            This browser
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell
                       data-label='Location'

@@ -1,9 +1,12 @@
-//! The kiosk update route stands behind the same door its siblings do.
+//! The kiosk update and leave routes stand behind the same door their siblings
+//! do.
 //!
 //! `update_device` is a write on the tenant's kiosks: it changes the label an
 //! admin reads in the settings list and the number a tablet arms its sign-out
-//! timer with. Create, revoke and reissue all take `OrgAdmin`, and a plain org
-//! Member must not be able to reach past any of them.
+//! timer with. `leave_kiosk` revokes the kiosk the browser itself is — "Leave
+//! kiosk mode" on `/kiosk` — so it is a revoke by another road. Create, revoke
+//! and reissue all take `OrgAdmin`, and a plain org Member must not be able to
+//! reach past any of them.
 //!
 //! Asserted through a router rather than by reading the handler's signature,
 //! for the reason `thread_role_guards` gives: axum runs extractors in
@@ -15,16 +18,17 @@
 //! Nothing here opens a database. The Member never gets past the guard, and the
 //! Admin is stopped by `AuthenticatedUserExtractor` (there is no authenticated
 //! user on a hand-built request), which is an extension read. Both rejections
-//! happen before `update_device` reaches `establish_connection()`.
+//! happen before either handler reaches the database.
 
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use axum::routing::patch;
+use axum::routing::{patch, post};
 use entity::org_members::OrgRole;
 use oxy_app::server::api::frontline_devices::update_device;
+use oxy_app::server::api::frontline_kiosk_mode::leave_kiosk;
 use oxy_app::server::api::middlewares::org_context::OrgContext;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -109,6 +113,44 @@ async fn an_owner_and_an_admin_are_not_turned_away_by_the_guard() {
             status,
             StatusCode::FORBIDDEN,
             "{role:?} must pass OrgAdmin on update_device, got {status}"
+        );
+    }
+}
+
+/// "Leave kiosk mode" as `role`, from a browser carrying a kiosk cookie — the
+/// cookie is irrelevant to the guard, and present so a guard that let the
+/// request through would be the only reason it failed differently.
+async fn leave_kiosk_as(role: OrgRole) -> StatusCode {
+    let org_id = Uuid::new_v4();
+    let router = Router::new()
+        .route("/orgs/{org_id}/frontline/device/leave", post(leave_kiosk))
+        .layer(middleware::from_fn(inject_org(org_id, role)));
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!("/orgs/{org_id}/frontline/device/leave"))
+        .header("cookie", format!("oxy_kiosk={DEVICE}.secret"))
+        .body(Body::empty())
+        .unwrap();
+    router.oneshot(req).await.expect("oneshot").status()
+}
+
+#[tokio::test]
+async fn a_plain_member_cannot_take_a_tablet_out_of_kiosk_mode() {
+    assert_eq!(
+        leave_kiosk_as(OrgRole::Member).await,
+        StatusCode::FORBIDDEN,
+        "leaving kiosk mode revokes the kiosk — an OrgAdmin act, like revoking it from Settings"
+    );
+}
+
+#[tokio::test]
+async fn an_owner_and_an_admin_may_take_a_tablet_out_of_kiosk_mode() {
+    for role in [OrgRole::Owner, OrgRole::Admin] {
+        let status = leave_kiosk_as(role.clone()).await;
+        assert_ne!(
+            status,
+            StatusCode::FORBIDDEN,
+            "{role:?} must pass OrgAdmin on leave_kiosk, got {status}"
         );
     }
 }

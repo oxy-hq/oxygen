@@ -85,6 +85,10 @@ export function NewKioskDialog({
           <DialogDescription>
             A shared tablet crew sign in on. You'll get a link to open on it once.
           </DialogDescription>
+          <p className='text-muted-foreground text-xs' data-testid='settings-crew-new-kiosk-help'>
+            Open the link on the store's tablet. To try it on your own computer, use a private
+            window: enrolling turns the whole browser into the tablet until the kiosk is revoked.
+          </p>
         </DialogHeader>
         <NewKioskForm
           orgId={orgId}

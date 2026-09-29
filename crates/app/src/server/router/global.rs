@@ -19,6 +19,7 @@ use crate::server::api::documents;
 use crate::server::api::frontline;
 use crate::server::api::frontline_admin;
 use crate::server::api::frontline_devices;
+use crate::server::api::frontline_kiosk_mode;
 use crate::server::api::notifications;
 use crate::server::api::work;
 
@@ -554,6 +555,16 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/frontline/devices/{id}/enrol-link",
             post(frontline_devices::reissue_enrol_link),
+        )
+        // "Leave kiosk mode", from the tablet itself: revokes the kiosk the
+        // request's own `oxy_kiosk` cookie names and clears that cookie. No
+        // `{id}` in the path — the cookie is what says which kiosk, so an admin
+        // can only ever switch off the browser they are holding. `route_fleet`
+        // like its siblings: one Postgres row, no working copy, and a manager
+        // freeing a stuck phone must not need the singleton to be up.
+        .route_fleet(
+            "/frontline/device/leave",
+            post(frontline_kiosk_mode::leave_kiosk),
         )
         // The other half of enrolment. PATCH because nothing is deleted — a
         // worker who leaves keeps their row so their work stays attributed.

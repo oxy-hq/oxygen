@@ -51,7 +51,12 @@ export const useGoogleAuth = () => {
   });
 };
 
-export const initiateGoogleAuth = async (client_id: string) => {
+/**
+ * Start Google sign-in. `returnTo` overrides where the callback lands —
+ * the kiosk's admin sign-in sends `/kiosk` — and absent, the login URL's own
+ * `return_to` is carried, as it always was.
+ */
+export const initiateGoogleAuth = async (client_id: string, returnTo?: string) => {
   // CSRF defense: the backend mints a signed, short-lived JWT. We echo it
   // through Google's `state` round-trip; the backend re-verifies signature
   // + purpose claim when we send it back with the code.
@@ -60,9 +65,9 @@ export const initiateGoogleAuth = async (client_id: string) => {
   // this instance's origin. Stored as-is so the callback's CSRF check matches.
   const stateParam = encodeOAuthState(state);
   sessionStorage.setItem(GOOGLE_STATE_KEY, stateParam);
-  // Carry the login page's `return_to` across the provider round-trip so the
-  // callback can send the user back where they came from.
-  stashReturnTo(returnToFromUrl());
+  // Carry the destination across the provider round-trip so the callback can
+  // send the user back where they came from.
+  stashReturnTo(returnTo ?? returnToFromUrl());
 
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", client_id);

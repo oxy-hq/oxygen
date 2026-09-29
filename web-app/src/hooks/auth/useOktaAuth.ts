@@ -46,13 +46,14 @@ export const useOktaAuth = () => {
   });
 };
 
-export const initiateOktaAuth = async (client_id: string, domain: string) => {
+/** Start Okta sign-in. `returnTo` as in `initiateGoogleAuth`. */
+export const initiateOktaAuth = async (client_id: string, domain: string, returnTo?: string) => {
   // See useGoogleAuth.initiateGoogleAuth for CSRF design notes.
   const { state } = await AuthService.issueOAuthState();
   sessionStorage.setItem(OKTA_STATE_KEY, state);
-  // Carry the login page's `return_to` across the provider round-trip so the
-  // callback can send the user back where they came from.
-  stashReturnTo(returnToFromUrl());
+  // Carry the destination across the provider round-trip so the callback can
+  // send the user back where they came from.
+  stashReturnTo(returnTo ?? returnToFromUrl());
 
   const url = new URL(`https://${domain}/oauth2/v1/authorize`);
   url.searchParams.set("client_id", client_id);

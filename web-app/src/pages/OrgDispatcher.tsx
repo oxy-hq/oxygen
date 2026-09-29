@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import OrgSetupPending from "@/components/org/OrgSetupPending";
+import { SETTINGS_PARAM } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import { useAllWorkspaces } from "@/hooks/api/workspaces/useWorkspaces";
@@ -32,6 +33,7 @@ import ROUTES from "@/libs/utils/routes";
  */
 export default function OrgDispatcher() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
+  const [searchParams] = useSearchParams();
   const { data: orgs, isPending: orgsPending } = useOrgs();
   const org = orgs?.find((o) => o.slug === orgSlug);
   const { data: workspaces, isPending: wsPending, isError } = useAllWorkspaces(org?.id);
@@ -79,5 +81,12 @@ export default function OrgDispatcher() {
   }
   setLastWorkspaceId(org.id, target.id);
 
-  return <Navigate to={ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT} replace />;
+  // `/<org>?settings=<section>` opens the dialog in whichever workspace this
+  // picks — the workspace layout reads the same param — so the section rides
+  // along. Only that param: the rest of an org-root query was never forwarded.
+  const settings = searchParams.get(SETTINGS_PARAM);
+  const search = settings ? `?${new URLSearchParams({ [SETTINGS_PARAM]: settings })}` : "";
+  return (
+    <Navigate to={{ pathname: ROUTES.ORG(org.slug).WORKSPACE(target.id).ROOT, search }} replace />
+  );
 }

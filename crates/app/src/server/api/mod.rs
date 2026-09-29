@@ -63,6 +63,8 @@ pub mod frontline;
 pub mod frontline_admin;
 pub mod frontline_devices;
 pub mod frontline_grants;
+pub mod frontline_kiosk_cookie;
+pub mod frontline_kiosk_mode;
 pub mod healthcheck;
 pub mod integration;
 pub mod local_setup;

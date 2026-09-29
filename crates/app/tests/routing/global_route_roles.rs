@@ -160,7 +160,9 @@ fn the_session_store_stays_on_the_fleet_under_an_ide_only_route() {
 /// type-level gate cannot see a handler that takes no working copy, so
 /// `route_ide(.., patch(update_device))` would compile and no test would care.
 /// The siblings are listed beside it so a future mount that drags the tree onto
-/// the ide fails on all five rather than on whichever one someone remembered.
+/// the ide fails on all six rather than on whichever one someone remembered —
+/// "Leave kiosk mode" among them, which a manager uses to free a stuck phone
+/// and which must not wait on the singleton either.
 #[test]
 fn changing_a_kiosk_stays_on_the_fleet_like_the_rest_of_them() {
     install_route_declarations_for_tests();
@@ -181,6 +183,7 @@ fn changing_a_kiosk_stays_on_the_fleet_like_the_rest_of_them() {
             "POST",
             format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}/enrol-link"),
         ),
+        ("POST", format!("/api/orgs/{ORG}/frontline/device/leave")),
     ] {
         assert_eq!(
             classify(method, &path),

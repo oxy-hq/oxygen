@@ -35,6 +35,7 @@ vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ logout: vi.fn() }) 
 vi.mock("@/components/OxyLogo", () => ({ default: () => null }));
 vi.mock("@/components/settings/SettingsDialog", () => ({ default: () => null }));
 vi.mock("@/components/settings/SettingsDialog/useSettingsDeepLink", () => ({
+  SETTINGS_PARAM: "settings",
   useSettingsDeepLink: () => {}
 }));
 vi.mock("@/stores/useSettingsDialog", () => ({
@@ -47,12 +48,18 @@ vi.mock("@/components/org/OrgSetupPending/components/CreateWorkspacePanel", () =
 }));
 
 function Location() {
-  return <div data-testid='location'>{useLocation().pathname}</div>;
+  const { pathname, search } = useLocation();
+  return (
+    <div data-testid='location'>
+      {pathname}
+      {search}
+    </div>
+  );
 }
 
-const renderAt = () =>
+const renderAt = (entry = "/acme") =>
   render(
-    <MemoryRouter initialEntries={["/acme"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path=':orgSlug' element={<OrgDispatcher />} />
         <Route path='*' element={<Location />} />
@@ -148,6 +155,17 @@ describe("OrgDispatcher — an org with a ready workspace", () => {
   it("still goes straight into it", () => {
     workspaces = [{ id: "ws-1", status: "ready" }];
     renderAt();
-    expect(screen.getByTestId("location")).toHaveTextContent("/acme/workspaces/ws-1");
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/acme\/workspaces\/ws-1$/);
+  });
+
+  it("carries a settings deep link into the workspace, and nothing else", () => {
+    // `/kiosk` links a browser that is not a tablet to `/<org>?settings=
+    // organization.crew`; the workspace layout is what opens the dialog, so the
+    // section has to survive the hop.
+    workspaces = [{ id: "ws-1", status: "ready" }];
+    renderAt("/acme?settings=organization.crew&slack_installed=ok");
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      /^\/acme\/workspaces\/ws-1\?settings=organization\.crew$/
+    );
   });
 });

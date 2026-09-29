@@ -1,6 +1,8 @@
 const ROUTES = {
   ROOT: "/",
   ONBOARDING: "/onboarding",
+  /** Managing the store tablet this browser is — or saying it is not one. */
+  KIOSK: "/kiosk",
   /** Partner console — a partner's home. Mirrors the ADMIN surface. */
   PARTNERS: {
     ROOT: "/partners",

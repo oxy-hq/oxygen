@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AuthService } from "@/services/api";
+import { AuthService, FrontlineService } from "@/services/api";
 import {
   classifyCrewSignInError,
+  kioskDeviceQueryOptions,
   resolveCrewDestination,
   returnToPointsAtCustomApp
 } from "./useFrontline";
 
 vi.mock("@/services/api", () => ({
   AuthService: { validateReturnTo: vi.fn() },
-  FrontlineService: {}
+  FrontlineService: { deviceStatus: vi.fn() }
 }));
 
 const APP_URL = "https://acme--store.customer-apps.example.com/";
@@ -91,5 +93,49 @@ describe("resolveCrewDestination", () => {
     vi.mocked(AuthService.validateReturnTo).mockResolvedValue(false);
     await expect(resolveCrewDestination(APP_URL, KIOSK_APP_URL)).resolves.toBeNull();
     await expect(resolveCrewDestination(undefined, null)).resolves.toBeNull();
+  });
+});
+
+describe("the kiosk probe remembers whether this browser is a kiosk", () => {
+  const probe = () => new QueryClient().fetchQuery(kioskDeviceQueryOptions);
+  const remembered = () => localStorage.getItem("oxy_kiosk_browser");
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("remembers a bound answer, and an unbound one never forgets it", async () => {
+    vi.mocked(FrontlineService.deviceStatus).mockResolvedValueOnce({
+      bound: true,
+      org: "acme",
+      orgName: "Acme",
+      device: "Front counter",
+      returnTo: null
+    });
+    await probe();
+    expect(remembered()).toBe("1");
+
+    // Forgetting is for leaving and revoking (`forgetKioskBrowser`), which
+    // know it happened. A probe's "not bound" may be a kiosk whose lookup
+    // misread, and forgetting on it would switch the sign-out check off.
+    vi.mocked(FrontlineService.deviceStatus).mockResolvedValueOnce({ bound: false });
+    await probe();
+    expect(remembered()).toBe("1");
+  });
+
+  it("does not start remembering on an unbound answer", async () => {
+    vi.mocked(FrontlineService.deviceStatus).mockResolvedValueOnce({ bound: false });
+    await probe();
+    expect(remembered()).toBeNull();
+  });
+
+  it("leaves the memory alone when the probe fails, and reads as unbound", async () => {
+    localStorage.setItem("oxy_kiosk_browser", "1");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(FrontlineService.deviceStatus).mockRejectedValueOnce(new Error("Network Error"));
+    await expect(probe()).resolves.toEqual({ bound: false });
+    expect(remembered()).toBe("1");
+    warn.mockRestore();
   });
 });

@@ -91,6 +91,7 @@ async fn a_kiosk_binds_once_and_then_resolves_from_its_cookie() {
     assert!(
         bound_device(&db, &with_cookie(&format!("{}.{token}", row.id)))
             .await
+            .expect("the kiosk lookup itself succeeds")
             .is_none()
     );
 
@@ -100,6 +101,7 @@ async fn a_kiosk_binds_once_and_then_resolves_from_its_cookie() {
 
     let device = bound_device(&db, &with_cookie(&cookie))
         .await
+        .expect("the kiosk lookup itself succeeds")
         .expect("a bound device resolves from its cookie");
     assert_eq!(device.org_id, org, "the org travels with the device");
     assert_eq!(device.name, "Front counter");
@@ -125,6 +127,7 @@ async fn a_kiosk_binds_once_and_then_resolves_from_its_cookie() {
     assert_eq!(
         bound_device(&db, &with_cookie(&brief_cookie))
             .await
+            .expect("the kiosk lookup itself succeeds")
             .expect("the second kiosk resolves")
             .idle_timeout_seconds,
         60
@@ -138,14 +141,29 @@ async fn a_kiosk_binds_once_and_then_resolves_from_its_cookie() {
 
     // A forged secret for a real device id resolves to nothing.
     let forged = format!("{}.{}", row.id, "0".repeat(64));
-    assert!(bound_device(&db, &with_cookie(&forged)).await.is_none());
+    assert!(
+        bound_device(&db, &with_cookie(&forged))
+            .await
+            .expect("the kiosk lookup itself succeeds")
+            .is_none()
+    );
     // So does a cookie that is not even the shape of one.
-    assert!(bound_device(&db, &with_cookie("garbage")).await.is_none());
+    assert!(
+        bound_device(&db, &with_cookie("garbage"))
+            .await
+            .expect("the kiosk lookup itself succeeds")
+            .is_none()
+    );
 
     // Revoke: the row stays, the cookie stops working, a second revoke is a no-op.
     assert!(revoke(&db, org, row.id).await.expect("revoke"));
     assert!(!revoke(&db, org, row.id).await.expect("revoke again"));
-    assert!(bound_device(&db, &with_cookie(&cookie)).await.is_none());
+    assert!(
+        bound_device(&db, &with_cookie(&cookie))
+            .await
+            .expect("the kiosk lookup itself succeeds")
+            .is_none()
+    );
     assert!(
         org_kiosk_devices::Entity::find_by_id(row.id)
             .one(&db)
@@ -363,6 +381,7 @@ async fn an_enrolled_kiosk_changes_in_place_and_clears_back_to_the_default() {
     assert_eq!(
         bound_device(&db, &with_cookie(&cookie))
             .await
+            .expect("the kiosk lookup itself succeeds")
             .expect("bound")
             .idle_timeout_seconds,
         60
@@ -384,6 +403,7 @@ async fn an_enrolled_kiosk_changes_in_place_and_clears_back_to_the_default() {
     assert_eq!(
         bound_device(&db, &with_cookie(&cookie))
             .await
+            .expect("the kiosk lookup itself succeeds")
             .expect("the tablet is still enrolled — that is the whole point")
             .idle_timeout_seconds,
         900
@@ -410,6 +430,7 @@ async fn an_enrolled_kiosk_changes_in_place_and_clears_back_to_the_default() {
     assert_eq!(
         bound_device(&db, &with_cookie(&cookie))
             .await
+            .expect("the kiosk lookup itself succeeds")
             .expect("bound")
             .idle_timeout_seconds,
         DEFAULT_IDLE_TIMEOUT_SECONDS

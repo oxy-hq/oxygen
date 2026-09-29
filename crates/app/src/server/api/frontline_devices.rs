@@ -10,7 +10,8 @@
 //!
 //! This is that binding. An org admin **creates** a device and gets a one-time
 //! enrol link; opening it on the tablet **binds** the device, which sets a
-//! long-lived HttpOnly cookie (`oxy_kiosk`) holding a random secret. From then
+//! long-lived HttpOnly cookie (`oxy_kiosk`) holding a random secret, and a
+//! page-readable hint beside it ([`super::frontline_kiosk_cookie`]). From then
 //! on `login` and `roster` answer only requests carrying a cookie that resolves
 //! to an unrevoked device **of the same org**: a PIN typed anywhere else is
 //! refused with the same 401 as a wrong PIN, so an attacker learns nothing
@@ -52,20 +53,20 @@ use sha2::{Digest, Sha256};
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
+pub use super::frontline_kiosk_cookie::{KIOSK_COOKIE_NAME, extract_kiosk_cookie};
+use super::frontline_kiosk_cookie::{
+    append_set_cookies, carries_kiosk_hint, clear_kiosk_cookies_on, kiosk_cookie_parts,
+    kiosk_cookies, kiosk_hint_cookie, set_cookie_values,
+};
 use crate::server::api::auth::{
     extract_base_url_from_headers, is_request_secure, validate_return_to_url,
 };
 use crate::server::api::middlewares::role_guards::OrgAdmin;
 
-/// The cookie an enrolled kiosk carries: `<device id>.<secret>`.
-pub const KIOSK_COOKIE_NAME: &str = "oxy_kiosk";
 /// An enrol link is good for a day. Long enough to walk the tablet to the
 /// counter; short enough that a link left in a chat thread is dead by the time
 /// anyone finds it.
 const ENROL_LINK_HOURS: i64 = 24;
-/// A bound device stays bound for a year of calendar time; a lost tablet is
-/// handled by revocation, not by expiry.
-const DEVICE_COOKIE_MAX_AGE_SECS: i64 = 365 * 24 * 60 * 60;
 const NAME_MAX_CHARS: usize = 80;
 
 /// How long a kiosk may sit untouched before the app signs the shift session
@@ -118,24 +119,6 @@ fn digest_eq(a: &str, b: &str) -> bool {
         .zip(b.bytes())
         .fold(0u8, |acc, (x, y)| acc | (x ^ y))
         == 0
-}
-
-/// The `oxy_kiosk` value, if the request carries one. Same RFC 6265 split as
-/// `oxy_auth::built_in::extract_session_cookie`, for the same reason it exists
-/// there: callers drifted on the empty-value guard.
-pub fn extract_kiosk_cookie(headers: &HeaderMap) -> Option<String> {
-    let prefix = format!("{KIOSK_COOKIE_NAME}=");
-    for value in headers.get_all(header::COOKIE).iter() {
-        let Ok(raw) = value.to_str() else { continue };
-        for part in raw.split(';') {
-            if let Some(v) = part.trim().strip_prefix(prefix.as_str())
-                && !v.is_empty()
-            {
-                return Some(v.to_string());
-            }
-        }
-    }
-    None
 }
 
 /// An enrolled, unrevoked kiosk the request proved it is.
@@ -194,33 +177,42 @@ fn validate_idle_timeout(requested: Option<u32>) -> Result<Option<i32>, DeviceEr
 }
 
 /// Resolve the device a request's kiosk cookie names — bound, unrevoked, and
-/// holding the secret the cookie carries. `None` for every other case, and
+/// holding the secret the cookie carries. `Ok(None)` for every other case, and
 /// deliberately one `None`: the caller answers the same way whether the cookie
 /// is absent, forged, revoked or stale.
-pub async fn bound_device(db: &DatabaseConnection, headers: &HeaderMap) -> Option<BoundDevice> {
-    let raw = extract_kiosk_cookie(headers)?;
-    let (id, secret) = raw.split_once('.')?;
-    let id = Uuid::parse_str(id).ok()?;
-    let row = devices::Entity::find_by_id(id)
-        .one(db)
-        .await
-        .ok()
-        .flatten()?;
+///
+/// A database error is `Err`, never `None`. "Could not look it up" is unknown,
+/// and every caller has a different answer for unknown than for "not a kiosk":
+/// the probe says 503 rather than `{"bound": false}`, which the web app would
+/// otherwise take as fact, and leaving says "try again" rather than "this
+/// browser was already revoked".
+pub async fn bound_device(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+) -> Result<Option<BoundDevice>, DbErr> {
+    let Some((id, secret)) = kiosk_cookie_parts(headers) else {
+        return Ok(None);
+    };
+    let Some(row) = devices::Entity::find_by_id(id).one(db).await? else {
+        return Ok(None);
+    };
     if row.revoked_at.is_some() || row.bound_at.is_none() {
-        return None;
+        return Ok(None);
     }
-    let expected = row.secret_hash.as_deref()?;
-    if !digest_eq(expected, &sha256_hex(secret)) {
-        return None;
+    let Some(expected) = row.secret_hash.as_deref() else {
+        return Ok(None);
+    };
+    if !digest_eq(expected, &sha256_hex(&secret)) {
+        return Ok(None);
     }
-    Some(BoundDevice {
+    Ok(Some(BoundDevice {
         id: row.id,
         org_id: row.org_id,
         name: row.name,
         return_to: row.return_to,
         location_id: row.location_id,
         idle_timeout_seconds: effective_idle_timeout(row.idle_timeout_seconds),
-    })
+    }))
 }
 
 /// Stamp `last_seen_at`. Best-effort and only on a sign-in, not on every roster
@@ -584,29 +576,7 @@ pub async fn revoke(db: &DatabaseConnection, org_id: Uuid, id: Uuid) -> Result<b
     Ok(res.rows_affected == 1)
 }
 
-fn kiosk_cookie(value: &str, secure: bool) -> String {
-    let mut parts = vec![
-        format!("{KIOSK_COOKIE_NAME}={value}"),
-        "Path=/".to_string(),
-        format!("Max-Age={DEVICE_COOKIE_MAX_AGE_SECS}"),
-        "HttpOnly".to_string(),
-        "SameSite=Lax".to_string(),
-    ];
-    if secure {
-        parts.push("Secure".to_string());
-    }
-    // Same `Domain` rule as the session cookie, or the two would disagree on
-    // which hosts a kiosk is a kiosk for.
-    if let Ok(domain) = std::env::var("OXY_SESSION_COOKIE_DOMAIN") {
-        let domain = domain.trim();
-        if !domain.is_empty() {
-            parts.push(format!("Domain={domain}"));
-        }
-    }
-    parts.join("; ")
-}
-
-fn json_error(status: StatusCode, msg: impl Into<String>) -> Response {
+pub(crate) fn json_error(status: StatusCode, msg: impl Into<String>) -> Response {
     (status, Json(serde_json::json!({ "error": msg.into() }))).into_response()
 }
 
@@ -646,7 +616,10 @@ const PAGE_CSS: &str = "body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;
 margin:15vh auto;padding:0 1.5rem;color:#15191c}\
 h1{font-size:1.4rem;margin:0 0 .5rem}p{color:#4d585f}\
 button{font:inherit;font-size:1.1rem;padding:.9rem 1.4rem;border:0;border-radius:6px;\
-background:#245a86;color:#fff;width:100%;margin-top:1.2rem}";
+background:#245a86;color:#fff;width:100%;margin-top:1.2rem}\
+.warn{border:1px solid #d9a441;background:#fdf6e7;border-radius:6px;padding:.8rem 1rem;\
+color:#5c4210}.warn strong{color:#3d2c0a}\
+button.anyway{background:#fff;color:#8a1c1c;border:1px solid #8a1c1c}";
 
 /// The tablet reaches the enrol routes by navigation, so even "the database is
 /// away" has to be a page and not JSON.
@@ -698,9 +671,20 @@ pub async fn peek_token(
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 
-/// `GET /api/frontline/device` — public. Tells the login page whether it is
-/// running on an enrolled kiosk, and for which org, so it can offer crew
-/// sign-in. Never an error: an unreadable cookie is "not a kiosk".
+/// `GET /api/frontline/device` — public. Tells a browser whether it is an
+/// enrolled kiosk: the kiosk's own `id`, its org, its name and place, the app
+/// it opens and how long it may sit idle. The login page reads it to offer crew
+/// sign-in, `/kiosk` to manage the tablet, Settings → Crew to mark "This
+/// browser", and the web app's kiosk sign-out check to compare sessions.
+///
+/// `{"bound": false}` for a browser with no kiosk cookie — answered without
+/// touching the database, so an outage cannot reach it — and for one whose
+/// cookie is malformed, forged, revoked or stale. **503** when a browser holds
+/// a kiosk cookie the database could not look up: that answer is unknown, and
+/// a client treats unknown as "change nothing", where `{"bound": false}` would
+/// switch its sign-out check off. A bound answer also hands a kiosk that lacks
+/// it the page-readable hint cookie — every kiosk bound before the hint existed
+/// acquires it on its next probe.
 pub async fn device_status(headers: HeaderMap) -> Response {
     let mut resp = device_status_body(&headers).await;
     no_store(&mut resp);
@@ -709,30 +693,102 @@ pub async fn device_status(headers: HeaderMap) -> Response {
 
 async fn device_status_body(headers: &HeaderMap) -> Response {
     let unbound = || Json(serde_json::json!({ "bound": false })).into_response();
-    let Ok(db) = establish_connection().await else {
+    if kiosk_cookie_parts(headers).is_none() {
         return unbound();
+    }
+    let db = match establish_connection().await {
+        Ok(db) => db,
+        Err(e) => return probe_unavailable(&e),
     };
-    let Some(device) = bound_device(&db, headers).await else {
-        return unbound();
+    match bound_status(&db, headers).await {
+        Ok(Some(body)) => {
+            let mut resp = Json(body).into_response();
+            if !carries_kiosk_hint(headers) {
+                give_kiosk_hint(&mut resp, is_request_secure(headers));
+            }
+            resp
+        }
+        Ok(None) => unbound(),
+        Err(e) => probe_unavailable(&e),
+    }
+}
+
+fn probe_unavailable(error: &dyn std::fmt::Display) -> Response {
+    warn!(error = %error, "kiosk probe could not look the kiosk up; answering 503, not unbound");
+    json_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "could not check this kiosk right now",
+    )
+}
+
+/// Best-effort: a probe that cannot set the hint still answers, and the web
+/// app's own flag still covers the origins that ran a probe.
+fn give_kiosk_hint(resp: &mut Response, secure: bool) {
+    match set_cookie_values(&[kiosk_hint_cookie(secure)]) {
+        Some(values) => append_set_cookies(resp, values),
+        None => warn!("kiosk hint cookie rejected — check OXY_SESSION_COOKIE_DOMAIN"),
+    }
+}
+
+/// The bound kiosk's status body, `None` when the cookie names no live kiosk
+/// (or its org is gone), `Err` when the database could not say.
+async fn bound_status(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+) -> Result<Option<serde_json::Value>, DbErr> {
+    let Some(device) = bound_device(db, headers).await? else {
+        return Ok(None);
     };
-    let Ok(Some(org)) = organizations::Entity::find_by_id(device.org_id)
-        .one(&db)
-        .await
+    let Some(org) = organizations::Entity::find_by_id(device.org_id)
+        .one(db)
+        .await?
     else {
-        return unbound();
+        return Ok(None);
     };
     // The place, by name, so the login page can say "Front counter · Clovis".
+    // Cosmetic, so a failed read is no place rather than no answer.
     let location = match device.location_id {
         Some(id) => locations::Entity::find_by_id(id)
-            .one(&db)
+            .one(db)
             .await
             .ok()
             .flatten()
             .map(|l| serde_json::json!({ "id": l.id, "name": l.name })),
         None => None,
     };
-    Json(serde_json::json!({
+    // Whose session the tablet's cookie carries, read and never renewed. The
+    // web app on a kiosk compares it with the account it holds a token for.
+    let session_user_id = super::auth::session_cookie_user_id(headers);
+    Ok(Some(bound_status_json(
+        &device,
+        &org,
+        location,
+        session_user_id,
+    )))
+}
+
+/// The body a bound kiosk is told about itself.
+///
+/// `id` is the kiosk's own row id. Harmless to hand the device that proved it
+/// holds the row's secret — it is the one browser that already knows which
+/// kiosk it is — and it is what lets Settings → Crew mark the row "This
+/// browser". Not a credential: every write keyed on it is org-admin gated.
+///
+/// `sessionUserId` is the user id in this browser's own `oxy_session` cookie,
+/// or null when it holds none the server would accept. A kiosk's web app keeps
+/// an admin's bearer token in `localStorage`, and a sign-out that happens
+/// outside the web app (a custom app's `GET /api/logout`) clears only the
+/// cookie; this is how the web app learns the token has outlived it. It tells
+/// the browser nothing it does not already hold.
+fn bound_status_json(
+    device: &BoundDevice,
+    org: &organizations::Model,
+    location: Option<serde_json::Value>,
+    session_user_id: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
         "bound": true,
+        "id": device.id,
         "org": org.slug,
         "orgName": org.name,
         "device": device.name,
@@ -741,8 +797,8 @@ async fn device_status_body(headers: &HeaderMap) -> Response {
         // What the app in crew mode arms its own idle timer with. Always
         // present, so a client never has to carry a copy of the default.
         "idleTimeoutSeconds": device.idle_timeout_seconds,
-    }))
-    .into_response()
+        "sessionUserId": session_user_id,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -757,27 +813,23 @@ pub struct BindQuery {
 /// look at it and the tablet would find a dead link. The binding happens on the
 /// form's POST, which no unfurler submits (and which is what RFC 9110 says a
 /// side effect needs anyway).
-pub async fn bind_page(Query(q): Query<BindQuery>) -> Response {
+///
+/// When the browser opening it is signed in to an Oxygen account, the page
+/// says so by name and the button reads **Enroll anyway**: the kiosk cookie
+/// lasts a year and turns the whole browser — every Oxygen app in it — into
+/// the store's tablet, which is how a manager's own phone got stuck on the
+/// crew sign-in (the #p0 thread of 2026-09-23). The session lookup is
+/// best-effort: any auth or database failure renders the plain page, never an
+/// error, and the lookup reads nothing it could write.
+pub async fn bind_page(headers: HeaderMap, Query(q): Query<BindQuery>) -> Response {
     let Ok(db) = establish_connection().await else {
         return unavailable_page();
     };
     match peek_token(&db, &q.token).await {
-        Ok(row) => html(
-            StatusCode::OK,
-            format!(
-                "<!doctype html><meta name=viewport content=\"width=device-width\">\
-                 <meta name=\"referrer\" content=\"no-referrer\">\
-                 <title>Enroll kiosk</title><style>{PAGE_CSS}</style>\
-                 <h1>Enroll this tablet as \u{201c}{name}\u{201d}?</h1>\
-                 <p>Only do this on the device that will stay at the counter. \
-                 It signs the crew in from here on.</p>\
-                 <form method=\"post\" action=\"/api/frontline/devices/bind\">\
-                 <input type=\"hidden\" name=\"token\" value=\"{token}\">\
-                 <button type=\"submit\">Enroll this tablet</button></form>",
-                name = escape(&row.name),
-                token = escape(q.token.trim()),
-            ),
-        ),
+        Ok(row) => {
+            let account = super::frontline_kiosk_mode::signed_in_account(&headers).await;
+            confirm_page(&row.name, q.token.trim(), account.as_deref())
+        }
         Err(DeviceError::NoSuchToken) => dead_link_page(),
         Err(e) => {
             warn!(error = %e, "kiosk enrol page failed");
@@ -786,15 +838,54 @@ pub async fn bind_page(Query(q): Query<BindQuery>) -> Response {
     }
 }
 
+/// "Enroll this tablet as *name*?" — with the stronger warning when `account`
+/// names who this browser is signed in as. Everything printed is escaped.
+fn confirm_page(name: &str, token: &str, account: Option<&str>) -> Response {
+    let (warning, button) = match account {
+        Some(account) => (
+            format!(
+                "<p class=\"warn\" id=\"signed-in-warning\"><strong>You\u{2019}re signed in to \
+                 Oxygen as {account} in this browser.</strong> Enrolling turns this whole \
+                 browser into the store\u{2019}s tablet for every Oxygen app until the kiosk is \
+                 revoked in Settings \u{2192} Crew. Use the store\u{2019}s tablet, or a private \
+                 window to try it.</p>",
+                account = escape(account),
+            ),
+            "<button type=\"submit\" class=\"anyway\">Enroll anyway</button>",
+        ),
+        None => (
+            "<p>Only do this on the device that will stay at the counter. \
+             It signs the crew in from here on.</p>"
+                .to_string(),
+            "<button type=\"submit\">Enroll this tablet</button>",
+        ),
+    };
+    html(
+        StatusCode::OK,
+        format!(
+            "<!doctype html><meta name=viewport content=\"width=device-width\">\
+             <meta name=\"referrer\" content=\"no-referrer\">\
+             <title>Enroll kiosk</title><style>{PAGE_CSS}</style>\
+             <h1>Enroll this tablet as \u{201c}{name}\u{201d}?</h1>\
+             {warning}\
+             <form method=\"post\" action=\"/api/frontline/devices/bind\">\
+             <input type=\"hidden\" name=\"token\" value=\"{token}\">\
+             {button}</form>",
+            name = escape(name),
+            token = escape(token),
+        ),
+    )
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BindForm {
     pub token: String,
 }
 
 /// `POST /api/frontline/devices/bind` (form body `token=…`) — public; the
-/// confirm page's submit. Binds the device, sets the kiosk cookie, and sends
-/// the tablet to the login page (with the app the admin named as `return_to`,
-/// when there is one).
+/// confirm page's submit. Binds the device, sets the kiosk cookie and its
+/// page-readable hint, and sends the tablet to the login page (with the app
+/// the admin named as `return_to`, when there is one).
 ///
 /// The token is spent by `bind_with_token` BEFORE the cookie is built, so a
 /// cookie the header layer rejects — a stray character in
@@ -811,8 +902,8 @@ pub async fn bind_submit(headers: HeaderMap, body: String) -> Response {
     };
     match bind_with_token(&db, &token).await {
         Ok((row, cookie_value)) => {
-            let cookie = kiosk_cookie(&cookie_value, is_request_secure(&headers));
-            let Ok(cookie) = HeaderValue::from_str(&cookie) else {
+            let cookies = kiosk_cookies(&cookie_value, is_request_secure(&headers));
+            let Some(cookies) = set_cookie_values(&cookies) else {
                 warn!(
                     device = %row.id,
                     "kiosk bound but its cookie header was rejected — check \
@@ -836,7 +927,7 @@ pub async fn bind_submit(headers: HeaderMap, body: String) -> Response {
                 None => "/login".to_string(),
             };
             let mut resp = Redirect::to(&to).into_response();
-            resp.headers_mut().insert(header::SET_COOKIE, cookie);
+            append_set_cookies(&mut resp, cookies);
             no_store(&mut resp);
             resp
         }
@@ -1215,11 +1306,16 @@ pub async fn reissue_enrol_link(
 
 /// `DELETE /api/orgs/{org_id}/frontline/devices/{id}` — org admin. Revokes;
 /// the row stays. A kiosk cookie for a revoked device answers like no cookie.
+///
+/// When the request comes from the kiosk being revoked — Settings → Crew
+/// opened on the tablet, the row marked "This browser" — the answer also clears
+/// that browser's kiosk cookie and hint, as leaving kiosk mode does.
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn revoke_device(
     OrgAdmin(_ctx): OrgAdmin,
     AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
 ) -> Response {
     let Ok(db) = establish_connection().await else {
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
@@ -1236,7 +1332,11 @@ pub async fn revoke_device(
                 )
                 .await;
             }
-            StatusCode::NO_CONTENT.into_response()
+            let mut resp = StatusCode::NO_CONTENT.into_response();
+            if kiosk_cookie_parts(&headers).is_some_and(|(this_browser, _)| this_browser == id) {
+                clear_kiosk_cookies_on(&mut resp, is_request_secure(&headers));
+            }
+            resp
         }
         Err(DeviceError::NotFound) => json_error(StatusCode::NOT_FOUND, "no such device"),
         Err(e) => {
@@ -1249,23 +1349,6 @@ pub async fn revoke_device(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn headers(cookie: &str) -> HeaderMap {
-        let mut h = HeaderMap::new();
-        h.insert(header::COOKIE, HeaderValue::from_str(cookie).unwrap());
-        h
-    }
-
-    #[test]
-    fn the_kiosk_cookie_is_read_beside_the_session_cookie() {
-        assert_eq!(
-            extract_kiosk_cookie(&headers("oxy_session=jwt; oxy_kiosk=abc.def; x=y")).as_deref(),
-            Some("abc.def")
-        );
-        assert!(extract_kiosk_cookie(&headers("oxy_session=jwt")).is_none());
-        // An empty value is no value — the guard callers drifted on before.
-        assert!(extract_kiosk_cookie(&headers("oxy_kiosk=; oxy_session=jwt")).is_none());
-    }
 
     #[test]
     fn digest_comparison_rejects_length_and_content_mismatches() {
@@ -1473,18 +1556,92 @@ mod tests {
         assert_ne!(a, random_secret());
     }
 
-    #[test]
-    fn the_cookie_carries_the_attributes_the_session_cookie_does() {
-        let c = kiosk_cookie("id.secret", true);
-        for part in [
-            "oxy_kiosk=id.secret",
-            "Path=/",
-            "HttpOnly",
-            "SameSite=Lax",
-            "Secure",
-        ] {
-            assert!(c.contains(part), "{c} lacks {part}");
+    fn org_row() -> organizations::Model {
+        let now = Utc::now().fixed_offset();
+        organizations::Model {
+            id: Uuid::new_v4(),
+            name: "Poke House".into(),
+            slug: "poke-house".into(),
+            logo: None,
+            logo_content_type: None,
+            created_at: now,
+            updated_at: now,
         }
-        assert!(!kiosk_cookie("id.secret", false).contains("Secure"));
+    }
+
+    /// The kiosk is told its own id, so Settings → Crew can mark "This
+    /// browser" — and the rest of the body is what it always was.
+    #[test]
+    fn a_bound_kiosk_is_told_its_own_id() {
+        let device = BoundDevice {
+            id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            name: "Front counter".into(),
+            return_to: None,
+            location_id: None,
+            idle_timeout_seconds: DEFAULT_IDLE_TIMEOUT_SECONDS,
+        };
+        let org = org_row();
+        let body = bound_status_json(&device, &org, None, None);
+        assert_eq!(body["id"], serde_json::json!(device.id));
+        assert_eq!(body["bound"], true);
+        assert_eq!(body["org"], "poke-house");
+        assert_eq!(body["device"], "Front counter");
+        assert_eq!(body["idleTimeoutSeconds"], DEFAULT_IDLE_TIMEOUT_SECONDS);
+    }
+
+    /// The kiosk is told whose session cookie it carries — null, not absent,
+    /// when none, so the web app can tell "signed out" from an older server.
+    #[test]
+    fn a_bound_kiosk_is_told_whose_session_its_cookie_carries() {
+        let device = BoundDevice {
+            id: Uuid::new_v4(),
+            org_id: Uuid::new_v4(),
+            name: "Front counter".into(),
+            return_to: None,
+            location_id: None,
+            idle_timeout_seconds: DEFAULT_IDLE_TIMEOUT_SECONDS,
+        };
+        let org = org_row();
+        let signed_in = bound_status_json(&device, &org, None, Some("user-a".into()));
+        assert_eq!(signed_in["sessionUserId"], "user-a");
+        let signed_out = bound_status_json(&device, &org, None, None);
+        assert!(signed_out.get("sessionUserId").is_some_and(|v| v.is_null()));
+    }
+
+    async fn page_text(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("page body");
+        String::from_utf8(bytes.to_vec()).expect("utf-8 page")
+    }
+
+    #[tokio::test]
+    async fn the_enrol_page_names_a_signed_in_account_and_asks_to_enroll_anyway() {
+        let resp = confirm_page("Front counter", "tok", Some("robert@<oxy>.tech"));
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers()[header::CACHE_CONTROL], "no-store, private");
+        let page = page_text(resp).await;
+        assert!(
+            page.contains("signed in to Oxygen as robert@&lt;oxy&gt;.tech in this browser"),
+            "the account is named, escaped: {page}"
+        );
+        assert!(page.contains("every Oxygen app"), "{page}");
+        assert!(page.contains("Settings \u{2192} Crew"), "{page}");
+        assert!(page.contains("private window"), "{page}");
+        assert!(page.contains(">Enroll anyway</button>"), "{page}");
+        assert!(!page.contains("Enroll this tablet</button>"), "{page}");
+        // Still a confirm page: the bind is the form's POST, not this GET.
+        assert!(page.contains("method=\"post\""), "{page}");
+    }
+
+    #[tokio::test]
+    async fn the_enrol_page_without_an_account_is_the_plain_one() {
+        let page = page_text(confirm_page("Front <counter>", "t\"ok", None)).await;
+        assert!(page.contains("Front &lt;counter&gt;"), "{page}");
+        assert!(page.contains("value=\"t&quot;ok\""), "{page}");
+        assert!(page.contains(">Enroll this tablet</button>"), "{page}");
+        assert!(!page.contains("signed-in-warning"), "{page}");
+        assert!(!page.contains("Enroll anyway"), "{page}");
     }
 }

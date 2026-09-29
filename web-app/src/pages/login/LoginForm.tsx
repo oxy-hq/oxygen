@@ -25,6 +25,7 @@ import CrewSignIn, { CrewSignInHint } from "./CrewSignIn";
 import LoginWithGitHubButton from "./LoginWithGitHubButton";
 import LoginWithGoogleButton from "./LoginWithGoogleButton";
 import LoginWithOktaButton from "./LoginWithOktaButton";
+import { devLoginNext, kioskAdminReturnTo } from "./signInDestination";
 
 type MagicLinkFormData = {
   email: string;
@@ -39,14 +40,14 @@ const getRateLimitMessage = (error: unknown) =>
 
 type View = "form" | "sent";
 
-const MagicLinkSection = () => {
+const MagicLinkSection = ({ returnTo: destination }: { returnTo?: string }) => {
   const [view, setView] = useState<View>("form");
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [searchParams] = useSearchParams();
   // Forwarded into the magic-link request. The server allowlists the value
   // before embedding it into the email; the verify-callback page validates
   // again before performing the redirect.
-  const returnTo = searchParams.get("return_to") ?? undefined;
+  const returnTo = destination ?? searchParams.get("return_to") ?? undefined;
   const { mutateAsync: requestMagicLink, isPending } = useRequestMagicLink();
 
   const {
@@ -156,44 +157,61 @@ const Divider = ({ label }: { label: string }) => (
  * the browser has something to click — the login page is where automation
  * lands, and every other button here leads off to a provider or an inbox.
  */
-const DevSignInSection = () => (
-  <Link to={ROUTES.AUTH.DEV_LOGIN} className='w-full' data-testid='login-dev-signin'>
+const DevSignInSection = ({ next }: { next?: string }) => (
+  <Link
+    to={next ? `${ROUTES.AUTH.DEV_LOGIN}?next=${encodeURIComponent(next)}` : ROUTES.AUTH.DEV_LOGIN}
+    className='w-full'
+    data-testid='login-dev-signin'
+  >
     <Button type='button' variant='outline' className='w-full'>
       Dev sign-in (no password)
     </Button>
   </Link>
 );
 
-/** Everything an account holder signs in with: magic link, OAuth, and the dev bypass. */
-const AccountSignIn = () => {
+/**
+ * Everything an account holder signs in with: magic link, OAuth, and the dev
+ * bypass. `returnTo` is where every one of them lands; absent, each follows the
+ * login URL's own `return_to`, as the ordinary login page always has.
+ */
+const AccountSignIn = ({ returnTo }: { returnTo?: string }) => {
   const { authConfig } = useAuth();
   const hasOAuth = Boolean(authConfig.google || authConfig.okta || authConfig.github);
   const hasMagicLink = Boolean(authConfig.magic_link);
 
   return (
     <>
-      {hasMagicLink && <MagicLinkSection />}
+      {hasMagicLink && <MagicLinkSection returnTo={returnTo} />}
 
       {hasOAuth && hasMagicLink && <Divider label='or' />}
 
       {authConfig.github && (
-        <LoginWithGitHubButton disabled={false} clientId={authConfig.github.client_id} />
+        <LoginWithGitHubButton
+          disabled={false}
+          clientId={authConfig.github.client_id}
+          returnTo={returnTo}
+        />
       )}
       {authConfig.google && (
-        <LoginWithGoogleButton disabled={false} clientId={authConfig.google.client_id} />
+        <LoginWithGoogleButton
+          disabled={false}
+          clientId={authConfig.google.client_id}
+          returnTo={returnTo}
+        />
       )}
       {authConfig.okta && (
         <LoginWithOktaButton
           disabled={false}
           clientId={authConfig.okta.client_id}
           domain={authConfig.okta.domain}
+          returnTo={returnTo}
         />
       )}
 
       {authConfig.dev_login && (
         <>
           <Divider label='dev only' />
-          <DevSignInSection />
+          <DevSignInSection next={devLoginNext(returnTo)} />
         </>
       )}
     </>
@@ -205,6 +223,10 @@ const AccountSignIn = () => {
  * for the manager setting the tablet up — in the top corner, out of the way of
  * the names — but never sits under the PIN pad where a worker could wander into
  * an email form.
+ *
+ * Every provider here lands on `/kiosk`, never on the login URL's `return_to`
+ * (see `kioskAdminReturnTo`): the admin came to manage the tablet, and on a
+ * kiosk that `return_to` is the crew's app.
  */
 const AdminSignInDialog = () => (
   <Dialog>
@@ -227,7 +249,7 @@ const AdminSignInDialog = () => (
         </DialogDescription>
       </DialogHeader>
       <div className='flex flex-col gap-4'>
-        <AccountSignIn />
+        <AccountSignIn returnTo={kioskAdminReturnTo()} />
       </div>
     </DialogContent>
   </Dialog>

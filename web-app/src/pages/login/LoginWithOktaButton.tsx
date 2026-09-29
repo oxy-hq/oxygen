@@ -6,12 +6,14 @@ interface Props {
   disabled: boolean;
   clientId: string;
   domain: string;
+  /** Where to land after sign-in; absent, the login URL's own `return_to`. */
+  returnTo?: string;
 }
 
-const LoginWithOktaButton = ({ disabled, clientId, domain }: Props) => {
+const LoginWithOktaButton = ({ disabled, clientId, domain, returnTo }: Props) => {
   const handleOktaAuth = async () => {
     try {
-      await initiateOktaAuth(clientId, domain);
+      await initiateOktaAuth(clientId, domain, returnTo);
     } catch (err) {
       console.error("Failed to start Okta login:", err);
       toast.error("Couldn't start Okta login. Please try again.");

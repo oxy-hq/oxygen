@@ -59,6 +59,7 @@ import OktaCallback from "./pages/auth/OktaCallback";
 import DashboardsPage from "./pages/dashboards";
 import GitHubCallback from "./pages/github/callback";
 import InvitePage from "./pages/Invite";
+import KioskManagePage from "./pages/KioskManage";
 import LoginPage from "./pages/login";
 import OrgDispatcher from "./pages/OrgDispatcher";
 import OnboardingPage from "./pages/onboarding";
@@ -667,6 +668,13 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 deliberately omits this route). */}
             <Route path='admin/airway' element={<AdminAirway />} />
           </Route>
+
+          {/* "Manage this tablet" — where a kiosk's admin sign-in lands, and where
+              an org admin takes a browser out of kiosk mode. Outside
+              `OwnerRedirect` so a Global Owner holding a store's tablet is not
+              bounced to the billing queue, and a static path so it wins over
+              `:orgSlug` (hence "kiosk" is a reserved org slug). */}
+          <Route path='kiosk' element={<KioskManagePage />} />
 
           {/* Partner console — anyone holding a partner role (the server enforces
               scope on every call). Same shell as AdminLayout, deliberately: both

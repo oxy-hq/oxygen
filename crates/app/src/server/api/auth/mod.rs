@@ -8,6 +8,7 @@
 //!   exchange, magic-link email + rate limiting, and login finalization.
 //! - [`handlers`]: the HTTP handler functions themselves.
 
+mod cookie_session;
 mod dev_login;
 mod dto;
 mod handlers;
@@ -30,3 +31,7 @@ pub(crate) use ops::clear_session_cookie;
 pub(crate) use ops::validate_return_to_url;
 // `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
 pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};
+
+// The kiosk probe (`frontline_devices::device_status`) reports whose session
+// a request's cookie carries, decoded without re-minting it.
+pub(crate) use cookie_session::session_cookie_user_id;

@@ -37,18 +37,33 @@ export function clearAuthScopedStorage(): void {
  * stale token. Pure client-side `exp` read; the server still re-validates.
  */
 export function isAuthTokenExpired(): boolean {
+  const claims = readStoredTokenClaims();
+  return !claims || typeof claims.exp !== "number" || claims.exp * 1000 <= Date.now();
+}
+
+/**
+ * The user id the stored auth token was minted for (its `sub`), or null when
+ * there is no token or it can't be parsed. Pure client-side read, like
+ * {@link isAuthTokenExpired}; the server still validates the token itself.
+ */
+export function storedTokenSubject(): string | null {
+  const sub = readStoredTokenClaims()?.sub;
+  return typeof sub === "string" && sub !== "" ? sub : null;
+}
+
+function readStoredTokenClaims(): { exp?: unknown; sub?: unknown } | null {
   let token: string | null = null;
   try {
     token = localStorage.getItem("auth_token");
   } catch {
-    return true;
+    return null;
   }
-  if (!token) return true;
+  if (!token) return null;
   try {
     const payload = token.split(".")[1];
-    const claims = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    return typeof claims.exp !== "number" || claims.exp * 1000 <= Date.now();
+    const claims: unknown = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return claims && typeof claims === "object" ? claims : null;
   } catch {
-    return true;
+    return null;
   }
 }

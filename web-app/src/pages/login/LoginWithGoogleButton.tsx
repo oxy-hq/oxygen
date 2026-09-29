@@ -5,12 +5,14 @@ import { initiateGoogleAuth } from "@/hooks/auth/useGoogleAuth";
 interface Props {
   disabled: boolean;
   clientId: string;
+  /** Where to land after sign-in; absent, the login URL's own `return_to`. */
+  returnTo?: string;
 }
 
-const LoginWithGoogleButton = ({ disabled, clientId }: Props) => {
+const LoginWithGoogleButton = ({ disabled, clientId, returnTo }: Props) => {
   const handleGoogleAuth = async () => {
     try {
-      await initiateGoogleAuth(clientId);
+      await initiateGoogleAuth(clientId, returnTo);
     } catch (err) {
       console.error("Failed to start Google login:", err);
       toast.error("Couldn't start Google login. Please try again.");

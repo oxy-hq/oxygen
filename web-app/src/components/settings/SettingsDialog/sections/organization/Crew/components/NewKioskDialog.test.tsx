@@ -157,3 +157,16 @@ describe("NewKioskDialog — where the tablet opens", () => {
     );
   });
 });
+
+describe("NewKioskDialog — where to open the link", () => {
+  it("says to use the store's tablet, or a private window to try it, and why", () => {
+    // Enrolling sets a year-long cookie that turns the whole browser into the
+    // store's tablet; an admin who opened the link in their own browser to
+    // "see what it does" was stuck on the crew sign-in in every Oxygen app.
+    dialog([STORE_OPS]);
+    const help = screen.getByTestId("settings-crew-new-kiosk-help").textContent ?? "";
+    expect(help).toContain("Open the link on the store's tablet");
+    expect(help).toContain("private window");
+    expect(help).toContain("turns the whole browser into the tablet until the kiosk is revoked");
+  });
+});

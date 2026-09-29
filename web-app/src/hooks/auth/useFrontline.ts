@@ -1,5 +1,6 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery } from "@tanstack/react-query";
 import queryKeys from "@/hooks/api/queryKey";
+import { rememberKioskBrowser } from "@/libs/utils/kioskBrowser";
 import { FrontlineService } from "@/services/api";
 import type {
   FrontlineLoginRequest,
@@ -12,23 +13,34 @@ import { resolveReturnTo } from "./postLoginRedirect";
 const UNBOUND: KioskDevice = { bound: false };
 
 /**
- * Whether this browser is an enrolled kiosk. Never throws: a failed probe reads
- * as "not a kiosk", so the ordinary login page renders untouched.
+ * The kiosk probe, shared by every reader so they share one cache entry.
+ * Never throws: a failed probe — a 503 when the server could not look the
+ * kiosk up included — reads as "not a kiosk", so the ordinary login page
+ * renders untouched. A "bound" answer is remembered for the kiosk session
+ * check; nothing the probe answers ever forgets it (`forgetKioskBrowser` is for
+ * leaving and revoking, which know the kiosk is gone).
  */
-export const useKioskDevice = () =>
-  useQuery<KioskDevice>({
-    queryKey: queryKeys.frontline.device(),
-    queryFn: async () => {
-      try {
-        return await FrontlineService.deviceStatus();
-      } catch (error: unknown) {
-        console.warn("Kiosk device probe failed; treating this browser as unbound", error);
-        return UNBOUND;
-      }
-    },
-    staleTime: 60_000,
-    retry: false
-  });
+export const kioskDeviceQueryOptions = queryOptions<KioskDevice>({
+  queryKey: queryKeys.frontline.device(),
+  queryFn: async () => {
+    let device: KioskDevice;
+    try {
+      device = await FrontlineService.deviceStatus();
+    } catch (error: unknown) {
+      console.warn("Kiosk device probe failed; treating this browser as unbound", error);
+      return UNBOUND;
+    }
+    if (device.bound) {
+      rememberKioskBrowser();
+    }
+    return device;
+  },
+  staleTime: 60_000,
+  retry: false
+});
+
+/** Whether this browser is an enrolled kiosk. */
+export const useKioskDevice = () => useQuery<KioskDevice>(kioskDeviceQueryOptions);
 
 /** The names on this kiosk's shift board. Only asks once the org is known. */
 export const useFrontlineRoster = (org: string | undefined) =>

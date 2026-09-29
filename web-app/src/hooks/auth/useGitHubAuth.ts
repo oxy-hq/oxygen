@@ -26,8 +26,10 @@ const buildGitHubAuthUrl = (clientId: string, state: string) => {
 /**
  * Opens a popup to GitHub OAuth, waits for the unified /github/callback page
  * to postMessage the auth result, then signs the user in and redirects.
+ * `destination` overrides where it lands — the kiosk's admin sign-in sends
+ * `/kiosk`; absent, the login URL's own `return_to`.
  */
-export const useGitHubAuth = (clientId: string) => {
+export const useGitHubAuth = (clientId: string, destination?: string) => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -35,7 +37,7 @@ export const useGitHubAuth = (clientId: string) => {
     mutationFn: async () => {
       // The whole flow runs in this (opener) window, so the login page's
       // `return_to` is still readable when the popup resolves — no stash needed.
-      const returnTo = returnToFromUrl();
+      const returnTo = destination ?? returnToFromUrl();
       const { state } = await AuthService.issueOAuthState();
       // In proxy mode `state` carries this instance's origin so the bounce proxy
       // can forward the callback here; stored as-is so the CSRF check matches.

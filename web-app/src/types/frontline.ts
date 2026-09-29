@@ -14,6 +14,13 @@ export interface UnboundKioskDevice {
 /** `GET /frontline/device` for an enrolled kiosk. */
 export interface BoundKioskDevice {
   bound: true;
+  /**
+   * This kiosk's own row id — the `id` of its `KioskDeviceRow` in Settings →
+   * Crew, which is how that list marks "This browser". Only ever told to the
+   * browser that holds the kiosk's cookie. Absent on servers older than
+   * 2026-09-28.
+   */
+  id?: string;
   /** Org slug — the `org` every roster read and login is scoped to. */
   org: string;
   orgName: string;
@@ -40,6 +47,13 @@ export interface BoundKioskDevice {
    * return-to allowlist before the browser is sent there.
    */
   returnTo: string | null;
+  /**
+   * The user id in this browser's own session cookie, or null when it carries
+   * none the server would accept (signed out, expired). Read from the cookie
+   * alone and never renewed. Absent on servers older than 2026-09-28, which
+   * callers must read as "unknown", never as "signed out".
+   */
+  sessionUserId?: string | null;
 }
 
 export type KioskDevice = UnboundKioskDevice | BoundKioskDevice;

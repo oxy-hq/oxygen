@@ -6,10 +6,12 @@ import { GitHubCallbackCancelled } from "@/utils/githubCallbackMessage";
 interface Props {
   disabled: boolean;
   clientId: string;
+  /** Where to land after sign-in; absent, the login URL's own `return_to`. */
+  returnTo?: string;
 }
 
-const LoginWithGitHubButton = ({ disabled, clientId }: Props) => {
-  const { mutate, isPending } = useGitHubAuth(clientId);
+const LoginWithGitHubButton = ({ disabled, clientId, returnTo }: Props) => {
+  const { mutate, isPending } = useGitHubAuth(clientId, returnTo);
 
   const handleGitHubAuth = () => {
     mutate(undefined, {

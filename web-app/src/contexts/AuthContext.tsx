@@ -23,6 +23,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Everything `logout` clears in this browser, without the server round-trip or
+ * the redirect. Also what a kiosk runs when its session cookie is found gone
+ * (`useKioskSessionGuard`): one teardown, so the two cannot drift.
+ */
+export function clearLocalSession(): void {
+  clearAuthScopedStorage();
+  // Clear any in-flight wizard state so a different user signing in on the
+  // same browser doesn't inherit it (and so the same user can't be re-trapped
+  // in pending onboarding for a workspace they intentionally walked away from).
+  clearAllOnboardingState();
+  sessionStorage.clear();
+}
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -55,12 +69,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children, authConfig
     } catch (error) {
       console.error("Backend logout failed; clearing local session anyway.", error);
     }
-    clearAuthScopedStorage();
-    // Clear any in-flight wizard state so a different user signing in on the
-    // same browser doesn't inherit it (and so the same user can't be re-trapped
-    // in pending onboarding for a workspace they intentionally walked away from).
-    clearAllOnboardingState();
-    sessionStorage.clear();
+    clearLocalSession();
     redirectToHome();
   };
 

@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { awaitingTablet } from "@/libs/frontline";
+import { forgetKioskBrowser } from "@/libs/utils/kioskBrowser";
 import { FrontlineService } from "@/services/api/frontline";
 import type {
   CreateKioskDeviceRequest,
   EnrolWorkerRequest,
+  KioskDevice,
   UpdateKioskDeviceRequest
 } from "@/types/frontline";
 import queryKeys from "../queryKey";
@@ -109,7 +111,42 @@ export const useUpdateDevice = () =>
       FrontlineService.updateDevice(vars.orgId, vars.deviceId, vars.request)
   );
 
-export const useRevokeDevice = () =>
-  useDeviceMutation((vars: { orgId: string; deviceId: string }) =>
-    FrontlineService.revokeDevice(vars.orgId, vars.deviceId)
-  );
+/**
+ * Revoke a kiosk. When it is the kiosk this very browser is — Settings → Crew
+ * opened on the tablet, the row marked "This browser" — the browser stops
+ * being a kiosk: the server clears its cookies, and this forgets the kiosk
+ * memory and re-asks the probe, as leaving does.
+ */
+export const useRevokeDevice = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { orgId: string; deviceId: string }) =>
+      FrontlineService.revokeDevice(vars.orgId, vars.deviceId),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.org.frontlineDevices(vars.orgId) });
+      const thisBrowser = queryClient.getQueryData<KioskDevice>(queryKeys.frontline.device());
+      if (thisBrowser?.bound && thisBrowser.id === vars.deviceId) {
+        forgetKioskBrowser();
+        queryClient.invalidateQueries({ queryKey: queryKeys.frontline.device() });
+      }
+    }
+  });
+};
+
+/**
+ * Take this browser out of kiosk mode. On success the kiosk memory is
+ * forgotten and the kiosk probe (`useKioskDevice`) refetched — this browser is
+ * no kiosk any more — along with the org's device list, where the kiosk now
+ * reads Revoked.
+ */
+export const useLeaveKioskMode = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { orgId: string }) => FrontlineService.leaveKioskMode(vars.orgId),
+    onSuccess: (_data, vars) => {
+      forgetKioskBrowser();
+      queryClient.invalidateQueries({ queryKey: queryKeys.frontline.device() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.org.frontlineDevices(vars.orgId) });
+    }
+  });
+};
