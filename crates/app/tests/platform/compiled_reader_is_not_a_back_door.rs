@@ -38,6 +38,12 @@ const ALLOWED: &[(&str, &str)] = &[
          same way the middleware does.",
     ),
     (
+        "src/server/preagg_workspace.rs",
+        "Same: the pre-aggregation cycle builds its manager on the worker fleet, \
+         off the HTTP path. Without the resolved revision the builder reads the \
+         worker's absent working copy and self-heal compiles every heartbeat.",
+    ),
+    (
         "src/server/api/custom_apps_gates.rs",
         "Same: builds the per-request project context for the public custom-app \
          router, which has no workspace middleware.",

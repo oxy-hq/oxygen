@@ -23,15 +23,13 @@ use crate::server::service::secret_manager::SecretManagerService;
 /// Build a [`WorkspaceManager`] for `workspace_id` from nothing but a
 /// database handle.
 ///
-/// **Reads the working copy, not the compiled revision.** This doc used to
-/// claim "compiled config first (fleet-safe), FS fallback second", which is
-/// the shape the request path has and this one does not: the builder is given
-/// no revision hint, and `WorkspaceBuilder::origin_for` maps that to
-/// `Origin::Disk`, so `compiled_semantic_views()` answers `None` without ever
-/// querying Postgres. A cycle therefore reads whatever is checked out on the
-/// node that drew the task — a feature branch, or on a node with no working
-/// copy at all, nothing. See the comment at the `with_working_copy` call
-/// below, and the "what this does not promise" note in `preagg_promote`.
+/// **Reads the promoted revision, not the working copy.** The builder is
+/// handed the default branch's promoted revision (resolved below), so
+/// `compiled_semantic_views()` answers from Postgres and a cycle reads the same
+/// views on every node — including a worker with no checkout. Only a workspace
+/// that has never promoted a revision falls back to the working copy
+/// (`origin_for(_, None)` is `Origin::Disk`). See the comment at the
+/// `with_working_copy` call below.
 ///
 /// Trimmed relative to the request-path resolver
 /// (`workspace_context::try_attach_workspace_manager`): no branch parameter
@@ -57,25 +55,24 @@ pub(super) async fn build_workspace_manager(
         .as_deref()
         .ok_or_else(|| format!("workspace {workspace_id} has no path"))?;
 
-    // `with_working_copy` is the one terminal this branch kept: it takes the
-    // root, an optional pinned revision, and what to do when `config.yml` is
-    // absent.
-    //
-    // The revision hint is `None`, and that is NOT "resolve the promoted one"
-    // — `WorkspaceBuilder::origin_for` maps `None` to `Origin::Disk`, so the
-    // compiled rows are never consulted and the cycle reads the working copy
-    // as checked out on this node, whatever branch that is. The comment here
-    // used to claim the opposite. Left as-is rather than corrected in code
-    // because pinning the promoted revision changes what every cycle reads;
-    // see the "what this does not promise" note in `preagg_promote`.
+    // The cycle always targets the default branch, so resolve its promoted
+    // revision here (branch hint `None`), the way `router::recovery` does. The
+    // builder does NOT do this for us: a `None` revision means `Origin::Disk`,
+    // and on a worker — no working copy — the semantic scan then finds nothing
+    // and enqueues a lazy self-heal compile. That compile succeeds, so the
+    // failure backoff never engages, and every preagg heartbeat promoted a
+    // fresh `local-<uuid>` revision. A workspace with no promoted revision yet
+    // still falls through to the working copy, as before.
     //
     // `OnMissing::Empty` rather than a hard error because a workspace that has
     // never been compiled is a real state here, and the rebuild has nothing to
     // do rather than something to fail at.
+    let revision_id =
+        crate::server::api::compiled_reader::resolve_request_revision(workspace_id, None).await;
     let builder = WorkspaceBuilder::new(workspace_id)
         .with_working_copy(
             std::path::Path::new(path),
-            None,
+            revision_id,
             oxy::config::OnMissing::Empty,
         )
         .await
@@ -128,4 +125,117 @@ pub(super) fn manifest_write_lock_for(workspace_id: Uuid) -> Arc<TokioMutex<()>>
             .entry(workspace_id)
             .or_insert_with(|| Arc::new(TokioMutex::new(()))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    //! DB-backed; skips when `OXY_DATABASE_URL` is unset (`test_support::test_db`).
+    //! Every row it writes is keyed by a fresh workspace id, so it needs no lock.
+
+    use entity::{revisions, workspace_compiled_configs, workspaces};
+    use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
+    use uuid::Uuid;
+
+    use super::build_workspace_manager;
+    use crate::server::test_support::{SKIP_MSG, test_db};
+
+    /// A workspace whose `path` is a directory with no `config.yml` — a worker
+    /// node, which has the column but not the checkout — and a promoted revision
+    /// carrying a compiled config.
+    async fn seed_promoted_workspace(db: &DatabaseConnection, path: &str) -> (Uuid, Uuid) {
+        let now = chrono::Utc::now().fixed_offset();
+        let workspace_id = Uuid::new_v4();
+        workspaces::ActiveModel {
+            id: Set(workspace_id),
+            name: Set(format!("preagg-ws-{workspace_id}")),
+            git_namespace_id: Set(None),
+            git_remote_url: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            path: Set(Some(path.to_string())),
+            last_opened_at: Set(None),
+            created_by: Set(None),
+            org_id: Set(None),
+            status: Set(workspaces::WorkspaceStatus::Ready),
+            error: Set(None),
+            monthly_vlm_budget_micros: Set(None),
+            current_revision_id: Set(None),
+        }
+        .insert(db)
+        .await
+        .expect("seed workspace");
+
+        let revision_id = Uuid::new_v4();
+        revisions::ActiveModel {
+            revision_id: Set(revision_id),
+            workspace_id: Set(workspace_id),
+            git_sha: Set(format!("sha-{revision_id}")),
+            branch: Set(Some("main".to_string())),
+            schema_version: Set(1),
+            status: Set("ready".to_string()),
+            kind: Set("main".to_string()),
+            owner_user_id: Set(None),
+            compiler_version: Set("test".to_string()),
+            started_at: Set(now),
+            finished_at: Set(Some(now)),
+            file_count_seen: Set(0),
+            file_count_compiled: Set(0),
+            file_count_failed: Set(0),
+            error_summary: Set(None),
+        }
+        .insert(db)
+        .await
+        .expect("seed revision");
+
+        workspace_compiled_configs::ActiveModel {
+            revision_id: Set(revision_id),
+            databases: Set(serde_json::json!([])),
+            models: Set(Some(serde_json::json!([]))),
+            integrations: Set(None),
+            repositories: Set(None),
+            builder_agent: Set(None),
+            mcp: Set(None),
+            other: Set(None),
+        }
+        .insert(db)
+        .await
+        .expect("seed compiled config");
+
+        let mut ws: workspaces::ActiveModel = workspaces::Entity::find_by_id(workspace_id)
+            .one(db)
+            .await
+            .expect("load workspace")
+            .expect("workspace exists")
+            .into();
+        ws.current_revision_id = Set(Some(revision_id));
+        ws.update(db).await.expect("promote revision");
+
+        (workspace_id, revision_id)
+    }
+
+    /// Regression: the cycle built the workspace with no revision, so the
+    /// builder read the (absent) working copy. On a worker the semantic scan
+    /// then found nothing and enqueued a lazy self-heal compile — which, since
+    /// it succeeds, re-ran on every preagg heartbeat and promoted a fresh
+    /// `local-<uuid>` revision every ~5 minutes.
+    #[tokio::test]
+    async fn builds_from_the_promoted_revision_not_the_working_copy() {
+        let Some(db) = test_db().await else {
+            eprintln!("{SKIP_MSG}");
+            return;
+        };
+        let no_checkout = tempfile::tempdir().expect("tempdir");
+        let (workspace_id, revision_id) =
+            seed_promoted_workspace(&db, no_checkout.path().to_str().unwrap()).await;
+
+        let wm = build_workspace_manager(&db, workspace_id)
+            .await
+            .expect("build workspace manager");
+
+        assert_eq!(
+            wm.config_manager.revision_id(),
+            Some(revision_id),
+            "preagg must read the promoted revision, not the working copy"
+        );
+    }
 }

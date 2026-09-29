@@ -24,19 +24,15 @@
 //! coming and cannot be rebuilt — its leftovers need a retraction, which is
 //! `preagg_retract`'s job and not something a cycle tick reaches.
 //!
-//! **What this does not promise.** The tick's oracle is not the builder's
-//! source. This reads the promoted revision out of Postgres; the cycle it
-//! enqueues resolves its views through `preagg_executor::load_views` →
-//! `resolve_query_scan_source` → `scan_dir`, and the `WorkspaceManager` that
-//! path gets is built by `preagg_workspace::build_workspace_manager` with no
-//! revision hint — which is `Origin::Disk`, so it reads the working copy as
-//! checked out on whichever node drew the task. Detecting from Postgres is
-//! still right here, because it is the only fact that reads the same from
-//! every node; but a node sitting on a feature branch will correctly detect a
-//! hash a `main` promote added and then build that branch's rollups instead.
-//! So: this makes the build *attempt* prompt, not the build itself certain.
-//! Closing the rest means giving the cycle a pinned revision, which is a
-//! change to what every cycle reads and not something a tick can decide.
+//! **The tick's oracle is the builder's source.** This reads the promoted
+//! revision out of Postgres, and the cycle it enqueues resolves its views
+//! through `preagg_executor::load_views` → `resolve_query_scan_source` →
+//! `scan_dir` on a `WorkspaceManager` that
+//! `preagg_workspace::build_workspace_manager` pins to that same promoted
+//! revision — so a hash detected here is the hash the cycle builds, on every
+//! node. The one gap: a cycle claimed before this promote landed may already
+//! hold the previous revision, which is why the enqueue joins only a *queued*
+//! cycle, never a claimed one.
 
 use std::collections::BTreeSet;
 
