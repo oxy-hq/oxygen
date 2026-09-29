@@ -238,19 +238,32 @@ jobs:
       - name: Install dependencies & Build web-app
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
-          # Sentry `oxy-web`, stable releases only: an edge build has no X.Y.Z to
-          # name its release. Empty values keep the bundle dark and the build
-          # map-free (web-app/vite.config.ts UPLOAD_SOURCEMAPS), which is also what
-          # a repo without these secrets gets. No environment here: one image
-          # serves staging then prod, so web-app/src/sentry.ts reads it from the
-          # host. This workflow runs only in oxy-hq/oxygen; the secrets live there.
-          VITE_SENTRY_DSN: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
-            secrets.VITE_SENTRY_DSN || '' }}
+          # Sentry `oxy-web`, on EVERY build. It used to be stable releases only,
+          # on the reasoning that an edge build has no X.Y.Z to name its release.
+          # Under the deploy train that left production dark: prod serves
+          # `main-<sha>` images, and the weekly `X.Y.Z` image is a retag of one,
+          # so from the 2026-09-25 cutover no bundle any customer loaded had a
+          # DSN. An edge build names its release as the backend does,
+          # `oxy@<version>+<sha>` (crates/core/src/sentry_config.rs release_id), so
+          # a page's errors and the server's share a release — set in `run:`
+          # below, where Cargo.toml is readable. Empty secrets still keep the
+          # bundle dark and the build map-free (web-app/vite.config.ts
+          # UPLOAD_SOURCEMAPS), which is what a repo without them gets. No
+          # environment here: one image serves dev, staging and prod, so
+          # web-app/src/sentry.ts reads it from the host. This workflow runs only
+          # in oxy-hq/oxygen; the secrets live there.
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN || '' }}
           VITE_SENTRY_RELEASE: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
             format('oxy@{0}', needs.determine-build-type.outputs.version) || '' }}
-          SENTRY_AUTH_TOKEN: ${{ needs.determine-build-type.outputs.is_stable == 'true' &&
-            secrets.SENTRY_AUTH_TOKEN || '' }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN || '' }}
+          SHORT_SHA: ${{ needs.determine-build-type.outputs.short_sha }}
         run: |
+          if [[ -z "$VITE_SENTRY_RELEASE" ]]; then
+            # The workspace version, as the server binary reports it.
+            version=$(grep -A5 '^\[workspace\.package\]' Cargo.toml | sed -nE 's/^version *= *"([^"]+)".*/\1/p' | head -1)
+            export VITE_SENTRY_RELEASE="oxy@${version}+${SHORT_SHA}"
+          fi
+          echo "web-app Sentry: release ${VITE_SENTRY_RELEASE}, DSN $([[ -n "$VITE_SENTRY_DSN" ]] && echo set || echo empty)"
           pnpm install --frozen-lockfile --prefer-offline
           pnpm build
 
