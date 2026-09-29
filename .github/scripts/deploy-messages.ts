@@ -108,8 +108,23 @@ export interface Explained {
   known: boolean;
 }
 
+/**
+ * Sentry's list of the unresolved issues this build brought to staging — the
+ * same query `promote.yaml` counts for the gate, so the link opens exactly what
+ * blocked it. The org is `SENTRY_ORG` in promote.yaml. The project is explicit:
+ * without it the page falls back to the reader's last-used selection, and a
+ * reader last on another project opens the link to an empty list. The gate
+ * counts in project `oxy`; its numeric id comes from the issues themselves when
+ * the gate kept them, else `-1` (all projects), which still contains them.
+ */
+export function sentryIssuesUrl(version: string | null, build: string, projectId?: string | number | null): string | null {
+  if (!version) return null;
+  const query = `is:unresolved first-release:oxy@${version}+${build}`;
+  return `https://oxygen-intelligence.sentry.io/issues/?project=${projectId ?? -1}&environment=staging&query=${encodeURIComponent(query)}`;
+}
+
 /** The gate's reason, said for people. Order does not matter: the patterns are disjoint. */
-export function explainGate(why: string): Explained {
+export function explainGate(why: string, { sentryUrl = null }: { sentryUrl?: string | null } = {}): Explained {
   const known = (reason: string, action: string): Explained => ({ reason, action, known: true });
   let m: RegExpExecArray | null;
   if (/^no promotable digest/.test(why))
@@ -148,11 +163,15 @@ export function explainGate(why: string): Explained {
       "the error check on staging could not run, so the release cannot be judged safe.",
       "an engineer restores the pipeline's Sentry access (`SENTRY_READ_TOKEN`)."
     );
-  if ((m = /^(\d+) new unresolved Sentry issue/.exec(why)))
+  if ((m = /^(\d+) new unresolved Sentry issue/.exec(why))) {
+    const one = Number(m[1]) === 1;
+    const it = one ? "it" : "them";
+    const where = sentryUrl ? `<${sentryUrl}|in Sentry>` : "in Sentry";
     return known(
       `${plural(Number(m[1]), "new error")} appeared on staging with this build.`,
-      "an engineer triages them in Sentry. Resolving or ignoring them lets the release continue."
+      `an engineer triages ${it} ${where}. Resolving or ignoring ${it} lets the release continue.`
     );
+  }
   if (/^outside the promote window/.test(why))
     return known(`releases go out ${WINDOW_TEXT}, and it is outside that window.`, "nothing — it can ship in the next window.");
   if (/moved on ghcr after staging was pinned/.test(why))
@@ -178,7 +197,48 @@ export interface ReleaseFacts {
   compareUrl: string | null;
   runUrl: string | null;
   changes: Changes | null;
+  /** The Sentry issues the gate counted, when Sentry is why it is blocked. */
+  issues?: SentryIssue[] | null;
 }
+
+/** One issue as Sentry's issues API returns it; only what the messages show. */
+export interface SentryIssue {
+  title?: string;
+  level?: string;
+  count?: string | number;
+  permalink?: string;
+  project?: { id?: string | number };
+}
+
+/**
+ * A title safe to show: one line, no characters Slack or markdown would read as
+ * markup, and cut at a word with "…". A title cut mid-word was read as meaning
+ * something it did not ("…fleet-wide. Low" looked like a priority). `&` is
+ * escaped rather than stripped, after the cut so an entity is never split: both
+ * Slack and GitHub decode entities, so an unescaped `&lt;` in an error message
+ * would show as `<` — something other than the error text.
+ */
+export function issueTitle(raw: string | undefined, max = 90): string {
+  const t = (raw || "untitled").replace(/[\r\n`<>|*_~[\]]+/g, " ").replace(/\s+/g, " ").trim();
+  const cut = t.slice(0, max);
+  const shown =
+    t.length <= max ? t : `${cut.slice(0, cut.lastIndexOf(" ") > max / 2 ? cut.lastIndexOf(" ") : max).trimEnd()}…`;
+  return shown.replace(/&/g, "&amp;");
+}
+
+/** The issues as a list: Slack bullets, or markdown for a PR comment. At most 3, then a count. */
+export function issueList(issues: SentryIssue[], format: "slack" | "markdown"): string {
+  const shown = issues.slice(0, 3).map((i) => {
+    const events = i.count === undefined ? "" : ` · ${i.count} ${Number(i.count) === 1 ? "event" : "events"}`;
+    const level = i.level ? `\`${i.level}\` ` : "";
+    if (format === "markdown") return `- ${level}${issueTitle(i.title)}${events}${i.permalink ? ` · ${i.permalink}` : ""}`;
+    return `• ${level}${i.permalink ? `<${i.permalink}|${issueTitle(i.title)}>` : issueTitle(i.title)}${events}`;
+  });
+  const more = issues.length > 3 ? `${format === "markdown" ? "- " : "• "}…and ${issues.length - 3} more` : "";
+  return lines(...shown, more);
+}
+
+const blockedBySentry = (why: string) => /^\d+ new unresolved Sentry issue/.test(why);
 
 const name = (f: ReleaseFacts) =>
   f.version ? `Oxygen ${f.version} (build \`${f.build}\`)` : `Oxygen build \`${f.build}\``;
@@ -209,7 +269,7 @@ export function stuckMessage(
   f: ReleaseFacts,
   { blocked, gateWhy, onStagingSince, now }: { blocked: boolean; gateWhy: string; onStagingSince: string | null; now: string }
 ): string {
-  const e = explainGate(gateWhy);
+  const e = explainGate(gateWhy, { sentryUrl: sentryIssuesUrl(f.version, f.build, f.issues?.[0]?.project?.id) });
   const waited = onStagingSince ? (Date.parse(now) - Date.parse(onStagingSince)) / 60000 : null;
   const head = blocked
     ? `:octagonal_sign: *A release needs a person before it can reach customers* — ${name(f)}`
@@ -230,6 +290,7 @@ export function stuckMessage(
     head,
     `${customers}${f.changes ? ` Waiting to ship: ${changesText(f.changes)}.` : ""}${onStagingSince ? ` On staging since ${slackTime(onStagingSince)}.` : ""}`,
     `*Why:* ${e.reason}`,
+    blockedBySentry(gateWhy) && f.issues?.length ? issueList(f.issues, "slack") : "",
     `*What to do:* ${e.action}`,
     details([
       [f.prUrl, f.prNumber ? `release PR #${f.prNumber}` : "release PR"],
@@ -350,6 +411,19 @@ function selfTest(): void {
   is("...and asks an engineer to look", explainGate("gremlins").known, false);
   has("a failed check", explainGate("staging checks are failed").reason, "failed");
   has("a Sentry count", explainGate("3 new unresolved Sentry issue(s) in this release on staging").reason, "3 new errors");
+  is(
+    "one new error is \"it\", and links the gate's own Sentry query",
+    explainGate("1 new unresolved Sentry issue(s) in this release on staging", { sentryUrl: sentryIssuesUrl("0.5.153", "1a8c22d") }).action,
+    "an engineer triages it <https://oxygen-intelligence.sentry.io/issues/?project=-1&environment=staging&query=is%3Aunresolved%20first-release%3Aoxy%400.5.153%2B1a8c22d|in Sentry>. Resolving or ignoring it lets the release continue."
+  );
+  is("with no version there is no link to build", sentryIssuesUrl(null, "1a8c22d"), null);
+  has("the link names the issues' own project when it is known", sentryIssuesUrl("0.5.153", "1a8c22d", 4507123) ?? "", "?project=4507123&");
+  is("an entity in an error message shows as written, not decoded", issueTitle("a &lt; b & c"), "a &amp;lt; b &amp; c");
+  is(
+    "...and a cut never splits one",
+    issueTitle(`${"word ".repeat(17)}a&b`, 90).includes("&amp;") || !issueTitle(`${"word ".repeat(17)}a&b`, 90).includes("&"),
+    true
+  );
 
   // Counting a release.
   const c = summarize(
@@ -412,6 +486,40 @@ function selfTest(): void {
   const broken = buildBrokenMessage({ failed: "abc1234", lastGood: "b7f49d7", runUrl: "https://x/run" });
   has("a broken build", broken, "Nothing newer than build `b7f49d7` can be released until a build succeeds. Customers are not affected.");
 
+  // Naming the Sentry issues (the real ones that blocked 2026-09-28/29).
+  const longTitle =
+    "connection budget is oversubscribed: at this pool ceiling the server can afford only this many processes fleet-wide. Lower the pool or raise the budget";
+  const cutTitle = issueTitle(longTitle);
+  is("a long title is cut with an ellipsis", cutTitle.endsWith("…"), true);
+  is("...at a word, so a fragment never reads as a label", /\bLow…$/.test(cutTitle), false);
+  is("markup characters are flattened", issueTitle("a `b` <c>|d\ne"), "a b c d e");
+  const blocking: SentryIssue[] = [
+    { title: "executor failed to start task", level: "error", count: "2", permalink: "https://oxygen-intelligence.sentry.io/issues/7759589828/" }
+  ];
+  is(
+    "a Slack line links the issue by its title",
+    issueList(blocking, "slack"),
+    "• `error` <https://oxygen-intelligence.sentry.io/issues/7759589828/|executor failed to start task> · 2 events"
+  );
+  is(
+    "a markdown line for the PR comment",
+    issueList(blocking, "markdown"),
+    "- `error` executor failed to start task · 2 events · https://oxygen-intelligence.sentry.io/issues/7759589828/"
+  );
+  has("more than three are counted, not listed", issueList([...blocking, ...blocking, ...blocking, ...blocking, ...blocking], "slack"), "…and 2 more");
+  const sentryBlocked = stuckMessage(
+    { ...facts, build: "1a8c22d", version: "0.5.153", prodVersion: "0.5.153", prodBuild: "b7f49d7", issues: blocking },
+    { blocked: true, gateWhy: "1 new unresolved Sentry issue(s) in this release on staging", onStagingSince: null, now: "2026-09-29T02:05:00.000Z" }
+  );
+  has("a Sentry block names the issue", sentryBlocked, "|executor failed to start task> · 2 events");
+  has("...and says \"it\" for one", sentryBlocked, "an engineer triages it <https://oxygen-intelligence.sentry.io/issues/");
+  has(
+    "a block for another reason lists no issues",
+    stuckMessage({ ...facts, issues: blocking }, { blocked: true, gateWhy: "the bump PR carries release-hold; a person clears it", onStagingSince: null, now: "2026-09-29T02:05:00.000Z" }),
+    "executor failed",
+    false
+  );
+
   if (fails.length) {
     console.error(`deploy-messages.ts self-test: ${fails.length} failure(s)\n  ${fails.join("\n  ")}`);
     process.exit(1);
@@ -437,16 +545,30 @@ if (!invokedDirectly) {
 } else {
   const kind = process.argv[2];
   const planPath = arg("plan");
-  if (!planPath || !["ready", "stuck", "build-broken"].includes(kind ?? "")) {
-    console.error("usage: deploy-messages.ts ready|stuck|build-broken --plan <plan.json> [--run-url <url>] | --self-test");
+  if (!planPath || !["ready", "stuck", "build-broken", "sentry-list"].includes(kind ?? "")) {
+    console.error(
+      "usage: deploy-messages.ts ready|stuck|build-broken|sentry-list --plan <plan.json> [--sentry <issues.json>] [--run-url <url>] | --self-test"
+    );
     process.exit(1);
   }
   const plan = JSON.parse(await readFile(planPath, "utf8")) as Plan;
   const runUrl = arg("run-url");
-  if (kind === "build-broken") {
+  // The issues the gate counted (promote.yaml's Sentry step). Absent or not a
+  // list means the message says the count only, as before.
+  const sentryPath = arg("sentry");
+  const issues = sentryPath
+    ? await readFile(sentryPath, "utf8")
+        .then((s) => JSON.parse(s) as unknown)
+        .then((j) => (Array.isArray(j) ? (j as SentryIssue[]) : null))
+        .catch(() => null)
+    : null;
+  if (kind === "sentry-list") {
+    // For the PR comment: the list, only when Sentry is the reason.
+    if (issues?.length && blockedBySentry(plan.prod.why)) console.log(issueList(issues, "markdown"));
+  } else if (kind === "build-broken") {
     console.log(buildBrokenMessage({ failed: plan.buildRun?.sha ?? "unknown", lastGood: plan.candidate?.sha ?? null, runUrl: plan.buildRun?.url ?? runUrl }));
   } else {
-    const facts = await factsFrom(plan, runUrl, process.env.INFRA_REPO || "oxy-hq/infrastructure");
+    const facts = { ...(await factsFrom(plan, runUrl, process.env.INFRA_REPO || "oxy-hq/infrastructure")), issues };
     console.log(
       kind === "ready"
         ? readyMessage(facts)

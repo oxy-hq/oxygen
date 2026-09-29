@@ -223,18 +223,28 @@ jobs:
             exit 0
           fi
           RELEASE="oxy@${VERSION}+${SHA}"
-          COUNT=$(curl -fsS -m 30 -G \
+          # The issues themselves are kept, not only their number: the stuck
+          # alert names them (deploy-messages.ts --sentry). Only a list counts,
+          # as in custom-app-checks.yaml — `length` of an error object would be
+          # its number of keys, read as that many issues.
+          rm -f sentry-issues.json
+          COUNT=""
+          if curl -fsS -m 30 -G -o sentry-issues.json \
             -H "Authorization: Bearer ${SENTRY_READ_TOKEN}" \
             --data-urlencode "query=is:unresolved first-release:${RELEASE}" \
             --data-urlencode "environment=staging" \
             --data-urlencode "statsPeriod=24h" \
-            "${SENTRY_API}/projects/${SENTRY_ORG}/oxy/issues/" | jq 'length') || COUNT=""
+            "${SENTRY_API}/projects/${SENTRY_ORG}/oxy/issues/"; then
+            COUNT=$(jq -e 'if type == "array" then length else error("not a list") end' sentry-issues.json 2>/dev/null) || COUNT=""
+          fi
           if [[ -z "$COUNT" ]]; then
-            echo "::warning::Sentry did not answer for ${RELEASE}; not measured"
+            rm -f sentry-issues.json
+            echo "::warning::Sentry did not answer with a list of issues for ${RELEASE}; not measured"
             echo "count=-1" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "${COUNT} unresolved issue(s) first seen in ${RELEASE} on staging"
+          jq -r '.[] | "  \(.level) · \(.title) · \(.permalink)"' sentry-issues.json
           echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
 
       # Pass 2 decides. `--dispatched` only on a manual run: that is what waives
@@ -722,15 +732,27 @@ jobs:
           # The words live in deploy-messages.ts (why it is not moving, said for
           # people, and who acts). The fallback keeps the alert when it fails: a
           # silent stuck train is the failure this step exists to end.
-          if ! TEXT="$(node .github/scripts/deploy-messages.ts stuck --plan plan2.json --run-url "$RUN_URL")"; then
+          if ! TEXT="$(node .github/scripts/deploy-messages.ts stuck --plan plan2.json --sentry sentry-issues.json --run-url "$RUN_URL")"; then
             echo "::warning::deploy-messages.ts failed; posting the plain fallback"
             TEXT=":hourglass_flowing_sand: *Changes are waiting to reach customers* — build \`${CANDIDATE:-none}\` (${STUCK_WHY}; ${WHY}). <${RUN_URL}|pipeline run>"
           fi
           "${GITHUB_WORKSPACE}/.github/scripts/slack-post.sh" "$TEXT"
           if [[ -n "${PR:-}" ]]; then
+            # Which issues, when Sentry is the reason; empty otherwise. A failure
+            # is said, not swallowed — the comment then carries the count alone.
+            if ! ISSUES="$(node .github/scripts/deploy-messages.ts sentry-list --plan plan2.json --sentry sentry-issues.json)"; then
+              echo "::warning::could not list the Sentry issues for the stuck-alert comment"
+              ISSUES=""
+            fi
+            # `reason:` is read back by promote.ts (stuckCommentWhy): a new build
+            # blocked for the same reason is not re-announced the same day.
             gh pr comment "$PR" --repo "$INFRA_REPO" --body "stuck-alert: main-${CANDIDATE}
 
-          ${STUCK_WHY}. Prod gate says: ${WHY}. ${RUN_URL}"
+          reason: ${WHY}
+
+          ${STUCK_WHY}. Prod gate says: ${WHY}. ${RUN_URL}${ISSUES:+
+
+          ${ISSUES}}"
           fi
 
       # A signing (or any) failure in the mirror's release run publishes no

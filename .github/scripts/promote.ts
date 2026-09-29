@@ -133,7 +133,15 @@ interface StuckState {
   /** A deliberate stop is not an incident. */
   held?: boolean;
   soakStartedAt?: Date | null;
-  alertedAt?: Date | null;
+  /** The gate's reason now. */
+  why?: string;
+  /**
+   * Every stuck alert on the bump PR in the last two days, for ANY digest. Keyed
+   * per digest, a new build blocked for the same reason read as a new alert, 5
+   * hours after the last; and remembering only the newest, two reasons that
+   * alternated would each read as new and post on every pass.
+   */
+  alerts?: { at: Date; why: string | null }[];
 }
 
 interface Window {
@@ -203,6 +211,16 @@ const DEV_GRACE_MINUTES = 120;
  * ignores the window — a human asking for it at 22:00 has taken that decision.
  */
 const WINDOW = { days: [1, 2, 3, 4], fromHour: 9, toHour: 17, zone: "Asia/Ho_Chi_Minh" };
+
+/**
+ * When a stuck or blocked release may be said: Mon–Fri working hours, Ho Chi Minh.
+ *
+ * Production is fine while a release waits, so a post at 05:49 tells nobody
+ * anything they can act on, and a channel that posts at night gets skimmed.
+ * Wider than WINDOW on purpose: a blocked release is triaged on a Friday too.
+ * The rollback alarm is not this; it lives in infra and is never held.
+ */
+const TALK_WINDOW = { days: [1, 2, 3, 4, 5], fromHour: 9, toHour: 18, zone: "Asia/Ho_Chi_Minh" };
 
 /** Unresolved Sentry issues first seen in the candidate's release, above which prod waits. */
 const SENTRY_NEW_ISSUE_LIMIT = 0;
@@ -771,7 +789,8 @@ export const CHECKS_MARKER = (sha: string): string => `checks-dispatched: main-$
 export const READY_MARKER = (sha: string): string => `ready-for-merge: main-${sha}`;
 
 /** What it writes when it has raised the alarm about this digest being stuck. */
-export const STUCK_MARKER = (sha: string): string => `stuck-alert: main-${sha}`;
+const STUCK_PREFIX = "stuck-alert: main-";
+export const STUCK_MARKER = (sha: string): string => `${STUCK_PREFIX}${sha}`;
 
 /**
  * Whether anybody should be told this digest is not moving.
@@ -785,35 +804,76 @@ export const STUCK_MARKER = (sha: string): string => `stuck-alert: main-${sha}`;
  *   the digest; with no soak marker there is nothing to measure and nothing is
  *   claimed.
  *
- * `alertedAt` is the last alert for this digest, so a stuck train says so again
- * every [`STUCK_MINUTES`] rather than once and then never again.
+ * How often: once per REASON per working day, and only in working hours
+ * ([`TALK_WINDOW`]). It used to be once per digest every [`STUCK_MINUTES`], around
+ * the clock. One Sentry issue then produced three posts in eleven hours: a new
+ * build restarted the count, and the third landed at 05:49 for a problem nobody
+ * could act on before 09:00. Now a new build blocked for the same reason is not
+ * news, a different reason is said at once (in hours), and a situation that
+ * persists is said again the next working day, not every six hours.
  */
 export function stuckAlert(
   state: StuckState,
   { now }: { now: Date }
 ): { alert: boolean; why: string } {
-  const { kind, soakStartedAt, alertedAt, held } = state;
-  const since = (t: Date | null | undefined) =>
-    t ? (now.getTime() - t.getTime()) / 60000 : Infinity;
-  if (since(alertedAt) < STUCK_MINUTES) return { alert: false, why: "already said so" };
+  const { kind, soakStartedAt, alerts = [], held, why } = state;
   if (held)
     return {
       // Somebody stopped the train on purpose. Saying it once is useful; paging
-      // them about their own decision every six hours is how a channel gets
-      // muted, and a muted channel loses the alerts that are not decisions.
+      // them about their own decision is how a channel gets muted, and a muted
+      // channel loses the alerts that are not decisions.
       alert: false,
       why: "held on purpose; the person who set release-hold already knows"
     };
-  if (kind === "blocked") return { alert: true, why: "blocked; a person has to clear it" };
-  if (kind !== "waiting") return { alert: false, why: kind ?? "no verdict" };
-  if (!soakStartedAt) return { alert: false, why: "not on staging yet; nothing to time" };
-  const waited = since(soakStartedAt);
-  if (waited < STUCK_MINUTES)
-    return {
-      alert: false,
-      why: `waiting ${Math.floor(waited)}m, under the ${STUCK_MINUTES}m alarm`
-    };
-  return { alert: true, why: `waiting ${Math.floor(waited)}m without reaching prod` };
+  if (kind !== "blocked" && kind !== "waiting") return { alert: false, why: kind ?? "no verdict" };
+  let said = "blocked; a person has to clear it";
+  if (kind === "waiting") {
+    if (!soakStartedAt) return { alert: false, why: "not on staging yet; nothing to time" };
+    const waited = (now.getTime() - soakStartedAt.getTime()) / 60000;
+    if (waited < STUCK_MINUTES)
+      return { alert: false, why: `waiting ${Math.floor(waited)}m, under the ${STUCK_MINUTES}m alarm` };
+    said = `waiting ${Math.floor(waited)}m without reaching prod`;
+  }
+  if (!inWindow(now, TALK_WINDOW))
+    return { alert: false, why: "outside working hours (Mon–Fri 09:00–18:00 Asia/Ho_Chi_Minh); said at the next opening" };
+  // Every reason said today, not only the latest: at most one post per reason
+  // per day, however often the gate flips between them.
+  const today = localDay(now);
+  const key = reasonKey(why);
+  if (alerts.some((a) => localDay(a.at) === today && reasonKey(a.why) === key))
+    return { alert: false, why: "already said today, for the same reason" };
+  return { alert: true, why: said };
+}
+
+/**
+ * The gate's reason with its counts and ids blanked, so "1 new Sentry issue" and
+ * "2 new Sentry issues", or one digest's drift and the next's, are one reason.
+ */
+export function reasonKey(why: string | null | undefined): string {
+  return (why ?? "")
+    .replace(/\b[0-9a-f]{7,64}\b/g, "<id>")
+    .replace(/\d+/g, "#")
+    .trim();
+}
+
+/** The calendar day in Ho Chi Minh: "once a day" means the team's day, not UTC's. */
+function localDay(at: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TALK_WINDOW.zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(at);
+}
+
+/**
+ * The reason a stuck-alert comment recorded: its `reason:` line, or, on comments
+ * written before that line existed, the "Prod gate says: …" sentence.
+ */
+export function stuckCommentWhy(body: string): string | null {
+  const line = /^reason: (.+)$/m.exec(body)?.[1];
+  if (line) return line.trim();
+  return /Prod gate says: (.+?)\.\s+https?:\/\//.exec(body)?.[1] ?? null;
 }
 
 /**
@@ -913,6 +973,27 @@ async function markerAt(
   );
 }
 
+/**
+ * Every stuck-alert comment on the bump PR in the last two days, for any digest,
+ * with the reason each recorded. Only the last two days: the endpoint lists
+ * oldest first, 100 to a page, so on a long-lived PR an unfiltered first page
+ * never reaches the newest comments.
+ */
+async function recentStuckAlerts(
+  token: Token,
+  { repo, pr, now }: { repo: string; pr?: number; now: Date }
+): Promise<{ at: Date; why: string | null }[]> {
+  if (!pr) return [];
+  const since = new Date(now.getTime() - 2 * 86400000).toISOString();
+  const comments = await gh<{ body?: string; created_at: string }[]>(
+    `/repos/${repo}/issues/${pr}/comments?per_page=100&since=${since}`,
+    { token }
+  );
+  return comments
+    .filter((c) => c.body?.startsWith(STUCK_PREFIX))
+    .map((c) => ({ at: new Date(c.created_at), why: stuckCommentWhy(c.body ?? "") }));
+}
+
 // ── Plan ────────────────────────────────────────────────────────────────────
 
 async function plan({
@@ -980,9 +1061,7 @@ async function plan({
   const readyAt = candidate
     ? await markerAt(infraToken, { ...infra, marker: READY_MARKER(candidate.sha) })
     : null;
-  const alertedAt = candidate
-    ? await markerAt(infraToken, { ...infra, marker: STUCK_MARKER(candidate.sha), pick: "latest" })
-    : null;
+  const alerts = candidate ? await recentStuckAlerts(infraToken, { ...infra, now }) : [];
   const dispatchedAt = candidate
     ? await markerAt(infraToken, {
         ...infra,
@@ -1078,7 +1157,7 @@ async function plan({
     // for somebody to go looking.
     notifyReady: gate.promote && !readyAt,
     stuck: stuckAlert(
-      { kind: gate.kind, soakStartedAt: since, alertedAt, held: pr?.held ?? false },
+      { kind: gate.kind, why: gate.why, soakStartedAt: since, alerts, held: pr?.held ?? false },
       { now }
     ),
     // Once, when staging first has it. `soakStartedAt` is the "not yet".
@@ -1304,46 +1383,96 @@ function selfTest(): void {
   );
 
   // Telling somebody. The reconciler's own run summary is not telling somebody.
+  // `now` is Wed 10:00 in Ho Chi Minh — inside working hours.
+  const sentryWhy = "1 new unresolved Sentry issue(s) in this release on staging";
   const stuckBase: StuckState = {
     kind: "waiting",
+    why: "staging checks are pending",
     soakStartedAt: new Date(now.getTime() - 30 * 60000),
-    alertedAt: null
+    alerts: []
   };
+  const blocked: StuckState = { ...stuckBase, kind: "blocked", why: sentryWhy };
+  const earlierToday = new Date("2026-09-23T02:10:00Z"); // 09:10 local, same day
   is("an ordinary wait says nothing", stuckAlert(stuckBase, { now }).alert, false);
-  is(
-    "blocked is said at once — by construction a person has to act",
-    stuckAlert({ ...stuckBase, kind: "blocked" }, { now }).alert,
-    true
-  );
+  is("blocked is said at once in working hours — a person has to act", stuckAlert(blocked, { now }).alert, true);
   is(
     "waiting past the alarm is said",
-    stuckAlert({ ...stuckBase, soakStartedAt: new Date(now.getTime() - 400 * 60000) }, { now })
-      .alert,
+    stuckAlert({ ...stuckBase, soakStartedAt: new Date(now.getTime() - 400 * 60000) }, { now }).alert,
     true
   );
+  // The three posts in eleven hours on 2026-09-28/29, one case each.
   is(
-    "having already said it, it is not said again straight away",
+    "a new build blocked for the same reason the same day is not news",
+    stuckAlert({ ...blocked, alerts: [{ at: earlierToday, why: sentryWhy }] }, { now }).alert,
+    false
+  );
+  is(
+    "...nor is the same reason with a different count",
     stuckAlert(
-      {
-        ...stuckBase,
-        soakStartedAt: new Date(now.getTime() - 400 * 60000),
-        alertedAt: new Date(now.getTime() - 10 * 60000)
-      },
+      { ...blocked, why: "2 new unresolved Sentry issue(s) in this release on staging", alerts: [{ at: earlierToday, why: sentryWhy }] },
       { now }
     ).alert,
     false
   );
   is(
-    "but a still-stuck train says so again once the window passes",
+    "nothing is said at 05:49 — production is fine and nobody acts before 09:00",
+    stuckAlert(blocked, { now: new Date("2026-09-22T22:49:00Z") }).alert,
+    false
+  );
+  is("...or on a Saturday", stuckAlert(blocked, { now: new Date("2026-09-26T03:00:00Z") }).alert, false);
+  is(
+    "...and a long wait outside hours waits for the morning too",
     stuckAlert(
-      {
-        ...stuckBase,
-        soakStartedAt: new Date(now.getTime() - 800 * 60000),
-        alertedAt: new Date(now.getTime() - 400 * 60000)
-      },
-      { now }
+      { ...stuckBase, soakStartedAt: new Date("2026-09-22T10:00:00Z") },
+      { now: new Date("2026-09-22T22:49:00Z") }
     ).alert,
+    false
+  );
+  is(
+    "a different reason is news the same day",
+    stuckAlert({ ...blocked, alerts: [{ at: earlierToday, why: "staging checks are pending" }] }, { now }).alert,
     true
+  );
+  is(
+    "a situation that persists is said again the next working day",
+    stuckAlert({ ...blocked, alerts: [{ at: new Date("2026-09-22T09:00:00Z"), why: sentryWhy }] }, { now }).alert,
+    true
+  );
+  is(
+    "an alert whose reason could not be read counts as a different reason",
+    stuckAlert({ ...blocked, alerts: [{ at: earlierToday, why: null }] }, { now }).alert,
+    true
+  );
+  // A flaky Sentry read flips the gate between "N new issues" and "not
+  // measured". Remembering only the newest alert, each flip read as news and
+  // posted on every 15-minute pass.
+  const unmeasured =
+    "new-Sentry-issue count was not measured (SENTRY_READ_TOKEN unset?); a gate that passes unmeasured is not a gate";
+  const flipped = [
+    { at: earlierToday, why: sentryWhy },
+    { at: new Date("2026-09-23T02:25:00Z"), why: unmeasured }
+  ];
+  is(
+    "reasons that alternate are each said once a day, not on every flip",
+    [stuckAlert({ ...blocked, why: sentryWhy, alerts: flipped }, { now }).alert, stuckAlert({ ...blocked, why: unmeasured, alerts: flipped }, { now }).alert],
+    [false, false]
+  );
+  is(
+    "a stuck-alert comment's reason line is read",
+    stuckCommentWhy(`stuck-alert: main-1a8c22d\n\nreason: ${sentryWhy}\n\nblocked; a person has to clear it.`),
+    sentryWhy
+  );
+  is(
+    "...and on older comments, the reason is read from the sentence",
+    stuckCommentWhy(
+      `stuck-alert: main-1a8c22d\n\nblocked; a person has to clear it. Prod gate says: ${sentryWhy}. https://github.com/oxy-hq/oxygen-internal/actions/runs/1`
+    ),
+    sentryWhy
+  );
+  is(
+    "one digest's drift and the next's are one reason",
+    reasonKey("main-abc1234 moved on ghcr after staging was pinned (staging ran 111111111111, ghcr now 222222222222); not proposing"),
+    reasonKey("main-def5678 moved on ghcr after staging was pinned (staging ran 333333333333, ghcr now 444444444444); not proposing")
   );
   is(
     "a digest that never reached staging is not called stuck",
@@ -1563,6 +1692,14 @@ function selfTest(): void {
   // `steps.merge.outputs.merged` — the merge already carried the clause, so
   // anything downstream of it inherits the scoping.
   const workflow = readFileSync(new URL("../workflows/promote.yaml", import.meta.url), "utf8");
+  // One format, two writers: the workflow writes the stuck-alert comment by hand
+  // and `recentStuckAlerts` reads it back by STUCK_PREFIX. A drift between them
+  // is a dedupe that never matches, i.e. the spam this was built to end.
+  is(
+    "the workflow writes the stuck marker the reader looks for",
+    workflow.includes(`--body "${STUCK_MARKER("${CANDIDATE}")}`),
+    true
+  );
   const WRITES = [
     "gh pr comment",
     "gh pr edit",
