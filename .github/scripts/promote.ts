@@ -24,8 +24,11 @@
 //     a mirror sha against oxygen-internal points at a commit that does not exist.
 //   * **A published image does not mean green CI.** `Public Release` triggers on a
 //     push to the mirror's main; `CI check` runs in oxygen-internal. So an image
-//     exists for commits whose tests failed. The candidate has to be checked
-//     against the INTERNAL commit's CI conclusion.
+//     exists for commits whose tests failed. A red commit is still PROMOTED — one
+//     failing test used to hold every environment on the last green build until
+//     somebody fixed it — but the INTERNAL commit's CI conclusion rides the
+//     candidate into a warning on the prod bump PR (`ciWarning`), and a candidate
+//     carrying that warning is never auto-merged.
 //   * **An absent CI run is not a failure.** `ci.yaml` is `paths-ignore`d for
 //     `docs/**` and `internal-docs/**`, so a docs-only commit legitimately has no
 //     run. Treating "no run" as "not verified" would stall the train behind a
@@ -65,7 +68,13 @@ interface Candidate {
   sha: string;
   /** The oxygen-internal commit behind it, via copybara's trailer. */
   internal: string | null;
+  /**
+   * The internal commit's `CI check` conclusion: `pending` while it runs, null
+   * when there is no run at all (a docs-only commit is `paths-ignore`d).
+   */
   ci: string | null;
+  /** That run's page, for the warning to link. Null when there is no run. */
+  ciUrl: string | null;
   subject: string;
   /** ISO 8601, from the mirror commit. Null when it could not be read. */
   committedAt: string | null;
@@ -225,7 +234,7 @@ const TALK_WINDOW = { days: [1, 2, 3, 4, 5], fromHour: 9, toHour: 18, zone: "Asi
 /** Unresolved Sentry issues first seen in the candidate's release, above which prod waits. */
 const SENTRY_NEW_ISSUE_LIMIT = 0;
 
-/** A CI conclusion that means "this commit is not promotable". Absence is not here. */
+/** A CI conclusion that means "this commit's tests did not pass". Absence is not here. */
 const CI_FAILED = new Set(["failure", "cancelled", "timed_out", "startup_failure"]);
 
 // ── Pure decisions ──────────────────────────────────────────────────────────
@@ -383,6 +392,39 @@ export function prodGate(
 export function originRevId(commitMessage: string | null | undefined): string | null {
   const line = /^GitOrigin-RevId:\s*([0-9a-f]{7,40})\s*$/im.exec(commitMessage ?? "");
   return line?.[1] ?? null;
+}
+
+/**
+ * The warning the prod bump PR opens with when the candidate's internal CI did
+ * not pass, or null when there is nothing to warn about.
+ *
+ * This is what stands in for the old refusal. Red CI used to drop a commit from
+ * the candidate walk, so one failing test held dev, staging and prod on the last
+ * green build — and nobody merging prod could tell that was why. Now the commit
+ * promotes and the person merging reads this first. `pending` warns too: the
+ * body is written once per proposal, so a run that fails after it would never
+ * reach the PR. No run at all (a docs-only commit) is not a warning.
+ */
+export function ciWarning(
+  candidate: { ci: string | null; ciUrl: string | null } | null
+): string | null {
+  if (!candidate?.ci) return null;
+  const run = candidate.ciUrl ? ` [The CI run.](${candidate.ciUrl})` : "";
+  if (CI_FAILED.has(candidate.ci))
+    return [
+      "> [!WARNING]",
+      `> **Internal CI did not pass on this commit** (\`${candidate.ci}\`). The deploy train`,
+      "> promoted it anyway; merge only once you know why it is red and accept shipping it.",
+      `>${run}`
+    ].join("\n");
+  if (candidate.ci === "pending")
+    return [
+      "> [!WARNING]",
+      "> **Internal CI had not finished** when this PR was written, and this body is not",
+      "> rewritten when it does. Check that it passed before you merge.",
+      `>${run}`
+    ].join("\n");
+  return null;
 }
 
 /**
@@ -576,14 +618,22 @@ async function imageDigest(sha: string, token: Token): Promise<string | null> {
   throw new Error(`ghcr manifest HEAD for main-${sha}: unexpected status ${res.status}`);
 }
 
-/** The CI conclusion for an INTERNAL commit. `null` when no run exists. */
-async function ciConclusion(internalSha: string, token: Token): Promise<string | null> {
-  const runs = await gh<{ workflow_runs?: { conclusion: string | null }[] }>(
-    `/repos/${INTERNAL}/actions/workflows/ci.yaml/runs?head_sha=${internalSha}&per_page=5`,
-    { token }
-  );
+/**
+ * The CI run for an INTERNAL commit: its conclusion (`pending` while it has none
+ * yet) and its page. Both null when no run exists.
+ */
+async function ciRun(
+  internalSha: string,
+  token: Token
+): Promise<{ ci: string | null; ciUrl: string | null }> {
+  const runs = await gh<{
+    workflow_runs?: { conclusion: string | null; html_url: string }[];
+  }>(`/repos/${INTERNAL}/actions/workflows/ci.yaml/runs?head_sha=${internalSha}&per_page=5`, {
+    token
+  });
   const run = runs.workflow_runs?.[0];
-  return run?.conclusion ?? null;
+  if (!run) return { ci: null, ciUrl: null };
+  return { ci: run.conclusion ?? "pending", ciUrl: run.html_url };
 }
 
 /** What an environment is actually serving, straight from the running process. */
@@ -605,11 +655,12 @@ async function servedSha(baseUrl: string): Promise<Serving | null> {
 }
 
 /**
- * The newest mirror commit that has an image and did not fail CI.
+ * The newest mirror commit that has an image.
  *
- * Walks newest-first and stops at the first hit, so a broken HEAD does not block
- * the commit under it — the train keeps moving at the last good digest rather
- * than stalling until someone notices.
+ * Walks newest-first and stops at the first hit, so a HEAD whose build broke does
+ * not block the commit under it — the train keeps moving at the last built digest
+ * rather than stalling until someone notices. Red CI does NOT skip a commit: it
+ * is recorded on the candidate and said on the bump PR (`ciWarning`).
  */
 async function newestPromotable(token: Token, limit = 30): Promise<Candidate | null> {
   type ApiCommit = {
@@ -624,12 +675,10 @@ async function newestPromotable(token: Token, limit = 30): Promise<Candidate | n
     const digest = await imageDigest(sha, token);
     if (!digest) continue;
     const internal = originRevId(commit.commit?.message);
-    const ci: string | null = internal ? await ciConclusion(internal, token) : null;
-    if (ci !== null && CI_FAILED.has(ci)) continue;
     return {
       sha,
       internal,
-      ci,
+      ...(internal ? await ciRun(internal, token) : { ci: null, ciUrl: null }),
       subject: commit.commit?.message?.split("\n")[0] ?? "",
       committedAt: commit.commit?.committer?.date ?? null,
       digest
@@ -671,10 +720,13 @@ async function dispatchedCandidate(sha: string, token: Token): Promise<Candidate
     /* the grace then reads as expired, which is the permissive direction — a
        human naming a sha has already decided. */
   }
+  const internal = await internalShaFor(sha, token);
   return {
     sha,
-    internal: await internalShaFor(sha, token),
-    ci: null,
+    internal,
+    // Resolved here too: `Re-decide` re-plans with `--sha`, and the auto-merge
+    // it gates must see the same warning the walked candidate carried.
+    ...(internal ? await ciRun(internal, token) : { ci: null, ciUrl: null }),
     subject: "(named by dispatch)",
     committedAt,
     // A named sha still has to exist to be pinned — a rollback to a digest that
@@ -1138,6 +1190,9 @@ async function plan({
     // What `--set-image-tag` writes. Null when there is no candidate or no digest,
     // and the workflow refuses to pin rather than fall back to a bare tag.
     candidatePin,
+    // Opens the prod bump PR's body when the candidate's internal CI did not
+    // pass (or had not finished), and keeps the auto-merge off it. Null otherwise.
+    ciWarning: ciWarning(candidate),
     // The bump PR proposes the candidate — sha AND digest — so a verdict recorded
     // on it is about the bytes under consideration and not the ones before them.
     prProposesCandidate,
@@ -1197,6 +1252,27 @@ function selfTest(): void {
   is("Wed 17:00 local is past it", inWindow(new Date("2026-09-23T10:00:00Z")), false);
   is("Friday is not a promote day", inWindow(new Date("2026-09-25T03:00:00Z")), false);
   is("Sunday is not either", inWindow(new Date("2026-09-27T03:00:00Z")), false);
+
+  // Red CI promotes, and the bump PR says so instead.
+  const ciPage = "https://github.com/oxy-hq/oxygen-internal/actions/runs/1";
+  const red = ciWarning({ ci: "failure", ciUrl: ciPage }) ?? "";
+  is("red CI warns", red.startsWith("> [!WARNING]"), true);
+  is("...naming the conclusion", red.includes("(`failure`)"), true);
+  is("...and linking the run", red.includes(`](${ciPage})`), true);
+  is("a cancelled run is not a pass either", ciWarning({ ci: "cancelled", ciUrl: ciPage }) !== null, true);
+  is(
+    "a run still going warns, since the body is not rewritten when it ends",
+    ciWarning({ ci: "pending", ciUrl: ciPage })?.includes("had not finished"),
+    true
+  );
+  is("green CI says nothing", ciWarning({ ci: "success", ciUrl: ciPage }), null);
+  is("no run (a docs-only commit) says nothing", ciWarning({ ci: null, ciUrl: null }), null);
+  is("no candidate says nothing", ciWarning(null), null);
+  is(
+    "every line of the warning stays inside the quote block",
+    red.split("\n").every((line) => line.startsWith(">")),
+    true
+  );
 
   const now = new Date("2026-09-23T03:00:00Z");
   const soaked = new Date(now.getTime() - 45 * 60000);
@@ -1698,6 +1774,31 @@ function selfTest(): void {
   is(
     "the workflow writes the stuck marker the reader looks for",
     workflow.includes(`--body "${STUCK_MARKER("${CANDIDATE}")}`),
+    true
+  );
+  // `ciWarning` is read by name in shell, so a renamed key or a dropped gate
+  // degrades in the permissive direction: a red build proposed, and merged, with
+  // nothing said. Pinned here like every other plan↔workflow contract.
+  is(
+    "the workflow reads the warning the plan writes",
+    workflow.includes("CI_WARNING=$(jq -r '.ciWarning // empty' plan.json)"),
+    true
+  );
+  is(
+    "...both plan passes export whether it was set",
+    workflow.split('"ci_warned=\\(.ciWarning != null)"').length - 1,
+    2
+  );
+  is(
+    "...and a warning on EITHER pass keeps the candidate out of auto-merge",
+    workflow.includes(
+      "steps.plan.outputs.ci_warned != 'true' && steps.plan2.outputs.ci_warned != 'true'"
+    ),
+    true
+  );
+  is(
+    "...but a rollback body does not open with it",
+    workflow.includes('if [[ -n "$CI_WARNING" && "$ROLLBACK" == "true" ]]; then'),
     true
   );
   const WRITES = [

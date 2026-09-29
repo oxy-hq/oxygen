@@ -274,6 +274,7 @@ jobs:
             "candidate=\(.candidate.sha // "")",
             "candidate_digest=\(.candidate.digest // "")",
             "candidate_pin=\(.candidatePin // "")",
+            "ci_warned=\(.ciWarning != null)",
             "pin_drift=\(.pinDrift // "")",
             "build_broken=\(.buildBroken)",
             "build_why=\(.buildWhy)",
@@ -427,6 +428,19 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$PIN" ]] || { echo "::error::no digest pin for main-${CANDIDATE}; refusing to write the values file"; exit 1; }
+          # Red (or unfinished) internal CI no longer holds the train; it opens the
+          # PR body instead (promote.ts `ciWarning`). Read from the file rather
+          # than a step output: it is multi-line markdown.
+          CI_WARNING=$(jq -r '.ciWarning // empty' plan.json)
+          if [[ -n "$CI_WARNING" && "$ROLLBACK" == "true" ]]; then
+            # A rollback is getting OFF the current build. "Merge only once you
+            # know why it is red" about the build it lands on would make the person
+            # handling an incident hesitate, so the body stays quiet.
+            echo "::notice::rollback target main-${CANDIDATE}: internal CI did not pass or had not finished; not repeated on the PR"
+            CI_WARNING=""
+          elif [[ -n "$CI_WARNING" ]]; then
+            echo "::warning::main-${CANDIDATE}: internal CI did not pass or had not finished; the prod PR says so"
+          fi
           cd infra
           git fetch --quiet --depth 1 origin main
           git checkout --quiet -B "$BUMP_BRANCH" origin/main
@@ -529,6 +543,7 @@ jobs:
 
           BODY="${RUNNER_TEMP}/pr-body.md"
           {
+            [[ -z "$CI_WARNING" ]] || printf '%s\n\n' "$CI_WARNING"
             if [[ "$ROLLBACK" == "true" ]]; then
               printf 'Rolls prod back from `main-%s` to `main-%s`.\n\n**Reason:** %s\n\n' \
                 "$CURRENT" "$CANDIDATE" "$REASON"
@@ -603,6 +618,7 @@ jobs:
           # first output was ever set and every gate downstream read empty.
           jq -r '
             "pr=\(.bumpPr.number // "")",
+            "ci_warned=\(.ciWarning != null)",
             "dispatch_checks=\(.dispatchChecks)",
             "dispatch_why=\(.dispatchChecksWhy)",
             "mark_soak=\(.markSoak)",
@@ -781,12 +797,18 @@ jobs:
       # `release-checks-passed` when it retargets, so the fresh plan sees no
       # verdict and the gate answers `waiting` rather than `go`. The safety comes
       # from the label being cleared, not from reading a stale plan.
+      #
+      # A CI warning keeps it out on EITHER pass. Pass 2 is pinned with `--sha`,
+      # so it resolves the internal commit through one more API call that answers
+      # null on any error — and null reads as "no CI run", i.e. unwarned. Pass 1
+      # reads the trailer off the commit list it already holds.
       - name: Merge the prod PR
         id: merge
         if: >-
           vars.PROMOTE_ENABLED == 'true' && vars.PROMOTE_PROD_AUTOMERGE == 'true' &&
           inputs.rollback != true && steps.plan2.outputs.prod_go == 'true' &&
           steps.plan2.outputs.pr != '' &&
+          steps.plan.outputs.ci_warned != 'true' && steps.plan2.outputs.ci_warned != 'true' &&
           (inputs.target == '' || inputs.target == 'all' || inputs.target == 'prod')
         env:
           GH_TOKEN: ${{ steps.infra-token.outputs.token }}
