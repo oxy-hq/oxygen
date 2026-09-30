@@ -284,7 +284,7 @@ crates/app/src/server/api/secrets.rs               @NTtanh @luong-komorebi
 # visibility and search; one model for both knowledge base and compliance.
 # Mars authored all of it. Luong backs up: it rests on his storage silo and its
 # write gate is a ring in his authz match.
-crates/app/src/server/api/documents/               @NTtanh @luong-komorebi
+crates/api-documents/                              @NTtanh @luong-komorebi
 
 # IDE git flow + git client crate
 crates/git/                                        @NTtanh @nresh

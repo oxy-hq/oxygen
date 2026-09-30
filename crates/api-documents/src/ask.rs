@@ -129,9 +129,9 @@ pub struct AskResponse {
 
 /// `POST /api/documents/ask`
 ///
-/// Mounted `route_ide`: [`DocumentAgent`] resolves an agent config through the
-/// workspace working copy. See the module docs for why that is not a reason to
-/// move search with it.
+/// Declared IdeOnly in [`crate::route_roles`]: [`DocumentAgent`] resolves an
+/// agent config through the workspace working copy. See the module docs for
+/// why that is not a reason to move search with it.
 #[instrument(skip_all, fields(org = %req.org_id, session = ?req.session_id))]
 pub async fn ask(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
@@ -242,7 +242,7 @@ pub async fn ask(
 /// A free function rather than four lines inside the handler because it is the
 /// property the gate tests assert: that what `query` returns is exactly what
 /// `answer` receives. A test that re-implemented this composition would pass
-/// while the shipped one leaked, so `tests/platform/document_ask.rs` calls
+/// while the shipped one leaked, so `tests/integration/document_ask.rs` calls
 /// this.
 pub async fn retrieve_and_answer(
     db: &DatabaseConnection,

@@ -116,6 +116,16 @@ filter = "kind(test) & package(=oxy-app) & (binary(=custom_apps) | binary(=airho
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-documents`' integration group moved out of oxy-app's `platform`
+# binary with the code it tests, and includes the same `tests/common/mod.rs`
+# harness by `#[path]` — every DB-backed module owns a database cloned from the
+# per-run template, exactly as it did under `platform`. None reach the shared
+# `OXY_DATABASE_URL`, so this is `db-per-test`, never `serial-db`.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-documents)"
+test-group = "db-per-test"
+retries = 2
+
 # The `authz`, `slack` and `platform` binaries are mixed, and the difference is
 # not cosmetic: these eleven modules do NOT use `tests/common/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read

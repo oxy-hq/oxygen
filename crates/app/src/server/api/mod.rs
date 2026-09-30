@@ -52,7 +52,8 @@ pub mod custom_apps_validate;
 pub mod data;
 pub mod data_repo;
 pub mod database;
-pub mod documents;
+// The document-library HTTP surface moved to the `oxy-api-documents` sibling
+// crate, mounted by `oxy-server`. oxy-app no longer depends on it.
 pub mod execution_analytics;
 pub mod exported_chart;
 pub mod file;

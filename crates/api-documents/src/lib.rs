@@ -30,17 +30,24 @@
 //!
 //! # Fleet role
 //!
-//! `route_fleet` everywhere except [`ask`]. Nothing else here reads a working
-//! copy, `.git` or the state dir: Postgres for the rows, a presigned
-//! object-store URL for the bytes. Reading the sanitiser SOP has to survive a
-//! deploy.
+//! FleetOk everywhere except [`ask`]. Nothing else here reads a working copy,
+//! `.git` or the state dir: Postgres for the rows, a presigned object-store URL
+//! for the bytes. Reading the sanitiser SOP has to survive a deploy.
 //!
-//! [`ask`] is the one exception and it is `route_ide`, because writing an
-//! answer means resolving an agent config out of the workspace working copy.
-//! It is a separate route rather than a flag on [`search`] for exactly that
-//! reason: search must keep serving from every replica while the ide restarts,
-//! and a shared route would have pinned every search in the product to the
-//! singleton.
+//! [`ask`] is the one exception and it is declared IdeOnly in [`route_roles`],
+//! because writing an answer means resolving an agent config out of the
+//! workspace working copy. It is a separate route rather than a flag on
+//! [`search`] for exactly that reason: search must keep serving from every
+//! replica while the ide restarts, and a shared route would have pinned every
+//! search in the product to the singleton.
+//!
+//! # Where it mounts
+//!
+//! A sibling crate of `oxy-app`, mounted by the `oxy-server` composition root
+//! through the `extra_api_routes` seam ([`routes`] + [`route_roles`]). It
+//! depends on `oxy-app` for the helpers it shares (org middlewares, `OrgAdmin`,
+//! the assume-role check, the custom-app storage bucket and presigner, the
+//! project-context builder); `oxy-app` never depends back on it.
 
 pub mod ask;
 pub mod ask_agent;
@@ -51,8 +58,11 @@ pub mod handlers;
 pub mod hydrate;
 pub mod manage;
 pub mod review;
+mod router;
 pub mod search;
 pub mod shelf;
 pub mod storage;
 pub mod versions;
 pub mod visibility;
+
+pub use router::{route_roles, routes};

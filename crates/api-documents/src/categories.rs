@@ -26,7 +26,7 @@ use uuid::Uuid;
 use super::dto::{CategoryNode, CreateCategory, FolderQuery, UpdateCategory};
 use super::handlers::db_err;
 use super::visibility::{ReadStanding, resolve_standing, visible_documents};
-use crate::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
 
 /// Is this the unique-name collision, rather than any other failure?
 ///

@@ -83,6 +83,11 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // at the root with no prefix; the one route that needs the ide is in
         // its `route_roles()`, and exempted by `DECLARED_ACCESSES`.
         "../api-partner-console/src",
+        // Extracted from `src/server/api/documents`, merged at the root the same
+        // way. Postgres + presigned S3 everywhere; `POST /documents/ask` resolves
+        // an agent config out of the working copy (through the project context,
+        // not a needle below) and is declared IdeOnly in its `route_roles()`.
+        "../api-documents/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

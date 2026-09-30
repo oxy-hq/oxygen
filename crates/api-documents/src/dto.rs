@@ -479,8 +479,7 @@ mod tests {
                 .parse()
                 .unwrap();
         let Query(s) =
-            Query::<crate::server::api::documents::search::SearchQuery>::try_from_uri(&uri)
-                .expect("search query");
+            Query::<crate::search::SearchQuery>::try_from_uri(&uri).expect("search query");
         assert_eq!(s.q, "sanitizer");
         assert_eq!(s.limit, 50);
 

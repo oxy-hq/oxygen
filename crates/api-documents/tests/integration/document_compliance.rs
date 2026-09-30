@@ -7,7 +7,7 @@
 //! with the visibility filter rather than replace it.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(document_compliance)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(document_compliance)'`
 
 use chrono::Utc;
 use entity::{document_categories, documents};
@@ -16,8 +16,8 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::categories::is_duplicate_name;
-use oxy_app::server::api::documents::visibility::{
+use oxy_api_documents::categories::is_duplicate_name;
+use oxy_api_documents::visibility::{
     Trash, resolve_standing, visible_documents, visible_documents_scoped,
 };
 

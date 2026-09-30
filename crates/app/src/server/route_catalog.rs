@@ -177,6 +177,10 @@ mod tests {
         // The org seam of `oxy-api-onboarding`; `/api/orgs` above does not
         // cover it (see the note on N seams).
         "/api/orgs/{org_id}/onboarding",
+        // `oxy-api-documents`: one seam, two subtrees — the reads at the root
+        // and the writes under the org, which `/api/orgs` above also cannot see.
+        "/api/documents",
+        "/api/orgs/{org_id}/documents",
         "/api/customer-apps",
         "/api/assume",
         "/api/airhouse/",

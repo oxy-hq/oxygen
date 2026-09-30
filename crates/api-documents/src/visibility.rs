@@ -24,7 +24,7 @@
 //! # How this is tested
 //!
 //! [`resolve_standing`] reads the database, and the condition it feeds is SQL,
-//! so the real proof is `crates/app/tests/platform/documents.rs` against seeded
+//! so the real proof is `tests/integration/documents.rs` against seeded
 //! rows — a worker at one store must not see another store's documents. The
 //! unit test below covers only the property that can be checked without a
 //! database, which is also the most dangerous one: no standing must produce no
@@ -32,7 +32,7 @@
 
 use entity::{documents, folders, org_frontline_members, org_members, org_role_members, users};
 
-use crate::server::api::admin::assume;
+use oxy_app::server::api::admin::assume;
 use sea_orm::{ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 

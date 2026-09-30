@@ -1,0 +1,57 @@
+[package]
+name = "oxy-api-documents"
+version.workspace = true
+authors.workspace = true
+# NOTE: oxy-app does not depend on this crate, but its route-catalog build
+# script watches this tree, so editing it still triggers an oxy-app rebuild.
+# See crates/app/build_route_catalog.rs (DOC_DIRS / SOURCE_DIRS).
+description = "Document-library HTTP surface (folders, documents, immutable versions, visibility, search, ask) — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The only oxy-app dependency: the helpers this surface still shares with it —
+# the org middlewares + `OrgAdmin` guard, the assume-role liveness check, the
+# custom-app storage bucket + S3 presigner (documents sign into the same bucket
+# under `org-documents/`), and `custom_apps_gates::build_project_context` for the
+# ask agent. oxy-app never depends back on this crate. default-features off so a
+# `--no-default-features` build of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }       # AppState (router state) + pagination
+oxy = { workspace = true }                # database client
+oxy-auth = { workspace = true }           # AuthenticatedUserExtractor
+oxy-shared = { workspace = true }         # OxyError + fleet_role::RouteRoleDecl
+agentic-pipeline = { workspace = true }   # run_agentic_answer + PlatformContext (ask)
+entity = { workspace = true }
+
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# The integration group (`tests/integration/`) reuses oxy-app's per-test
+# database harness (`crates/app/tests/common/mod.rs`, included by `#[path]`),
+# so it needs that harness's dependencies too. Dev-only: nothing here ships.
+agentic-runtime = { workspace = true }       # tests/common runs the runtime migrator
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-cameras = { workspace = true }
+oxy-oltp = { workspace = true }
+reqwest = { workspace = true }             # document_storage: PUT/GET the presigned URLs
+tempfile = { workspace = true }
+url = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+tokio = { workspace = true, features = ["test-util"] }

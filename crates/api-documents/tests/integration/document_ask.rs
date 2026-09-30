@@ -12,7 +12,7 @@
 //! rows never reach the call at all.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(document_ask)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(document_ask)'`
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -21,11 +21,9 @@ use entity::documents;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, DbErr, EntityTrait};
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::ask::retrieve_and_answer;
-use oxy_app::server::api::documents::search::{
-    Answer, DocumentSearch, MatchMode, PostgresSearch, Turn,
-};
-use oxy_app::server::api::documents::visibility::resolve_standing;
+use oxy_api_documents::ask::retrieve_and_answer;
+use oxy_api_documents::search::{Answer, DocumentSearch, MatchMode, PostgresSearch, Turn};
+use oxy_api_documents::visibility::resolve_standing;
 use oxy_shared::errors::OxyError;
 
 use crate::common::{Schema, fresh_db};
@@ -53,7 +51,7 @@ impl DocumentSearch for Recorder {
         db: &DatabaseConnection,
         org_id: Uuid,
         caller: Uuid,
-        standing: &oxy_app::server::api::documents::visibility::ReadStanding,
+        standing: &oxy_api_documents::visibility::ReadStanding,
         text: &str,
         mode: MatchMode,
         limit: u64,
@@ -67,7 +65,7 @@ impl DocumentSearch for Recorder {
         &self,
         db: &DatabaseConnection,
         org_id: Uuid,
-        standing: &oxy_app::server::api::documents::visibility::ReadStanding,
+        standing: &oxy_api_documents::visibility::ReadStanding,
         text: &str,
         limit: u64,
     ) -> Result<Vec<entity::folders::Model>, DbErr> {

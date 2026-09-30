@@ -47,7 +47,7 @@ fn presigning(ttl: Duration) -> Result<PresigningConfig, StorageError> {
 /// caller **must** send a matching `x-amz-tagging` header or S3 rejects the
 /// upload with a signature mismatch — `@oxy-hq/sdk`'s uploader does this, and
 /// `get_upload_url` returns the value so a hand-rolled uploader can too.
-pub(crate) async fn presign_put(
+pub async fn presign_put(
     bucket: &str,
     key: &str,
     content_type: &str,
@@ -74,7 +74,7 @@ pub(crate) async fn presign_put(
 
 /// Presigned GET. `download_filename` forces a save-as through
 /// `Content-Disposition`, which is what an emailed report link wants.
-pub(crate) async fn presign_get(
+pub async fn presign_get(
     bucket: &str,
     key: &str,
     ttl: Duration,
@@ -181,7 +181,7 @@ pub(super) async fn get(
     }
 }
 
-pub(crate) async fn head(bucket: &str, key: &str) -> Result<Option<StoredObject>, StorageError> {
+pub async fn head(bucket: &str, key: &str) -> Result<Option<StoredObject>, StorageError> {
     match client()
         .await
         .head_object()

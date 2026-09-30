@@ -876,7 +876,7 @@ jobs:
       # workflow, so that guarantee is total rather than partial.
       # An object store, for the same reason `oltp-postgres` is here.
       #
-      # `crates/app/tests/platform/document_storage.rs` skips when no bucket is
+      # `crates/api-documents/tests/integration/document_storage.rs` skips when no bucket is
       # configured, and nextest counts a returning test as a passing one — so
       # its five presigned round trips reported green in every automated run
       # while asserting nothing (0.59s for five S3 round trips is the tell).

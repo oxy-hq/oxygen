@@ -9276,6 +9276,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-api-documents"
+version = "0.5.153"
+dependencies = [
+ "agentic-pipeline",
+ "agentic-runtime",
+ "airhouse",
+ "async-trait",
+ "axum",
+ "chrono",
+ "entity",
+ "migration",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-cameras",
+ "oxy-oltp",
+ "oxy-shared",
+ "reqwest 0.13.4",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tempfile",
+ "testcontainers",
+ "testcontainers-modules",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-api-github"
 version = "0.5.153"
 dependencies = [
@@ -9887,6 +9921,7 @@ dependencies = [
  "libc",
  "once_cell",
  "oxy",
+ "oxy-api-documents",
  "oxy-api-github",
  "oxy-api-onboarding",
  "oxy-api-partner-console",
@@ -10058,13 +10093,14 @@ dependencies = [
 
 [[package]]
 name = "oxy-world-model"
-version = "0.5.151"
+version = "0.5.153"
 dependencies = [
  "oxy",
  "serde",
  "serde_json",
  "serde_yaml",
  "tracing",
+ "workspace-hack",
 ]
 
 [[package]]

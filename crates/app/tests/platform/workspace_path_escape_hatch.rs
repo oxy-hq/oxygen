@@ -112,9 +112,12 @@ fn server_files() -> Vec<(String, String)> {
             }
         }
     }
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/server");
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut out = Vec::new();
-    walk(&root, &mut out);
+    walk(&manifest.join("src/server"), &mut out);
+    // Extracted from `src/server/api/documents`; still a request path of this
+    // server, so still in scope. Labelled `../api-documents/src/…`.
+    walk(&manifest.join("../api-documents/src"), &mut out);
     out
 }
 

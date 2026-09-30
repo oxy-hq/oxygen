@@ -8,7 +8,7 @@
 //! open, and a turn replayed into a new prompt after its documents left them.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(document_ask_sessions)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(document_ask_sessions)'`
 
 use axum::Json;
 use axum::extract::{Path, Query};
@@ -18,8 +18,8 @@ use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::ask_sessions::{self, OrgQuery};
-use oxy_app::server::api::documents::visibility::resolve_standing;
+use oxy_api_documents::ask_sessions::{self, OrgQuery};
+use oxy_api_documents::visibility::resolve_standing;
 
 use crate::common::test_db;
 use crate::documents::{doc, seed_tenant};

@@ -27,12 +27,12 @@
 //! AWS_ENDPOINT_URL=http://127.0.0.1:9000 AWS_REGION=us-east-1 \
 //! AWS_ACCESS_KEY_ID=oxydocs AWS_SECRET_ACCESS_KEY=oxydocs123 \
 //! OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET=oxy-documents \
-//!   cargo nextest run -p oxy-app --test platform -E 'test(document_storage)'
+//!   cargo nextest run -p oxy-api-documents --test integration -E 'test(document_storage)'
 //! ```
 
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::storage;
+use oxy_api_documents::storage;
 
 /// Is an object store configured? Returns the reason it is not, for the skip
 /// message — "skipped" with no cause is how a permanently-skipped test hides.

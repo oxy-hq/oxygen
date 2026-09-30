@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use crate::server::api::custom_apps_storage::{StorageError, bucket, s3};
+use oxy_app::server::api::custom_apps_storage::{StorageError, bucket, s3};
 
 /// Long enough for a browser to finish an upload it has already started, short
 /// enough that a link captured from the network tab is stale by the time it is

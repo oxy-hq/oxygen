@@ -11,7 +11,7 @@
 //! against and open for the caller it was not.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(documents)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(documents)'`
 
 use chrono::Utc;
 use entity::{
@@ -24,9 +24,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::hydrate;
-use oxy_app::server::api::documents::manage::{gate_refs, is_descendant_of, owned_folder_scoped};
-use oxy_app::server::api::documents::visibility::{
+use oxy_api_documents::hydrate;
+use oxy_api_documents::manage::{gate_refs, is_descendant_of, owned_folder_scoped};
+use oxy_api_documents::visibility::{
     ReadStanding, Trash, resolve_standing, visible_documents, visible_documents_scoped,
     visible_folders, visible_folders_scoped,
 };
@@ -529,9 +529,7 @@ async fn a_write_cannot_borrow_another_tenants_folder_or_location() {
 /// A helper rather than a method, so a refusal that stops carrying a code shows
 /// up here as `Some(..) != None` rather than as a passing assertion about a
 /// status every one of them shares.
-fn refused(
-    r: Result<(), oxy_app::server::api::documents::manage::Refusal>,
-) -> Option<&'static str> {
+fn refused(r: Result<(), oxy_api_documents::manage::Refusal>) -> Option<&'static str> {
     match r {
         Ok(()) => None,
         Err(e) => {

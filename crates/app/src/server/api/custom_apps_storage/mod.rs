@@ -59,7 +59,7 @@ mod local;
 pub mod metering;
 pub mod quota;
 pub mod retention;
-pub(crate) mod s3;
+pub mod s3;
 pub mod sweeper;
 #[cfg(test)]
 mod tests;
@@ -105,14 +105,14 @@ pub enum StorageError {
 /// Dedicated asset bucket, separate from the build-store and compile-blob buckets
 /// so asset retention/lifecycle is governed independently.
 ///
-/// `pub(crate)` because the document model signs into the SAME bucket under its
-/// own `org-documents/` prefix. That is deliberate reuse: a second bucket would
+/// `pub` because the document model signs into the SAME bucket under its
+/// own `org-documents/` prefix — from the `oxy-api-documents` sibling crate. That is deliberate reuse: a second bucket would
 /// mean a second ops task before documents worked in any environment, and the
 /// prefix already separates the two owners — everything under
 /// `customer-app-storage/{app_id}/` is one app's silo, everything under
 /// `org-documents/{org_id}/` belongs to the org. See
-/// `server::api::documents::storage`.
-pub(crate) fn bucket() -> Option<String> {
+/// `oxy_api_documents::storage`.
+pub fn bucket() -> Option<String> {
     std::env::var("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET")
         .ok()
         .filter(|b| !b.trim().is_empty())

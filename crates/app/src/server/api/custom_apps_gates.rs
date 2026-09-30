@@ -488,7 +488,7 @@ use std::borrow::Cow;
 /// (semantic compile, agent run) don't each re-implement the
 /// builder dance. Returns a fully-formed HTTP error response on
 /// failure so handlers can early-return.
-pub(crate) async fn build_project_context(
+pub async fn build_project_context(
     workspace: &entity::workspaces::Model,
     user_id: Uuid,
     project_id: Uuid,

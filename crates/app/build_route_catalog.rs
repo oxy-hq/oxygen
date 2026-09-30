@@ -181,6 +181,12 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_onboarding",
         function: "routes",
     },
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_documents::router",
+        function: "routes",
+    },
     // The same crate also fills the `extra_workspace_routes` seam, which lands
     // inside the `/{workspace_id}` tree rather than beside it — two mount
     // points, so two seeds.
@@ -203,16 +209,16 @@ const SEEDS: &[Seed] = &[
 /// webhooks, the worktree registry).
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
-/// Both lists watch `crates/api-github/src`, `crates/api-partner-console/src`
-/// and `crates/api-onboarding/src`, none of which `oxy-app` depends on
-/// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
-/// reverse). Editing any of the three therefore re-runs this build script and
+/// Both lists watch `crates/api-github/src`, `crates/api-partner-console/src`,
+/// `crates/api-onboarding/src` and `crates/api-documents/src`, none of which
+/// `oxy-app` depends on (`oxy-server` mounts them as siblings; they depend on
+/// `oxy-app`, not the reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
 /// crate you actually edited.
 ///
-/// Decoupling their dev loop was the payoff of extracting them (#2978, #2996),
-/// and this watch reverses it for anyone working inside them — each of the
-/// three now carries a comment above its `description` saying so and pointing
+/// Decoupling their dev loop was the payoff of extracting them (#2978, #2996, and the documents split),
+/// and this watch reverses it for anyone working inside them — each of them
+/// now carries a comment above its `description` saying so and pointing
 /// back here. It is the price of listing their routes at all: not watching them
 /// means `oxyc routes` omits or stale-lists those surfaces, the exact
 /// failure this catalog exists to prevent. A real cost, though, not a free one.
@@ -229,6 +235,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-github/src",
     "crates/api-partner-console/src",
     "crates/api-onboarding/src",
+    "crates/api-documents/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -254,6 +261,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-github/src",
     "crates/api-partner-console/src",
     "crates/api-onboarding/src",
+    "crates/api-documents/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the

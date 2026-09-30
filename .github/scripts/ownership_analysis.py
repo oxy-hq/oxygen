@@ -118,7 +118,7 @@ AREAS = [
                                                           "Frontline & crew ops"),
     ("web-app/src/pages/login",                           "Login & crew sign-in (UI)"),
     ("crates/app/src/server/api/work",                    "Work assignment graph"),
-    ("crates/app/src/server/api/documents",               "Document model (KB & compliance)"),
+    ("crates/api-documents",                              "Document model (KB & compliance)"),
     ("crates/app/src/server/api/chat",                    "Chat channels"),
     ("crates/app/src/server/api/notifications",           "Notifications & push"),
     ("crates/git",                                        "Git client / IDE git"),

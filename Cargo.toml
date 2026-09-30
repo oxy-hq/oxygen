@@ -6,6 +6,7 @@ members = [
   "crates/api-github",
   "crates/api-partner-console",
   "crates/api-onboarding",
+  "crates/api-documents",
   "crates/app-core",
   "crates/auth",
   "crates/authz",

@@ -71,7 +71,7 @@ impl DocumentAgent {
         let workspace = org_workspace(db, org_id).await?;
         let project_id = workspace.id;
 
-        let ctx = crate::server::api::custom_apps_gates::build_project_context(
+        let ctx = oxy_app::server::api::custom_apps_gates::build_project_context(
             &workspace, caller, project_id,
         )
         .await

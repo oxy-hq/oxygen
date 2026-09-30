@@ -220,13 +220,18 @@ fn main() {
             // `oxy-api-partner-console`'s create-org scaffolds the new org's
             // Default workspace — neither can take that default, and no type
             // gate inside oxy-app can see across the crate line to stop them.
+            // `oxy-api-documents` is Postgres + presigned S3 everywhere but
+            // `POST /documents/ask`, which resolves an agent config out of the
+            // working copy, so it declares that one route.
             let exit_code = match cli(
                 oxy_api_github::routes()
                     .merge(oxy_api_partner_console::routes())
-                    .merge(oxy_api_onboarding::routes()),
+                    .merge(oxy_api_onboarding::routes())
+                    .merge(oxy_api_documents::routes()),
                 oxy_api_onboarding::route_roles()
                     .iter()
                     .chain(oxy_api_partner_console::route_roles())
+                    .chain(oxy_api_documents::route_roles())
                     .copied()
                     .collect(),
                 oxy_api_onboarding::workspace_routes(),

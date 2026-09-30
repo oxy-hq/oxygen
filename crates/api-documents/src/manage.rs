@@ -38,7 +38,7 @@ use super::dto::*;
 use super::handlers::db_err;
 use super::hydrate;
 use super::visibility::Trash;
-use crate::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
 
 fn valid_visibility(v: &str) -> bool {
     matches!(v, "org" | "hq")

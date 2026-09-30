@@ -6,7 +6,7 @@
 //! is a second way to decide who reads a document.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(document_shelf)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(document_shelf)'`
 
 use chrono::Utc;
 use entity::{document_favorites, documents, users};
@@ -15,11 +15,9 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::hydrate;
-use oxy_app::server::api::documents::shelf::{add_favorite, favorited_by};
-use oxy_app::server::api::documents::visibility::{
-    Trash, resolve_standing, visible_documents_scoped,
-};
+use oxy_api_documents::hydrate;
+use oxy_api_documents::shelf::{add_favorite, favorited_by};
+use oxy_api_documents::visibility::{Trash, resolve_standing, visible_documents_scoped};
 
 use crate::common::{Schema, fresh_db};
 use crate::documents::{doc, seed_tenant};
@@ -40,7 +38,7 @@ async fn seen_by(
     db: &DatabaseConnection,
     caller: Uuid,
     id: Uuid,
-) -> oxy_app::server::api::documents::dto::DocumentSummary {
+) -> oxy_api_documents::dto::DocumentSummary {
     let rows = documents::Entity::find_by_id(id).all(db).await.unwrap();
     hydrate::summaries(db, caller, rows)
         .await

@@ -107,11 +107,15 @@ fn resolves_a_workspace_path(src: &str) -> bool {
 
 #[test]
 fn nothing_new_resolves_a_workspace_path_by_hand() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("src");
     let allowed: Vec<&str> = ALLOWED.iter().map(|(path, _)| *path).collect();
 
     let mut offenders = Vec::new();
-    let mut walk = vec![root.clone()];
+    // `oxy-api-documents` was extracted from `src/server/api/documents` and
+    // still serves requests from this binary, so the guard follows it. Paths
+    // there read `../api-documents/src/…`.
+    let mut walk = vec![root.clone(), manifest.join("../api-documents/src")];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;

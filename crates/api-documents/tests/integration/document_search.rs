@@ -8,15 +8,15 @@
 //! the same `visible_documents` filter the listing uses.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(document_search)'`
+//! `cargo nextest run -p oxy-api-documents --test integration -E 'test(document_search)'`
 
 use chrono::Utc;
 use entity::{document_versions, documents};
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use uuid::Uuid;
 
-use oxy_app::server::api::documents::search::{DocumentSearch, MatchMode, PostgresSearch};
-use oxy_app::server::api::documents::visibility::{ReadStanding, resolve_standing};
+use oxy_api_documents::search::{DocumentSearch, MatchMode, PostgresSearch};
+use oxy_api_documents::visibility::{ReadStanding, resolve_standing};
 
 use crate::common::{Schema, fresh_db};
 use crate::documents::{doc, folder, seed_tenant};
@@ -523,11 +523,7 @@ async fn a_search_in_an_org_you_have_no_standing_in_resolves_to_nothing() {
     // And with no standing there is no query to run — which is the branch the
     // handler now takes before it touches the database at all.
     assert!(
-        oxy_app::server::api::documents::visibility::visible_documents(
-            t.org,
-            stranger.officer,
-            &standing
-        )
-        .is_none()
+        oxy_api_documents::visibility::visible_documents(t.org, stranger.officer, &standing)
+            .is_none()
     );
 }

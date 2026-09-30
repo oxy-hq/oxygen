@@ -24,11 +24,24 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Every file under `src/server/api` that builds a paginated response.
+/// Every file under `src/server/api` — or under a sibling surface crate's `src`
+/// (`crates/api-*`, extracted from there and mounted under the same `/api`
+/// nest) — that builds a paginated response. The document library's handlers,
+/// where this bug first shipped, now live in `crates/api-documents`.
 fn adopters() -> Vec<(PathBuf, String)> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/server/api");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut stack = vec![manifest.join("src/server/api")];
+    for entry in fs::read_dir(manifest.join("..")).expect("read the crates directory") {
+        let path = entry.expect("a directory entry").path();
+        let is_surface = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("api-"));
+        if is_surface && path.join("src").is_dir() {
+            stack.push(path.join("src"));
+        }
+    }
     let mut found = vec![];
-    let mut stack = vec![root];
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(&dir).expect("read the api directory") {
             let path = entry.expect("a directory entry").path();
@@ -53,9 +66,17 @@ fn a_paginated_handler_takes_original_uri() {
     // that moves these handlers elsewhere should fail here loudly rather than
     // pass by finding nothing — which is how a check quietly stops checking.
     assert!(
-        adopters.len() >= 5,
-        "expected the known paginated handlers under src/server/api, found {}",
+        adopters.len() >= 7,
+        "expected the known paginated handlers under src/server/api and crates/api-*, found {}",
         adopters.len()
+    );
+    // src/server/api alone holds five adopters, so the floor above would still pass
+    // if the crates/api-* scan matched nothing. Pin the crate where this bug shipped.
+    assert!(
+        adopters
+            .iter()
+            .any(|(p, _)| p.to_string_lossy().contains("api-documents")),
+        "the crates/api-* scan found no paginated handler in oxy-api-documents"
     );
 
     for (path, src) in adopters {

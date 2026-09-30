@@ -98,16 +98,18 @@ fn app_src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// Every `.rs` under `src`, as (repo-relative path, contents).
+/// Every `.rs` under `src` — plus `oxy-api-documents`, extracted from
+/// `src/server/api/documents` and still served by this binary — as
+/// (crate-relative path, contents).
 fn source_files() -> Vec<(String, String)> {
-    fn walk(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
+    fn walk(dir: &Path, root: &Path, label: &str, out: &mut Vec<(String, String)>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                walk(&path, root, out);
+                walk(&path, root, label, out);
             } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
                 && let Ok(body) = std::fs::read_to_string(&path)
             {
@@ -116,13 +118,15 @@ fn source_files() -> Vec<(String, String)> {
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .replace('\\', "/");
-                out.push((format!("src/{rel}"), body));
+                out.push((format!("{label}{rel}"), body));
             }
         }
     }
     let root = app_src();
+    let documents = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-documents/src");
     let mut out = Vec::new();
-    walk(&root, &root, &mut out);
+    walk(&root, &root, "src/", &mut out);
+    walk(&documents, &documents, "../api-documents/src/", &mut out);
     out
 }
 
