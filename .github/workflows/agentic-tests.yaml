@@ -91,24 +91,28 @@ jobs:
         run: |
           # One bucket per product domain; flows in a bucket share a
           # backend mode (the runner refuses a mixed-mode invocation).
-          # `local` hits the auth-disabled public port (3000); `cloud`
-          # hits the auth-disabled internal port (3001).
+          # `cloud` is enterprise mode, the production path and every
+          # bucket's mode: `oxy serve --enterprise` with `demo_project/`
+          # seeded as the Demo workspace, driven on the public port (3000)
+          # signed in as flow@oxy.local. `local` is the legacy no-auth
+          # `--local` mode; keep a bucket on it only for a flow that tests
+          # legacy local mode itself.
           #
           # FULL FILENAMES, not bare names. The runner selects a flow whose
           # filename CONTAINS a positional argument (runner/cli.ts, `globs`),
           # so a bucket naming `chat-ask` also ran `chat-ask-fleet` — a flow
           # that exists to prove the serve-to-ide proxy carries an analytics
-          # run, silently executed here in `local` mode where there is no
-          # proxy at all. It failed, and the failure said nothing about the
-          # product. Adding a flow whose name extends an existing one widens
-          # that bucket without touching this file; the suffix stops it.
+          # run, silently executed here against a single process where there
+          # is no proxy at all. It failed, and the failure said nothing about
+          # the product. Adding a flow whose name extends an existing one
+          # widens that bucket without touching this file; the suffix stops it.
           ALL='[
-            {"name":"builder","flows":"builder-edits-app.flow.test.yml","mode":"local","port":3000},
-            {"name":"semantic","flows":"semantic-builder-ask.flow.test.yml","mode":"local","port":3000},
-            {"name":"ask-agent","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml","mode":"local","port":3000},
-            {"name":"threads","flows":"threads-list.flow.test.yml","mode":"local","port":3000},
-            {"name":"ide","flows":"ide-save.flow.test.yml","mode":"local","port":3000},
-            {"name":"metric-tree","flows":"metric-tree.flow.test.yml metric-tree-scenario.flow.test.yml","mode":"local","port":3000}
+            {"name":"builder","flows":"builder-edits-app.flow.test.yml","mode":"cloud","port":3000},
+            {"name":"semantic","flows":"semantic-builder-ask.flow.test.yml","mode":"cloud","port":3000},
+            {"name":"ask-agent","flows":"chat-ask.flow.test.yml chat-panel-agent-switch.flow.test.yml","mode":"cloud","port":3000},
+            {"name":"threads","flows":"threads-list.flow.test.yml","mode":"cloud","port":3000},
+            {"name":"ide","flows":"ide-save.flow.test.yml","mode":"cloud","port":3000},
+            {"name":"metric-tree","flows":"metric-tree.flow.test.yml metric-tree-scenario.flow.test.yml","mode":"cloud","port":3000}
           ]'
           if [ -z "$FLOW_BUCKET" ] || [ "$FLOW_BUCKET" = "all" ]; then
             FLOWS=$(echo "$ALL" | jq -c .)
@@ -137,7 +141,10 @@ jobs:
     # the matrix. Flip to false once the suite has ≥3 consecutive green
     # main-branch runs.
     continue-on-error: true
-    timeout-minutes: 25
+    # 25 for the flows + up to 10 for `oxy seed` (it compiles and promotes
+    # every seeded workspace) + the 4-minute health wait and setup, so a slow
+    # seed cannot push the flows into the job wall before artifacts upload.
+    timeout-minutes: 45
     concurrency:
       group: agentic-${{ matrix.flow.name }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -154,6 +161,13 @@ jobs:
       DOMO_DEVELOPER_TOKEN: "empty"
       OXY_BASE_URL: http://localhost:${{ matrix.flow.port }}
       OXY_HEALTH_URL: http://localhost:${{ matrix.flow.port }}/api/health
+      # Enterprise mode signs the browser in through dev-login (runner/session.ts).
+      # The explicit allow-list is the only one a CI server honours; it names
+      # just the flow identity, which the seed binds as Owner of `local`.
+      OXY_DEV_LOGIN_EMAILS: flow@oxy.local
+      # Never send real email from a test server.
+      MAGIC_LINK_LOCAL_TEST: "true"
+      OXY_APP_EMAIL_LOCAL_TEST: "1"
 
     services:
       postgres:
@@ -198,24 +212,24 @@ jobs:
           fi
           echo "ANTHROPIC_API_KEY length: ${#ANTHROPIC_API_KEY}"
 
-      - name: Start Oxy backend (cloud mode)
+      # Enterprise mode, the production path — the same boot the custom-app
+      # canary job uses: service Postgres plus `oxy serve --enterprise`, with
+      # the state dir outside the checkout. Seeded below, after migrations.
+      - name: Start Oxy backend (enterprise mode)
         if: matrix.flow.mode == 'cloud'
         run: |
-          # Cloud mode boots without --local and without a workspace
-          # working directory, on the auth-disabled internal port (3001).
-          # No bucket uses it today: the one cloud flow walked self-serve
-          # org creation, which was removed (orgs are staff/partner-made).
-          mkdir -p web-app/tests/agentic/.logs
-          nohup oxy serve --enterprise > web-app/tests/agentic/.logs/backend.log 2>&1 &
+          mkdir -p web-app/tests/agentic/.logs "$RUNNER_TEMP/oxy-state"
+          echo "OXY_STATE_DIR=$RUNNER_TEMP/oxy-state" >> "$GITHUB_ENV"
+          OXY_STATE_DIR="$RUNNER_TEMP/oxy-state" \
+            nohup oxy serve --enterprise > web-app/tests/agentic/.logs/backend.log 2>&1 &
           echo $! > /tmp/oxy-server.pid
 
-      - name: Start Oxy backend (local mode)
+      # Legacy no-auth mode. No bucket uses it; kept for a flow that tests
+      # `--local` itself.
+      - name: Start Oxy backend (legacy local mode)
         if: matrix.flow.mode == 'local'
         working-directory: demo_project
         run: |
-          # Local mode pins the workspace to the cwd, so the chat/IDE
-          # flows run against `demo_project/` content. Auth is disabled
-          # on the public port (3000) in --local mode.
           mkdir -p ../web-app/tests/agentic/.logs
           nohup oxy serve --local --enterprise > ../web-app/tests/agentic/.logs/backend.log 2>&1 &
           echo $! > /tmp/oxy-server.pid
@@ -235,6 +249,22 @@ jobs:
             sleep 2
           done
           echo "Backend healthy at $OXY_HEALTH_URL"
+
+      # The fixture the flows are authored against, as the `local` org's Demo
+      # workspace: `oxy seed` writes the rows, binds OXY_GLOBAL_ADMINS (the
+      # flow identity, for THIS process only — exported to the server it would
+      # make the identity staff) as Owner, stores ANTHROPIC_API_KEY as a
+      # workspace secret (--llm-keys), and compiles + promotes every seeded
+      # workspace. Same fixture the runner seeds locally (runner/backend.ts).
+      - name: Seed the Demo workspace
+        if: matrix.flow.mode == 'cloud'
+        id: seed
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          OXY_GLOBAL_ADMINS=flow@oxy.local \
+            oxy seed --workspace-path "$GITHUB_WORKSPACE/demo_project" --llm-keys \
+            2>&1 | tee web-app/tests/agentic/.logs/seed.log | tail -n 40
 
       # Per-bucket action-cache. The exact key hashes every flow YAML
       # plus the runner files; the prefix restore-key brings in the

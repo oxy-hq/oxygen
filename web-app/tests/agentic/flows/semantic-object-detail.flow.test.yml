@@ -59,7 +59,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # ~5 act steps across two cases plus waits.
   max_steps: 20
 

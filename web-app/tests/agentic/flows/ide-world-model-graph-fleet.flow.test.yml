@@ -47,7 +47,7 @@
 #
 # Run this one against the fleet, never the default way:
 #   scripts/fleet-assert.sh docker --flows        (it is in FLEET_FLOWS)
-# `backend_mode: local` below is left as-is because that field does NOT select
+# `backend_mode` is left at its default because that field does NOT select
 # a fixture — it only picks which backend the runner auto-spawns when you do
 # not hand it one (runner/backend.ts `spawnArgs`), and the fleet path hands it
 # one via --no-auto-backend + OXY_BASE_URL.
@@ -84,7 +84,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # 3 act steps + waits. In line with metric-tree (20) but leaner.
   max_steps: 15
 

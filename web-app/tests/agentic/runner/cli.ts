@@ -25,6 +25,7 @@ import {
 } from "./reporter";
 import type { Runtime, RuntimeContext } from "./runtimes/interface";
 import { runScaffold } from "./scaffold";
+import { ensureSession } from "./session";
 import {
   type BackendMode,
   type CaseResult,
@@ -170,6 +171,9 @@ async function main(): Promise<void> {
   const backend = args.noAutoBackend
     ? { spawned: false, shutdown: async () => {} }
     : await ensureBackend({ mode });
+  // Enterprise mode needs a signed-in browser and a workspace prefix whether
+  // or not the runner started the backend (CI passes --no-auto-backend).
+  await ensureSession(mode);
   const frontend = args.noAutoFrontend
     ? { spawned: false, shutdown: async () => {} }
     : await ensureFrontend();
@@ -300,7 +304,7 @@ function pickBackendMode(flows: FlowTest[]): BackendMode {
         `Loaded flows:\n${grouped}`
     );
   }
-  return [...modes][0] ?? "local";
+  return [...modes][0] ?? "cloud";
 }
 
 function discoverFlows(globs: string[] = []): FlowTest[] {

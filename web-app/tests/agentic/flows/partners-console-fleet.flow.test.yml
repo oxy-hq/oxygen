@@ -116,7 +116,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # Longest single step is the admin ceremony (open dialog, type, submit) —
   # a handful of tool calls at most.
   max_steps: 15

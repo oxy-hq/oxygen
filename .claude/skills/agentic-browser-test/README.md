@@ -52,7 +52,7 @@ and you say something like:
 
 2. **Picks the right primitives for what you described.**
    - `target:` — chat / ide / threads / onboarding / any.
-   - `backend_mode:` — local (default, port 3000) or cloud (port 3001).
+   - `backend_mode:` — omitted: enterprise mode (`cloud`) is the default; `local` is legacy `--local` only.
    - `setup:` — the 3 documented fixture commands
      (`reset_test_file`, `restore_demo_file:<rel>`, `goto:<path>`).
      None can make a network call; data a cloud-mode flow reads (an

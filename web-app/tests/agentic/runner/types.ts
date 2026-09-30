@@ -5,13 +5,14 @@ export type FlowTarget = "chat" | "ide" | "threads" | "onboarding" | "any";
 /**
  * Which oxy backend mode the flow exercises.
  *
- * - `local`: single-workspace mode rooted at `demo_project/`. Public port
- *   (3000) is auth-disabled. Spawned via `oxy start --local --enterprise`.
- *   Default for chat / IDE / threads flows that don't touch onboarding.
- * - `cloud`: multi-tenant mode with orgs and workspaces. Public port
- *   requires real auth, so the runner targets the auth-disabled internal
- *   port (3001). Spawned via `oxy start --enterprise --clean` so postgres
- *   starts with no orgs (otherwise the org-creation step 409s).
+ * - `cloud` (the default): enterprise mode, the production path. Spawned via
+ *   `oxy start --enterprise`, then `oxy seed --workspace-path demo_project`
+ *   (runner/backend.ts). The runner drives the authenticated public port
+ *   (3000) signed in as `flow@oxy.local` and prefixes workspace paths with
+ *   `/local/workspaces/<demo id>` (runner/session.ts).
+ * - `local`: the legacy `--local` single-workspace, no-auth mode
+ *   (`oxy start --local --enterprise` from `demo_project/`). Unmaintained;
+ *   opt in only for a flow that tests legacy local mode itself.
  *
  * A single `pnpm test:agentic` invocation must load flows that all agree
  * on backend mode — the runner refuses to mix in one boot.

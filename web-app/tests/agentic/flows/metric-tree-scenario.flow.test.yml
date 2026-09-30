@@ -63,7 +63,6 @@ settings:
   trace: on-failure
   cache_actions: true
   max_steps: 30
-  backend_mode: local
 
 setup:
   - "goto:/ide"

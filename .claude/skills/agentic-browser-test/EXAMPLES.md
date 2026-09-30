@@ -1,8 +1,8 @@
 # Worked Examples
 
 Five end-to-end examples covering the distinct surfaces / modes that ship
-in CI today (all local-mode: the cloud-mode onboarding example went with
-self-serve org creation). Each example shows the dev's request, the inferred answers,
+in CI today (all enterprise mode, the default; the onboarding example went
+with self-serve org creation). Each example shows the dev's request, the inferred answers,
 the resulting YAML, and why it's shaped the way it is.
 
 **The canonical reference is `web-app/tests/agentic/flows/*.flow.test.yml`
@@ -182,7 +182,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 30
 
 # `aW5zaWdodHMuYXBwLnltbA==` is base64("insights.app.yml"). Local-mode
@@ -249,8 +248,8 @@ open a past thread"*
 
 **Inferred:**
 - Surface: `threads`. Bucket: `threads`.
-- Backend mode: local.
-- A fresh local-mode Postgres has zero threads. Rather than add a
+- Backend mode: enterprise (default).
+- A fresh seed has no thread for this question. Rather than add a
   `seed_thread` fixture (extra surface area), the flow drives a
   chat-ask prelude first to populate the list. The prelude's `act:` text
   is byte-identical to `chat-ask`'s first step → `cache_scope: shared`.
@@ -266,7 +265,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 25
 
 setup:
@@ -348,7 +346,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 25
 
 setup:

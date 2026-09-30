@@ -38,7 +38,7 @@ settings:
   trace: on-failure                 # on-failure | always | never
   cache_actions: true
   max_steps: 30                     # upper bound on LLM tool-pick iterations per step
-  backend_mode: local               # local | cloud — default 'local'
+  backend_mode: cloud               # cloud (default, enterprise) | local (legacy --local)
 setup:                              # ordered fixture commands run before each case
   - <command>
 cases:                              # at least one

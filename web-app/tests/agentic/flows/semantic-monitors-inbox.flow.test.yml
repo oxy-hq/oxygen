@@ -77,7 +77,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 20
 
 setup:

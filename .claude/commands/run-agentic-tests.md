@@ -14,9 +14,10 @@ Wraps `pnpm test:agentic` with `HEADED=1 DEBUG=1` so the dev sees the
 browser and the per-iteration LLM reasoning.
 
 **The runner auto-spawns the right oxy backend** based on each flow's
-`settings.backend_mode` (`local` → `oxy start --local --enterprise` on
-port 3000; `cloud` → `oxy start --enterprise --clean` on port 3001). No
-port-probing or pre-start dance needed.
+`settings.backend_mode` (`cloud`, the default, → enterprise mode: `oxy start
+--enterprise`, `oxy seed` of `demo_project/`, and a dev-login session as
+`flow@oxy.local`, all on port 3000; `local` → the legacy `oxy start --local
+--enterprise`). No port-probing or pre-start dance needed.
 
 `$ARGUMENTS` is one or more **positional flow-name substring filters**
 (OR-combined). A flow matches if its filename contains ANY of the listed
@@ -67,11 +68,12 @@ cd web-app
 HEADED=1 DEBUG=1 pnpm test:agentic $ARGUMENTS
 ```
 
-The runner reads each loaded flow's `settings.backend_mode`, picks `local`
-or `cloud`, and spawns the right `oxy start …` invocation itself. If a
-backend is already healthy at the resolved URL, the runner uses it as-is
-and does not respawn (avoiding `--clean`'s side effect of wiping
-Postgres).
+The runner reads each loaded flow's `settings.backend_mode` (default
+`cloud`, enterprise mode), spawns the right `oxy start …` invocation and
+seeds `demo_project/` itself. If a backend is already healthy at the
+resolved URL, the runner uses it as-is: no respawn and **no seed** — a
+`just up` stack has `examples/` as its Demo workspace and does not allow
+`flow@oxy.local` to sign in (see the runner README, "Run").
 
 **The runner errors loudly if a single invocation mixes `backend_mode`
 across flows** — filter to one mode at a time (typically by passing
@@ -116,14 +118,11 @@ oxy-debug start --enterprise            # persistent Postgres state
 OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy \
   oxy-debug seed --workspace-path ./examples
 
-# Terminal 2 — point the runner at it
-OXY_HEALTH_URL=http://localhost:3001/api/health \
-  OXY_BASE_URL=http://localhost:3001 \
+# Terminal 2 — point the runner at it, signed in as a staff identity the
+# server's dev-login allows (the admin/airway flows need staff)
+OXY_FLOW_EMAIL=<staff email from OXY_GLOBAL_ADMINS> \
   pnpm test:agentic airway-pipeline-run.flow.test.yml --no-auto-backend --no-auto-frontend
 ```
-
-For local mode, use port 3000 with `oxy-debug start --local --enterprise`
-from `demo_project/`.
 
 This is documented as an escape hatch only — the default
 auto-spawn path is faster for routine iteration.
@@ -144,11 +143,13 @@ gh workflow run "CI check" --repo oxy-hq/oxygen-internal \
 ## Error handling
 
 - **`agentic runner: cannot run flows with mixed backend_mode`** — the
-  positional filters matched both local-mode and cloud-mode flows.
-  Filter to one mode at a time (e.g. `pnpm test:agentic builder-edits-app
-  chat-ask` rather than `pnpm test:agentic builder admin-`).
-- **`backend did not become healthy`** — `oxy start --local --enterprise`
-  or `oxy start --enterprise --clean` failed. Tail
+  positional filters matched a flow opted into legacy `local` mode
+  alongside enterprise ones. Filter to one mode at a time.
+- **`[session] dev-login as flow@oxy.local failed`** — you are reusing a
+  backend that does not allow the identity (e.g. `just up`). Stop it, or
+  set `OXY_FLOW_EMAIL` to an identity it allows.
+- **`backend did not become healthy`** / **`oxy seed failed`** — `oxy start
+  --enterprise` or the demo_project seed failed. Tail
   `web-app/tests/agentic/.logs/backend.log`. Common causes: Docker
   Desktop not running, system `oxy` on PATH older than the workspace
   build (set `$OXY_BIN=$PWD/target/debug/oxy`).

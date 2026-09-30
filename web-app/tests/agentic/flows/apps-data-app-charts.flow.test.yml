@@ -39,8 +39,8 @@
 # COST: ZERO act steps — every step is a deterministic wait. Cold cost is one
 # judge call, so cold and warm are effectively the same number.
 #
-# PORTABILITY CAVEAT: `/apps/<b64>` is the LOCAL-mode flat path; cloud mode
-# prefixes it with `/<org>/workspaces/<uuid>` and the launcher grid links only
+# ROUTING: `/apps/<b64>` is the flat path; the runner prefixes it with
+# `/<org>/workspaces/<uuid>` (OXY_PATH_PREFIX, runner/session.ts) and the launcher grid links only
 # to published CUSTOM apps, not to `.app.yml` Data Apps, so there is no
 # affordance to click instead (see tests/agentic/canonical-prompts.md §
 # "Launcher navigation"). Driving this against a cloud replica needs the
@@ -53,7 +53,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # No act steps — waits and expectations only.
   max_steps: 10
 

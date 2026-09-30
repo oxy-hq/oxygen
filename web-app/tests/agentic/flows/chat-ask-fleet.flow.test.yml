@@ -8,8 +8,8 @@
 # WHY THIS FLOW EXISTS. The product's core loop is "connect a warehouse and
 # ask a question" — and until this flow, no committed flow proved that loop
 # survives on a diskless replica:
-#   - `chat-ask.flow.test.yml` declares no `backend_mode` (defaults to
-#     `local`, chat-ask.flow.test.yml:15-19) and is absent from `FLEET_FLOWS`
+#   - `chat-ask.flow.test.yml` declares no `backend_mode` (it defaulted to
+#     `local` when this was written) and is absent from `FLEET_FLOWS`
 #     (scripts/fleet-assert.sh:114-122) — it has only ever run against a
 #     single all-in-one process where the ide proxy is never exercised.
 #   - `semantic-builder-ask.flow.test.yml` is the one flow in
@@ -108,8 +108,8 @@
 # question `chat-ask.flow.test.yml` already uses against `demo_project`
 # ports over unchanged.
 #
-# RUN THIS AGAINST THE FLEET, NEVER THE DEFAULT WAY. `backend_mode: local`
-# below does NOT select a fixture — it only picks what the runner
+# RUN THIS AGAINST THE FLEET, NEVER THE DEFAULT WAY. `backend_mode`
+# (default: enterprise) does NOT select a fixture — it only picks what the runner
 # auto-spawns when not handed a backend already (`runner/backend.ts`
 # `spawnArgs`); driving the fleet means `--no-auto-backend` plus
 # `OXY_BASE_URL` / `OXY_HEALTH_URL` / `OXY_SESSION_TOKEN` / `OXY_SESSION_USER`
@@ -150,7 +150,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 15
 
 setup:

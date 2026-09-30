@@ -81,7 +81,7 @@
 #
 # Run this against the fleet, never the default way — see
 # `ide-world-model-graph-fleet.flow.test.yml`'s header for the same caveat:
-# `backend_mode: local` below does NOT select a fixture, it only picks what
+# `backend_mode` (default: enterprise) does NOT select a fixture, it only picks what
 # the runner auto-spawns when not handed a backend already (`runner/backend.ts`
 # `spawnArgs`); driving the fleet means `--no-auto-backend` + `OXY_BASE_URL`.
 #
@@ -96,7 +96,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # 2 act steps + waits. The graph has no per-node testids (ReactFlow generic
   # nodes), so the filter + click steps may take a couple of extra iterations
   # to visually locate a label — in line with ide-world-model-graph-fleet (15).

@@ -72,7 +72,7 @@
 # a visible, actionable terminal state, never a bare hang.
 #
 # ISOLATED BACKEND — deliberately NOT the docker-compose fleet.
-# `backend_mode: local` here means `oxy start --local --enterprise` on the
+# The default `backend_mode` (enterprise) means `oxy start --enterprise` on the
 # default ports (3000 main / 3001 internal, `runner/backend.ts:112`), which
 # collide with the split fleet's `oxy-fleet-serve-1`/`-2` (see
 # `docker-compose.fleet.yml`) if both are up at once — `ensureBackend`
@@ -82,9 +82,11 @@
 # deployment doesn't even have. Run this flow against your OWN isolated
 # instance on non-default ports instead:
 #
-#   cd demo_project && OXY_HTTP_PORT=3100 OXY_HTTP_INTERNAL_PORT=3101 \
-#     oxy start --local --enterprise --port 3100 --internal-port 3101 &
-#   # wait for :3100/api/health == 200
+#   OXY_DEV_LOGIN_EMAILS=flow@oxy.local \
+#     oxy start --enterprise --port 3100 --internal-port 3101 &
+#   # wait for :3100/api/health == 200, then seed oxy start's own database:
+#   OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy \
+#     OXY_GLOBAL_ADMINS=flow@oxy.local oxy seed --workspace-path demo_project --llm-keys
 #   cd web-app && OXY_BASE_URL=http://localhost:3100 \
 #     OXY_HEALTH_URL=http://localhost:3100/api/health \
 #     pnpm test:agentic chat-early-run-failure --no-auto-backend
@@ -107,7 +109,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 20
 
 # c2FsZXNfc2VtYW50aWNzL3ZpZXdzL294eW1hcnQudmlldy55bWw=
@@ -196,9 +197,9 @@ cases:
       # the act's own internal wait.
       - wait_for: "selector_hidden:[data-testid=ide-save-button];timeout_ms=10000"
 
-      # Local mode has no org/workspace prefix, so a direct navigate is
-      # correct here (same as threads-list.flow.test.yml's own local-mode
-      # step) — the IDE hides the outer rail (WorkspaceShell.tsx:43,
+      # The runner prefixes browser_navigate paths with the workspace, so a
+      # direct navigate is correct here (same as threads-list.flow.test.yml's
+      # own step) — the IDE hides the outer rail (WorkspaceShell.tsx:43,
       # `hideRail = inIde || ...`), so there is no `[data-testid=rail-chat]`
       # to click from inside it.
       - act: |

@@ -18,7 +18,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # navigate + chat submit (1 analytics run) + navigate back + search + click
   # + judge. Pad for the agentic analytics run on a single question.
   max_steps: 25

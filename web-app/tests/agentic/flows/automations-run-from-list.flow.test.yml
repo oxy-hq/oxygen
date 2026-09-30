@@ -36,8 +36,8 @@
 # (verified: no `type: agent`, no LLM task), so the run is DuckDB-only and costs
 # nothing in tokens. Only the act steps and one judge call are billed.
 #
-# PORTABILITY CAVEAT: `/automations` is the LOCAL-mode flat path. In cloud mode
-# the same page is workspace-prefixed (`/<org>/workspaces/<uuid>/automations` —
+# ROUTING: `/automations` is the flat path; the runner prefixes it (enterprise
+# mode, OXY_PATH_PREFIX) because the page is workspace-prefixed (`/<org>/workspaces/<uuid>/automations` —
 # see `ROUTES.ORG(...).WORKSPACE(...)` in web-app/src/libs/utils/routes.ts), and
 # there is no rail affordance for automations to click instead. Driving this
 # flow against a cloud replica therefore needs the prefixed path; the assertions
@@ -50,7 +50,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # 3 act steps + waits. In line with ide-pipeline-quickbooks (20).
   max_steps: 20
 

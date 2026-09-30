@@ -108,11 +108,11 @@ settings:
   trace: on-failure                        # on-failure | always | never
   cache_actions: true                      # disables the whole cache when false
   max_steps: 30                            # upper bound on LLM tool-pick iterations PER step
-  backend_mode: local                      # local | cloud — picks which oxy boot the runner auto-spawns
+  backend_mode: cloud                      # cloud (default, enterprise) | local (legacy --local)
 ```
 
-- `backend_mode: local` → `oxy start --local --enterprise` from `demo_project/`, runner targets `http://localhost:3000`.
-- `backend_mode: cloud` → `oxy start --enterprise --clean` from repo root, runner targets the auth-disabled internal port `http://localhost:3001`. `--clean` wipes the Postgres volume, so it comes up with no org (and no UI creates one — orgs are staff/partner-made); a flow that needs org data runs against a backend you started and `oxy seed`ed first, as `scripts/verify-all.sh` phase 4 does. If a backend is already healthy at the resolved URL, the runner uses it as-is and does not respawn (no `--clean` side effect).
+- `backend_mode: cloud` (**default**, enterprise mode — the production path) → `oxy start --enterprise` from the repo root, then `oxy seed --workspace-path demo_project --llm-keys` (the `local` org's Demo workspace, `70787bb2-e11b-5488-b2c3-02e60d5fc7d3`, with `flow@oxy.local` bound as Owner). The runner signs in through dev-login as `flow@oxy.local` (`runner/session.ts`), drives `http://localhost:3000`, and prefixes workspace paths with `/local/workspaces/<demo id>`. A caller-exported `OXY_SESSION_TOKEN` / `OXY_PATH_PREFIX` wins (the admin flows pass a staff session, `scripts/verify-all.sh` phase 4). If a backend is already healthy at the resolved URL, the runner uses it as-is: no respawn and no seed.
+- `backend_mode: local` → the legacy, unmaintained `oxy start --local --enterprise` from `demo_project/` (no auth). No committed flow uses it; opt in only for a flow that tests legacy local mode itself.
 - **All flows in a single invocation must agree on `backend_mode`.** The runner errors loudly on mixed-mode loads.
 
 ### Step `cache_scope`
@@ -256,14 +256,14 @@ The agentic-tests job is a reusable workflow at `.github/workflows/agentic-tests
 
 | Bucket | Flows | Mode | Port |
 |---|---|---|---|
-| `builder` | `builder-edits-app`, `builder-rejected-suggestion` | local | 3000 |
-| `semantic` | `semantic-builder-ask` | local | 3000 |
-| `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | local | 3000 |
-| `threads` | `threads-list` | local | 3000 |
-| `ide` | `ide-save` | local | 3000 |
-| `metric-tree` | `metric-tree`, `metric-tree-scenario` | local | 3000 |
+| `builder` | `builder-edits-app` | cloud (enterprise) | 3000 |
+| `semantic` | `semantic-builder-ask` | cloud (enterprise) | 3000 |
+| `ask-agent` | `chat-ask`, `chat-panel-agent-switch` | cloud (enterprise) | 3000 |
+| `threads` | `threads-list` | cloud (enterprise) | 3000 |
+| `ide` | `ide-save` | cloud (enterprise) | 3000 |
+| `metric-tree` | `metric-tree`, `metric-tree-scenario` | cloud (enterprise) | 3000 |
 
-No bucket is cloud-mode: the one cloud bucket (`onboarding`) went with self-serve org creation.
+Every bucket is enterprise mode: `oxy serve --enterprise`, then `oxy seed` of `demo_project/` with `OXY_GLOBAL_ADMINS=flow@oxy.local`, and `OXY_DEV_LOGIN_EMAILS=flow@oxy.local` on the server so the runner can sign in.
 
 Filename → bucket mapping for new flows:
 - `builder-*` → `builder`
@@ -352,7 +352,7 @@ settings:
   trace: on-failure
   cache_actions: true
   max_steps: <pick an upper bound; default 30 is usually fine>
-  backend_mode: <local | cloud>      # default 'local'; only set explicitly for cloud flows
+  # backend_mode: omit it — the default is enterprise ('cloud'); 'local' is legacy --local only
 
 setup:
   - <documented setup command>       # see the 3-item table above
@@ -442,7 +442,7 @@ After the file is written and self-checks pass:
 
 The bespoke runtime is in active development. Re-read the README each invocation. Likely evolutions to watch:
 
-- **Bucket layout per (domain, mode)** when cloud-mode coverage lands in `builder` / `ask-agent` / `threads` / `ide`. Today no CI bucket is cloud-mode; the cloud flows (`admin-*`, `airway-pipeline-run`) run only from `scripts/verify-all.sh`.
+- **Bucket layout per (domain, identity)** if staff-identity flows (`admin-*`, `airway-pipeline-run`) join CI: the runner injects one session per invocation, so they need buckets of their own. Every CI bucket is enterprise mode today; the admin flows run only from `scripts/verify-all.sh` phase 4.
 - **`cache_scope` collapsing to `shared: true` boolean** since only two values exist today.
 - **Structured shorthand DSL** (`click:` / `type:` / `press:` step kinds that compile to Playwright tool calls without an LLM round-trip) — discussed for ~40–50× cold cost reduction per pure-mechanical step. Not committed.
 

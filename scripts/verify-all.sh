@@ -17,11 +17,14 @@
 #           OXY_PATH_PREFIX, or every page redirects to /login and every step
 #           times out. Phase 2 splits into five invocations — see the comment
 #           there for which constraint each boundary is.
-#   local   flows the runner backs with `oxy start --local --enterprise`.
-#   cloud   flows against an `oxy start --enterprise` this script starts (NOT
-#           the runner's `--clean` one) and fills with `oxy seed` first — the
-#           admin surfaces and the airway run page have nothing to render on an
-#           empty database, and no UI path creates an org any more.
+#   runner  demo_project flows the runner backs itself: `oxy start
+#           --enterprise`, `oxy seed` of demo_project/ as the Demo workspace,
+#           then a dev-login session as flow@oxy.local (runner/backend.ts,
+#           runner/session.ts). Enterprise mode, like every phase here.
+#   cloud   admin flows against an `oxy start --enterprise` this script starts
+#           and fills with `oxy seed ./examples` first — the admin surfaces and
+#           the airway run page need the staff identity and the partner
+#           tenants, and no UI path creates an org any more.
 #   obs     flows that read ClickHouse. No seed path exists for observability
 #           data, so the spans are inserted directly (the shape
 #           `just clickhouse-obs-verify` uses) rather than paying for agent runs.
@@ -154,8 +157,9 @@ bold "2. Fleet-shaped flows outside FLEET_FLOWS"
 #                 and partner surfaces need the opposite — `e2e@oxy.tech`, which
 #                 `/api/customer-apps` and `/api/admin/partners` answer and a
 #                 non-staff caller gets a 403 from.
-#   backend_mode  admin-airhouse-fleet declares `cloud`, the other five `local`,
-#                 and cli.ts refuses a mixed invocation outright.
+#   backend_mode  all six are enterprise (`cloud`, the default) now, but cli.ts
+#                 still refuses a mixed invocation, so a flow opting into the
+#                 legacy `local` mode would need an invocation of its own.
 #   assume-role   partners-console-fleet opens a 60-minute assume session as
 #                 Acme. While it is live, ANY e2e@oxy.tech flow expecting /admin
 #                 is client-side redirected to /partners — so it runs alone, and
@@ -214,7 +218,8 @@ if [ "$DRY" = 1 ] || curl -sf --max-time 8 "$FLEET_URL/api/health" >/dev/null 2>
   fleet_flows "fleet workspace flows" flow@oxy.local \
     chat-ask-fleet context-graph-fleet customer-apps-oxy-starter-fleet
   # Authored against `examples/` — the fleet's workspace — not `demo_project/`,
-  # which is what `backend_mode: local` spawns against. `ide-create-file` waits
+  # which is what the runner seeds when it spawns its own backend (phase 3).
+  # `ide-create-file` waits
   # for the `agents` folder (its own comment names `examples/agents/`) and
   # `semantic-monitors-inbox` needs the 13 monitors in `examples/.monitor.yml`;
   # `demo_project` has neither, so run locally they can only time out, and the
@@ -249,15 +254,21 @@ fi
 
 wet && [ "$KEEP" != 1 ] && docker compose -f docker-compose.fleet.yml down >/dev/null 2>&1
 
-# ── local-backed flows ───────────────────────────────────────────────────────
-bold "3. Local-backed flows"
+# ── runner-backed flows (enterprise mode, demo_project) ──────────────────────
+bold "3. Runner-backed flows (enterprise, demo_project)"
+# The runner spawns `oxy start --enterprise`, seeds demo_project/ as the Demo
+# workspace and signs in as flow@oxy.local (runner/backend.ts, session.ts). It
+# REUSES anything already healthy on :3000 without seeding — so the fleet must
+# be down here (it is, unless --keep), or these flows drive the fleet's
+# examples/ workspace instead of the demo_project fixture they assert on.
+#
 # Full filenames, not bare names: the runner matches a flow if its filename
 # CONTAINS any positional arg (runner/cli.ts, `globs`). `chat-ask` therefore
 # also selects `chat-ask-fleet`, and `ide-world-model-graph` also selects
 # `ide-world-model-graph-fleet` — both of which are aimed at the docker fleet
-# and prove nothing (or fail outright) against a local backend. Passing the
+# and prove nothing (or fail outright) against a single process. Passing the
 # `.flow.test.yml` suffix makes each one match exactly itself.
-wet || printf '  as %-14s ' '(no session — the runner spawns its own local backend)'
+wet || printf '  as %-14s ' 'flow@oxy.local (the runner spawns + seeds its own backend)'
 LOCAL_FLOWS=(chat-ask.flow.test.yml chat-early-run-failure.flow.test.yml
              ide-compile-error.flow.test.yml ide-save.flow.test.yml
              ide-world-model-graph.flow.test.yml ide-yaml-diagnostics.flow.test.yml
@@ -272,10 +283,10 @@ LOCAL_FLOWS=(chat-ask.flow.test.yml chat-early-run-failure.flow.test.yml
 EXPENSIVE_FLOWS=(ide-pipeline-quickbooks.flow.test.yml)
 [ "$EXPENSIVE" = 1 ] && LOCAL_FLOWS+=("${EXPENSIVE_FLOWS[@]}")
 if flow_run "${LOCAL_FLOWS[@]}" > "$LOG_DIR/b-local.log" 2>&1; then
-  record "B: local flows" PASS "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
+  record "B: runner-backed flows" PASS "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
   ok "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
 else
-  record "B: local flows" FAIL "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
+  record "B: runner-backed flows" FAIL "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1)"
   bad "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-local.log" | tail -1) — see $LOG_DIR/b-local.log"
 fi
 
@@ -285,9 +296,10 @@ bold "4. Cloud-backed flows (oxy seed, then the admin surfaces)"
 # run first here (`onboarding-blank-workspace`). `oxy seed` writes the dev
 # stack's fixtures into the backend's Postgres instead: the `local` org + a
 # compiled, promoted Demo workspace (examples/, which carries a `health_check:`
-# block) plus the partner tenants. Start the backend OURSELVES, without
-# --clean, before any flow: the runner reuses a healthy :3001, whereas one it
-# spawns boots `--clean` and would wipe the seed.
+# block) plus the partner tenants. Start the backend OURSELVES before any flow:
+# the runner reuses a healthy :3000 as-is, whereas one it spawns would seed
+# demo_project/ as the Demo workspace instead of examples/. The staff session
+# minted below is passed in, so the runner does not sign in as flow@oxy.local.
 #
 # `.env` is dotenvx-shaped and not shell-sourceable; read single values out.
 OWNER=$(grep -E '^OXY_OWNER=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"'' || true)

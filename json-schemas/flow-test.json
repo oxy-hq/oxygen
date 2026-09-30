@@ -21,7 +21,7 @@
         "trace": "on-failure",
         "cache_actions": true,
         "max_steps": 30,
-        "backend_mode": "local"
+        "backend_mode": "cloud"
       },
       "allOf": [{ "$ref": "#/definitions/FlowSettings" }]
     },
@@ -50,8 +50,8 @@
         "backend_mode": {
           "type": "string",
           "enum": ["local", "cloud"],
-          "default": "local",
-          "description": "Which oxy backend mode the flow exercises. 'local' = single-workspace (oxy start --local --enterprise on :3000); 'cloud' = multi-tenant onboarding (oxy start --enterprise --clean, runner targets the auth-disabled internal port :3001). Flows in a single invocation must agree."
+          "default": "cloud",
+          "description": "Which oxy backend mode the flow exercises. 'cloud' (default) = enterprise mode, the production path: oxy start --enterprise + oxy seed of demo_project/ as the Demo workspace; the runner signs in on :3000 as flow@oxy.local and prefixes workspace paths with /local/workspaces/<demo id>. 'local' = the legacy, unmaintained --local single-workspace no-auth mode; opt in only for a flow that tests legacy local mode itself. Flows in a single invocation must agree."
         }
       },
       "additionalProperties": false

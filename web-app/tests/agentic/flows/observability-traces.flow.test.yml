@@ -90,7 +90,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 10
 
 # Shared by both cases below (setup re-runs before EACH case, per

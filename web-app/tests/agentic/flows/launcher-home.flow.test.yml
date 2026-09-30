@@ -24,8 +24,11 @@
 #                         "Chat"); rail-hq returns to the launcher
 #                         (breadcrumb "HQ").
 #
-# Backend mode: local (`oxy start --local --enterprise` at demo_project/).
-# Auth is disabled, so there is no login step.
+# Backend mode: enterprise mode (the default `backend_mode`): the runner starts `oxy start
+# --enterprise`, seeds `demo_project/` as the `local` org's Demo workspace, signs
+# in as `flow@oxy.local` and prefixes `goto:` paths with
+# `/local/workspaces/<demo id>`. The runner injects that session before the
+# first case, so there is no login step in the flow.
 #
 # CLOUD/FLEET PORTABILITY — `fallback-home` and `rail-chat-and-home` need a
 # workspace with ZERO published custom apps; the fleet's shared workspace
@@ -77,7 +80,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 20
 
 setup:

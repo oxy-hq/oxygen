@@ -15,17 +15,16 @@
 #
 # Scope is intentionally narrow: this flow tests **only** the builder
 # agent editing an existing app, with no org → workspace prelude.
-# We run in local mode against `demo_project/insights.app.yml`
+# We run in enterprise mode against `demo_project/insights.app.yml`
 # (Oxymart retail-analytics dashboard, store + start_date controls,
-# bar/pie charts) — the auth-disabled public port (3000) of
-# `oxy start --local --enterprise`.
+# bar/pie charts), seeded as the Demo workspace.
 #
 # Preconditions:
 #   * $ANTHROPIC_API_KEY in the runner's environment. The backend reads
 #     it via `oxy start` so the builder agent has a model to call.
-#   * Docker Desktop running. With `backend_mode: local` set below, the
-#     runner brings up `oxy start --local --enterprise` itself from
-#     `demo_project/` (no manual boot needed).
+#   * Docker Desktop running. The runner brings up `oxy start
+#     --enterprise` and seeds `demo_project/` itself (no manual boot
+#     needed).
 #
 # Caching: `cache_actions: true`. Steady-state PR cost is just the
 # judge call (~$0.003) once the two recorded steps are warm.
@@ -37,16 +36,14 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  # Local mode: single-workspace at demo_project/, public port 3000
-  # auth-disabled, no orgs, no onboarding wizard. The auth-disabled port
-  # plus a fully-populated demo_project means Home doesn't redirect to
-  # /onboarding, so we can goto:/apps/<id> directly.
-  backend_mode: local
+  # Enterprise mode (default): signed in as flow@oxy.local, an Owner of
+  # the `local` org, so goto:/apps/<id> resolves under the Demo
+  # workspace prefix directly.
   # ~2 act steps + builder run wait. Pad for builder pipeline iterations.
   max_steps: 30
 
-# `aW5zaWdodHMuYXBwLnltbA==` is base64("insights.app.yml"). Local-mode
-# router has no org/workspace prefix — `/apps/<base64>` resolves
+# `aW5zaWdodHMuYXBwLnltbA==` is base64("insights.app.yml"). The runner
+# adds the org/workspace prefix — `/apps/<base64>` resolves
 # directly to AppPage rendering the file from `demo_project/`.
 #
 # `restore_demo_file:insights.app.yml` reverts the file to its committed

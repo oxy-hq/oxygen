@@ -52,8 +52,8 @@
 #
 # Preconditions:
 #   * $ANTHROPIC_API_KEY in the runner's environment.
-#   * Docker Desktop running. backend_mode: local — runner spawns
-#     `oxy start --local --enterprise` from `demo_project/` itself.
+#   * Docker Desktop running. Enterprise mode (default) — the runner
+#     spawns `oxy start --enterprise` and seeds `demo_project/` itself.
 #
 # Cold cost: ~$0.30–0.60 (one builder agent run + IDE-driven steps; no
 # analytics agent run and no LLM judge). Warm cost: ~$0.005.
@@ -176,7 +176,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   # Cold builder run can iterate many times (lookup_schema, search_files,
   # read_file, validate_project, edit_file). Pad accordingly.
   max_steps: 40

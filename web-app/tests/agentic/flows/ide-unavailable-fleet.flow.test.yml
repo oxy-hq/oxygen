@@ -141,7 +141,6 @@ settings:
   runs: 1
   trace: on-failure
   cache_actions: true
-  backend_mode: local
   max_steps: 20
 
 # `revenue.app.yml` base64: printf 'revenue.app.yml' | base64. Runs before

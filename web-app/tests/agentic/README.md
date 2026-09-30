@@ -61,19 +61,35 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env.local
 
 ### 2. Run
 
-The runner picks the right backend boot for the loaded flows by reading each flow's `settings.backend_mode` (default `local`):
+Every flow runs in **enterprise mode**, the production path, unless it opts out. The runner picks the backend boot by reading each flow's `settings.backend_mode` (default `cloud`, which means enterprise):
 
-| `backend_mode` | spawn command (cwd) | runner targets |
+| `backend_mode` | what the runner does | runner targets |
 |---|---|---|
-| `local` (default) | `oxy start --local --enterprise` (`demo_project/`) | `http://localhost:3000` (auth-disabled in `--local`) |
-| `cloud` | `oxy start --enterprise --clean` (repo root) | `http://localhost:3001` (auth-disabled internal port) |
+| `cloud` (default) | `oxy start --enterprise` (repo root), then `oxy seed --workspace-path demo_project --llm-keys`, then a dev-login session as `flow@oxy.local` | `http://localhost:3000`, workspace paths prefixed with `/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3` |
+| `local` (legacy) | `oxy start --local --enterprise` (`demo_project/`) | `http://localhost:3000` (auth-disabled in `--local`) |
 
-Cloud mode passes `--clean` so the Postgres volume comes up empty and a flow that writes rows starts from the same state on a rerun. If a backend is already healthy at the resolved URL, the runner uses it as-is and does not respawn (no `--clean` side effect). All flows loaded in a single invocation must agree on `backend_mode` — the runner errors loudly if you mix.
+In enterprise mode (`runner/backend.ts`, `runner/session.ts`):
 
-Requires `oxy` on `PATH` and Docker Desktop running, since `oxy start` brings up Postgres in a container.
+- **Fixture.** `demo_project/` is seeded as the `local` org's Demo workspace (the deterministic id above), compiled and promoted, with the LLM keys this shell exports stored as workspace secrets. `reset_test_file` / `restore_demo_file:` write `demo_project/` directly — it *is* the workspace's working copy.
+- **Identity.** `flow@oxy.local`, bound as Owner of `local` by the seed (`OXY_GLOBAL_ADMINS` on the seed process only) and signed in through `GET /api/auth/dev-login`; the spawned server gets it on `OXY_DEV_LOGIN_EMAILS`. It has no platform standing, which is what every workspace flow needs. Override with `OXY_FLOW_EMAIL`, or export `OXY_SESSION_TOKEN` / `OXY_SESSION_USER` yourself (the admin flows do, as staff).
+- **Routing.** `goto:` and `browser_navigate` paths get `OXY_PATH_PREFIX` (default the Demo workspace) unless they are a top-level surface (`/admin`, `/partners`, `/customer-apps`, `/dev-login`, …) or bare `/`, which the post-login dispatcher routes.
+
+`local` is the unmaintained `--local` mode: no auth, one fixed workspace, nothing it shows says anything about the product. No committed flow uses it; opt in only for a flow that tests legacy local mode itself.
+
+If a backend is already healthy at the resolved URL, the runner uses it as-is: no respawn **and no seed**. A stack from `just up` has `examples/` as its Demo workspace and does not list `flow@oxy.local` for dev-login, so either stop it and let the runner spawn its own, or seed and sign in yourself:
 
 ```bash
-pnpm test:agentic                          # all flows in the default (local) mode set
+OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy OXY_GLOBAL_ADMINS=flow@oxy.local \
+  ./target/debug/oxy seed --workspace-path demo_project --llm-keys   # re-points Demo at demo_project/
+OXY_FLOW_EMAIL=<a staff email from OXY_GLOBAL_ADMINS> pnpm test:agentic chat-ask
+```
+
+All flows loaded in a single invocation must agree on `backend_mode` — the runner errors loudly if you mix.
+
+Requires `oxy` on `PATH` (or `target/debug/oxy`) and Docker running, since `oxy start` brings up Postgres in a container.
+
+```bash
+pnpm test:agentic                          # every flow (admin + fleet flows need their own identity/backend — see below)
 pnpm test:agentic chat-ask                 # filename match
 pnpm test:agentic --tag critical           # tag filter
 pnpm test:agentic --output results.json    # write JSON (also auto-written under .results/)
@@ -195,7 +211,7 @@ Asserts cost $0; judge calls cost ~$0.002 each. Use asserts wherever the claim i
 
 - `reset_test_file` — empties `demo_project/test.sql` so the IDE save flow starts clean on rerun. Refuses (loud throw) if the resolved path is a symlink or escapes the repo root.
 - `restore_demo_file:<rel>` — reverts `demo_project/<rel>` to its committed-in-HEAD content via `git show HEAD:demo_project/<rel>`. Used by flows that mutate a demo file (e.g. the builder agent editing `insights.app.yml`) so reruns start from the same canonical state. Refuses paths that escape the repo, contain `..`, or resolve through a symlink. Reads from HEAD without touching the index, so a developer's staged changes elsewhere are unaffected.
-- `goto:/path` — navigate to a URL relative to `OXY_BASE_URL` (default `http://localhost:3000`).
+- `goto:/path` — navigate to a URL relative to `OXY_BASE_URL` (default `http://localhost:3000`), with `OXY_PATH_PREFIX` (the Demo workspace, in enterprise mode) applied to workspace-scoped paths.
 
 The set is intentionally small. New setup commands are subject to the read-only-against-external-systems policy at the top of this file — propose any addition that needs network access on the followups doc first.
 
@@ -236,19 +252,18 @@ The allowlist of redacted env vars lives in `runner/secrets.ts` (`SECRET_ENV_VAR
 
 Older flows under `cache_actions: false` were written before egress substitution shipped. The flag now protects only against operational concerns (e.g. wanting to force every step cold for a benchmark); it is no longer required for secret-handling correctness.
 
-### Cloud-mode flows
+### Enterprise mode, identities, and the admin flows
 
-Flows that need the multi-tenant (org → workspace) shape declare `backend_mode: cloud` in their settings. The runner spawns `oxy start --enterprise --clean` and drives the auth-disabled internal port (3001). `--clean` wipes the local oxy Postgres volume, so any orgs/workspaces from previous runs are gone and every run starts from a fresh DB.
+Enterprise mode drives the **authenticated** public port (3000) with a real session, not the auth-disabled internal port (3001): the internal port carries neither `enforce_role` nor the ide proxy, and its `/api/user` answers `null` to a cookie-less browser, so the SPA's admin gate bounced every admin flow that tried it. The session comes from dev-login, the same endpoint `/dev-login?as=<persona>` uses (see the `oxy-run-and-verify` skill).
 
-Driving the **authenticated** public port (3000) instead — worth it when you're debugging something auth-shaped by hand, or pointing Playwright MCP at a running server — no longer requires OAuth or the magic-link email preview: set `OXY_DEV_LOGIN_EMAILS` and navigate to `/dev-login` (see the "Dev sign-in" section in `DEVELOPMENT.md`). Committed flows still use 3001; nothing here changes.
-
-No CI bucket runs a cloud-mode flow today. The last one, `onboarding-blank-workspace`, walked self-serve org creation (welcome → create org → skip invite → blank workspace → setup wizard), and that path no longer exists: orgs are provisioned by Oxygen staff or a partner, every new org gets a Default workspace, and a user with no org lands on a "not part of an organization yet" page with only invites, join-by-link and log out. A cloud-mode flow therefore needs an org to exist before it starts — there is no UI to create one outside the admin console. The committed cloud flows (`admin-*`, `airway-pipeline-run`) run from `scripts/verify-all.sh` phase 4, which starts `oxy start --enterprise` itself and runs `oxy seed` before the runner reuses that backend (a runner-spawned `--clean` one would come up empty). Whatever it uses, keep the warehouse file-based (DuckDB), so the flow stays structurally incapable of hitting a port-forward to production — the failure mode of the 2026-05-06 incident. `builder-edits-app` runs in local mode against `demo_project/insights.app.yml` directly, with a `restore_demo_file:insights.app.yml` setup command to revert the builder's edits between runs.
+The runner injects **one** session per invocation. `flow@oxy.local` (the default) is what every workspace flow needs; the admin flows (`admin-*`, `airway-pipeline-run`) need a staff identity, so `scripts/verify-all.sh` phase 4 starts `oxy start --enterprise` itself, runs `oxy seed ./examples` (the partner tenants and `health_check:` block they read), mints a staff session and hands it to the runner in `OXY_SESSION_TOKEN`. No UI creates an org any more — orgs are provisioned by staff or a partner — so every enterprise flow depends on a seed having run first; the runner's own spawn seeds `demo_project/`, and anything else is seeded from the shell (`scripts/seed-fixtures.sh`). Keep the warehouse file-based (DuckDB), so a flow stays structurally incapable of hitting a port-forward to production — the failure mode of the 2026-05-06 incident. `builder-edits-app` edits `demo_project/insights.app.yml` in the Demo workspace, with a `restore_demo_file:insights.app.yml` setup command to revert the builder's edits between runs.
 
 ### Driving a fleet or remote deployment (bypassing `backend_mode`)
 
-`backend_mode` only controls what the runner **auto-spawns** — `local` runs `oxy
-start --local --enterprise`, `cloud` runs `oxy start --enterprise --clean`
-(`runner/backend.ts:172`, `spawnArgs`). It is not a fixture selector and does not
+`backend_mode` only controls what the runner **auto-spawns** and whether it signs
+in — `cloud` (default) runs `oxy start --enterprise` + the demo_project seed and
+mints a `flow@oxy.local` session unless one is exported; `local` runs `oxy start
+--local --enterprise` (`runner/backend.ts`, `spawnArgs`; `runner/session.ts`). It is not a fixture selector and does not
 declare which deployment topology a flow supports. Pass `--no-auto-backend` to skip
 spawning entirely (`runner/cli.ts:170-172`) and set `OXY_BASE_URL` / `OXY_HEALTH_URL`
 / `OXY_SESSION_TOKEN` / `OXY_SESSION_USER` yourself to point the runner at an
@@ -259,10 +274,9 @@ already-running backend — including one replica of the Docker split fleet
 still applies to whatever flows are loaded in one invocation, though —
 `pickBackendMode` runs unconditionally, before `--no-auto-backend` is even checked
 (`runner/cli.ts:159`, `:289-297`) — so `--no-auto-backend` only skips the spawn, not
-the one-mode-per-invocation rule. This is also why the fleet-eligible flows stay on
-the default `local` mode rather than flipping to `cloud`: `cloud` only changes which
-command gets auto-spawned, so flipping it would break the plain `--local` path for
-flows driven directly at a fleet, for no gain.
+the one-mode-per-invocation rule. Every committed flow is on the default (enterprise)
+mode, so any subset can share an invocation; a caller-exported session and
+`OXY_PATH_PREFIX` always win over the runner's defaults.
 
 Two structural limits worth knowing before trying to widen fleet coverage:
 
@@ -275,8 +289,9 @@ Two structural limits worth knowing before trying to widen fleet coverage:
   today; that needs a per-flow `identity:` field in the schema, which doesn't exist
   yet.
 - **`applyPathPrefix` and non-workspace-scoped routes.** `goto:` targets are prefixed
-  with `OXY_PATH_PREFIX` so the same flow text resolves to a different URL under
-  `--local` vs. a fleet/cloud deployment (`runner/backend.ts:79-86`). Routes that hang
+  with `OXY_PATH_PREFIX` (the runner defaults it to the Demo workspace in enterprise
+  mode) so flow text names a surface, not a workspace (`runner/backend.ts`,
+  `applyPathPrefix`). Routes that hang
   off the app root instead of a workspace — `TOP_LEVEL_SURFACES`: `/admin`,
   `/partners`, `/customer-apps`, `/login`, `/dev-login`, `/invite`, `/cli-auth`
   (`runner/backend.ts:101-109`) — must be listed there, or the prefix produces a URL
@@ -424,8 +439,11 @@ If you intentionally want to nuke the cache (e.g. to remeasure cold cost), bump 
 
 ## Troubleshooting
 
-- **`backend did not become healthy`** — `oxy start --local --enterprise` (or `oxy start --enterprise --clean` for cloud-mode flows) failed. Tail `web-app/tests/agentic/.logs/backend.log`. Most often Docker Desktop isn't running, or the system `oxy` binary on PATH is older than the workspace build (set `$OXY_BIN` to the freshly built one).
-- **`cannot run flows with mixed backend_mode`** — you loaded a glob that matched both local-mode and cloud-mode flows. Filter to one mode per invocation (e.g. `pnpm test:agentic builder-edits-app` or `pnpm test:agentic chat-ask ide-save`).
+- **`backend did not become healthy`** — `oxy start --enterprise` (or the legacy `oxy start --local --enterprise`) failed. Tail `web-app/tests/agentic/.logs/backend.log`. Most often Docker isn't running, or the system `oxy` binary on PATH is older than the workspace build (set `$OXY_BIN` to the freshly built one).
+- **`oxy seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in `demo_project/` fails the seed (every seeded workspace points at it).
+- **`[session] dev-login as flow@oxy.local failed: 404 / 403`** — the backend you are reusing does not list the identity in `OXY_DEV_LOGIN_EMAILS`. Stop it and let the runner spawn its own, or see "Run" above for signing in as someone it does list.
+- **Every page lands on `/onboarding`** — dev-login minted an account that belongs to no org: the backend was never seeded with `OXY_GLOBAL_ADMINS=flow@oxy.local`.
+- **`cannot run flows with mixed backend_mode`** — you loaded a glob that matched a flow opted into the legacy `local` mode alongside enterprise ones. Filter to one mode per invocation.
 - **Stale local cache** — delete `tests/agentic/.cache/bespoke-actions.json` to force a full re-derive on the next run, or pass `cache_actions: false` in the flow's settings.
 - **Snapshot too large** — the LLM can call `browser_get_page_text` as a fallback, or `browser_snapshot` with `region: "main"` to scope. If it consistently struggles, narrow the `act:` prompt or split the step.
 - **Judge cost too high** — flip `expect: judge:` to `expect: assert:` where possible; judge is for soft claims only. Cheaper still: use a deterministic `selector ... has attribute ...` assert.

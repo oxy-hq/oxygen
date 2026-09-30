@@ -1,17 +1,26 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { flowEmail } from "./session";
 import type { BackendMode } from "./types";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-// `oxy start --local` always serves `demo_project/`. Flows that need a
-// different fixture must commit a local file (DuckDB / Parquet / CSV)
+// The fixture every flow is authored against: the runner seeds it as the
+// enterprise Demo workspace, and legacy `--local` serves it directly. Flows
+// that need other data must commit a local file (DuckDB / Parquet / CSV)
 // and reference it from inside `demo_project` — there is intentionally
 // no env override so fixtures cannot point at an external warehouse.
 const PROJECT_DIR = resolve(REPO_ROOT, "demo_project");
+// `oxy start`'s own Postgres container (fixed port, crates/core/src/database/docker.rs).
+// `oxy start` sets OXY_DATABASE_URL for its own process only, so the seed that
+// follows it has to be told the same address.
+const START_DATABASE_URL = "postgresql://postgres:postgres@localhost:15432/oxy";
 const LOG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", ".logs");
 const STARTUP_TIMEOUT_MS = 240_000;
+// The seed compiles + promotes every seeded workspace (Demo plus the partner
+// tenants, all pointed at demo_project/).
+const SEED_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 1_000;
 
 // Pitfall #1: a stale `oxy` on PATH (often older than the workspace build)
@@ -35,21 +44,24 @@ export interface BackendHandle {
 
 export interface BackendOptions {
   /**
-   * Which oxy backend mode to bring up. `local` spawns
-   * `oxy start --local --enterprise` from `demo_project/` against the
-   * auth-disabled public port (3000). `cloud` spawns
-   * `oxy start --enterprise --clean` (multi-tenant, fresh postgres) and
-   * the runner drives the auth-disabled internal port (3001).
+   * Which oxy backend mode to bring up. `cloud` (the default) spawns
+   * `oxy start --enterprise` from the repo root and seeds `demo_project/` as
+   * the Demo workspace; the runner then signs in on the public port (3000).
+   * `local` spawns the legacy `oxy start --local --enterprise` from
+   * `demo_project/` (auth-disabled, single workspace).
    */
   mode: BackendMode;
 }
 
 /**
- * Public URL the runner should drive. `OXY_BASE_URL` overrides; otherwise
- * we pick by mode (local → :3000, cloud → :3001).
+ * Public URL the runner should drive. `OXY_BASE_URL` overrides. Both modes
+ * default to the public port: enterprise mode signs in there with a real
+ * session (session.ts) rather than using the auth-disabled internal port,
+ * which carries neither `enforce_role` nor the ide proxy and whose
+ * `/api/user` answers `null` to a cookie-less browser.
  */
-export function resolveBaseUrl(mode: BackendMode): string {
-  return process.env.OXY_BASE_URL ?? defaultBaseUrl(mode);
+export function resolveBaseUrl(_mode: BackendMode): string {
+  return process.env.OXY_BASE_URL ?? DEFAULT_BASE_URL;
 }
 
 /**
@@ -118,13 +130,14 @@ const TOP_LEVEL_SURFACES = [
   "/cli-auth"
 ];
 
-function defaultBaseUrl(mode: BackendMode): string {
-  return mode === "cloud" ? "http://localhost:3001" : "http://localhost:3000";
-}
+const DEFAULT_BASE_URL = "http://localhost:3000";
 
 export async function ensureBackend(opts: BackendOptions): Promise<BackendHandle> {
   const healthUrl = resolveHealthUrl(opts.mode);
   if (await isHealthy(healthUrl, 5_000)) {
+    // Reused as-is: no respawn and no seed. A backend you started yourself
+    // must already hold the Demo workspace and allow the flow identity to
+    // sign in — see README "Running against a backend you started".
     console.log(`[backend] using running backend at ${healthUrl}`);
     return { url: healthUrl, spawned: false, shutdown: async () => {} };
   }
@@ -134,17 +147,12 @@ export async function ensureBackend(opts: BackendOptions): Promise<BackendHandle
   console.log(
     `[backend] not reachable at ${healthUrl}; starting \`${OXY_BIN} ${args.join(" ")}\` from ${cwd}`
   );
-  if (opts.mode === "cloud") {
-    console.log(
-      "[backend] cloud mode: --clean wipes the local oxy postgres volume — start + `oxy seed` a backend yourself if the flow needs data"
-    );
-  }
   mkdirSync(LOG_DIR, { recursive: true });
   const logPath = resolve(LOG_DIR, "backend.log");
   const out = openSync(logPath, "a");
   const proc = spawn(OXY_BIN, args, {
     cwd,
-    env: process.env,
+    env: opts.mode === "cloud" ? enterpriseServerEnv() : process.env,
     stdio: ["ignore", out, out],
     detached: false
   });
@@ -172,6 +180,15 @@ export async function ensureBackend(opts: BackendOptions): Promise<BackendHandle
 
   console.log(`[backend] healthy after spawn (logs: ${logPath})`);
 
+  if (opts.mode === "cloud") {
+    try {
+      seedDemoWorkspace();
+    } catch (err) {
+      await shutdownProc(proc);
+      throw err;
+    }
+  }
+
   return {
     url: healthUrl,
     spawned: true,
@@ -181,16 +198,91 @@ export async function ensureBackend(opts: BackendOptions): Promise<BackendHandle
 
 function spawnArgs(mode: BackendMode): string[] {
   if (mode === "cloud") {
-    // No `--local`. `--clean` gives every run the same empty Postgres: no
-    // org exists and no UI path creates one (orgs are staff/partner-made), so
-    // a flow that needs org data runs against a backend started and
-    // `oxy seed`ed beforehand, which ensureBackend reuses. Cloud-mode flows
-    // drive the auth-disabled internal port (3001), which `oxy start` exposes
-    // by default; the public 3000 port has magic-link auth that the test
-    // runner can't drive.
-    return ["start", "--enterprise", "--clean"];
+    // Enterprise mode, the production path. No `--clean`: the Postgres volume
+    // is the one `just up` uses, and the seed below is idempotent, so wiping a
+    // developer's data buys nothing.
+    return ["start", "--enterprise"];
   }
   return ["start", "--local", "--enterprise"];
+}
+
+const emailList = (raw: string | undefined): string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+const sameEmail = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/**
+ * The spawned server's environment: the caller's, plus the flow identity on the
+ * dev-login allow-list so session.ts can sign in as it, and MINUS the flow
+ * identity in `OXY_GLOBAL_ADMINS`: the server bootstraps `app_admins` from that
+ * var, which would make the identity staff, and the SPA bounces staff off every
+ * tenant workspace. Explicit `OXY_DEV_LOGIN_EMAILS` replaces the debug-build
+ * persona roster — acceptable for a server the runner owns and shuts down.
+ */
+export function enterpriseServerEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const email = flowEmail();
+  if (env.OXY_OWNER && sameEmail(env.OXY_OWNER.trim(), email)) {
+    throw new Error(
+      `[backend] the flow identity ${email} is OXY_OWNER — a Global Owner is bounced off every ` +
+        "workspace into /admin. Set OXY_FLOW_EMAIL to an address with no platform standing."
+    );
+  }
+  const loginList = emailList(env.OXY_DEV_LOGIN_EMAILS);
+  if (!loginList.some((e) => sameEmail(e, email))) loginList.push(email);
+  const admins = emailList(env.OXY_GLOBAL_ADMINS).filter((e) => !sameEmail(e, email));
+  return {
+    ...env,
+    OXY_DEV_LOGIN_EMAILS: loginList.join(","),
+    OXY_GLOBAL_ADMINS: admins.join(",")
+  };
+}
+
+/**
+ * Seed `demo_project/` as the Demo workspace of the `local` org, with the flow
+ * identity bound as its Owner, compiled + promoted, and the LLM keys this shell
+ * exports stored as workspace secrets (cloud mode reads keys from the secrets
+ * store, not the environment). Idempotent; re-points the Demo workspace at
+ * `demo_project/` if `just up` had it on `examples/` (the next `just up`
+ * points it back).
+ *
+ * Only reached right after the runner spawned `oxy start`, which OVERWRITES any
+ * inherited `OXY_DATABASE_URL` with its own container's (start.rs), so the seed
+ * targets that fixed loopback URL rather than whatever this shell exports — a
+ * seed into a different database would exit 0 and leave every flow on
+ * /onboarding.
+ *
+ * `OXY_GLOBAL_ADMINS` here reaches the SEED process only, where it binds Owners
+ * of `local`: the caller's list (as `just up` binds it) plus the flow identity.
+ */
+export function seedEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const email = flowEmail();
+  const owners = emailList(env.OXY_GLOBAL_ADMINS).filter((e) => !sameEmail(e, email));
+  return {
+    ...env,
+    OXY_DATABASE_URL: START_DATABASE_URL,
+    OXY_GLOBAL_ADMINS: [...owners, email].join(",")
+  };
+}
+
+function seedDemoWorkspace(): void {
+  const args = ["seed", "--workspace-path", PROJECT_DIR, "--llm-keys"];
+  console.log(`[backend] seeding the Demo workspace: \`${OXY_BIN} ${args.join(" ")}\``);
+  const logPath = resolve(LOG_DIR, "seed.log");
+  const out = openSync(logPath, "a");
+  const res = spawnSync(OXY_BIN, args, {
+    cwd: REPO_ROOT,
+    env: seedEnv(),
+    stdio: ["ignore", out, out],
+    timeout: SEED_TIMEOUT_MS
+  });
+  if (res.status !== 0) {
+    throw new Error(
+      `oxy seed failed (status=${res.status} signal=${res.signal ?? "none"}) — see ${logPath}`
+    );
+  }
+  console.log(`[backend] Demo workspace seeded from demo_project/ (logs: ${logPath})`);
 }
 
 async function isHealthy(url: string, timeoutMs: number): Promise<boolean> {
