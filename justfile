@@ -110,6 +110,45 @@ lint-frontend:
 check-deps:
     python3 scripts/check-deps.py
 
+# crates/workspace-hack pins every third-party crate to one feature set across
+# the workspace, so switching between `cargo build`, `just unit X` and
+# `cargo check -p Y` stops rebuilding hundreds of registry crates. CI fails if it
+# is stale. See internal-docs/rust-build-performance.md.
+#
+# Regenerate the workspace-hack after ANY dependency or feature change
+hakari:
+    @cargo hakari --version 2>/dev/null | grep -q ' 0.9.39$' || cargo install cargo-hakari --version 0.9.39 --locked
+    cargo hakari generate
+    cargo hakari manage-deps --yes
+
+# Prefer this to `git worktree add` for agent work: a slot's path never changes,
+# so its target/ keeps rustc's incremental caches (path-bound) and only the
+# branch diff rebuilds. Usage: cd "$(just wt-claim my-branch)"
+#
+# Claim a reusable worktree slot for `branch` and print its path
+wt-claim branch base="origin/main":
+    @python3 scripts/worktree-slot.py claim {{ quote(branch) }} --base {{ quote(base) }}
+
+# Give a slot back (run inside it, or pass its path). Keeps its warm target/.
+wt-release slot="":
+    python3 scripts/worktree-slot.py release {{ slot }}
+
+# List worktree slots and who holds them.
+wt-list:
+    python3 scripts/worktree-slot.py list
+
+# Report target/ disk use per worktree (hardlinked seeds counted once).
+target-report:
+    python3 scripts/target-gc.py
+
+# Deletes stale incremental dirs under every target/ (rust-analyzer's included),
+# plus the whole target/ of any secondary worktree not built in --days (default:
+# report only). e.g. `just target-gc --days 7`, then `just target-gc --days 7 --apply`.
+#
+# Reclaim target/ disk across worktrees (dry run without --apply)
+target-gc *args:
+    python3 scripts/target-gc.py {{ args }}
+
 # DRY up workspace Cargo.toml manifests by inheriting shared deps from workspace root
 autoinherit:
     @cargo autoinherit --version >/dev/null 2>&1 || cargo install cargo-autoinherit

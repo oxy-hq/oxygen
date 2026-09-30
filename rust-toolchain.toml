@@ -1,0 +1,21 @@
+# One rustc for every shell, CI job and Docker build (the Dockerfiles pin the
+# same version in their `cargo-chef` base image).
+#
+# This is a build-speed pin as much as a reproducibility one. Artifacts are only
+# reusable between identical compilers, so a laptop on 1.98 and an agent box on
+# 1.97 cannot share a seeded target/ (scripts/seed-target.py). And Cargo 1.100
+# (2026-11-12) moves `.fingerprint/`, `deps/` and build-script dirs under
+# `build/<pkg>/<unit-id>/` (rust-lang/cargo#17354) — seed-target.py hardcodes the
+# old layout and would silently stop seeding. Port it before bumping past 1.99.
+#
+# Bumping: change `channel` here, the `dtolnay/rust-toolchain@<version>` refs in
+# .github/workflows/{ci,coverage}.yaml and .github/actions/build-oxy-cli/action.yaml
+# (the release binaries), and the `latest-rust-<version>` tag in the Dockerfiles,
+# in one PR. See internal-docs/rust-build-performance.md.
+#
+# No `components`/`profile` here on purpose: the Dockerfiles' release stage
+# copies this file in, and listing clippy/rustfmt would make rustup fetch them
+# on every cold image build. CI requests them via dtolnay/rust-toolchain, and a
+# local auto-install uses your rustup default profile, which includes both.
+[toolchain]
+channel = "1.98.1"

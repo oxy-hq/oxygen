@@ -10,3 +10,6 @@ description = "Frontend web application for Oxy (changelog tracking only)"
 # Keep the Rust source out of the TypeScript src/ directory
 [lib]
 path = "lib.rs"
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../crates/workspace-hack" }

@@ -15,6 +15,7 @@ reqwest = { workspace = true, features = ["json", "multipart", "form"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 tokio = { workspace = true }

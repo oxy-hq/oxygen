@@ -44,6 +44,7 @@
   "[yaml]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
+  "rust-analyzer.cargo.targetDir": true,
   "rust-analyzer.runnables.command": "cargo",
   "rust-analyzer.runnables.extraArgs": ["nextest", "run"],
   "rust-analyzer.cargoRunner": "nextest run",

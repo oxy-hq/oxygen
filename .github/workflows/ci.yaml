@@ -657,7 +657,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Prep Rust (rustfmt)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
         with:
           components: rustfmt
       - name: cargo fmt --all --check
@@ -987,13 +987,16 @@ jobs:
           make-default: true
 
       - name: Prep Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
         with:
           components: clippy, rustfmt
       - name: Install cargo tools
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
-          tool: nextest
+          # cargo-hakari is pinned: `generate --diff` compares against checked-in
+          # output, so a formatting change in a new release would fail every PR.
+          # Keep in step with `just hakari`.
+          tool: nextest,cargo-hakari@0.9.39
       # Private cargo git deps live under github.com/oxy-hq/* (airway,
       # airform, airlayer, snowflake-rs). The default checkout token
       # only auths THIS repo, so a fresh `rev` bump forces an
@@ -1015,6 +1018,10 @@ jobs:
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           shared-key: ${{ matrix.task }}
+          # Only main writes. A PR's entry is readable by that PR alone, yet it
+          # counts against the repo's cache quota and evicts main's — the one
+          # entry every PR restores from. ruff, uv, Deno and Biome do the same.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # protobuf is required by lance https://github.com/lancedb/lance/issues/3073
       # Use apt instead of arduino/setup-protoc to avoid GitHub release rate limits / outages.
       - name: Install Protoc
@@ -1075,6 +1082,11 @@ jobs:
               echo "agentic_only mode: skipping clippy"
               exit 0
             fi
+            # crates/workspace-hack must match the dependency graph, or builds
+            # go back to compiling registry crates once per feature set. Fix
+            # locally with `just hakari`.
+            cargo hakari generate --diff
+            cargo hakari manage-deps --dry-run
             # Dropped `--fix`: in CI the rewrites are never committed, so it was
             # pure wasted analysis+rewrite work. Matches the documented command
             # in CLAUDE.md. Kept advisory (no `-- -D warnings`): the workspace
@@ -1389,7 +1401,7 @@ jobs:
           make-default: true
       - name: Prep Rust (build path)
         if: needs.cargo-check-and-test.result == 'skipped'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
       # Private cargo git deps (airlayer, airform, airway-internal,
       # snowflake-rs): `git-fetch-with-cli` is on, so cargo shells out to git,
       # which uses gh as its credential helper — see the check job.

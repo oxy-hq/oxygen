@@ -1,0 +1,22 @@
+# cargo-hakari: generates crates/workspace-hack so every third-party crate builds
+# with ONE feature set no matter which `-p` you ask for. Regenerate after any
+# dependency or feature change with `just hakari`; CI runs `--diff` and fails if
+# it is stale. Why, and what it measured: internal-docs/rust-build-performance.md.
+# Options: https://docs.rs/cargo-hakari/latest/cargo_hakari/config
+
+hakari-package = "workspace-hack"
+dep-format-version = "4"
+resolver = "2"
+
+# Unify for every platform anyone builds on: agent/CI containers (x86_64 and
+# arm64 Linux, CI runs on warp arm64) and Apple-silicon laptops.
+platforms = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+]
+
+[traversal-excludes]
+# The authority model is meant to build and test on `uuid` + `tracing` alone
+# (crates/authz/CLAUDE.md). Keep it out so `-p oxy-authz` stays tiny.
+workspace-members = ["oxy-authz"]

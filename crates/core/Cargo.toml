@@ -179,6 +179,7 @@ aho-corasick = { workspace = true }
 rkyv = { workspace = true, features = ["bytecheck"] }
 sentry = { workspace = true }
 df-interchange = { workspace = true, features = ["arrow_54", "arrow_58"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -47,6 +47,7 @@ members = [
   "crates/airhouse",
   "crates/platform",
   "crates/workspace-fs",
+  "crates/workspace-hack",
   "web-app",
 ]
 

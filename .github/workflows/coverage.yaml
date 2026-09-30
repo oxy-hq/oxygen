@@ -92,7 +92,7 @@ jobs:
           make-default: true
 
       - name: Prep Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
         with:
           components: clippy, rustfmt, llvm-tools-preview
 
@@ -105,6 +105,7 @@ jobs:
         uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
         with:
           shared-key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Use apt instead of arduino/setup-protoc to avoid GitHub release rate limits / outages.
       - name: Install Protoc

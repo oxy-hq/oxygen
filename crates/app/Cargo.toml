@@ -242,6 +242,7 @@ rmcp = { workspace = true, features = [
 # Other dependencies from core that might be needed
 dotenv = { workspace = true }
 dirs = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [build-dependencies]
 chrono = { workspace = true }

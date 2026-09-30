@@ -20,6 +20,7 @@ sea-orm = { workspace = true }
 oxy-migration-tolerance = { workspace = true }
 oxy-shared = { workspace = true }
 uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [lib]
 name = "migration"

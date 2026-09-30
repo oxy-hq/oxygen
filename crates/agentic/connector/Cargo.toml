@@ -123,6 +123,7 @@ base64 = { workspace = true, optional = true }
 
 # MySQL
 sqlx = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 duckdb = { workspace = true }

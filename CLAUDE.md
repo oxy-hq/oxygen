@@ -72,6 +72,11 @@ Many crates carry their own `CLAUDE.md` — all `agentic/*`, `authz`, `cameras`,
 - **Check every affected package.** A change usually lands in two: `cargo check -p oxy`
   *and* `-p oxy-app`, or `--workspace`.
 - After CLI changes, exercise the binary: `cargo build && ./target/debug/oxy <command>`.
+- **After any dependency or feature change, run `just hakari`** (regenerates
+  `crates/workspace-hack`). CI fails otherwise.
+- **Need a separate worktree? `cd "$(just wt-claim <branch>)"`, not `git worktree add`.** A slot
+  keeps its path, so its `target/` stays warm, incremental caches included. Release it with
+  `just wt-release`. Details, and `just target-gc` for disk: `internal-docs/rust-build-performance.md`.
 
 **Never verify with a bare `cargo nextest run`.** That builds and links every test
 target in 84 crates. The cost of a test run here is *linking*, not asserting: each
