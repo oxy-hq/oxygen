@@ -16,6 +16,18 @@
     {
       "source": "/build/data-infrastructure/airlayer",
       "destination": "/build/world-model"
+    },
+    {
+      "source": "/build/data-apps/:slug*",
+      "destination": "/build/sdk"
+    },
+    {
+      "source": "/build/embed-extend/lovable",
+      "destination": "/build/sdk"
+    },
+    {
+      "source": "/build/embed-extend/lovable-starter-prompt",
+      "destination": "/build/sdk"
     }
   ],
   "logo": {
@@ -137,13 +149,6 @@
             ]
           },
           {
-            "group": "Data Apps",
-            "pages": [
-              "build/data-apps/index",
-              "build/data-apps/caching"
-            ]
-          },
-          {
             "group": "Integrations",
             "pages": [
               {
@@ -178,8 +183,6 @@
                 "pages": [
                   "build/embed-extend/mcp",
                   "build/embed-extend/slack",
-                  "build/embed-extend/lovable",
-                  "build/embed-extend/lovable-starter-prompt",
                   "build/embed-extend/oxy-proxy"
                 ]
               }

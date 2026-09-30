@@ -70,10 +70,6 @@ health_check:
     semantic:             # one measure query per topic — true for every topic
       - topic: orders
         measures: [orders.total_revenue]
-    apps:                 # run every task of these apps — true for all apps
-      - app: apps/sales.app.yml
-        variables:
-          region: us-east
     agents:               # ask an agent a fixed question; any answer passes
       - agent_ref: agents/analytics.agentic.yml
         prompt: How many orders did we get yesterday?
@@ -84,7 +80,7 @@ health_check:
 the block (or inside `smoke_test`) turns them off again.
 
 <Warning>
-The `semantic`, `apps`, and `agents` probes run real warehouse queries (and,
+The `semantic` and `agents` probes run real warehouse queries (and,
 for agents, LLM calls) on every smoke run. On bytes-billed warehouses a
 semantic probe over a large fact table is a recurring cost, and on Snowflake
 even the connection check resumes a suspended warehouse.

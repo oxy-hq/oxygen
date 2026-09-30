@@ -23,7 +23,7 @@ get two different queries — different joins, different filters, different grai
 The semantic model removes that ambiguity:
 
 - **Define once, reuse everywhere.** A measure is written a single time and
-  referenced by name from agents, data apps, automations, and the metric tree.
+  referenced by name from agents, automations, custom apps, and the metric tree.
 - **Deterministic SQL.** Given the same request, airlayer always emits the same
   SQL. There's no LLM in the compilation path, so results are reproducible.
 - **Automatic joins.** Entity declarations tell airlayer how views relate, so it
