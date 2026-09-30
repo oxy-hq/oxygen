@@ -876,7 +876,18 @@ impl FunctionHost for ProjectFunctionHost {
             .map_err(|e| format!("invalid semantic query spec: {e}"))?;
 
         let cm = &self.proj_ctx.workspace_manager().config_manager;
-        let scan_path = cm.semantics_scan_path();
+        // The compiled revision this invocation reads, materialised — the same
+        // `scan_dir` the `/semantic-query` route uses. This read
+        // `semantics_scan_path()`, the raw working copy: an IDE node answered
+        // from whatever was on disk, and a diskless replica from a directory
+        // that is not there. `_scan` keeps a materialised tempdir alive until
+        // the compile below is done.
+        let _scan = crate::server::api::semantic_scan::scan_dir(cm)
+            .await
+            .map_err(|e| {
+                format!("ctx.semantic.query: no compiled semantic model available: {e}")
+            })?;
+        let scan_path = _scan.path().to_path_buf();
         // A scoped query needs the layer before it compiles, to know which of
         // its views are bound. Loaded once and handed to the compile below,
         // so the directory is walked one time, not two.

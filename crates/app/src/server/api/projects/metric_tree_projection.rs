@@ -108,12 +108,7 @@ pub async fn post_projection(
         Err(resp) => return resp,
     };
     let key = String::from_utf8_lossy(&body).into_owned();
-    if let Some(hit) = cache_lookup(
-        project_id,
-        "mt-projection",
-        &key,
-        wants_refresh(uri.query()),
-    ) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-projection", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let req: ProjectionRequest = match parse_versioned_body(&body) {
@@ -158,7 +153,7 @@ pub async fn post_projection(
             axum::Json(response).into_response()
         }
         Ok(ProjectionOutcome { response, .. }) => {
-            cache_store(boundary.project_id(), "mt-projection", &key, &response)
+            cache_store(&boundary, "mt-projection", &key, &response)
         }
         Err(e) => projection_error(e),
     }

@@ -129,6 +129,7 @@ fn input(t: &Tenant, build_id: &str, tarball: Vec<u8>) -> PublishInput {
         published_by_email: Some(t.email.clone()),
         machine_app_id: None,
         published_via: None,
+        semantic_revision_id: None,
     }
 }
 

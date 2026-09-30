@@ -260,7 +260,9 @@ pub async fn run_semantic_query(
                 .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
         })
         .unwrap_or(false);
-    if !refresh && let Some(cached) = super::result_cache::get(project_id, cache_ns, "", &cache_sql)
+    if !refresh
+        && let Some(cached) =
+            super::result_cache::get(project_id, cache_ns, &ctx.cache_scope(), &cache_sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -385,14 +387,29 @@ pub async fn run_semantic_query(
         cache: app_state.preagg_cache.clone(),
         renewal_threshold_secs: app_state.preagg_renewal_threshold_secs,
     };
-    let preagg = crate::server::preagg_context::preagg_context(
-        proj_ctx.workspace_manager().workspace_id,
-        preagg_ctx.cache.clone(),
-        Some(preagg_ctx.renewal_threshold_secs_or(&proj_ctx.workspace_manager().config_manager)),
-        // A read surface: the route badges its answer **Pre-aggregated**, so a
-        // rollup a cycle behind is a labelled number, not a wrong one.
-        crate::server::preagg_context::RollupFreshness::ServeStale,
-    );
+    //
+    // Not under a staging pin. Rollups are built from the PROMOTED model and
+    // matched by `(view, rollup, rollup_hash)`; a branch that changes a view's
+    // SQL but not its rollup declaration would be answered from a rollup of
+    // the old model, under a badge that is honest about the tier and wrong
+    // about the model. Staging compiles to warehouse SQL: slower, always right.
+    let preagg = ctx
+        .staging_pin
+        .is_none()
+        .then(|| {
+            crate::server::preagg_context::preagg_context(
+                proj_ctx.workspace_manager().workspace_id,
+                preagg_ctx.cache.clone(),
+                Some(
+                    preagg_ctx
+                        .renewal_threshold_secs_or(&proj_ctx.workspace_manager().config_manager),
+                ),
+                // A read surface: the route badges its answer **Pre-aggregated**, so a
+                // rollup a cycle behind is a labelled number, not a wrong one.
+                crate::server::preagg_context::RollupFreshness::ServeStale,
+            )
+        })
+        .flatten();
 
     // 5a. Pin a scoped query to the viewer's reach before it compiles. The
     //     layer comes from the process cache the workspace handlers share —
@@ -639,7 +656,13 @@ pub async fn run_semantic_query(
         }
     };
     let arc = std::sync::Arc::new(bytes);
-    super::result_cache::put(project_id, cache_ns, "", &cache_sql, arc.clone());
+    super::result_cache::put(
+        project_id,
+        cache_ns,
+        &ctx.cache_scope(),
+        &cache_sql,
+        arc.clone(),
+    );
     (
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         (*arc).clone(),

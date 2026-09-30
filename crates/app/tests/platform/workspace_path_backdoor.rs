@@ -58,6 +58,19 @@ const ALLOWED: &[(&str, &str)] = &[
          revision",
     ),
     (
+        "src/agentic_wiring/compile_dispatcher.rs",
+        "the compile worker: compiling reads a working copy by definition, and the \
+         worker refuses a Compile task on a node that owns none. A staging compile \
+         resolves the BRANCH worktree (`effective_workspace_path`) before any \
+         manager exists — the manager is what the compile produces",
+    ),
+    (
+        "src/server/api/compile_staging.rs",
+        "the staging-compile enqueue route, classified IdeOnly: it creates and \
+         inspects the branch worktree (head SHA, clean check) to decide what to \
+         compile, before any manager for that branch exists",
+    ),
+    (
         "src/integrations/slack/chart_render.rs",
         "renders a chart into the local state dir",
     ),

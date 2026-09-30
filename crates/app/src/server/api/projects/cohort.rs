@@ -494,7 +494,7 @@ pub async fn post_cohort(
         scope_cache_discriminator(&reach),
         String::from_utf8_lossy(&body)
     );
-    if let Some(hit) = cache_lookup(project_id, "cohort", &cache_key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "cohort", &cache_key, wants_refresh(uri.query())) {
         return hit;
     }
 
@@ -589,7 +589,7 @@ pub async fn post_cohort(
 
     match tokio::time::timeout(COHORT_TIMEOUT, run).await {
         Ok(Ok(Ok(result))) => cache_store(
-            boundary.project_id(),
+            &boundary,
             "cohort",
             &cache_key,
             &CohortResponse::from(&result),

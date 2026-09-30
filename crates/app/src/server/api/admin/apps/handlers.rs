@@ -857,7 +857,7 @@ pub async fn update_app(
 pub async fn publish_app(
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
-) -> Result<Json<AppResponse>, StatusCode> {
+) -> Result<Json<PromoteResponse>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("publish_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -879,7 +879,24 @@ pub async fn publish_app(
     )
     .await;
 
-    Ok(Json(AppResponse::from_model_with_org(updated, &org.slug)))
+    Ok(Json(promote_response(&db, updated, &org.slug).await))
+}
+
+/// The promote/rollback answer: the app, plus the staging-pin notice when the
+/// build now live carried a pin. Live ignores the pin — this only says so.
+async fn promote_response(
+    db: &sea_orm::DatabaseConnection,
+    app: apps::Model,
+    org_slug: &str,
+) -> PromoteResponse {
+    let semantic_pin = match app.published_build_id {
+        Some(build) => crate::server::api::custom_apps_staging_pin::pin_drift(db, build).await,
+        None => None,
+    };
+    PromoteResponse {
+        app: AppResponse::from_model_with_org(app, org_slug),
+        semantic_pin,
+    }
 }
 
 /// Unpublish: null out `published_at`. Non-app-admins lose access on
@@ -1114,7 +1131,7 @@ pub async fn rollback_app(
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
     Json(req): Json<RollbackRequest>,
-) -> Result<Json<AppResponse>, StatusCode> {
+) -> Result<Json<PromoteResponse>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("rollback_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -1180,7 +1197,7 @@ pub async fn rollback_app(
 
     crate::server::api::custom_apps_auth::invalidate_access_cache();
     crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
-    Ok(Json(AppResponse::from_model_with_org(updated, &org.slug)))
+    Ok(Json(promote_response(&db, updated, &org.slug).await))
 }
 
 pub async fn delete_app(

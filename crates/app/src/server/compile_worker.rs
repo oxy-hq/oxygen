@@ -676,9 +676,8 @@ pub fn spec_from_taskspec(
     owner_user_id: Option<Uuid>,
 ) -> Result<CompileSpec, String> {
     let kind = match kind {
-        None | Some("main") => RevisionKind::Main,
-        Some("draft") => RevisionKind::Draft,
-        Some(other) => return Err(format!("unknown revision kind: {other}")),
+        None => RevisionKind::Main,
+        Some(s) => RevisionKind::parse(s).ok_or_else(|| format!("unknown revision kind: {s}"))?,
     };
     if matches!(kind, RevisionKind::Draft) && owner_user_id.is_none() {
         return Err("draft revision requires owner_user_id".to_string());

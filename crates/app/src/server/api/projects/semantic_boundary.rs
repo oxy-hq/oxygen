@@ -223,8 +223,12 @@ pub(crate) fn wants_refresh(query: Option<&str>) -> bool {
 /// Return a cached JSON body for `(project_id, ns, key)` unless `refresh`.
 /// Project-scoped (`project_id` first) per the customer-apps-perf contract —
 /// the multi-tenant isolation boundary.
+///
+/// A staging request pinned to a semantic revision reads and writes its own
+/// partition (`db` = the pin), so a branch's answer never serves live, and
+/// live's never answers staging.
 pub(crate) fn cache_lookup(
-    project_id: Uuid,
+    boundary: &SemanticBoundary,
     ns: &'static str,
     key: &str,
     refresh: bool,
@@ -232,7 +236,8 @@ pub(crate) fn cache_lookup(
     if refresh {
         return None;
     }
-    super::result_cache::get(project_id, ns, "", key).map(|arc| {
+    let scope = boundary.app.cache_scope();
+    super::result_cache::get(boundary.project_id(), ns, &scope, key).map(|arc| {
         (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
             (*arc).clone(),
@@ -245,7 +250,7 @@ pub(crate) fn cache_lookup(
 /// with the JSON body. Only successful responses reach here — errors are
 /// never cached.
 pub(crate) fn cache_store<T: Serialize>(
-    project_id: Uuid,
+    boundary: &SemanticBoundary,
     ns: &'static str,
     key: &str,
     value: &T,
@@ -253,7 +258,8 @@ pub(crate) fn cache_store<T: Serialize>(
     match serde_json::to_vec(value) {
         Ok(bytes) => {
             let arc = std::sync::Arc::new(bytes);
-            super::result_cache::put(project_id, ns, "", key, arc.clone());
+            let scope = boundary.app.cache_scope();
+            super::result_cache::put(boundary.project_id(), ns, &scope, key, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),

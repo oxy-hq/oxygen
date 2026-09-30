@@ -65,6 +65,17 @@ beforeAll(async () => {
       return databasesStatus === 200 ? reply(200, DATABASES) : reply(databasesStatus, {});
     }
     if (path === "/api/org-for-project/proj-9") return reply(200, { org_slug: "acme" });
+    // Staging branch compile: queued on the POST, ready on the first poll.
+    if (path === "/api/proj-1/compile/staging?branch=feat%2Fviews" && req.method === "POST") {
+      return reply(200, { git_sha: "abc123", status: "pending", revision_id: null });
+    }
+    if (path === "/api/proj-1/compile/staging/status?git_sha=abc123") {
+      return reply(200, {
+        git_sha: "abc123",
+        status: "ready",
+        revision_id: "7e57a9e0-1111-4222-8333-944455556666"
+      });
+    }
     if (path.startsWith("/github-oidc")) {
       return req.headers.authorization === "bearer gh-request-token" &&
         path.includes("audience=oxy-publish")
@@ -214,6 +225,34 @@ describe("oxyc publish", () => {
     const parsed = JSON.parse(result.stdout) as { channel: string; warnings: string[] };
     expect(parsed.channel).toBe("published");
     expect(parsed.warnings).toHaveLength(1);
+  });
+
+  it("compiles --semantic-branch, waits for it, and pins the draft to the revision", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--semantic-branch", "feat/views"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const compile = received.find((r) => r.path.startsWith("/api/proj-1/compile/staging?"));
+    expect(compile?.authorization).toBe("Bearer good-token");
+    expect(uploads()[0]?.fields).toMatchObject({
+      channel: "draft",
+      semantic_revision_id: "7e57a9e0-1111-4222-8333-944455556666"
+    });
+    // `--branch` is the app source branch; the semantic branch must not leak into it.
+    expect(uploads()[0]?.fields.branch).not.toBe("feat/views");
+  });
+
+  it("refuses --semantic-branch with --promote before calling the server", async () => {
+    const dir = app();
+    const result = await publish(
+      dir,
+      ["--dir", "out", "--promote", "--semantic-branch", "feat/views"],
+      { OXY_TOKEN: "good-token" }
+    );
+    expect(result.status).toBe(ExitCode.USAGE);
+    expect(result.stderr).toContain("staging-only");
+    expect(received).toHaveLength(0);
   });
 
   it("builds from source with the app's base path exported", async () => {

@@ -58,6 +58,7 @@ import {
   sanitizeRemoteUrl,
   worktreeIsDirty
 } from "../publish/provenance.js";
+import { compileSemanticBranch } from "../publish/semantic-branch.js";
 import {
   exchangeGithubOidc,
   fetchOrgForProject,
@@ -83,6 +84,11 @@ export interface PublishFlags {
   buildOnly?: boolean;
   prebuilt?: boolean;
   json?: boolean;
+  /**
+   * Draft only: compile this WORKSPACE branch into a staging revision and pin
+   * the build's staging preview to it. Not `branch`, the app source branch.
+   */
+  semanticBranch?: string;
   /** Publish past a function lint finding, printing each as a warning that names its rule. */
   allowFunctionLint?: boolean;
 }
@@ -273,6 +279,25 @@ async function uploadToken(
   return (await exchangeGithubOidc(ctx.target(), identity.org, identity.app)).token;
 }
 
+/** Compile the workspace branch the draft's staging preview will read. */
+async function stageSemanticBranch(
+  target: string,
+  token: string,
+  project: string,
+  branch: string
+): Promise<string> {
+  log.info(`compiling workspace branch ${branch} into a staging semantic revision`);
+  let announced = false;
+  const revision = await compileSemanticBranch(target, token, project, branch, {
+    onWait: (s) => {
+      if (!announced) log.info(`waiting for ${branch} @ ${s.git_sha.slice(0, 12)} to compile…`);
+      announced = true;
+    }
+  });
+  log.info(`staging preview will read semantic revision ${revision}`);
+  return revision;
+}
+
 function printResult(
   target: string,
   identity: Identity,
@@ -300,6 +325,15 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
   }
   if (flags.prebuilt && flags.buildOnly) {
     throw usageError("--prebuilt and --build-only together do nothing", "drop one");
+  }
+  if (flags.semanticBranch !== undefined && flags.promote) {
+    throw usageError(
+      "--semantic-branch is staging-only and cannot be combined with --promote",
+      "merge the branch so main compiles, then promote the build"
+    );
+  }
+  if (flags.semanticBranch !== undefined && !flags.semanticBranch.trim()) {
+    throw usageError("--semantic-branch needs a branch name");
   }
 
   for (const path of loadDotenv(ctx.cwd)) log.info(`loaded ${path}`);
@@ -360,6 +394,9 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
   if (lint && manifest) {
     await lintEngines(lint, manifest, target, project, token, flags.allowFunctionLint);
   }
+  const semanticRevision = flags.semanticBranch
+    ? await stageSemanticBranch(target, token, project, flags.semanticBranch.trim())
+    : undefined;
   let result: PublishResult;
   try {
     result = await uploadBundle({
@@ -376,7 +413,8 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
         ["name", flags.name],
         ["source_repo", provenance.repo],
         ["commit_sha", provenance.commit],
-        ["branch", provenance.branch]
+        ["branch", provenance.branch],
+        ["semantic_revision_id", semanticRevision]
       ]
     });
   } catch (cause) {

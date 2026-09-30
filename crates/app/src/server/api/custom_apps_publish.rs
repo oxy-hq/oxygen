@@ -83,6 +83,11 @@ pub struct PublishInput {
     /// The OIDC-verified workflow identity of a trusted-publishing (machine)
     /// publish, recorded as `app_builds.published_via`. `None` for a user.
     pub published_via: Option<String>,
+    /// Compiled semantic revision this build's STAGING requests read
+    /// (`oxyc publish --semantic-branch`). Draft-only: refused with
+    /// `promote`. Unrelated to [`Self::branch`], which is the APP SOURCE
+    /// branch. See `custom_apps_staging_pin`.
+    pub semantic_revision_id: Option<Uuid>,
 }
 
 /// Who a publish request is recorded as — the publisher fields of [`PublishInput`].
@@ -262,6 +267,10 @@ pub enum PublishError {
     /// worth retrying, and our own database trouble is a 500.
     #[error("{0}")]
     Migration(migrations::MigrationError),
+    /// The requested `semantic_revision_id` cannot be pinned. `WithPromote`
+    /// is a 400 (the request is contradictory); the rest are 422.
+    #[error("{0}")]
+    SemanticPin(crate::server::api::custom_apps_staging_pin::PinRefusal),
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
@@ -303,6 +312,14 @@ impl PublishError {
                     StatusCode::UNPROCESSABLE_ENTITY
                 } else {
                     StatusCode::INTERNAL_SERVER_ERROR
+                }
+            }
+            PublishError::SemanticPin(r) => {
+                use crate::server::api::custom_apps_staging_pin::PinRefusal;
+                match r {
+                    PinRefusal::WithPromote => StatusCode::BAD_REQUEST,
+                    PinRefusal::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                    _ => StatusCode::UNPROCESSABLE_ENTITY,
                 }
             }
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -928,6 +945,8 @@ async fn record_build(
         // downgrade this to `failed`; nothing sets `pending` yet.
         validation_status: ActiveValue::Set("passed".to_string()),
         validation_detail: ActiveValue::NotSet,
+        // Validated in `publish` before any work (draft-only, same workspace).
+        semantic_revision_id: ActiveValue::Set(input.semantic_revision_id),
     };
     model
         .insert(db)
@@ -1341,6 +1360,19 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
         None => org_for_project(&db, input.project_id).await?,
     };
     authorize_publish(&db, &org, &input).await?;
+    // A semantic pin is staging-only and must name a ready revision of the
+    // workspace this publish targets (which `ensure_same_workspace` below
+    // holds to the app's own). Checked before the bundle is inflated.
+    if let Some(revision_id) = input.semantic_revision_id {
+        crate::server::api::custom_apps_staging_pin::validate_pin_for_publish(
+            &db,
+            input.project_id,
+            revision_id,
+            input.promote,
+        )
+        .await
+        .map_err(PublishError::SemanticPin)?;
+    }
 
     // Reject a malformed or already-used id BEFORE the expensive work. The
     // pipeline below inflates up to `MAX_DECOMPRESSED_BYTES`, validates, and
@@ -1733,6 +1765,8 @@ pub async fn publish_handler(
     let mut tarball: Option<Vec<u8>> = None;
     let mut source_repo = None;
     let mut commit_sha = None;
+    let mut semantic_revision_id: Option<Uuid> = None;
+    let mut semantic_revision_invalid: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -1806,6 +1840,15 @@ pub async fn publish_handler(
                     "commit_sha" => commit_sha = Some(val).filter(|s| !s.is_empty()),
                     "channel" => promote = val == "published",
                     "promote" => promote = val == "true" || val == "1",
+                    // Staging pin (`--semantic-branch`). Not `branch`, which is
+                    // the app's SOURCE branch.
+                    "semantic_revision_id" => match val.trim() {
+                        "" => {}
+                        v => match Uuid::parse_str(v) {
+                            Ok(id) => semantic_revision_id = Some(id),
+                            Err(_) => semantic_revision_invalid = Some(v.to_string()),
+                        },
+                    },
                     _ => {}
                 }
             }
@@ -1820,6 +1863,12 @@ pub async fn publish_handler(
             .map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     }
 
+    if let Some(bad) = semantic_revision_invalid {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("semantic_revision_id is not a valid UUID: {bad:?}"),
+        ));
+    }
     if let Some(bad) = org_id_invalid {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1852,6 +1901,7 @@ pub async fn publish_handler(
         published_by_email: publisher.published_by_email,
         machine_app_id: publisher.machine_app_id,
         published_via: publisher.published_via,
+        semantic_revision_id,
     };
 
     publish(input)

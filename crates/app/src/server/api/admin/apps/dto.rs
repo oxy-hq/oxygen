@@ -77,6 +77,18 @@ fn default_branch() -> String {
     "main".to_string()
 }
 
+/// `POST /{id}/publish` and `/{id}/rollback`: the app, plus — only when the
+/// build that just went live carried a staging semantic pin — which views and
+/// topics differ between that pin and the revision live reads. Flattened, so
+/// a caller that reads an `AppResponse` still does.
+#[derive(Serialize, Clone, Debug)]
+pub struct PromoteResponse {
+    #[serde(flatten)]
+    pub app: AppResponse,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantic_pin: Option<crate::server::api::custom_apps_staging_pin::SemanticPinNotice>,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct AppResponse {
     pub id: Uuid,

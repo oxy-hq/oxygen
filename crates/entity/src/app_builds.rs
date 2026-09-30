@@ -49,6 +49,12 @@ pub struct Model {
     pub validation_status: String,
     /// Human-readable reason when `validation_status = failed`.
     pub validation_detail: Option<String>,
+    /// The compiled semantic revision this build's STAGING requests read
+    /// (`oxyc publish --semantic-branch`). NULL = no pin. Only honoured on a
+    /// staging request for the draft build; the live channel always reads
+    /// `workspaces.current_revision_id`. Retention never prunes a revision a
+    /// build references.
+    pub semantic_revision_id: Option<Uuid>,
     #[sea_orm(
         belongs_to,
         from = "app_id",

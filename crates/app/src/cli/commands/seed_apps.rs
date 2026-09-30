@@ -488,6 +488,7 @@ async fn upsert_build(
         // verdict the validator would have reached for a bundle this simple.
         validation_status: ActiveValue::Set("passed".to_string()),
         validation_detail: ActiveValue::Set(None),
+        semantic_revision_id: ActiveValue::Set(None),
     }
     .insert(conn)
     .await

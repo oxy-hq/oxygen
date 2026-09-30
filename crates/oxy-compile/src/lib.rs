@@ -62,7 +62,7 @@ pub mod writer;
 
 pub use compile::{
     CURRENT_SCHEMA_VERSION, CompileRequest, ConfigGate, RevisionKind, build_compiled_config,
-    compile_workspace,
+    compile_workspace, find_reusable_revision,
 };
 // The shape and its merge live next to the columns, in `entity`. Re-exported so
 // existing `oxy_compile::` call sites keep compiling.

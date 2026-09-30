@@ -116,7 +116,7 @@ pub async fn get_metric_tree(
         Err(resp) => return resp,
     };
     let key = q.root.clone().unwrap_or_default();
-    if let Some(hit) = cache_lookup(project_id, "mt-tree", &key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-tree", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let layer = match load_layer(boundary.scan.path_buf()).await {
@@ -137,7 +137,7 @@ pub async fn get_metric_tree(
         },
         None => tree,
     };
-    cache_store(boundary.project_id(), "mt-tree", &key, &out)
+    cache_store(&boundary, "mt-tree", &key, &out)
 }
 
 /// `GET .../metric-tree/{measure_id}/sensitivity` — ranked drivers.
@@ -152,7 +152,7 @@ pub async fn get_sensitivity(
         Err(resp) => return resp,
     };
     if let Some(hit) = cache_lookup(
-        project_id,
+        &boundary,
         "mt-sens",
         &measure_id,
         wants_refresh(uri.query()),
@@ -165,7 +165,7 @@ pub async fn get_sensitivity(
     };
     let tree = oxy_semantic::build_metric_tree(&layer);
     match oxy_semantic::sensitivity(&tree, &measure_id) {
-        Ok(res) => cache_store(boundary.project_id(), "mt-sens", &measure_id, &res),
+        Ok(res) => cache_store(&boundary, "mt-sens", &measure_id, &res),
         Err(e) => err_with_code(StatusCode::BAD_REQUEST, e.to_string(), "sensitivity_failed"),
     }
 }
@@ -258,7 +258,7 @@ pub async fn post_explain(
         Err(resp) => return resp,
     };
     let key = String::from_utf8_lossy(&body).into_owned();
-    if let Some(hit) = cache_lookup(project_id, "mt-explain", &key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-explain", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let req: ExplainRequest = match parse_versioned_body(&body) {
@@ -281,7 +281,7 @@ pub async fn post_explain(
     )
     .await;
     match result {
-        Ok(Ok(r)) => cache_store(boundary.project_id(), "mt-explain", &key, &r),
+        Ok(Ok(r)) => cache_store(&boundary, "mt-explain", &key, &r),
         Ok(Err(e)) => err_with_code(StatusCode::BAD_REQUEST, e.to_string(), "explain_failed"),
         Err(_) => err_with_code(
             StatusCode::GATEWAY_TIMEOUT,
@@ -309,7 +309,7 @@ pub async fn post_opportunity(
         Err(resp) => return resp,
     };
     let key = String::from_utf8_lossy(&body).into_owned();
-    if let Some(hit) = cache_lookup(project_id, "mt-opp", &key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-opp", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let req: OpportunityRequest = match parse_versioned_body(&body) {
@@ -337,7 +337,7 @@ pub async fn post_opportunity(
         )
         .await
     {
-        Ok(r) => cache_store(boundary.project_id(), "mt-opp", &key, &r),
+        Ok(r) => cache_store(&boundary, "mt-opp", &key, &r),
         Err(e) => err_with_code(StatusCode::BAD_REQUEST, e.to_string(), "opportunity_failed"),
     }
 }
@@ -358,7 +358,7 @@ pub async fn post_distribution(
         Err(resp) => return resp,
     };
     let key = String::from_utf8_lossy(&body).into_owned();
-    if let Some(hit) = cache_lookup(project_id, "mt-dist", &key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-dist", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let req: DistributionRequest = match parse_versioned_body(&body) {
@@ -390,7 +390,7 @@ pub async fn post_distribution(
     )
     .await;
     match result {
-        Ok(Ok(r)) => cache_store(boundary.project_id(), "mt-dist", &key, &r),
+        Ok(Ok(r)) => cache_store(&boundary, "mt-dist", &key, &r),
         Ok(Err(e)) => err_with_code(
             StatusCode::BAD_REQUEST,
             e.to_string(),
@@ -569,7 +569,7 @@ pub async fn post_baseline(
         Err(resp) => return resp,
     };
     let key = String::from_utf8_lossy(&body).into_owned();
-    if let Some(hit) = cache_lookup(project_id, "mt-baseline", &key, wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "mt-baseline", &key, wants_refresh(uri.query())) {
         return hit;
     }
     let req: mt::BaselineRequest = match parse_versioned_body(&body) {
@@ -637,5 +637,5 @@ pub async fn post_baseline(
         return axum::Json(body).into_response();
     }
 
-    cache_store(boundary.project_id(), "mt-baseline", &key, &body)
+    cache_store(&boundary, "mt-baseline", &key, &body)
 }

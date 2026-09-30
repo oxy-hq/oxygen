@@ -124,7 +124,13 @@ async fn reap_stuck_compiles(db: &DatabaseConnection, timeout_secs: u64) {
 /// removes the `*_definitions` child rows. Safe against an in-flight reader:
 /// readers only ever resolve and read the *current* revision, which is excluded
 /// here, and no request outlives the (days-long) retention window.
-async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
+///
+/// **A revision any `app_builds` row pins is kept too** — the staging pin
+/// (`app_builds.semantic_revision_id`, see `custom_apps_staging_pin`). The
+/// rule is "referenced by any build", not "by a draft pointer": it is the
+/// simpler one, and still bounded, because builds are themselves GC'd
+/// keep-last-N per app — the pin is released when its build is.
+pub async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
     let secs = retention_days as i64 * 86_400;
     let sql = "DELETE FROM revisions \
                WHERE revision_id IN ( \
@@ -134,6 +140,10 @@ async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
                      AND NOT EXISTS ( \
                          SELECT 1 FROM workspaces w \
                          WHERE w.current_revision_id = r.revision_id \
+                     ) \
+                     AND NOT EXISTS ( \
+                         SELECT 1 FROM app_builds b \
+                         WHERE b.semantic_revision_id = r.revision_id \
                      ) \
                    LIMIT $2 \
                )";

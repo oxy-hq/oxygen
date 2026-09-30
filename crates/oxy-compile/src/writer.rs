@@ -400,11 +400,33 @@ async fn mark_superseded(db: &DatabaseConnection, revision_id: Uuid, winner: Uui
 /// short-circuit: the per-entity rows already exist tagged with this
 /// revision_id, so we just update `current_revision_id`. Not inside
 /// a tx because there's no atomicity gain — only one column changes.
+///
+/// Refuses anything but a `main` revision: a `draft` or `staging` revision
+/// must never become `current_revision_id`, whichever door asks. A staging
+/// revision is a branch head a custom-app draft build pins — promoting it
+/// would make prod serve a model that is not on the default branch.
 pub async fn promote_existing(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     revision_id: Uuid,
 ) -> Result<Promotion, CompileError> {
+    let kind = entity::revisions::Entity::find_by_id(revision_id)
+        .one(db)
+        .await?
+        .map(|r| r.kind);
+    match kind.as_deref() {
+        Some("main") => {}
+        Some(other) => {
+            return Err(CompileError::Internal(format!(
+                "revision {revision_id} has kind '{other}'; only a main revision can be promoted"
+            )));
+        }
+        None => {
+            return Err(CompileError::Internal(format!(
+                "revision {revision_id} not found"
+            )));
+        }
+    }
     Ok(if promote_revision(db, workspace_id, revision_id).await? {
         Promotion::Promoted
     } else {
@@ -450,6 +472,10 @@ async fn promote_revision(
         UPDATE workspaces \
         SET current_revision_id = $2, updated_at = now() \
         WHERE id = $1 \
+          AND EXISTS ( \
+              SELECT 1 FROM revisions \
+              WHERE revision_id = $2 AND kind = 'main' \
+          ) \
           AND ( \
               current_revision_id IS NULL \
               OR ( \
@@ -884,6 +910,21 @@ mod promotion_tests {
         // person's in-progress DDL to the whole org.
         assert_eq!(
             decide_promotion(&input(true, RevisionStatus::Ready, "draft", 2)),
+            Promotion::NotRequested
+        );
+    }
+
+    #[test]
+    fn a_staging_revision_never_promotes_even_when_asked() {
+        // A staging revision is a branch head a custom-app draft build pins.
+        // `promote: true` must not move `current_revision_id` onto it, and its
+        // DDL must not be applied to the org's database either.
+        assert_eq!(
+            decide_promotion(&input(true, RevisionStatus::Ready, "staging", 0)),
+            Promotion::NotRequested
+        );
+        assert_eq!(
+            decide_promotion(&input(true, RevisionStatus::Ready, "staging", 2)),
             Promotion::NotRequested
         );
     }

@@ -199,13 +199,19 @@ pub struct CompileRequest<'a> {
     pub config_gate: Option<std::sync::Arc<dyn ConfigGate>>,
 }
 
-/// `main` vs `draft` revision kinds. Strictly typed so a caller can't
-/// accidentally pass an unrecognised kind string into the writer.
+/// `main` vs `draft` vs `staging` revision kinds. Strictly typed so a caller
+/// can't accidentally pass an unrecognised kind string into the writer.
+///
+/// Only `Main` is ever promoted. `Staging` is a branch head compiled for a
+/// custom-app draft build to pin (`app_builds.semantic_revision_id`); it is
+/// shared by every admin who previews that build, so unlike `Draft` it has no
+/// owner. See `internal-docs/compile-boundary.md` § "Staging revisions".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RevisionKind {
     #[default]
     Main,
     Draft,
+    Staging,
 }
 
 impl RevisionKind {
@@ -213,6 +219,37 @@ impl RevisionKind {
         match self {
             RevisionKind::Main => "main",
             RevisionKind::Draft => "draft",
+            RevisionKind::Staging => "staging",
+        }
+    }
+
+    /// Parse a stored `revisions.kind` value. `None` for anything unknown.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "main" => Some(RevisionKind::Main),
+            "draft" => Some(RevisionKind::Draft),
+            "staging" => Some(RevisionKind::Staging),
+            _ => None,
+        }
+    }
+
+    /// True only for `Main`: the one kind `workspaces.current_revision_id`
+    /// may point at. Drafts and staging revisions are never promoted, even
+    /// with `promote: true`.
+    pub fn is_promotable(&self) -> bool {
+        matches!(self, RevisionKind::Main)
+    }
+
+    /// The stored kinds an idempotent re-compile of this kind may reuse.
+    /// A staging compile reuses a ready main revision of the same SHA too —
+    /// a pin reads rows by revision id, so the kind is irrelevant to it —
+    /// but a main compile never reuses a staging row, or its promote would
+    /// move `current_revision_id` onto one.
+    pub fn reusable_kinds(&self) -> &'static [&'static str] {
+        match self {
+            RevisionKind::Main => &["main"],
+            RevisionKind::Draft => &[],
+            RevisionKind::Staging => &["staging", "main"],
         }
     }
 }
@@ -287,6 +324,7 @@ pub async fn compile_workspace(
         && let Some(existing) = lookup_idempotent_revision(
             request.db,
             request.workspace_id,
+            request.kind,
             &git_sha,
             &request.compiler_version,
             CURRENT_SCHEMA_VERSION,
@@ -299,7 +337,7 @@ pub async fn compile_workspace(
             revision_id = %existing.revision_id,
             "compile idempotent — reusing existing successful revision"
         );
-        if request.promote {
+        if request.promote && request.kind.is_promotable() {
             // A revision carrying DDL is never promoted from here. Its
             // tables may not exist in the tenant database, and on this
             // path nobody has applied them — the compile that first
@@ -1423,6 +1461,7 @@ async fn lookup_revision_by_id(
 async fn lookup_idempotent_revision(
     db: &DatabaseConnection,
     workspace_id: Uuid,
+    kind: RevisionKind,
     git_sha: &str,
     compiler_version: &str,
     schema_version: i32,
@@ -1436,7 +1475,7 @@ async fn lookup_idempotent_revision(
         .filter(entity::revisions::Column::WorkspaceId.eq(workspace_id))
         .filter(entity::revisions::Column::GitSha.eq(git_sha))
         .filter(entity::revisions::Column::Status.eq("ready"))
-        .filter(entity::revisions::Column::Kind.eq("main"))
+        .filter(entity::revisions::Column::Kind.is_in(kind.reusable_kinds().iter().copied()))
         // Reuse is only sound when the SAME compiler produced the revision. A
         // newer binary may compile the same SHA differently — e.g. it now
         // injects the DuckDB→S3 `s3_mirror` block, or fixes a config transform.
@@ -1465,6 +1504,36 @@ async fn lookup_idempotent_revision(
     }))
 }
 
+/// The newest `ready` revision of `(workspace_id, git_sha)` that a compile of
+/// `kind` may reuse (see [`RevisionKind::reusable_kinds`]), produced by THIS
+/// compiler and schema version. Unlike the in-compile idempotency lookup there
+/// is no time window: a caller asking "is this SHA already compiled?" (the
+/// staging branch-compile route) wants any matching revision, however old —
+/// revision ids are immutable, so an old one is exactly as correct as a new one.
+pub async fn find_reusable_revision(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+    kind: RevisionKind,
+    git_sha: &str,
+) -> Result<Option<Uuid>, sea_orm::DbErr> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+    let kinds = kind.reusable_kinds();
+    if kinds.is_empty() {
+        return Ok(None);
+    }
+    Ok(entity::revisions::Entity::find()
+        .filter(entity::revisions::Column::WorkspaceId.eq(workspace_id))
+        .filter(entity::revisions::Column::GitSha.eq(git_sha))
+        .filter(entity::revisions::Column::Status.eq("ready"))
+        .filter(entity::revisions::Column::Kind.is_in(kinds.iter().copied()))
+        .filter(entity::revisions::Column::CompilerVersion.eq(crate::compiler_version()))
+        .filter(entity::revisions::Column::SchemaVersion.eq(CURRENT_SCHEMA_VERSION))
+        .order_by_desc(entity::revisions::Column::FinishedAt)
+        .one(db)
+        .await?
+        .map(|r| r.revision_id))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1478,6 +1547,32 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn staging_kind_round_trips_and_is_never_promotable() {
+        for k in [
+            RevisionKind::Main,
+            RevisionKind::Draft,
+            RevisionKind::Staging,
+        ] {
+            assert_eq!(RevisionKind::parse(k.as_str()), Some(k));
+        }
+        assert_eq!(RevisionKind::Staging.as_str(), "staging");
+        assert!(RevisionKind::Main.is_promotable());
+        assert!(!RevisionKind::Draft.is_promotable());
+        assert!(!RevisionKind::Staging.is_promotable());
+        assert_eq!(RevisionKind::parse("bogus"), None);
+    }
+
+    #[test]
+    fn a_main_compile_never_reuses_a_staging_row() {
+        // The idempotent short-circuit may promote what it reuses; a main
+        // compile reusing a staging row would promote a branch head.
+        assert_eq!(RevisionKind::Main.reusable_kinds(), &["main"]);
+        // A staging compile may reuse either: a pin reads rows by id.
+        assert_eq!(RevisionKind::Staging.reusable_kinds(), &["staging", "main"]);
+        assert!(RevisionKind::Draft.reusable_kinds().is_empty());
     }
 
     #[tokio::test]

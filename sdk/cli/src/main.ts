@@ -592,6 +592,10 @@ function buildProgram(): Command {
       )
       .option("--json", "print the server's result as JSON")
       .option(
+        "--semantic-branch <branch>",
+        "draft only: compile this WORKSPACE branch and pin the build's staging preview to it"
+      )
+      .option(
         "--allow-function-lint",
         "publish past an Oxy Function lint finding; each prints as a warning naming its rule"
       )
@@ -623,6 +627,7 @@ function buildProgram(): Command {
       buildOnly: opts.buildOnly as boolean | undefined,
       prebuilt: opts.prebuilt as boolean | undefined,
       json: opts.json as boolean | undefined,
+      semanticBranch: opts.semanticBranch as string | undefined,
       allowFunctionLint: opts.allowFunctionLint as boolean | undefined
     });
   });

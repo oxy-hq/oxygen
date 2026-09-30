@@ -135,6 +135,7 @@ fn input(t: &Tenant, slug: &str, build_id: &str, promote: bool, who: Publisher) 
         published_by_email: who.published_by_email,
         machine_app_id: who.machine_app_id,
         published_via: who.published_via,
+        semantic_revision_id: None,
     }
 }
 

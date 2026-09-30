@@ -35,6 +35,7 @@ import {
   type FunctionResult,
   readFunctionSseStream
 } from "./function-sse";
+import { readInjectedAppConfig } from "./inject";
 import { interpolateSqlParams } from "./interpolate";
 import {
   type LoadManifestOptions,
@@ -83,6 +84,38 @@ function withBackendBase(base: AppFetcher, backendUrl?: string): AppFetcher {
   const origin = backendUrl.replace(/\/+$/, "");
   return (input, init) =>
     base(typeof input === "string" && input.startsWith("/") ? origin + input : input, init);
+}
+
+/** Header naming the calling app on data-plane requests. */
+export const APP_HEADER = "x-oxy-app";
+
+/**
+ * Name the calling app on same-origin `/api/projects/…` requests.
+ *
+ * Those endpoints are keyed by workspace, and several apps can be published
+ * from one workspace; the header is how oxy knows which app's draft build —
+ * and so which staged semantic revision — a staging preview should read.
+ * Without it oxy falls back to the `Referer`, which a `Referrer-Policy` can
+ * strip. The id comes from `window.__OXY_APP__`, which oxy injects when it
+ * serves the bundle; absent (local `pnpm dev`, tests) nothing is added.
+ *
+ * Skipped when `backendUrl` is set: a custom header on a cross-origin call
+ * forces a CORS preflight the backend's dev-origin list may not allow.
+ */
+export function withAppHeader(
+  base: AppFetcher,
+  backendUrl?: string,
+  appId: string | undefined = readInjectedAppConfig()?.appId
+): AppFetcher {
+  if (backendUrl || !appId) return base;
+  return (input, init) => {
+    if (typeof input !== "string" || !input.startsWith("/api/projects/")) {
+      return base(input, init);
+    }
+    const headers = new Headers(init?.headers);
+    if (!headers.has(APP_HEADER)) headers.set(APP_HEADER, appId);
+    return base(input, { ...init, headers });
+  };
 }
 
 interface OxyAppContextValue {
@@ -146,7 +179,7 @@ export function OxyAppProvider(props: OxyAppProviderProps): React.JSX.Element {
   // put this in state because it should never change after mount (same
   // reasoning as manifestOptions).
   const fetcher = React.useMemo(
-    () => withBackendBase(fetcherProp ?? defaultFetcher, backendUrl),
+    () => withBackendBase(withAppHeader(fetcherProp ?? defaultFetcher, backendUrl), backendUrl),
     [fetcherProp, backendUrl]
   );
   const [state, setState] = React.useState<OxyAppContextValue>({ status: "loading", fetcher });

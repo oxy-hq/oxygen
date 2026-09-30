@@ -77,6 +77,10 @@ pub struct CustomAppContext {
     /// queries (e.g. agent lookup) so we don't pay for a second
     /// `establish_connection()` round-trip per request.
     pub db: DatabaseConnection,
+    /// Set only on a STAGING request (preview cookie + `DevelopApps` reach)
+    /// whose calling app's draft build pins a semantic revision — see
+    /// `custom_apps_staging_pin::request`. `None` for every live request.
+    pub staging_pin: Option<Uuid>,
 }
 
 impl CustomAppContext {
@@ -84,8 +88,27 @@ impl CustomAppContext {
     /// resolved workspace. Each call constructs a fresh
     /// `WorkspaceManager` keyed off the workspace's effective path;
     /// callers wanting to reuse should hold the result.
+    ///
+    /// On a pinned staging request the context resolves at the pin: the
+    /// manager records the revision it was built at, so every
+    /// compile-boundary read downstream (semantic scan, config) reads the
+    /// branch's revision rather than the promoted one.
     pub async fn build_project_context(&self) -> Result<OxyProjectContext, Response> {
-        build_project_context(&self.workspace, self.user.id, self.project_id).await
+        crate::server::api::custom_apps_staging_pin::with_staging_pin(
+            self.staging_pin,
+            build_project_context(&self.workspace, self.user.id, self.project_id),
+        )
+        .await
+    }
+
+    /// Result-cache partition for this request: `""` on live, the pin on a
+    /// pinned staging request, so a branch's answer never serves live users
+    /// and live's never answers the staging preview.
+    pub fn cache_scope(&self) -> String {
+        match self.staging_pin {
+            Some(pin) => format!("staging-pin:{pin}"),
+            None => String::new(),
+        }
     }
 }
 
@@ -351,12 +374,25 @@ pub async fn check_custom_app_gates(
         ));
     }
 
+    // Staging: the draft build's semantic pin, decided by the same cookie +
+    // `DevelopApps` reach the serve path uses to pick the draft bundle. After
+    // the access decision, so it can only narrow WHICH revision an already
+    // authorized request reads, never whether it may read.
+    let staging_pin = crate::server::api::custom_apps_staging_pin::staging_pin_for_data_request(
+        &db,
+        headers,
+        user.email.as_deref().unwrap_or(""),
+        project_id,
+    )
+    .await;
+
     Ok(CustomAppContext {
         user,
         project_id,
         workspace,
         org_id,
         db,
+        staging_pin,
     })
 }
 

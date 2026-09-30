@@ -24,6 +24,11 @@
 //! | `shape_zoo_coverage` | source scans: every native type `ch_type_to_typed`, `strip_type_wrappers`, `pg_typname_to_typed`, `is_decodable` and `describe_type_to_typed` name has a zoo case, or a reasoned exemption |
 //! | `canary_coverage` | source scans: every host op in `HOST_OPS` is declared by a platform-canary step (`STEP_OPS` in the canary's `steps.ts`), or exempted with a reason; a declared op the host lacks is refused |
 //!
+//! `custom_app_staging_pin` proves the staging semantic pin: a staging request
+//! reads the draft build's pinned revision while live and every other request
+//! read the promoted one, retention keeps a pinned revision, and a staging
+//! revision is never promoted.
+//!
 //! `custom_app_functions_fixture` holds no tests: it seeds, publishes and calls.
 //!
 //! Most of these are database-backed via [`common::test_db`], which gives each
@@ -49,9 +54,11 @@ mod custom_app_functions_fixture;
 mod custom_app_functions_host_failures;
 mod custom_app_functions_manual_run;
 mod custom_app_functions_manual_run_guards;
+mod custom_app_functions_semantic_revision;
 mod custom_app_functions_shape_zoo;
 mod custom_app_functions_shape_zoo_oltp;
 mod custom_app_platform_runtime;
+mod custom_app_staging_pin;
 mod custom_app_storage_routes;
 mod custom_app_visibility;
 mod custom_apps_boundary;

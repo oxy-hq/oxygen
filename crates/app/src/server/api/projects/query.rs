@@ -194,8 +194,11 @@ pub async fn run_query(
     } else {
         "query"
     };
+    // A pinned staging request may resolve a different `config.yml` (its
+    // branch's databases), so it gets its own partition.
+    let cache_db = format!("{db_name}{}", ctx.cache_scope());
     if !refresh
-        && let Some(body) = super::result_cache::get(project_id, cache_ns, db_name, &req.sql)
+        && let Some(body) = super::result_cache::get(project_id, cache_ns, &cache_db, &req.sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -236,7 +239,7 @@ pub async fn run_query(
                 }
             };
             let arc = std::sync::Arc::new(bytes);
-            super::result_cache::put(project_id, cache_ns, db_name, &req.sql, arc.clone());
+            super::result_cache::put(project_id, cache_ns, &cache_db, &req.sql, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),

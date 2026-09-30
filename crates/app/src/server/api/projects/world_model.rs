@@ -38,7 +38,7 @@ pub async fn get_world_model(
         Ok(b) => b,
         Err(resp) => return resp,
     };
-    if let Some(hit) = cache_lookup(project_id, "wm-graph", "", wants_refresh(uri.query())) {
+    if let Some(hit) = cache_lookup(&boundary, "wm-graph", "", wants_refresh(uri.query())) {
         return hit;
     }
     let layer = match load_layer(boundary.scan.path_buf()).await {
@@ -51,7 +51,7 @@ pub async fn get_world_model(
     // "no display overrides" on the public custom-app router.
     let config_manager = &boundary.proj_ctx.workspace_manager().config_manager;
     match build_world_model_response(&layer, config_manager).await {
-        Ok(resp) => cache_store(project_id, "wm-graph", "", &resp),
+        Ok(resp) => cache_store(&boundary, "wm-graph", "", &resp),
         Err(message) => err_with_code(
             StatusCode::INTERNAL_SERVER_ERROR,
             message,

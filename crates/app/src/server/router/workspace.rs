@@ -14,12 +14,12 @@ use agentic_http::{AgenticState, airway_router, automation_router, router as age
 
 use crate::api::{
     agent, api_keys, app, apps, artifacts, automation, chart, competitors, compile,
-    custom_apps_secrets, data, data_repo, database, execution_analytics, exported_chart, file,
-    foot_traffic, integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
-    metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
-    schedules, semantic, simulation, test_file, test_project_run, test_run, thread, traces, video,
-    workspace_custom_apps, workspace_logo, workspace_members, workspace_oxy_access, workspaces,
-    world_model, world_model_graph,
+    compile_staging, custom_apps_secrets, data, data_repo, database, execution_analytics,
+    exported_chart, file, foot_traffic, integration, local_setup, metric_anomalies, metric_tree,
+    metric_tree_probe, metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg,
+    result_files, schedules, semantic, simulation, test_file, test_project_run, test_run, thread,
+    traces, video, workspace_custom_apps, workspace_logo, workspace_members, workspace_oxy_access,
+    workspaces, world_model, world_model_graph,
 };
 
 use oxy_shared::fleet_role::RouteRole;
@@ -97,6 +97,18 @@ pub(super) fn build_workspace_routes(
         // branch must match the workspace's default branch.
         .route_ide("/compile", post(compile::enqueue_compile))
         .route_ide("/compile/status", get(compile::compile_status))
+        // Staging branch compile for a custom-app draft build to pin
+        // (`oxyc publish --semantic-branch`). The POST reads the branch's
+        // head + worktree off `.git` → IdeOnly; the status is a pure
+        // `revisions` read → FleetOk.
+        .route_ide(
+            "/compile/staging",
+            post(compile_staging::enqueue_staging_compile),
+        )
+        .route_fleet(
+            "/compile/staging/status",
+            get(compile_staging::staging_compile_status),
+        )
         .nest("/databases", build_database_routes(&app_state))
         .nest("/integrations", build_integration_routes(&app_state))
         .nest("/secrets", build_secret_routes(app_state.clone()))

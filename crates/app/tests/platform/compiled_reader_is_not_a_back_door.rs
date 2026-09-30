@@ -49,6 +49,12 @@ const ALLOWED: &[(&str, &str)] = &[
          router, which has no workspace middleware.",
     ),
     (
+        "src/server/api/custom_apps_staging_pin/mod.rs",
+        "Same kind: `with_staging_pin` scopes the revision a STAGING custom-app \
+         request resolves at (the draft build's pin), before the gates build \
+         the manager. It picks the revision; it reads no artifact.",
+    ),
+    (
         "src/server/api/webhooks/toast.rs",
         "Same, on the public webhook router.",
     ),
