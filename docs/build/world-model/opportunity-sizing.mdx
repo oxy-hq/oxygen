@@ -5,34 +5,35 @@ description: "How the World Model Graph sizes an opportunity and decomposes it i
 
 ## Overview
 
-**Opportunity Sizing** answers the question people actually ask about a metric:
-not "where does this number vary?" but **"how do I improve it, and by how much?"**
+**Opportunity Sizing** answers the question people actually ask about a
+metric, which is not "where does this number vary?" but **"how do I improve
+it, and by how much?"**
 
-It lives in the **World Model Graph** — the Globe icon in the icon rail (a
-surface distinct from the Context Graph and the
-[Metric Tree](/guide/build/world-model/metric-tree)). Open a measure on the
-graph and Oxygen scans your data
-for segments that underperform a benchmark, puts a dollar figure on each gap,
-and then lets you **drill** that gap into its underlying drivers until you reach
-something specific enough to act on.
+It lives in the **World Model Graph**, reached through the Globe icon in the
+icon rail (a surface distinct from both the Context Graph and the
+[Metric Tree](/guide/build/world-model/metric-tree)). When you open a measure
+on the graph, Oxygen scans your data for segments that underperform a
+benchmark, puts a dollar figure on each gap, and then lets you **drill** that
+gap into its underlying drivers until you reach something specific enough to
+act on.
 
-The result is a ranked list of **addressable upside** — "mobile orders run
-`$218.50/order` below in-store; closing that gap is worth `+$264.6k`" — where
-every number is backed by a statistical test and every child in the breakdown
-provably sums back to its parent.
+The result is a ranked list of **addressable upside**, such as "mobile orders
+run `$218.50/order` below in-store, and closing that gap is worth
+`+$264.6k`," in which every number is backed by a statistical test and every
+child in the breakdown provably sums back to its parent.
 
 <Note>
-Opportunity Sizing operates on the **semantic model**. It reads your existing
+Opportunity Sizing operates on the **semantic model**, reading your existing
 [measures](/guide/build/semantic-model/measures),
 [dimensions](/guide/build/semantic-model/dimensions), and the relationships
-between [views](/guide/build/semantic-model/views) — you don't define
-opportunities anywhere. The quality of the sizing depends directly on how well
-your model is defined (see [What your model needs](#what-your-model-needs)).
+between [views](/guide/build/semantic-model/views), so you never define
+opportunities anywhere yourself. The quality of the sizing depends directly on
+how well your model is defined (see [What your model needs](#what-your-model-needs)).
 </Note>
 
 ## The core idea: size on rates, not totals
 
-An opportunity has two ingredients — a **gap** and a **volume**:
+An opportunity has two ingredients, a **gap** and a **volume**:
 
 ```
 rate     = measure ÷ count            e.g. revenue per check
@@ -41,55 +42,57 @@ upside   = gap × volume(segment)
 ```
 
 The single most important design decision is that Oxygen compares **per-unit
-rates**, never raw totals.
+rates** and never raw totals.
 
-If you compared raw sums, a segment sitting below another would mostly reflect
-that it is *smaller* — fewer rows, a smaller market — not that it
-*underperforms*. Comparing `revenue-per-check` instead of `revenue` makes the
-comparison about performance, so "smaller" never reads as "worse." Then
-multiplying the per-unit gap back by the segment's real volume turns it into an
-honest, addressable dollar figure.
+If you compared raw sums, a segment sitting below another would mostly
+reflect the fact that it is *smaller*, with fewer rows or a smaller market,
+rather than that it *underperforms*. Comparing `revenue-per-check` instead of
+`revenue` makes the comparison about performance, so that "smaller" never
+reads as "worse," and multiplying the per-unit gap back by the segment's real
+volume then turns it into an honest, addressable dollar figure.
 
 <Warning>
 Oxygen **refuses to guess** rather than emit a misleading number. If a measure
-is an additive total (like a `sum`) but its view declares no `count` measure to
-form a rate, the panel returns an empty result that explains why — it will not
-silently fall back to comparing totals. This is deliberate: a size-confounded
-number that looks precise is worse than no number.
+is an additive total (like a `sum`) but its view declares no `count` measure
+from which to form a rate, the panel returns an empty result explaining why,
+and it will not silently fall back to comparing totals. This is deliberate,
+since a size-confounded number that looks precise is worse than no number at
+all.
 </Warning>
 
 ### Picking the benchmark
 
-The benchmark is the bar every segment is measured against. Oxygen picks it from
-the data automatically:
+The benchmark is the bar every segment is measured against, and Oxygen picks
+it from the data automatically:
 
 | Number of segments | Benchmark | Meaning |
 | --- | --- | --- |
 | Fewer than 8 | `best_peer` | The actual top-performing segment |
 | 8 or more | `p75` | The 75th-percentile performance level |
 
-Crucially, the benchmark is defined as a **population filter** (`dim = best_peer`
-or `dim IN (segments at or above p75)`), not as a bare number. That's what lets
-the drill *query* the benchmark population later, rather than just comparing
-against a fixed scalar.
+Crucially, the benchmark is defined as a **population filter** (`dim =
+best_peer` or `dim IN (segments at or above p75)`) rather than as a bare
+number, which is what lets the drill *query* the benchmark population later
+instead of merely comparing against a fixed scalar.
 
 ### Three sizing modes
 
-How a segment gets weighted into a dollar figure depends on what the measure
+How a segment is weighted into a dollar figure depends on what the measure
 supports:
 
 | Weight basis | Applies to | Upside is |
 | --- | --- | --- |
-| `rows` | Sum-like measures with a count denominator | `gap × count` — the fully honest path |
+| `rows` | Sum-like measures with a count denominator | `gap × count`, the fully honest path |
 | `value_share` | Additive non-sum measures (`avg` / `min` / `max`) | Weighted by each segment's share of value |
 | `equal` | Ratio measures | Equal weight per segment |
 
-Only `rows` responses carry a directly addressable upside and get ranked in the
-Opportunities list. The other bases still power the drill breakdown.
+Only `rows` responses carry a directly addressable upside and get ranked in
+the Opportunities list, although the other bases still power the drill
+breakdown.
 
 ## Trustworthy numbers: the evidence gate
 
-Any tool can find a "top lever" in *any* dataset — including one where the
+Any tool can find a "top lever" in *any* dataset, including one in which the
 dimension is provably unrelated to the measure. Opportunity Sizing is
 deliberately rigged against itself and corrects for the two ways a naive scan
 fools itself.
@@ -97,25 +100,26 @@ fools itself.
 <AccordionGroup>
   <Accordion title="Selection bias within a dimension" icon="magnifying-glass">
     The benchmark is the maximum (or P75) of the *same* segments being tested
-    against it. Draw a handful of values from pure noise and the largest one
-    naturally sits well above the mean — so a fixed threshold "discovers" a
-    leader in literally any dimension. Oxygen raises the bar by exactly that
-    expected amount, so noise doesn't clear it.
+    against it. If you draw a handful of values from pure noise, the largest
+    one naturally sits well above the mean, so a fixed threshold would
+    "discover" a leader in literally any dimension. Oxygen raises the bar by
+    exactly that expected amount, so that noise does not clear it.
   </Accordion>
   <Accordion title="Multiple comparisons across the scan" icon="layer-group">
     A full scan makes on the order of a hundred comparisons once related
-    entities are followed. At a naive 5% per test, **five spurious levers per
-    scan is the expected yield**. Oxygen applies a Šidák correction across the
-    whole scan family, so 20 dimensions × 5 segments needs a much higher bar of
-    evidence than any single dimension would imply on its own.
+    entities are followed, and at a naive 5% per test, **five spurious levers
+    per scan is the expected yield**. Oxygen therefore applies a Šidák
+    correction across the whole scan family, so that 20 dimensions × 5
+    segments requires a much higher bar of evidence than any single dimension
+    would imply on its own.
   </Accordion>
 </AccordionGroup>
 
-The test itself is **Welch's t-test** (not pooled variance), because the
-benchmark is routinely the *thinner* of the two populations, and a pooled
-estimate would understate the error exactly where it matters most. With a
-two-row benchmark, the effective degrees of freedom collapse and the gap has to
-be genuinely large to survive.
+The test itself is **Welch's t-test** rather than a pooled-variance test,
+because the benchmark is routinely the *thinner* of the two populations, and
+a pooled estimate would understate the error exactly where it matters most.
+With a two-row benchmark the effective degrees of freedom collapse, so the
+gap has to be genuinely large to survive.
 
 ### Three outcomes, kept distinct
 
@@ -123,37 +127,37 @@ Oxygen never blurs "proven" with "plausible":
 
 | Result | What happens |
 | --- | --- |
-| **Significant** | Kept and marked `gated: true` — proven upside |
+| **Significant** | Kept and marked `gated: true`, as proven upside |
 | **Not significant** | **Dropped**, and counted in `segments_dropped_as_noise` |
-| **Can't tell** (no dispersion, `n < 2`, degenerate variance) | Kept but marked `gated: false` — *ungated, not proven* |
+| **Can't tell** (no dispersion, `n < 2`, degenerate variance) | Kept but marked `gated: false`, meaning *ungated, not proven* |
 
 The third row is the honest one. `gated: false` does **not** mean the gap is
-fake — it means nobody could prove it real, and the panel never presents it as
+fake; it means nobody could prove it real, and the panel never presents it as
 proven upside. The skip reason also distinguishes *"everything I found was
 noise"* from *"everything already matches the benchmark,"* because those are
-different answers and you're entitled to know which one you got.
+different answers and you are entitled to know which one you got.
 
 ## Drill: decomposing the gap into drivers
 
-Finding a gap is half the job. **Drill** decomposes that gap recursively —
-alternating two kinds of split — until it reaches a driver specific enough to
-act on:
+Finding a gap is only half the job. **Drill** decomposes that gap
+recursively, alternating between two kinds of split, until it reaches a
+driver specific enough to act on:
 
 - **Component splits** come from the measure's own formula (`revenue` →
   `entrée revenue` + `add-on revenue`).
 - **Dimension splits** cut by an attribute (`add-on revenue` → by category).
 
-The flow is recursive and domain-free: *decompose a per-unit gap through
-structure until you hit something specific.*
+The flow is recursive and domain-free, decomposing a per-unit gap through
+structure until it reaches something specific.
 
 ### Two rules make the math honest
 
 <Steps>
   <Step title="The denominator never changes">
     When the numerator is split by a dimension, the denominator is **not**
-    filtered with it. `sides/order` means sides revenue ÷ **all** of that
-    segment's orders — not ÷ sides count. Change the denominator and the
-    children stop summing to the parent.
+    filtered along with it, so `sides/order` means sides revenue divided by
+    **all** of that segment's orders rather than by the sides count. If the
+    denominator changed, the children would stop summing to the parent.
   </Step>
   <Step title="The benchmark is inherited, never re-picked">
     Every level compares the same two populations chosen at the root. If each
@@ -164,8 +168,8 @@ structure until you hit something specific.*
 
 ### Why those rules matter
 
-Given both rules, the decomposition becomes an **arithmetic identity**, not a
-fresh comparison at each level:
+Given both rules, the decomposition becomes an **arithmetic identity** rather
+than a fresh comparison at each level:
 
 ```
 rate          = Σ children  (additive)   |  Π children  (multiplicative)
@@ -173,9 +177,9 @@ rate          = Σ children  (additive)   |  Π children  (multiplicative)
 ⇒ upside      decomposes the same way
 ```
 
-This is what earns a child the right to say **"91% of the parent gap."** It is
-not an estimated or heuristic ranking — it is arithmetic, and the children
-provably sum back to the parent at every level.
+This is what earns a child the right to say **"91% of the parent gap."** The
+figure is not an estimated or heuristic ranking but plain arithmetic, and the
+children provably sum back to the parent at every level.
 
 ### What a drill looks like
 
@@ -188,95 +192,102 @@ mobile_app vs in_store             −218.5/order   +264.6k
    └─ desserts       72 → 18.9       −53.1   24%
 ```
 
-The last split (`sides/order = attach_rate × price_per_side`) answers "fewer
-sides, or cheaper sides?" — the volume-vs-value question — *inside* the
-decomposition, with no extra machinery.
+The last split (`sides/order = attach_rate × price_per_side`) answers whether
+the gap comes from fewer sides or cheaper sides, which is the classic
+volume-versus-value question, and it does so *inside* the decomposition
+without any extra machinery.
 
 ### At each level, the drill:
 
-1. **Enumerates candidates** — component edges from the measure's formula, plus
-   every dimension not already consumed higher up.
+1. **Enumerates candidates,** meaning the component edges from the measure's
+   formula plus every dimension not already consumed higher up.
 2. **Computes each child's gap and its share of the parent gap.**
-3. **Ranks by concentration** (which child holds the most of the gap).
-4. **Shows all children with their shares** — not just the winner. Siblings stay
-   visible, so "follow the max" is a reading aid, not a hidden selection.
+3. **Ranks by concentration,** identifying which child holds the most of the
+   gap.
+4. **Shows all children with their shares** rather than just the winner, so
+   siblings stay visible and "follow the max" remains a reading aid rather
+   than a hidden selection.
 5. **Recurses into the largest child.**
-6. **Stops** when the next split fails the evidence gate, can't be evidenced, has
-   no candidates left, or hits max depth.
+6. **Stops** when the next split fails the evidence gate, cannot be
+   evidenced, has no candidates left, or reaches the maximum depth.
 
-Every level renders its **stop reason**, and a level that couldn't be
-evidence-checked is shown as *ungated* — never as proven. The statistical error
-budget is also split across depth, so an N-level drill doesn't quietly spend the
-full 5% error at every line.
+Every level renders its **stop reason**, and a level that could not be
+evidence-checked is shown as *ungated* rather than as proven. The statistical
+error budget is also split across depth, so that an N-level drill does not
+quietly spend the full 5% error at every line.
 
 ## How to use it
 
 <Steps>
   <Step title="Open the World Model Graph">
-    Click the **Globe** icon in the icon rail to open the graph of your semantic
-    model.
+    Click the **Globe** icon in the icon rail to open the graph of your
+    semantic model.
   </Step>
   <Step title="Select a measure">
-    Click a measure node. Oxygen scans its segments on mount and, if it finds
-    addressable upside, reveals an **Opportunities** section —
-    *addressable upside · and where it comes from.*
+    Click a measure node. Oxygen scans its segments when the node opens and,
+    if it finds addressable upside, reveals an **Opportunities** section
+    labeled *addressable upside · and where it comes from.*
   </Step>
   <Step title="Read the ranked segments">
-    Each row shows the segment, its per-unit rate versus the benchmark
-    (`543.9 → 762.4 per order`), the dollar upside, and a proportion bar. Use the
-    copy button on a row to drop a ready-made investigation question into chat.
+    Each row shows the segment, its per-unit rate against the benchmark
+    (`543.9 → 762.4 per order`), the dollar upside, and a proportion bar. You
+    can use the copy button on a row to drop a ready-made investigation
+    question into chat.
   </Step>
   <Step title="Drill into a gap">
-    Expand a segment to decompose its gap. The drill runs **on expand only** —
-    never on mount — because it issues recursive queries against your warehouse.
-    Follow the highlighted child down until the stop reason tells you there's
-    nothing left to prove.
+    Expand a segment to decompose its gap. The drill runs **only on expand**,
+    never when the node first opens, because it issues recursive queries
+    against your warehouse. Follow the highlighted child downward until the
+    stop reason tells you there is nothing left to prove.
   </Step>
 </Steps>
 
 ## What your model needs
 
-Opportunity Sizing is only as good as the semantic model underneath it. To get
-the most out of it:
+Opportunity Sizing is only as good as the semantic model underneath it, so
+to get the most out of it:
 
 - **Declare a `count` measure on the view.** Without a count denominator, a
-  `sum` measure can't be put on a per-unit basis, and Oxygen will refuse to size
-  it rather than compare totals.
+  `sum` measure cannot be put on a per-unit basis, and Oxygen will refuse to
+  size it rather than compare totals.
 - **Model your metrics compositionally.** A measure defined as a sum or
-  difference of same-view measures (`net_revenue = entrée_revenue + add_on_revenue`)
-  gives the drill component edges to follow. Mirror trees work too — a
-  `gross_profit` tree that parallels `revenue` lets you drill margin the same way
-  you drill revenue.
-- **Keep dimensions meaningful to benchmark across.** A dimension where being
-  "higher" is a matter of arithmetic rather than performance (for example, party
-  size — a 6-top spends more than a 2-top by definition) will dominate the
-  ranking without telling you anything. Prefer dimensions where a gap reflects
-  something you can change.
+  difference of same-view measures (`net_revenue = entrée_revenue +
+  add_on_revenue`) gives the drill component edges to follow. Mirror trees
+  work too, so a `gross_profit` tree that parallels `revenue` lets you drill
+  margin the same way you drill revenue.
+- **Keep dimensions meaningful to benchmark across.** A dimension in which
+  being "higher" is a matter of arithmetic rather than performance (party
+  size, for example, since a 6-top spends more than a 2-top by definition)
+  will dominate the ranking without telling you anything, so prefer
+  dimensions where a gap reflects something you can change.
 - **Point it at measures where higher is better.** Both benchmark bases are
   top-end rates, so a segment below the benchmark is always read as upside.
-  That's right for revenue, margin, or conversion and backwards for a cost — a
-  cost sum with a `count` on its view would rank the *cheapest* segment as the
-  biggest opportunity. Size the revenue or profit side and let the drill walk
-  into the cost components, rather than rooting a scan on a cost measure.
+  That reading is right for revenue, margin, or conversion but backwards for
+  a cost, since a cost sum with a `count` on its view would rank the
+  *cheapest* segment as the biggest opportunity. Size the revenue or profit
+  side instead, and let the drill walk into the cost components rather than
+  rooting a scan on a cost measure.
 
 ## Current scope
 
-Opportunity Sizing is honest about what it can and can't do — and about *why* it
-can't. What it refuses, it refuses **by design**: sizing those shapes would
-break the arithmetic identity the drill depends on. There is no "not yet"
-bucket — a shape either sizes today or is a permanent boundary, never a quietly
-deferred promise.
+Opportunity Sizing is honest about what it can and cannot do, and about *why*
+it cannot. What it refuses, it refuses **by design**, because sizing those
+shapes would break the arithmetic identity the drill depends on. There is no
+"not yet" bucket: a shape either sizes today or marks a permanent boundary,
+and is never a quietly deferred promise.
 
 **Works today**
 
 - `sum` roots with a `count` on their view
-- Additive same-view composites (`a + b − c`), including nested ones (a composite whose child is itself a same-view composite — it flattens transitively)
+- Additive same-view composites (`a + b − c`), including nested ones, where a
+  composite whose child is itself a same-view composite flattens transitively
 - Homogeneous `+`/`−` and `×`/`÷` expressions
 - Dimension splits and cross-grain numerators
 
-**By design** — Oxygen refuses these rather than emit a number that looks precise
-but isn't. They break the [sum-to-parent identity](#why-those-rules-matter), so
-no future work will "fix" them without a different model:
+**Refused by design,** because Oxygen would rather decline than emit a number
+that looks precise but isn't. These shapes break the
+[sum-to-parent identity](#why-those-rules-matter), so no future work will
+"fix" them without a different model:
 
 | Won't size | Why |
 | --- | --- |
@@ -284,23 +295,25 @@ no future work will "fix" them without a different model:
 | Cross-view composites | The terms live at different grains, so there is no single denominator to put them on a common rate |
 | Mixed expressions like `a + b*c` | Component edges are flat with no precedence, and a product's gap is a log-share that can't hang under an additive sum-to-parent rule |
 
-Comparing a revenue drill against a margin drill side-by-side works today — it's
-two drills you read together. Ranking add-on leaves by *profit* rather than
-*revenue* changes which leaf wins, so a true single-pass co-ranking ("big
-revenue gap, thin margin") is a presentation improvement, not an engine
-limitation — the engine already sizes each measure on its own.
+Comparing a revenue drill against a margin drill side by side already works
+today, since it is simply two drills read together. Ranking add-on leaves by
+*profit* rather than *revenue* changes which leaf wins, so a true single-pass
+co-ranking ("big revenue gap, thin margin") would be a presentation
+improvement rather than an engine limitation, given that the engine already
+sizes each measure on its own.
 
 ## In one paragraph
 
-Oxygen sizes an opportunity as *(per-unit rate gap vs a benchmark segment) ×
-volume* — per-unit rather than raw totals, so "smaller" never reads as "worse."
-The drill then decomposes that gap recursively, alternating splits from the
-measure's own formula with splits by dimension, holding the denominator and the
-benchmark fixed the whole way down. Those two constraints turn the decomposition
-into an arithmetic identity, which is what lets a child legitimately claim "91%
-of the parent gap" and makes children provably sum back to the parent. It stops
-when the evidence gate can no longer prove the next split — and it always tells
-you why it stopped.
+Oxygen sizes an opportunity as *(per-unit rate gap against a benchmark
+segment) × volume*, working per unit rather than on raw totals so that
+"smaller" never reads as "worse." The drill then decomposes that gap
+recursively, alternating splits from the measure's own formula with splits by
+dimension, while holding the denominator and the benchmark fixed all the way
+down. Those two constraints turn the decomposition into an arithmetic
+identity, which is what lets a child legitimately claim "91% of the parent
+gap" and guarantees that children sum back to the parent. The drill stops
+when the evidence gate can no longer prove the next split, and it always
+tells you why it stopped.
 
 ## Related documentation
 

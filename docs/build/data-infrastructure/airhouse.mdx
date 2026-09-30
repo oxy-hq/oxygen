@@ -1,0 +1,24 @@
+---
+title: "Airhouse"
+description: "Oxygen's managed warehouse, where your data lands and is queried from"
+---
+
+**Airhouse** is Oxygen's managed warehouse, the place where your data lands
+and where the [semantic model](/guide/build/semantic-model/simple-model) and
+agents query it from. Each workspace gets its own Airhouse tenant, served
+over the Postgres wire protocol so that any Postgres-compatible client or BI
+tool can connect to it, and access runs on ephemeral credentials minted on
+demand, so there is no long-lived key to store or rotate.
+
+Use Airhouse when you want Oxygen to manage the warehouse for you. It is also
+where [Airway](/guide/build/data-infrastructure/airway) pipelines land
+extracted data and where custom apps append their own facts. If you already
+have a warehouse, you do not need Airhouse, since Oxygen
+[connects to your own](/guide/build/connect-data) and the semantic model
+compiles the same way regardless of where the data lives.
+
+<Card title="Airhouse documentation" icon="warehouse" href="/airhouse">
+  Architecture, access and credentials, connecting clients and BI tools,
+  managing databases, users and roles, service accounts, and the full
+  reference, all in the Airhouse tab.
+</Card>

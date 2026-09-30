@@ -12,6 +12,10 @@
     {
       "source": "/guide/:slug*",
       "destination": "/:slug*"
+    },
+    {
+      "source": "/build/data-infrastructure/airlayer",
+      "destination": "/build/world-model"
     }
   ],
   "logo": {
@@ -59,7 +63,14 @@
             "group": "Data Infrastructure",
             "pages": [
               "build/data-infrastructure/index",
-              "build/data-infrastructure/airlayer",
+              "build/data-infrastructure/airhouse",
+              {
+                "group": "Airway",
+                "pages": [
+                  "build/data-infrastructure/airway/index",
+                  "build/data-infrastructure/airway/pipelines"
+                ]
+              },
               "build/data-infrastructure/airform"
             ]
           },
@@ -68,20 +79,33 @@
             "pages": [
               "build/world-model/index",
               {
-                "group": "Semantic Model",
+                "group": "Physics Layer",
                 "pages": [
-                  "build/semantic-model/simple-model",
-                  "build/semantic-model/views",
-                  "build/semantic-model/entities",
-                  "build/semantic-model/dimensions",
-                  "build/semantic-model/measures",
-                  "build/semantic-model/topics",
-                  "build/semantic-model/use-in-agents",
-                  "build/semantic-model/modeling"
+                  {
+                    "group": "Semantic Model",
+                    "pages": [
+                      "build/semantic-model/simple-model",
+                      "build/semantic-model/views",
+                      "build/semantic-model/entities",
+                      "build/semantic-model/dimensions",
+                      "build/semantic-model/measures",
+                      "build/semantic-model/topics",
+                      "build/semantic-model/use-in-agents",
+                      "build/semantic-model/modeling"
+                    ]
+                  },
+                  "build/world-model/metric-tree"
                 ]
               },
-              "build/world-model/metric-tree",
-              "build/world-model/opportunity-sizing"
+              {
+                "group": "Control Layer",
+                "pages": [
+                  "build/world-model/controls",
+                  "build/world-model/opportunity-sizing",
+                  "build/world-model/evaluation",
+                  "build/world-model/calibration"
+                ]
+              }
             ]
           },
           {

@@ -1,0 +1,67 @@
+---
+title: "Calibration"
+description: "The feedback loop's write-back: tuning the physics to truth"
+---
+
+The physics layer makes claims about the business: a forecast claims what a
+measure will do next, a declared lag claims how long a cause takes to show
+its effect, and a driver edge claims that one measure moves another.
+**Calibration** is the final step of the control layer's feedback loop,
+taking what [evaluation](/guide/build/world-model/evaluation) measured,
+scoring those claims against it, and writing corrections back into the
+physics.
+
+## What gets calibrated
+
+- **Forecasts.** Seasonal models refit continuously as new history arrives,
+  and each forecast carries an envelope that states its own uncertainty.
+- **Lags and structural claims.** A declared lead time or a claimed causal
+  direction is checked against the realized relationship as data
+  accumulates.
+- **Observational estimates.** Where no control acts on a driver, any
+  magnitude on that edge is an observational fit, so calibration's job is
+  mostly bookkeeping: these estimates stay labeled as weak, and any whose
+  predictions drift are retired rather than trusted.
+
+Driver magnitudes themselves belong to evaluation rather than calibration. A
+magnitude is a causal claim that only intervention can identify, so the
+control that acts on a driver estimates its effect through
+[evaluation](/guide/build/world-model/evaluation), and that estimate
+supersedes anything observational.
+
+## Prediction error is the signal
+
+Every claim the physics layer makes is eventually scored against what
+actually happened, and calibration tracks that prediction error for each
+component. A forecast that keeps landing outside its envelope, or an
+observational estimate whose predictions drift away from outcomes, is flagged
+for a refit or for human revision, while components with healthy error keep
+their standing. This is what keeps the exact, estimated, and refused labels
+truthful, since an estimate is only worth its label if something is checking
+it.
+
+## Evaluation feeds calibration
+
+Evaluation is the richest source of calibration signal. When a control
+change's measured impact disagrees with what the model implied, the gap
+points at a specific physical claim, whether a lead time, a demand response,
+or a claimed causal link. Because interventions probe the physics in a way
+that passive observation cannot, every evaluated change leaves the model a
+little sharper than it was.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Evaluation" icon="scale-balanced" href="/guide/build/world-model/evaluation">
+    Measure what controls do, with results feeding back here
+  </Card>
+  <Card title="Metric Tree" icon="sitemap" href="/guide/build/world-model/metric-tree">
+    The driver edges calibration keeps honest
+  </Card>
+  <Card title="Controls" icon="sliders" href="/guide/build/world-model/controls">
+    The criteria that lean on calibrated physics
+  </Card>
+  <Card title="World Model" icon="cube" href="/guide/build/world-model">
+    The two layers and how they fit together
+  </Card>
+</CardGroup>

@@ -1,0 +1,69 @@
+---
+title: "Airway"
+sidebarTitle: "Overview"
+description: "Oxygen's ELT engine, which extracts data from external systems and loads it into your warehouse"
+---
+
+**Airway** is Oxygen's ELT engine. It extracts data from external systems
+such as point-of-sale platforms, accounting tools, public datasets, and other
+databases, and loads it into your warehouse, usually
+[Airhouse](/guide/build/data-infrastructure/airhouse), where
+[Airform](/guide/build/data-infrastructure/airform) and the
+[semantic model](/guide/build/semantic-model/simple-model) take over.
+
+Each pipeline is a version-controlled `.airway.yml` file in your workspace,
+declaring a source, a destination, and optionally which of the source's
+resources to load:
+
+```yaml
+# pipelines/quickbooks_financials.airway.yml
+name: quickbooks_financials
+source:
+  kind: quickbooks
+  config:
+    client_id: <client-id>
+    client_secret_var: QB_CLIENT_SECRET   # a secret key, never a value
+    refresh_token_var: QB_REFRESH_TOKEN
+    realm_id: "<realm-id>"
+destination:
+  database: warehouse                      # a database from config.yml
+  dataset_name: quickbooks_financials
+concurrency: 2
+```
+
+The `.airway.yml` extension is required, because the workspace only picks up
+files with that exact suffix; a pipeline saved as plain `.yml` is silently
+ignored.
+
+## How pipelines run
+
+- **Incremental by default.** Each pipeline keeps a cursor per workspace, so
+  a run picks up where the last one left off, and a retry resumes from that
+  cursor rather than re-pulling history.
+- **One run at a time.** Only one run of a given pipeline is active per
+  workspace, because concurrent runs would share a single cursor. A run
+  submitted while another is busy waits for it, and repeated submissions
+  join the run already queued, so ten clicks of **Run now** produce one run.
+- **Partial success is its own status.** A run that loads some resources but
+  fails on others finishes as `completed_with_errors` rather than as a
+  failure, so alerting should watch for both.
+- **Schemas only grow.** New tables and columns are added automatically, but
+  a column is never dropped or narrowed in place, so a pipeline sitting on a
+  wrong schema needs an explicit **Reset schema**, which drops its destination
+  tables and cursor so that the next run starts fresh.
+
+Pipelines can run on their own, from a schedule, or as a step in an
+[automation](/guide/build/automations/task-types#type-airway), where the step
+finishes only once the load has committed, so that the tasks after it read
+fully loaded tables.
+
+## What's in this section
+
+<CardGroup cols={2}>
+  <Card title="Pipeline reference" icon="file-code" href="/guide/build/data-infrastructure/airway/pipelines">
+    Every key in `.airway.yml`, the supported sources, and credentials
+  </Card>
+  <Card title="Airhouse" icon="warehouse" href="/guide/build/data-infrastructure/airhouse">
+    Where most pipelines land their data
+  </Card>
+</CardGroup>

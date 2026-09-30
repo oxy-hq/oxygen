@@ -1,0 +1,138 @@
+---
+title: "Evaluation"
+description: "Measure what a control does: automatic pre/post comparison from versions, and criteria-triggered impact measurement"
+---
+
+Once a [control](/guide/build/world-model/controls) states when to act and
+what to do, **evaluation** answers the question that naturally follows, which
+is whether it worked.
+
+Evaluation lives at the control layer because the control already supplies
+both halves of the measurement problem. Its **versions** define the unit of
+comparison, recording which algorithm ran and when it changed, while its
+**criteria** define the moment of measurement, since the same condition that
+fires the action is the condition whose cost you want to know.
+
+## Versioned controls
+
+Each version of a control is a criteria and action pair. Exactly one version
+is active at a time, and the platform records whenever the active version
+switches:
+
+```yaml
+# replenishment.control.yml
+control: replenishment
+objective: "Never let a SKU run out"
+owner: ops
+for_each: sku_store
+schedule: daily
+
+versions:
+  - name: reorder_at_zero
+    criteria:
+      type: trigger
+      when: "{{inventory.on_hand}} == 0"
+    action:
+      order: "{{sales.daily_demand}} * 14"
+      via: replenishment_reorder
+
+  - name: forecast_depletion
+    active: true
+    criteria:
+      type: trigger
+      when: "{{inventory.on_hand}} < {{sales.daily_demand}} * {{skus.lead_time_days}}"
+    action:
+      order: "{{sales.daily_demand}} * 14"
+      via: replenishment_reorder
+```
+
+Versioning is what makes a control evaluable in the first place. Answering
+"did the change work?" requires a before and an after, or two algorithms to
+compare, and the version history provides both without anyone having to
+reconstruct what was running at a given time.
+
+## Version comparison
+
+When the active version switches, the pre/post comparison derives
+automatically from the control itself, comparing the measures its criteria
+read, along with the KPIs downstream of them in the
+[Metric Tree](/guide/build/world-model/metric-tree), across the switch date.
+Two versions can also run side by side, with some entities assigned to each,
+which controls for seasonality and external shocks in a way that a simple
+pre/post comparison cannot. In either case the comparison metric comes from
+the control definition rather than from an analysis someone assembles by
+hand, so every control accumulates a track record of what its changes did.
+
+## Mechanistic impact measurement
+
+Whereas version comparison observes how KPIs move, the longer-term method
+prices the events themselves. The insight is that the criteria already mark
+the moment that matters: if a control's criteria fire on a stockout, then
+measurement should fire on that stockout too. The control simply declares
+what each firing costs:
+
+```yaml
+evaluation:
+  counterfactual_measure: sales.revenue   # what is lost while the criteria hold
+  window: until_replenished               # from firing until the order lands
+```
+
+Each firing is then priced as the revenue lost at the SKU-store grain over
+the window during which the condition held. A version's impact becomes the
+sum of its priced events, so comparing versions turns into comparing priced
+events rather than hoping that a KPI shift can be attributed to the change.
+The counterfactual measure and its window resolve in the semantic engine,
+which is where this mechanism will be built.
+
+## Backtesting
+
+A version does not need to run in production before it can be evaluated.
+Executing its criteria against history produces a trace of every day it
+would have fired, shown side by side with what the active version actually
+did, and the same `evaluation` block prices that trace. You can therefore
+backtest a proposed version before adopting it and measure it afterward, with
+both answers coming from the same definitions.
+
+## Learning drivers
+
+Evaluation is also how the World Model learns causal magnitudes. The
+[metric tree's](/guide/build/world-model/metric-tree) driver edges are
+qualitative by design, stating what drives what but deliberately not how
+much, because a magnitude can only be identified through intervention and a
+control is the thing that intervenes. When a control acts on a driver, its
+measured results (version comparisons, side-by-side runs, and priced firings)
+estimate how much that driver moves the KPI. The estimate keeps updating as
+the control continues to act, carries a confidence that grows with the
+number of interventions, and supersedes any observational fit.
+
+In other words, while the physics knows what drives what, a control learns
+how much by acting. A KPI whose drivers carry no control-learned magnitudes
+is being navigated on correlation alone, and the World Model graph makes this
+visible by showing, for each edge, whether its magnitude comes from
+interventions or from observation.
+
+## Feeding the physics
+
+Evaluation results flow back into
+[calibration](/guide/build/world-model/calibration). When a change's measured
+impact disagrees with what the model implied, the gap points at a specific
+physical claim, such as a lead time or a demand response, and the physics
+layer updates accordingly, so that the model the next decision runs on is
+sharper than the one before it.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Controls" icon="sliders" href="/guide/build/world-model/controls">
+    The criteria and action pairs that versions carry
+  </Card>
+  <Card title="Calibration" icon="scale-balanced" href="/guide/build/world-model/calibration">
+    Where evaluation results update the physics
+  </Card>
+  <Card title="Metric Tree" icon="sitemap" href="/guide/build/world-model/metric-tree">
+    The KPIs downstream of a control's criteria
+  </Card>
+  <Card title="Opportunity sizing" icon="arrow-trend-up" href="/guide/build/world-model/opportunity-sizing">
+    Find where a better control is worth the most
+  </Card>
+</CardGroup>

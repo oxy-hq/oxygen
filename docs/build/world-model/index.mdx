@@ -1,39 +1,55 @@
 ---
 title: "World Model"
 sidebarTitle: "Overview"
-description: "Oxygen's control system for business outcomes — a formula-first model built from a semantic model, a metric tree, and an entity graph"
+description: "A formula-first Digital Twin of the business: a physics layer that models your outcomes, and a control layer that runs on it"
 ---
 
-The **World Model** is Oxygen's formula-first model of your business. It defines
-every metric that matters as an equation over the drivers beneath it, so agents
-and applications can reason about *why* an outcome moved and *what* to do about
-it — not just report the number.
+The **World Model** is Oxygen's formula-first model of your business. It
+defines every metric that matters as an equation over its drivers, so that
+agents and applications can explain why an outcome moved and what to do about
+it.
 
-## A control system for outcomes, not objects
+Everything in the World Model fits into two layers:
 
-Most operational tooling models a business **bottom-up**: it catalogs the atomic
-objects — every machine, part, and store — as a digital twin, so operators can
-watch those objects and understand why they break. That's essential for
-integrity, but it orients you toward the minutiae.
+- The **physics layer** models what the business *is*: its measures and the
+  equations that define them, the qualitative map of what drives what, and
+  the real objects that produce them.
+- The **control layer** models what the business *does*: the versioned
+  decision rules that read the physics and move its levers, together with the
+  feedback loop of forecasts, evaluation, and calibration that scores every
+  change and updates the physics in turn.
 
-Oxygen models the business **top-down**. Metrics *are* outcomes, so we start at
-the outcome level — the top-line objective you're accountable for — and orient
-downward from there, toward the drivers you can actually move. A digital twin is
-a control system for **objects**; the World Model is a control system for
-**outcomes**. If the goal is to drive the business forward, starting from the
-objective is, almost by definition, the better place to begin.
+<Frame caption="Controls read the physics and act on the business, while the feedback loop of forecasts, evaluation, and calibration scores every intervention and updates the physics.">
+  <img src="/images/world-model-layers.svg" alt="World Model architecture. A physics layer (semantic model, metric tree, entity graph) feeds a control layer of versioned controls with anomaly, opportunity, and trigger criteria. A feedback loop of forecasts, evaluation, and calibration updates the physics and learns driver magnitudes." />
+</Frame>
 
-The World Model is built from three layers. Each one adds structure the layer
-below it can't express on its own.
+## A Digital Twin of the physics
 
-## 1. Semantic Model — the vocabulary
+Most digital twins model a business from the bottom up, cataloging its atomic
+objects (machines, parts, stores) so that operators can monitor each one.
+That approach is useful for operational integrity, but it tends to orient you
+toward the minutiae rather than the outcomes you are responsible for.
 
-The [Semantic Model](/guide/build/semantic-model/simple-model) defines your business's
-**measures** and **dimensions** once, in version-controlled `.view.yml` files,
-and compiles them into deterministic, correct SQL. Joins are resolved
-automatically from entity definitions, and fan-out is detected and neutralized —
-so `labor_cost_pct` means the same thing everywhere, and no agent has to
-hand-write (or hallucinate) a query to compute it.
+Oxygen builds the twin from the top down instead, starting at the outcome you
+are accountable for and modeling downward toward the drivers you can actually
+move. The result is a Digital Twin of the business's **outcome physics**: a
+set of equations faithful enough to forecast with, backtest against, and use
+to change what the business produces. Where a twin of the parts tells you the
+state of everything, a twin of the physics tells you what to do.
+
+## The physics layer
+
+The physics layer is built from three components, each of which adds
+structure that the one before it cannot express.
+
+### Semantic Model: the vocabulary
+
+The [Semantic Model](/guide/build/semantic-model/simple-model) defines your
+business's **measures** and **dimensions** once, in version-controlled
+`.view.yml` files, and compiles them into deterministic, correct SQL. Joins
+resolve automatically from entity definitions and fan-out is detected and
+neutralized, which means `labor_cost_pct` carries the same meaning everywhere
+and no agent ever has to hand-write a query to compute it.
 
 ```yaml
 # sales.view.yml
@@ -51,20 +67,34 @@ dimensions:
     expr: location
 ```
 
-This is the **programmatic, deterministic** foundation: business logic in,
-correct SQL out. [Learn about the Semantic Model →](/guide/build/semantic-model/simple-model)
+This is the deterministic foundation of everything above it, turning business
+logic into correct SQL.
+[Learn about the Semantic Model →](/guide/build/semantic-model/simple-model)
 
-## 2. Metric Tree — the relationships
+<Info>
+The semantic model is compiled by **[airlayer](https://github.com/oxy-hq/airlayer)**,
+the open-source, in-process semantic engine at the core of the World Model.
+Because there is no LLM in its compilation path, the same request always
+produces the same SQL, and the same definitions compile to BigQuery,
+Snowflake, Postgres, DuckDB, and other dialects. airlayer runs as a library
+or CLI, so you can embed it, script it, or call it from your own agents
+without running a separate service.
+</Info>
 
-A single measure is a fact. The **Metric Tree** captures how measures *relate*,
-so a top-line metric decomposes into the driver metrics that explain it.
+### Metric Tree: the relationships
 
-Measures compose two ways:
+While a single measure is only a fact, the **Metric Tree** captures how
+measures relate to one another, so that a top-line metric decomposes into the
+driver metrics that explain it. Measures compose in two ways:
 
-- **Component edges** — implicit, from `{{view.measure}}` references. `arr`
-  depends on `net_mrr`, which depends on `total_mrr` and `churned_mrr`.
-- **Driver edges** — explicit `drivers:` annotations that encode a *business*
-  relationship (direction, strength) rather than pure arithmetic.
+- **Component edges** are implicit, parsed from `{{view.measure}}` references:
+  `arr` depends on `net_mrr`, which in turn depends on `total_mrr` and
+  `churned_mrr`. Because these are arithmetic identities, they are exact by
+  construction.
+- **Driver edges** are explicit `drivers:` annotations that encode the causal
+  map, stating which measures push a target up or down and in which
+  direction. They are deliberately qualitative, since magnitudes are learned
+  at the control layer, where interventions can identify them.
 
 ```yaml
 measures:
@@ -74,19 +104,19 @@ measures:
     drivers:
       - measure: revenue.churn_rate
         direction: negative
-        strength: strong
         description: "Higher churn directly reduces ARR"
 ```
 
 Because the tree knows how every metric is built, it can decompose a change
-top-to-bottom — walking from the outcome to the drivers responsible. This is
-what powers **root cause analysis** (below).
+from the outcome down to the drivers responsible for it, which is what powers
+root cause analysis and scenario prediction.
+[Learn about the Metric Tree →](/guide/build/world-model/metric-tree)
 
-## 3. Entity Graph — the objects
+### Entity Graph: the objects
 
-The **Entity Graph** links measures to the real objects that produce them —
-stores, employees, customers, orders — via `entities` declarations (`primary` /
-`foreign` keys) and a `parent:` hierarchy.
+The **Entity Graph** links measures to the real objects that produce them,
+such as stores, employees, customers, and orders, through `entities`
+declarations (`primary` and `foreign` keys) and a `parent:` hierarchy.
 
 ```yaml
 # stores.view.yml
@@ -97,38 +127,104 @@ entities:
     parent: company_id
 ```
 
-Two things fall out of this:
+Two capabilities follow from this:
 
-- **Automatic joins.** Any measure can be sliced by any related object's
-  dimensions, because the graph knows the path between them.
-- **Promotion up the hierarchy.** A measure defined at the sale grain
-  automatically rolls up to the store, company, and market — so
-  `markets.net_sales` is derived, never redefined.
+- **Automatic joins.** Any measure can be sliced by the dimensions of any
+  related object, because the graph already knows the path between them.
+- **Promotion up the hierarchy.** A measure defined at the sale grain rolls up
+  to the store, company, and market automatically, so `markets.net_sales` is
+  derived from `sales.net_sales` without any additional definition.
 
-Grounding metrics in real objects is also what makes them *actionable*: an
-object is something you can take an action against.
+Grounding metrics in real objects is also what makes them actionable, since
+an object is something you can act on.
 
-## From understanding to action
+## The control layer
 
-The layers above turn the World Model into a lever against the only two
-questions that matter day to day: **what's going wrong, and what should we do
-next.**
+Where the physics layer describes the machine, the control layer runs it.
 
-<CardGroup cols={2}>
-  <Card title="Root cause analysis" icon="magnifying-glass">
-    **What's going wrong and why.** Decompose a metric's change across its
-    drivers and segments, walking the metric tree and pruning down the entity
-    hierarchy. Detected anomalies land in the Insights Inbox with an AI-authored
-    root cause. **Available today.**
-  </Card>
-  <Card title="Opportunity sizing" icon="arrow-trend-up" href="/guide/build/world-model/opportunity-sizing">
-    **What to do next and why.** Compare each segment to its benchmark, size the
-    gap in dollars, and drill it into the drivers you can act on. **Available
-    today.**
-  </Card>
-</CardGroup>
+### Controls: the decisions
 
-For example, opening up `labor_cost_pct` for a location might read:
+A [control](/guide/build/world-model/controls) codifies a standing practice,
+such as "reorder before a SKU runs out," as two declarations: **criteria**
+that state when to act, and an **action** that states what to do, whether
+that means informing people or acting on the business directly. The criteria
+are first-class computations over the physics layer (an anomaly, an
+opportunity, or a trigger), and because both declarations are written in
+World Model terms, any control can be backtested against your own history.
+[Learn about Controls →](/guide/build/world-model/controls)
+
+### Three engines, one rotation
+
+Operating a company comes down to three standing jobs, and Oxygen builds an
+engine for each of them:
+
+- **Run the business with the [Control Engine](/guide/build/world-model/controls),**
+  which executes the acting controls the company operates by (replenishing,
+  staffing, pricing, escalating), each administered as a `.control.yml` file.
+- **Expand the business with the [Opportunity Engine](/guide/build/world-model/opportunity-sizing),**
+  which runs controls built on the `opportunity` computation to find where
+  the business underperforms its own benchmark, size the gap in dollars, and
+  drill down to the levers that close it.
+- **Fix the business with the Anomaly Engine,** which runs controls built on
+  the `anomaly` computation to detect when an outcome breaks from its
+  forecast and to decompose that break to its root cause in the Insights
+  Inbox.
+
+All three run the same primitive, a
+[control](/guide/build/world-model/controls), and differ only in which
+criteria computation they use and whether their action informs or acts.
+
+```mermaid
+flowchart TB
+  subgraph ENGINES["  "]
+    direction LR
+    P["<b>Control Engine</b><br/>Run the business<br/><i>acting controls · .control.yml</i>"]
+    O["<b>Opportunity Engine</b><br/>Expand the business<br/><i>opportunity computation</i>"]
+    A["<b>Anomaly Engine</b><br/>Fix the business<br/><i>anomaly computation</i>"]
+  end
+  P -->|decisions| I["Interventions on the business"]
+  O -->|sized levers| I
+  A -->|corrections| I
+  I --> E["<b>Evaluation</b><br/>predicted vs. measured impact"]
+  E -->|sharpens the physics and the controls| ENGINES
+```
+
+Each engine applies the same four-step discipline over the World Model:
+
+| | **Control Engine**: run | **Opportunity Engine**: expand | **Anomaly Engine**: fix |
+| --- | --- | --- | --- |
+| **Measure** | Operational metrics at the decision grain (SKU-level sales, days of supply) | Top-line KPIs across every dimension and driver cut | Core output metrics, continuously |
+| **Analyze** | Forecast expected demand, depletion, and arrivals | Benchmark comparison, statistically gated | Deviation from the expected envelope, decomposed to root cause |
+| **Recommend** | The decision the rule prescribes, such as ordering 40 units today | The levers with the largest sized gap | The levers that reverse the break |
+
+### The feedback loop
+
+Acting is only half of the control layer. The other half scores what each
+action did and feeds the result back into the machine, in three steps.
+
+**Forecasts** supply the expected values that criteria compare against. Every
+measure with enough history receives a trajectory with a confidence envelope,
+produced by seasonal models running over the same semantic definitions.
+
+[**Evaluation**](/guide/build/world-model/evaluation) then measures what each
+change actually did. Because controls are versioned, every change has a
+before and an after, and the pre/post comparison derives from the control's
+own definition rather than from a hand-built analysis. A proposed version can
+be backtested before it is adopted, and each firing of its criteria can be
+priced against a declared counterfactual measure. Evaluation is also where
+driver magnitudes are learned: while the physics knows what drives what, a
+control learns how much by acting.
+[Learn about Evaluation →](/guide/build/world-model/evaluation)
+
+Finally, [**Calibration**](/guide/build/world-model/calibration) writes those
+results back into the physics. Forecasts refit on new history, lags and
+structural claims are checked against outcomes, and observational estimates
+remain labeled as the weaker kind of claim, so the physics that the next
+decision runs on is sharper than the last.
+[Learn about Calibration →](/guide/build/world-model/calibration)
+
+As an example, the Anomaly Engine opening up `labor_cost_pct` for a location
+might read:
 
 ```text
 Labor cost: 37.5%  (13% lower than average)
@@ -144,27 +240,19 @@ Estimated adjustment:  $250k labor cost
 Recommendation:        investigate overtime cost at the San Mateo location
 ```
 
-<Note>
-**Actions are the frontier.** The next layer — `.action.yml` files — will model
-the *levers* themselves: hire, raise prices, open a store. An action declares
-what it `simulates` (row-level changes to entities) or `impacts` (a modeled
-measure delta), so you can estimate its effect on the metric tree *before*
-committing. This layer is in design and not yet available.
-</Note>
-
 ## Next steps
 
 <CardGroup cols={2}>
   <Card title="Semantic Model" icon="cube" href="/guide/build/semantic-model/simple-model">
     Define measures, dimensions, and entities
   </Card>
-  <Card title="Entities & relationships" icon="diagram-project" href="/guide/build/semantic-model/entities">
-    How the entity graph resolves joins and hierarchy
+  <Card title="Controls" icon="sliders" href="/guide/build/world-model/controls">
+    Codify the practices the business runs on
   </Card>
-  <Card title="Measures" icon="calculator" href="/guide/build/semantic-model/measures">
-    Build the measures the metric tree composes
+  <Card title="Evaluation" icon="scale-balanced" href="/guide/build/world-model/evaluation">
+    Version comparison and criteria-triggered measurement
   </Card>
-  <Card title="Use in agents" icon="robot" href="/guide/build/semantic-model/use-in-agents">
-    Put the World Model to work in Agentic Intelligence
+  <Card title="Calibration" icon="code-compare" href="/guide/build/world-model/calibration">
+    How the feedback loop keeps the physics accurate
   </Card>
 </CardGroup>

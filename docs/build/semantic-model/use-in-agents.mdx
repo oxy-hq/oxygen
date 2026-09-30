@@ -233,6 +233,14 @@ tasks:
       3. Recommendations for optimization
 ```
 
+## In Data Apps
+
+[Data apps](/guide/build/data-apps) use the same `semantic_query` task type
+to feed dashboards. One naming detail: task result columns join the view and
+field names with a double underscore, so `oxymart.total_weekly_sales` appears
+as `oxymart__total_weekly_sales` in the result and in any per-column
+formatting configuration.
+
 ## Best Practices
 
 ### Agent Usage

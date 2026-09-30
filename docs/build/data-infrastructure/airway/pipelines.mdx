@@ -1,0 +1,91 @@
+---
+title: "Pipeline reference"
+description: "The keys in an .airway.yml file, the supported source kinds, and how credentials resolve"
+---
+
+An Airway pipeline is a `.airway.yml` file. Unknown top-level keys are a
+parse error rather than being silently ignored, so a typo surfaces as soon as
+the file is compiled.
+
+## Keys
+
+| Key | Required | Default | Description |
+| --- | --- | --- | --- |
+| `name` | yes | | The pipeline's name, which must be non-empty |
+| `source` | yes | | `{ kind, config }`, where `kind` picks the connector and `config` holds its settings |
+| `destination` | yes | | `{ database, dataset_name }`, naming a database from `config.yml` and the dataset (schema) to load into |
+| `description` | no | | Free text |
+| `resources` | no | all | A subset of the source's resources to load |
+| `concurrency` | no | `1` | How many resources extract in parallel, up to `16` |
+| `allow_concurrent_runs` | no | `false` | Lifts the one-run-at-a-time guard; set it only on a pipeline with no cursor and no replacing tables |
+| `streaming` | no | `true` | Streams rows to the destination, falling back to bulk loading automatically |
+
+Note that omitting `concurrency` means one resource at a time rather than
+unlimited parallelism, so a pipeline with many resources that leaves it unset
+runs correctly but slowly.
+
+## Source kinds
+
+Oxygen supports the following `kind` values. The field is free text, so an
+unsupported kind parses cleanly and fails only when the pipeline runs, with
+an `unsupported source kind` error.
+
+| Category | Kinds |
+| --- | --- |
+| Restaurant and commerce | `toast`, `ubereats`, `sp_api` |
+| Accounting and ERP | `quickbooks`, `netsuite` |
+| Databases | `sql_database`, `postgres_cdc`, `clickhouse` |
+| Files and sheets | `http_file`, `filesystem`, `google_sheets` |
+| Public and geographic data | `weather`, `besttime`, `overture`, `overpass` |
+| Anything with an HTTP API | `rest_api` |
+
+`rest_api` is the general-purpose connector: most vendor APIs without a
+dedicated kind can be described directly as a `rest_api` config, so a
+missing kind is rarely a blocker.
+
+## Credentials
+
+Credentials live in the workspace's secret manager and never in the YAML. A
+config key ending in `_var` names a secret **key** rather than holding a
+value, and Oxygen substitutes the secret's value at run time:
+
+```yaml
+source:
+  kind: toast
+  config:
+    client_id_var: TOAST_CLIENT_ID
+    client_secret_var: TOAST_CLIENT_SECRET
+```
+
+Each kind manages its own set of `_var` keys, and those sets do not overlap,
+so copy them from an example for the same kind rather than borrowing from
+another. `rest_api` nests its credentials under `auth` instead:
+
+```yaml
+source:
+  kind: rest_api
+  config:
+    auth:
+      type: api_key_query
+      key_var: CENSUS_API_KEY
+      param: key
+```
+
+## Destinations
+
+Pipelines load into a database declared in `config.yml`. In practice this is
+almost always an [Airhouse](/guide/build/data-infrastructure/airhouse)
+database declared as `airhouse_managed`, which mints credentials at run time
+so the pipeline never holds a warehouse password; Postgres destinations are
+also supported.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Airway overview" icon="arrow-right-to-bracket" href="/guide/build/data-infrastructure/airway">
+    How pipelines run, retry, and evolve their schema
+  </Card>
+  <Card title="Automation task types" icon="diagram-subtask" href="/guide/build/automations/task-types#type-airway">
+    Run a pipeline as a step in an automation
+  </Card>
+</CardGroup>

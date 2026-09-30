@@ -1,42 +1,43 @@
 ---
 title: "Data Infrastructure"
 sidebarTitle: "Overview"
-description: "The engines that get your data in and shape it — Airhouse, Airlayer, and Airform"
+description: "The engines that get your data in and shape it: Airhouse, Airway, and Airform"
 ---
 
-Data Infrastructure is the foundation of Oxygen: it gets your data in, shapes it,
-and compiles it into the queries your [World Model](/guide/build/world-model) and
-agents run. Three engines do the work, each open where it makes sense to be.
+Data Infrastructure is the foundation of Oxygen, getting your data in and
+shaping it into clean tables that your [World Model](/guide/build/world-model)
+and agents can query. Three engines do the work.
 
 <CardGroup cols={3}>
-  <Card title="Airhouse" icon="warehouse" href="/airhouse">
-    The managed warehouse and connector. It has its own documentation in the
-    Airhouse tab.
+  <Card title="Airhouse" icon="warehouse" href="/guide/build/data-infrastructure/airhouse">
+    The managed warehouse where your data lands, with ephemeral credentials
+    and no long-lived key to rotate.
   </Card>
-  <Card title="Airlayer" icon="layer-group" href="/guide/build/data-infrastructure/airlayer">
-    The **core of the World Model** — an in-process semantic engine that compiles
-    YAML schemas into dialect-specific SQL. Open source.
+  <Card title="Airway" icon="arrow-right-to-bracket" href="/guide/build/data-infrastructure/airway">
+    ELT pipelines that extract data from external systems and load it into
+    your warehouse.
   </Card>
   <Card title="Airform" icon="diagram-project" href="/guide/build/data-infrastructure/airform">
-    dbt-style modeling — version-controlled SQL transforms that land clean,
-    tested tables for the semantic model to build on. Open source.
+    dbt-style modeling, with version-controlled SQL transforms that land
+    clean, tested tables. Open source.
   </Card>
 </CardGroup>
 
 ## How they fit together
 
 <Steps>
-  <Step title="Land">
-    Data arrives in **[Airhouse](/airhouse)** (or
-    your own warehouse).
+  <Step title="Load">
+    **[Airway](/guide/build/data-infrastructure/airway)** pipelines extract
+    data from your source systems and load it into
+    **[Airhouse](/guide/build/data-infrastructure/airhouse)**, or into your
+    own warehouse.
   </Step>
   <Step title="Shape">
-    **[Airform](/guide/build/data-infrastructure/airform)** models raw tables into
-    clean, tested ones.
+    **[Airform](/guide/build/data-infrastructure/airform)** models the raw
+    tables into clean, tested ones.
   </Step>
-  <Step title="Compile">
-    **[Airlayer](/guide/build/data-infrastructure/airlayer)** compiles your
-    semantic definitions over those tables into correct SQL — the foundation the
-    [World Model](/guide/build/world-model) reasons over.
+  <Step title="Model">
+    The [World Model](/guide/build/world-model) defines your measures over
+    those tables and compiles them into correct SQL for agents and apps.
   </Step>
 </Steps>

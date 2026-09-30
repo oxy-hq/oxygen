@@ -1,26 +1,27 @@
 ---
 title: "Metric Tree"
-description: "How measures compose — decomposing a top-line metric into the drivers that explain it"
+description: "How measures compose, decomposing a top-line metric into the drivers that explain it"
 ---
 
-A single measure is a fact. The **Metric Tree** captures how measures *relate*,
-so a top-line metric — ARR, labor cost %, contribution margin — decomposes into
-the driver metrics that explain it. It's the layer of the [World
-Model](/guide/build/world-model) that turns "what happened" into "why," and it's
-built entirely from your [semantic model](/guide/build/semantic-model/simple-model)
-definitions — there's no separate file to maintain.
+While a single measure is only a fact, the **Metric Tree** captures how
+measures *relate* to one another, so that a top-line metric such as ARR,
+labor cost %, or contribution margin decomposes into the driver metrics that
+explain it. It is the part of the [World Model](/guide/build/world-model)
+that turns "what happened" into "why," and because it is built entirely from
+your [semantic model](/guide/build/semantic-model/simple-model) definitions,
+there is no separate file to maintain.
 
 ## How measures compose
 
-Measures connect through two kinds of edges.
+Measures connect through two kinds of edges, which differ in what they claim.
 
 ### Component edges
 
-When one measure's expression references another with `{{view.measure}}`, that
-reference *is* an edge. `arr` depends on `net_mrr`, which depends on `total_mrr`
-and `churned_mrr` — a tree the engine reads straight from the formulas. The
-operator in front of each reference (`+`, `-`, `*`, `/`) tells it whether the
-relationship is additive or multiplicative.
+When one measure's expression references another with `{{view.measure}}`,
+that reference *is* an edge: `arr` depends on `net_mrr`, which in turn depends
+on `total_mrr` and `churned_mrr`, forming a tree the engine reads straight from
+the formulas. The operator in front of each reference (`+`, `-`, `*`, `/`)
+tells it whether the relationship is additive or multiplicative.
 
 ```yaml
 measures:
@@ -34,10 +35,10 @@ measures:
 
 ### Driver edges
 
-Component edges are arithmetic. **Driver edges** — declared with `drivers:` —
-encode a *business* relationship: which metrics push a target up or down, how
-strongly, and how confident you are. They can be purely qualitative, or carry a
-quantitative `coefficient` and functional `form`.
+Where component edges are arithmetic, **driver edges** (declared with
+`drivers:`) encode the causal map, stating which metrics push a target up or
+down, in which direction, and how confident you are that the relationship is
+real.
 
 ```yaml
 measures:
@@ -47,66 +48,69 @@ measures:
     drivers:
       - measure: revenue.churn_rate
         direction: negative
-        strength: strong
         confidence: high
-        coefficient: -120000.0
-        form: linear
-        lag: 30
-        description: "Each 1% increase in churn reduces ARR by ~$120K"
+        description: "Higher churn directly reduces ARR"
       - measure: revenue.arpu
-        coefficient: 0.6
-        form: log-log        # elasticity: +1% ARPU → +0.6% ARR
+        direction: positive
         description: "ARPU expansion drives ARR growth"
 ```
 
-A driver's `form` sets the shape of the relationship: `linear` (constant
-marginal effect), `log-log` (elasticity — percent for percent), `log-linear`
-(diminishing returns), or `linear-log` (accelerating returns).
+Driver edges are deliberately **qualitative**, stating what drives what
+without claiming how much. A magnitude is a causal claim, and observational
+data cannot reliably support one, because a coefficient fitted from history
+absorbs everything that happened to move alongside it. Magnitudes come from
+the control layer instead: when a [control](/guide/build/world-model/controls)
+acts on a driver, [evaluation](/guide/build/world-model/evaluation) estimates
+the driver's effect from the interventions themselves, and that estimate
+becomes the authoritative one. An edge that no control acts on either stays
+qualitative or carries an observational estimate that is labeled as weak.
 
 ## Promotion up the hierarchy
 
 Because the [entity graph](/guide/build/semantic-model/entities) defines a
-`parent:` hierarchy (sale → store → company → market), a measure defined once at
-the sale grain automatically **promotes** upward: `markets.net_sales` is derived
-by rolling up `sales.net_sales`, never redefined. The tree holds not just *how*
-metrics compose, but at *every level of the business* they apply.
+`parent:` hierarchy (sale → store → company → market), a measure defined once
+at the sale grain automatically **promotes** upward, so `markets.net_sales` is
+derived by rolling up `sales.net_sales` rather than being redefined. The tree
+therefore captures not only *how* metrics compose but also *every level of the
+business* at which they apply.
 
 ## Explore it in the IDE
 
-The Metric Tree is a tab in the Semantic Model IDE. It renders your measures as
-an interactive graph, laid out top-down:
+The Metric Tree is a tab in the Semantic Model IDE, where it renders your
+measures as an interactive graph laid out from the top down:
 
-- **Composite** nodes (the metrics built from others) are highlighted; **driver**
-  nodes are tinted amber; leaf inputs are muted.
-- **Component edges** are drawn solid; **driver edges** are dashed and animated,
-  fainter when confidence is low.
-- Click any measure to select it — the graph dims unrelated edges and a side
-  panel shows the measure's definition and its **ranked drivers**, sorted by
+- **Composite** nodes (the metrics built from others) are highlighted,
+  **driver** nodes are tinted amber, and leaf inputs are muted.
+- **Component edges** are drawn solid, while **driver edges** are dashed and
+  animated, and appear fainter when confidence is low.
+- Clicking a measure selects it, dimming unrelated edges and opening a side
+  panel with the measure's definition and its **ranked drivers**, sorted by
   influence.
 
 ## What you can do with it
 
-Because the tree knows how every metric is built, it powers four operations over
-your metrics:
+Because the tree knows how every metric is built, it powers four operations
+over your metrics:
 
 <CardGroup cols={2}>
   <Card title="Sensitivity" icon="ranking-star">
-    Rank the drivers of any measure by how much they move it — the effective
-    coefficient compounded along each path.
+    Rank the drivers of any measure by how much they move it, using the best
+    available magnitude on each edge: control-learned where a control acts,
+    labeled observational estimates elsewhere.
   </Card>
   <Card title="Predict" icon="wand-magic-sparkles">
     What-if propagation: change a driver by some delta and see the estimated
-    impact ripple up to the top-line metric.
+    impact ripple up to the top-line metric, carrying each edge's confidence.
   </Card>
   <Card title="Explain (RCA)" icon="magnifying-glass">
     Decompose a metric's period-over-period change across its drivers and the
-    segments that concentrate it — with warnings for Simpson's paradox and
+    segments that concentrate it, with warnings for Simpson's paradox and
     offsetting effects. Anomalies surface in the Insights Inbox with an
     AI-authored root cause. **Available today.**
   </Card>
   <Card title="Opportunity" icon="arrow-trend-up">
     Size the gap between each segment and its benchmark, and propagate the top
-    opportunity through the tree. **Available today** — see
+    opportunity through the tree. **Available today.** See
     [Opportunity sizing](/guide/build/world-model/opportunity-sizing).
   </Card>
 </CardGroup>
@@ -129,7 +133,7 @@ Recommendation:  investigate overtime cost at the San Mateo location
 
 <CardGroup cols={2}>
   <Card title="Measures" icon="calculator" href="/guide/build/semantic-model/measures">
-    Define the measures — and their drivers — that the tree composes
+    Define the measures, and their drivers, that the tree composes
   </Card>
   <Card title="Entities & relationships" icon="diagram-project" href="/guide/build/semantic-model/entities">
     The hierarchy measures promote across
