@@ -28,6 +28,8 @@ interface ModelRates {
 }
 
 const RATES: Record<string, ModelRates> = {
+  // Claude Opus 5 — $5 / $25 (the showcase planner can be pointed at it)
+  "claude-opus-5": { input: 5, cache_write: 6.25, cache_read: 0.5, output: 25 },
   // Claude Sonnet 4.x family — $3 / $15
   "claude-sonnet-4-7": { input: 3, cache_write: 3.75, cache_read: 0.3, output: 15 },
   "claude-sonnet-4-6": { input: 3, cache_write: 3.75, cache_read: 0.3, output: 15 },
@@ -57,6 +59,11 @@ function getRates(model: string): ModelRates | null {
     );
   }
   return null;
+}
+
+/** True when `computeCost` can price the model (a meter must never see a silent $0). */
+export function hasRates(model: string): boolean {
+  return Boolean(RATES[model] ?? RATES[model.replace(/-\d{8}$/, "")]);
 }
 
 /** Compute USD cost for a token usage record under a given model. */

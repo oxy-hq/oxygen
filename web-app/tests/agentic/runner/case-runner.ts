@@ -7,6 +7,7 @@
 import type { BrowserContext, Page } from "@playwright/test";
 import { runSetup } from "../fixtures/reset";
 import { applyPathPrefix } from "./backend";
+import { type CostMeter, charge, ensurePriced, reserve, worstCaseUsd } from "./budget";
 import { evaluateExpectations } from "./judge";
 import { computeCost } from "./pricing";
 import { runWaitFor } from "./tool-registry";
@@ -57,6 +58,13 @@ export interface RuntimeStepDebug {
   error?: string;
 }
 
+// A judge call's input for `worstCaseUsd`, which reads two bytes as a token:
+// judge.ts sends at most 8,000 chars of page text (at most ~8k tokens, even as
+// non-ASCII), its prompt and the claim (~0.5k), and one viewport screenshot
+// (~2k image tokens) — a ~10.5k-token ceiling, written here as its byte count.
+export const JUDGE_INPUT_BYTES = 21_000;
+export const JUDGE_MAX_TOKENS = 256;
+
 export interface ActStepInput {
   prompt: string;
   stepIndex: number;
@@ -75,6 +83,8 @@ export interface CaseRunInputs {
    * cost. Throw to signal step failure.
    */
   runAct: (input: ActStepInput) => Promise<RuntimeStepDebug>;
+  /** Spend limit; the judge is checked against it before it runs and charged after. */
+  meter?: CostMeter;
 }
 
 export async function executeCase(inputs: CaseRunInputs): Promise<CaseRunResult> {
@@ -114,12 +124,19 @@ export async function executeCase(inputs: CaseRunInputs): Promise<CaseRunResult>
     }
 
     if (!stepError) {
+      ensurePriced(inputs.meter, flow.settings.judge_model);
+      const judgeCalls = testCase.expect.filter((e) => e.judge).length;
+      reserve(
+        inputs.meter,
+        judgeCalls * worstCaseUsd(flow.settings.judge_model, JUDGE_INPUT_BYTES, JUDGE_MAX_TOKENS)
+      );
       const judged = await evaluateExpectations(page, testCase.expect, {
         apiKey,
         model: flow.settings.judge_model
       });
       expectResults = judged.results;
       judgeUsage = judged.usage;
+      charge(inputs.meter, judged.usage.cost_usd);
     }
   } catch (err) {
     stepError = err instanceof Error ? err.message : String(err);

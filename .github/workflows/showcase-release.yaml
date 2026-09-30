@@ -1,0 +1,169 @@
+name: Release showcase (prod)
+
+# Pictures under a prod release announcement. Design and failure policy:
+# internal-docs/release-showcase.md.
+#
+# oxy-hq/infrastructure's oxy-prod-announce.yaml posts the "going live" message
+# to #product-releases-prod, then dispatches this with the message's channel
+# and ts, the image prod now runs, and the oxygen-internal range it covers.
+# This boots THAT image — the build customers get — seeds it, and for each PR
+# the announcement lists, replays the recording its PR run left
+# (showcase.yaml), re-recording once if the UI has moved on and the feature's
+# cap allows. What the judge accepts is posted as a reply in the announcement's
+# thread; when the release replay fails, the picture taken at review time is
+# posted instead.
+#
+# It can never delay or undo the announcement: that is already posted, and
+# every failure here ends as a row in this run's summary.
+#
+# A release only replays — plans are made, and paid for, at review time. Spend
+# is capped hard per feature (SHOWCASE_FEATURE_BUDGET_USD) inside a cap for the
+# whole release (SHOWCASE_RELEASE_BUDGET_USD); a replay is one judge call.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Tag of ghcr.io/oxy-hq/oxygen prod now runs, e.g. main-1a8c22d or 0.5.153.
+        type: string
+        required: true
+      from_ref:
+        description: oxygen-internal commit prod ran before.
+        type: string
+        required: true
+      to_ref:
+        description: oxygen-internal commit prod runs now.
+        type: string
+        required: true
+      channel:
+        description: Channel ID (C…) of the announcement.
+        type: string
+        required: true
+      thread_ts:
+        description: The announcement's ts — replies go in its thread.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: showcase-release-${{ inputs.thread_ts }}
+  cancel-in-progress: false
+
+jobs:
+  showcase:
+    name: Showcase the release
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: warp-ubuntu-latest-arm64-4x
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      OXY_DATABASE_URL: postgresql://admin:password@localhost:5432/default
+      # SHOWCASE_USER in tests/showcase/types.ts: a Global Admin, the highest role
+      # that can still enter the product — OXY_OWNER would be higher, but
+      # OwnerRedirect sends a Global Owner from every workspace page to the admin
+      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy seed` give it the Local
+      # org and its Demo workspace, and a release build honours only
+      # OXY_DEV_LOGIN_EMAILS.
+      OXY_GLOBAL_ADMINS: showcase-staff@oxy.test
+      OXY_DEV_LOGIN_EMAILS: showcase-staff@oxy.test
+      MAGIC_LINK_LOCAL_TEST: "true"
+      OXY_APP_EMAIL_LOCAL_TEST: "1"
+      SHOWCASE_OUT: ${{ github.workspace }}/showcase-out
+      SHOWCASE_FEATURE_BUDGET_USD: "0.10"
+      SHOWCASE_RELEASE_BUDGET_USD: "0.50"
+      # The release's own demo data, not main's (see the second checkout).
+      SHOWCASE_EXAMPLES: ${{ github.workspace }}/release-src/examples
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      FROM_REF: ${{ inputs.from_ref }}
+      TO_REF: ${{ inputs.to_ref }}
+      CHANNEL: ${{ inputs.channel }}
+      THREAD_TS: ${{ inputs.thread_ts }}
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: default
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d default" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      # Dispatch inputs are free text: shape-check every one before any is
+      # used in a ref, an image name or a path.
+      - name: Check inputs
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9._-]{1,128}$ ]] || fail "image_tag '$IMAGE_TAG' is not a tag"
+          [[ "$FROM_REF" =~ ^[0-9a-f]{7,40}$ ]] || fail "from_ref is not a commit sha"
+          [[ "$TO_REF" =~ ^[0-9a-f]{7,40}$ ]] || fail "to_ref is not a commit sha"
+          [[ "$CHANNEL" =~ ^[CG][A-Z0-9]{6,}$ ]] || fail "channel is not a channel ID"
+          [[ "$THREAD_TS" =~ ^[0-9]{10}\.[0-9]{6}$ ]] || fail "thread_ts is not a Slack ts"
+
+      # The tooling from the default branch, so a release cut before this
+      # workflow existed still gets it; the demo data from the release itself.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.to_ref }}
+          path: release-src
+          sparse-checkout: examples
+
+      - name: Set up pnpm, Node, and Playwright
+        uses: ./.github/actions/setup-web-app-test-env
+        with:
+          install-playwright: "true"
+
+      - name: Install ffmpeg and psql
+        run: |
+          missing=()
+          command -v ffmpeg >/dev/null || missing+=(ffmpeg)
+          command -v psql >/dev/null || missing+=(postgresql-client)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
+          fi
+
+      - name: Boot and seed the released image
+        run: scripts/ci/showcase-boot.sh image "ghcr.io/oxy-hq/oxygen:${IMAGE_TAG}"
+
+      - name: Replay and post
+        working-directory: web-app
+        run: |
+          pnpm exec tsx tests/showcase/cli.ts release \
+            --from "$FROM_REF" --to "$TO_REF" --out "$SHOWCASE_OUT" \
+            --channel "$CHANNEL" --thread-ts "$THREAD_TS"
+
+      - name: Upload what was captured
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: showcase-release-${{ inputs.image_tag }}
+          path: ${{ env.SHOWCASE_OUT }}/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Stop oxy
+        if: always()
+        run: scripts/ci/showcase-boot.sh stop
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: showcase-release-logs-${{ inputs.image_tag }}
+          path: ${{ runner.temp }}/showcase-logs/
+          retention-days: 7
+          if-no-files-found: ignore

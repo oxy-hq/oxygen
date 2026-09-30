@@ -10,7 +10,7 @@
 
 import type { Page } from "@playwright/test";
 import type { ActionCache, RecordedAction, SelectorStrategy } from "../action-cache";
-import { expandArgs } from "../secrets";
+import { expandArgs, expandStrategies, redactSecrets } from "../secrets";
 import { dispatchWithFallbacks, isSelectorTool } from "../selectors";
 import { findTool } from "../tool-registry";
 import type { SelectorDriftEvent, ToolCallDebug, ToolDefinition } from "../types";
@@ -64,7 +64,7 @@ export async function replayCachedActions(args: {
     try {
       outcome = await dispatchWithFallbacks(
         expandArgs(action.args),
-        action.selector_strategies,
+        expandStrategies(action.selector_strategies),
         async (sw) => tool.invoke(sw, page)
       );
     } catch (err) {
@@ -88,7 +88,7 @@ export async function replayCachedActions(args: {
       drift_events.push({
         action_index: i,
         primary_selector: action.selector_strategies[0]?.selector ?? "",
-        used_selector: outcome.usedSelector,
+        used_selector: redactSecrets(outcome.usedSelector),
         used_kind: outcome.usedKind
       });
     }

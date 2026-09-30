@@ -213,6 +213,12 @@ export interface CaseRunResult {
   cost_usd: number;
   trace_path?: string;
   error?: string;
+  /** Media written under `RuntimeContext.capture`; absent otherwise. */
+  capture?: {
+    screenshot: string;
+    video?: string;
+    videoStartMs: number;
+  };
 }
 
 export interface CaseResult {

@@ -1,0 +1,188 @@
+name: Release showcase
+
+# What a PR will look like in the release announcement, decided while the PR
+# is open. Design and failure policy: internal-docs/release-showcase.md.
+#
+# Called from ci.yaml next to the custom-app canary, with the same boot:
+# the Postgres service, `oxy serve --enterprise`, then `oxy seed` for the demo
+# data and dev-login for the personas. Nothing here is opt-in: a no-model
+# filter drops PRs that cannot have a screen to show (a chore, a fix that
+# touched no web-app source), a planner reads the rest, the agentic runner
+# records the steps and replays them on film, and a judge must agree the final
+# screen shows the change before anything is kept.
+#
+# The output is a record — plan, recorded actions, screenshot, video — in the
+# `showcase-pr-<N>` artifact, and one PR comment that says what will be shown
+# and points `showcase-release.yaml` at the artifact when the PR ships.
+#
+# Informational. It never gates a merge (`continue-on-error`), and every
+# outcome, including "nothing to show", lands in the comment and the summary.
+#
+# Spend is capped hard: SHOWCASE_BUDGET_USD per run. Every model call must fit
+# its worst case in what is left before it is made, so a run stops AT the cap,
+# never past it. A push that changes no browser source and no `## Showcase`
+# steer reuses the last record and spends nothing.
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: Pull request number.
+        type: number
+        required: true
+      has_binary:
+        description: ci.yaml's check job built `oxy-binary-ci` in this run (the PR changed Rust).
+        type: boolean
+        default: false
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to re-capture, even if unchanged. Uses main's image behind that PR's web-app.
+        type: number
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  showcase:
+    name: Release showcase
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    # arm64: the `oxy-binary-ci` artifact is built there. The published image
+    # is multi-arch, so the no-binary path runs here too.
+    runs-on: warp-ubuntu-latest-arm64-4x
+    continue-on-error: true
+    timeout-minutes: 30
+    concurrency:
+      group: showcase-${{ inputs.pr }}
+      cancel-in-progress: true
+    env:
+      PR: ${{ inputs.pr }}
+      GH_TOKEN: ${{ github.token }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OXY_DATABASE_URL: postgresql://admin:password@localhost:5432/default
+      # SHOWCASE_USER in tests/showcase/types.ts: a Global Admin, the highest role
+      # that can still enter the product — OXY_OWNER would be higher, but
+      # OwnerRedirect sends a Global Owner from every workspace page to the admin
+      # billing queue. OXY_GLOBAL_ADMINS also makes `oxy seed` give it the Local
+      # org and its Demo workspace, and a release build honours only
+      # OXY_DEV_LOGIN_EMAILS.
+      OXY_GLOBAL_ADMINS: showcase-staff@oxy.test
+      OXY_DEV_LOGIN_EMAILS: showcase-staff@oxy.test
+      MAGIC_LINK_LOCAL_TEST: "true"
+      OXY_APP_EMAIL_LOCAL_TEST: "1"
+      SHOWCASE_OUT: ${{ github.workspace }}/showcase-out
+      SHOWCASE_BUDGET_USD: "0.50"
+      # By hand is a deliberate re-run: capture even when nothing changed.
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: default
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d default" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    steps:
+      # From ci.yaml this is the PR's merge ref. By hand, the PR's own head —
+      # `inputs.pr` is typed a number, so the ref cannot carry anything else.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', inputs.pr) || '' }}
+
+      - name: Set up pnpm, Node, and Playwright
+        uses: ./.github/actions/setup-web-app-test-env
+        with:
+          install-playwright: "true"
+
+      # Seconds, no server, no model: the agentic runner's selector reads must
+      # leave the model's aria-refs valid, and labelled inputs must record a
+      # durable selector. The unit suite has no browser; this job has one.
+      - name: Runner self-check (browser)
+        working-directory: web-app
+        run: node --import tsx tests/agentic/runner/selectors.browser-check.ts
+
+      # No boot, no model. `action`: capture (boot and spend), refresh (only
+      # correct a stale comment), or none — most pushes stop here.
+      - name: Should this push capture?
+        id: detect
+        working-directory: web-app
+        run: pnpm exec tsx tests/showcase/cli.ts detect --pr "$PR" --out "$SHOWCASE_OUT" ${FORCE:+"$FORCE"}
+
+      - name: Download oxy binary
+        if: steps.detect.outputs.action == 'capture' && inputs.has_binary
+        uses: ./.github/actions/download-oxy-binary
+
+      - name: Install ffmpeg and psql
+        if: steps.detect.outputs.action == 'capture'
+        run: |
+          missing=()
+          command -v ffmpeg >/dev/null || missing+=(ffmpeg)
+          command -v psql >/dev/null || missing+=(postgresql-client)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
+          fi
+
+      # With a binary, this PR's server and web-app are in it. Without one the
+      # PR changed no Rust, so main's image serves the API and this checkout's
+      # web-app is built in front of it.
+      - name: Boot and seed oxy
+        if: steps.detect.outputs.action == 'capture'
+        env:
+          HAS_BINARY: ${{ inputs.has_binary }}
+        run: |
+          if [ "$HAS_BINARY" = "true" ]; then
+            scripts/ci/showcase-boot.sh binary
+          else
+            scripts/ci/showcase-boot.sh image ghcr.io/oxy-hq/oxygen:main-latest --spa-checkout
+          fi
+
+      - name: Plan and capture
+        id: capture
+        if: steps.detect.outputs.action == 'capture'
+        working-directory: web-app
+        run: pnpm exec tsx tests/showcase/cli.ts pr --pr "$PR" --out "$SHOWCASE_OUT"
+
+      - name: Upload the record
+        if: steps.capture.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: showcase-pr-${{ inputs.pr }}
+          path: ${{ env.SHOWCASE_OUT }}/
+          # The release that ships this PR reads it; a PR can sit on staging
+          # for a while before prod, so keep it as long as the repo allows.
+          retention-days: 90
+          if-no-files-found: error
+
+      # After the upload: the comment's pointer names an artifact that exists.
+      - name: Comment on the PR
+        if: steps.capture.outcome == 'success' || steps.detect.outputs.action == 'refresh'
+        working-directory: web-app
+        run: pnpm exec tsx tests/showcase/cli.ts comment --pr "$PR" --out "$SHOWCASE_OUT"
+
+      - name: Stop oxy
+        if: always() && steps.detect.outputs.action == 'capture'
+        run: scripts/ci/showcase-boot.sh stop
+
+      - name: Upload logs
+        if: always() && steps.detect.outputs.action == 'capture'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: showcase-logs-pr-${{ inputs.pr }}
+          path: ${{ runner.temp }}/showcase-logs/
+          retention-days: 7
+          if-no-files-found: ignore

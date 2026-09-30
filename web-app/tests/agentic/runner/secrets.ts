@@ -20,7 +20,12 @@ const SECRET_ENV_VARS = [
   "OPENAI_API_KEY",
   "GEMINI_API_KEY",
   "CLICKHOUSE_PASSWORD",
-  "OXY_DATABASE_URL"
+  "OXY_DATABASE_URL",
+  // Not a secret: the release showcase's per-pass token (tests/showcase/
+  // capture.ts). Listed so a typed "Front counter 3f9a2c1b" records as
+  // "Front counter ${SHOWCASE_RUN}", and each replay creates a new one rather
+  // than colliding with the row the previous pass made.
+  "SHOWCASE_RUN"
 ] as const;
 
 // Minimum length for an env-var value to be treated as redactable. Below
@@ -84,7 +89,7 @@ export function expandSecrets(text: string): string {
  * `text` with `${VAR}`. Used at the recording boundary so cached actions
  * and debug tool args never persist plaintext.
  */
-function redactSecrets(text: string): string {
+export function redactSecrets(text: string): string {
   let result = text;
   for (const { name, value } of getSecretEntries()) {
     if (result.includes(value)) {
@@ -132,4 +137,21 @@ export function expandArgs(args: Record<string, unknown>): Record<string, unknow
     out[k] = typeof v === "string" ? expandSecrets(v) : v;
   }
   return out;
+}
+
+/**
+ * Selector strategies are read off the live DOM after an action — the text and
+ * accessible name of what was clicked — so they carry whatever the page shows,
+ * a value the model typed from a `${VAR}` included. They cross the same two
+ * boundaries args do: redacted before they are recorded, expanded before a
+ * replay dispatches them. Without the second half a replay dispatched the
+ * literal `${VAR}`; without the first, the record pass's own value, which
+ * points a replay at the row the record pass created.
+ */
+export function redactStrategies<T extends { selector: string }>(strategies: T[]): T[] {
+  return strategies.map((s) => ({ ...s, selector: redactSecrets(s.selector) }));
+}
+
+export function expandStrategies<T extends { selector: string }>(strategies: T[]): T[] {
+  return strategies.map((s) => ({ ...s, selector: expandSecrets(s.selector) }));
 }

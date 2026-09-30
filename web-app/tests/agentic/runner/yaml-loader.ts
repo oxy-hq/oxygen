@@ -4,7 +4,7 @@ import { parse } from "yaml";
 import { validatePlaceholders } from "./secrets";
 import type { FlowSettings, FlowTarget, FlowTest } from "./types";
 
-const DEFAULT_SETTINGS: FlowSettings = {
+export const DEFAULT_SETTINGS: FlowSettings = {
   runs: 1,
   // Used as the escalation target when the cheap pickup model (haiku) stalls.
   // For a single-model run, this is also the only model used. Sonnet 4.7

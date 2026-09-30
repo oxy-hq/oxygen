@@ -26,16 +26,24 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { type Browser, chromium, type Page } from "@playwright/test";
 import { type ActionCache, createActionCache, type RecordedAction } from "../action-cache";
+import { bytesOf, charge, ensurePriced, reserve, worstCaseUsd } from "../budget";
+import {
+  captureContextOptions,
+  closeAndCollectVideo,
+  openStartPage,
+  takeFinalScreenshot
+} from "../capture-profile";
 import { executeCase, type RuntimeStepDebug } from "../case-runner";
 import { stageHealedActions, writeHealingArtifact } from "../healing";
 import { computeCost } from "../pricing";
-import { expandSecrets, redactArgs } from "../secrets";
+import { expandSecrets, redactArgs, redactStrategies } from "../secrets";
 import {
   isNonDurableRecording,
   isSelectorTool,
   materializeStrategies,
   normalizeSelectorArgs
 } from "../selectors";
+import { signIn } from "../session";
 import { findTool, getGenericTools, isStateChanging } from "../tool-registry";
 import {
   addTokens,
@@ -87,6 +95,7 @@ const CACHE_PATH = resolve(__dirname, "..", "..", ".cache", "bespoke-actions.jso
 const HEALING_STAGING_PATH = resolve(__dirname, "..", "..", ".cache", "healing-staging.json");
 const HEALING_ARTIFACT_PATH = resolve(__dirname, "..", "..", ".results", "healing.json");
 const TOOL_RESULT_LIMIT = 16_000;
+const TURN_MAX_TOKENS = 1024;
 
 // Haiku pickup → sonnet escalation shipped as infrastructure but is
 // **off by default** on these flows: empirically haiku takes ~10× more
@@ -101,7 +110,10 @@ const TOOL_RESULT_LIMIT = 16_000;
 export const bespokeRuntime: Runtime = {
   name: "bespoke",
   async runCase(ctx: RuntimeContext): Promise<CaseRunResult> {
-    const browser = await chromium.launch({ headless: ctx.headless });
+    const browser = await chromium.launch({
+      headless: ctx.headless,
+      slowMo: ctx.capture?.slowMoMs
+    });
     try {
       return await runWithBrowser(browser, ctx);
     } finally {
@@ -117,60 +129,34 @@ async function runWithBrowser(browser: Browser, ctx: RuntimeContext): Promise<Ca
   // Override via OXY_BASE_URL when running against a different port (the
   // cloud-mode flows use 3001 for the auth-disabled internal port).
   const baseURL = process.env.OXY_BASE_URL ?? "http://localhost:3000";
-  const context = await browser.newContext({ baseURL });
+  const context = await browser.newContext({
+    baseURL,
+    ...(ctx.capture ? captureContextOptions(ctx.capture) : {})
+  });
+  const recordingSince = Date.now();
 
-  // A session for the PUBLIC port. The auth-disabled internal port (3001) is
-  // the easy target, but it carries neither `enforce_role` nor the ide proxy —
-  // so an IdeOnly route is served locally there instead of forwarded, and a
-  // replica answers it off a working copy it does not have. Driving the public
-  // port is the only way a browser test sees the routing a user sees, and that
-  // port needs a real session.
-  //
-  // `MAGIC_LINK_LOCAL_TEST=1` makes the backend write the sign-in email to a
-  // file instead of sending it, so the harness can mint one without a mailbox;
-  // the caller passes the resulting cookie in here.
-  //
-  // BOTH halves are required. The backend reads the `oxy_session` cookie, but
-  // `AuthContext` decides whether the app is signed in by reading
-  // `localStorage.auth_token` — set the cookie alone and every route still
-  // redirects to /login, with the API perfectly willing to answer.
-  const sessionToken = process.env.OXY_SESSION_TOKEN;
-  const sessionUser = process.env.OXY_SESSION_USER;
-  if (sessionToken) {
-    const { hostname } = new URL(baseURL);
-    await context.addCookies([
-      {
-        name: "oxy_session",
-        value: sessionToken,
-        domain: hostname,
-        path: "/",
-        httpOnly: true,
-        sameSite: "Lax"
-      }
-    ]);
-    await context.addInitScript(
-      ([token, user]: [string, string]) => {
-        localStorage.setItem("auth_token", token);
-        if (user) localStorage.setItem("user", user);
-      },
-      [sessionToken, sessionUser ?? ""] as [string, string]
-    );
-  }
+  // See session.ts for why the public port needs both the cookie and localStorage.
+  const sessionToken = ctx.session?.token ?? process.env.OXY_SESSION_TOKEN;
+  const sessionUser = ctx.session?.user ?? process.env.OXY_SESSION_USER;
+  if (sessionToken) await signIn(context, baseURL, sessionToken, sessionUser ?? "");
 
   const page = await context.newPage();
 
   const tools = getGenericTools();
   const sdkTools = buildSdkTools(tools);
   const client = new Anthropic({ apiKey: ctx.apiKey });
-  const cache = createActionCache(CACHE_PATH);
+  const cache = createActionCache(ctx.cachePath ?? CACHE_PATH);
+  let closed = false;
 
   try {
-    return await executeCase({
+    const videoStartMs = ctx.capture ? await openStartPage(page, ctx.capture, recordingSince) : 0;
+    const result = await executeCase({
       page,
       context,
       flow: ctx.flow,
       testCase: ctx.testCase,
       apiKey: ctx.apiKey,
+      meter: ctx.meter,
       runAct: ({ prompt, stepIndex, step }) =>
         runActStep({
           client,
@@ -184,8 +170,13 @@ async function runWithBrowser(browser: Browser, ctx: RuntimeContext): Promise<Ca
           tools
         })
     });
+    if (!ctx.capture) return result;
+    const screenshot = await takeFinalScreenshot(page, ctx.capture);
+    closed = true;
+    const video = await closeAndCollectVideo(context, page, ctx.capture);
+    return { ...result, capture: { screenshot, video, videoStartMs } };
   } finally {
-    await context.close().catch(() => {});
+    if (!closed) await context.close().catch(() => {});
   }
 }
 
@@ -217,9 +208,13 @@ async function runActStep(inputs: ActStepInputs): Promise<RuntimeStepDebug> {
     snapshot_cache_hits: 0
   };
 
+  if (ctx.cacheMode === "replay") return replayStrict(inputs, key, debug);
+
   let healingEvent: HealingEvent | undefined;
 
-  if (settings.cache_actions) {
+  if (ctx.cacheMode === "record") {
+    debug.last_redrive_reason = "first_run";
+  } else if (settings.cache_actions) {
     const cached = cache.get(key);
     if (cached) {
       try {
@@ -284,6 +279,17 @@ async function runActStep(inputs: ActStepInputs): Promise<RuntimeStepDebug> {
   // calls browser_snapshot to populate the ref. Caching it would guarantee
   // a ReplayFailure — and, if staged, a healing artifact — on every future
   // run instead of the rare genuine UI-drift case those paths exist for.
+  if (ctx.cacheMode === "record") {
+    if (outcome.nonDurable) {
+      throw new Error(
+        `step '${step}': the agent found no stable element to act on (no test id, role name or ` +
+          "unique text) — the control may not exist as described, or is an unlabelled icon"
+      );
+    }
+    cache.set(key, outcome.recorded);
+    debug.cost_usd = computeCost(settings.model, stepTokens);
+    return debug;
+  }
   if (outcome.nonDurable && ctx.debug) {
     console.warn(
       `[bespoke] step '${step}' recorded an aria-ref-only action (no durable selector) — skipping cache/healing persistence`
@@ -326,6 +332,32 @@ async function runActStep(inputs: ActStepInputs): Promise<RuntimeStepDebug> {
   }
 
   debug.cost_usd = computeCost(settings.model, stepTokens);
+  return debug;
+}
+
+/**
+ * `cacheMode: "replay"` — the recording is the whole step. Nothing falls back
+ * to the model and nothing is invalidated, so a miss is a failure the caller
+ * sees rather than a silently re-driven step.
+ */
+async function replayStrict(
+  inputs: ActStepInputs,
+  key: string,
+  debug: RuntimeStepDebug
+): Promise<RuntimeStepDebug> {
+  const cached = inputs.cache.get(key);
+  if (!cached) throw new Error(`no recording for step '${inputs.step}'`);
+  const replay = await replayCachedActions({
+    cache: inputs.cache,
+    cacheKey: key,
+    actions: cached.actions,
+    page: inputs.page,
+    tools: inputs.tools
+  });
+  debug.from_cache = true;
+  debug.model = undefined;
+  debug.tool_calls.push(...replay.tool_calls);
+  if (replay.drift_events.length > 0) debug.selector_drift_events = replay.drift_events;
   return debug;
 }
 
@@ -412,10 +444,16 @@ async function runLLMLoop(inputs: LLMLoopInputs): Promise<LoopOutcome> {
   const errBaseline = debug.tool_calls.filter((c) => c.error).length;
   let aborted = false;
 
+  ensurePriced(ctx.meter, model);
+  const fixedBytes = bytesOf(SYSTEM_PROMPT, JSON.stringify(sdkTools));
   for (let iter = 0; iter < settings.max_steps; iter++) {
+    if (ctx.meter) {
+      const inputBytes = fixedBytes + bytesOf(JSON.stringify(messages));
+      reserve(ctx.meter, worstCaseUsd(model, inputBytes, TURN_MAX_TOKENS));
+    }
     const res = await client.messages.create({
       model,
-      max_tokens: 1024,
+      max_tokens: TURN_MAX_TOKENS,
       system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
       tools: sdkTools as unknown as Anthropic.Tool[],
       messages
@@ -430,6 +468,7 @@ async function runLLMLoop(inputs: LLMLoopInputs): Promise<LoopOutcome> {
     };
     addTokens(debug.tokens, turnTokens);
     addTokens(tokenSink, turnTokens);
+    charge(ctx.meter, computeCost(model, turnTokens));
 
     if (ctx.debug) logTurn(res, iter, model);
 
@@ -500,6 +539,16 @@ async function dispatchInLoop(
   try {
     const tool = findTool(tools, name);
     if (!tool) throw new Error(`unknown tool: ${name}`);
+    // Read the target's strategies BEFORE acting too. After a click that
+    // closes its dialog — every form's submit button — the element is gone
+    // and a snapshot ref has gone stale, so the post-action read below finds
+    // nothing and the recording was dropped as unreplayable.
+    // Read with the real args (a redacted selector names nothing on the page)
+    // and redacted on the way out, the same boundary args cross.
+    const before =
+      isStateChanging(name) && isSelectorTool(name)
+        ? redactStrategies(await materializeStrategies(page, name, args).catch(() => []))
+        : [];
     result = await tool.invoke(args, page);
 
     if (name === "browser_snapshot") {
@@ -516,13 +565,21 @@ async function dispatchInLoop(
       // the page exposes are visible at this point. Best-effort: if
       // anything throws here, we keep the single-selector recording.
       if (isSelectorTool(name)) {
+        const primary = (redactedArgs.selector ?? redactedArgs.element) as string | undefined;
         try {
-          const strategies = await materializeStrategies(page, name, redactedArgs);
+          const strategies = redactStrategies(await materializeStrategies(page, name, args));
           if (strategies.length > 0) recorded.selector_strategies = strategies;
         } catch {
           // ignore — single-selector recording is still useful
         }
-        const primary = (redactedArgs.selector ?? redactedArgs.element) as string | undefined;
+        // Post-action wins when it found something durable; the pre-action
+        // read is the fallback for a target the action itself removed.
+        if (
+          isNonDurableRecording(primary, recorded.selector_strategies) &&
+          !isNonDurableRecording(primary, before)
+        ) {
+          recorded.selector_strategies = before;
+        }
         if (isNonDurableRecording(primary, recorded.selector_strategies)) {
           turn.nonDurable = true;
         }

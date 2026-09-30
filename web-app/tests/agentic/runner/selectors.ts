@@ -161,9 +161,7 @@ export async function materializeStrategies(
         return map[tag] ?? null;
       })
       .catch(() => null);
-    const name = await handle
-      .evaluate((el) => el.getAttribute("aria-label") ?? el.innerText?.trim() ?? null)
-      .catch(() => null);
+    const name = await handle.evaluate(accessibleNameOf).catch(() => null);
     if (role && name) {
       const escaped = name.slice(0, 40).replace(/'/g, "\\'");
       candidates.push({ kind: "role_name", selector: `role=${role}[name='${escaped}']` });
@@ -184,6 +182,44 @@ export async function materializeStrategies(
   }
 
   return uniqueByRank(candidates);
+}
+
+/**
+ * The name a `role=` selector matches, read in the page: `aria-label`, then
+ * `aria-labelledby`, then an input's `<label>`, then its placeholder, then
+ * its text. The label steps are what let typing into a form field record a
+ * durable selector — an `<input>` has no `aria-label` and no `innerText`, so
+ * it used to record only a snapshot ref, which no replay can resolve.
+ *
+ * Read from the DOM, NOT with `locator.ariaSnapshot()`: any aria snapshot
+ * replaces the page's `aria-ref=` map, so taking one here would invalidate
+ * every ref the model is about to act on. `keepUnambiguous` then checks the
+ * guess with Playwright's own role engine, so a name it computes differently
+ * is dropped rather than recorded.
+ */
+function accessibleNameOf(el: {
+  getAttribute(name: string): string | null;
+  innerText?: string;
+  ownerDocument: { getElementById(id: string): { textContent: string | null } | null } | null;
+}): string | null {
+  const aria = el.getAttribute("aria-label");
+  if (aria?.trim()) return aria.trim();
+  const labelledBy = el.getAttribute("aria-labelledby");
+  if (labelledBy && el.ownerDocument) {
+    const doc = el.ownerDocument;
+    const text = labelledBy
+      .split(/\s+/)
+      .map((id) => doc.getElementById(id)?.textContent?.trim() ?? "")
+      .filter(Boolean)
+      .join(" ");
+    if (text) return text;
+  }
+  const labels = (el as { labels?: ArrayLike<{ innerText?: string }> | null }).labels;
+  const label = labels && labels.length > 0 ? labels[0].innerText?.trim() : undefined;
+  if (label) return label;
+  const placeholder = el.getAttribute("placeholder");
+  if (placeholder?.trim()) return placeholder.trim();
+  return el.innerText?.trim() || null;
 }
 
 /**
