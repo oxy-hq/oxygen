@@ -7,7 +7,7 @@ import useCurrentUser from "@/hooks/api/users/useCurrentUser";
 import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHealth";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
-import { ADMIN_NAV, itemReachable } from "@/pages/admin/AdminLayout/adminNav";
+import { navItemReachable } from "@/pages/admin/AdminLayout/adminNav";
 import { AdminEmptyState } from "@/pages/admin/components/AdminEmptyState";
 import { AdminPage } from "@/pages/admin/components/AdminPage";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
@@ -45,10 +45,7 @@ export default function AdminHome() {
     isOwner: user?.is_owner ?? false,
     capabilities: user?.platform_capabilities ?? []
   };
-  const can = (to: string) => {
-    const item = ADMIN_NAV.find((i) => i.to.split("?")[0] === to);
-    return item ? itemReachable(item, standing) : false;
-  };
+  const can = (to: string) => navItemReachable(to, standing);
 
   const canHealth = can(ROUTES.ADMIN.WORKSPACE_HEALTH);
   const canJobs = can(ROUTES.ADMIN.INTERNAL_JOBS);

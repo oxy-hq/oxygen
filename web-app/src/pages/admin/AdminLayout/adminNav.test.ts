@@ -5,7 +5,8 @@ import {
   adminPageGroup,
   adminPageTitle,
   canReachAdminRoute,
-  firstReachableAdminRoute
+  firstReachableAdminRoute,
+  navItemReachable
 } from "./adminNav";
 
 /**
@@ -240,5 +241,26 @@ describe("pages registered exactly", () => {
 
   it("is reachable by anyone the tenants directory admits", () => {
     expect(canReachAdminRoute(ROUTES.ADMIN.TENANTS_OVERVIEW, staff("manage_members"))).toBe(true);
+  });
+});
+
+describe("navItemReachable", () => {
+  const operator = {
+    isOwner: false,
+    capabilities: ["manage_apps", "develop_apps"] as PlatformCapability[]
+  };
+  it("keeps Workspace health from an App Operator, so nothing fetches its badge", () => {
+    expect(navItemReachable(ROUTES.ADMIN.WORKSPACE_HEALTH, operator)).toBe(false);
+    expect(navItemReachable(ROUTES.ADMIN.CUSTOMER_APPS, operator)).toBe(true);
+  });
+  it("shows it to operate_platform and to the owner", () => {
+    const platform = { isOwner: false, capabilities: ["operate_platform"] as PlatformCapability[] };
+    expect(navItemReachable(ROUTES.ADMIN.WORKSPACE_HEALTH, platform)).toBe(true);
+    expect(
+      navItemReachable(ROUTES.ADMIN.WORKSPACE_HEALTH, { isOwner: true, capabilities: [] })
+    ).toBe(true);
+  });
+  it("answers false for a path with no rail entry — a fetch nobody may see", () => {
+    expect(navItemReachable("/admin/nowhere", { isOwner: true, capabilities: [] })).toBe(false);
   });
 });

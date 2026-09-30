@@ -232,6 +232,21 @@ export function itemReachable(item: AdminNavItem, { isOwner, capabilities }: Sta
 const navPath = (to: string) => to.split("?")[0];
 
 /**
+ * May this principal see the rail entry at `to` — and so fetch what that entry says about
+ * itself (a count, a badge, a home-page section)? `itemReachable`, looked up by route, for
+ * code that holds a path rather than an item. An unknown path is `false`: a fetch whose
+ * result nobody may see is a 403 waiting to toast.
+ *
+ * The rail's workspace-health badge fetched unconditionally, so an App Operator — who
+ * holds no `operate_platform` and is never shown Workspace health — got "You don't have
+ * permission to do this." on every admin page.
+ */
+export function navItemReachable(to: string, standing: Standing): boolean {
+  const item = ADMIN_NAV.find((i) => navPath(i.to) === navPath(to));
+  return item ? itemReachable(item, standing) : false;
+}
+
+/**
  * May this principal reach `pathname`? The route-guard half of the same map the sidebar
  * filters on, so a visible item is always a reachable one.
  *

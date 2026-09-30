@@ -13,7 +13,7 @@ import { useWorkspaceHealth } from "@/hooks/api/workspaceHealth/useWorkspaceHeal
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
 import { ADMIN_TONE } from "@/pages/admin/components/adminTone";
-import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable } from "../../adminNav";
+import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable, navItemReachable } from "../../adminNav";
 import { Footer } from "./components/Footer";
 
 export function AdminSidebar() {
@@ -28,7 +28,11 @@ export function AdminSidebar() {
   // Surface a count of workspaces needing attention right on the nav item,
   // so operators see trouble without opening the Workspace health page.
   // Same 30s-stale rollup the health page reads — worst-first, cross-tenant.
-  const { data: health } = useWorkspaceHealth();
+  // Only for someone the item is shown to: the endpoint is `operate_platform`,
+  // and an App Operator fetching it got a 403 toast on every admin page.
+  const { data: health } = useWorkspaceHealth({
+    enabled: navItemReachable(ROUTES.ADMIN.WORKSPACE_HEALTH, { isOwner, capabilities })
+  });
   const attentionCount = health?.workspaces.filter((ws) => ws.status !== "healthy").length ?? 0;
   const hasUnhealthy = health?.workspaces.some((ws) => ws.status === "unhealthy") ?? false;
 
