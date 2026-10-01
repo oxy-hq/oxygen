@@ -1,0 +1,58 @@
+---
+title: "Custom Apps"
+sidebarTitle: "Overview"
+description: "Operating software built on the World Model, hosted by Oxygen"
+---
+
+**Custom Apps** are the applications a team runs its operations on, such as a
+store checklist, a staffing planner, or a pricing console, built on Oxygen and
+hosted by it. Each app reads the same [World Model](/guide/build/world-model)
+as every agent and dashboard, and can write the data its users produce back
+into the platform. An app has three parts:
+
+- A **React interface**, built with the Oxygen SDK, that queries metrics, runs
+  agents, and embeds chat with a few hooks and drop-in components.
+- **Oxygen Functions**, server-side TypeScript that ships with the app for
+  work the browser shouldn't do, triggered by users, schedules, or verified
+  webhooks.
+- **Its own data**: facts appended to [Airhouse](/guide/build/data-infrastructure/airhouse),
+  editable records in Postgres, and files in app storage.
+
+<Frame caption="Every custom app reads the same World Model and writes its own data back into the platform, so a metric means the same thing in every app, agent, and dashboard.">
+  <img src="../../images/custom-apps-figure-1.svg" alt="Custom Apps architecture. Users reach a custom app: your team signed in with Oxygen, schedules running background jobs, and third parties through verified webhooks. The app, hosted by Oxygen, has a React UI built with SDK hooks and drop-in chat components, Oxygen Functions written in server-side TypeScript with declared capabilities, and one-command publish. The app reads the World Model: the semantic model's governed metric definitions, the metric tree to explain, size, and drill, and agents and automations. It writes facts to Airhouse in the app's own schema, editable records to Postgres, and files to app storage, while your own warehouse stays read-only. A highlighted band notes that every app reads the same World Model, so a metric means the same thing everywhere." />
+</Frame>
+
+## Why it matters
+
+- **Built on the World Model.** Apps inherit the business model rather than
+  rebuilding it: the same metric definitions, the drivers behind each metric,
+  and the agents that explain them. The World Model interface for apps is in
+  preview.
+- **Real applications, not just dashboards.** Apps record what happens in the
+  business, from completed checklists to bookings and uploaded files, and that
+  data becomes part of what the World Model can measure.
+- **Secure by default.** There is no API key in an app: access rides on the
+  viewer's Oxygen session and is scoped to project membership, each function
+  can do only what it declares, and every webhook is verified before it runs.
+- **One step to ship.** Interface and functions are versioned and published
+  together, and appear to the team on the Oxygen home page.
+
+## Where it fits
+
+Custom apps are the top layer of Oxygen. [Data Infrastructure](/guide/build/data-infrastructure)
+gets data in, the [World Model](/guide/build/world-model) defines what it
+means, and apps and [agents](/guide/build/agents) put it to work. Because apps
+write their facts into Airhouse, the work done in an app feeds the same
+metrics that measure it.
+
+<CardGroup cols={3}>
+  <Card title="Build with the SDK" icon="js" href="/guide/build/sdk">
+    Scaffold, query, and publish a React app
+  </Card>
+  <Card title="Oxygen Functions" icon="server" href="/guide/build/sdk/functions">
+    Server-side handlers, data stores, and capabilities
+  </Card>
+  <Card title="World Model interface" icon="sitemap" href="/guide/build/sdk/world-model">
+    Navigate, explain, and size metrics from an app
+  </Card>
+</CardGroup>

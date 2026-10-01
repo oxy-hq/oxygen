@@ -1,0 +1,103 @@
+<svg viewBox="0 0 1560 760" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b"/>
+    </marker>
+    <linearGradient id="greenFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d3b2e"/>
+      <stop offset="1" stop-color="#0a2c23"/>
+    </linearGradient>
+    <linearGradient id="indigoFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26246b"/>
+      <stop offset="1" stop-color="#1c1a4e"/>
+    </linearGradient>
+    <linearGradient id="tealFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#083344"/>
+      <stop offset="1" stop-color="#06262f"/>
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e1065"/>
+      <stop offset="1" stop-color="#220c4d"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="20" width="1520" height="720" rx="28" fill="#0b0f1a" stroke="#2b3446" stroke-width="2"/>
+  <text x="780" y="78" text-anchor="middle" fill="#e5e7eb" font-size="34" font-weight="700">Custom Apps</text>
+
+  <!-- Who uses the app -->
+  <rect x="64" y="112" width="240" height="480" rx="20" fill="#0f1524" stroke="#475569" stroke-width="2"/>
+  <text x="184" y="168" text-anchor="middle" fill="#e2e8f0" font-size="27" font-weight="700">Users</text>
+  <text x="184" y="200" text-anchor="middle" fill="#cbd5e1" font-size="17">Who reaches the app</text>
+  <rect x="88" y="224" width="192" height="120" rx="12" fill="#0b1220" stroke="#2b3446" stroke-width="1.5"/>
+  <text x="184" y="278.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Your team</text>
+  <text x="184" y="303.9" text-anchor="middle" fill="#7d8ea6" font-size="14">signed in with Oxygen</text>
+  <rect x="88" y="360" width="192" height="100" rx="12" fill="#0b1220" stroke="#2b3446" stroke-width="1.5"/>
+  <text x="184" y="404.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Schedules</text>
+  <text x="184" y="429.9" text-anchor="middle" fill="#7d8ea6" font-size="14">background jobs</text>
+  <rect x="88" y="476" width="192" height="92" rx="12" fill="#0b1220" stroke="#2b3446" stroke-width="1.5"/>
+  <text x="184" y="516.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Third parties</text>
+  <text x="184" y="541.9" text-anchor="middle" fill="#7d8ea6" font-size="14">verified webhooks</text>
+
+  <!-- The app -->
+  <rect x="356" y="112" width="320" height="480" rx="20" fill="url(#tealFill)" stroke="#06b6d4" stroke-width="2"/>
+  <text x="516" y="168" text-anchor="middle" fill="#67e8f9" font-size="27" font-weight="700">Custom app</text>
+  <text x="516" y="200" text-anchor="middle" fill="#a5f3fc" font-size="17">Your code, hosted by Oxygen</text>
+  <rect x="380" y="224" width="272" height="120" rx="12" fill="#0b1220" stroke="#155e75" stroke-width="1.5"/>
+  <text x="516" y="268.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">React UI</text>
+  <text x="516" y="293.7" text-anchor="middle" fill="#7d8ea6" font-size="14">SDK hooks and</text>
+  <text x="516" y="314.7" text-anchor="middle" fill="#7d8ea6" font-size="14">drop-in chat components</text>
+  <rect x="380" y="360" width="272" height="120" rx="12" fill="#0b1220" stroke="#155e75" stroke-width="1.5"/>
+  <text x="516" y="404.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Oxygen Functions</text>
+  <text x="516" y="429.7" text-anchor="middle" fill="#7d8ea6" font-size="14">server-side TypeScript</text>
+  <text x="516" y="450.7" text-anchor="middle" fill="#7d8ea6" font-size="14">with declared capabilities</text>
+  <rect x="380" y="496" width="272" height="72" rx="12" fill="#0b1220" stroke="#155e75" stroke-width="1.5"/>
+  <text x="516" y="537.1" text-anchor="middle" fill="#f1f5f9" font-size="17" font-weight="600">One-command publish</text>
+
+  <!-- World Model -->
+  <rect x="728" y="112" width="340" height="480" rx="20" fill="url(#indigoFill)" stroke="#6366f1" stroke-width="2"/>
+  <text x="898" y="168" text-anchor="middle" fill="#a5b4fc" font-size="27" font-weight="700">World Model</text>
+  <text x="898" y="200" text-anchor="middle" fill="#c7d2fe" font-size="17">What every app reads</text>
+  <rect x="752" y="224" width="292" height="108" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="898" y="273.2" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Semantic model</text>
+  <text x="898" y="298.2" text-anchor="middle" fill="#7d8ea6" font-size="14">governed metric definitions</text>
+  <rect x="752" y="348" width="292" height="108" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="898" y="397.2" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Metric tree</text>
+  <text x="898" y="422.2" text-anchor="middle" fill="#7d8ea6" font-size="14">explain, size, and drill</text>
+  <rect x="752" y="472" width="292" height="96" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="898" y="514.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Agents &amp; automations</text>
+  <text x="898" y="539.9" text-anchor="middle" fill="#7d8ea6" font-size="14">answers and workflows</text>
+
+  <!-- Data -->
+  <rect x="1120" y="112" width="376" height="480" rx="20" fill="url(#greenFill)" stroke="#10b981" stroke-width="2"/>
+  <text x="1308" y="168" text-anchor="middle" fill="#6ee7b7" font-size="27" font-weight="700">Data</text>
+  <text x="1308" y="200" text-anchor="middle" fill="#a7f3d0" font-size="17">Where the app writes</text>
+  <rect x="1144" y="224" width="328" height="84" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5"/>
+  <text x="1308" y="260.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Facts → Airhouse</text>
+  <text x="1308" y="285.9" text-anchor="middle" fill="#7d8ea6" font-size="14">append-only, in the app's own schema</text>
+  <rect x="1144" y="324" width="328" height="84" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5"/>
+  <text x="1308" y="360.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Records → Postgres</text>
+  <text x="1308" y="385.9" text-anchor="middle" fill="#7d8ea6" font-size="14">editable, transactional</text>
+  <rect x="1144" y="424" width="328" height="64" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5"/>
+  <text x="1308" y="461.1" text-anchor="middle" fill="#f1f5f9" font-size="17" font-weight="600">Files → app storage</text>
+  <rect x="1144" y="504" width="328" height="64" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="1308" y="540.8" text-anchor="middle" fill="#f1f5f9" font-size="16" font-weight="600">Your warehouse: read-only</text>
+
+  <!-- Flows -->
+  <line x1="280" y1="300" x2="376" y2="300" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="328" y="286" text-anchor="middle" fill="#cbd5e1" font-size="13">use</text>
+  <line x1="280" y1="410" x2="376" y2="410" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="328" y="396" text-anchor="middle" fill="#cbd5e1" font-size="13">trigger</text>
+  <path d="M 280 522 C 330 522, 330 440, 376 440" fill="none" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="652" y1="284" x2="748" y2="284" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="700" y="270" text-anchor="middle" fill="#cbd5e1" font-size="13">read</text>
+  <path d="M 652 440 C 704 440, 696 628, 760 628 L 1284 628 C 1308 628, 1308 616, 1308 598" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="980" y="620" text-anchor="middle" fill="#cbd5e1" font-size="13">write facts, records, and files</text>
+
+  <!-- The one idea -->
+  <rect x="356" y="664" width="712" height="56" rx="12" fill="#171208" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="712" y="698" text-anchor="middle" fill="#fbbf24" font-size="16" font-weight="600">Every app reads the same World Model, so a metric means the same thing everywhere</text>
+
+</svg>

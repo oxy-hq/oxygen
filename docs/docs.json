@@ -131,8 +131,9 @@
             ]
           },
           {
-            "group": "SDK",
+            "group": "Custom Apps",
             "pages": [
+              "build/custom-apps/index",
               "build/sdk/index",
               "build/sdk/hooks",
               "build/sdk/world-model",

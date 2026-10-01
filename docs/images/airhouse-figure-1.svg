@@ -33,8 +33,8 @@
   <text x="174" y="200" text-anchor="middle" fill="#cbd5e1" font-size="17">Who connects</text>
   <rect x="88" y="224" width="172" height="170" rx="12" fill="#0b1220" stroke="#2b3446" stroke-width="1.5"/>
   <text x="174" y="293.4" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">SQL clients</text>
-  <text x="174" y="318.4" text-anchor="middle" fill="#7d8ea6" font-size="14">psql, drivers,</text>
-  <text x="174" y="339.4" text-anchor="middle" fill="#7d8ea6" font-size="14">BI tools, agents</text>
+  <text x="174" y="318.4" text-anchor="middle" fill="#7d8ea6" font-size="14">psql, drivers, BI</text>
+  <text x="174" y="339.4" text-anchor="middle" fill="#7d8ea6" font-size="14">tools, agents, apps</text>
   <rect x="88" y="418" width="172" height="150" rx="12" fill="#0b1220" stroke="#2b3446" stroke-width="1.5"/>
   <text x="174" y="477.4" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Your platform</text>
   <text x="174" y="502.4" text-anchor="middle" fill="#7d8ea6" font-size="14">Oxygen, or</text>

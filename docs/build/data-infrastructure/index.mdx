@@ -11,12 +11,14 @@ and agents can query. Three engines do the work:
 - **Airway** *loads*: it extracts data from the systems a business already
   runs and loads it into the warehouse, moving only what changed.
 - **Airhouse** *stores*: it is the managed, Postgres-compatible warehouse
-  where that data lands, with isolated databases and no long-lived keys.
+  where that data lands, along with the facts
+  [custom apps](/guide/build/custom-apps) record, with isolated databases and
+  no long-lived keys.
 - **Airform** *shapes*: it turns raw tables into clean, tested ones with
   version-controlled SQL models.
 
 <Frame caption="Data moves left to right, from your systems to the World Model, and every step along the way is a version-controlled file in the same workspace.">
-  <img src="../../images/data-infrastructure-figure-1.svg" alt="Data Infrastructure as a left-to-right flow. Sources such as point-of-sale, accounting, databases, files, and public data are extracted by Airway pipelines, which run incrementally from a cursor and load raw tables into a warehouse, either Airhouse or your own. Airform's version-controlled SQL models shape the raw tables into clean, tested tables, which the World Model's semantic model queries for agents and apps. A highlighted band notes that every pipeline, model, and metric is a version-controlled file in one workspace, deployed through Git." />
+  <img src="../../images/data-infrastructure-figure-1.svg" alt="Data Infrastructure as a left-to-right flow. Sources such as point-of-sale, accounting, databases, files, and public data are extracted by Airway pipelines, which run incrementally from a cursor and load raw tables into a warehouse, either Airhouse or your own. Airform's version-controlled SQL models shape the raw tables into clean, tested tables, which the World Model's semantic model queries for agents and custom apps. Custom apps also write their own facts back into the warehouse. A highlighted band notes that every pipeline, model, and metric is a version-controlled file in one workspace, deployed through Git." />
 </Frame>
 
 ## One workspace, from source to model

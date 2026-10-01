@@ -80,9 +80,9 @@
   <text x="1324" y="308.7" text-anchor="middle" fill="#7d8ea6" font-size="14">measures defined once,</text>
   <text x="1324" y="329.7" text-anchor="middle" fill="#7d8ea6" font-size="14">compiled to correct SQL</text>
   <rect x="1176" y="398" width="296" height="150" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
-  <text x="1324" y="457.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Agents &amp; apps</text>
-  <text x="1324" y="482.7" text-anchor="middle" fill="#7d8ea6" font-size="14">answer and act on</text>
-  <text x="1324" y="503.7" text-anchor="middle" fill="#7d8ea6" font-size="14">the same numbers</text>
+  <text x="1324" y="457.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Agents &amp; custom apps</text>
+  <text x="1324" y="482.7" text-anchor="middle" fill="#7d8ea6" font-size="14">answer and act on the same</text>
+  <text x="1324" y="503.7" text-anchor="middle" fill="#7d8ea6" font-size="14">numbers; apps write facts back</text>
 
   <!-- Flow -->
   <line x1="294" y1="386" x2="346" y2="386" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
@@ -90,6 +90,9 @@
   <line x1="620" y1="266" x2="672" y2="266" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
   <text x="646" y="252" text-anchor="middle" fill="#cbd5e1" font-size="13">load</text>
   <line x1="1072" y1="530" x2="1148" y2="530" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 1176 440 C 1124 440, 1128 290, 1076 290" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"/>
+  <text x="1124" y="372" text-anchor="middle" fill="#cbd5e1" font-size="13">app</text>
+  <text x="1124" y="388" text-anchor="middle" fill="#cbd5e1" font-size="13">facts</text>
   <text x="1110" y="516" text-anchor="middle" fill="#cbd5e1" font-size="13">query</text>
 
   <!-- The one idea: a single version-controlled workspace -->

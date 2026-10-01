@@ -17,7 +17,7 @@ query it. It speaks the Postgres wire protocol, runs queries on
   every other database.
 
 <Frame caption="Airhouse checks every statement before DuckDB runs it, hands out only short-lived credentials, and keeps each database's catalog and files isolated in open formats.">
-  <img src="../../images/airhouse-figure-1.svg" alt="Airhouse architecture. SQL clients such as psql, drivers, BI tools, and agents send SQL over the Postgres protocol to the data plane, which authenticates the password, authorizes the role and limits, and executes on DuckDB. Your platform, Oxygen or your own backend, provisions through the control plane's Admin API, which manages databases, users and roles, and credentials, and returns short-lived credentials. The data plane reads metadata from a DuckLake catalog in Postgres and Parquet table data in S3-compatible storage. A highlighted box notes that each database is isolated, with its own catalog, storage prefix, users, and query limits." />
+  <img src="../../images/airhouse-figure-1.svg" alt="Airhouse architecture. SQL clients such as psql, drivers, BI tools, agents, and apps send SQL over the Postgres protocol to the data plane, which authenticates the password, authorizes the role and limits, and executes on DuckDB. Your platform, Oxygen or your own backend, provisions through the control plane's Admin API, which manages databases, users and roles, and credentials, and returns short-lived credentials. The data plane reads metadata from a DuckLake catalog in Postgres and Parquet table data in S3-compatible storage. A highlighted box notes that each database is isolated, with its own catalog, storage prefix, users, and query limits." />
 </Frame>
 
 ## Why it matters
