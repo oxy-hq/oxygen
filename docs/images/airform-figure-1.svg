@@ -1,0 +1,90 @@
+<svg viewBox="0 0 1560 640" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#f59e0b"/>
+    </marker>
+    <linearGradient id="greenFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d3b2e"/>
+      <stop offset="1" stop-color="#0a2c23"/>
+    </linearGradient>
+    <linearGradient id="indigoFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26246b"/>
+      <stop offset="1" stop-color="#1c1a4e"/>
+    </linearGradient>
+    <linearGradient id="tealFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#083344"/>
+      <stop offset="1" stop-color="#06262f"/>
+    </linearGradient>
+    <linearGradient id="purpleFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e1065"/>
+      <stop offset="1" stop-color="#220c4d"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="20" width="1520" height="600" rx="28" fill="#0b0f1a" stroke="#2b3446" stroke-width="2"/>
+  <text x="780" y="78" text-anchor="middle" fill="#e5e7eb" font-size="34" font-weight="700">Airform</text>
+
+  <!-- Project -->
+  <rect x="64" y="112" width="300" height="480" rx="20" fill="url(#indigoFill)" stroke="#6366f1" stroke-width="2"/>
+  <text x="214" y="168" text-anchor="middle" fill="#a5b4fc" font-size="27" font-weight="700">Project</text>
+  <text x="214" y="200" text-anchor="middle" fill="#c7d2fe" font-size="17">dbt conventions</text>
+  <rect x="88" y="224" width="252" height="104" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="214" y="271.2" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">SQL models</text>
+  <text x="214" y="296.2" text-anchor="middle" fill="#7d8ea6" font-size="14">SQL + Jinja, ref(), source()</text>
+  <rect x="88" y="344" width="252" height="104" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="214" y="391.2" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Tests</text>
+  <text x="214" y="416.2" text-anchor="middle" fill="#7d8ea6" font-size="14">schema and data tests</text>
+  <rect x="88" y="464" width="252" height="104" rx="12" fill="#0b1220" stroke="#3f3c8f" stroke-width="1.5"/>
+  <text x="214" y="500.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Git</text>
+  <text x="214" y="525.7" text-anchor="middle" fill="#7d8ea6" font-size="14">reviewed and deployed</text>
+  <text x="214" y="546.7" text-anchor="middle" fill="#7d8ea6" font-size="14">with the workspace</text>
+
+  <!-- Airform engine -->
+  <rect x="420" y="112" width="640" height="480" rx="20" fill="url(#purpleFill)" stroke="#a855f7" stroke-width="2"/>
+  <text x="740" y="168" text-anchor="middle" fill="#d8b4fe" font-size="27" font-weight="700">Airform</text>
+  <text x="740" y="200" text-anchor="middle" fill="#e9d5ff" font-size="17">Compile, build, test</text>
+  <rect x="444" y="224" width="176" height="150" rx="12" fill="#0b1220" stroke="#5b2a8f" stroke-width="1.5"/>
+  <text x="532" y="283.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Compile</text>
+  <text x="532" y="308.7" text-anchor="middle" fill="#7d8ea6" font-size="14">Jinja and refs</text>
+  <text x="532" y="329.7" text-anchor="middle" fill="#7d8ea6" font-size="14">to plain SQL</text>
+  <line x1="620" y1="299" x2="648" y2="299" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="652" y="224" width="176" height="150" rx="12" fill="#0b1220" stroke="#5b2a8f" stroke-width="1.5"/>
+  <text x="740" y="283.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Build</text>
+  <text x="740" y="308.7" text-anchor="middle" fill="#7d8ea6" font-size="14">models in</text>
+  <text x="740" y="329.7" text-anchor="middle" fill="#7d8ea6" font-size="14">dependency order</text>
+  <line x1="828" y1="299" x2="856" y2="299" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="860" y="224" width="176" height="150" rx="12" fill="#0b1220" stroke="#5b2a8f" stroke-width="1.5"/>
+  <text x="948" y="283.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Test</text>
+  <text x="948" y="308.7" text-anchor="middle" fill="#7d8ea6" font-size="14">every built</text>
+  <text x="948" y="329.7" text-anchor="middle" fill="#7d8ea6" font-size="14">table</text>
+  <rect x="444" y="398" width="592" height="84" rx="12" fill="#0b1220" stroke="#5b2a8f" stroke-width="1.5"/>
+  <text x="740" y="434.9" text-anchor="middle" fill="#f1f5f9" font-size="18" font-weight="600">Lineage</text>
+  <text x="740" y="459.9" text-anchor="middle" fill="#7d8ea6" font-size="14">model- and column-level, from the compiled graph</text>
+  <rect x="444" y="498" width="592" height="70" rx="12" fill="#171208" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="740" y="528" text-anchor="middle" fill="#fbbf24" font-size="17" font-weight="700">Reviewable</text>
+  <text x="740" y="552" text-anchor="middle" fill="#fcd34d" font-size="14">every table is built from SQL you can read before it runs</text>
+
+  <!-- Warehouse -->
+  <rect x="1116" y="112" width="380" height="480" rx="20" fill="url(#greenFill)" stroke="#10b981" stroke-width="2"/>
+  <text x="1306" y="168" text-anchor="middle" fill="#6ee7b7" font-size="27" font-weight="700">Warehouse</text>
+  <text x="1306" y="200" text-anchor="middle" fill="#a7f3d0" font-size="17">A database in config.yml</text>
+  <rect x="1140" y="224" width="332" height="150" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5"/>
+  <text x="1306" y="283.7" text-anchor="middle" fill="#f1f5f9" font-size="19" font-weight="600">Clean, tested tables</text>
+  <text x="1306" y="308.7" text-anchor="middle" fill="#7d8ea6" font-size="14">what the semantic model</text>
+  <text x="1306" y="329.7" text-anchor="middle" fill="#7d8ea6" font-size="14">builds on</text>
+  <rect x="1140" y="398" width="332" height="170" rx="12" fill="#0b1220" stroke="#134e3a" stroke-width="1.5"/>
+  <text x="1306" y="456.6" text-anchor="middle" fill="#f1f5f9" font-size="17" font-weight="600">Runs on</text>
+  <text x="1306" y="481.6" text-anchor="middle" fill="#7d8ea6" font-size="14">Snowflake, BigQuery, Postgres,</text>
+  <text x="1306" y="502.6" text-anchor="middle" fill="#7d8ea6" font-size="14">Redshift, MySQL, ClickHouse,</text>
+  <text x="1306" y="523.6" text-anchor="middle" fill="#7d8ea6" font-size="14">DuckDB, MotherDuck</text>
+
+  <!-- Flows -->
+  <line x1="340" y1="276" x2="440" y2="276" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="390" y="262" text-anchor="middle" fill="#cbd5e1" font-size="13">compile</text>
+  <line x1="1036" y1="299" x2="1136" y2="299" stroke="#94a3b8" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="1086" y="285" text-anchor="middle" fill="#cbd5e1" font-size="13">builds, tests</text>
+
+</svg>

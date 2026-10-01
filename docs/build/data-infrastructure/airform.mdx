@@ -6,9 +6,20 @@ description: "dbt-style, version-controlled SQL modeling for Oxygen"
 **Airform** handles the transform step: dbt-style, version-controlled SQL models
 that turn raw tables into clean, tested ones. It lives alongside your agents,
 automations, and semantic model in the same workspace, and is validated and
-deployed through the standard Git flow — so the tables your
+deployed through the standard Git flow, so the tables your
 [semantic model](/guide/build/semantic-model/simple-model) builds on are modeled
-deterministically, not assembled ad hoc.
+deterministically, not assembled ad hoc. Airform works in three stages:
+
+- **Compile** resolves each model's Jinja, `ref()`, and `source()` calls into
+  plain SQL, and works out the dependency graph between models.
+- **Build** runs the compiled SQL on your warehouse, one model at a time in
+  dependency order, so every model reads tables that are already up to date.
+- **Test** runs the project's schema and data tests against the tables it
+  built.
+
+<Frame caption="Airform compiles a dbt-style project into plain SQL, builds the models in dependency order on your warehouse, and tests the tables the semantic model relies on.">
+  <img src="../../images/airform-figure-1.svg" alt="Airform architecture. A project following dbt conventions, with SQL models written in SQL and Jinja using ref() and source(), schema and data tests, and Git review and deployment, is compiled by Airform into plain SQL. Airform builds the models in dependency order and tests every built table, and tracks model- and column-level lineage from the compiled graph. A highlighted box notes that every table is built from SQL you can read before it runs. The output is clean, tested tables in a warehouse database from config.yml, such as Snowflake, BigQuery, Postgres, Redshift, MySQL, ClickHouse, DuckDB, or MotherDuck." />
+</Frame>
 
 ## Why model with Airform
 
@@ -16,8 +27,59 @@ deterministically, not assembled ad hoc.
   through the same Git flow as the rest of your project.
 - **Tested tables.** Transforms land clean, tested tables, so the semantic model
   compiles over a dependable foundation.
+- **Reviewable SQL.** Every model compiles to plain SQL that you can read before
+  it runs, so there is no hidden logic between your files and your tables.
 - **One workspace.** Modeling sits next to agents, automations, and the semantic
-  model — no separate tool to context-switch into.
+  model, with no separate tool or Python environment to context-switch into.
+
+## The project
+
+An Airform project follows dbt conventions, so existing dbt projects work
+largely unchanged. Each project is a folder under `modeling/` in your
+workspace, and Oxygen discovers every folder that contains a
+`dbt_project.yml`:
+
+```
+your-workspace/
+├── config.yml
+└── modeling/
+    └── my_project/
+        ├── dbt_project.yml
+        ├── profiles.yml
+        ├── oxy.yml        # maps each dbt target to a database in config.yml
+        ├── models/
+        └── seeds/
+```
+
+`oxy.yml` is what ties a project to your workspace: it maps each dbt target in
+`profiles.yml` to a database already connected in `config.yml`, so Airform
+reuses the workspace's connections and secrets instead of keeping its own.
+
+## Compile, build, and test
+
+Open **Modeling** in the IDE sidebar to see every discovered project and run
+it:
+
+- **Compile** shows the plain SQL each model resolves to, without running
+  anything.
+- **Run** compiles and builds models in dependency order, and accepts dbt node
+  selectors such as `+my_model` or `tag:daily` to build part of the graph.
+- **Test** runs the project's schema and data tests.
+- **Seed** loads the project's CSV seed files.
+
+## Lineage
+
+Because Airform compiles the whole project into a graph, it can show both the
+model-level DAG, which models feed which, and column-level lineage, which
+upstream columns each output column comes from. That makes it possible to see
+what a change will affect before you make it.
+
+## Supported warehouses
+
+Airform builds models on a database connected in `config.yml`: Snowflake,
+BigQuery, Postgres, Redshift, MySQL, ClickHouse, DuckDB (file databases), and
+MotherDuck. The [modeling reference](/guide/build/semantic-model/modeling) lists
+how each one is configured.
 
 <Card title="airform on GitHub" icon="github" href="https://github.com/oxy-hq/airform">
   dbt-style modeling for Oxygen. Open source.
@@ -26,10 +88,10 @@ deterministically, not assembled ad hoc.
 ## Next steps
 
 <CardGroup cols={2}>
+  <Card title="Modeling reference" icon="file-code" href="/guide/build/semantic-model/modeling">
+    Project layout, configuration, operations, and troubleshooting
+  </Card>
   <Card title="The semantic model" icon="cube" href="/guide/build/semantic-model/simple-model">
     Build measures over the tables Airform lands
-  </Card>
-  <Card title="Airhouse" icon="warehouse" href="/guide/build/data-infrastructure/airhouse">
-    Where your data lands
   </Card>
 </CardGroup>
