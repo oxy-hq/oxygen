@@ -2,6 +2,100 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.154] - 2026-10-01
+
+### 🚀 Features
+
+- Re-land the compile backoff index for 0.5.154 (#3337)
+- Deploy train slack messages say what happened, what it means for customers, and who acts (#3368)
+- A kiosk admin can leave kiosk mode from the tablet, and enrolling a signed-in browser warns first (#3375)
+- Stage a semantic-model change behind a custom-app draft, and ctx.semantic reads the compiled revision (#3370)
+- Release showcase — screenshots and videos of each feature under the prod release announcement (#3391)
+- Airway bumps open themselves — a new airway release becomes a pr in oxygen-internal (#3407)
+- Previews — test workspace, pipeline and app changes on real data before they ship (#3381)
+- Admin console staging link, and agentic browser tests pass again in ci (#3412)
+
+### 🐛 Bug Fixes
+
+- Blank workspaces recompile, and oxyc-created invitations link to the real host (#3342)
+- Promote's prod pr body died on printf reading '- ' as an option (#3344)
+- Telemetry links an unsampled inbound traceparent instead of adopting it, so a caller can't drop oxy's span (#3347)
+- Oxy worker wires observability at boot — its span channel was never drained and its app events were dropped (#3355)
+- Custom apps — stop a release that would break a working function, and make its failures visible (#3353)
+- A retried preflight block tells slack once, and a misspelt mode says it runs as warn (#3357)
+- The preflight's first run on a deployment records a baseline instead of blocking (#3358)
+- Platform pool probe labels a dead postgres server_unavailable instead of timeout, which read as a full pool (#3359)
+- Release checks mint the bump-PR token from the org app — 27 staging passes never reached the prod PR (#3365)
+- Clickhouse SimpleAggregateFunction(f, T) decodes as T, so a quoted UInt64 inside one is a number, not a string (#3367)
+- The analytics agent served rollups built from since-edited definitions (#3278)
+- A database 500 tells you which side of the wire broke (#3277)
+- Production error surfaced by weekly Sentry triage (#3364)
+- A promote that re-hashes a rollup builds it now, not a heartbeat later (#3279)
+- Trusted publishing records a machine publish with no user instead of the nil uuid (#3376)
+- Web-app sentry on every build — under the deploy train the stable-only dsn left production's bundle dark (#3383)
+- Deploy train says a stuck release once per reason per working day, and links the sentry errors that block it (#3382)
+- Preagg cycle builds from the promoted revision, not the worker's absent working copy (#3349)
+- The routing guard reads api sources by path, so two app.rs files no longer hide the /apps handlers (#3385)
+- Deploy train promotes a commit whose internal CI is red, and the prod PR opens with a warning instead (#3386)
+- Admin console no longer toasts "You don't have permission" at App Operators on every page (#3394)
+- Add workspace-hack to oxy-world-model, unbreaking main's hakari check (#3389)
+- The staging deploy marker names oxy-web too — the web project had no deploy in any environment (#3413)
+
+### 💼 Other
+
+- *(deps)* Bump github/codeql-action/upload-sarif from 4.37.9 to 4.38.1 (#3321)
+- *(deps)* Bump the prod-npm-minor-dependencies group across 1 directory with 2 updates (#3323)
+- Pin airway to the filesystem row-batching fix (airway-internal#211) until 0.1.49 is tagged (#3360)
+- *(deps)* Bump astral-sh/setup-uv from 10.0.1 to 10.2.0 (#3322)
+- Pin airway to the 0.1.49 tag instead of a main rev (#3366)
+- Workspace-hack, worktree slots, target gc and a pinned toolchain for faster Rust iteration (#3356)
+- *(deps)* Bump anthropics/claude-code-action from 1.0.183 to 1.0.235 (#3399)
+- *(deps)* Bump the prod-npm-minor-dependencies group across 2 directories with 9 updates (#3401)
+- *(deps)* Bump github/codeql-action/upload-sarif from 4.38.1 to 4.38.2 (#3400)
+- *(deps-dev)* Bump the dev-npm-minor-dependencies group across 2 directories with 10 updates (#3402)
+- *(deps)* Bump the prod-npm-major-dependencies group across 1 directory with 2 updates (#3404)
+- *(deps)* Bump the prod-npm-major-dependencies group across 2 directories with 2 updates (#3403)
+
+### 🚜 Refactor
+
+- The custom-app preflight only reports, in one file (#3362)
+- Per-org oltp is always on — remove the oltp feature flag and kill-switch (#3369)
+- Introduce oxy-world-model crate; move world_model_config into it
+- World-model crate ownership, short-form re-export, drop dead config load
+- Extract documents into a sibling crate (oxy-api-documents) (#3388)
+
+### 📚 Documentation
+
+- The ide is scraped now — platform-metrics records how, and what an empty vm/oxy-ide means (#3336)
+- The carrier hold covers the re-land too, because the train promotes images (#3338)
+- Custom-app availability guidelines — the team standard for keeping apps up (#3341)
+- Platform-metrics opens with how to use it — dashboards, jobs, reading a quiet panel (#3340)
+- The trace health dashboard is in both clusters — link it, and say it is applied by hand (#3343)
+- Platform canary first ran on 2026-09-25 with reduced steps — record them, and never unset prod's list (#3346)
+- Prod needs a named carrier before the index re-land, and a dispatched proposal lasts one pass (#3345)
+- Postgres-outage readiness decision memo, and the isolate-limit readout says retune no earlier than 2026-10-09 (#3348)
+- Deploy pipeline is live — quick reference, how a change is tested, and where a release comes from (#3351)
+- Airway replacing buffer is <schema>_raw.<table>, and the fold runs on every load (#3352)
+- Victoriametrics' increase() catches a counter born at 1 — platform-metrics stated prometheus' behaviour as ours (#3354)
+- Platform canary runs its clickhouse steps on staging, and a prod runbook restores the full list (#3361)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#3372)
+- Release and deploy docs catch up with the train — who sees what, versions vs builds, hotfix to prod, rollback floor (#3377)
+- Platform canary — staging runs its full step list; shape_zoo caught the SimpleAggregateFunction quoting bug (#3384)
+- Update product-context.md from recent changelogs (#3373)
+- World model controls and evaluation, data infrastructure restructure (#3320)
+- World model diagram broken on the published site (#3396)
+- Nexus figure 1, remove data apps and lovable, broaden automations (#3398)
+
+### 🧪 Testing
+
+- Agentic browser tests run in enterprise mode by default (#3395)
+
+### ⚙️ Miscellaneous Tasks
+
+- Retire the 0.5.153 carrier scaffolding (#3339)
+- Drop the two tables the blocking custom-app preflight kept (#3371)
+- Monthly dead code cleanup 2026-10-01 (#3414)
+
 ## [0.5.153] - 2026-09-25
 
 ### 🚀 Features
@@ -30,6 +124,7 @@ All notable changes to this project will be documented in this file.
 ### ⚙️ Miscellaneous Tasks
 
 - The release checks need three secrets, not seven, and the schedule turns itself on (#3319)
+- Release 0.5.153 (#3328)
 
 ## [0.5.152] - 2026-09-24
 
