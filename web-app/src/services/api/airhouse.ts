@@ -47,7 +47,7 @@ export type AirhouseVersionInfo = {
 };
 
 /** Presence + validity of one DuckLake catalog hot-path index. */
-export type CatalogIndexState = {
+type CatalogIndexState = {
   name: string;
   present: boolean;
   /** Mirrors Postgres `indisvalid` — false while a CONCURRENTLY build runs. */

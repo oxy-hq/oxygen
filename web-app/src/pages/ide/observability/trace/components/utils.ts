@@ -1,13 +1,3 @@
-export function getTimelineSpanColor(spanName: string, statusCode: string): string {
-  if (statusCode === "ERROR") return "bg-destructive";
-  if (spanName.includes("llm")) return "bg-vis-purple";
-  if (spanName.includes("tool")) return "bg-warning";
-  if (spanName.includes("agent")) return "bg-info";
-  if (spanName.startsWith("analytics.")) return "bg-success";
-  if (spanName.includes("context")) return "bg-success";
-  return "bg-special";
-}
-
 // Recursively parse nested JSON strings
 export function deepParseJson(obj: unknown): unknown {
   if (typeof obj === "string") {

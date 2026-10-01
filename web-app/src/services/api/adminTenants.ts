@@ -11,7 +11,7 @@ export type OrgRoleId = "owner" | "admin" | "member";
 // Organizations (admin meta surface)
 
 /** The partner managing an org (at most one — `partner_orgs.org_id` is unique). */
-export interface OrgPartnerRef {
+interface OrgPartnerRef {
   id: string;
   name: string;
   slug: string;
@@ -41,14 +41,14 @@ export interface AdminOrgDetail extends AdminOrgMeta {
   workspaces: AdminOrgWorkspaceSummary[];
 }
 
-export interface AdminOrgUserSummary {
+interface AdminOrgUserSummary {
   user_id: string;
   email: string;
   name: string;
   role: string;
 }
 
-export interface AdminOrgWorkspaceSummary {
+interface AdminOrgWorkspaceSummary {
   id: string;
   name: string;
   status: WorkspaceStatusId;
@@ -75,7 +75,7 @@ export interface AdminCreateOrgBody {
 
 /** `seeded` = the email was an existing user, added as Owner now. `invited` =
  *  an Owner-role invitation was created and emailed. */
-export type AdminOrgOwnerStatus = "seeded" | "invited";
+type AdminOrgOwnerStatus = "seeded" | "invited";
 
 export interface AdminCreateOrgResponse {
   org: AdminOrgMeta;
@@ -85,7 +85,7 @@ export interface AdminCreateOrgResponse {
 }
 
 // Org bare subdomain (`<org-slug>.<zone>`) — Oxy-staff control.
-export interface AdminOrgSubdomainWorkspace {
+interface AdminOrgSubdomainWorkspace {
   id: string;
   name: string;
   status: WorkspaceStatusId;
@@ -186,7 +186,7 @@ export const AdminOrgsService = {
 // Users (admin meta surface)
 
 /** A partner this user operates. `id` is the partner's ORG id. */
-export interface UserPartnerRef {
+interface UserPartnerRef {
   id: string;
   name: string;
 }
@@ -227,7 +227,7 @@ export interface AdminUserDetail extends AdminUserRow {
  * and may never get one. Most people stuck behind a lapsed invite have no user
  * row at all — for those, the org's own detail page is the place they show up.
  */
-export interface AdminUserInvitation {
+interface AdminUserInvitation {
   id: string;
   org_id: string;
   org_slug: string;
@@ -239,7 +239,7 @@ export interface AdminUserInvitation {
   is_expired: boolean;
 }
 
-export interface AdminUserOrgMembership {
+interface AdminUserOrgMembership {
   org_id: string;
   org_slug: string;
   org_name: string;
@@ -247,7 +247,7 @@ export interface AdminUserOrgMembership {
   joined_at: string;
 }
 
-export interface AdminUserWorkspaceMembership {
+interface AdminUserWorkspaceMembership {
   workspace_id: string;
   workspace_name: string;
   role: string;
@@ -324,7 +324,7 @@ export interface AdminWorkspaceDetail extends AdminWorkspaceRow {
   current_revision_id: string | null;
 }
 
-export interface AdminWorkspaceMember {
+interface AdminWorkspaceMember {
   user_id: string;
   email: string;
   name: string;

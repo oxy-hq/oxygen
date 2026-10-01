@@ -63,22 +63,6 @@ export function formatReceivedAt(iso: string): string {
   });
 }
 
-export function formatSegmentRange(startIso: string, endIso: string): string {
-  const start = new Date(startIso);
-  const end = new Date(endIso);
-  const startFmt = start.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-  const endFmt = end.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-  return `${startFmt} → ${endFmt}`;
-}
-
 /**
  * Duration in seconds, used as the `?duration=` query for the clip
  * playback proxy. Clamped at 600 to match the server-side cap.
@@ -154,25 +138,6 @@ export function apiErrorMessage(err: unknown): string {
 }
 
 /**
- * Friendly "23m ago" / "3h ago" / "2d ago" / "—" — only used in the
- * site rollup grid where we want a compact "when did this camera
- * last fire" cell.
- */
-export function relativeTime(iso: string | null): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const seconds = Math.max(0, Math.round((now - then) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-/**
  * Three-tier severity ladder for the timeline.
  *
  * - `critical` — violation that landed within the last hour. These
@@ -210,18 +175,6 @@ export function severityDotClass(s: Severity): string {
       return "bg-amber-500";
     case "info":
       return "bg-emerald-500";
-  }
-}
-
-/** Tailwind class for thumbnail / card border highlights. */
-export function severityBorderClass(s: Severity): string {
-  switch (s) {
-    case "critical":
-      return "ring-2 ring-destructive/60";
-    case "warning":
-      return "ring-2 ring-amber-500/50";
-    case "info":
-      return "ring-1 ring-border";
   }
 }
 

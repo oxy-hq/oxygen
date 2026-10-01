@@ -33,7 +33,7 @@ import {
  *  - `cross-document` — a real navigation. A load event follows, and the
  *    document the frame is leaving will report itself on the way past.
  */
-export type PreviewNavigation = "none" | "same-document" | "cross-document";
+type PreviewNavigation = "none" | "same-document" | "cross-document";
 
 export interface PreviewHistory {
   /** The location the preview is showing, absolute. `null` before first load. */

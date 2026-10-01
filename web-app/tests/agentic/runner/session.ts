@@ -21,8 +21,8 @@ import type { BackendMode } from "./types";
  * The runner (backend.ts) and CI seed it from this checkout's `demo_project/`,
  * the fixture the flows are authored against.
  */
-export const DEFAULT_FLOW_EMAIL = "flow@oxy.local";
-export const DEMO_ORG_SLUG = "local";
+const DEFAULT_FLOW_EMAIL = "flow@oxy.local";
+const DEMO_ORG_SLUG = "local";
 export const DEMO_WORKSPACE_ID = "70787bb2-e11b-5488-b2c3-02e60d5fc7d3";
 
 /** `OXY_FLOW_EMAIL` overrides the identity the runner signs in as. */
@@ -31,11 +31,11 @@ export function flowEmail(): string {
 }
 
 /** Workspace-scoped path prefix for the Demo workspace. */
-export function demoPathPrefix(): string {
+function demoPathPrefix(): string {
   return `/${DEMO_ORG_SLUG}/workspaces/${DEMO_WORKSPACE_ID}`;
 }
 
-export function isLoopbackUrl(url: string): boolean {
+function isLoopbackUrl(url: string): boolean {
   const host = new URL(url).hostname;
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
 }
@@ -109,7 +109,7 @@ async function mintSession(base: string, email: string): Promise<{ token: string
  * (`OXY_GLOBAL_ADMINS=<flow email> oxy seed --workspace-path demo_project`)
  * is what makes it the Owner of `local`.
  */
-export function explain(status: number): string {
+function explain(status: number): string {
   switch (status) {
     case 404:
       return "dev-login is disabled on this server: start it with OXY_DEV_LOGIN_EMAILS including the flow identity";

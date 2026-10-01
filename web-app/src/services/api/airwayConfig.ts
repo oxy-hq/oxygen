@@ -25,13 +25,13 @@ export type AirwayContractPolicy = "permissive" | "require_declared" | "forbid_o
 /** Wire spellings `AirwayAdmission::from_strings` accepts for `environment`. */
 export type AirwayEnvironment = "production" | "sandbox";
 
-export const AIRWAY_CONTRACT_POLICIES: readonly AirwayContractPolicy[] = [
+const AIRWAY_CONTRACT_POLICIES: readonly AirwayContractPolicy[] = [
   "permissive",
   "require_declared",
   "forbid_opaque"
 ];
 
-export const AIRWAY_ENVIRONMENTS: readonly AirwayEnvironment[] = ["production", "sandbox"];
+const AIRWAY_ENVIRONMENTS: readonly AirwayEnvironment[] = ["production", "sandbox"];
 
 /**
  * A stored `contract_policy` / `environment`, narrowed to a spelling this
@@ -121,7 +121,7 @@ export interface UpsertAirwayConfigBody {
  * other is a gap nobody has filled, and only the second is fixable by
  * declaring a contract.
  */
-export type AirwayMutability = "immutable" | "versioned" | "opaque" | "undeclared";
+type AirwayMutability = "immutable" | "versioned" | "opaque" | "undeclared";
 
 export interface AirwayResourceVerdict {
   /**
@@ -338,7 +338,7 @@ export interface AirwayInstalledScope {
   installed_in_this_process: boolean;
 }
 
-export type AirwayDriftStatus = "in_sync" | "drifted" | "unknown";
+type AirwayDriftStatus = "in_sync" | "drifted" | "unknown";
 
 /**
  * `unknown` is a real answer and must never render as a green tick: "this

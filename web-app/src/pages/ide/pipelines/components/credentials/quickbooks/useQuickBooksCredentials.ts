@@ -12,7 +12,7 @@ export interface QuickBooksScaffoldConfig {
 }
 
 /** Shared dialog fields restored from a stashed wizard after an OAuth redirect. */
-export interface QbRestoredFields {
+interface QbRestoredFields {
   destinationDb: string | null;
   name: string;
   description: string;

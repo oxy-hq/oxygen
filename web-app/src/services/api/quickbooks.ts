@@ -9,11 +9,6 @@ export const QB_CONNECT_MESSAGE = "quickbooks-connected";
  *  full-page OAuth redirect (mobile / popup-blocked mode). */
 export const QB_WIZARD_STASH_KEY = "qb-pipeline-wizard-stash";
 
-export interface QuickBooksConnectedMessage {
-  type: typeof QB_CONNECT_MESSAGE;
-  realmId: string;
-}
-
 export interface QuickBooksAuthorizeBody {
   client_id: string;
   /** Plaintext secret to store under `client_secret_var`; omit to reuse an

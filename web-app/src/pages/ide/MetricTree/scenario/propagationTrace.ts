@@ -15,7 +15,7 @@ import type { DriverForm, FittedDriver, MetricEdge, MetricTree } from "@/types/m
  *  - `none` — a component edge, whose quantitative content is its `sign`, or a
  *    driver edge nothing tried to size.
  */
-export type CoefficientSource = "declared" | "fitted" | "refused" | "none";
+type CoefficientSource = "declared" | "fitted" | "refused" | "none";
 
 /** One edge traversed on the way from a lever to an impacted measure. */
 export interface TraceHop {

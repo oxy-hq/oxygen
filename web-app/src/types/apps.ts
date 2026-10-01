@@ -4,7 +4,7 @@ import type { AppVisibility } from "./appAccess";
  * Tagged source spec — matches the backend `SourceSpec` enum. The build store
  * (`s3`) is the only source; `v0` and `local` were removed on 2026-09-17.
  */
-export type CustomAppSource = { type: "s3" };
+type CustomAppSource = { type: "s3" };
 
 export interface CustomApp {
   id: string;
@@ -100,7 +100,7 @@ export interface CustomApp {
  * Per-app outcome in a batch publish / unpublish / delete response.
  * `ok = false` carries a short reason so the UI can name which apps failed.
  */
-export interface BatchAppItemResult {
+interface BatchAppItemResult {
   id: string;
   ok: boolean;
   error?: string;
@@ -208,7 +208,7 @@ export interface AppFunctionSummary {
 /** Where a secret's declaration came from. `undeclared` means it is stored but
  *  nothing in the active build asks for it — normal for a key a function wrote
  *  itself via `ctx.secrets.set`, such as a refreshed OAuth token. */
-export type AppSecretSource = "manifest" | "webhook" | "undeclared";
+type AppSecretSource = "manifest" | "webhook" | "undeclared";
 
 /** One key in an app's secrets view: what the build asks for, unioned with what
  *  is actually stored. A value is never included — reveal is a separate call. */
@@ -401,7 +401,7 @@ export interface FleetStorageResponse {
   hardLimitBytes: number | null;
 }
 
-export interface StorageObject {
+interface StorageObject {
   key: string;
   /** Key with the silo prefix stripped. */
   path: string;
@@ -412,7 +412,7 @@ export interface StorageObject {
   expireAfter?: string;
 }
 
-export interface StorageRetentionRule {
+interface StorageRetentionRule {
   prefix: string;
   expireAfter: string | null;
 }
@@ -464,7 +464,7 @@ export interface AvailabilityWindow {
  * `no_opinion` is a first-class answer, not an error: an app with no traffic
  * has not been shown to work. Render it as "no data", never as a green tick.
  */
-export type AvailabilityVerdict = "no_opinion" | "healthy" | "burning";
+type AvailabilityVerdict = "no_opinion" | "healthy" | "burning";
 
 export interface AppAvailability {
   app_id: string;
@@ -513,7 +513,7 @@ export interface AppHealthRow {
   window_minutes: number;
 }
 
-export interface FleetSummary {
+interface FleetSummary {
   down: number;
   degraded: number;
   not_measured: number;

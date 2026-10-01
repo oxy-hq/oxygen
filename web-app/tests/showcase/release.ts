@@ -12,7 +12,7 @@ export interface AnnouncedPr {
   text: string;
 }
 
-export const PER_SECTION = 5;
+const PER_SECTION = 5;
 
 export function announcedPrs(subjects: string[]): AnnouncedPr[] {
   const parsed: AnnouncedPr[] = [];
@@ -29,7 +29,7 @@ export function announcedPrs(subjects: string[]): AnnouncedPr[] {
 }
 
 /** Slack mrkdwn escaping, as the announcement applies it. */
-export function slackEscape(s: string): string {
+function slackEscape(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 

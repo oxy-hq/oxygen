@@ -15,10 +15,10 @@ import { isWorkspaceMaterializingError } from "@/libs/utils/ideHealth";
  * `materializingTimedOut`); a cap that only silenced the network would leave a
  * stuck volume spinning forever.
  */
-export const MATERIALIZING_MAX_RETRIES = 24;
+const MATERIALIZING_MAX_RETRIES = 24;
 
 /** React Query's own default, preserved for every other failure. */
-export const DEFAULT_RETRIES = 3;
+const DEFAULT_RETRIES = 3;
 
 /**
  * A workspace still materialising gets a long leash; everything else keeps

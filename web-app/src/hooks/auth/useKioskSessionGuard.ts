@@ -95,10 +95,7 @@ export function useKioskSessionGuard(): KioskSessionState {
  * not a kiosk (which is also how a failed probe reads), or a server that does
  * not report the cookie.
  */
-export function kioskSessionEnded(
-  device: KioskDevice | undefined,
-  tokenSubject: string | null
-): boolean {
+function kioskSessionEnded(device: KioskDevice | undefined, tokenSubject: string | null): boolean {
   if (!device?.bound || device.sessionUserId === undefined) {
     return false;
   }

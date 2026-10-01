@@ -8,14 +8,14 @@ import { formatSegment } from "./worldModelNav";
 /** The stop reason, in words, said where the chain ends. Every variant is
  *  spelled out: a bare `MaxDepth` reads as an error, and an unglossed
  *  `GateInconclusive` hides that the search chose to stop, not that it finished. */
-export const STOP_REASON_COPY: Record<StopReason, string> = {
+const STOP_REASON_COPY: Record<StopReason, string> = {
   NoCandidates: "no further splits — the chain bottomed out",
   GateInconclusive: "stopped — the next split couldn't be proven",
   MaxDepth: "reached the depth limit",
   GateFailed: "the next split was within sampling noise"
 };
 
-export const UNPROVEN_HELP =
+const UNPROVEN_HELP =
   "This split's gap couldn't be told apart from sampling noise, so it's followed as the largest candidate but not proven. Confirm it against the data before acting on it.";
 
 export const METHOD_HELP =
@@ -23,7 +23,7 @@ export const METHOD_HELP =
 
 /** A candidate's human label: `dimension = value` for a segment split, the child
  *  measure's short name for a component split. */
-export function candidateLabel(kind: CandidateKind): string {
+function candidateLabel(kind: CandidateKind): string {
   if ("Dimension" in kind) {
     return `${kind.Dimension.dimension} = ${formatSegment(kind.Dimension.value)}`;
   }

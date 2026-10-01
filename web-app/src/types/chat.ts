@@ -277,7 +277,7 @@ export type ThreadCreateRequest = {
   source_type: string;
 };
 
-export type PaginationInfo = {
+type PaginationInfo = {
   page: number;
   limit: number;
   total: number;

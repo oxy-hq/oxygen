@@ -89,7 +89,7 @@ function DriverRow({
 }
 
 /** Render an already-assembled breakdown tree. */
-export function WorldModelDriverTree({ breakdown }: { breakdown: WmMeasureBreakdown }) {
+function WorldModelDriverTree({ breakdown }: { breakdown: WmMeasureBreakdown }) {
   const root = breakdown.nodes.find((n) => n.id === breakdown.root);
   if (!root) return null;
   return <DriverRow node={root} nodes={breakdown.nodes} edges={breakdown.edges} depth={0} />;

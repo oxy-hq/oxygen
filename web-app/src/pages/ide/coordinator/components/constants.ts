@@ -223,7 +223,7 @@ export const isSystemSource = (source: string | null | undefined): boolean =>
  *  re-spelled at each site: the job-type badge would misclassify them (they are
  *  not agent / DAG / ELT), and there is no per-occurrence run to replay, so the
  *  server rejects a backfill for them and the UI must not offer one. */
-export const SYSTEM_MANAGED_TARGET_KINDS: readonly string[] = [
+const SYSTEM_MANAGED_TARGET_KINDS: readonly string[] = [
   "monitor_scan",
   "health_eval",
   "preagg_cycle"

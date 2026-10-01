@@ -119,7 +119,7 @@ export interface ExecutionTimeBucket {
 
 // ── Latency percentiles ───────────────────────────────────────────────────
 // GET /{projectId}/execution-analytics/percentiles?days=N
-export interface LatencyPercentiles {
+interface LatencyPercentiles {
   p50Ms: number;
   p95Ms: number;
   p99Ms: number;
@@ -142,7 +142,7 @@ export interface PercentilesResponse {
 
 // ── Latency histogram ──────────────────────────────────────────────────────
 // GET /{projectId}/execution-analytics/histogram?days=N
-export interface HistogramBucket {
+interface HistogramBucket {
   upperMs: number;
   count: number;
 }
@@ -156,7 +156,7 @@ export interface HistogramResponse {
 
 // ── Cost & tokens by model ─────────────────────────────────────────────────
 // GET /{projectId}/execution-analytics/cost?days=N
-export interface ModelCost {
+interface ModelCost {
   model: string;
   calls: number;
   tokens: number;

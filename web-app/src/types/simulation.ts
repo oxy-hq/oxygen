@@ -45,14 +45,14 @@ export interface SimulationSpecInput {
   lever: LeverSpecInput;
 }
 
-export interface EntitiesSpecInput {
+interface EntitiesSpecInput {
   /** Panels. `dof = n - (n_panels + k)`, so this is not free. */
   count: number;
   /** Log-space spread of entity size. */
   scale_sigma: number;
 }
 
-export interface BaselineSpecInput {
+interface BaselineSpecInput {
   /** Sales for a typical entity on a typical day, before any marketing effect. */
   sales_per_entity_day: number;
   /** Contribution margin, in (0, 1). Sets where the profit optimum lands. */
@@ -73,7 +73,7 @@ export interface BaselineSpecInput {
  *  enough movement to identify a slope on an otherwise well-behaved world. */
 export const DEFAULT_BUDGET_JITTER_SD = 0.12;
 
-export interface CalibrateSpecInput {
+interface CalibrateSpecInput {
   /** Reference spend, as a share of baseline daily sales. */
   anchor_spend_share: number;
   /** Marginal sales per unit of spend, evaluated at the anchor spend. */
@@ -145,7 +145,7 @@ export type Policy = "hold" | "legacy" | "machine" | "machine_explore" | "oracle
 
 export const POLICIES: Policy[] = ["hold", "legacy", "machine", "machine_explore", "oracle"];
 
-export interface EnqueuedRun {
+interface EnqueuedRun {
   run_id: string;
   simulation: string;
   policy: Policy;
@@ -178,7 +178,7 @@ export interface RunListPage {
   offset?: number;
 }
 
-export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export interface SimulationRun {
   run_id: string;
@@ -258,174 +258,4 @@ export interface RunDetail {
   run: SimulationRun;
   periods: SimulationPeriod[];
   fits: SimulationFit[];
-}
-
-// ── the paired profit race ────────────────────────────────────────────────────
-//
-// `GET /simulations/{name}/race`. Mirrors
-// `crates/app/src/server/api/simulation/runs/race/report.rs` field-for-field.
-//
-// Two things to know before rendering any of it. **Read `horizon` before
-// reading a margin** — every arm is scored at that one period, and a race at
-// period 2 of a 40-period world is a different claim from one at period 40.
-// And every `p_value` is **per-comparison and uncorrected**: `family_size` says
-// how many were run, so copy that ranks arms must either say per-comparison or
-// correct for that number.
-
-/** `?baseline=&horizon=` on `GET /simulations/{name}/race`. */
-export interface RaceQuery {
-  /** The arm every challenger is compared against. Omitted means the first arm
-   *  present in `POLICIES` order — the null (`hold`), else what a customer does
-   *  today (`legacy`), and so on. */
-  baseline?: Policy;
-  /** Score every arm at this period instead of the common one. Period indices
-   *  are 1-based; `0` is a 400. */
-  horizon?: number;
-}
-
-/** One draw of the world under one arm. */
-export interface ReplicateReach {
-  /** The label the run was queued with — what a reader recognises. NOT the
-   *  pairing key, and not unique within an arm once a base seed has moved. */
-  replicate: number;
-  /** Which DRAW of the world this is — half the pairing key, and the readable
-   *  half. `replicate_seed(base, k) = base + k`, so an edit to the spec's
-   *  `seed:` between two queueings makes replicate `k` of two arms different
-   *  worlds, and conversely a shifted base can make two DIFFERENT replicate
-   *  numbers the same world. So: never compare replicate numbers, and render
-   *  the seed next to the replicate wherever a reader is asked to believe two
-   *  rows are the same draw.
-   *
-   *  Same spelling and the same 2^53 caveat as `SimulationRun.seed`, so a
-   *  coverage row can be matched against the run listing by `===`. */
-  seed: number;
-  /** WHICH world — the other half of the pairing key, and the authoritative
-   *  one: a short digest of the spec snapshot the run stored. Two rows across
-   *  arms are one world exactly when `seed` AND `world` both match.
-   *
-   *  The seed alone is not enough. An edit that leaves `seed:` alone —
-   *  `entities.count`, `noise_ratio`, `lag_days`, `period_days`,
-   *  `scale_sigma` — changes the world while the seeds still agree, and
-   *  pairing on the seed there reports the edit as a policy effect. This is
-   *  what a reader looks at when two arms show the same seed and the
-   *  comparison still came back `disjoint_worlds`.
-   *
-   *  An opaque token, stable only within one response: do not store it, do not
-   *  look it up, do not show it as an id. */
-  world: string;
-  /** The deepest period this run recorded. `0` for a run that recorded none —
-   *  a run that died before its first period, which is a fact about the run and
-   *  not a zero-profit result. */
-  reach: number;
-  /** Whether this draw contributed a profit at the horizon. */
-  scored: boolean;
-}
-
-/** One arm, and which of its draws the horizon admitted. */
-export interface ArmCoverage {
-  arm: Policy;
-  /** Every world this arm has a scorable run of, one entry per WORLD, ordered
-   *  by seed, then spec digest, then replicate. */
-  replicates: ReplicateReach[];
-  /** Draws with a `cumulative_profit` row at the horizon. */
-  scored: number;
-  /** Draws without one — dropped from the pairing, counted here. This is what a
-   *  reader looks at when `horizon` is far shallower than expected: one short
-   *  run sets the common horizon for everyone, and `replicates[].reach` names
-   *  which. */
-  short: number;
-}
-
-/** One arm over the PAIRED SUBSET only — not over everything it ran. An arm's
- *  mean across five worlds and another's across three are not comparable
- *  numbers, which is the whole reason a race pairs. */
-export interface ArmScore {
-  arm: Policy;
-  n: number;
-  mean: number | null;
-  /** Bessel-corrected. `null` when `n < 2` — one draw has no spread. Never
-   *  render a `null` here as `0`. */
-  sd: number | null;
-}
-
-export interface PairedTestResult {
-  std_error: number;
-  t: number;
-  /** `n_pairs - 1`, where `n_pairs` counts worlds, not runs. */
-  dof: number;
-  /** Two-sided, against H0 of a zero mean difference. Per-comparison — see
-   *  `ProfitRace.family_size`. */
-  p_value: number;
-  confidence: number;
-  /** On the MEAN DIFFERENCE, not on either arm. */
-  interval_low: number;
-  interval_high: number;
-}
-
-/** Why a comparison carries no test. Every one of these occurs in practice. */
-export type WithheldReason =
-  /** Neither arm scored a world the other did, and BOTH scored something. The
-   *  two arms were run against different worlds — waiting will not fix it, and
-   *  rendering this as an empty margin reads as "no difference", which is the
-   *  opposite of what it means. */
-  | "disjoint_worlds"
-  /** No world the two arms both scored, because one of them scored nothing at
-   *  all. Come back when its runs finish. */
-  | "no_pairs"
-  /** One shared world. The margin is reported; a single draw has no sampling
-   *  distribution behind it. */
-  | "single_pair"
-  /** Every difference was exactly zero — a dead heat. */
-  | "identical_arms"
-  /** Every difference was the same non-zero number; the implied `p = 0` would
-   *  overstate what a few worlds can support. */
-  | "constant_difference";
-
-/** One challenger against the baseline, on the worlds they both scored. */
-export interface RaceComparison {
-  treatment: ArmScore;
-  baseline: ArmScore;
-  /** Worlds both arms scored at the horizon. The sample size of the test. */
-  n_pairs: number;
-  /** Worlds one arm scored and the other did not. A race quietly decided on
-   *  two of five worlds is a different claim from one decided on five, so this
-   *  belongs next to the margin, not in a tooltip. */
-  dropped_unpaired: number;
-  /** Pairs discarded because a profit, or their difference, was not finite.
-   *  Always an upstream bug — surface it rather than hiding it. */
-  dropped_nonfinite: number;
-  /** `mean(treatment - baseline)`. Positive means the treatment earned more.
-   *  `null` only when `n_pairs === 0`. */
-  mean_difference: number | null;
-  /** `null` exactly when `withheld` is set. */
-  test: PairedTestResult | null;
-  withheld: WithheldReason | null;
-}
-
-/** What `GET /simulations/{name}/race` answers with. */
-export interface ProfitRace {
-  simulation: string;
-  /** `null` only when the world has no runs at all. */
-  baseline: Policy | null;
-  /** The period index every arm was scored at. `null` when no run recorded a
-   *  single period. */
-  horizon: number | null;
-  /** True when the caller pinned the horizon, false when it is the deepest
-   *  period every recorded replicate reached. */
-  horizon_pinned: boolean;
-  arms: ArmCoverage[];
-  /** One per challenger, in `POLICIES` order. Empty when only one arm was run —
-   *  which is an answer, not an error. */
-  comparisons: RaceComparison[];
-  /** Older runs of an `(arm, seed)` that a newer TERMINAL run replaced. Two rows
-   *  for one world are one world, so only the newest was scored. */
-  superseded_runs: number;
-  /** Runs of this world still `queued` or `running`, and therefore not scored —
-   *  a race reads only runs that have stopped. Surface it: a race read while
-   *  three of its arms are mid-flight is a different claim from one read when
-   *  they finished, and this is the only thing that says so. */
-  in_flight_runs: number;
-  /** How many comparisons this response ran. At alpha = 0.05 a family of four
-   *  has a family-wise error near 18%. */
-  family_size: number;
 }

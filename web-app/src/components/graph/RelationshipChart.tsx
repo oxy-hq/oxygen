@@ -17,7 +17,7 @@ import { type ComponentType, useEffect, useMemo } from "react";
 import { cn } from "@/libs/shadcn/utils";
 import { layoutTree } from "./elkLayout";
 
-export type NodeTone = "root" | "default" | "muted";
+type NodeTone = "root" | "default" | "muted";
 
 export interface RelationshipNodeData extends Record<string, unknown> {
   label: string;

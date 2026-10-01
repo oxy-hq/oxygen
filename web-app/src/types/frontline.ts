@@ -7,7 +7,7 @@ import type { AssignmentDraft, WorkerAssignment } from "./operatingGraph";
  */
 
 /** `GET /frontline/device` when this browser holds no kiosk cookie. */
-export interface UnboundKioskDevice {
+interface UnboundKioskDevice {
   bound: false;
 }
 
@@ -91,7 +91,7 @@ export interface FrontlineLoginResponse {
 // ── Org admin: the workers and kiosks an org runs. Every route below is
 // `/orgs/{orgId}/frontline/*` and needs an org-admin session.
 
-export type FrontlineWorkerStatus = "active" | "suspended";
+type FrontlineWorkerStatus = "active" | "suspended";
 
 /** One row of `GET /orgs/{orgId}/frontline/workers`, sorted by name. */
 export interface FrontlineWorker {

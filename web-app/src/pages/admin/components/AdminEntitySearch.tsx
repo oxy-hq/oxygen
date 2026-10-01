@@ -47,7 +47,7 @@ import { ADMIN_NAV, ADMIN_NAV_GROUPS, itemReachable } from "../AdminLayout/admin
  * Event name a surface dispatches to open the one admin palette. Exported so the caller
  * and the listener cannot drift on the string.
  */
-export const ADMIN_PALETTE_OPEN = "admin-palette:open";
+const ADMIN_PALETTE_OPEN = "admin-palette:open";
 
 /** Open the admin palette from anywhere, without a second ⌘K binding. */
 export const openAdminPalette = () => window.dispatchEvent(new CustomEvent(ADMIN_PALETTE_OPEN));

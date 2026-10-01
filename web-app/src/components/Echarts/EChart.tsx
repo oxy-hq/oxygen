@@ -11,7 +11,7 @@ import { cn } from "@/libs/shadcn/utils";
  * Map of ECharts event name → handler. Pass a memoized object (useMemo /
  * useCallback) so handlers are not rebound on every render.
  */
-export type EChartEventHandlers = Record<string, (params: ECElementEvent) => void>;
+type EChartEventHandlers = Record<string, (params: ECElementEvent) => void>;
 
 interface EChartProps {
   /** The chart option. Rebuild (memoize) it when data changes — it drives `setOption`. */

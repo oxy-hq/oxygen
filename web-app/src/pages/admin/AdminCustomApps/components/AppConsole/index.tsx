@@ -16,7 +16,7 @@ import { Secrets } from "../AppDetail/components/Secrets";
 import { useAppViewState } from "../AppDetail/useAppViewState";
 import { AppIdentity } from "../AppIdentity";
 import { statusTone } from "../AppSwitcher";
-import { ConsolePanel, PanelRow } from "../ConsolePanel";
+import { ConsolePanel } from "../ConsolePanel";
 import { AppStoragePanel } from "./AppStoragePanel";
 import { PreviewCard } from "./PreviewCard";
 import { PublishCiPanel } from "./PublishCiPanel";
@@ -210,5 +210,3 @@ export const AppConsole = ({
     </div>
   );
 };
-
-export { PanelRow };

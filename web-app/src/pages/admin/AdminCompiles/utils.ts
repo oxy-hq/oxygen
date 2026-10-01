@@ -1,13 +1,6 @@
 import { cn } from "@/libs/shadcn/utils";
 import { ADMIN_TONE, type AdminTone } from "@/pages/admin/components/adminTone";
 
-/** Slice a possibly-undefined string. Lets rows render without crashing
- *  on a malformed row from a misconfigured deployment. */
-export function safeSlice(value: string | null | undefined, end: number): string {
-  if (typeof value !== "string") return "—";
-  return value.slice(0, end);
-}
-
 export function formatMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
@@ -31,7 +24,7 @@ export function formatRelative(iso: string | null | undefined): string {
  *  colours here (emerald=ready, destructive=failed, amber=compiling); the
  *  console now has one status vocabulary, so the mapping names a tone and
  *  `adminTone.ts` owns the colour. */
-export function compileTone(status: string | null | undefined): AdminTone {
+function compileTone(status: string | null | undefined): AdminTone {
   switch (status) {
     case "ready":
       return "ok";

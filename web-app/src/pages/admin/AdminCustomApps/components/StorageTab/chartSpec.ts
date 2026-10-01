@@ -35,10 +35,10 @@ import { formatBytes } from "./utils";
  */
 
 /** The one hue every chart on this surface uses. */
-export const SERIES_TOKEN = "--chart-seq-4";
+const SERIES_TOKEN = "--chart-seq-4";
 
 /** Bytes no retention rule covers. Reserved status color, never a series hue. */
-export const UNTAGGED_TOKEN = "--warning";
+const UNTAGGED_TOKEN = "--warning";
 
 /** Axis/grid ink. Recessive on purpose — the data is the figure, not the frame. */
 const AXIS_TOKEN = "--muted-foreground";

@@ -10,7 +10,7 @@ import useViewFiles from "@/hooks/api/useViewFiles";
 import { detectFileType } from "@/utils/fileTypes";
 import { getFileTypeIcon } from "../Files/FilesSidebar/utils";
 
-export type SemanticObjectKind = "topic" | "view";
+type SemanticObjectKind = "topic" | "view";
 
 export interface SemanticObjectItem {
   kind: SemanticObjectKind;

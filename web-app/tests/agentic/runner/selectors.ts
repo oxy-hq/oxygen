@@ -274,7 +274,7 @@ function uniqueByRank(
   return unique.map((c, i) => ({ kind: c.kind, selector: c.selector, rank: i }));
 }
 
-export function classifySelector(selector: string): SelectorKind {
+function classifySelector(selector: string): SelectorKind {
   if (/\[data-testid[=~]/.test(selector)) return "testid";
   if (/^role=/.test(selector)) return "role_name";
   if (/^text=/.test(selector)) return "text";

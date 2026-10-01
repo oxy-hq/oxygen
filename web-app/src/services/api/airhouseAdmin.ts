@@ -58,7 +58,7 @@ export interface AirhouseFleet {
   truncated: FleetTruncation;
 }
 
-export interface FleetTruncation {
+interface FleetTruncation {
   /** Workspaces without a warehouse were cut. The provisioned half is whole. */
   unprovisioned: boolean;
   /** The provisioned half hit its own cap, so a warehouse may be missing. */

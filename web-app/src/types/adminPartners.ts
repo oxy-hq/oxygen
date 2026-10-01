@@ -34,7 +34,7 @@ export interface AdminPartnerSummary {
   created_at: string;
 }
 
-export interface AdminPartnerOrgLink {
+interface AdminPartnerOrgLink {
   org_id: string;
   org_name: string | null;
   org_slug: string | null;
@@ -42,7 +42,7 @@ export interface AdminPartnerOrgLink {
 }
 
 /** One member of the partner org. Staff see everyone, flagged by access. */
-export interface AdminPartnerPerson {
+interface AdminPartnerPerson {
   /** Their membership in the partner org — the access row's key. */
   org_member_id: string;
   user_id: string;

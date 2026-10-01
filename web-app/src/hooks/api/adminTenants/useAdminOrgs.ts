@@ -166,17 +166,3 @@ export const useDeleteAdminOrgLogo = () => {
     onError: (err) => toast.error(errMessage(err, "Failed to remove logo"))
   });
 };
-
-export const useTransferOrgOwnership = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ orgId, newOwnerUserId }: { orgId: string; newOwnerUserId: string }) =>
-      AdminOrgsService.transferOwnership(orgId, newOwnerUserId),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.adminOrgs.detail(vars.orgId) });
-      qc.invalidateQueries({ queryKey: queryKeys.adminOrgs.all });
-      toast.success("Ownership transferred");
-    },
-    onError: (err) => toast.error(errMessage(err, "Failed to transfer ownership"))
-  });
-};

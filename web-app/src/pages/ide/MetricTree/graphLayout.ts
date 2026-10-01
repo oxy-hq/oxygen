@@ -7,7 +7,7 @@ import type { ScenarioNodeData } from "./scenario/nodeValue";
 
 // Card geometry and the ELK runner are shared with the World Model — see
 // `pages/ide/components/semanticGraph`.
-export { layoutWithElk, NODE_WIDTH } from "../components/semanticGraph";
+export { layoutWithElk } from "../components/semanticGraph";
 
 /** Static handle bounds mirroring the four <Handle>s `GraphNodeHandles` renders.
  *

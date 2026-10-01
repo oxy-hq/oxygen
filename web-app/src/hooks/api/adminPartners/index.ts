@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AdminPartnersService } from "@/services/api/adminPartners";
-import type { AdminPartnerCapabilities, GrantPartnershipInput } from "@/types/adminPartners";
+import type { AdminPartnerCapabilities } from "@/types/adminPartners";
 import queryKeys from "../queryKey";
 
 export const useAdminPartners = () =>
@@ -28,23 +28,6 @@ function useInvalidate() {
     }
   };
 }
-
-export const useGrantPartnership = () => {
-  const invalidate = useInvalidate();
-  return useMutation({
-    mutationFn: (input: GrantPartnershipInput) => AdminPartnersService.grant(input),
-    onSuccess: (p) => {
-      invalidate(p.org_id);
-      toast.success(`${p.name} is now a partner`);
-    },
-    onError: (e: unknown) =>
-      toast.error(
-        isConflict(e)
-          ? "That org is already managed by another partner"
-          : "Failed to grant the partnership"
-      )
-  });
-};
 
 /** Withdraw the partnership. The org survives — only its reach over others goes. */
 export const useRevokePartnership = () => {

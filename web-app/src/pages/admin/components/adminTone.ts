@@ -59,11 +59,3 @@ export const ADMIN_TONE: Record<AdminTone, AdminToneClasses> = {
     ring: "ring-border"
   }
 };
-
-/** Severity order, worst first — the order a triage list sorts by. */
-export const ADMIN_TONE_SEVERITY: readonly AdminTone[] = ["danger", "warn", "info", "muted", "ok"];
-
-/** The worst tone in a set, or `ok` for an empty one. */
-export function worstTone(tones: readonly AdminTone[]): AdminTone {
-  return ADMIN_TONE_SEVERITY.find((t) => tones.includes(t)) ?? "ok";
-}

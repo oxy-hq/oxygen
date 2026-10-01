@@ -21,7 +21,7 @@
  * follows the rule above.
  */
 
-export type Device = "desktop" | "tablet" | "mobile";
+type Device = "desktop" | "tablet" | "mobile";
 export type ChannelView = "published" | "draft";
 export type SectionId =
   | "status"
@@ -65,7 +65,7 @@ const SECTIONS: readonly SectionId[] = [
 ];
 
 /** Query-param names, in one place so the reader and the writer cannot drift. */
-export const PARAM = {
+const PARAM = {
   device: "device",
   channel: "channel",
   section: "section",

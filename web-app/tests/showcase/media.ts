@@ -4,7 +4,7 @@
 
 import { spawnSync } from "node:child_process";
 
-export function ffmpegAvailable(): boolean {
+function ffmpegAvailable(): boolean {
   return spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).status === 0;
 }
 

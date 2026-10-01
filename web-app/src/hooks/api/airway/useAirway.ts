@@ -313,7 +313,7 @@ export const useAirwayCoverage = (rangeId: string | undefined): UseQueryResult<C
  * on the render *before* the effect subscribes, so a caller keyed off `settled`
  * never flashes a terminal message on the way to opening the stream.
  */
-export type AirwayStreamStatus = "idle" | "open" | "closed";
+type AirwayStreamStatus = "idle" | "open" | "closed";
 
 export type AirwayRunStreamHandle = {
   /** Folded view model for the phase bar + resource grid. */

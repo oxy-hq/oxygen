@@ -30,7 +30,7 @@ export type Site = {
  *   - `invalid_url`   → camera_name (if parseable) + old_url + error
  *   - `ambiguous_name`→ camera_name + error
  */
-export type BulkRewriteOutcome =
+type BulkRewriteOutcome =
   | "rewritten"
   | "no_match"
   | "parse_error"
@@ -47,7 +47,7 @@ export type BulkRewriteItem = {
   error: string | null;
 };
 
-export type BulkRewriteSummary = {
+type BulkRewriteSummary = {
   rewritten: number;
   no_match: number;
   parse_error: number;
@@ -237,11 +237,11 @@ export type ComplianceReport = {
   received_at: string;
 };
 
-export type AgreementStatus = "agree" | "disagree" | "inconclusive";
+type AgreementStatus = "agree" | "disagree" | "inconclusive";
 
-export type ClassAgreement = "agree" | "vlm_only_missing" | "yolo_only_missing";
+type ClassAgreement = "agree" | "vlm_only_missing" | "yolo_only_missing";
 
-export type AgreementDetail = {
+type AgreementDetail = {
   per_class: Record<string, ClassAgreement>;
 };
 
@@ -272,7 +272,7 @@ export type PpeDetectionsEnvelope = {
   detections: PpeDetection[];
 };
 
-export type PpeDetection = {
+type PpeDetection = {
   /** YOLO class label — e.g. "person", "hat", "hairnet", "apron", "glove", "mask". */
   class: string;
   /** Model confidence in [0,1]. */
@@ -383,20 +383,20 @@ export type CameraComplianceSummary = {
 // by `GET /{wid}/fleet/dashboard?since=&site_id=?` — single round-trip
 // replacement for the per-site fan-out the dashboard used in v0.
 
-export type DashboardTotals = {
+type DashboardTotals = {
   detections: number;
   violations: number;
   cameras_total: number;
   cameras_with_activity: number;
 };
 
-export type HourlyBucket = {
+type HourlyBucket = {
   hour: string;
   detections: number;
   violations: number;
 };
 
-export type DashboardCameraStat = {
+type DashboardCameraStat = {
   camera_id: string;
   camera_name: string;
   detections: number;
@@ -435,7 +435,7 @@ export type RecentAlertRow = {
 // `host_id` / `host_name` / `cameras` which 404'd every cell at
 // render time).
 
-export type UnifiPreviewSite = {
+type UnifiPreviewSite = {
   unifi_console_id: string;
   name: string;
   public_ip: string | null;
@@ -1153,7 +1153,7 @@ export const CameraService = {
 
 // ── Camera health (mirror crates/cameras/src/service/camera_health.rs) ──────
 
-export type CameraHealthStatus = "ok" | "degraded" | "stale" | "unknown";
+type CameraHealthStatus = "ok" | "degraded" | "stale" | "unknown";
 
 export type CameraHealthRow = {
   camera_id: string;
@@ -1170,7 +1170,7 @@ export type CameraHealthRow = {
 /** Range param accepted by the cost endpoints. */
 export type CostRange = "24h" | "7d" | "30d";
 
-export type CostByModel = {
+type CostByModel = {
   model: string;
   reports: number;
   tokens_used: number;
@@ -1274,7 +1274,7 @@ function cleanAuditParams(f: AuditFilter): Record<string, string | number> {
 
 // ── Fleet (mirror crates/cameras/src/service/fleet.rs) ──────────────────────
 
-export type FleetClaimStatus = "pending_claim" | "claimed" | "revoked";
+type FleetClaimStatus = "pending_claim" | "claimed" | "revoked";
 
 /** Returned from `DELETE /{wid}/cameras/fleet`. The UI uses
  *  these flags to render a toast summarizing what changed. */
@@ -1355,7 +1355,7 @@ export type BudgetStatus = {
  * Backend renders against a dummy context at PUT time so a typo
  * here returns 400 before it ever ships to a worker.
  */
-export type DomainPackRole = {
+type DomainPackRole = {
   role_key: string;
   label: string;
   hint: string;

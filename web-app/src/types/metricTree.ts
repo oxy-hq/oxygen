@@ -3,10 +3,10 @@ import type { WmBreakdownEdge } from "./worldModel";
 // Metric tree types — mirror the airlayer structs serialized by the
 // `/semantic/metric-tree*` endpoints (snake_case, as serde emits them).
 
-export type EdgeKind = "component" | "driver";
-export type DriverDirection = "positive" | "negative" | "unknown";
+type EdgeKind = "component" | "driver";
+type DriverDirection = "positive" | "negative" | "unknown";
 export type DriverStrength = "strong" | "moderate" | "weak";
-export type DriverConfidence = "high" | "medium" | "low";
+type DriverConfidence = "high" | "medium" | "low";
 /** The shape of a driver relationship. Each maps to a basis of transformed
  *  regressors plus a link on the target (airlayer `engine::response`), which is
  *  why adding one is a table row rather than a new code path.
@@ -113,7 +113,7 @@ export interface SensitivityResult {
 
 // ── predict ─────────────────────────────────────────────────────────────────
 
-export interface PredictInput {
+interface PredictInput {
   measure: string;
   delta: number;
 }
@@ -158,7 +158,7 @@ export type UnvaluedReason =
   // could not be expressed against it. The baseline note carries the reason.
   | "not_queried";
 
-export interface UnvaluedNode {
+interface UnvaluedNode {
   node_id: string;
   reason: UnvaluedReason;
 }
@@ -309,7 +309,7 @@ export interface ProjectionRequest {
   seasonality?: number[];
 }
 
-export interface HistoryPoint {
+interface HistoryPoint {
   /** Bucket start, `YYYY-MM-DD`. */
   date: string;
   value: number;
@@ -367,7 +367,7 @@ export type SplitKind =
   | { type: "uniform_degradation"; dimension: string; num_elements: number }
   | { type: "cross_cutting"; dimension: string; value: string; measures: string[] };
 
-export interface ExplainSibling {
+interface ExplainSibling {
   split: SplitKind;
   measure: string;
   delta: number;
@@ -395,7 +395,7 @@ export interface ExplainNode {
  *  `direction: negative` relationship means the fall pushed net sales up.
  *  `unknown` = no signed claim available (`direction: unknown` with no
  *  coefficient, or a flat driver/target). */
-export type DriverContribution = "contributing" | "counteracting" | "unknown";
+type DriverContribution = "contributing" | "counteracting" | "unknown";
 
 /** A driver's move split into the part its base forced and the part its own
  *  ratio contributed. Mirrors `airlayer::…::PassthroughSplit`.
@@ -484,7 +484,7 @@ export interface ExplainResult {
 
 /** How a segment's benchmark is computed from its peers. Serde
  *  `rename_all = "snake_case"`: `"median"` | `"p75"` | `"best_peer"`. */
-export type BenchmarkStatistic = "median" | "p75" | "best_peer";
+type BenchmarkStatistic = "median" | "p75" | "best_peer";
 
 export interface SegmentOpportunity {
   segment: string;
@@ -520,7 +520,7 @@ export interface DimensionOpportunity {
   segments_dropped_as_noise: number;
 }
 
-export interface SkippedDimension {
+interface SkippedDimension {
   dimension: string;
   reason: string;
 }
@@ -557,7 +557,7 @@ export type StopReason = "GateFailed" | "GateInconclusive" | "NoCandidates" | "M
 
 /** A minimal mirror of airlayer's `QueryFilter` — the panel only needs
  *  `member` + `values` off of it. */
-export interface DrillFilter {
+interface DrillFilter {
   member?: string;
   values: string[];
 }
@@ -582,14 +582,6 @@ export interface DrillLevel {
   stop_reason: StopReason | null;
 }
 
-export interface DrillResult {
-  target: string;
-  root_gap: number;
-  root_upside: number;
-  benchmark_filter: DrillFilter[];
-  levels: DrillLevel[];
-}
-
 /** Response of `POST /semantic/metric-tree/drill`. Mirrors
  *  `DrillResponse { #[serde(flatten)] result: Option<DrillResult>, rate_denominator }`:
  *  a `Some` result flattens `DrillResult`'s fields to the top level; a `None`
@@ -609,7 +601,7 @@ export interface DrillResponse {
 /** Mirrors `airlayer::engine::metric_tree_ops::DrillRoot`. Names WHICH ranked
  *  row to decompose; the engine still derives that row's benchmark, gap and
  *  upside from its own scan. */
-export interface DrillRoot {
+interface DrillRoot {
   dimension: string;
   segment: string;
 }
@@ -648,7 +640,7 @@ export interface PredictChange {
   delta: number;
 }
 
-export interface ExplainConfigOverride {
+interface ExplainConfigOverride {
   deep?: boolean;
   max_depth?: number;
   coverage_threshold?: number;

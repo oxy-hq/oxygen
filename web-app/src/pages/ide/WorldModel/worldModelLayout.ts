@@ -18,7 +18,6 @@ export {
   NODE_HEIGHT_COLLAPSED,
   NODE_WIDTH,
   type NodeSize,
-  type NodeSizeOf,
   type WaypointMap
 } from "../components/semanticGraph";
 
@@ -489,29 +488,27 @@ export function buildBreakdownEdges(
  * -------------------------------------------------------------------------- */
 
 /** Card rows 1–2 (name + grain) plus paddings/gaps, excluding the row-3 body. */
-export const CARD_HEADER_H = 66;
+const CARD_HEADER_H = 66;
 /** One metric-chip row in MetricChipsSection. */
-export const CHIP_ROW_H = 14;
+const CHIP_ROW_H = 14;
 /** border-t + pt-1 above the metric chips. */
-export const CHIPS_HEADER_H = 6;
+const CHIPS_HEADER_H = 6;
 /** The "filter n/total" badge. */
-export const FILTER_BADGE_H = 22;
+const FILTER_BADGE_H = 22;
 /** One descendant sample-chip button (incl. gap). */
-export const SAMPLE_ROW_H = 22;
+const SAMPLE_ROW_H = 22;
 /** The "+N more" browse button (incl. gap). */
-export const MORE_BTN_H = 22;
-/** Default obs/calc counts row (collapsed row-3). */
-export const COUNTS_ROW_H = 14;
+const MORE_BTN_H = 22;
 /** The "filtering…" loading row. */
-export const LOADING_ROW_H = 20;
+const LOADING_ROW_H = 20;
 /** Expanded breakdown card header (label + grain lines + paddings). */
-export const EXPANDED_HEADER_H = 46;
+const EXPANDED_HEADER_H = 46;
 /** One measure row in the expanded card's FlatMeasureList. */
-export const EXPANDED_ROW_H = 42;
+const EXPANDED_ROW_H = 42;
 /** Expanded card body before the breakdown loads (placeholder text). */
-export const EXPANDED_PLACEHOLDER_H = 34;
+const EXPANDED_PLACEHOLDER_H = 34;
 
-export interface FilterCountEntry {
+interface FilterCountEntry {
   matched: number;
   total: number;
   sample?: string[];

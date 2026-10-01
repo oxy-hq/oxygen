@@ -32,8 +32,6 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 const DEMO_PROJECT_DIR = resolve(REPO_ROOT, "demo_project");
 const SCRATCH_SQL = resolve(DEMO_PROJECT_DIR, "test.sql");
 
-export type SetupCommand = "reset_test_file" | `restore_demo_file:${string}` | `goto:${string}`;
-
 export interface SetupContext {
   goto: (url: string) => Promise<void>;
 }

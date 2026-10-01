@@ -24,15 +24,8 @@ export interface CaptureProfile {
   screenshotStyle?: string;
 }
 
-export interface CaptureOutput {
-  screenshot: string;
-  video?: string;
-  /** Milliseconds of video before the start page had settled. */
-  videoStartMs: number;
-}
-
-export const SCREENSHOT_FILE = "screenshot.png";
-export const VIDEO_FILE = "video.webm";
+const SCREENSHOT_FILE = "screenshot.png";
+const VIDEO_FILE = "video.webm";
 
 export function captureContextOptions(profile: CaptureProfile): BrowserContextOptions {
   return {

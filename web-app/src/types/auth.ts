@@ -75,7 +75,7 @@ export interface PartnerCapabilities {
  * the UI hide surfaces this operator can't use. UX-only: the server re-checks on
  * every partner route.
  */
-export interface PartnerMembership {
+interface PartnerMembership {
   /** The partner IS an org, so this is an org id. */
   partner_id: string;
   slug: string;

@@ -23,7 +23,7 @@ export interface CompileRow {
   is_current_for_workspace: boolean;
 }
 
-export interface CompileFailure {
+interface CompileFailure {
   path: string;
   kind: "yaml" | "io" | "shape" | "duplicate" | string;
   message: string;
@@ -75,7 +75,7 @@ export interface ListWorkspaceCompilesResponse {
   total_returned: number;
 }
 
-export interface BatchRunResult {
+interface BatchRunResult {
   workspace_id: string;
   task_id: string | null;
   error: string | null;
@@ -86,7 +86,7 @@ export interface BatchRunResponse {
   results: BatchRunResult[];
 }
 
-export interface BatchPromoteResult {
+interface BatchPromoteResult {
   revision_id: string;
   workspace_id: string | null;
   error: string | null;

@@ -1,6 +1,6 @@
 // Types mirroring the /semantic/world-model response.
 
-export type AdditivityClass = "additive" | "non_additive" | "passthrough";
+type AdditivityClass = "additive" | "non_additive" | "passthrough";
 
 export interface WorldModelMeasure {
   name: string;
@@ -92,10 +92,6 @@ export interface WmEntityCount {
   sample_keys?: string[];
 }
 
-export interface WmFilterCountsResponse {
-  counts: Record<string, WmEntityCount>;
-}
-
 export interface WmFilterCountEvent {
   entity_name: string;
   total?: number;
@@ -125,19 +121,19 @@ export type WmInstanceDetailEvent =
   | { kind: "measure"; computed_measures: WmComputedMeasure[] }
   | { kind: "done" };
 
-export interface WmAttrValue {
+interface WmAttrValue {
   name: string;
   value: string;
   label?: string | null;
 }
 
-export interface WmParentRef {
+interface WmParentRef {
   promotion: string;
   key: string;
   display: string;
 }
 
-export interface WmChildSample {
+interface WmChildSample {
   promotion: string;
   fiber_count: number;
   sample: string[];

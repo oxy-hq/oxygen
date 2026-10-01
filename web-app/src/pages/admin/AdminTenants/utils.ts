@@ -17,7 +17,7 @@ const isWithinDays = (iso: string | null | undefined, days: number): boolean => 
   return Date.now() - t <= days * ONE_DAY_MS;
 };
 
-export const isOlderThanDays = (iso: string | null | undefined, days: number): boolean => {
+const isOlderThanDays = (iso: string | null | undefined, days: number): boolean => {
   if (!iso) return true;
   const t = new Date(iso).getTime();
   return Date.now() - t > days * ONE_DAY_MS;

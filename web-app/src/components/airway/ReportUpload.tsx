@@ -53,18 +53,6 @@ type Item = {
 };
 
 /**
- * Source kinds whose pipelines accept an upload.
- *
- * Must track `UPLOADABLE_SOURCE_KINDS` in
- * `crates/agentic/airway/src/upload_zone.rs` (which `source_upload.rs`
- * re-exports). Duplicated
- * across the language boundary rather than fetched, because the tab has to
- * decide whether to render before any request is made — the server is still
- * the authority, and it refuses anything not on its own list.
- */
-export const UPLOADABLE_SOURCE_KINDS = ["ubereats"];
-
-/**
  * Mirrors `MAX_REPORT_BYTES` in `source_upload.rs`.
  *
  * Checked here so an oversized file is named before it is sent. Past this the

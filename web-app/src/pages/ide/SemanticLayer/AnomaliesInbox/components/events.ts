@@ -109,7 +109,7 @@ function maxSeverity(buckets: MetricAnomaly[]): AnomalySeverity {
  * only. That is the honest render — the write would match nothing — and the
  * Dismissed tab is where such a row is actionable.
  */
-export function writeScope(viewing: AnomalyStatus | "all"): AnomalyStatus[] {
+function writeScope(viewing: AnomalyStatus | "all"): AnomalyStatus[] {
   return viewing === "dismissed" ? [...LIVE_STATUSES, "dismissed"] : [...LIVE_STATUSES];
 }
 

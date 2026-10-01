@@ -128,12 +128,6 @@ export function formatValue(value: number): string {
   return `${trimTrailingZeros((value / scale).toPrecision(3))}${suffix}`;
 }
 
-/** `310_000` → `"+310K"`, `-3` → `"-3"`. Always signed: a delta's direction is
- *  the point, and an unsigned "3" reads as a value rather than a change. */
-export function formatDelta(value: number): string {
-  return `${value > 0 ? "+" : ""}${formatValue(value)}`;
-}
-
 /** `(2_410_000, 2_100_000)` → `"+14.8%"`. */
 export function formatPercent(simulated: number, baseline: number): string {
   if (baseline === 0) return "—";

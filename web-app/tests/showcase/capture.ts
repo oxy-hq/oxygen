@@ -59,7 +59,7 @@ export type CaptureResult =
   | ({ ok: false; cost_usd: number } & CaptureFailure);
 
 export const VIEWPORT = { width: 1440, height: 900 };
-export const RUN_TOKEN_VAR = "SHOWCASE_RUN";
+const RUN_TOKEN_VAR = "SHOWCASE_RUN";
 const SLOW_MO_MS = 400;
 // Sonnet, not the suite's Haiku: on a detailed claim Haiku passed a screen in
 // the record pass and rejected the same screen in the replay. A wrong verdict

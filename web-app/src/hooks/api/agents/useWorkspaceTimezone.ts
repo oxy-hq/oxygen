@@ -4,7 +4,7 @@ import useAgents from "./useAgents";
 /** Fallback when no agent declares a timezone (and the demo/default). The
  *  backend resolves agent→project→UTC, but the product wants Pacific, not
  *  UTC, as the visible default — so the resolution happens here. */
-export const DEFAULT_WORKSPACE_TIMEZONE = "America/Los_Angeles";
+const DEFAULT_WORKSPACE_TIMEZONE = "America/Los_Angeles";
 
 /**
  * The IANA timezone the workspace clock should display, derived from the

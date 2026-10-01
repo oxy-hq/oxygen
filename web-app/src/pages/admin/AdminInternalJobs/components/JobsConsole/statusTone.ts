@@ -14,7 +14,7 @@ export interface StatusTone {
 }
 
 /** Which of the console's five tones a queue status reads as. */
-export function queueStatusTone(status: string): AdminTone | null {
+function queueStatusTone(status: string): AdminTone | null {
   switch (status) {
     case "dead":
       return "danger";

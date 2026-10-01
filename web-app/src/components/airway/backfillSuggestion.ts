@@ -64,7 +64,7 @@ export type ExclusionReason =
    *  nobody was ever asked. */
   | "unreported";
 
-export type ContractWindow = {
+type ContractWindow = {
   resource: string;
   /** Declared `restatement_window_ms`. */
   windowMs: number;
@@ -74,9 +74,9 @@ export type ContractWindow = {
   floorOnly: boolean;
 };
 
-export type ExcludedResource = { resource: string; reason: ExclusionReason };
+type ExcludedResource = { resource: string; reason: ExclusionReason };
 
-export type SuggestedWindow = {
+type SuggestedWindow = {
   /** `YYYY-MM-DD` UTC, matching the modal's date inputs. `toDate` is
    *  **inclusive** — the modal pushes it to the next UTC midnight for the
    *  half-open backend bound. */

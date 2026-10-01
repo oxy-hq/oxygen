@@ -17,7 +17,7 @@ import fetchSSE from "./fetchSSE";
 // - string[][] (default JSON format) - the result array directly
 // - Parquet metadata (when result_format is "parquet") - a file handle plus
 //   `truncated`, which is `true` when the result hit the ad-hoc 10k row cap.
-export type ExecuteSqlParquetResponse = {
+type ExecuteSqlParquetResponse = {
   file_name: string;
   is_preagg?: boolean;
   execution_time_ms?: number;

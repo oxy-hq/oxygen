@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PreaggRollupStatus } from "@/services/api/semantic";
 
-export const rollupKey = (r: Pick<PreaggRollupStatus, "view_name" | "rollup_name">) =>
+const rollupKey = (r: Pick<PreaggRollupStatus, "view_name" | "rollup_name">) =>
   `${r.view_name}.${r.rollup_name}`;
 
 /** How often to re-read the status while something is rebuilding. */

@@ -99,7 +99,7 @@ export type ResetCursorsRequest = {
 };
 
 /** `200` — the cursors moved. */
-export type ResetCursorsCleared = {
+type ResetCursorsCleared = {
   kind: "cleared";
   /** Resources whose cursor was removed, sorted. */
   cleared: string[];
@@ -118,7 +118,7 @@ export type ResetCursorsCleared = {
  * whether to `force` is deciding on exactly these sentences, and a summary of
  * them is a decision made on less than the facts.
  */
-export type ResetCursorsRefused = {
+type ResetCursorsRefused = {
   kind: "refused";
   reasons: string[];
 };
@@ -145,7 +145,7 @@ export type ResetCursorsOutcome =
  * would break. Offering the override here would offer a button that cannot
  * work. Wait for the holder (or cancel it, when it is a run), then rewind.
  */
-export type ResetCursorsPipelineRunning = {
+type ResetCursorsPipelineRunning = {
   kind: "pipeline_running";
   /** The lease holder: a run id, or `cursor-reset:<uuid>` for another reset. */
   run_id: string;
@@ -154,7 +154,7 @@ export type ResetCursorsPipelineRunning = {
 };
 
 /** One chunk's coverage row (mirrors a `backfill_checkpoints` row). */
-export type CoverageChunk = {
+type CoverageChunk = {
   /** ISO 8601. Half-open `[period_start, period_end)`. */
   period_start: string;
   period_end: string;
@@ -166,7 +166,7 @@ export type CoverageChunk = {
   error: string | null;
 };
 
-export type CoverageSummary = {
+type CoverageSummary = {
   total: number;
   done: number;
   /** Loaded envelope: min/max over `done` chunks — NOT necessarily gap-free;
@@ -274,7 +274,7 @@ export type UploadedReport = {
 };
 
 /** A column surfaced by source table discovery. */
-export type DiscoveredColumn = {
+type DiscoveredColumn = {
   name: string;
   /** Native source type (e.g. ClickHouse `Int64`, `Nullable(String)`). */
   data_type: string;

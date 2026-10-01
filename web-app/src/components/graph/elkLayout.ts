@@ -4,8 +4,8 @@ import ELK from "elkjs";
 const elk = new ELK();
 
 /** Default node box — the custom node renders inside this. */
-export const NODE_WIDTH = 220;
-export const NODE_HEIGHT = 64;
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 64;
 
 /**
  * Lay out a small directed hierarchy top-down with ELK's `layered` algorithm — the

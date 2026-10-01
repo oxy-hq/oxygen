@@ -62,19 +62,3 @@ export const useDeleteAdminWorkspace = () => {
     onError: (err) => toast.error(errMessage(err, "Failed to delete workspace"))
   });
 };
-
-export const useTransferWorkspaceOrg = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ workspaceId, newOrgId }: { workspaceId: string; newOrgId: string }) =>
-      AdminWorkspacesService.transferOrg(workspaceId, newOrgId),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({
-        queryKey: queryKeys.adminWorkspaces.detail(vars.workspaceId)
-      });
-      qc.invalidateQueries({ queryKey: queryKeys.adminWorkspaces.all });
-      toast.success("Workspace transferred");
-    },
-    onError: (err) => toast.error(errMessage(err, "Failed to transfer workspace"))
-  });
-};

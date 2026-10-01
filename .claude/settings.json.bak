@@ -23,16 +23,6 @@
             "async": true
           }
         ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat >/dev/null || true; command -v code-review-graph >/dev/null 2>&1 || exit 0; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph update --skip-flows --repo \"$(git rev-parse --show-toplevel 2>/dev/null)\" || true",
-            "timeout": 30
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -42,16 +32,6 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/code-review-graph.sh\" status",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat >/dev/null || true; command -v code-review-graph >/dev/null 2>&1 || exit 0; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph status --repo \"$(git rev-parse --show-toplevel 2>/dev/null)\" || echo 'Not a git repo, skipping'",
             "timeout": 10
           }
         ]
@@ -72,8 +52,5 @@
     "context-mode@context-mode": true,
     "ast-grep@ast-grep-marketplace": true
   },
-  "enabledMcpjsonServers": [
-    "code-review-graph",
-    "playwright"
-  ]
+  "enabledMcpjsonServers": ["code-review-graph", "playwright"]
 }

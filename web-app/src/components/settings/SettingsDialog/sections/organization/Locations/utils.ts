@@ -137,7 +137,7 @@ export function locationPatch(row: LocationRow, draft: LocationDraft): UpdateLoc
 // ── External ids ──
 
 /** The server's rule for a system token, mirrored so a bad one never leaves the form. */
-export const SYSTEM_PATTERN = /^[a-z0-9_-]{1,32}$/;
+const SYSTEM_PATTERN = /^[a-z0-9_-]{1,32}$/;
 
 export interface ExternalIdDraft {
   /** Stable React key while the row is edited; not sent anywhere. */

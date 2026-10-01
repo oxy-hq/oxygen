@@ -56,7 +56,7 @@ export type ScenarioRefusal =
    *  nothing *yet*, which is a different and useful statement. */
   | "lands_after_horizon";
 
-export interface ScenarioPoint {
+interface ScenarioPoint {
   date: string;
   value: number;
 }

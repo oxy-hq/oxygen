@@ -65,7 +65,7 @@ export interface RuntimeStepDebug {
 export const JUDGE_INPUT_BYTES = 21_000;
 export const JUDGE_MAX_TOKENS = 256;
 
-export interface ActStepInput {
+interface ActStepInput {
   prompt: string;
   stepIndex: number;
   step: FlowStep;

@@ -56,7 +56,7 @@ export const RACE = "race";
 /** One arm, or all of them. */
 export type Arm = Policy | typeof RACE;
 
-export const ARMS: Arm[] = [RACE, ...POLICIES];
+const ARMS: Arm[] = [RACE, ...POLICIES];
 
 export function WorldsBar({
   worlds,

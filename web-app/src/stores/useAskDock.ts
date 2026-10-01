@@ -1,13 +1,13 @@
 import { create } from "zustand";
 
-export interface AskPrefill {
+interface AskPrefill {
   message?: string;
   agentPath?: string;
   autoSubmit?: boolean;
 }
 
 /** The body the dock currently shows. */
-export type AskDockView = "composer" | "thread" | "history";
+type AskDockView = "composer" | "thread" | "history";
 
 interface AskDockState {
   /** Whether the dock occupies width. `false` collapses it to zero width

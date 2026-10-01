@@ -1,7 +1,7 @@
 import { apiClient } from "./axios";
 
 /** A writer's schema inside the per-org OLTP database. */
-export interface OltpSchemaInfo {
+interface OltpSchemaInfo {
   schema: string;
   /** `app` (a custom app) or `pipeline` (an Airway pipeline). */
   kind: "app" | "pipeline";
@@ -61,7 +61,7 @@ export const OltpService = {
 };
 
 /** A column, as the diagram draws it. */
-export interface ErdColumn {
+interface ErdColumn {
   name: string;
   data_type: string;
   nullable: boolean;
@@ -82,7 +82,7 @@ export interface ErdSchema {
 }
 
 /** A foreign key, as an edge between two columns. */
-export interface ErdRelationship {
+interface ErdRelationship {
   from_schema: string;
   from_table: string;
   from_column: string;
@@ -199,7 +199,7 @@ export interface OltpTenantRow {
 }
 
 /** A schema as the fleet list sees it: what it is, not how to connect to it. */
-export interface OltpTenantSchema {
+interface OltpTenantSchema {
   schema: string;
   kind: "app" | "pipeline";
   analytics_visible: boolean;

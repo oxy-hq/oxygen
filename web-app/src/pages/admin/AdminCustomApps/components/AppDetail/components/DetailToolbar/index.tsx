@@ -30,7 +30,7 @@ import { resolveBundleUrl } from "../../../../resolveBundleUrl";
 import { ActAsOrgButton } from "./ActAsOrgButton";
 import { OrgHomeButton } from "./OrgHomeButton";
 
-export type DetailTab = "preview" | "info" | "activity" | "settings";
+type DetailTab = "preview" | "info" | "activity" | "settings";
 export type Device = "mobile" | "tablet" | "desktop";
 export type ChannelView = "published" | "draft";
 

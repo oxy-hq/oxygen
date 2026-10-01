@@ -18,7 +18,7 @@ import type { QueueStatsResponse, QueueStatusCounts } from "@/services/api/inter
  * trailing 5 minutes — enough to spot a draining trend without being
  * noisy.
  */
-export const SAMPLES_KEEP = 60;
+const SAMPLES_KEEP = 60;
 
 export interface HistorySample {
   /** Epoch millis when the snapshot was received. */
@@ -66,16 +66,6 @@ export function useInternalJobsHistory(
   }, [data, updatedAt]);
 
   return samples;
-}
-
-/**
- * Reduce the sample buffer to per-status series ready for sparkline
- * rendering. The values are the snapshot's `total[status]` — i.e. the
- * live queue depth, not throughput. Lets the operator see at a glance
- * that "queued" is creeping up while "claimed" stays flat.
- */
-export function statusSeries(samples: HistorySample[], status: keyof QueueStatusCounts): number[] {
-  return samples.map((s) => s.total[status]);
 }
 
 /**

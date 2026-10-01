@@ -2,7 +2,7 @@ import type { AppAccessSummary } from "@/types/appAccess";
 import type { FrontlineWorker } from "@/types/frontline";
 
 /** The server's PIN policy, mirrored so a bad PIN never leaves the form. */
-export const PIN_PATTERN = /^\d{4,8}$/;
+const PIN_PATTERN = /^\d{4,8}$/;
 
 /** Why a PIN pair can't be submitted, or null when it can. */
 export function pinProblem(pin: string, confirm: string): string | null {

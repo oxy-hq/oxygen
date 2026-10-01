@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/shadcn/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 
-export const DURATION_OPTIONS = [
+const DURATION_OPTIONS = [
   { value: "1h", label: "1h" },
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" },
@@ -14,7 +14,7 @@ export const DURATION_OPTIONS = [
   { value: "90d", label: "90d" }
 ] as const;
 
-export type DurationValue = (typeof DURATION_OPTIONS)[number]["value"];
+type DurationValue = (typeof DURATION_OPTIONS)[number]["value"];
 
 /** Either a rolling preset window or an absolute range (epoch seconds). */
 export type TimeRange =

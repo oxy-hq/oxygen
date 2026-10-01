@@ -13,12 +13,11 @@ export { NODE_HEIGHT_COLLAPSED, NODE_WIDTH, PANEL_WIDTH } from "./constants";
 export {
   layoutWithElk,
   type NodeSize,
-  type NodeSizeOf,
   type WaypointMap
 } from "./elkLayout";
 export { GRAPH_EDGE_TYPE, GraphCanvas } from "./GraphCanvas";
-export { GraphEdge } from "./GraphEdge";
-export { GraphNodeCard, type GraphNodeCardProps, GraphNodeHandles } from "./GraphNodeCard";
+
+export { GraphNodeCard, GraphNodeHandles } from "./GraphNodeCard";
 export {
   CONFIDENCE_HELP,
   FORM_HELP,

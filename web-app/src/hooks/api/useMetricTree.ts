@@ -5,7 +5,6 @@ import type {
   BaselineRequest,
   DistributionRequest,
   DrillRequest,
-  ExplainRequest,
   FittedDriver,
   MeasureValues,
   OpportunityRequest,
@@ -45,42 +44,6 @@ export function useSensitivity(measureId: string | undefined) {
       return MetricTreeService.getSensitivity(projectId, measureId, branchName);
     },
     enabled: !!measureId,
-    retry: false
-  });
-}
-
-/** Cached period-over-period explain. Used by the Insights-inbox drawer
- *  so reopening the same anomaly reuses the result instead of re-running
- *  the recursive search (which can take 20-30s on warehouse-scale data).
- *
- *  `enabled` lets the caller hold the query off until they have a request
- *  to run (e.g. the drawer passes the anomaly's derived request once it
- *  has loaded). */
-export function useExplainQuery(request: ExplainRequest | null, enabled = true) {
-  const { project, branchName } = useCurrentProjectBranch();
-  const projectId = project.id;
-
-  return useQuery({
-    queryKey: request
-      ? queryKeys.metricTree.explain(
-          projectId,
-          branchName,
-          request.target,
-          request.time_dimension,
-          request.current_period,
-          request.previous_period,
-          request.config?.deep ?? false
-        )
-      : ([...queryKeys.metricTree.all, "explain", "idle"] as const),
-    queryFn: () => {
-      if (!request) throw new Error("explain request is required");
-      return MetricTreeService.explain(projectId, request, branchName);
-    },
-    enabled: enabled && !!request,
-    // 5 min — long enough for repeated drawer open/close on the same
-    // anomaly to hit cache; short enough that a manual rescan picks up
-    // fresh warehouse data quickly.
-    staleTime: 5 * 60 * 1000,
     retry: false
   });
 }

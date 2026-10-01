@@ -1,6 +1,6 @@
 import { apiClient } from "./axios";
 
-export interface UsageTotals {
+interface UsageTotals {
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
@@ -18,7 +18,7 @@ export interface DayCost {
   run_count: number;
 }
 
-export interface ModelCost {
+interface ModelCost {
   model: string;
   /** null when the model isn't in the pricing table (tokens still reported). */
   cost_usd: number | null;
@@ -29,7 +29,7 @@ export interface ModelCost {
   run_count: number;
 }
 
-export interface OrgCost {
+interface OrgCost {
   org_id: string;
   org_name: string;
   org_slug: string;

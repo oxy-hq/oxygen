@@ -19,8 +19,6 @@
  * one action that resolves it.
  */
 
-import { isAxiosError } from "axios";
-
 export interface AssumeRequiredState {
   /** The org whose role must be assumed, or `null` when nothing is pending. */
   org: { id: string; name: string } | null;
@@ -36,19 +34,6 @@ const listeners = new Set<() => void>();
 function setState(next: AssumeRequiredState): void {
   state = next;
   for (const listener of listeners) listener();
-}
-
-/**
- * True when `error` is the staff assume-role refusal. Surfaces that want to
- * render an inline "assume to view" panel instead of a generic error state can
- * branch on this without duplicating the header/body contract.
- */
-export function isAssumeRequiredError(error: unknown): boolean {
-  if (!isAxiosError(error)) return false;
-  const res = error.response;
-  if (res?.status !== 403) return false;
-  const headers = res.headers as Record<string, string | undefined> | undefined;
-  return Boolean(headers?.["x-oxy-assume-required"]);
 }
 
 /**

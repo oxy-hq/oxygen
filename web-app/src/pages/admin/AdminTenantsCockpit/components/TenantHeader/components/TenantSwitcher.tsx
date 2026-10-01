@@ -10,7 +10,7 @@ import type { AdminOrgMeta } from "@/services/api/adminTenants";
 const RECENTS_KEY = "oxy.admin.tenant.recents";
 const RECENTS_MAX = 5;
 
-export function readRecents(): string[] {
+function readRecents(): string[] {
   try {
     const raw = localStorage.getItem(RECENTS_KEY);
     return raw ? (JSON.parse(raw) as string[]).slice(0, RECENTS_MAX) : [];

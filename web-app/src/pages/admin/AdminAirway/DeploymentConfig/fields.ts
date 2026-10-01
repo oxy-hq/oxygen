@@ -1,6 +1,6 @@
 import type { AirwayDeploymentValues } from "@/services/api/airwayConfig";
 
-export type DeploymentFieldKey = keyof AirwayDeploymentValues;
+type DeploymentFieldKey = keyof AirwayDeploymentValues;
 
 /**
  * Sentinel draft value for "no explicit value — take airway's built-in

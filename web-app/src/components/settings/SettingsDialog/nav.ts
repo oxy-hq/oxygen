@@ -42,7 +42,7 @@ type NavIcon = LucideIcon | React.ComponentType<{ className?: string }>;
  */
 export type NavGate = "orgAdmin" | "workspaceAdmin" | "staff";
 
-export interface NavItem {
+interface NavItem {
   value: SettingsSection;
   label: string;
   icon: NavIcon;

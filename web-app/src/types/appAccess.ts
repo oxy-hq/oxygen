@@ -20,7 +20,7 @@ export interface Team {
   created_at: string;
 }
 
-export interface TeamMember {
+interface TeamMember {
   user_id: string;
   email: string;
   name: string;
@@ -44,7 +44,7 @@ export interface AppAccessSummary {
   published: boolean;
 }
 
-export interface Grant {
+interface Grant {
   kind: "user" | "team";
   id: string;
   name: string;
