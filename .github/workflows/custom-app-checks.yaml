@@ -109,7 +109,7 @@ name: Custom app checks
 #
 #   - SENTRY_RELEASE_TOKEN: once staging serves the version, "Mark the staging
 #     deploy in Sentry" records a `staging` deploy of release `oxy@X.Y.Z` in
-#     project `oxy`.
+#     projects `oxy` and `oxy-web`.
 #   - SENTRY_READ_TOKEN: after the result is recorded, "Comment new Sentry
 #     issues on the prod bump PR" lists the unresolved issues first seen in
 #     that release on staging. It never adds a label or a hold.
@@ -468,11 +468,14 @@ jobs:
           echo "resolved oxy@${VERSION}+${SHA}"
 
       # Sentry's release signal, not a check: a `staging` deploy of
-      # `oxy@<expect_version>` in project `oxy`, so Sentry knows when staging
-      # started serving the release. Only when the wait above saw staging serve
-      # it: a superseded or timed-out wait deployed nothing. It never fails the
-      # run. A missing token, an unreachable Sentry or a refused request each
-      # end in a warning, and `continue-on-error` covers anything else.
+      # `oxy@<expect_version>` in projects `oxy` (the backend) and `oxy-web` (the
+      # web app), so Sentry knows when staging started serving the release. Both,
+      # because one image carries both: named for `oxy` alone, the marker left
+      # `oxy-web` with no deploy in any environment. Only when the wait above saw
+      # staging serve it: a superseded or timed-out wait deployed nothing. It
+      # never fails the run. A missing token, an unreachable Sentry or a refused
+      # request each end in a warning, and `continue-on-error` covers anything
+      # else.
       # Creating the release is idempotent, but the deploy POST is not: a
       # re-dispatch of the same version records a second `staging` deploy of it.
       # That is expected, and the prod marker in oxy-hq/infrastructure (S3b)
@@ -521,9 +524,10 @@ jobs:
 
           # The release may not exist yet: Sentry creates one on the first event
           # that names it, and staging may not have sent one. 201 created it and
-          # 208 means it already existed; a 400 saying it exists counts too.
+          # 208 means it already existed, and Sentry adds any project it lacked;
+          # a 400 saying it exists counts too.
           code=$(sentry_post "/organizations/${SENTRY_ORG}/releases/" \
-            "$(jq -nc --arg v "$RELEASE" '{version: $v, projects: ["oxy"]}')")
+            "$(jq -nc --arg v "$RELEASE" '{version: $v, projects: ["oxy", "oxy-web"]}')")
           if [[ "$code" != 201 && "$code" != 208 ]] &&
             ! { [[ "$code" == 400 ]] && grep -qi 'already exist' "$RESPONSE" 2>/dev/null; }; then
             echo "::warning::$(sentry_said "$code") when creating release ${RELEASE} (token: ${SENTRY_TOKEN_SOURCE}): no staging deploy marker"
@@ -532,12 +536,12 @@ jobs:
 
           VERSION_PATH=$(jq -rn --arg v "$RELEASE" '$v | @uri')
           code=$(sentry_post "/organizations/${SENTRY_ORG}/releases/${VERSION_PATH}/deploys/" \
-            "$(jq -nc --arg url "$RUN_URL" '{environment: "staging", projects: ["oxy"], name: "custom-app checks", url: $url}')")
+            "$(jq -nc --arg url "$RUN_URL" '{environment: "staging", projects: ["oxy", "oxy-web"], name: "custom-app checks", url: $url}')")
           if [[ "$code" != 201 ]]; then
             echo "::warning::$(sentry_said "$code") when marking the staging deploy of ${RELEASE} (token: ${SENTRY_TOKEN_SOURCE})"
             exit 0
           fi
-          echo "Marked a staging deploy of ${RELEASE} in Sentry project oxy."
+          echo "Marked a staging deploy of ${RELEASE} in Sentry projects oxy and oxy-web."
 
       - name: Run server-side checks
         id: server
