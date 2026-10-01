@@ -64,4 +64,16 @@ describe("uploadToThread", () => {
       "Slack files.completeUploadExternal: missing_scope"
     );
   });
+
+  it("names the scope a missing_scope failure asks for, and what the token has", async () => {
+    const { f } = fakeSlack({
+      ok: false,
+      error: "missing_scope",
+      needed: "files:write",
+      provided: "chat:write,channels:read"
+    });
+    await expect(uploadToThread({ ...req, files: [] }, f)).rejects.toThrow(
+      "missing_scope (needs files:write; the token has chat:write,channels:read)"
+    );
+  });
 });

@@ -4,8 +4,14 @@ name: Release showcase (prod)
 # internal-docs/release-showcase.md.
 #
 # oxy-hq/infrastructure's oxy-prod-announce.yaml posts the "going live" message
-# to #product-releases-prod, then dispatches this with the message's channel
-# and ts, the image prod now runs, and the oxygen-internal range it covers.
+# to #product-releases-prod, then sends a `release-showcase` repository_dispatch
+# carrying the message's channel and ts, the image prod now runs, and the
+# oxygen-internal range it covers. A repository_dispatch, not a
+# workflow_dispatch, because the oxyhelper app infra signs in with holds
+# contents:write here but not actions:write — and the first is all
+# POST /dispatches asks for. workflow_dispatch stays for a person re-posting a
+# release by hand; both arrive as the same five values.
+#
 # This boots THAT image — the build customers get — seeds it, and for each PR
 # the announcement lists, replays the recording its PR run left
 # (showcase.yaml), re-recording once if the UI has moved on and the feature's
@@ -21,6 +27,10 @@ name: Release showcase (prod)
 # whole release (SHOWCASE_RELEASE_BUDGET_USD); a replay is one judge call.
 
 on:
+  # client_payload: image_tag, from_ref, to_ref, channel, thread_ts — the
+  # inputs below, under the same names.
+  repository_dispatch:
+    types: [release-showcase]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -54,7 +64,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: showcase-release-${{ inputs.thread_ts }}
+  group: showcase-release-${{ inputs.thread_ts || github.event.client_payload.thread_ts }}
   cancel-in-progress: false
 
 jobs:
@@ -83,11 +93,13 @@ jobs:
       SHOWCASE_RELEASE_BUDGET_USD: "0.50"
       # The release's own demo data, not main's (see the second checkout).
       SHOWCASE_EXAMPLES: ${{ github.workspace }}/release-src/examples
-      IMAGE_TAG: ${{ inputs.image_tag }}
-      FROM_REF: ${{ inputs.from_ref }}
-      TO_REF: ${{ inputs.to_ref }}
-      CHANNEL: ${{ inputs.channel }}
-      THREAD_TS: ${{ inputs.thread_ts }}
+      # `inputs` is empty on a repository_dispatch, so each falls through to
+      # the payload.
+      IMAGE_TAG: ${{ inputs.image_tag || github.event.client_payload.image_tag }}
+      FROM_REF: ${{ inputs.from_ref || github.event.client_payload.from_ref }}
+      TO_REF: ${{ inputs.to_ref || github.event.client_payload.to_ref }}
+      CHANNEL: ${{ inputs.channel || github.event.client_payload.channel }}
+      THREAD_TS: ${{ inputs.thread_ts || github.event.client_payload.thread_ts }}
     services:
       postgres:
         image: postgres:18-alpine
@@ -101,8 +113,8 @@ jobs:
           --health-cmd "pg_isready -U admin -d default" --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      # Dispatch inputs are free text: shape-check every one before any is
-      # used in a ref, an image name or a path.
+      # Dispatch inputs and payload fields are free text: shape-check every one
+      # before any is used in a ref, an image name or a path.
       - name: Check inputs
         run: |
           fail() { echo "::error::$1"; exit 1; }
@@ -112,12 +124,32 @@ jobs:
           [[ "$CHANNEL" =~ ^[CG][A-Z0-9]{6,}$ ]] || fail "channel is not a channel ID"
           [[ "$THREAD_TS" =~ ^[0-9]{10}\.[0-9]{6}$ ]] || fail "thread_ts is not a Slack ts"
 
+      # Before anything is booted or paid for. A bot that cannot upload files
+      # replays every feature and then posts none of them: a green run under
+      # an empty thread. auth.test names the token's scopes in a header, so
+      # the missing one is known up front — and this run goes red saying so.
+      # No header at all proves nothing, and is let through.
+      - name: Can the bot post pictures?
+        run: |
+          fail() { echo "::error::$1"; echo "**Nothing was posted.** $1" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          [ -n "${SLACK_BOT_TOKEN:-}" ] || fail "SLACK_BOT_TOKEN is not set for this repository."
+          hdr="$(mktemp)"
+          body="$(curl -sS --max-time 20 -D "$hdr" -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" https://slack.com/api/auth.test || true)"
+          if [ "$(jq -r '.ok // false' <<<"$body" 2>/dev/null)" != "true" ]; then
+            fail "Slack refused the bot token: $(jq -r '.error // "no answer"' <<<"$body" 2>/dev/null || echo "no answer")."
+          fi
+          scopes="$(awk 'tolower($0) ~ /^x-oauth-scopes:/ { sub(/^[^:]*:[ \t]*/, ""); print; exit }' "$hdr" | tr -d '\r ')"
+          echo "bot scopes: ${scopes:-<not reported>}"
+          if [ -n "$scopes" ] && [[ ",${scopes}," != *",files:write,"* ]]; then
+            fail "The Slack bot cannot upload files: it needs the files:write scope and has ${scopes}. Add files:write to the app, reinstall it to the workspace, then re-run this job."
+          fi
+
       # The tooling from the default branch, so a release cut before this
       # workflow existed still gets it; the demo data from the release itself.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.to_ref }}
+          ref: ${{ env.TO_REF }}
           path: release-src
           sparse-checkout: examples
 
@@ -150,7 +182,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: showcase-release-${{ inputs.image_tag }}
+          name: showcase-release-${{ env.IMAGE_TAG }}
           path: ${{ env.SHOWCASE_OUT }}/
           retention-days: 30
           if-no-files-found: ignore
@@ -163,7 +195,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: showcase-release-logs-${{ inputs.image_tag }}
+          name: showcase-release-logs-${{ env.IMAGE_TAG }}
           path: ${{ runner.temp }}/showcase-logs/
           retention-days: 7
           if-no-files-found: ignore

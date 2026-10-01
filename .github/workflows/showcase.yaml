@@ -40,7 +40,7 @@ on:
   workflow_dispatch:
     inputs:
       pr:
-        description: Pull request number to re-capture, even if unchanged. Uses main's image behind that PR's web-app.
+        description: Pull request number to re-capture, even if unchanged. Uses main's image; an open PR's web-app is built in front of it.
         type: number
         required: true
 
@@ -97,11 +97,22 @@ jobs:
           --health-cmd "pg_isready -U admin -d default" --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      # From ci.yaml this is the PR's merge ref. By hand, the PR's own head —
+      # From ci.yaml the checkout is the PR's merge ref. By hand it is the same
+      # for an open PR — the PR on top of main — and the dispatched ref for a
+      # merged one, which already contains it. Never the PR's own head: a
+      # branch cut before this tooling existed has none of it to run.
       # `inputs.pr` is typed a number, so the ref cannot carry anything else.
+      - name: Pick the checkout
+        id: ref
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          state="$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state --jq .state)"
+          echo "PR #${PR} is ${state}"
+          if [ "$state" = "OPEN" ]; then echo "ref=refs/pull/${PR}/merge" >> "$GITHUB_OUTPUT"; fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', inputs.pr) || '' }}
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Set up pnpm, Node, and Playwright
         uses: ./.github/actions/setup-web-app-test-env
