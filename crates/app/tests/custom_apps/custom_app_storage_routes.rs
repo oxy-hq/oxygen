@@ -312,7 +312,6 @@ fn prose_states_the_real_url() {
     let sources = [
         "crates/app/src/server/api/admin/apps/storage.rs",
         "internal-docs/customer-apps-functions.md",
-        "internal-docs/2026-08-05-custom-app-asset-lifecycle-design.md",
     ];
 
     let mut bad = Vec::new();

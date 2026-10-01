@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Current measured size of one custom app's asset silo
 /// (`customer-app-storage/<app_id>/`). One row per app, refreshed by the
 /// storage sweeper. See
-/// `internal-docs/2026-08-05-custom-app-asset-lifecycle-design.md` §4.2.
+/// `internal-docs/customer-apps-functions.md` ("Quotas, usage & the admin Storage tab").
 ///
 /// Deliberately a **rollup, not a per-object index** — S3 stays authoritative
 /// for objects, and this is recomputed from it, so a presigned upload that oxy

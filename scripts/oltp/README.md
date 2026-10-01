@@ -21,8 +21,8 @@ denial against a real Postgres.
 - **Operations** — provider landmines, what each failure message means,
   deprovisioning, the Airway limits:
   [`internal-docs/per-org-oltp-postgres.md`](../../internal-docs/per-org-oltp-postgres.md)
-- **Design** — why it is shaped this way:
-  [`internal-docs/2026-08-04-per-org-oltp-postgres-design.md`](../../internal-docs/2026-08-04-per-org-oltp-postgres-design.md)
+- **Design** — why it is shaped this way: the "Why it is shaped this way"
+  section of the same file (design record in git history: PR #2851)
 
 ---
 

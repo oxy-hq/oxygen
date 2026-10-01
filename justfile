@@ -766,8 +766,8 @@ release-checks-setup *FLAGS:
     scripts/ci/setup-release-checks.sh {{ FLAGS }}
 
 # ── Per-org OLTP POC ──────────────────────────────────────────────────────────
-# Docs: scripts/oltp/README.md · Design:
-# internal-docs/2026-08-04-per-org-oltp-postgres-design.md
+# Docs: scripts/oltp/README.md · Design + ops:
+# internal-docs/per-org-oltp-postgres.md
 
 # ROLE is one of: analyst (read-only) | app | pipeline | owner.
 # Open psql against the demo database as one of the provisioned roles.

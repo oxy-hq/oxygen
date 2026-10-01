@@ -2,7 +2,7 @@
 //!
 //! Until now nothing measured `ctx.storage`: no row per object, no rollup, and
 //! therefore no answer to "how many GB does this org hold?" short of walking S3.
-//! See `internal-docs/2026-08-05-custom-app-asset-lifecycle-design.md`.
+//! See `internal-docs/customer-apps-functions.md` ("Quotas, usage & the admin Storage tab").
 //!
 //! **Two tables, not a per-object index.** Object rows were considered and
 //! rejected: `list_objects_v2` already returns key/size/last-modified for the

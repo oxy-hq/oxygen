@@ -24,7 +24,7 @@ type SortKey = "bytes" | "growth" | "untagged";
  * the rollup holds no per-object rows and an operator investigating *now* needs
  * current truth rather than a listing up to a sweep old.
  *
- * See `internal-docs/2026-08-05-custom-app-asset-lifecycle-design.md`.
+ * See `internal-docs/customer-apps-functions.md` ("Quotas, usage & the admin Storage tab").
  */
 export default function StorageTab() {
   const [sort, setSort] = useState<SortKey>("bytes");
