@@ -1037,7 +1037,7 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # the existing `transaction_lines` (which is `Merge` and never dropped), but
 # it is lazy — existing Parquet keeps its layout until compaction rewrites it.
 # The benefit accrues, it does not switch on.
-# Pinned at 0.1.49 — airway-internal#211: the filesystem source emits files in
+# The pin carries airway-internal#211: the filesystem source emits files in
 # 10k-row batches instead of one batch per file. A parsed 30-column CSV row is
 # ~7 KB here (serde_json `preserve_order`) and the streaming pipeline holds ~7
 # batches, so bmg's `amazon_shipments` (a few ~20k-row S3 exports) needed ~1 GiB

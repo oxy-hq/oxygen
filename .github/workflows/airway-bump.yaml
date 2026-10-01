@@ -1,0 +1,381 @@
+name: Airway bump
+
+# Opens the PR that bumps airway, which was the one manual step left between an
+# airway release and prod. Airway (oxy-hq/airway-internal) is a library compiled
+# into oxy and pinned by tag in the root Cargo.toml. Once a bump merges, the
+# deploy train (promote.yaml, internal-docs/deploy-pipeline.md) carries it
+# dev → staging → prod with every gate, and a human merges prod as for any other
+# change. The bump PR itself was the gap: every one so far (#3142, #3177, #3181)
+# was opened by hand, so a released airway fix stayed unshipped until someone
+# remembered to open it.
+#
+# Same shape as promote.yaml: a reconciler. Every run re-reads the newest airway
+# release and the current pin from scratch, and never depends on having seen a
+# tag get pushed, so a missed run, a failed run or a release cut over the weekend
+# is picked up by the next pass. Polling from this side also means
+# airway-internal never has to know who consumes it.
+#
+# It proposes and never merges. CI on the PR is the gate (a release that breaks
+# oxy's build or tests goes red there), and a human merges it.
+#
+# Releases are plain `X.Y.Z` tags. airway-internal also pushes `edge-<sha>`
+# tags; those are builds, not releases, and are ignored. The tags API lists
+# names alphabetically, which puts `edge-*` first and 0.1.9 after 0.1.49, so the
+# newest release is picked by a version sort, never by list order or date.
+#
+# It steps aside rather than fight a human:
+#   * an open PR with the same title already proposes this version: nothing to do;
+#   * a PR for this version was closed, or merged and since reverted: someone
+#     decided, so it is not re-proposed. Dispatch with `version` to override;
+#   * someone has committed onto the open bump PR (a hakari regen, a fix for an
+#     API change): the branch is theirs now, and it is not force-pushed over.
+#
+# Tokens: the ARGO GitHub App (vars.ARGO_APP_CLIENT_ID +
+# secrets.ARGO_APP_PRIVATE_KEY), minted twice, each for one job:
+#   * read-only on the private cargo git deps, the same scope ci.yaml uses: the
+#     tag and compare reads, and the Cargo.lock refresh, which loads every git
+#     dep's manifest, not just airway's;
+#   * write on this repo only, for the push and the PR. A PR opened with
+#     GITHUB_TOKEN triggers no workflows, so CI, which is the gate, would never
+#     run on it.
+
+on:
+  schedule:
+    # Hourly. A release is not urgent to the minute, and a run that finds
+    # nothing new is two API calls and a shallow checkout.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Propose this airway release (a plain X.Y.Z tag, newer than the pin)
+          instead of the newest one. Empty means the newest. A scheduled run
+          proposes the newest again, so this cannot hold the pin at an older
+          release; open that PR by hand.
+        type: string
+        required: false
+        default: ""
+
+# One writer. The bump branch is rebuilt from main and force-pushed, so two runs
+# racing would leave the loser failing on a non-fast-forward.
+concurrency:
+  group: airway-bump
+  cancel-in-progress: false
+
+# GITHUB_TOKEN does nothing here: it cannot read airway-internal, and a PR it
+# opened would get no CI. Every call uses one of the app tokens below.
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  AIRWAY_REPO: oxy-hq/airway-internal
+  BUMP_BRANCH: chore/bump-airway
+  # The pin line, as the root Cargo.toml writes it. One pattern reads it and
+  # rewrites it. If the line is ever reshaped (a `rev`, reordered keys), the read
+  # matches nothing and the run fails, instead of editing some other line.
+  PIN_LINE: '^airway = \{ git = "https://github\.com/oxy-hq/airway-internal\.git", tag = "'
+
+jobs:
+  bump:
+    name: Propose the newest airway release
+    if: github.repository == 'oxy-hq/oxygen-internal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Token for the private cargo git deps (read)
+        id: deps-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          # As in ci.yaml: read-only, so a leaked token can't push. All four,
+          # because refreshing the lock for airway still resolves the whole graph.
+          permission-contents: read
+          repositories: |
+            airlayer
+            airform
+            airway-internal
+            snowflake-rs
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        name: Token for this repo (push + PR)
+        id: repo-token
+        with:
+          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-contents: write
+          permission-pull-requests: write
+          repositories: oxygen-internal
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Always main: a bump built on whatever branch a dispatch ran from
+          # would carry that branch into the PR.
+          ref: main
+          token: ${{ steps.repo-token.outputs.token }}
+
+      - name: Read the newest airway release and the pin
+        id: read
+        env:
+          GH_TOKEN: ${{ steps.deps-token.outputs.token }}
+          FORCED: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          RELEASES="${RUNNER_TEMP}/airway-releases"
+          gh api "repos/${AIRWAY_REPO}/tags" --paginate \
+            --jq '.[].name | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' | sort -V > "$RELEASES"
+          [[ -s "$RELEASES" ]] || { echo "::error::${AIRWAY_REPO} has no X.Y.Z tags; nothing to compare the pin against"; exit 1; }
+
+          PINNED=$(sed -nE "s|${PIN_LINE}([^\"]+)\".*|\1|p" Cargo.toml)
+          if [[ -z "$PINNED" || "$PINNED" == *$'\n'* ]]; then
+            echo "::error::expected exactly one airway pin in Cargo.toml matching ${PIN_LINE}<tag>\", found: ${PINNED:-none}"
+            exit 1
+          fi
+          # Release-to-release only. A pin on an `edge-*` tag was put there by
+          # hand for a reason this workflow can't know.
+          [[ "$PINNED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::airway is pinned at '${PINNED}', not a release tag; bump it by hand"; exit 1; }
+
+          if [[ -n "$FORCED" ]]; then
+            grep -qxF -- "$FORCED" "$RELEASES" || { echo "::error::'${FORCED}' is not an airway release (a plain X.Y.Z tag on ${AIRWAY_REPO})"; exit 1; }
+            TARGET="$FORCED"
+          else
+            TARGET=$(tail -n 1 "$RELEASES")
+          fi
+
+          NEWER=false
+          if [[ "$TARGET" == "$PINNED" ]]; then
+            echo "::notice::airway is already pinned at ${PINNED}$([[ -n "$FORCED" ]] || echo ', the newest release'); nothing to propose"
+          elif [[ "$(printf '%s\n%s\n' "$PINNED" "$TARGET" | sort -V | tail -n 1)" == "$PINNED" ]]; then
+            if [[ -n "$FORCED" ]]; then
+              # The next scheduled run would re-propose the newest within the
+              # hour, so a bot-opened downgrade could never stick.
+              echo "::error::${TARGET} is older than the pin (${PINNED}). A downgrade is a rollback; open it by hand"
+            else
+              echo "::error::the pin (${PINNED}) is newer than the newest release tag (${TARGET}). Was a tag deleted from ${AIRWAY_REPO}?"
+            fi
+            exit 1
+          else
+            NEWER=true
+            echo "::notice::airway ${TARGET} is out; the pin is ${PINNED}"
+          fi
+          {
+            echo "pinned=${PINNED}"
+            echo "target=${TARGET}"
+            echo "newer=${NEWER}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check what is already proposed
+        id: check
+        if: steps.read.outputs.newer == 'true'
+        env:
+          GH_TOKEN: ${{ steps.repo-token.outputs.token }}
+          TARGET: ${{ steps.read.outputs.target }}
+          FORCED: ${{ inputs.version }}
+          BOT: ${{ steps.repo-token.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          TITLE="chore(deps): bump airway to ${TARGET}"
+          # Any PR with this exact title, from any branch: a hand-opened bump
+          # counts as much as one of ours. Search is fuzzy, so filter exactly.
+          gh pr list --repo "$GITHUB_REPOSITORY" --state all --limit 50 \
+            --search "\"bump airway to ${TARGET}\" in:title" --json number,state,title \
+            | jq -r --arg t "$TITLE" '.[] | select(.title == $t) | "\(.number) \(.state)"' > "${RUNNER_TEMP}/same-title"
+          OPEN=$(awk '$2 == "OPEN" { print $1; exit }' "${RUNNER_TEMP}/same-title")
+          DECIDED=$(awk '$2 != "OPEN" { print "#" $1 " (" tolower($2) ")"; exit }' "${RUNNER_TEMP}/same-title")
+
+          PROPOSE=true
+          if [[ -n "$OPEN" ]]; then
+            echo "::notice::#${OPEN} already proposes airway ${TARGET}"
+            PROPOSE=false
+          elif [[ -n "$DECIDED" && -z "$FORCED" ]]; then
+            echo "::notice::${DECIDED} already proposed airway ${TARGET} and a human decided it; not re-proposing. Dispatch with version=${TARGET} to propose it again"
+            PROPOSE=false
+          else
+            # A commit on our branch by anyone else is a human finishing the
+            # bump (hakari, an API change). Force-pushing would delete it.
+            PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BUMP_BRANCH" --state open --json number --jq '.[0].number // empty')
+            if [[ -n "$PR" ]]; then
+              OTHERS=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/commits" --paginate \
+                | jq -r --arg bot "$BOT" '.[].commit.author.name | select(. != $bot)' | sort -u | paste -sd, -)
+              if [[ -n "$OTHERS" ]]; then
+                echo "::warning::#${PR} has commits by ${OTHERS}, so ${BUMP_BRANCH} is left alone and airway ${TARGET} waits. Merge or close #${PR} and the next run proposes it"
+                PROPOSE=false
+              fi
+            fi
+          fi
+          echo "propose=${PROPOSE}" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/git-identity
+        if: steps.check.outputs.propose == 'true'
+        with:
+          app-slug: ${{ steps.repo-token.outputs.app-slug }}
+          token: ${{ steps.repo-token.outputs.token }}
+
+      # The toolchain rust-toolchain.toml names, read from there so a toolchain
+      # bump has no extra file to touch. It matters even though nothing is built:
+      # a different cargo can resolve or encode Cargo.lock differently, and would
+      # show up below as unrelated packages moving.
+      - name: Install the pinned toolchain
+        if: steps.check.outputs.propose == 'true'
+        run: |
+          set -euo pipefail
+          CHANNEL=$(sed -nE 's/^channel = "([^"]+)"$/\1/p' rust-toolchain.toml)
+          [[ -n "$CHANNEL" ]] || { echo "::error::no channel in rust-toolchain.toml"; exit 1; }
+          rustup toolchain install "$CHANNEL" --profile minimal
+          cargo --version
+
+      # As in ci.yaml: `git-fetch-with-cli` is on (.cargo/config.toml), so cargo
+      # shells out to git, which uses gh as its credential helper. No token is
+      # baked into a URL rewrite.
+      - name: Authenticate gh for private cargo git deps
+        if: steps.check.outputs.propose == 'true'
+        env:
+          GH_APP_TOKEN: ${{ steps.deps-token.outputs.token }}
+        run: |
+          echo "$GH_APP_TOKEN" | gh auth login --with-token
+          gh auth setup-git
+
+      # NOT `cargo update -p airway`. On this lockfile that re-resolves the
+      # `socket2` edges of hyper-util, quinn and quinn-udp (0.6.4 -> 0.5.10)
+      # whatever airway released, and it does so even with the pin unchanged
+      # (measured 2026-10-01, with and without `--precise`). That is the drag
+      # #3142 shipped. Changing the pin and letting cargo reconcile the lock moves
+      # only what the new airway requires: for 0.1.46 -> 0.1.49, airway's own two
+      # lines, which is what the clean hand bumps (#3177, #3181) looked like.
+      - name: Pin the release and refresh Cargo.lock
+        if: steps.check.outputs.propose == 'true'
+        env:
+          TARGET: ${{ steps.read.outputs.target }}
+        run: |
+          set -euo pipefail
+          git checkout --quiet -B "$BUMP_BRANCH"
+          sed -E "s|(${PIN_LINE})[^\"]+\"|\1${TARGET}\"|" Cargo.toml > "${RUNNER_TEMP}/Cargo.toml"
+          cat "${RUNNER_TEMP}/Cargo.toml" > Cargo.toml
+          if [[ "$(git diff --numstat -- Cargo.toml)" != $'1\t1\tCargo.toml' ]]; then
+            echo "::error::rewriting the pin changed more than the one airway line"
+            git --no-pager diff -- Cargo.toml
+            exit 1
+          fi
+          # Resolves the graph, fetching the new tag, and writes the lock.
+          cargo metadata --format-version 1 > /dev/null
+
+      # Whatever moves beyond airway's own entry is a different change from the
+      # one this PR's title describes, so it is refused and left to a human. Whole
+      # entries are compared, not just versions: the socket2 drag above changed no
+      # version at all, only which version an existing package points at.
+      - name: Refuse a lock change beyond airway
+        if: steps.check.outputs.propose == 'true'
+        env:
+          TARGET: ${{ steps.read.outputs.target }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, sys, tomllib
+
+          target = os.environ["TARGET"]
+          head = subprocess.run(["git", "show", "HEAD:Cargo.lock"], check=True, capture_output=True, text=True).stdout
+          before = tomllib.loads(head)
+          with open("Cargo.lock", "rb") as f:
+              after = tomllib.load(f)
+
+          def others(lock):
+              # Keyed by name, version and source, since one crate can be locked
+              # from two sources. crates.io is left unsaid when reporting.
+              def key(p):
+                  source = p.get("source", "")
+                  return f'{p["name"]} {p["version"]}' + ("" if source.startswith("registry+") or not source else f" ({source})")
+              return {key(p): json.dumps(p, sort_keys=True) for p in lock["package"] if p["name"] != "airway"}
+
+          old, new = others(before), others(after)
+          moved = sorted(
+              [f"added {k}" for k in new.keys() - old.keys()]
+              + [f"removed {k}" for k in old.keys() - new.keys()]
+              + [f"changed {k}" for k in old.keys() & new.keys() if old[k] != new[k]]
+          )
+          if before.get("version") != after.get("version"):
+              moved.insert(0, f"lockfile format {before.get('version')} -> {after.get('version')}")
+
+          airway = [p for p in after["package"] if p["name"] == "airway"]
+          if len(airway) != 1 or f"?tag={target}#" not in airway[0].get("source", ""):
+              print(f"::error::Cargo.lock does not resolve airway to tag {target}: {[p.get('source') for p in airway]}")
+              sys.exit(1)
+          if moved:
+              shown = "; ".join(moved[:15]) + (f"; and {len(moved) - 15} more" if len(moved) > 15 else "")
+              print(f"::error::bumping airway to {target} also moves {len(moved)} other Cargo.lock entries, so it is not proposed. Bump by hand and say why each moved: {shown}")
+              print("\n".join(moved), flush=True)
+              subprocess.run(["git", "--no-pager", "diff", "--stat", "--", "Cargo.lock"], check=False)
+              sys.exit(1)
+          print(f"Only airway moved in Cargo.lock: {airway[0]['source']}")
+          PY
+
+      - name: Write the PR body
+        if: steps.check.outputs.propose == 'true'
+        env:
+          GH_TOKEN: ${{ steps.deps-token.outputs.token }}
+          PINNED: ${{ steps.read.outputs.pinned }}
+          TARGET: ${{ steps.read.outputs.target }}
+        run: |
+          set -euo pipefail
+          COMPARE="https://github.com/${AIRWAY_REPO}/compare/${PINNED}...${TARGET}"
+          gh api "repos/${AIRWAY_REPO}/compare/${PINNED}...${TARGET}" > "${RUNNER_TEMP}/compare.json"
+          TOTAL=$(jq '.total_commits' "${RUNNER_TEMP}/compare.json")
+          # Newest first. A bare `#211` in a PR here would link to OUR #211, so
+          # every reference is rewritten to name airway-internal.
+          jq -r '.commits | reverse | .[].commit.message | split("\n")[0]' "${RUNNER_TEMP}/compare.json" \
+            | sed -E "s,(^|[^[:alnum:]_/-])#([0-9]+),\1${AIRWAY_REPO}#\2,g" > "${RUNNER_TEMP}/subjects"
+          BODY="${RUNNER_TEMP}/pr-body.md"
+          # The backticks in this block are markdown code spans, not expansions.
+          # shellcheck disable=SC2016
+          {
+            printf 'Moves airway from `%s` to `%s` ([compare](%s)).\n\n' "$PINNED" "$TARGET" "$COMPARE"
+            printf '**What changed in airway** (%s commits, newest first):\n\n' "$TOTAL"
+            head -n 15 "${RUNNER_TEMP}/subjects" | sed 's/^/- /'
+            if (( TOTAL > 15 )); then
+              printf -- '- and %s more, in the compare above\n' "$(( TOTAL - 15 ))"
+            fi
+            printf '\n**Merging ships it.** It goes out like any change to `main`: dev picks it up,\n'
+            printf 'the deploy train promotes it to staging through the gates, and prod waits for a\n'
+            printf 'human to merge the release PR in `oxy-hq/infrastructure` '
+            printf '([deploy pipeline](https://github.com/%s/blob/main/internal-docs/deploy-pipeline.md)).\n' "$GITHUB_REPOSITORY"
+            printf 'Nothing here merges itself: CI on this PR is the check that the release builds and\n'
+            printf "passes oxy's tests.\n\n"
+            printf 'Before merging, read the comment above the pin in `Cargo.toml`: it keeps notes for\n'
+            printf 'whoever lands an airway bump.\n\n'
+            printf 'If CI fails here (a hakari diff means `just hakari`), push the fix onto this branch.\n'
+            printf 'While this PR is open the bot will not force-push over a commit someone else made.\n\n'
+            printf 'Opened by [airway-bump](%s/%s/actions/runs/%s). The branch is rebuilt from `main`\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'and force-pushed each time a newer airway release appears.\n'
+          } > "$BODY"
+          cat "$BODY"
+
+      - name: Push the bump branch and open or update the PR
+        if: steps.check.outputs.propose == 'true'
+        env:
+          # Also what the gh credential helper hands git, so the push uses this
+          # token whichever way git authenticates.
+          GH_TOKEN: ${{ steps.repo-token.outputs.token }}
+          TARGET: ${{ steps.read.outputs.target }}
+        run: |
+          set -euo pipefail
+          TITLE="chore(deps): bump airway to ${TARGET}"
+          BODY="${RUNNER_TEMP}/pr-body.md"
+          git add Cargo.toml Cargo.lock
+          git commit --quiet -m "$TITLE"
+          # Force: this branch belongs to the bot and is rebuilt from main for
+          # every proposal, as promote.yaml does with its prod bump branch. The
+          # check step has already stepped aside if a human committed onto it.
+          git push --force --quiet origin "$BUMP_BRANCH"
+          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BUMP_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [[ -n "$PR" ]]; then
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$BODY"
+            echo "::notice::#${PR} now proposes airway ${TARGET}"
+          else
+            URL=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BUMP_BRANCH" --title "$TITLE" --body-file "$BODY")
+            echo "::notice::opened ${URL}"
+          fi
