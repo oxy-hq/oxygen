@@ -81,7 +81,7 @@ jobs:
       # knip left behind after stripping their export keywords, then verifies the
       # full production build passes.
       - name: Claude — delete dead locals and verify build
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:

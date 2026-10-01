@@ -86,7 +86,7 @@ jobs:
           path: oxygen-content
 
       - name: Generate and publish changelog draft
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Pass the ARGO app token via the action's `github_token` input (wired to

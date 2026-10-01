@@ -275,7 +275,7 @@ jobs:
       # a one-line body naming what leaves prod instead.
       - name: Summarise the release
         if: steps.bump.outputs.skip != 'true' && steps.bump.outputs.rollback != 'true'
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Read-only token (see the minting step). claude-code-action sets
