@@ -8,12 +8,12 @@ Data Infrastructure is the foundation of Oxygen, getting your data in and
 shaping it into clean tables that your [World Model](/guide/build/world-model)
 and agents can query. Three engines do the work:
 
-- **Airway** *loads*: it extracts data from the systems you already run and
-  loads it into your warehouse, picking up where the last run left off.
+- **Airway** *loads*: it extracts data from the systems a business already
+  runs and loads it into the warehouse, moving only what changed.
 - **Airhouse** *stores*: it is the managed, Postgres-compatible warehouse
-  where that data lands, with short-lived credentials and no key to rotate.
+  where that data lands, with isolated databases and no long-lived keys.
 - **Airform** *shapes*: it turns raw tables into clean, tested ones with
-  dbt-style SQL models that live in your workspace.
+  version-controlled SQL models.
 
 <Frame caption="Data moves left to right, from your systems to the World Model, and every step along the way is a version-controlled file in the same workspace.">
   <img src="../../images/data-infrastructure-figure-1.svg" alt="Data Infrastructure as a left-to-right flow. Sources such as point-of-sale, accounting, databases, files, and public data are extracted by Airway pipelines, which run incrementally from a cursor and load raw tables into a warehouse, either Airhouse or your own. Airform's version-controlled SQL models shape the raw tables into clean, tested tables, which the World Model's semantic model queries for agents and apps. A highlighted band notes that every pipeline, model, and metric is a version-controlled file in one workspace, deployed through Git." />
@@ -21,63 +21,25 @@ and agents can query. Three engines do the work:
 
 ## One workspace, from source to model
 
-A typical data stack is stitched together from separate products: an ELT
-service to move data, a warehouse to hold it, a transformation tool to model
-it, and a semantic layer on top. Each has its own configuration, its own
-credentials, and its own deploy process, and the seams between them are where
-numbers drift and failures hide.
+A typical data stack is stitched together from separate products for moving,
+storing, transforming, and defining data, each with its own configuration,
+credentials, and release process. The seams between them are where numbers
+drift and failures hide.
 
-In Oxygen, every step lives in one workspace. A pipeline is a `.airway.yml`
-file, a model is a `.sql` file, and a measure is defined in a `.view.yml`
-file, all reviewed and deployed through the same Git flow as your agents and
-automations. A change to how data is loaded, shaped, or measured is a single
-pull request, and the tables an agent reads are built from files you can see.
-
-## Load: Airway
-
-[Airway](/guide/build/data-infrastructure/airway) pipelines extract data from
-point-of-sale platforms, accounting tools, databases, files, public datasets,
-and any system with an HTTP API. Each run extracts only what changed since the
-last one, and a failed run can be retried without re-pulling history.
-Pipelines run on demand, on a schedule, or as a step in an
-[automation](/guide/build/automations/task-types#type-airway).
-
-## Store: Airhouse
-
-[Airhouse](/guide/build/data-infrastructure/airhouse) is the warehouse where
-pipelines land their data and where agents query it. Each workspace gets its
-own isolated Airhouse database, served over the Postgres wire protocol, and
-access runs on credentials minted on demand rather than on a stored password.
-If you already have a warehouse, Oxygen
-[connects to your own](/guide/build/connect-data) instead.
-
-## Shape: Airform
-
-[Airform](/guide/build/data-infrastructure/airform) compiles a dbt-style
-project of SQL models into plain SQL, builds the models in dependency order on
-your warehouse, and runs their tests, so the tables downstream are clean and
-checked rather than assembled ad hoc.
-
-## Model: the World Model
-
-The [World Model](/guide/build/world-model) builds on the clean tables. Its
-[semantic model](/guide/build/semantic-model/simple-model) defines each measure
-once and compiles it into correct SQL, so agents and apps answer and act on the
-same numbers.
-
-## Next steps
+In Oxygen, every step lives in one workspace. Pipelines, models, and metric
+definitions are files reviewed and deployed together through Git, alongside
+the agents and automations that use them. A change to how data is loaded,
+shaped, or measured is a single, reviewable change, and every number an agent
+reports traces back to definitions you can read.
 
 <CardGroup cols={3}>
   <Card title="Airway" icon="arrow-right-to-bracket" href="/guide/build/data-infrastructure/airway">
-    ELT pipelines that extract data from external systems and load it into
-    your warehouse.
+    Incremental ELT from the systems you already run.
   </Card>
   <Card title="Airhouse" icon="warehouse" href="/guide/build/data-infrastructure/airhouse">
-    The managed warehouse where your data lands, with ephemeral credentials
-    and no long-lived key to rotate.
+    The managed warehouse where your data lands.
   </Card>
   <Card title="Airform" icon="diagram-project" href="/guide/build/data-infrastructure/airform">
-    dbt-style modeling, with version-controlled SQL transforms that land
-    clean, tested tables. Open source.
+    Version-controlled SQL models that land clean, tested tables.
   </Card>
 </CardGroup>

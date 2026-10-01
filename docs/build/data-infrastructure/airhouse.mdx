@@ -3,82 +3,44 @@ title: "Airhouse"
 description: "Oxygen's managed warehouse, where your data lands and is queried from"
 ---
 
-**Airhouse** is Oxygen's managed warehouse, the place where your data lands
-and where the [semantic model](/guide/build/semantic-model/simple-model) and
-agents query it from. It speaks the Postgres wire protocol, so any
-Postgres-compatible client or BI tool can connect, and it runs every query on
-[DuckDB](https://duckdb.org) over tables stored with
+**Airhouse** is Oxygen's managed warehouse, where your data lands and where
+the [semantic model](/guide/build/semantic-model/simple-model) and agents
+query it. It speaks the Postgres wire protocol, runs queries on
+[DuckDB](https://duckdb.org), and stores tables in open formats with
 [DuckLake](https://ducklake.select). It has three parts:
 
-- The **data plane** accepts connections and checks every statement, first
-  the password, then the caller's role and limits, before DuckDB runs it.
-- The **control plane** creates databases and users, and mints the
-  short-lived credentials that every connection uses.
-- **Storage** holds each database's catalog in Postgres and its table data as
-  Parquet files in object storage, isolated from every other database.
+- The **data plane** checks every statement against the caller's credentials,
+  role, and limits before DuckDB runs it.
+- The **control plane** provisions a database for each workspace and mints
+  short-lived credentials on demand.
+- **Storage** keeps each database's catalog and Parquet files isolated from
+  every other database.
 
 <Frame caption="Airhouse checks every statement before DuckDB runs it, hands out only short-lived credentials, and keeps each database's catalog and files isolated in open formats.">
   <img src="../../images/airhouse-figure-1.svg" alt="Airhouse architecture. SQL clients such as psql, drivers, BI tools, and agents send SQL over the Postgres protocol to the data plane, which authenticates the password, authorizes the role and limits, and executes on DuckDB. Your platform, Oxygen or your own backend, provisions through the control plane's Admin API, which manages databases, users and roles, and credentials, and returns short-lived credentials. The data plane reads metadata from a DuckLake catalog in Postgres and Parquet table data in S3-compatible storage. A highlighted box notes that each database is isolated, with its own catalog, storage prefix, users, and query limits." />
 </Frame>
 
-## Why a warehouse per workspace
-
-Most warehouses are shared infrastructure guarded by long-lived service
-passwords. Those passwords end up in config files and CI secrets, they are
-rarely rotated, and one leaked key can read everything. Airhouse inverts this
-in two ways.
+## Why it matters
 
 - **No long-lived keys.** Agents, pipelines, and apps never hold a warehouse
-  password. Each time one needs to connect, Oxygen mints a credential that
-  expires on its own, carrying only the role the caller is entitled to.
-- **Isolation by default.** Each workspace gets its own Airhouse database, with
-  its own catalog, its own storage location, its own users, and its own query
-  limits, so one workspace can't see another's data and each one's load
-  can be capped on its own.
+  password. Oxygen mints a credential when one is needed, scoped to the
+  caller's role, and it expires on its own.
+- **Isolation by default.** Each workspace gets its own database, with its own
+  catalog, storage location, users, and query limits.
+- **Open formats.** Tables are standard Parquet with a DuckLake catalog, so the
+  data stays readable with open tooling and is never locked in.
+- **Works with existing tools.** Any Postgres-compatible client or BI tool can
+  connect without a new driver.
 
-Because tables are stored as standard Parquet with a DuckLake catalog, the
-data is never locked into Airhouse: it stays readable with DuckDB and DuckLake
-tooling.
+## Where it fits
 
-## The data plane
-
-Every connection names its database with the standard Postgres `database`
-parameter. The data plane verifies the credential, opens an isolated DuckDB
-session with that database's catalog attached, and then checks each statement
-against the caller's role (`reader`, `writer`, or `admin`) and the database's
-rate and concurrency limits. Statements that fail a check never reach the
-engine. DuckDB reads only the Parquet files and columns a query needs, and
-results stream back in the Postgres wire format.
-
-## The control plane
-
-When Airhouse is enabled for a workspace, Oxygen provisions a database for it
-through the control plane. From then on, Oxygen mints credentials on demand,
-and the role each credential carries follows your organization role: owners
-get `admin`, admins get `writer`, and members get `reader`. This is how
-[Airway](/guide/build/data-infrastructure/airway) pipelines load data and how
-[custom apps](/guide/build/sdk/functions) append their own facts without ever
-holding a password.
-
-## Storage
-
-Each database's catalog, which records its schemas, tables, data files, and
-snapshots, lives in Postgres. Its table data lives as Parquet files under its
-own prefix in S3-compatible object storage. Every write is an atomic commit
-that creates a new snapshot, so readers always see a consistent view, and
-earlier snapshots stay queryable with
-[time travel](/airhouse/guides/tables-and-storage#snapshots-and-time-travel).
-
-## When to use Airhouse
-
-Use Airhouse when you want Oxygen to manage the warehouse for you. It is
-where Airway pipelines land extracted data and where custom apps append their
-own facts. If you already have a warehouse, you do not need Airhouse, since
-Oxygen [connects to your own](/guide/build/connect-data) and the semantic
-model compiles the same way regardless of where the data lives.
+[Airway](/guide/build/data-infrastructure/airway) pipelines land extracted data
+in Airhouse, and [custom apps](/guide/build/sdk/functions) append their own
+facts to it. Teams that already run a warehouse can skip Airhouse, since Oxygen
+[connects to your own](/guide/build/connect-data) and the semantic model
+compiles the same way wherever the data lives.
 
 <Card title="Airhouse documentation" icon="warehouse" href="/airhouse">
-  Architecture, access and credentials, connecting clients and BI tools,
-  managing databases, users and roles, service accounts, and the full
-  reference, all in the Airhouse tab.
+  Architecture, access, connecting clients and BI tools, and the full
+  reference, in the Airhouse tab.
 </Card>

@@ -1,11 +1,33 @@
 ---
 title: "Pipeline reference"
-description: "The keys in an .airway.yml file, the supported source kinds, and how credentials resolve"
+description: "The keys in an .airway.yml file, the supported source kinds, how credentials resolve, and how runs work"
 ---
 
 An Airway pipeline is a `.airway.yml` file. Unknown top-level keys are a
 parse error rather than being silently ignored, so a typo surfaces as soon as
 the file is compiled.
+
+The `.airway.yml` extension is required, because the workspace only picks up
+files with that exact suffix; a pipeline saved as plain `.yml` is silently
+ignored.
+
+## Example
+
+```yaml
+# pipelines/quickbooks_financials.airway.yml
+name: quickbooks_financials
+source:
+  kind: quickbooks
+  config:
+    client_id: <client-id>
+    client_secret_var: QB_CLIENT_SECRET   # a secret key, never a value
+    refresh_token_var: QB_REFRESH_TOKEN
+    realm_id: "<realm-id>"
+destination:
+  database: warehouse                      # a database from config.yml
+  dataset_name: quickbooks_financials
+concurrency: 2
+```
 
 ## Keys
 
@@ -70,6 +92,30 @@ source:
       key_var: CENSUS_API_KEY
       param: key
 ```
+
+## How a run works
+
+- **Queue.** Only one run of a given pipeline is active per workspace. A run
+  submitted while another is busy waits for it, and repeated submissions join
+  the run already queued, so ten clicks of **Run now** produce one run.
+- **Extract.** The run reads only what changed since the cursor, extracting
+  the source's resources in parallel up to the pipeline's `concurrency`.
+- **Load.** Rows are loaded into the destination, and the cursor advances once
+  the load has committed. New tables and columns are added automatically, but
+  a column is never dropped or narrowed in place, so a pipeline sitting on a
+  wrong schema needs an explicit **Reset schema**, which drops its destination
+  tables and cursor so that the next run starts fresh.
+- **Finish.** A run ends as `completed`, `completed_with_errors`, or `failed`.
+  A run that loads some resources but fails on others finishes as
+  `completed_with_errors` rather than as a failure, so alerting should watch
+  for both.
+
+## Triggers
+
+Pipelines can run on their own with **Run now**, from a schedule, or as a step
+in an [automation](/guide/build/automations/task-types#type-airway), where the
+step finishes only once the load has committed, so that the tasks after it
+read fully loaded tables.
 
 ## Destinations
 

@@ -164,6 +164,67 @@ watching it or it does not, and every lever either has a control acting on it
 or has no owner at all, so both the coverage and the gaps in it become
 visible.
 
+## Three engines, one rotation
+
+Operating a company comes down to three standing jobs, and Oxygen builds an
+engine for each of them:
+
+- **Run the business with the [Control Engine](/guide/build/world-model/controls),**
+  which executes the acting controls the company operates by (replenishing,
+  staffing, pricing, escalating), each administered as a `.control.yml` file.
+- **Expand the business with the [Opportunity Engine](/guide/build/world-model/opportunity-sizing),**
+  which runs controls built on the `opportunity` computation to find where
+  the business underperforms its own benchmark, size the gap in dollars, and
+  drill down to the levers that close it.
+- **Fix the business with the Anomaly Engine,** which runs controls built on
+  the `anomaly` computation to detect when an outcome breaks from its
+  forecast and to decompose that break to its root cause in the Insights
+  Inbox.
+
+All three run the same primitive, a
+[control](/guide/build/world-model/controls), and differ only in which
+criteria computation they use and whether their action informs or acts.
+
+```mermaid
+flowchart TB
+  subgraph ENGINES["  "]
+    direction LR
+    P["<b>Control Engine</b><br/>Run the business<br/><i>acting controls · .control.yml</i>"]
+    O["<b>Opportunity Engine</b><br/>Expand the business<br/><i>opportunity computation</i>"]
+    A["<b>Anomaly Engine</b><br/>Fix the business<br/><i>anomaly computation</i>"]
+  end
+  P -->|decisions| I["Interventions on the business"]
+  O -->|sized levers| I
+  A -->|corrections| I
+  I --> E["<b>Evaluation</b><br/>predicted vs. measured impact"]
+  E -->|sharpens the physics and the controls| ENGINES
+```
+
+Each engine applies the same four-step discipline over the World Model:
+
+| | **Control Engine**: run | **Opportunity Engine**: expand | **Anomaly Engine**: fix |
+| --- | --- | --- | --- |
+| **Measure** | Operational metrics at the decision grain (SKU-level sales, days of supply) | Top-line KPIs across every dimension and driver cut | Core output metrics, continuously |
+| **Analyze** | Forecast expected demand, depletion, and arrivals | Benchmark comparison, statistically gated | Deviation from the expected envelope, decomposed to root cause |
+| **Recommend** | The decision the rule prescribes, such as ordering 40 units today | The levers with the largest sized gap | The levers that reverse the break |
+
+As an example, the Anomaly Engine opening up `labor_cost_pct` for a location
+might read:
+
+```text
+Labor cost: 37.5%  (13% lower than average)
+
+Root cause
+  revenue          +25% vs average
+  labor            +50% vs average
+  employees        ~ average
+  full-time hours  ~ average
+  overtime hours   +100% vs average
+
+Estimated adjustment:  $250k labor cost
+Recommendation:        investigate overtime cost at the San Mateo location
+```
+
 ## Next steps
 
 <CardGroup cols={2}>

@@ -274,6 +274,32 @@ entities:
     key: manager_id
 ```
 
+## The entity graph
+
+The **Entity Graph** links measures to the real objects that produce them,
+such as stores, employees, customers, and orders, through `entities`
+declarations (`primary` and `foreign` keys) and a `parent:` hierarchy.
+
+```yaml
+# stores.view.yml
+entities:
+  - name: store_id
+    type: primary
+    key: store_id
+    parent: company_id
+```
+
+Two capabilities follow from this:
+
+- **Automatic joins.** Any measure can be sliced by the dimensions of any
+  related object, because the graph already knows the path between them.
+- **Promotion up the hierarchy.** A measure defined at the sale grain rolls up
+  to the store, company, and market automatically, so `markets.net_sales` is
+  derived from `sales.net_sales` without any additional definition.
+
+Grounding metrics in real objects is also what makes them actionable, since
+an object is something you can act on.
+
 ## Related Documentation
 
 <CardGroup cols={2}>

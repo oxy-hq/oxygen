@@ -4,104 +4,45 @@ sidebarTitle: "Overview"
 description: "Oxygen's ELT engine, which extracts data from external systems and loads it into your warehouse"
 ---
 
-**Airway** is Oxygen's ELT engine. It extracts data from external systems
-such as point-of-sale platforms, accounting tools, public datasets, and other
-databases, and loads it into your warehouse, usually
-[Airhouse](/guide/build/data-infrastructure/airhouse), where
-[Airform](/guide/build/data-infrastructure/airform) and the
-[semantic model](/guide/build/semantic-model/simple-model) take over. Every
-pipeline comes down to three things:
+**Airway** is Oxygen's ELT engine. It extracts data from the systems a business
+already runs, such as point-of-sale platforms, accounting tools, databases, and
+public datasets, and loads it into the warehouse, usually
+[Airhouse](/guide/build/data-infrastructure/airhouse). Every pipeline comes
+down to three things:
 
-- A **pipeline file** in your workspace that declares what to extract, from
+- A **pipeline file** in the workspace that declares what to extract, from
   where, and where to load it.
-- A **run**, which is queued, extracts only what changed, and loads it into
-  your warehouse.
-- A **cursor**, saved per workspace, which records how far the last run got
-  so that the next run, or a retry, resumes from there.
+- A **run**, which extracts only what changed and loads it into the warehouse.
+- A **cursor**, saved per workspace, which records how far the last run got.
 
 <Frame caption="Every run picks up from a saved cursor, so a pipeline only moves new data and a failed run can be retried safely.">
   <img src="../../../images/airway-figure-1.svg" alt="Airway architecture. Your systems, such as point-of-sale, accounting, databases, files, and public data, connect to a pipeline declared in an .airway.yml file in your workspace, with secrets referenced by name and runs triggered by Run now, a schedule, or an automation. A run is queued one at a time per pipeline, extracts only what changed since the cursor, and loads into the destination, adding new tables and columns but never dropping them. The load commits into Airhouse, the usual choice, with credentials minted for each run, or into Postgres. A highlighted cursor, saved per workspace, advances after each load, and the next run or a retry resumes from it." />
 </Frame>
 
-## Why incremental, one run at a time
+## Why it matters
 
-Re-pulling a source's full history on every run is slow, costs API quota, and
-makes a failure expensive, because a retry starts again from the beginning.
-Running two loads of the same pipeline at once is worse: they race on the
-same tables and can skip or double-load rows.
+- **Incremental and retry-safe.** Runs move only new data, and because the
+  cursor advances only after a load commits, a failed run can be retried
+  without gaps or a full re-pull.
+- **One run at a time.** Each pipeline has a single active run per workspace,
+  so loads never race each other.
+- **Secrets stay out of code.** Pipelines reference credentials by name, and
+  loads into Airhouse use credentials minted for each run.
+- **Part of the workflow.** Pipelines run on demand, on a schedule, or as a
+  step in an [automation](/guide/build/automations/task-types#type-airway), so
+  the steps that follow always read fully loaded tables.
 
-Airway avoids both. Each pipeline keeps a cursor, so a run extracts only what
-changed since the last one, and a retry resumes from that cursor rather than
-from scratch. Only one run of a pipeline is active per workspace at a time, so
-the cursor has a single writer. The cursor only advances after a load
-commits, so a failure can make the next run re-read a window, but never
-skip one.
+## Where it fits
 
-## The pipeline file
-
-Each pipeline is a version-controlled `.airway.yml` file in your workspace,
-declaring a source, a destination, and optionally which of the source's
-resources to load:
-
-```yaml
-# pipelines/quickbooks_financials.airway.yml
-name: quickbooks_financials
-source:
-  kind: quickbooks
-  config:
-    client_id: <client-id>
-    client_secret_var: QB_CLIENT_SECRET   # a secret key, never a value
-    refresh_token_var: QB_REFRESH_TOKEN
-    realm_id: "<realm-id>"
-destination:
-  database: warehouse                      # a database from config.yml
-  dataset_name: quickbooks_financials
-concurrency: 2
-```
-
-The `.airway.yml` extension is required, because the workspace only picks up
-files with that exact suffix; a pipeline saved as plain `.yml` is silently
-ignored. Credentials never appear in the file: a key ending in `_var` names a
-secret in the workspace's secret manager, and Oxygen substitutes its value at
-run time. The [pipeline reference](/guide/build/data-infrastructure/airway/pipelines)
-lists every key and every supported source.
-
-## How a run works
-
-- **Queue.** Only one run of a given pipeline is active per workspace. A run
-  submitted while another is busy waits for it, and repeated submissions join
-  the run already queued, so ten clicks of **Run now** produce one run.
-- **Extract.** The run reads only what changed since the cursor, extracting
-  the source's resources in parallel up to the pipeline's `concurrency`.
-- **Load.** Rows are loaded into the destination, and the cursor advances once
-  the load has committed. New tables and columns are added automatically, but
-  a column is never dropped or narrowed in place, so a pipeline sitting on a
-  wrong schema needs an explicit **Reset schema**, which drops its destination
-  tables and cursor so that the next run starts fresh.
-- **Finish.** A run ends as `completed`, `completed_with_errors`, or `failed`.
-  A run that loads some resources but fails on others finishes as
-  `completed_with_errors` rather than as a failure, so alerting should watch
-  for both.
-
-## Triggers
-
-Pipelines can run on their own with **Run now**, from a schedule, or as a step
-in an [automation](/guide/build/automations/task-types#type-airway), where the
-step finishes only once the load has committed, so that the tasks after it
-read fully loaded tables.
-
-## Destinations
-
-Pipelines load into a database declared in `config.yml`. In practice this is
-almost always an [Airhouse](/guide/build/data-infrastructure/airhouse)
-database, which mints credentials at run time so the pipeline never holds a
-warehouse password. Postgres destinations are also supported.
-
-## What's in this section
+Airway connects to point-of-sale, commerce, accounting, ERP, databases,
+spreadsheets, and public data out of the box, and to almost any other system
+through a general-purpose REST connector. It loads into Airhouse or Postgres,
+where [Airform](/guide/build/data-infrastructure/airform) and the
+[semantic model](/guide/build/semantic-model/simple-model) take over.
 
 <CardGroup cols={2}>
   <Card title="Pipeline reference" icon="file-code" href="/guide/build/data-infrastructure/airway/pipelines">
-    Every key in `.airway.yml`, the supported sources, and credentials
+    Pipeline files, supported sources, credentials, and how runs work
   </Card>
   <Card title="Airhouse" icon="warehouse" href="/guide/build/data-infrastructure/airhouse">
     Where most pipelines land their data
