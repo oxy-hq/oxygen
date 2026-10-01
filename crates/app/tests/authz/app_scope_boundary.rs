@@ -553,6 +553,11 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
                 // would come to be read as the safe one.
                 "deprovision_writer",
                 "credentials",
+                // The staging branch. `reset_branch` discards every app's
+                // staging data in the org; `get_branch` names those apps and
+                // the branch's endpoint.
+                "get_branch",
+                "reset_branch",
             ],
         ),
         (

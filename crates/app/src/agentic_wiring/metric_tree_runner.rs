@@ -33,8 +33,11 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use crate::agentic_wiring::project_ctx::build_connector_for_db;
+// A blocking thread is off the request's task, so the preview hold is passed
+// in (`holds_writes`) rather than read from `request_hold::active()` there.
 use crate::server::api::metric_tree::OPPORTUNITY_MIN_SUPPORT;
 use crate::server::preagg_context::RollupFreshness;
+use crate::server::previews::request_hold::hold_if;
 use oxy::config::{ReadOnly, WorkingCopy};
 
 /// Adapter that exposes Oxy's semantic-model + connector pool as a
@@ -112,6 +115,10 @@ pub struct OxyMetricTreeRunner {
         Arc<crate::server::router::workspace_cache::SemanticEngineCache>,
         Option<Uuid>,
     )>,
+    /// Hold every connector the runner builds (a workspace-preview request).
+    /// Read when the runner is built: its queries run on blocking threads,
+    /// off the request's task.
+    holds_writes: bool,
 }
 
 impl OxyMetricTreeRunner {
@@ -128,7 +135,15 @@ impl OxyMetricTreeRunner {
             default_timezone: std::sync::OnceLock::new(),
             scan_root: ScanRoot::WorkingCopy,
             engine_cache: None,
+            holds_writes: crate::server::previews::request_hold::active(),
         }
+    }
+
+    /// Hold every connector this runner builds when `hold` — for a runner
+    /// built off the request's task for a context that holds writes.
+    pub fn holding_writes(mut self, hold: bool) -> Self {
+        self.holds_writes |= hold;
+        self
     }
 
     /// Share the process-wide engine cache.
@@ -337,6 +352,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             } = inputs;
             // Members pinned by the base filter (the monitor's group_by /
             // segment) carry no signal as split candidates once we scope to
@@ -354,6 +370,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             );
             // Scope every query the explain issues to the anomaly's segment by
             // appending the base filters before delegating to the executor.
@@ -445,6 +462,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
                 ..
             } = inputs;
             let executor = build_query_executor(
@@ -455,6 +473,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             );
             // Try with date filter first; fall back to unfiltered on error
             // (some views don't have a `business_date` dimension).
@@ -525,6 +544,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
                 ..
             } = inputs;
             let executor = build_query_executor(
@@ -535,6 +555,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg.for_timezone(timezone.as_deref()),
+                holds_writes,
             );
             let rows =
                 (executor)(&request).map_err(|e| MetricTreeRunnerError::Op(e.to_string()))?;
@@ -588,6 +609,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
                 ..
             } = inputs;
             let executor = build_query_executor(
@@ -598,6 +620,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             );
             let rows =
                 (executor)(&request).map_err(|e| MetricTreeRunnerError::Op(e.to_string()))?;
@@ -632,6 +655,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             } = inputs;
             let tree = MetricTree::build(&layer);
             let executor = build_query_executor(
@@ -642,6 +666,7 @@ impl MetricTreeRunner for OxyMetricTreeRunner {
                 role,
                 handle,
                 preagg,
+                holds_writes,
             );
             metric_tree_ops::opportunity(
                 &tree,
@@ -676,6 +701,7 @@ struct RunInputs {
     role: WorkspaceRole,
     handle: tokio::runtime::Handle,
     preagg: RunnerPreagg,
+    holds_writes: bool,
 }
 
 impl OxyMetricTreeRunner {
@@ -692,6 +718,7 @@ impl OxyMetricTreeRunner {
             role: self.role.clone(),
             handle: tokio::runtime::Handle::current(),
             preagg: self.preagg.clone(),
+            holds_writes: self.holds_writes,
         })
     }
 }
@@ -910,6 +937,7 @@ pub fn build_query_executor(
     role: WorkspaceRole,
     handle: tokio::runtime::Handle,
     preagg: RunnerPreagg,
+    holds_writes: bool,
 ) -> Box<QueryExecutor> {
     use agentic_connector::DatabaseConnector;
 
@@ -1039,6 +1067,7 @@ pub fn build_query_executor(
                     Some(user_id),
                     Some(role.clone()),
                 ))
+                .map(|conn| hold_if(holds_writes, conn, &database))
                 .map_err(|e| EngineError::QueryError(e.to_string()))?;
             tracing::info!(
                 target: "metric_tree.explain",
@@ -1110,6 +1139,7 @@ pub fn build_drill_query_executor(
     role: WorkspaceRole,
     handle: tokio::runtime::Handle,
     preagg: RunnerPreagg,
+    holds_writes: bool,
 ) -> Box<QueryExecutor> {
     use agentic_connector::DatabaseConnector;
 
@@ -1238,6 +1268,7 @@ pub fn build_drill_query_executor(
                     Some(user_id),
                     Some(role.clone()),
                 ))
+                .map(|conn| hold_if(holds_writes, conn, &database))
                 .map_err(|e| EngineError::QueryError(e.to_string()))?;
             tracing::info!(
                 target: "metric_tree.explain",
@@ -1389,11 +1420,13 @@ pub fn make_runner(
     role: WorkspaceRole,
     preagg: RunnerPreagg,
     scan_root: ScanRoot,
+    holds_writes: bool,
 ) -> Arc<dyn MetricTreeRunner> {
     // The runner only needs the read capability; `into_read_only` keeps the
     // working copy, so the FS scan-path fallback still works on this node.
     let runner = OxyMetricTreeRunner::new(workspace_manager.into_read_only(), user_id, role)
-        .with_preagg_ctx(preagg);
+        .with_preagg_ctx(preagg)
+        .holding_writes(holds_writes);
     let runner = match scan_root {
         ScanRoot::Compiled(p) => runner.with_scan_path(p),
         ScanRoot::Unavailable => runner.without_working_copy_fallback(),

@@ -229,6 +229,10 @@ pub(crate) fn build_cors_layer() -> CorsLayer {
             // "Failed to fetch". Same headers the external CORS layer allows.
             header::CACHE_CONTROL,
             HeaderName::from_static("last-event-id"),
+            // Marks a workspace-preview request (`server::previews::pin`). The
+            // dev frontend calls the API cross-origin, so it needs a preflight
+            // pass like any other non-safelisted header.
+            HeaderName::from_static(crate::server::previews::pin::REQUEST_HEADER),
         ])
         // `Link` carries `rel="next"` on the paginated list endpoints
         // (`oxy_app_core::pagination`). A response header is invisible to a
@@ -242,9 +246,13 @@ pub(crate) fn build_cors_layer() -> CorsLayer {
         // `<org>--<slug>.customer-apps…` calling `/api` is cross-origin, so
         // `response.headers.get('x-oxy-request-id')` reads null there without
         // this — which is exactly the client that would report it.
+        // `x-oxy-preview` tells the frontend a response was served from a
+        // workspace preview, and which revision; unreadable cross-origin
+        // without this.
         .expose_headers([
             header::LINK,
             HeaderName::from_static(crate::server::api::middlewares::request_id::REQUEST_ID_HEADER),
+            HeaderName::from_static(crate::server::previews::pin::RESPONSE_HEADER),
         ])
 }
 

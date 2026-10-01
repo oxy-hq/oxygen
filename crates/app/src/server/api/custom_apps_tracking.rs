@@ -132,6 +132,7 @@ pub fn session_id_for_serve(headers: &HeaderMap, secure: bool) -> (Uuid, String)
 /// and swallowed — losing a view row on a transient DB blip is the
 /// documented acceptable failure mode (the alternative — failing the
 /// HTML serve because tracking is down — would be much worse).
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all, fields(app_id = %app.id, user_id = %user_id))]
 pub async fn record_view(
     app: entity::apps::Model,
@@ -141,6 +142,7 @@ pub async fn record_view(
     referrer: Option<String>,
     user_agent_class: String,
     source: String,
+    environment: String,
 ) {
     let db = match establish_connection().await {
         Ok(d) => d,
@@ -164,6 +166,7 @@ pub async fn record_view(
         source: ActiveValue::Set(source),
         app_role: ActiveValue::Set(app_role),
         org_role: ActiveValue::Set(org_role),
+        environment: ActiveValue::Set(environment),
     };
     if let Err(e) = model.insert(&db).await {
         tracing::warn!("custom-app view tracking: insert failed: {e}");
@@ -253,6 +256,7 @@ pub enum EventError {
 ///
 /// Rate limiting is the caller's responsibility (see the
 /// `custom_apps_events` HTTP module which wires this up).
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all, fields(app_id = %app_id, user_id = %user_id, event_name = %event_name))]
 pub async fn record_event(
     db: &DatabaseConnection,
@@ -262,6 +266,7 @@ pub async fn record_event(
     session_id: Uuid,
     event_name: String,
     payload: serde_json::Value,
+    environment: &str,
 ) -> Result<Uuid, EventError> {
     if !is_valid_event_name(&event_name) {
         return Err(EventError::BadName(event_name));
@@ -284,6 +289,7 @@ pub async fn record_event(
         event_name: ActiveValue::Set(event_name),
         payload: ActiveValue::Set(payload),
         occurred_at: ActiveValue::Set(now),
+        environment: ActiveValue::Set(environment.to_string()),
     };
     model
         .insert(db)

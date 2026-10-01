@@ -165,6 +165,7 @@ pub(super) fn record_db_span(summary: &QuerySummary, namespace: Option<&str>, ta
 pub(super) fn coalesce(buffer: &mut Vec<WriteRecord>, write: WriteRecord) {
     if let Some(existing) = buffer.iter_mut().find(|w| {
         w.plane == write.plane
+            && w.op == write.op
             && w.namespace == write.namespace
             && w.verb == write.verb
             && w.table == write.table
@@ -207,6 +208,11 @@ impl WriteBuffer {
             }
             None => Some(write),
         }
+    }
+
+    /// Closed, or open with nothing in it.
+    pub fn holds_nothing(&self) -> bool {
+        self.open.as_ref().is_none_or(Vec::is_empty)
     }
 
     /// Take everything buffered and close the buffer for good.
@@ -266,6 +272,15 @@ pub(super) struct WriteRecord {
     pub rows: Option<u64>,
     /// How many statements this record stands for (coalesced).
     pub statements: u64,
+    /// The host op a held call was (`storage.put`), on `app.staging.held`
+    /// rows only. Absent from every write row, which serializes as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op: Option<&'static str>,
+    /// Why a held call could not run in its environment, when the fix is
+    /// the operator's — `ctx.oltp` in an org with no OLTP staging branch
+    /// (`env_policy::NO_BRANCH_NOTE`). On `app.staging.held` rows only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<&'static str>,
 }
 
 impl WriteRecord {
@@ -325,6 +340,11 @@ pub(super) const ACTION_OLTP_WRITE: &str = "app.oltp.write";
 pub(super) const ACTION_TX_COMMIT: &str = "app.tx.commit";
 pub(super) const ACTION_WAREHOUSE_WRITE: &str = "app.warehouse.write";
 pub(super) const ACTION_AIRHOUSE_WRITE: &str = "app.airhouse.write";
+/// What a non-production invocation would have written, and did not: every
+/// call its environment policy held or refused, one row per invocation, in
+/// the same shape as a write row — so "what would this staging run have done
+/// to production?" is one audit query. Never written in production.
+pub(super) const ACTION_STAGING_HELD: &str = "app.staging.held";
 
 /// The plane of a `ctx.airhouse` write: the app's own schema in its workspace's
 /// Airhouse, written as the app. Distinct from `airhouse`, which is a
@@ -425,6 +445,8 @@ mod tests {
             table: "orders".into(),
             rows: Some(3),
             statements: 1,
+            op: None,
+            note: None,
         };
         let human = entry(
             ACTION_OLTP_WRITE,
@@ -469,6 +491,8 @@ mod tests {
             table: String::new(),
             rows: None,
             statements: 1,
+            op: None,
+            note: None,
         };
         assert_eq!(w.target(), "airhouse:warehouse");
     }
@@ -485,6 +509,8 @@ mod tests {
             table: "orders".into(),
             rows: Some(2),
             statements: 1,
+            op: None,
+            note: None,
         };
         let e = entry(
             ACTION_TX_COMMIT,
@@ -507,6 +533,8 @@ mod tests {
             table: "orders".into(),
             rows: Some(1),
             statements: 1,
+            op: None,
+            note: None,
         };
         let mut buf = WriteBuffer::new();
         assert!(buf.note(mk()).is_none(), "buffered while open");
@@ -535,6 +563,8 @@ mod tests {
             table: table.into(),
             rows,
             statements: 1,
+            op: None,
+            note: None,
         };
         let mut buf = Vec::new();
         for _ in 0..1000 {

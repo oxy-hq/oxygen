@@ -42,6 +42,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("host.rs", include_str!("host.rs")),
     ("host/destinations.rs", include_str!("host/destinations.rs")),
     ("host/airhouse_ops.rs", include_str!("host/airhouse_ops.rs")),
+    ("host/tx_ops.rs", include_str!("host/tx_ops.rs")),
     ("host_call_attrs.rs", include_str!("host_call_attrs.rs")),
     ("upsert_support.rs", include_str!("upsert_support.rs")),
     ("tx.rs", include_str!("tx.rs")),

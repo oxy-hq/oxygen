@@ -37,7 +37,16 @@
 //! `app:<workspace>:<slug>` identities, budgeted apart so app writers and the
 //! analytics path never LRU-evict each other — so the process-wide ceiling is
 //! the two caps together, (16 + 16) × N = 96 connections at the defaults),
+//! `OXY_AIRHOUSE_POOL_MAX_PREVIEW_IDENTITIES` (default 8 — a workspace
+//! preview's `preview:[tx:]<workspace>:<key>[:<schemas>]` identities,
+//! budgeted apart for the same reason, adding 8 × N),
 //! `OXY_AIRHOUSE_POOL_DISABLED=1` (bypass → pre-pool per-request behaviour).
+//!
+//! [`checkout_exclusive`] holds one connection for a caller that sends several
+//! statements which must share a session (a preview batch's `BEGIN … COMMIT`,
+//! on its `preview:tx:` identities): nobody else is handed that slot until the
+//! lease drops, and [`ExclusiveLease::poison`] empties the slot of a
+//! connection that may still be inside the transaction.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -48,20 +57,25 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use agentic_connector::DatabaseConnector;
 use airhouse::AirhouseConnector;
 use oxy_shared::errors::OxyError;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 const DEFAULT_CONNS_PER_IDENTITY: usize = 3;
 const DEFAULT_IDLE_SECS: u64 = 300;
 const DEFAULT_MAX_IDENTITIES: usize = 16;
 const DEFAULT_MAX_APP_IDENTITIES: usize = 16;
+const DEFAULT_MAX_PREVIEW_IDENTITIES: usize = 8;
 /// Identities `ctx.airhouse` builds (`agentic_wiring::app_airhouse`).
 const APP_KEY_PREFIX: &str = "app:";
+/// Identities a workspace preview builds (`agentic_wiring::preview_airhouse`).
+pub(crate) const PREVIEW_KEY_PREFIX: &str = "preview:";
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
+type Slot = Arc<Mutex<Option<Arc<AirhouseConnector>>>>;
 
 /// Up to N reused connections for one logical identity. Each slot is built
 /// lazily (round-robin fills them), so a low-load identity holds fewer than N.
 struct KeyPool {
-    slots: Vec<Mutex<Option<Arc<AirhouseConnector>>>>,
+    slots: Vec<Slot>,
     next: AtomicUsize,
     /// Unix seconds of the last checkout; drives idle + LRU eviction.
     last_used: AtomicU64,
@@ -71,7 +85,7 @@ impl KeyPool {
     fn new(n: usize, now: u64) -> Self {
         let mut slots = Vec::with_capacity(n);
         for _ in 0..n {
-            slots.push(Mutex::new(None));
+            slots.push(Arc::new(Mutex::new(None)));
         }
         Self {
             slots,
@@ -101,8 +115,47 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Arc<AirhouseConnector>, OxyError>>,
 {
+    checkout_exclusive(key, build).await.map(|lease| lease.conn)
+}
+
+/// A pooled connection nobody else is handed until this drops.
+pub struct ExclusiveLease {
+    conn: Arc<dyn DatabaseConnector>,
+    /// The slot's lock; `None` when pooling is disabled (the connection is
+    /// this caller's alone anyway).
+    slot: Option<OwnedMutexGuard<Option<Arc<AirhouseConnector>>>>,
+}
+
+impl ExclusiveLease {
+    pub fn connector(&self) -> &Arc<dyn DatabaseConnector> {
+        &self.conn
+    }
+
+    /// Empty the slot, so the connection is never handed out again: for one
+    /// left in a state the next holder must not inherit (a transaction that
+    /// could not be rolled back). The next checkout of the slot builds a new
+    /// connection; this one closes when its last holder drops it.
+    pub fn poison(&mut self) {
+        if let Some(slot) = self.slot.as_mut() {
+            **slot = None;
+        }
+    }
+}
+
+/// [`get_or_build`], holding the slot until the lease drops: every other
+/// checkout that lands on it — exclusive or not — waits. For statements that
+/// must share one session (a transaction). Every caller of such a key must
+/// check out this way: a plain [`get_or_build`] hands its connection on and
+/// forgets it, so its holder could send into someone else's transaction.
+/// Keep transactional identities under keys nothing else uses.
+pub async fn checkout_exclusive<F, Fut>(key: String, build: F) -> Result<ExclusiveLease, OxyError>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<Arc<AirhouseConnector>, OxyError>>,
+{
     if pooling_disabled() {
-        return build().await.map(|c| c as Arc<dyn DatabaseConnector>);
+        let conn = build().await?;
+        return Ok(ExclusiveLease { conn, slot: None });
     }
 
     let now = now_secs();
@@ -114,18 +167,25 @@ where
     // checkouts that land on the SAME slot; other slots / identities proceed,
     // so concurrent demand grows the pool toward N distinct connections.
     let i = pool.next.fetch_add(1, Ordering::Relaxed) % pool.slots.len();
-    let mut slot = pool.slots[i].lock().await;
+    let mut slot = Arc::clone(&pool.slots[i]).lock_owned().await;
     if let Some(conn) = slot.as_ref() {
         if conn.is_live() {
             tracing::debug!(pool_key = %key, slot = i, "airhouse pool: reuse");
-            return Ok(conn.clone() as Arc<dyn DatabaseConnector>);
+            let conn = conn.clone() as Arc<dyn DatabaseConnector>;
+            return Ok(ExclusiveLease {
+                conn,
+                slot: Some(slot),
+            });
         }
         tracing::info!(pool_key = %key, slot = i, "airhouse pool: slot dead, rebuilding");
     }
     let conn = build().await?;
     *slot = Some(Arc::clone(&conn));
     tracing::info!(pool_key = %key, slot = i, "airhouse pool: build");
-    Ok(conn as Arc<dyn DatabaseConnector>)
+    Ok(ExclusiveLease {
+        conn,
+        slot: Some(slot),
+    })
 }
 
 /// Get the identity's pool, creating it (and pruning idle/over-cap identities)
@@ -157,6 +217,7 @@ fn evict(map: &mut HashMap<String, Arc<KeyPool>>, now: u64) {
         idle_secs: idle_secs(),
         max_identities: max_identities(),
         max_app_identities: max_app_identities(),
+        max_preview_identities: max_preview_identities(),
     };
     for key in keys_to_evict_by_budget(&snapshot, now, budgets) {
         map.remove(&key);
@@ -168,20 +229,31 @@ struct Budgets {
     idle_secs: u64,
     max_identities: usize,
     max_app_identities: usize,
+    max_preview_identities: usize,
 }
 
-/// [`keys_to_evict`] run separately over app-write identities and everything
-/// else, so a workspace with several `ctx.airhouse` apps cannot push the
-/// analytics path's sessions out of the pool, and analytics traffic cannot
-/// evict an app mid-burst — each eviction costs a mint and a fresh DuckLake
-/// session, the load this pool exists to cap.
+/// [`keys_to_evict`] run separately over app-write identities, preview
+/// identities and everything else, so a workspace with several `ctx.airhouse`
+/// apps (or a preview run writing several schemas) cannot push the analytics
+/// path's sessions out of the pool, and analytics traffic cannot evict an app
+/// mid-burst — each eviction costs a mint and a fresh DuckLake session, the
+/// load this pool exists to cap.
 fn keys_to_evict_by_budget(entries: &[(String, u64)], now: u64, b: Budgets) -> Vec<String> {
-    let (apps, others): (Vec<_>, Vec<_>) = entries
+    let (apps, rest): (Vec<_>, Vec<_>) = entries
         .iter()
         .cloned()
         .partition(|(k, _)| k.starts_with(APP_KEY_PREFIX));
+    let (previews, others): (Vec<_>, Vec<_>) = rest
+        .into_iter()
+        .partition(|(k, _)| k.starts_with(PREVIEW_KEY_PREFIX));
     let mut out = keys_to_evict(&others, now, b.idle_secs, b.max_identities);
     out.extend(keys_to_evict(&apps, now, b.idle_secs, b.max_app_identities));
+    out.extend(keys_to_evict(
+        &previews,
+        now,
+        b.idle_secs,
+        b.max_preview_identities,
+    ));
     out
 }
 
@@ -276,6 +348,13 @@ fn max_app_identities() -> usize {
     )
 }
 
+fn max_preview_identities() -> usize {
+    env_usize(
+        "OXY_AIRHOUSE_POOL_MAX_PREVIEW_IDENTITIES",
+        DEFAULT_MAX_PREVIEW_IDENTITIES,
+    )
+}
+
 fn env_usize(var: &str, default: usize) -> usize {
     std::env::var(var)
         .ok()
@@ -285,69 +364,4 @@ fn env_usize(var: &str, default: usize) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Budgets, keys_to_evict, keys_to_evict_by_budget};
-
-    fn e(k: &str, last: u64) -> (String, u64) {
-        (k.to_string(), last)
-    }
-
-    #[test]
-    fn app_identities_and_the_analytics_path_do_not_evict_each_other() {
-        let entries = [
-            e("mgd:w:u1:Reader", 990),
-            e("mgd:w:u2:Reader", 995),
-            e("app:w:store-ops", 900),
-            e("app:w:bookkeeping", 910),
-        ];
-        let budgets = Budgets {
-            idle_secs: 600,
-            max_identities: 3,
-            max_app_identities: 3,
-        };
-        // Four identities against one shared cap of 3 would evict the oldest two
-        // — both apps. Budgeted apart, each side is under its own cap.
-        assert!(keys_to_evict(&entries, 1000, 600, 3).len() == 2);
-        assert!(keys_to_evict_by_budget(&entries, 1000, budgets).is_empty());
-    }
-
-    #[test]
-    fn evicts_only_idle_entries() {
-        let entries = [e("a", 100), e("b", 950), e("c", 970)];
-        // now=1000, idle=60 → "a" (idle 900) evicted; b (idle 50) and c (idle 30) kept.
-        let mut out = keys_to_evict(&entries, 1000, 60, 100);
-        out.sort();
-        assert_eq!(out, vec!["a".to_string()]);
-    }
-
-    #[test]
-    fn idle_secs_is_inclusive_boundary() {
-        let entries = [e("a", 940)];
-        assert_eq!(
-            keys_to_evict(&entries, 1000, 60, 100),
-            vec!["a".to_string()]
-        );
-    }
-
-    #[test]
-    fn cap_evicts_lru_to_make_room() {
-        // All fresh, cap=3 → drop oldest so one new identity fits.
-        let entries = [e("a", 10), e("b", 20), e("c", 30)];
-        assert_eq!(
-            keys_to_evict(&entries, 30, 100_000, 3),
-            vec!["a".to_string()]
-        );
-    }
-
-    #[test]
-    fn cap_zero_disables_cap_eviction() {
-        let entries = [e("a", 10), e("b", 20)];
-        assert!(keys_to_evict(&entries, 30, 100_000, 0).is_empty());
-    }
-
-    #[test]
-    fn under_cap_and_fresh_evicts_nothing() {
-        let entries = [e("a", 10), e("b", 20)];
-        assert!(keys_to_evict(&entries, 30, 100_000, 10).is_empty());
-    }
-}
+mod tests;

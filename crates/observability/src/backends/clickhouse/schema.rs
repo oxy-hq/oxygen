@@ -237,7 +237,8 @@ CREATE TABLE IF NOT EXISTS custom_app_events (
     error_kind LowCardinality(String) DEFAULT '',
     error_detail String DEFAULT '',
     trace_id String DEFAULT '',
-    span_id String DEFAULT ''
+    span_id String DEFAULT '',
+    environment LowCardinality(String) DEFAULT 'production'
 ) ENGINE = MergeTree()
 PARTITION BY toDate(timestamp)
 ORDER BY (org_id, app_id, timestamp)
@@ -270,7 +271,8 @@ CREATE TABLE IF NOT EXISTS custom_app_logs (
     seq UInt32 DEFAULT 0,
     message String,
     trace_id String DEFAULT '',
-    span_id String DEFAULT ''
+    span_id String DEFAULT '',
+    environment LowCardinality(String) DEFAULT 'production'
 ) ENGINE = MergeTree()
 PARTITION BY toDate(timestamp)
 ORDER BY (org_id, app_id, timestamp)
@@ -315,7 +317,8 @@ CREATE TABLE IF NOT EXISTS custom_app_client_errors (
     kind LowCardinality(String) DEFAULT 'error',
     user_agent String DEFAULT '',
     trace_id String DEFAULT '',
-    span_id String DEFAULT ''
+    span_id String DEFAULT '',
+    environment LowCardinality(String) DEFAULT 'production'
 ) ENGINE = MergeTree()
 PARTITION BY toDate(timestamp)
 ORDER BY (org_id, app_id, timestamp)
@@ -335,6 +338,20 @@ SETTINGS ttl_only_drop_parts = 1
 pub const CUSTOM_APP_METER_ALTERS: &[&str] = &[
     "ALTER TABLE custom_app_events ADD COLUMN IF NOT EXISTS host_calls UInt32 DEFAULT 0, ADD COLUMN IF NOT EXISTS init_ms UInt32 DEFAULT 0",
 ];
+
+/// The app environment a row came from (custom-app environments design §3.4).
+/// Same idempotent shape as the alters around it. Old rows read `production`,
+/// which is what they were; readers still treat `''` as production so a row
+/// written by a binary that predates the column cannot fall out of the SLI.
+pub const CUSTOM_APP_ENVIRONMENT_ALTERS: &[&str] = &[
+    "ALTER TABLE custom_app_events ADD COLUMN IF NOT EXISTS environment LowCardinality(String) DEFAULT 'production'",
+    "ALTER TABLE custom_app_logs ADD COLUMN IF NOT EXISTS environment LowCardinality(String) DEFAULT 'production'",
+    "ALTER TABLE custom_app_client_errors ADD COLUMN IF NOT EXISTS environment LowCardinality(String) DEFAULT 'production'",
+];
+
+/// The filter every production-only read applies: production, or a row written
+/// before the column existed.
+pub const PRODUCTION_ONLY: &str = "environment IN ('production', '')";
 
 pub const CUSTOM_APP_TRACE_ID_ALTERS: &[&str] = &[
     "ALTER TABLE custom_app_events ADD COLUMN IF NOT EXISTS trace_id String DEFAULT '', ADD COLUMN IF NOT EXISTS span_id String DEFAULT ''",

@@ -9,6 +9,19 @@
 use agentic_core::delegation::TaskSpec;
 use serde_json::Value;
 
+/// Kinds whose airway source reads `backfill_start` / `backfill_end`.
+///
+/// Lives here, in the crate every oxy crate enters airway through, because two
+/// callers decide by it: the executor's backfill window
+/// (`agentic_pipeline::executor`, which re-exports it under its old path) and a
+/// workspace preview's sample policy ([`crate::preview`]). One list, so the two
+/// cannot disagree about which sources take a window.
+///
+/// Adding a kind here is only half the job — the source builder in
+/// [`crate::source_factory`] has to parse the pair and hand it to the
+/// connector, or the window is accepted and silently ignored there.
+pub const WINDOWED_BACKFILL_KINDS: [&str; 3] = ["toast", "quickbooks", "sp_api"];
+
 /// Strongly-typed view of the data carried by a [`TaskSpec::Airway`].
 #[derive(Debug, Clone)]
 pub struct AirwayTaskSpec {
@@ -18,9 +31,8 @@ pub struct AirwayTaskSpec {
     /// [`TaskSpec::Airway::resources`].
     pub resources: Vec<String>,
     /// Bounded-backfill window `[from, to)` as RFC3339 strings, applied to the
-    /// date-windowed sources (toast, quickbooks, sp_api —
-    /// `agentic_pipeline::executor::WINDOWED_BACKFILL_KINDS` is the list that
-    /// decides, and this one is a copy of it). `None` = normal run.
+    /// date-windowed sources ([`WINDOWED_BACKFILL_KINDS`] is the list that
+    /// decides). `None` = normal run.
     pub backfill_from: Option<String>,
     pub backfill_to: Option<String>,
     /// Contract policy for this run; `None` = airway's default. See

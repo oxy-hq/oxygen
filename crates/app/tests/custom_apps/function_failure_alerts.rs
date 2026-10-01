@@ -25,6 +25,10 @@ const FINGERPRINT: &str = "5c1e0b8a9d2f4e71";
 struct Seeded {
     app_id: Uuid,
     build_id: Uuid,
+    /// A production invocation of another function: the finalized invocation
+    /// each `claim` here is asked about. `claim` reads its environment and
+    /// nothing else, so it moves none of the counts these tests assert.
+    invocation: Uuid,
 }
 
 impl Seeded {
@@ -102,7 +106,34 @@ async fn seed(db: &DatabaseConnection) -> Seeded {
     .insert(db)
     .await
     .expect("seed build");
-    Seeded { app_id, build_id }
+    let invocation = Uuid::new_v4();
+    app_function_invocations::ActiveModel {
+        id: Set(invocation),
+        app_id: Set(app_id),
+        build_id: Set(build_id),
+        function_name: Set("pager-anchor".into()),
+        mode: Set("route".into()),
+        user_id: Set(None),
+        status: Set("error".into()),
+        duration_ms: Set(Some(1)),
+        error: Set(None),
+        cancel_requested_at: Set(None),
+        created_at: Set(Utc::now().into()),
+        idempotency_key: Set(None),
+        result_body: Set(None),
+        result_status: Set(None),
+        request_hash: Set(None),
+        failure_fingerprint: Set(None),
+        environment: Set("production".into()),
+    }
+    .insert(db)
+    .await
+    .expect("seed the claimed invocation");
+    Seeded {
+        app_id,
+        build_id,
+        invocation,
+    }
 }
 
 /// A failed invocation row, `ago` in the past. `fingerprint: None` is a row
@@ -133,6 +164,7 @@ async fn failed_as(
         result_status: Set(None),
         request_hash: Set(None),
         failure_fingerprint: Set(fingerprint.map(str::to_string)),
+        environment: Set("production".into()),
     }
     .insert(db)
     .await
@@ -141,6 +173,120 @@ async fn failed_as(
 
 async fn failed(db: &DatabaseConnection, s: &Seeded, ago: Duration) {
     failed_as(db, s, FUNCTION, Some(FINGERPRINT), ago).await;
+}
+
+/// [`failed`] in another app environment — same function, same fingerprint.
+async fn failed_in(db: &DatabaseConnection, s: &Seeded, environment: &str, ago: Duration) -> Uuid {
+    let id = Uuid::new_v4();
+    app_function_invocations::ActiveModel {
+        id: Set(id),
+        app_id: Set(s.app_id),
+        build_id: Set(s.build_id),
+        function_name: Set(FUNCTION.into()),
+        mode: Set("route".into()),
+        user_id: Set(None),
+        status: Set("error".into()),
+        duration_ms: Set(Some(12)),
+        error: Set(Some(
+            "function threw: Error: warehouse insert failed".into(),
+        )),
+        cancel_requested_at: Set(None),
+        created_at: Set((Utc::now() - ago).into()),
+        idempotency_key: Set(None),
+        result_body: Set(None),
+        result_status: Set(None),
+        request_hash: Set(None),
+        failure_fingerprint: Set(Some(FINGERPRINT.into())),
+        environment: Set(environment.into()),
+    }
+    .insert(db)
+    .await
+    .expect("seed invocation");
+    id
+}
+
+async fn claims(db: &DatabaseConnection) -> i64 {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT count(*) AS n FROM app_function_failure_alerts WHERE function_name = $1",
+        [FUNCTION.into()],
+    ))
+    .await
+    .unwrap()
+    .unwrap()
+    .try_get::<i64>("", "n")
+    .unwrap()
+}
+
+/// Design §3.4: a staging failure shares production's fingerprint, so if it
+/// counted it would not merely page — it would claim the slot and hold back
+/// production's own first-occurrence page. It must do neither.
+#[tokio::test]
+async fn a_failing_staging_function_neither_pages_nor_claims_productions_slot() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+
+    for _ in 0..THRESHOLD {
+        failed_in(&db, &s, "staging", Duration::minutes(3)).await;
+    }
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
+    assert_eq!(
+        verdict,
+        Verdict::Quiet,
+        "staging's failures are not production's history"
+    );
+    assert_eq!(claims(&db).await, 0, "nothing claimed the page slot");
+
+    // Production now breaks the same way: its first occurrence pages, as if
+    // staging had never failed.
+    for _ in 0..THRESHOLD {
+        failed(&db, &s, Duration::minutes(1)).await;
+    }
+    let page = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
+    assert!(
+        is_page(&page),
+        "production's page is not held back by staging: {page:?}"
+    );
+}
+
+/// The second guard: asked about a staging invocation, `claim` claims nothing
+/// even when production's own history is due a page. It reads the
+/// invocation's environment from its row rather than trusting the caller, so
+/// a regression in `failure_page::observe` alone still pages nobody.
+#[tokio::test]
+async fn claim_refuses_a_staging_invocation_even_when_production_is_due() {
+    let db = test_db().await;
+    let s = seed(&db).await;
+    for _ in 0..THRESHOLD {
+        failed(&db, &s, Duration::minutes(2)).await;
+    }
+    let staging = failed_in(&db, &s, "staging", Duration::minutes(1)).await;
+
+    let verdict = claim(&db, staging, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
+    assert_eq!(verdict, Verdict::Quiet, "a staging invocation never claims");
+    let unknown = claim(&db, Uuid::new_v4(), s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
+    assert_eq!(
+        unknown,
+        Verdict::Quiet,
+        "an invocation with no row is not production"
+    );
+    assert_eq!(claims(&db).await, 0, "nothing claimed the page slot");
+
+    let page = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
+    assert!(
+        is_page(&page),
+        "production's own invocation pages: {page:?}"
+    );
 }
 
 /// A finished call, `ago` in the past. `fingerprint: Some` is a `success` the
@@ -164,6 +310,7 @@ async fn succeeded(db: &DatabaseConnection, s: &Seeded, ago: Duration, fingerpri
         result_status: Set(None),
         request_hash: Set(None),
         failure_fingerprint: Set(fingerprint.map(str::to_string)),
+        environment: Set("production".into()),
     }
     .insert(db)
     .await
@@ -213,18 +360,24 @@ async fn a_new_failure_pages_at_the_threshold_and_then_not_again() {
     for _ in 1..THRESHOLD {
         failed(&db, &s, Duration::minutes(2)).await;
     }
-    let under = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let under = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(under, Verdict::Quiet, "a failure under the threshold waits");
 
     failed(&db, &s, Duration::minutes(1)).await;
-    let page = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let page = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert!(
         is_page(&page),
         "the occurrence that reaches the threshold pages: {page:?}"
     );
 
     // A second replica finalizing the same failure moments later.
-    let again = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let again = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         again,
         Verdict::Quiet,
@@ -234,7 +387,9 @@ async fn a_new_failure_pages_at_the_threshold_and_then_not_again() {
     mark_delivered(&db, s.key(), Utc::now()).await.unwrap();
     failed(&db, &s, Duration::zero()).await;
     let later = Utc::now() + Duration::minutes(DELIVERY_GRACE_MINUTES + 1);
-    let after_delivery = claim(&db, s.key(), later, long_ago()).await.unwrap();
+    let after_delivery = claim(&db, s.invocation, s.key(), later, long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         after_delivery,
         Verdict::Quiet,
@@ -251,7 +406,9 @@ async fn a_failure_the_function_already_had_this_week_does_not_page() {
     for _ in 0..THRESHOLD {
         failed(&db, &s, Duration::minutes(1)).await;
     }
-    let known = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let known = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         known,
         Verdict::Quiet,
@@ -270,18 +427,22 @@ async fn another_function_or_fingerprint_is_a_separate_signal() {
 
     let other_function = s.key_for("submit-receiving-report", FINGERPRINT);
     assert_eq!(
-        claim(&db, other_function, now, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, other_function, now, long_ago())
+            .await
+            .unwrap(),
         Verdict::Quiet
     );
     let other_fingerprint = s.key_for(FUNCTION, "0000000000000000");
     assert_eq!(
-        claim(&db, other_fingerprint, now, long_ago())
+        claim(&db, s.invocation, other_fingerprint, now, long_ago())
             .await
             .unwrap(),
         Verdict::Quiet
     );
     assert!(is_page(
-        &claim(&db, s.key(), now, long_ago()).await.unwrap()
+        &claim(&db, s.invocation, s.key(), now, long_ago())
+            .await
+            .unwrap()
     ));
 }
 
@@ -294,11 +455,15 @@ async fn a_page_nobody_sent_goes_stale_and_is_claimed_again() {
     }
     let now = Utc::now();
     assert!(is_page(
-        &claim(&db, s.key(), now, long_ago()).await.unwrap()
+        &claim(&db, s.invocation, s.key(), now, long_ago())
+            .await
+            .unwrap()
     ));
 
     let within_grace = now + Duration::minutes(DELIVERY_GRACE_MINUTES - 1);
-    let still_claimed = claim(&db, s.key(), within_grace, long_ago()).await.unwrap();
+    let still_claimed = claim(&db, s.invocation, s.key(), within_grace, long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         still_claimed,
         Verdict::Quiet,
@@ -307,7 +472,9 @@ async fn a_page_nobody_sent_goes_stale_and_is_claimed_again() {
 
     // The replica that claimed it died before posting.
     let past_grace = now + Duration::minutes(DELIVERY_GRACE_MINUTES + 1);
-    let retaken = claim(&db, s.key(), past_grace, long_ago()).await.unwrap();
+    let retaken = claim(&db, s.invocation, s.key(), past_grace, long_ago())
+        .await
+        .unwrap();
     assert!(
         is_page(&retaken),
         "an undelivered page is retried: {retaken:?}"
@@ -325,7 +492,9 @@ async fn a_failure_that_comes_back_after_a_quiet_week_pages_again() {
     for _ in 0..THRESHOLD {
         failed(&db, &s, Duration::minutes(1)).await;
     }
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert!(is_page(&verdict), "a week-old page re-arms: {verdict:?}");
 }
 
@@ -340,7 +509,7 @@ async fn failures_from_before_fingerprints_hold_the_first_week_quiet() {
         failed(&db, &s, Duration::minutes(1)).await;
     }
 
-    let verdict = claim(&db, s.key(), Utc::now(), fingerprints_since)
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), fingerprints_since)
         .await
         .unwrap();
     assert_eq!(
@@ -348,7 +517,7 @@ async fn failures_from_before_fingerprints_hold_the_first_week_quiet() {
         Verdict::Suppressed("suppressed:unfingerprinted_history")
     );
     failed(&db, &s, Duration::zero()).await;
-    let next = claim(&db, s.key(), Utc::now(), fingerprints_since)
+    let next = claim(&db, s.invocation, s.key(), Utc::now(), fingerprints_since)
         .await
         .unwrap();
     assert_eq!(next, Verdict::Quiet, "held back once, then recorded");
@@ -366,7 +535,7 @@ async fn failures_from_before_fingerprints_hold_the_first_week_quiet() {
     }
     let clean = s.key_for("submit-receiving-report", FINGERPRINT);
     assert!(is_page(
-        &claim(&db, clean, Utc::now(), fingerprints_since)
+        &claim(&db, s.invocation, clean, Utc::now(), fingerprints_since)
             .await
             .unwrap()
     ));
@@ -396,6 +565,7 @@ async fn a_chronic_5xx_from_before_fingerprints_is_held_too() {
         result_status: Set(Some(500)),
         request_hash: Set(None),
         failure_fingerprint: Set(None),
+        environment: Set("production".into()),
     }
     .insert(&db)
     .await
@@ -403,7 +573,7 @@ async fn a_chronic_5xx_from_before_fingerprints_is_held_too() {
     for _ in 0..THRESHOLD {
         failed(&db, &s, Duration::minutes(1)).await;
     }
-    let verdict = claim(&db, s.key(), Utc::now(), fingerprints_since)
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), fingerprints_since)
         .await
         .unwrap();
     assert_eq!(
@@ -427,11 +597,13 @@ async fn a_function_pages_at_most_once_per_window() {
         failed(&db, &s, Duration::minutes(1)).await;
     }
     let now = Utc::now();
-    let verdict = claim(&db, s.key(), now, long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), now, long_ago())
+        .await
+        .unwrap();
     assert_eq!(verdict, Verdict::Suppressed("suppressed:function_rate"));
 
     let within_window = now + Duration::hours(FUNCTION_PAGE_WINDOW_HOURS - 1);
-    let held = claim(&db, s.key(), within_window, long_ago())
+    let held = claim(&db, s.invocation, s.key(), within_window, long_ago())
         .await
         .unwrap();
     assert_eq!(held, Verdict::Quiet, "the hold stands for its window");
@@ -453,7 +625,9 @@ async fn a_rate_held_failure_pages_once_its_window_passes_however_late() {
     }
     let now = Utc::now();
     assert_eq!(
-        claim(&db, s.key(), now, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, s.key(), now, long_ago())
+            .await
+            .unwrap(),
         Verdict::Suppressed("suppressed:function_rate")
     );
 
@@ -462,7 +636,7 @@ async fn a_rate_held_failure_pages_once_its_window_passes_however_late() {
     // for arriving late.
     failed(&db, &s, Duration::zero()).await;
     let day_and_a_half_later = now + Duration::hours(36);
-    let verdict = claim(&db, s.key(), day_and_a_half_later, long_ago())
+    let verdict = claim(&db, s.invocation, s.key(), day_and_a_half_later, long_ago())
         .await
         .unwrap();
     assert!(
@@ -493,13 +667,17 @@ async fn a_rate_held_low_traffic_break_still_says_it_is_one_when_it_goes_out() {
     failed(&db, &s, Duration::minutes(1)).await;
     let now = Utc::now();
     assert_eq!(
-        claim(&db, s.key(), now, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, s.key(), now, long_ago())
+            .await
+            .unwrap(),
         Verdict::Suppressed("suppressed:function_rate")
     );
 
     // Two failures, not three: the page must not say "3+" when the hold lifts.
     let past_window = now + Duration::hours(FUNCTION_PAGE_WINDOW_HOURS + 1);
-    let verdict = claim(&db, s.key(), past_window, long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), past_window, long_ago())
+        .await
+        .unwrap();
     assert!(persistent_page(&verdict), "{verdict:?}");
 }
 
@@ -519,7 +697,9 @@ async fn a_rate_held_low_traffic_break_that_recovered_stays_quiet() {
     failed(&db, &s, Duration::minutes(1)).await;
     let now = Utc::now();
     assert_eq!(
-        claim(&db, s.key(), now, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, s.key(), now, long_ago())
+            .await
+            .unwrap(),
         Verdict::Suppressed("suppressed:function_rate")
     );
 
@@ -527,7 +707,9 @@ async fn a_rate_held_low_traffic_break_that_recovered_stays_quiet() {
     succeeded(&db, &s, Duration::zero(), None).await;
     let past_window = now + Duration::hours(FUNCTION_PAGE_WINDOW_HOURS + 1);
     assert_eq!(
-        claim(&db, s.key(), past_window, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, s.key(), past_window, long_ago())
+            .await
+            .unwrap(),
         Verdict::Quiet
     );
 }
@@ -551,19 +733,25 @@ async fn the_platform_pages_at_most_so_many_times_an_hour() {
         failed(&db, &s, Duration::minutes(1)).await;
     }
     let now = Utc::now();
-    let verdict = claim(&db, s.key(), now, long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), now, long_ago())
+        .await
+        .unwrap();
     assert_eq!(verdict, Verdict::Suppressed("suppressed:platform_rate"));
 
     let within_hour = now + Duration::minutes(30);
     assert_eq!(
-        claim(&db, s.key(), within_hour, long_ago()).await.unwrap(),
+        claim(&db, s.invocation, s.key(), within_hour, long_ago())
+            .await
+            .unwrap(),
         Verdict::Quiet,
         "the hold stands for its hour"
     );
     // The other pages were ten minutes old at `now`; an hour on, they no
     // longer count, and the held failure goes out.
     let past_hour = now + Duration::minutes(61);
-    let verdict = claim(&db, s.key(), past_hour, long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), past_hour, long_ago())
+        .await
+        .unwrap();
     assert!(is_page(&verdict), "the held failure pages: {verdict:?}");
 }
 
@@ -578,7 +766,9 @@ async fn a_page_prunes_alert_rows_past_retention() {
     }
 
     assert!(is_page(
-        &claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap()
+        &claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+            .await
+            .unwrap()
     ));
     let left = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -610,7 +800,9 @@ async fn a_low_traffic_break_pages_on_the_persistent_route() {
     failed(&db, &s, Duration::hours(30)).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert!(
         persistent_page(&verdict),
         "worked, then two failures a day apart and no success since: {verdict:?}"
@@ -625,7 +817,9 @@ async fn a_function_that_never_answered_is_having_its_own_failure() {
     failed(&db, &s, Duration::hours(30)).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         verdict,
         Verdict::Quiet,
@@ -642,7 +836,9 @@ async fn a_success_in_between_keeps_a_flaky_failure_quiet() {
     succeeded(&db, &s, Duration::hours(10), None).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         verdict,
         Verdict::Quiet,
@@ -661,7 +857,9 @@ async fn a_success_that_caught_a_failure_is_not_the_function_working() {
     succeeded(&db, &s, Duration::hours(10), Some("0f0f0f0f0f0f0f0f")).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert!(
         persistent_page(&verdict),
         "a success the pager counted as a failure must not clear the break: {verdict:?}"
@@ -679,7 +877,9 @@ async fn a_failure_the_function_had_the_week_before_is_not_a_new_break() {
     failed(&db, &s, Duration::hours(30)).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         verdict,
         Verdict::Quiet,
@@ -695,7 +895,9 @@ async fn a_fresh_pair_waits_out_the_persistent_window() {
     failed(&db, &s, Duration::hours(PERSISTENT_AFTER_HOURS - 1)).await;
     failed(&db, &s, Duration::minutes(1)).await;
 
-    let verdict = claim(&db, s.key(), Utc::now(), long_ago()).await.unwrap();
+    let verdict = claim(&db, s.invocation, s.key(), Utc::now(), long_ago())
+        .await
+        .unwrap();
     assert_eq!(
         verdict,
         Verdict::Quiet,

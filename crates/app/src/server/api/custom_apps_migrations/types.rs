@@ -1,9 +1,39 @@
 //! The vocabulary: what can go wrong, what was declared, what was applied.
 
-/// `custom_app_migrations.store` for a file applied to the app's OLTP schema.
-pub(crate) const STORE_OLTP: &str = "oltp";
+/// `custom_app_migrations.store` for a file applied to the app's OLTP schema —
+/// `oxy_oltp`'s own constant, since a branch cut copies and clears these rows.
+pub(crate) const STORE_OLTP: &str = oxy_oltp::branches::LEDGER_STORE_OLTP;
 /// `custom_app_migrations.store` for a file applied to the app's Airhouse schema.
 pub(crate) const STORE_AIRHOUSE: &str = "airhouse";
+
+/// Which database of a store a migration is applied to — the
+/// `custom_app_migrations.target` column, part of the ledger key.
+///
+/// Every apply today targets production. The other two are the design's
+/// non-production targets (`internal-docs/2026-09-10-custom-app-environments-
+/// design.md` §4.3): an OLTP branch and an Airhouse schema. They exist here so
+/// the ledger is keyed by target before anything applies to one — a staging
+/// apply recorded without its target would read as applied to production, and
+/// the next promote would skip production's DDL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MigrationTarget {
+    Production,
+    /// A non-production OLTP branch, by its provider branch id.
+    Branch(String),
+    /// A non-production Airhouse schema, by name.
+    Schema(String),
+}
+
+impl MigrationTarget {
+    /// The `custom_app_migrations.target` value.
+    pub fn as_key(&self) -> String {
+        match self {
+            Self::Production => oxy_oltp::branches::LEDGER_PRODUCTION.to_string(),
+            Self::Branch(id) => oxy_oltp::branches::ledger_target(id),
+            Self::Schema(name) => format!("schema:{name}"),
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
@@ -126,7 +156,7 @@ impl MigrationError {
 
 /// One `.sql` file the bundle declares.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeclaredMigration {
+pub struct DeclaredMigration {
     /// Path RELATIVE to the declared directory — the ledger key. Relative so
     /// renaming the directory in `oxy-app.json` does not orphan the ledger and
     /// re-run every file against tables that already exist.
@@ -137,22 +167,53 @@ pub(crate) struct DeclaredMigration {
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Applied {
+pub struct Applied {
     pub applied: Vec<String>,
     pub already_applied: usize,
+    /// Files not started because the apply's deadline passed between files;
+    /// the next apply plans them again.
+    pub deferred: Vec<String>,
 }
 
 impl Applied {
     /// One line for the publish log. Empty when the app declares nothing, so a
     /// caller can log it unconditionally.
     pub(crate) fn summary(&self) -> String {
-        if self.applied.is_empty() && self.already_applied == 0 {
+        if self.applied.is_empty() && self.already_applied == 0 && self.deferred.is_empty() {
             return String::new();
         }
-        format!(
+        let summary = format!(
             "{} schema migration(s) applied, {} already present",
             self.applied.len(),
             self.already_applied
-        )
+        );
+        match self.deferred.len() {
+            0 => summary,
+            n => format!("{summary}, {n} deferred to the next publish"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MigrationTarget;
+
+    /// A branch's ledger rows are written here and cleared by `oxy-oltp` when
+    /// the branch is reset or deleted — two crates spelling one key. If they
+    /// drift, a reset leaves staging's applied files in place and the fresh
+    /// copy is never migrated.
+    #[test]
+    fn a_branch_target_is_the_key_oltp_clears() {
+        assert_eq!(
+            MigrationTarget::Branch("br-cold-sky".into()).as_key(),
+            oxy_oltp::branches::ledger_target("br-cold-sky"),
+        );
+        assert_eq!(
+            MigrationTarget::Branch("br-cold-sky".into()).as_key(),
+            "branch:br-cold-sky"
+        );
+        // The keys a branch cut copies from production's rows.
+        assert_eq!(MigrationTarget::Production.as_key(), "production");
+        assert_eq!(super::STORE_OLTP, "oltp");
     }
 }

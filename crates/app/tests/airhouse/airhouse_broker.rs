@@ -27,7 +27,7 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Seed the AES-GCM master key. Same fixed key as the provisioner tests so
 /// envelope::open in the broker can decrypt what we sealed in seed_tenant.
-fn set_test_encryption_key() {
+pub(super) fn set_test_encryption_key() {
     let _g = ENV_LOCK.lock().unwrap();
     // SAFETY: single-threaded test guarded by ENV_LOCK; deterministic key.
     unsafe {
@@ -47,7 +47,7 @@ fn set_test_encryption_key() {
 ///
 /// The migration chain runs once per `cargo nextest run` into a template that
 /// this clones; see `tests/common/mod.rs`.
-async fn test_db() -> DatabaseConnection {
+pub(super) async fn test_db() -> DatabaseConnection {
     let (db, test_url) = crate::common::fresh_db(crate::common::Schema::CentralAirhouse).await;
     // SAFETY: single-threaded test setup before any other env access. nextest
     // runs each test in its own process, so this cannot race a sibling.
@@ -55,7 +55,7 @@ async fn test_db() -> DatabaseConnection {
     db
 }
 
-async fn seed_workspace(db: &DatabaseConnection, name: &str) -> Uuid {
+pub(super) async fn seed_workspace(db: &DatabaseConnection, name: &str) -> Uuid {
     let now = Utc::now().fixed_offset();
     let org_id = Uuid::new_v4();
     organizations::ActiveModel {
@@ -98,7 +98,7 @@ async fn seed_workspace(db: &DatabaseConnection, name: &str) -> Uuid {
 /// Seed an airhouse_tenants row with SA fields populated. Returns the
 /// tenant id and the plaintext bearer (so tests can assert the broker
 /// decrypts it correctly).
-async fn seed_tenant_with_sa(
+pub(super) async fn seed_tenant_with_sa(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     tenant_id: &str,
@@ -146,7 +146,7 @@ async fn seed_tenant_without_sa(db: &DatabaseConnection, workspace_id: Uuid, ten
     .expect("seed tenant without SA");
 }
 
-fn mint_response(tenant: &str, role: &str, ttl_secs: i64) -> Value {
+pub(super) fn mint_response(tenant: &str, role: &str, ttl_secs: i64) -> Value {
     let expires_at = Utc::now() + chrono::Duration::seconds(ttl_secs);
     json!({
         "username": format!("eph_{}", Uuid::new_v4().simple().to_string().get(..12).unwrap_or("0000")),
@@ -158,7 +158,7 @@ fn mint_response(tenant: &str, role: &str, ttl_secs: i64) -> Value {
     })
 }
 
-fn make_broker(server: &MockServer) -> AirhouseTokenBroker {
+pub(super) fn make_broker(server: &MockServer) -> AirhouseTokenBroker {
     let client = AirhouseAdminClient::new(server.uri(), "tok");
     AirhouseTokenBroker::new(client)
 }

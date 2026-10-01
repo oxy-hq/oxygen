@@ -47,6 +47,14 @@
 //! re-validates that the resolved key sits under the invoking app's prefix, so a
 //! function cannot reach another app's silo even by forging a key.
 //!
+//! ## Environments
+//!
+//! Every operation takes the [`Silo`] it works in. Production's is the one
+//! above; staging (and any other non-production environment) works in a
+//! sibling `customer-app-storage/<app_id>~<env>/`, reading production's same
+//! key as a read-only fallback — see [`silo`]. Usage metering and app deletion
+//! cover every silo of the app ([`environments`]).
+//!
 //! ## Local dev
 //!
 //! `put`/`get`/`head`/`list`/`delete`/`copy` fall back to the filesystem (like the
@@ -55,11 +63,17 @@
 //! so without a bucket those two calls return a clear error; point
 //! `AWS_ENDPOINT_URL` at a local MinIO to exercise them.
 
+pub mod environment_limits;
+mod environments;
 mod local;
 pub mod metering;
+mod ops;
 pub mod quota;
 pub mod retention;
 pub mod s3;
+pub mod silo;
+#[cfg(test)]
+mod silo_tests;
 pub mod sweeper;
 #[cfg(test)]
 mod tests;
@@ -70,7 +84,11 @@ use std::time::Duration;
 use serde::Serialize;
 use uuid::Uuid;
 
+pub use ops::{
+    copy, delete, delete_app_assets, get, get_download_url, get_upload_url, head, list, put,
+};
 pub use retention::{RetentionPolicy, RetentionRule};
+pub use silo::Silo;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
@@ -166,7 +184,7 @@ fn max_upload_bytes() -> u64 {
 /// The app's silo. `app_id`-first so every app is a hard boundary; no leading
 /// slash, trailing slash (mirrors the build store's `build_prefix`).
 pub(crate) fn app_prefix(app_id: Uuid) -> String {
-    format!("customer-app-storage/{app_id}/")
+    Silo::production(app_id).prefix()
 }
 
 /// Resolve the `x-amz-tagging` value for a **full** silo key by matching its
@@ -180,11 +198,19 @@ pub(crate) fn app_prefix(app_id: Uuid) -> String {
 ///
 /// `None` at any step (no policy, key outside the silo, no matching prefix) means
 /// no tag, which means no lifecycle rule applies. Fail open, deliberately.
+#[cfg(test)]
 fn retention_tag(app_id: Uuid, key: &str, policy: &RetentionPolicy) -> Option<String> {
+    retention_tag_in(&Silo::production(app_id), key, policy)
+}
+
+/// `retention_tag` for a key of `silo`. The relative key is what the policy
+/// matches, so an environment's object is tagged exactly as production's same
+/// key would be — and its upload is signed the same way.
+fn retention_tag_in(silo: &Silo, key: &str, policy: &RetentionPolicy) -> Option<String> {
     if policy.is_empty() {
         return None;
     }
-    let relative = key.strip_prefix(app_prefix(app_id).as_str())?;
+    let relative = key.strip_prefix(silo.prefix().as_str())?;
     policy
         .resolve(relative)
         .map(retention::TtlClass::tagging_header)
@@ -216,16 +242,27 @@ fn sanitize_segment(segment: &str) -> String {
 ///
 /// `add_random_suffix` inserts a short random component before the extension,
 /// which is how a caller keeps a human-readable name without risking collisions.
+#[cfg(test)]
 pub(crate) fn normalize_pathname(
     app_id: Uuid,
+    pathname: &str,
+    add_random_suffix: bool,
+) -> Result<String, StorageError> {
+    normalize_in(&Silo::production(app_id), pathname, add_random_suffix)
+}
+
+/// `normalize_pathname` into `silo`. Outside production a production key is
+/// re-rooted here, so a write never lands in production's silo.
+pub(crate) fn normalize_in(
+    silo: &Silo,
     pathname: &str,
     add_random_suffix: bool,
 ) -> Result<String, StorageError> {
     let trimmed = pathname.trim().trim_start_matches('/');
     // Accept an already-prefixed key so a round-tripped key from list()/put() can
     // be handed straight back in.
-    let prefix = app_prefix(app_id);
-    let relative = trimmed.strip_prefix(prefix.as_str()).unwrap_or(trimmed);
+    let prefix = silo.prefix();
+    let relative = silo.relative(trimmed).unwrap_or(trimmed);
     if relative.is_empty() {
         return Err(StorageError::Invalid(
             "pathname must not be empty".to_string(),
@@ -256,30 +293,41 @@ pub(crate) fn normalize_pathname(
 
 /// The cross-tenant defense: a key handed back to us MUST sit inside the invoking
 /// app's prefix and carry no traversal. Returns the normalized key.
+#[cfg(test)]
 pub(crate) fn validate_key(app_id: Uuid, key: &str) -> Result<String, StorageError> {
+    validate_in(&Silo::production(app_id), key)
+}
+
+/// `validate_key` against `silo`, returning the key in `silo`. Outside
+/// production a production key is accepted and re-rooted: a delete of it
+/// removes the environment's copy, never production's object.
+pub(crate) fn validate_in(silo: &Silo, key: &str) -> Result<String, StorageError> {
     let key = key.trim().trim_start_matches('/');
-    let prefix = app_prefix(app_id);
-    if !key.starts_with(prefix.as_str()) {
-        return Err(StorageError::Denied(format!(
-            "key '{key}' is outside this app's storage"
-        )));
-    }
-    if key.split('/').any(|seg| seg == ".." || seg == ".") {
+    let relative = silo.relative(key).ok_or_else(|| {
+        StorageError::Denied(format!("key '{key}' is outside this app's storage"))
+    })?;
+    if relative.split('/').any(|seg| seg == ".." || seg == ".") {
         return Err(StorageError::Denied(format!(
             "key '{key}' contains a path traversal"
         )));
     }
-    if key.len() == prefix.len() {
+    if relative.is_empty() {
         return Err(StorageError::Invalid("key must name an object".to_string()));
     }
-    Ok(key.to_string())
+    Ok(silo.key(relative))
 }
 
 /// Resolve an optional caller sub-prefix for [`list`], confined to the app silo.
+#[cfg(test)]
 fn resolve_list_prefix(app_id: Uuid, sub: Option<&str>) -> Result<String, StorageError> {
-    let prefix = app_prefix(app_id);
+    list_prefix_in(&Silo::production(app_id), sub)
+}
+
+/// The listing prefix inside `silo` — that silo only, never merged with
+/// production's.
+fn list_prefix_in(silo: &Silo, sub: Option<&str>) -> Result<String, StorageError> {
     match sub.map(str::trim).filter(|s| !s.is_empty()) {
-        None => Ok(prefix),
+        None => Ok(silo.prefix()),
         Some(s) => {
             let s = s.trim_start_matches('/');
             if s.split('/').any(|seg| seg == "..") {
@@ -287,11 +335,7 @@ fn resolve_list_prefix(app_id: Uuid, sub: Option<&str>) -> Result<String, Storag
                     "list prefix '{s}' contains a path traversal"
                 )));
             }
-            if s.starts_with(prefix.as_str()) {
-                Ok(s.to_string())
-            } else {
-                Ok(format!("{prefix}{s}"))
-            }
+            Ok(silo.key(silo.relative(s).unwrap_or(s)))
         }
     }
 }
@@ -390,230 +434,4 @@ fn require_bucket(op: &str) -> Result<String, StorageError> {
              local MinIO to exercise it in dev)"
         ))
     })
-}
-
-// ── Presigned upload / download (require object storage) ──────────────────────
-
-/// Mint a presigned PUT the browser uses to upload one file directly to S3.
-/// Content-Type and Content-Length are bound into the signature, so S3 rejects a
-/// mismatched or oversized body without oxy ever seeing the bytes.
-///
-/// `pathname` defaults to `uploads/<filename>`; a random suffix is added by
-/// default so two people uploading `report.pdf` don't collide.
-pub async fn get_upload_url(
-    app_id: Uuid,
-    pathname: &str,
-    content_type: &str,
-    content_length: u64,
-    ttl_secs: Option<u64>,
-    retention: &RetentionPolicy,
-) -> Result<UploadUrl, StorageError> {
-    if content_length == 0 {
-        return Err(StorageError::Invalid(
-            "contentLength must be greater than 0".to_string(),
-        ));
-    }
-    let ceiling = max_upload_bytes();
-    if content_length > ceiling {
-        return Err(StorageError::TooLarge(format!(
-            "upload of {content_length} bytes exceeds the {ceiling}-byte ceiling \
-             (OXY_CUSTOMER_APPS_STORAGE_MAX_UPLOAD_BYTES)"
-        )));
-    }
-    let bucket = require_bucket("presigned uploads")?;
-    // Uploads ALWAYS get a random suffix (unlike `put`, which honors the caller's
-    // choice): a browser upload is user-driven and collision-prone — two people
-    // picking `report.pdf` must not clobber each other — and the returned `key` is
-    // authoritative, so the caller records it and never needs to predict it.
-    let key = normalize_pathname(app_id, pathname, true)?;
-    let content_type = if content_type.trim().is_empty() {
-        guess_content_type(&key)
-    } else {
-        content_type
-    };
-    let ttl = presign_ttl(ttl_secs, DEFAULT_UPLOAD_TTL_SECS);
-    let tagging = retention_tag(app_id, &key, retention);
-    let url = s3::presign_put(
-        &bucket,
-        &key,
-        content_type,
-        content_length,
-        ttl,
-        tagging.as_deref(),
-    )
-    .await?;
-    Ok(UploadUrl {
-        url,
-        key,
-        expires_at: expires_at(ttl),
-        tagging,
-    })
-}
-
-/// Mint a presigned GET for an object in this app's silo. `download` forces a
-/// save-as via `Content-Disposition: attachment`, which is what an emailed report
-/// link wants.
-pub async fn get_download_url(
-    app_id: Uuid,
-    key: &str,
-    ttl_secs: Option<u64>,
-    download: bool,
-) -> Result<DownloadUrl, StorageError> {
-    let key = validate_key(app_id, key)?;
-    let bucket = require_bucket("presigned downloads")?;
-    let ttl = presign_ttl(ttl_secs, DEFAULT_DOWNLOAD_TTL_SECS);
-    let filename = key.rsplit('/').next().unwrap_or("download").to_string();
-    let url = s3::presign_get(&bucket, &key, ttl, download.then_some(filename)).await?;
-    Ok(DownloadUrl {
-        url,
-        expires_at: expires_at(ttl),
-    })
-}
-
-// ── Server-side asset operations (S3 or local filesystem) ─────────────────────
-
-/// Write a **generated** asset. Takes raw bytes, so binary output (PDF, PNG,
-/// Parquet) is first-class rather than text-only.
-pub async fn put(
-    app_id: Uuid,
-    pathname: &str,
-    body: Vec<u8>,
-    opts: PutOptions,
-    retention: &RetentionPolicy,
-) -> Result<PutResult, StorageError> {
-    if body.len() > INLINE_BLOB_MAX_BYTES {
-        return Err(StorageError::TooLarge(format!(
-            "ctx.storage.put is capped at {INLINE_BLOB_MAX_BYTES} bytes; for larger assets \
-             mint a presigned upload URL and stream to it"
-        )));
-    }
-    let key = normalize_pathname(app_id, pathname, opts.add_random_suffix)?;
-    let content_type = opts
-        .content_type
-        .clone()
-        .filter(|c| !c.trim().is_empty())
-        .unwrap_or_else(|| guess_content_type(&key).to_string());
-    let size = body.len() as u64;
-    match bucket() {
-        Some(bucket) => {
-            let tagging = retention_tag(app_id, &key, retention);
-            s3::put(
-                &bucket,
-                &key,
-                body,
-                &content_type,
-                &opts,
-                tagging.as_deref(),
-            )
-            .await?
-        }
-        // The filesystem fallback has no tags and no lifecycle engine, so a local
-        // asset never expires. Stated here rather than left implicit: it is a real
-        // dev/prod divergence, and `spawn_lifecycle_verify` logs the same fact
-        // at boot so nobody concludes retention is broken in prod from a local run.
-        None => local::put(&key, body, opts.allow_overwrite).await?,
-    }
-    Ok(PutResult {
-        key,
-        size,
-        content_type,
-    })
-}
-
-/// Read a small asset back. `Ok(None)` when absent.
-pub async fn get(
-    app_id: Uuid,
-    key: &str,
-) -> Result<Option<(Vec<u8>, Option<String>)>, StorageError> {
-    let key = validate_key(app_id, key)?;
-    match bucket() {
-        Some(bucket) => s3::get(&bucket, &key).await,
-        None => local::get(&key).await,
-    }
-}
-
-/// Metadata without the body. `Ok(None)` when absent.
-pub async fn head(app_id: Uuid, key: &str) -> Result<Option<StoredObject>, StorageError> {
-    let key = validate_key(app_id, key)?;
-    match bucket() {
-        Some(bucket) => s3::head(&bucket, &key).await,
-        None => local::head(&key).await,
-    }
-}
-
-/// One page of the app's assets. Bounded and cursor-paginated: a silo with 100k
-/// objects must not turn one call into an unbounded walk.
-pub async fn list(
-    app_id: Uuid,
-    sub_prefix: Option<&str>,
-    limit: Option<usize>,
-    cursor: Option<String>,
-) -> Result<ListPage, StorageError> {
-    let prefix = resolve_list_prefix(app_id, sub_prefix)?;
-    let limit = limit.unwrap_or(DEFAULT_LIST_LIMIT).clamp(1, MAX_LIST_LIMIT);
-    match bucket() {
-        Some(bucket) => s3::list(&bucket, &prefix, limit, cursor).await,
-        None => local::list(&prefix, limit, cursor),
-    }
-}
-
-/// Delete one or more assets. Idempotent: deleting an absent key is not an error.
-/// Returns the number of keys **accepted** for deletion, not a count of keys that
-/// existed — deletion is a no-op success for an absent key, and S3 can't cheaply
-/// report prior existence, so both backends count an absent key as deleted.
-pub async fn delete(app_id: Uuid, keys: &[String]) -> Result<usize, StorageError> {
-    if keys.is_empty() {
-        return Ok(0);
-    }
-    if keys.len() > MAX_LIST_LIMIT {
-        return Err(StorageError::Invalid(format!(
-            "delete accepts at most {MAX_LIST_LIMIT} keys per call"
-        )));
-    }
-    let validated: Vec<String> = keys
-        .iter()
-        .map(|k| validate_key(app_id, k))
-        .collect::<Result<_, _>>()?;
-    match bucket() {
-        Some(bucket) => s3::delete(&bucket, &validated).await,
-        None => local::delete(&validated).await,
-    }
-}
-
-/// Server-side copy within the app's silo — no bytes through the isolate.
-pub async fn copy(
-    app_id: Uuid,
-    from_key: &str,
-    to_pathname: &str,
-    allow_overwrite: bool,
-) -> Result<PutResult, StorageError> {
-    let from = validate_key(app_id, from_key)?;
-    let to = normalize_pathname(app_id, to_pathname, false)?;
-    if from == to {
-        return Err(StorageError::Invalid(
-            "copy source and destination are the same key".to_string(),
-        ));
-    }
-    match bucket() {
-        Some(bucket) => s3::copy(&bucket, &from, &to, allow_overwrite).await?,
-        None => local::copy(&from, &to, allow_overwrite).await?,
-    }
-    let meta = head(app_id, &to).await?;
-    Ok(PutResult {
-        key: to.clone(),
-        size: meta.as_ref().map(|m| m.size.max(0) as u64).unwrap_or(0),
-        content_type: meta
-            .and_then(|m| m.content_type)
-            .unwrap_or_else(|| guess_content_type(&to).to_string()),
-    })
-}
-
-/// Delete every asset belonging to an app — used when the app itself is deleted so
-/// its bytes don't outlive it.
-pub async fn delete_app_assets(app_id: Uuid) -> Result<(), StorageError> {
-    let prefix = app_prefix(app_id);
-    match bucket() {
-        Some(bucket) => s3::delete_prefix(&bucket, &prefix).await,
-        None => local::delete_prefix(&prefix).await,
-    }
 }

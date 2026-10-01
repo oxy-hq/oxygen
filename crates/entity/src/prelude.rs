@@ -73,6 +73,11 @@ pub use super::users::Entity as Users;
 pub use super::work_items::Entity as WorkItems;
 pub use super::workspace_members::Entity as WorkspaceMembers;
 pub use super::workspace_oxy_lockdown::Entity as WorkspaceOxyLockdown;
+pub use super::workspace_preview_runs::Entity as WorkspacePreviewRuns;
+pub use super::workspace_preview_schemas::Entity as WorkspacePreviewSchemas;
+pub use super::workspace_preview_sources::Entity as WorkspacePreviewSources;
+pub use super::workspace_preview_tables::Entity as WorkspacePreviewTables;
+pub use super::workspace_previews::Entity as WorkspacePreviews;
 pub use super::workspaces::Entity as Workspaces;
 
 // ── compile boundary (Phase 1.6a) ────────────────────────────────────

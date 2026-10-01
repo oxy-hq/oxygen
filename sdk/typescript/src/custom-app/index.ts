@@ -68,8 +68,8 @@ export type {
 // gets `unknown` from a `catch` and has to hand-roll the shape — which makes
 // the whole point of surfacing the status unreachable from the public API.
 export type { FunctionError, FunctionLog, FunctionResult } from "./function-sse";
-export type { OxyInjectedAppConfig } from "./inject";
-export { readInjectedAppConfig } from "./inject";
+export type { OxyAppEnvironment, OxyInjectedAppConfig } from "./inject";
+export { readAppEnvironment, readInjectedAppConfig } from "./inject";
 export type { OxyAppLogger, OxyAppLogLevel } from "./logger";
 export { getOxyAppLogger, setOxyAppLogger } from "./logger";
 export type {

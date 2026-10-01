@@ -20,13 +20,17 @@ use crate::api::middlewares::app_publish_token_scope::app_publish_token_scope_mi
 use crate::api::middlewares::local_context::local_context_middleware;
 use crate::api::middlewares::subscription_guard::workspace_subscription_guard_middleware;
 use crate::api::middlewares::timeout::timeout_middleware;
-use crate::api::middlewares::workspace_context::workspace_middleware;
+use crate::api::middlewares::workspace_context::{
+    workspace_access_middleware, workspace_middleware,
+};
 use oxy_app_core::serve_mode::ServeMode;
 
 use super::AppState;
 use super::global::build_global_routes;
 use super::role_router::{Decl, RoleRouter};
-use super::workspace::{build_external_workspace_routes, build_workspace_routes};
+use super::workspace::{
+    build_external_workspace_routes, build_workspace_preview_routes, build_workspace_routes,
+};
 
 pub(super) fn build_protected_routes(
     app_state: AppState,
@@ -47,6 +51,9 @@ pub(super) fn build_protected_routes(
     let root = RoleRouter::new(app_state.clone())
         .merge(build_catalog_routes(&app_state))
         .merge(build_global_routes(&app_state));
+    // Beside the workspace tree, not in it: see `build_workspace_preview_routes`.
+    let previews = build_workspace_preview_routes(&app_state)
+        .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, true, false)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
@@ -57,7 +64,10 @@ pub(super) fn build_protected_routes(
                 ))
         });
 
-    let (router, decls, _) = root.nest("/{workspace_id}", workspace).into_parts();
+    let (router, decls, _) = root
+        .nest("/{workspace_id}", workspace)
+        .nest("/{workspace_id}/previews", previews)
+        .into_parts();
     let mut decls = crate::server::role_manifest::api_prefixed(decls);
     // `/customer-apps/{*path}` is mounted on the OUTER router in serve.rs, not
     // here, but this is the declaration set that gets installed — so the split

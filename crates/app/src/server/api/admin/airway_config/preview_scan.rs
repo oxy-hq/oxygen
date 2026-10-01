@@ -20,6 +20,7 @@
 
 use std::collections::HashMap;
 
+use agentic_airway::placeholder::substitute_secret_vars;
 use agentic_airway::{AirwayPipelineSpec, ContractPolicy, Environment, build_source_connector};
 use sea_orm::{
     ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, JoinType,
@@ -28,24 +29,6 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::preview::{ResourceVerdict, UnevaluatedPipeline, verdicts};
-
-/// Placeholder written in place of every `*_var` credential reference. Never
-/// leaves the process — it exists only so a connector *constructs*.
-const PLACEHOLDER_SECRET: &str = "oxy-preview-placeholder";
-
-/// `*_var` keys that are **not** substitutable credential references and must
-/// survive [`substitute_secret_vars`] untouched.
-///
-/// `access_token_var` is a *mode selector*, not a credential the factory reads:
-/// its presence is what puts a quickbooks source into read-only token custody,
-/// and the executor turns it into an `AccessTokenSource` rather than a literal
-/// (see `PipelineTaskExecutor::dispatch_airway`). Rewriting it to an
-/// `access_token` literal both erases that declaration — dropping the source
-/// into the rotating branch, which then fails for want of `client_secret` — and
-/// produces a field `QuickBooksParams` rejects under `deny_unknown_fields`.
-/// Either way the pipeline lands in `unevaluated`, which is the one outcome
-/// this scan exists to keep empty.
-const NON_CREDENTIAL_VARS: &[&str] = &["access_token_var"];
 
 /// What one scan found.
 ///
@@ -414,7 +397,9 @@ fn evaluate_rows(
 /// rather than a clean scan borrowed from the other environment.
 ///
 /// Synchronous, and that is the point: no filesystem, no network. See
-/// [`substitute_secret_vars`] for why placeholder credentials are safe.
+/// [`substitute_secret_vars`] (in `agentic_airway::placeholder`, shared with
+/// the workspace previews' Airway change check) for why placeholder
+/// credentials are safe.
 pub(crate) fn evaluate_pipeline(
     definition: &serde_json::Value,
     source_kind: &str,
@@ -430,8 +415,9 @@ pub(crate) fn evaluate_pipeline(
         return Ok(None);
     }
     let mut source = spec.source;
-    // Read before substitution — the key is preserved (see `NON_CREDENTIAL_VARS`),
-    // but reading here keeps the decision next to the config it is made from.
+    // Read before substitution — the key is preserved (see
+    // `agentic_airway::placeholder::NON_CREDENTIAL_VARS`), but reading here
+    // keeps the decision next to the config it is made from.
     let read_only = source
         .config
         .get("access_token_var")
@@ -463,81 +449,17 @@ pub(crate) fn evaluate_pipeline(
 ///
 /// It can never be called: the preview builds connectors and reads their
 /// declared resources/contracts, and issues no request. Returning an error
-/// rather than [`PLACEHOLDER_SECRET`] keeps that true by construction — if a
-/// future arm ever *does* authenticate at construction time, this fails loudly
-/// instead of sending a fake bearer token from a staff admin route.
-struct PlaceholderAccessToken;
+/// rather than [`agentic_airway::placeholder::PLACEHOLDER_SECRET`] keeps that
+/// true by construction — if a future arm ever *does* authenticate at
+/// construction time, this fails loudly instead of sending a fake bearer token
+/// from a staff admin route. Shared with the workspace previews' Airway change
+/// check (`server::previews::analyze`), which builds connectors the same way.
+pub(crate) struct PlaceholderAccessToken;
 
 #[async_trait::async_trait]
 impl agentic_airway::AccessTokenSource for PlaceholderAccessToken {
     async fn access_token(&self) -> Result<String, String> {
         Err("preview scan never issues requests; no access token is available".into())
-    }
-}
-
-/// Rewrite every `<field>_var` secret reference into a `<field>` literal
-/// holding [`PLACEHOLDER_SECRET`], recursively.
-///
-/// The run path substitutes *real* secrets before dispatch
-/// (`PipelineTaskExecutor::resolve_airway_source_secrets`), and several
-/// connector `Params` structs are `deny_unknown_fields` around a required
-/// credential — so an unsubstituted spec would not even deserialize, and every
-/// toast/quickbooks pipeline would land in `unevaluated`.
-///
-/// The preview deliberately does **not** read the secret store. A connector's
-/// `resources()` and `contracts()` are declared by its code, never by its
-/// credential, so the verdict is identical either way; resolving for real would
-/// turn a staff preview into a credential-presence oracle, and would
-/// drop every workspace with one missing secret into `unevaluated` — hiding the
-/// exact resources the operator asked about. The one thing it costs is that a
-/// pipeline whose secret is genuinely absent still previews; that is a
-/// different problem, with its own error at run time.
-///
-/// **This is safe only because connector construction performs no I/O.**
-/// Every `build_source_connector` arm today deserializes a `Params` struct and
-/// hands the fields to a constructor — nothing authenticates, opens a socket,
-/// or otherwise looks at whether the credential is real. A future connector
-/// that validates its credential *at construction time* would break that
-/// assumption in the worst way: the preview would start making authenticated
-/// calls with a fake secret from a staff admin route, and would report
-/// every pipeline of that kind as `unevaluated`. If an arm ever grows an I/O
-/// step in its constructor, this substitution has to be revisited — it is not
-/// a detail that can be left to notice itself. It is also what lets
-/// [`evaluate_rows`] run on a blocking thread with no runtime handle.
-///
-/// Generic on the `_var` suffix rather than a per-kind table, which matches
-/// every pair the executor's table lists (`client_secret_var` →
-/// `client_secret`, `password_var` → `password`, rest_api's nested
-/// `auth.token_var` → `auth.token`, …) without duplicating it here. `<field>`
-/// is inserted only when absent, so a spec carrying the literal keeps it.
-pub(crate) fn substitute_secret_vars(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Object(map) => {
-            let var_keys: Vec<String> = map
-                .keys()
-                .filter(|k| k.strip_suffix("_var").is_some_and(|f| !f.is_empty()))
-                .filter(|k| !NON_CREDENTIAL_VARS.contains(&k.as_str()))
-                .cloned()
-                .collect();
-            for var_key in var_keys {
-                let field = var_key
-                    .strip_suffix("_var")
-                    .expect("filtered on the suffix above")
-                    .to_string();
-                map.remove(&var_key);
-                map.entry(field)
-                    .or_insert_with(|| serde_json::Value::String(PLACEHOLDER_SECRET.to_string()));
-            }
-            for nested in map.values_mut() {
-                substitute_secret_vars(nested);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for item in items {
-                substitute_secret_vars(item);
-            }
-        }
-        _ => {}
     }
 }
 

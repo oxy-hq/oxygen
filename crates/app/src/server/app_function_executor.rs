@@ -7,8 +7,10 @@
 //! `internal-docs/customer-apps-functions.md`.
 
 use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};
+use agentic_pipeline::app_function_task::AppFunctionTask;
 use agentic_runtime::worker::{ExecutingTask, TaskExecutor};
 use async_trait::async_trait;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::DatabaseConnection;
 use sentry::SentryFutureExt;
 use tokio::sync::mpsc;
@@ -16,7 +18,67 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 /// The `kind` discriminator for a scheduled custom-app function Custom task.
-pub const APP_FUNCTION_KIND: &str = "app_function";
+pub use agentic_pipeline::app_function_task::APP_FUNCTION_KIND;
+
+/// A queued task, read and checked: everything the job needs, typed.
+#[derive(Debug)]
+struct JobRequest {
+    app_id: uuid::Uuid,
+    function_name: String,
+    mode: String,
+    input: Vec<u8>,
+    traceparent: Option<String>,
+    environment: AppEnvironment,
+}
+
+/// Read an `app_function` task.
+///
+/// **The environment is carried, never dropped.** A worker that ignored it
+/// would run a staging task on production's build and secrets
+/// (`internal-docs/2026-09-10-custom-app-environments-design.md` §3.4). An
+/// unknown name is refused here; a known one rides to
+/// `run_scheduled_function`, which resolves that environment's build and puts
+/// it through `environment_gate` — the same gate a route call takes, so
+/// anything outside production is refused there, in one place.
+fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
+    let TaskSpec::Custom { kind, payload } = spec else {
+        return Err(format!(
+            "unexpected spec for AppFunctionTaskExecutor: {spec:?}"
+        ));
+    };
+    if kind != APP_FUNCTION_KIND {
+        return Err(format!("unknown app_function kind: {kind}"));
+    }
+    let task = AppFunctionTask::from_payload(payload)?;
+    let environment = match task.environment.as_deref() {
+        None => AppEnvironment::Production,
+        Some(name) => AppEnvironment::parse(name)
+            .ok_or_else(|| format!("app_function task names unknown environment {name:?}"))?,
+    };
+    let app_id: uuid::Uuid = task
+        .app_id
+        .parse()
+        .map_err(|e| format!("bad app_id: {e}"))?;
+    // Optional input params (JSON) supplied at trigger time — serialized back
+    // to the request-body bytes the isolate receives as `req`. Absent (cron
+    // fire) → empty body.
+    let input: Vec<u8> = match task.input.as_ref().filter(|v| !v.is_null()) {
+        // Propagate a serialize failure instead of silently defaulting to an
+        // empty body: running the isolate with `req.body = ""` would execute
+        // the function against no input and mask the malformed trigger.
+        Some(v) => serde_json::to_vec(v)
+            .map_err(|e| format!("failed to serialize app_function input: {e}"))?,
+        None => Vec::new(),
+    };
+    Ok(JobRequest {
+        app_id,
+        mode: invocation_mode(task.trigger.as_deref()),
+        function_name: task.function_name,
+        input,
+        traceparent: task.traceparent,
+        environment,
+    })
+}
 
 pub struct AppFunctionTaskExecutor {
     pub db: DatabaseConnection,
@@ -29,38 +91,14 @@ pub struct AppFunctionTaskExecutor {
 #[async_trait]
 impl TaskExecutor for AppFunctionTaskExecutor {
     async fn execute(&self, assignment: TaskAssignment) -> Result<ExecutingTask, String> {
-        let TaskSpec::Custom { kind, payload } = &assignment.spec else {
-            return Err(format!(
-                "unexpected spec for AppFunctionTaskExecutor: {:?}",
-                assignment.spec
-            ));
-        };
-        if kind != APP_FUNCTION_KIND {
-            return Err(format!("unknown app_function kind: {kind}"));
-        }
-        let app_id: uuid::Uuid = payload
-            .get("app_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "app_function payload missing string app_id".to_string())?
-            .parse()
-            .map_err(|e| format!("bad app_id: {e}"))?;
-        let function_name = payload
-            .get("function_name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "app_function payload missing string function_name".to_string())?
-            .to_string();
-        let mode = invocation_mode(payload.get("trigger").and_then(|v| v.as_str()));
-        // Optional input params (JSON) supplied at trigger time — serialized back
-        // to the request-body bytes the isolate receives as `req`. Absent (cron
-        // fire) → empty body.
-        let input: Vec<u8> = match payload.get("input").filter(|v| !v.is_null()) {
-            // Propagate a serialize failure instead of silently defaulting to an
-            // empty body: running the isolate with `req.body = ""` would execute
-            // the function against no input and mask the malformed trigger.
-            Some(v) => serde_json::to_vec(v)
-                .map_err(|e| format!("failed to serialize app_function input: {e}"))?,
-            None => Vec::new(),
-        };
+        let JobRequest {
+            app_id,
+            function_name,
+            mode,
+            input,
+            traceparent,
+            environment,
+        } = read_task(&assignment.spec)?;
 
         // The worker's run is a root trace of its own; this span is that root,
         // linked — not parented — to the request that enqueued the task when
@@ -74,7 +112,7 @@ impl TaskExecutor for AppFunctionTaskExecutor {
             mode = %mode,
             faas.trigger = if mode == "schedule" { "timer" } else { "other" },
         );
-        if let Some(traceparent) = payload.get("traceparent").and_then(|v| v.as_str())
+        if let Some(traceparent) = traceparent.as_deref()
             && !oxy_telemetry::propagation::link_from_traceparent(&job_span, traceparent)
         {
             tracing::debug!(
@@ -93,6 +131,7 @@ impl TaskExecutor for AppFunctionTaskExecutor {
             db: self.db.clone(),
             preagg: self.preagg.clone(),
             app_id,
+            environment,
             function_name,
             mode,
             input,
@@ -122,6 +161,7 @@ struct JobArgs {
     db: DatabaseConnection,
     preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
     app_id: uuid::Uuid,
+    environment: AppEnvironment,
     function_name: String,
     mode: String,
     input: Vec<u8>,
@@ -138,6 +178,7 @@ async fn run_job(args: JobArgs) {
         db,
         preagg,
         app_id,
+        environment,
         function_name,
         mode,
         input,
@@ -156,6 +197,7 @@ async fn run_job(args: JobArgs) {
     let outcome = match crate::server::api::custom_apps_functions::run_scheduled_function(
         &db,
         app_id,
+        &environment,
         &function_name,
         &mode,
         input,
@@ -182,7 +224,16 @@ async fn run_job(args: JobArgs) {
     };
     #[cfg(not(feature = "custom-app-functions"))]
     let outcome = {
-        let _ = (&db, app_id, &function_name, &mode, input, cancel, &preagg);
+        let _ = (
+            &db,
+            app_id,
+            &environment,
+            &function_name,
+            &mode,
+            input,
+            cancel,
+            &preagg,
+        );
         TaskOutcome::Failed("custom-app-functions feature not enabled".to_string())
     };
 
@@ -213,8 +264,77 @@ fn invocation_mode(trigger: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::invocation_mode;
+    use super::{APP_FUNCTION_KIND, AppEnvironment, invocation_mode, read_task};
     use crate::server::api::custom_apps_functions::FunctionJobTrigger;
+    use agentic_core::delegation::TaskSpec;
+    use serde_json::json;
+
+    fn spec(payload: serde_json::Value) -> TaskSpec {
+        TaskSpec::Custom {
+            kind: APP_FUNCTION_KIND.into(),
+            payload,
+        }
+    }
+
+    const APP: &str = "6f1c1f5e-4b2a-4d8e-9d59-0b8f8a3e2c11";
+
+    /// A task queued before `environment` existed is production, and runs.
+    #[test]
+    fn a_task_without_an_environment_runs_as_production() {
+        let job = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "trigger": "scheduled",
+        })))
+        .expect("a legacy task is runnable");
+        assert_eq!(job.app_id.to_string(), APP);
+        assert_eq!(job.mode, "schedule");
+        assert_eq!(job.environment, AppEnvironment::Production);
+    }
+
+    #[test]
+    fn a_task_naming_production_runs() {
+        let job = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "environment": "production",
+        })))
+        .expect("runnable");
+        assert_eq!(job.environment, AppEnvironment::Production);
+    }
+
+    /// The collision this reader prevents: a worker that ignored the field
+    /// would resolve the production build and run a staging task against it.
+    /// The environment rides to the runner, where `environment_gate` refuses
+    /// it (`custom_apps::app_environments_phase_1b` drives that end to end).
+    #[test]
+    fn a_task_for_a_non_production_environment_keeps_its_environment() {
+        let job = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "environment": "staging",
+        })))
+        .expect("a known environment is read");
+        assert_eq!(
+            job.environment,
+            AppEnvironment::Staging,
+            "never read as production"
+        );
+    }
+
+    #[test]
+    fn a_task_naming_an_unknown_environment_is_refused() {
+        let err = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "environment": "Production",
+        })))
+        .expect_err("names are exact; an unknown one is not production");
+        assert!(err.contains("unknown environment"), "{err}");
+    }
+
+    #[test]
+    fn the_input_rides_through_as_the_request_body() {
+        let job = read_task(&spec(json!({
+            "app_id": APP, "function_name": "refresh", "trigger": "manual",
+            "input": { "store": 7 },
+        })))
+        .expect("runnable");
+        assert_eq!(job.input, br#"{"store":7}"#);
+        assert_eq!(job.mode, "manual");
+    }
 
     /// Every label the seeding side can produce must have an arm here. Written
     /// over the enum rather than string literals so adding a variant without an

@@ -11,13 +11,14 @@
 //!    on an org subdomain — for bundles built with an older SDK;
 //! 3. the `Host` of a custom-app subdomain (`<org>--<slug>.customer-apps.…`).
 //!
-//! Then the three gates, all required: the app was published from THIS
-//! workspace, the request carries the preview cookie, and the caller has
-//! platform `DevelopApps` reach for the app's org — the exact decision
-//! `custom_apps_serve` makes to serve the draft bundle
-//! (`platform_reaches(.., Cap::DevelopApps, app.org_id)`), reused, not
-//! re-derived. Any miss is "no pin": the request reads the promoted revision,
-//! as it did before staging existed.
+//! Then the gates, all required: the app was published from THIS workspace,
+//! the request is a staging request, and the caller may open staging. A
+//! staging request is one addressed to the app's **staging host** (the caller
+//! must pass `may_open_non_production`, the rule that serves them staging
+//! HTML) or one carrying the **preview cookie** (the caller must have platform
+//! `DevelopApps` reach for the app's org — the decision `custom_apps_serve`
+//! makes to serve the draft bundle). Any miss is "no pin": the request reads
+//! the promoted revision, as it did before staging existed.
 //!
 //! **A spoofed header is not an authz hole.** It can only choose among apps of
 //! the request's own workspace that the caller can already develop — whose
@@ -26,6 +27,7 @@
 //! workspace's data at all.
 
 use axum::http::HeaderMap;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
@@ -48,20 +50,69 @@ pub(crate) enum AppRef {
 }
 
 /// The pin a staging data-plane request should read, or `None` for every
-/// other request. Cheap when the preview cookie is absent (no DB work).
+/// other request. Cheap for a production request with no preview cookie (no DB
+/// work).
+///
+/// Two entrances, each with its own reach rule and its own build:
+///
+/// - **the staging host** (`staging--<org>--<slug>.…`, environments design
+///   §3.2): the viewer must be allowed to open non-production
+///   (`may_open_non_production`, the rule that serves them staging HTML), and
+///   the pin is read from the build the **staging environment** serves;
+/// - **the preview cookie** on any other host: `DevelopApps` reach, and the
+///   app's draft build — which the staging row mirrors, so the same build.
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
+    user_id: Uuid,
     user_email: &str,
     project_id: Uuid,
 ) -> Option<Uuid> {
-    if !crate::server::api::custom_apps_preview::wants_draft_preview(headers) {
+    let staging_host = matches!(
+        oxy_app_core::custom_app_env_request::request_environment(headers),
+        Ok(AppEnvironment::Staging)
+    );
+    if !staging_host && !crate::server::api::custom_apps_preview::wants_draft_preview(headers) {
         return None;
     }
     let app = find_app(db, &app_ref(headers)?).await?;
     if app.project_id != project_id {
         return None;
     }
+    let build_id = if staging_host {
+        staging_environment_build(db, user_id, user_email, &app).await?
+    } else {
+        draft_preview_build(db, user_email, &app).await?
+    };
+    super::pinned_revision_for(db, build_id).await
+}
+
+/// The staging environment's build, for a viewer who may open it.
+async fn staging_environment_build(
+    db: &DatabaseConnection,
+    user_id: Uuid,
+    user_email: &str,
+    app: &entity::apps::Model,
+) -> Option<Uuid> {
+    use crate::server::api::custom_apps_env_resolve::{
+        may_open_non_production, resolve_environment,
+    };
+    if !may_open_non_production(db, user_id, user_email, app).await {
+        return None;
+    }
+    resolve_environment(db, app, &AppEnvironment::Staging)
+        .await
+        .ok()?
+        .build_id
+}
+
+/// The draft build, for a caller with `DevelopApps` reach over the app's org —
+/// the decision `custom_apps_serve` makes to serve the draft bundle.
+async fn draft_preview_build(
+    db: &DatabaseConnection,
+    user_email: &str,
+    app: &entity::apps::Model,
+) -> Option<Uuid> {
     let reaches = oxy_server_authz::globals::platform_reaches(
         db,
         user_email,
@@ -72,7 +123,7 @@ pub async fn staging_pin_for_data_request(
     if !reaches {
         return None;
     }
-    super::pinned_revision_for(db, app.draft_build_id?).await
+    app.draft_build_id
 }
 
 /// Name the app from the request, in the documented order.

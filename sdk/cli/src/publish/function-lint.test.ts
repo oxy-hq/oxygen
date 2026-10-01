@@ -180,6 +180,81 @@ describe("destinations", () => {
   });
 });
 
+describe("nonProduction.destinations", () => {
+  const source =
+    "export default async (r: unknown, ctx: any) => {\n" +
+    '  await ctx.warehouse.insert("ch", "t", []);\n' +
+    '  await ctx.tx("pg", async () => 1);\n' +
+    "};\n";
+
+  function mapped(spec: Record<string, unknown>, destinations: Record<string, unknown>) {
+    const app = tmpApp(
+      { "functions/f.ts": source },
+      { functions: { f: spec }, nonProduction: { destinations } }
+    );
+    return lintAppFunctions(app.dir, app.manifest);
+  }
+
+  it("checks the mapped database like the one the call names", () => {
+    const result = mapped({ destinations: ["ch", "pg"] }, { ch: "ch_staging", pg: "pg" });
+    expect(result.issues.map((i) => [i.rule, i.path])).toEqual([["destinations", "line 2"]]);
+    expect(result.issues[0]?.message).toContain(
+      '`ctx.warehouse.insert("ch", …) in staging, which nonProduction.destinations maps to "ch_staging"`'
+    );
+    expect(result.issues[0]?.message).toContain(
+      "writes `ch_staging`, which is not in `functions.f.destinations`"
+    );
+    // `pg` maps onto itself: staging holds it, so there is no twin to check.
+    expect(result.writes.map((w) => [w.member, w.database, w.mappedFrom])).toEqual([
+      ["warehouse.insert", "ch", undefined],
+      ["tx", "pg", undefined]
+    ]);
+  });
+
+  it("hands the mapped write to the engine check, which names the mapping", () => {
+    const result = mapped({ destinations: ["ch", "ch_staging", "pg"] }, { ch: "ch_staging" });
+    expect(result.issues).toEqual([]);
+    const twin = result.writes.find((w) => w.mappedFrom === "ch");
+    expect(twin?.database).toBe("ch_staging");
+    const databases: DatabaseEngine[] = [
+      { name: "ch", dialect: "clickhouse", db_type: "clickhouse" },
+      { name: "ch_staging", dialect: "clickhouse", db_type: "clickhouse" }
+    ];
+    const manifest = {
+      functions: {
+        f: {
+          destinations: ["ch", "ch_staging", "pg"],
+          customerWarehouseWrites: { ch: "legacy facts" }
+        }
+      }
+    };
+    const twins = result.writes.filter((w) => w.mappedFrom !== undefined);
+    const issues = checkEngines(twins, manifest, databases);
+    expect(issues.map((i) => [i.rule, i.path])).toEqual([["customer-warehouse", "line 2"]]);
+    expect(issues[0]?.message).toContain('maps to "ch_staging"` writes `ch_staging` (clickhouse)');
+  });
+
+  it("refuses a mapping onto the workspace's own Airhouse", () => {
+    const result = mapped({ destinations: ["ch", "ah", "pg"] }, { ch: "ah" });
+    const twins = result.writes.filter((w) => w.mappedFrom !== undefined);
+    const issues = checkEngines(twins, { functions: { f: { destinations: ["ch", "ah", "pg"] } } }, [
+      { name: "ch", dialect: "clickhouse", db_type: "clickhouse" },
+      { name: "ah", dialect: "duckdb", db_type: "airhouse_managed" }
+    ]);
+    expect(issues.map((i) => [i.rule, i.path])).toEqual([["destinations", "line 2"]]);
+    expect(issues[0]?.message).toContain("production's tenant");
+  });
+
+  it("is silent with no mapping, or one that is not a string", () => {
+    expect(mapped({ destinations: ["ch", "pg"] }, { ch: 1 }).writes).toHaveLength(2);
+    const app = tmpApp(
+      { "functions/f.ts": source },
+      { functions: { f: { destinations: ["ch", "pg"] } } }
+    );
+    expect(lintAppFunctions(app.dir, app.manifest).writes).toHaveLength(2);
+  });
+});
+
 describe("relative imports", () => {
   it("follows ./x.js, ./dir/index.ts and a re-import, never a package or a path outside the app", () => {
     const { result } = fixture("imports");

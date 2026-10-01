@@ -201,9 +201,42 @@ pub(crate) async fn publish_app(
     .expect("a bundle carrying every declared function publishes and promotes")
 }
 
+/// Publishes `functions` as build `build_id` of app `slug`, promoted (to
+/// production and staging) or not (staging only) — two calls give an app a
+/// production build and a different staging build.
+pub(crate) async fn publish_build(
+    t: &Tenant,
+    slug: &str,
+    workspace: Uuid,
+    build_id: &str,
+    promote: bool,
+    functions: &[FunctionSpec],
+) -> PublishResult {
+    publish(PublishInput {
+        org_ref: Some(OrgRef::Id(t.org_id)),
+        app_slug: slug.to_string(),
+        project_id: workspace,
+        branch: None,
+        build_id: build_id.to_string(),
+        name: None,
+        promote,
+        tarball: bundle(slug, functions),
+        manifest: None,
+        source_repo: None,
+        commit_sha: None,
+        published_by: Some(t.guest_id),
+        published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
+        machine_app_id: None,
+        published_via: None,
+        semantic_revision_id: None,
+    })
+    .await
+    .expect("the bundle publishes")
+}
+
 /// The custom-app serve route with the extension `serve.rs` layers onto it.
 /// Without the query executor the dispatcher refuses every function with a 500.
-fn serve_router() -> Router {
+pub(crate) fn serve_router() -> Router {
     Router::new().route(
         "/customer-apps/{*path}",
         any(custom_apps_serve::serve_dispatch)
@@ -243,12 +276,26 @@ pub(crate) async fn call_function_in(
     name: &str,
     body: Value,
 ) -> FnCall {
-    let request = Request::builder()
+    call_function_with(org_slug, app_slug, name, body, &[]).await
+}
+
+/// [`call_function_in`] with extra request headers (an `Idempotency-Key`, a
+/// `Host`, an `Origin`).
+pub(crate) async fn call_function_with(
+    org_slug: &str,
+    app_slug: &str,
+    name: &str,
+    body: Value,
+    headers: &[(&str, &str)],
+) -> FnCall {
+    let mut request = Request::builder()
         .method("POST")
         .uri(format!("/customer-apps/{org_slug}/{app_slug}/fn/{name}"))
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .expect("request");
+        .header("content-type", "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let request = request.body(Body::from(body.to_string())).expect("request");
     let response = serve_router().oneshot(request).await.expect("oneshot");
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)

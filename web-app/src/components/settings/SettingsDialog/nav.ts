@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   CreditCard,
   Database,
+  Eye,
   GitBranch,
   HardHat,
   Key,
@@ -34,8 +35,12 @@ type NavIcon = LucideIcon | React.ComponentType<{ className?: string }>;
  * server authorizes; gating an Organization item on workspace role would show
  * it to someone the server will 403. Name the axis per item and the nav matches
  * what the API will actually allow.
+ *
+ * `staff` is a third, unrelated axis: Oxy platform staff (`is_owner ||
+ * is_app_admin`), for tools that are never the customer's whatever their role
+ * in the tenant — an org owner does not clear it.
  */
-export type NavGate = "orgAdmin" | "workspaceAdmin";
+export type NavGate = "orgAdmin" | "workspaceAdmin" | "staff";
 
 export interface NavItem {
   value: SettingsSection;
@@ -144,6 +149,9 @@ export const CLOUD_NAV: NavGroup[] = [
         featureFlag: "LINKED_REPOS",
         requires: "workspaceAdmin"
       },
+      // Oxy staff only — previews are a staff tool, never the customer's, so a
+      // tenant admin does not see this either. See `useCanUsePreviews`.
+      { value: "workspace.previews", label: "Previews", icon: Eye, requires: "staff" },
       { value: "workspace.api_keys", label: "API Keys", icon: Key, requires: "workspaceAdmin" },
       { value: "workspace.secrets", label: "Secrets", icon: KeyRound, requires: "workspaceAdmin" },
       {
@@ -202,6 +210,8 @@ export interface NavVisibilityContext {
   isOrgAdmin: boolean;
   /** `useRole().is.workspaceAdmin` — resolved workspace owner or admin. */
   isWorkspaceAdmin: boolean;
+  /** `useCanUsePreviews()` — Oxy platform staff. Absent reads as not staff. */
+  isStaff?: boolean;
   billingEnabled: boolean;
   hasOrg: boolean;
   hasWorkspace: boolean;
@@ -224,6 +234,7 @@ export interface NavVisibilityContext {
  */
 export function gateSatisfied(gate: NavGate | undefined, ctx: NavVisibilityContext): boolean {
   if (!gate || ctx.isLocalMode) return true;
+  if (gate === "staff") return !!ctx.isStaff;
   return gate === "orgAdmin" ? ctx.isOrgAdmin : ctx.isWorkspaceAdmin;
 }
 

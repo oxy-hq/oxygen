@@ -8,7 +8,7 @@ mod client;
 mod error;
 mod types;
 
-pub use client::AirhouseAdminClient;
+pub use client::{AirhouseAdminClient, Capabilities};
 pub use error::AirhouseError;
 pub use types::{
     CatalogIndexState, CatalogIndexesResponse, CreatedServiceAccount, EphemeralCredential,

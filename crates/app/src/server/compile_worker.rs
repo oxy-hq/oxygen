@@ -283,6 +283,7 @@ async fn drive(
                     )
                     .await;
                 }
+                queue_preview_check(&db, &spec, o.revision_id).await;
                 TaskOutcome::Done {
                     answer,
                     metadata: Some(summarise_outcome(&o, &settled)),
@@ -628,6 +629,23 @@ pub(crate) async fn reconcile_preagg_from_compiled(
     Some(enabled)
 }
 
+/// After a `Ready` compile: when it is a staging revision of a branch staff
+/// preview, queue that revision's Airway change check. Best-effort; never
+/// fails the compile.
+async fn queue_preview_check(db: &DatabaseConnection, spec: &CompileSpec, revision_id: Uuid) {
+    if !matches!(spec.kind, RevisionKind::Staging) {
+        return;
+    }
+    crate::server::previews::analyze::enqueue_after_staging_compile(
+        db,
+        spec.workspace_id,
+        spec.branch.as_deref(),
+        spec.git_sha.as_deref(),
+        revision_id,
+    )
+    .await;
+}
+
 fn summarise_outcome(o: &CompileOutcome, settled: &crate::server::compile_oltp::Settled) -> Value {
     json!({
         "revision_id": o.revision_id,
@@ -692,6 +710,10 @@ pub fn spec_from_taskspec(
         owner_user_id,
     })
 }
+
+#[cfg(test)]
+#[path = "compile_worker_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 mod outcome_summary_tests {

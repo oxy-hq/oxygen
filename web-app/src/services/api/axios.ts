@@ -4,6 +4,12 @@ import { getInjectedOrg } from "@/libs/orgSubdomain";
 import { reportAssumeRequired } from "@/libs/utils/assumeRequired";
 import { clearAuthScopedStorage } from "@/libs/utils/authStorage";
 import { reportIdeReachable, reportIdeUnavailable } from "@/libs/utils/ideHealth";
+import {
+  PREVIEW_HEADER,
+  previewRequestHeaders,
+  readPreviewReadOnlyBody,
+  reportPreviewServed
+} from "@/libs/utils/preview";
 import { usePaywallStore } from "@/stores/usePaywallStore";
 import { apiBaseURL } from "../env";
 
@@ -58,6 +64,12 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = token;
     }
+    // Pinned to a preview: say so on every request, beside the `?branch=` the
+    // call site already sends. Absent on live pages and in the IDE, which
+    // sends the same `?branch=` for its (editable) working copy.
+    for (const [name, value] of Object.entries(previewRequestHeaders())) {
+      config.headers[name] = value;
+    }
     return config;
   },
   (error) => {
@@ -80,9 +92,24 @@ const makeResponseErrorHandler = () => {
       };
     };
     config?: { url?: string };
+    message?: string;
   }) => {
     const status = error.response?.status;
     const url = error.config?.url ?? "";
+
+    reportPreviewServed(error.response?.headers?.[PREVIEW_HEADER]);
+
+    // Pinned to a preview, anything that runs or changes something is refused
+    // with a message written for the person. Say it once, plainly, whichever
+    // surface made the call — most call sites toast a fixed "Failed to …" that
+    // would otherwise be all anyone sees. The error's own `message` is swapped
+    // for the server's too, so a call site that shows `error.message` repeats
+    // the real reason rather than "Request failed with status code 409".
+    const previewReadOnly = readPreviewReadOnlyBody(status, error.response?.data);
+    if (previewReadOnly) {
+      toast.error(previewReadOnly, { id: "preview-read-only" });
+      error.message = previewReadOnly;
+    }
 
     if (status === 401 && !publicAPIPaths.includes(url)) {
       // Sweep persisted per-user state alongside the token; a hard navigate
@@ -148,5 +175,9 @@ apiClient.interceptors.response.use((response) => {
     "x-oxy-served-by"
   ];
   if (servedBy?.split("@")[0] === "ide") reportIdeReachable();
+  // Served from a preview: the confirmation the preview bar waits for.
+  reportPreviewServed(
+    (response.headers as Record<string, string | undefined> | undefined)?.[PREVIEW_HEADER]
+  );
   return response;
 }, makeResponseErrorHandler());

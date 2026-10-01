@@ -401,6 +401,9 @@ export function createTestContext(
   const ctx: OxyFunctionContext = {
     user: { ...DEFAULT_USER, ...options.user },
     env: { ...(options.env ?? {}) },
+    // A test context runs as production: nothing is held.
+    channel: "production",
+    environment: "production",
     log: () => {},
     crypto: nodeCrypto(),
     query: async (sql) =>

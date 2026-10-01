@@ -36,6 +36,7 @@ import { FileQuickOpen } from "./components/FileQuickOpen";
 import OrgGuard from "./components/OrgGuard";
 import OrgSubdomainAuthGate from "./components/OrgSubdomainAuthGate";
 import OwnerRedirect from "./components/OwnerRedirect";
+import { PreviewPending } from "./components/PreviewBar/PreviewPending";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { WorkspaceShell } from "./components/Shell/WorkspaceShell";
 import SettingsDialog from "./components/settings/SettingsDialog";
@@ -44,6 +45,7 @@ import AgenticSetupPage from "./components/workspaces/components/CreateWorkspace
 import { LocalWorkspaceSetupDialog } from "./components/workspaces/components/LocalWorkspaceSetupDialog";
 import { ManageWorkspacesDialog } from "./components/workspaces/components/ManageWorkspacesDialog";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { PreviewPinProvider } from "./contexts/PreviewPinContext";
 import { useWorkspace } from "./hooks/api/workspaces/useWorkspaces";
 import useAuthConfig from "./hooks/auth/useAuthConfig";
 import useOauthConnectReturn from "./hooks/useOauthConnectReturn";
@@ -372,7 +374,7 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout() {
     return null;
   }
 
-  return (
+  const shell = (
     <HotkeysProvider>
       <BuilderDialog />
       <FileQuickOpen />
@@ -502,6 +504,18 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout() {
         </Routes>
       </WorkspaceShell>
     </HotkeysProvider>
+  );
+
+  // The preview pin (`?preview=<revision_id>`) wraps the dialogs as well as the
+  // routes: they read the branch like any page, and Settings → Previews enters
+  // a preview from inside its dialog. Keyed by the route's workspace, which
+  // changes in the same render as the URL, so a pin never crosses workspaces.
+  // While a link's revision is being resolved to its branch, `PreviewPending`
+  // stands in for the whole shell, so nothing fetches as a live page first.
+  return (
+    <PreviewPinProvider workspaceId={wsId ?? workspace.id} fallback={<PreviewPending />}>
+      {shell}
+    </PreviewPinProvider>
   );
 });
 

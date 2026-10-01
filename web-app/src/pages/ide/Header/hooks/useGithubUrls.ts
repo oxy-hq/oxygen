@@ -1,3 +1,10 @@
+/** `https://github.com/<owner>/<repo>` for a GitHub remote (https or ssh), else null. */
+export function githubRepoBase(remoteUrl?: string | null): string | null {
+  if (!remoteUrl) return null;
+  const match = remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/);
+  return match ? `https://github.com/${match[1]}` : null;
+}
+
 interface Args {
   remoteUrl?: string | null;
   branch: string;
@@ -17,11 +24,7 @@ interface Args {
  * directory rather than the repository root.
  */
 export function useGithubUrls({ remoteUrl, branch, defaultBranch, isOnMain, gitSubfolder }: Args) {
-  const base = (() => {
-    if (!remoteUrl) return null;
-    const match = remoteUrl.match(/github\.com[/:]([^/]+\/[^/.]+?)(?:\.git)?$/);
-    return match ? `https://github.com/${match[1]}` : null;
-  })();
+  const base = githubRepoBase(remoteUrl);
 
   if (!base) return { repoUrl: null, prUrl: null };
   const encodedSubfolder = gitSubfolder

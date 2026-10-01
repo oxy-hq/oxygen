@@ -14,10 +14,13 @@ mod mock;
 mod neon;
 mod types;
 
+pub use local::branch_database_name;
 pub use local::{LocalProvider, database_name_for, host_from_dsn};
 pub use mock::MockProvider;
 pub use neon::NeonProvider;
-pub use types::{Branch, CreateProjectRequest, DatabaseInfo, Project, Role};
+pub use types::{
+    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+};
 
 /// Role that owns a tenant database.
 ///
@@ -56,6 +59,27 @@ pub enum ProviderError {
     ProjectNotFound(String),
     #[error("role {0:?} not found on branch {1:?}")]
     RoleNotFound(String, String),
+    /// A branch operation named a branch the provider does not have.
+    ///
+    /// Only `reset_branch` raises it — `delete_branch` is idempotent and
+    /// `create_branch` makes what is missing — so a caller resetting a branch
+    /// that vanished provider-side can recreate it rather than fail.
+    #[error("branch {0:?} not found")]
+    BranchNotFound(String),
+    /// A branch carries Oxy's derived name but was not cut from the branch it
+    /// should have been — so it is not the half-finished branch adoption
+    /// exists to recover, and taking it over would serve staging from
+    /// somewhere else's data.
+    #[error("branch {name:?} exists but was cut from {parent:?}, not from {expected:?}")]
+    BranchParentMismatch {
+        name: String,
+        parent: String,
+        expected: String,
+    },
+    /// A branch operation aimed at production. Raised before any destructive
+    /// call is sent.
+    #[error("refusing a branch operation on {0:?}: it is the production branch or database")]
+    BranchIsProduction(String),
     /// The provider rejected a create because the name is taken.
     ///
     /// Never silently adopt the existing resource: `airhouse` shipped that and
@@ -171,6 +195,59 @@ pub trait OltpProvider: Send + Sync {
         branch_id: &str,
         role_name: &str,
     ) -> Result<(), ProviderError>;
+
+    /// Cut a copy-on-write branch of the tenant database from the head of
+    /// `req.parent_branch_id`, with an endpoint of its own.
+    ///
+    /// **Adopts** a branch already carrying `req.name` in this project rather
+    /// than failing or duplicating it: the name is derived from the branch kind
+    /// and the project is one org's, so a match is the half-finished result of
+    /// an earlier attempt that crashed before recording it — the same argument
+    /// `create_project` makes for a derived project name.
+    ///
+    /// See [`ProjectBranch::owner_role`] for when the owner password is
+    /// disclosed.
+    async fn create_branch(&self, req: &BranchRequest) -> Result<ProjectBranch, ProviderError>;
+
+    /// Throw away everything written to `branch_id` since it was cut and
+    /// re-cut it from the parent's current head. The endpoint (host) and the
+    /// branch id survive where the provider allows it.
+    ///
+    /// Every role on the branch reverts to production's password along with
+    /// the data, so the owner credential is re-minted here and the caller must
+    /// re-mint every other one it holds for the branch.
+    ///
+    /// [`ProviderError::BranchNotFound`] when the branch is gone.
+    async fn reset_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<ProjectBranch, ProviderError>;
+
+    /// Idempotent: deleting an already-absent branch is `Ok(())`.
+    ///
+    /// Takes the same [`BranchRequest`] as the other two so each provider can
+    /// prove, on its own terms, that `branch_id` is the branch `req` names and
+    /// not production: Neon asks whether it is the project's default/protected
+    /// branch or the parent; `LocalProvider` requires the exact derived branch
+    /// database name, since there a wrong id is a `DROP DATABASE` of someone's
+    /// data. Deleting production is never a branch operation.
+    async fn delete_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<(), ProviderError>;
+
+    /// Whether `delete_project` takes the project's branches with it.
+    ///
+    /// True on Neon, where a branch lives inside the project, so a branch that
+    /// cannot be deleted first must not stop the project delete that removes it
+    /// anyway. False — the default, and the strict answer — where a branch is
+    /// an independent object the project delete would strand (`LocalProvider`'s
+    /// sibling database).
+    fn project_delete_takes_branches(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

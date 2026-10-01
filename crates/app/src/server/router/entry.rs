@@ -165,6 +165,14 @@ pub async fn api_router(
         crate::server::compile_maintenance::CompileMaintenanceConfig::from_env(),
     );
 
+    // Workspace previews' TTL sweep: claim the registry rows of expired
+    // preview schemas and queue their `preview_schema_drop` tasks (the worker
+    // fleet drops). Only writes rows; runs regardless of --no-workers,
+    // idempotent across replicas.
+    crate::server::previews::maintenance::spawn(
+        crate::server::previews::maintenance::MaintenanceConfig::from_env(),
+    );
+
     // Keep `origin/*` tracking refs warm so every surface that reports remote
     // state (compile freshness badge, ahead/behind counts) answers from a
     // recent fetch instead of whenever the user last happened to fetch by hand.

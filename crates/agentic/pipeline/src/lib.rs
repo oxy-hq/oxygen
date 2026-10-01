@@ -7,6 +7,8 @@
 pub mod agent_run;
 pub mod airway_config;
 pub mod airway_run;
+/// The typed payload of a queued custom-app function run.
+pub mod app_function_task;
 pub mod automation_run;
 pub mod backfill;
 mod db_transient;
@@ -38,7 +40,12 @@ use crate::platform::{BuilderBridges, PlatformContext, ProjectContext};
 
 // ── Re-exports for consumers ────────────────────────────────────────────────
 
+/// A workspace preview's Airway sample: its task kind and run `source_type`,
+/// and the sample types the host needs to queue and validate one (the host
+/// enters `agentic-airway` through this facade, not directly).
+pub use crate::executor::PREVIEW_AIRWAY_SAMPLE;
 pub use crate::revert::{RevertedFile, revert_builder_file_changes};
+pub use agentic_airway::preview as airway_preview;
 pub use agentic_airway::{
     AirwayMigrator, DiscoveredColumn, DiscoveredTable, SOURCE_TYPE as AIRWAY_SOURCE_TYPE,
     event_handler as airway_event_handler,
@@ -285,6 +292,45 @@ impl PipelineBuilder {
         self
     }
 
+    /// A run started in a workspace preview is resumed only on a preview
+    /// platform. Anywhere else — a cold resume from a request without the
+    /// preview header — it is retired, never resumed on production.
+    async fn refuse_preview_run_outside_preview(
+        &self,
+        db: &DatabaseConnection,
+        run_id: &str,
+    ) -> Result<(), PipelineError> {
+        if platform::preview::is_preview(self.platform.as_ref()) {
+            return Ok(());
+        }
+        let run = agentic_runtime::crud::get_run(db, run_id).await?;
+        if !run.is_some_and(|r| platform::preview_stamp::is_stamped(r.metadata.as_ref())) {
+            return Ok(());
+        }
+        platform::preview_stamp::retire_interrupted(db, run_id)
+            .await
+            .map_err(PipelineError::Config)?;
+        Err(PipelineError::Config(
+            platform::preview_stamp::INTERRUPTED.to_string(),
+        ))
+    }
+
+    /// The builder bridges a builder start or resume runs with. Never on a
+    /// workspace-preview platform: the bridges edit the working copy.
+    fn builder_bridges_for_run(&self) -> Result<BuilderBridges, PipelineError> {
+        if platform::preview::is_preview(self.platform.as_ref()) {
+            return Err(PipelineError::Config(
+                "the Builder Agent does not run in a workspace preview; merge the branch first"
+                    .into(),
+            ));
+        }
+        self.builder_bridges.clone().ok_or_else(|| {
+            PipelineError::Config(
+                "builder bridges not provided — call .with_builder_bridges() first".into(),
+            )
+        })
+    }
+
     /// Override the human input provider for the builder domain.
     pub fn human_input(mut self, provider: agentic_core::human_input::HumanInputHandle) -> Self {
         self.human_input = Some(provider);
@@ -480,6 +526,7 @@ impl PipelineBuilder {
         resume_data: agentic_core::human_input::SuspendedRunData,
         answer: String,
     ) -> Result<StartedPipeline, PipelineError> {
+        self.refuse_preview_run_outside_preview(db, run_id).await?;
         let ctx_root = self.platform.context_root().await;
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
@@ -546,10 +593,13 @@ impl PipelineBuilder {
         // coordinator already created the run via insert_run_with_parent).
         let source_type = "analytics";
         if !skip_db_insert {
-            let metadata = serde_json::json!({
+            let mut metadata = serde_json::json!({
                 "agent_id": agent_id,
                 "thinking_mode": self.thinking_mode.to_db(),
             });
+            // A run started in a workspace preview is never picked up outside
+            // one: recovery and a cold resume retire it instead.
+            platform::preview_stamp::stamp(self.platform.as_ref(), &mut metadata);
             agentic_runtime::crud::insert_run(
                 db,
                 run_id,
@@ -604,18 +654,10 @@ impl PipelineBuilder {
         // step → another empty agent → recursion. The previous
         // behavior was "always inject and let the runner fall back"
         // — unwound here so an agent only sees automations it asked for.
-        let subrun_runner: Option<Arc<dyn agentic_core::subrun::SubrunRunner>> = config
-            .resolve_context(base_dir)
-            .ok()
-            .map(|ctx| ctx.automation_files)
-            .filter(|files| !files.is_empty())
-            .map(|files| {
-                let workspace: Arc<dyn agentic_automation::WorkspaceContext> =
-                    self.platform.clone();
-                let runner = agentic_automation::OxyAutomationRunner::new(workspace)
-                    .with_automation_files(files);
-                Arc::new(runner) as Arc<dyn agentic_core::subrun::SubrunRunner>
-            });
+        // Never on a workspace-preview platform — see the gate.
+        let subrun_runner = config.resolve_context(base_dir).ok().and_then(|ctx| {
+            platform::preview::automation_subrun_runner(&self.platform, ctx.automation_files)
+        });
 
         let (history, prior_spec_hint) = if let Some(tid) = self.thread_id {
             let turns = agentic_runtime::crud::get_thread_history(db, tid, 10)
@@ -770,18 +812,10 @@ impl PipelineBuilder {
         // step → another empty agent → recursion. The previous
         // behavior was "always inject and let the runner fall back"
         // — unwound here so an agent only sees automations it asked for.
-        let subrun_runner: Option<Arc<dyn agentic_core::subrun::SubrunRunner>> = config
-            .resolve_context(base_dir)
-            .ok()
-            .map(|ctx| ctx.automation_files)
-            .filter(|files| !files.is_empty())
-            .map(|files| {
-                let workspace: Arc<dyn agentic_automation::WorkspaceContext> =
-                    self.platform.clone();
-                let runner = agentic_automation::OxyAutomationRunner::new(workspace)
-                    .with_automation_files(files);
-                Arc::new(runner) as Arc<dyn agentic_core::subrun::SubrunRunner>
-            });
+        // Never on a workspace-preview platform — see the gate.
+        let subrun_runner = config.resolve_context(base_dir).ok().and_then(|ctx| {
+            platform::preview::automation_subrun_runner(&self.platform, ctx.automation_files)
+        });
 
         let (history, prior_spec_hint) = if let Some(tid) = self.thread_id {
             let turns = agentic_runtime::crud::get_thread_history(db, tid, 10)
@@ -844,11 +878,7 @@ impl PipelineBuilder {
         resume_data: agentic_core::human_input::SuspendedRunData,
         answer: String,
     ) -> Result<StartedPipeline, PipelineError> {
-        let bridges = self.builder_bridges.clone().ok_or_else(|| {
-            PipelineError::Config(
-                "builder bridges not provided — call .with_builder_bridges() first".into(),
-            )
-        })?;
+        let bridges = self.builder_bridges_for_run()?;
 
         // Resolve model + API key, honouring an explicit override (onboarding
         // cold-resume rebuilds the override from persisted metadata before
@@ -969,11 +999,7 @@ impl PipelineBuilder {
             .await?;
         }
 
-        let bridges = self.builder_bridges.clone().ok_or_else(|| {
-            PipelineError::Config(
-                "builder bridges not provided — call .with_builder_bridges() first".into(),
-            )
-        })?;
+        let bridges = self.builder_bridges_for_run()?;
 
         // Resolve model + API key, honouring an explicit override (onboarding flow).
         let client = match self.builder_llm_override.take() {
@@ -1335,13 +1361,16 @@ pub async fn drive_with_coordinator(
     // grandchild this coordinator legitimately owns.
     let transport = DurableTransport::with_router(db.clone(), router, Some(run_id.clone()));
 
-    // Create the task executor for child tasks (delegation).
+    // Create the task executor for child tasks (delegation). A preview — a
+    // chat request pinned to one included — gets no builder: its bridges edit
+    // the working copy, and an analytics agent can delegate to it.
+    let is_preview = crate::platform::preview::is_preview(platform.as_ref());
     let executor = Arc::new(executor::PipelineTaskExecutor {
         platform,
-        builder_bridges,
+        builder_bridges: builder_bridges.filter(|_| !is_preview),
         schema_cache,
-        builder_test_runner,
-        builder_app_runner,
+        builder_test_runner: builder_test_runner.filter(|_| !is_preview),
+        builder_app_runner: builder_app_runner.filter(|_| !is_preview),
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors: None,
@@ -1655,6 +1684,9 @@ pub fn build_event_registry() -> EventRegistry {
         agentic_automation::event_handler(),
     );
     registry.register(AIRWAY_SOURCE_TYPE, airway_event_handler());
+    // A workspace preview's sample emits the same Airway events under its own
+    // source type, so its run renders like any Airway run.
+    registry.register(PREVIEW_AIRWAY_SAMPLE, airway_event_handler());
     registry
 }
 
@@ -2022,13 +2054,10 @@ async fn run_agentic_headless(
     // the FSM access to every automation in the project — which has
     // caused a runaway subrun chain when a misparsed agent had no
     // concrete instructions.
-    let solver = if automation_files.is_empty() {
-        solver
-    } else {
-        let workspace: Arc<dyn agentic_automation::WorkspaceContext> = platform.clone();
-        let runner = agentic_automation::OxyAutomationRunner::new(workspace)
-            .with_automation_files(automation_files);
-        solver.with_subrun_runner(std::sync::Arc::new(runner))
+    // Never on a workspace-preview platform — see the gate.
+    let solver = match platform::preview::automation_subrun_runner(&platform, automation_files) {
+        Some(runner) => solver.with_subrun_runner(runner),
+        None => solver,
     };
 
     let mut orchestrator = Orchestrator::new(solver).with_handlers(build_analytics_handlers());
@@ -2092,6 +2121,15 @@ mod tests {
         assert!(
             out.iter().any(|(ty, _)| ty == "load_started"),
             "airway events must survive the registry, got {out:?}"
+        );
+        let mut sample = registry.stream_processor(PREVIEW_AIRWAY_SAMPLE);
+        let out = sample.process(
+            "load_started",
+            &serde_json::json!({ "event_type": "load_started", "pipeline_name": "preview:k:p" }),
+        );
+        assert!(
+            out.iter().any(|(ty, _)| ty == "load_started"),
+            "a preview sample's airway events render too, got {out:?}"
         );
     }
 }

@@ -17,7 +17,12 @@
 //!   start a builder pipeline. Built by the host and passed to
 //!   [`PipelineBuilder`](crate::PipelineBuilder).
 
+pub mod preview;
+pub mod preview_stamp;
+
 use std::sync::Arc;
+
+pub use preview::{AirwayStepMode, IdentityResolver, PreviewScope, RunPlatformResolver};
 
 use agentic_analytics::config::{LlmVendor, ResolvedModelInfo};
 use agentic_analytics::{MetricTreeRunner, SharedMetricSink};
@@ -233,6 +238,24 @@ pub trait ProjectContext: Send + Sync {
     /// without the compile boundary compile unchanged.
     fn compile_dispatcher(&self) -> Option<Arc<dyn CompileDispatcher>> {
         None
+    }
+
+    /// The workspace preview this platform drives, if it is one. `None` — the
+    /// default, and every production host's answer — means "not a preview".
+    /// With `Some`, the executor holds work the preview platform cannot see
+    /// into (an `airway` step) instead of running it. See [`preview`].
+    fn preview_scope(&self) -> Option<PreviewScope> {
+        None
+    }
+
+    /// Whether this platform serves a workspace preview of any kind: a staff
+    /// dry run (it has a [`Self::preview_scope`]) or a request pinned to a
+    /// preview, which reads a branch and writes nothing. `false` — every
+    /// production host — means "not a preview". With `true` the pipeline builds
+    /// no automation runner, hands out no builder bridges, and runs no Airway
+    /// step, whatever else the platform answers. See [`preview`].
+    fn is_workspace_preview(&self) -> bool {
+        self.preview_scope().is_some()
     }
 }
 

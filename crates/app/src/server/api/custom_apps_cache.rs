@@ -98,11 +98,16 @@ pub(super) fn set_cached_user(key: String, user: AuthenticatedUser) {
 // `draft_build_id`, `published_build_id` and `visibility`, all of which
 // steer the serve decision, so a stale row must not outlive a publish.
 
-/// An `(organizations, apps)` row pair resolved from a URL's slugs.
+/// An `(organizations, apps)` row pair resolved from a URL's slugs, and the
+/// builds the app's environments serve (`app_environments`). The environment
+/// rows move exactly when the app's pointers do, at the same call sites that
+/// already invalidate this cache, so they ride the same entry rather than
+/// costing the asset storm a query of their own.
 #[derive(Clone)]
 pub(super) struct ResolvedApp {
     pub org: entity::organizations::Model,
     pub app: entity::apps::Model,
+    pub environments: super::custom_apps_env_resolve::EnvironmentBuilds,
 }
 
 type AppResolutionKey = (String, String);

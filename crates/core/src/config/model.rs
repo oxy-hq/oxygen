@@ -17,9 +17,9 @@ use super::validate::validate_task;
 use crate::adapters::secrets::SecretsManager;
 use crate::config::validate::validate_file_path;
 use crate::config::validate::{
-    ValidationContext, validate_consistency_prompt, validate_database_exists, validate_env_var,
-    validate_looker_integration_exists, validate_omni_integration_exists,
-    validate_task_data_reference,
+    ValidationContext, validate_consistency_prompt, validate_database_exists,
+    validate_database_name, validate_env_var, validate_looker_integration_exists,
+    validate_omni_integration_exists, validate_task_data_reference,
 };
 pub use automation::{AutomationWithRawVariables, WorkflowWithRawVariables};
 pub use duckdb::{
@@ -1228,7 +1228,7 @@ impl std::fmt::Display for DatabaseType {
 #[derive(Serialize, Deserialize, Debug, Validate, Clone, JsonSchema)]
 #[garde(context(ValidationContext))]
 pub struct Database {
-    #[garde(length(min = 1))]
+    #[garde(length(min = 1), custom(validate_database_name))]
     pub name: String,
 
     #[serde(flatten)]

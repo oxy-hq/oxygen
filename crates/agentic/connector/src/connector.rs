@@ -52,6 +52,12 @@ impl SqlDialect {
     /// [`ClickHouseConnector::dialect`]: crate::clickhouse::ClickHouseConnector
     pub const CLICKHOUSE: SqlDialect = SqlDialect::Other("ClickHouse");
 
+    /// The MySQL dialect, named once, for the reason [`Self::CLICKHOUSE`] is.
+    /// [`MysqlConnector::dialect`] returns it.
+    ///
+    /// [`MysqlConnector::dialect`]: crate::mysql::MysqlConnector
+    pub const MYSQL: SqlDialect = SqlDialect::Other("MySQL");
+
     /// Whether this engine parses `INSERT … ON CONFLICT (…) DO UPDATE SET …`.
     ///
     /// That spelling is Postgres's, which DuckDB and SQLite adopted; no other

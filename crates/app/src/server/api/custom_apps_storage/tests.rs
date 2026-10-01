@@ -196,7 +196,7 @@ fn presign_ttl_defaults_and_clamps() {
 async fn put_rejects_an_oversized_inline_blob() {
     let big = vec![0u8; INLINE_BLOB_MAX_BYTES + 1];
     let err = put(
-        app(),
+        &Silo::production(app()),
         "generated/big.bin",
         big,
         PutOptions::default(),
@@ -214,7 +214,7 @@ async fn upload_url_validates_content_length() {
     // Zero-length is a client bug, not a zero-byte upload.
     assert!(matches!(
         get_upload_url(
-            app(),
+            &Silo::production(app()),
             "uploads/x.pdf",
             "application/pdf",
             0,
@@ -228,7 +228,7 @@ async fn upload_url_validates_content_length() {
     let over = max_upload_bytes() + 1;
     assert!(matches!(
         get_upload_url(
-            app(),
+            &Silo::production(app()),
             "uploads/x.pdf",
             "application/pdf",
             over,
@@ -247,7 +247,7 @@ async fn presigning_without_a_bucket_is_a_clear_error() {
         std::env::remove_var("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET");
     }
     let err = get_upload_url(
-        app(),
+        &Silo::production(app()),
         "uploads/x.pdf",
         "application/pdf",
         10,
@@ -257,9 +257,14 @@ async fn presigning_without_a_bucket_is_a_clear_error() {
     .await
     .unwrap_err();
     assert!(matches!(err, StorageError::NotConfigured(_)));
-    let err = get_download_url(app(), &format!("{}a.pdf", app_prefix(app())), None, false)
-        .await
-        .unwrap_err();
+    let err = get_download_url(
+        &Silo::production(app()),
+        &format!("{}a.pdf", app_prefix(app())),
+        None,
+        false,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, StorageError::NotConfigured(_)));
 }
 
@@ -286,7 +291,7 @@ async fn generated_asset_lifecycle_on_fs() {
 
     // A function writes a generated CSV. Content type is inferred.
     let put_res = put(
-        a,
+        &Silo::production(a),
         "generated/jan.csv",
         b"a,b\n1,2\n".to_vec(),
         PutOptions::default(),
@@ -299,35 +304,68 @@ async fn generated_asset_lifecycle_on_fs() {
     assert!(put_res.key.starts_with(&app_prefix(a)));
 
     // Read it back.
-    let got = get(a, &put_res.key).await.expect("get").expect("present");
+    let got = get(&Silo::production(a), &put_res.key)
+        .await
+        .expect("get")
+        .expect("present");
     assert_eq!(got.0, b"a,b\n1,2\n");
 
     // Metadata without the body.
-    let meta = head(a, &put_res.key).await.expect("head").expect("present");
+    let meta = head(&Silo::production(a), &put_res.key)
+        .await
+        .expect("head")
+        .expect("present");
     assert_eq!(meta.size, 8);
     assert_eq!(meta.content_type.as_deref(), Some("text/csv"));
 
     // Listing finds it.
-    let page = list(a, None, None, None).await.expect("list");
+    let page = list(&Silo::production(a), None, None, None)
+        .await
+        .expect("list");
     assert!(page.objects.iter().any(|o| o.key == put_res.key));
     assert!(!page.has_more);
 
     // Copy, then confirm both exist.
-    let copied = copy(a, &put_res.key, "generated/jan-copy.csv", false)
-        .await
-        .expect("copy");
-    assert!(head(a, &copied.key).await.unwrap().is_some());
-    assert!(head(a, &put_res.key).await.unwrap().is_some());
+    let copied = copy(
+        &Silo::production(a),
+        &put_res.key,
+        "generated/jan-copy.csv",
+        false,
+    )
+    .await
+    .expect("copy");
+    assert!(
+        head(&Silo::production(a), &copied.key)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        head(&Silo::production(a), &put_res.key)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // Delete both; deleting again is idempotent (an absent key still counts as
     // accepted, matching S3), not an error.
-    let n = delete(a, &[put_res.key.clone(), copied.key.clone()])
-        .await
-        .expect("delete");
+    let n = delete(
+        &Silo::production(a),
+        &[put_res.key.clone(), copied.key.clone()],
+    )
+    .await
+    .expect("delete");
     assert_eq!(n, 2);
-    assert!(head(a, &put_res.key).await.unwrap().is_none());
+    assert!(
+        head(&Silo::production(a), &put_res.key)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
-        delete(a, std::slice::from_ref(&put_res.key)).await.unwrap(),
+        delete(&Silo::production(a), std::slice::from_ref(&put_res.key))
+            .await
+            .unwrap(),
         1,
         "absent key is accepted for deletion (idempotent), so it still counts"
     );
@@ -343,7 +381,7 @@ async fn binary_generated_assets_round_trip_byte_for_byte() {
     // Bytes that are not valid UTF-8 — a text-only store would corrupt these.
     let binary: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0xFE, 0x80, 0x01];
     let res = put(
-        a,
+        &Silo::production(a),
         "generated/chart.png",
         binary.clone(),
         PutOptions::default(),
@@ -352,7 +390,10 @@ async fn binary_generated_assets_round_trip_byte_for_byte() {
     .await
     .expect("put binary");
     assert_eq!(res.content_type, "image/png");
-    let got = get(a, &res.key).await.expect("get").expect("present");
+    let got = get(&Silo::production(a), &res.key)
+        .await
+        .expect("get")
+        .expect("present");
     assert_eq!(got.0, binary, "binary asset must round-trip unchanged");
     let _ = std::fs::remove_dir_all(&tmp);
 }
@@ -362,7 +403,7 @@ async fn put_refuses_to_clobber_unless_told_to() {
     let tmp = use_temp_state_dir();
     let a = Uuid::new_v4();
     let first = put(
-        a,
+        &Silo::production(a),
         "generated/r.txt",
         b"one".to_vec(),
         PutOptions::default(),
@@ -373,7 +414,7 @@ async fn put_refuses_to_clobber_unless_told_to() {
 
     // Default is create-only: silently losing an asset is worse than an error.
     let err = put(
-        a,
+        &Silo::production(a),
         "generated/r.txt",
         b"two".to_vec(),
         PutOptions::default(),
@@ -383,14 +424,18 @@ async fn put_refuses_to_clobber_unless_told_to() {
     .unwrap_err();
     assert!(matches!(err, StorageError::AlreadyExists(_)));
     assert_eq!(
-        get(a, &first.key).await.unwrap().unwrap().0,
+        get(&Silo::production(a), &first.key)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
         b"one",
         "the original must be untouched"
     );
 
     // Explicit opt-in replaces it.
     put(
-        a,
+        &Silo::production(a),
         "generated/r.txt",
         b"two".to_vec(),
         PutOptions {
@@ -401,11 +446,18 @@ async fn put_refuses_to_clobber_unless_told_to() {
     )
     .await
     .expect("overwrite");
-    assert_eq!(get(a, &first.key).await.unwrap().unwrap().0, b"two");
+    assert_eq!(
+        get(&Silo::production(a), &first.key)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
+        b"two"
+    );
 
     // ...and a random suffix stores alongside instead of replacing.
     let side = put(
-        a,
+        &Silo::production(a),
         "generated/r.txt",
         b"three".to_vec(),
         PutOptions {
@@ -417,7 +469,14 @@ async fn put_refuses_to_clobber_unless_told_to() {
     .await
     .expect("suffixed");
     assert_ne!(side.key, first.key);
-    assert_eq!(get(a, &first.key).await.unwrap().unwrap().0, b"two");
+    assert_eq!(
+        get(&Silo::production(a), &first.key)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
+        b"two"
+    );
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
@@ -427,7 +486,7 @@ async fn copy_refuses_to_clobber_and_rejects_self() {
     let tmp = use_temp_state_dir();
     let a = Uuid::new_v4();
     let src = put(
-        a,
+        &Silo::production(a),
         "generated/a.txt",
         b"src".to_vec(),
         PutOptions::default(),
@@ -436,7 +495,7 @@ async fn copy_refuses_to_clobber_and_rejects_self() {
     .await
     .expect("put src");
     put(
-        a,
+        &Silo::production(a),
         "generated/b.txt",
         b"dst".to_vec(),
         PutOptions::default(),
@@ -445,16 +504,16 @@ async fn copy_refuses_to_clobber_and_rejects_self() {
     .await
     .expect("put dst");
 
-    let err = copy(a, &src.key, "generated/b.txt", false)
+    let err = copy(&Silo::production(a), &src.key, "generated/b.txt", false)
         .await
         .unwrap_err();
     assert!(matches!(err, StorageError::AlreadyExists(_)));
     // Overwrite is opt-in.
-    copy(a, &src.key, "generated/b.txt", true)
+    copy(&Silo::production(a), &src.key, "generated/b.txt", true)
         .await
         .expect("copy over");
 
-    let err = copy(a, &src.key, "generated/a.txt", false)
+    let err = copy(&Silo::production(a), &src.key, "generated/a.txt", false)
         .await
         .unwrap_err();
     assert!(matches!(err, StorageError::Invalid(_)));
@@ -467,7 +526,7 @@ async fn list_paginates_with_a_cursor() {
     let a = Uuid::new_v4();
     for i in 0..7 {
         put(
-            a,
+            &Silo::production(a),
             &format!("generated/f{i:02}.txt"),
             vec![b'x'; i + 1],
             PutOptions::default(),
@@ -477,16 +536,20 @@ async fn list_paginates_with_a_cursor() {
         .expect("put");
     }
 
-    let first = list(a, None, Some(3), None).await.expect("page 1");
+    let first = list(&Silo::production(a), None, Some(3), None)
+        .await
+        .expect("page 1");
     assert_eq!(first.objects.len(), 3);
     assert!(first.has_more);
     let cursor = first.cursor.clone().expect("cursor when more remain");
 
-    let second = list(a, None, Some(3), Some(cursor)).await.expect("page 2");
+    let second = list(&Silo::production(a), None, Some(3), Some(cursor))
+        .await
+        .expect("page 2");
     assert_eq!(second.objects.len(), 3);
     assert!(second.has_more);
 
-    let third = list(a, None, Some(3), second.cursor.clone())
+    let third = list(&Silo::production(a), None, Some(3), second.cursor.clone())
         .await
         .expect("page 3");
     assert_eq!(third.objects.len(), 1);
@@ -516,7 +579,7 @@ async fn list_is_scoped_by_prefix_and_never_leaks_another_app() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
     put(
-        a,
+        &Silo::production(a),
         "generated/mine.txt",
         b"a".to_vec(),
         PutOptions::default(),
@@ -525,7 +588,7 @@ async fn list_is_scoped_by_prefix_and_never_leaks_another_app() {
     .await
     .unwrap();
     put(
-        a,
+        &Silo::production(a),
         "uploads/mine.txt",
         b"a".to_vec(),
         PutOptions::default(),
@@ -534,7 +597,7 @@ async fn list_is_scoped_by_prefix_and_never_leaks_another_app() {
     .await
     .unwrap();
     put(
-        b,
+        &Silo::production(b),
         "generated/theirs.txt",
         b"b".to_vec(),
         PutOptions::default(),
@@ -544,12 +607,14 @@ async fn list_is_scoped_by_prefix_and_never_leaks_another_app() {
     .unwrap();
 
     // Sub-prefix narrows within the app.
-    let generated = list(a, Some("generated"), None, None).await.unwrap();
+    let generated = list(&Silo::production(a), Some("generated"), None, None)
+        .await
+        .unwrap();
     assert_eq!(generated.objects.len(), 1);
     assert!(generated.objects[0].key.ends_with("generated/mine.txt"));
 
     // The whole silo is exactly this app's two objects — never app b's.
-    let all = list(a, None, None, None).await.unwrap();
+    let all = list(&Silo::production(a), None, None, None).await.unwrap();
     assert_eq!(all.objects.len(), 2);
     assert!(
         all.objects
@@ -568,7 +633,7 @@ async fn cross_tenant_reads_and_writes_are_denied_before_touching_disk() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
     let asset = put(
-        a,
+        &Silo::production(a),
         "generated/secret.txt",
         b"top".to_vec(),
         PutOptions::default(),
@@ -579,24 +644,37 @@ async fn cross_tenant_reads_and_writes_are_denied_before_touching_disk() {
 
     // App b holds a's key (leaked, guessed, whatever) — every path refuses it.
     assert!(matches!(
-        get(b, &asset.key).await,
+        get(&Silo::production(b), &asset.key).await,
         Err(StorageError::Denied(_))
     ));
     assert!(matches!(
-        head(b, &asset.key).await,
+        head(&Silo::production(b), &asset.key).await,
         Err(StorageError::Denied(_))
     ));
     assert!(matches!(
-        delete(b, std::slice::from_ref(&asset.key)).await,
+        delete(&Silo::production(b), std::slice::from_ref(&asset.key)).await,
         Err(StorageError::Denied(_))
     ));
     assert!(matches!(
-        copy(b, &asset.key, "generated/stolen.txt", false).await,
+        copy(
+            &Silo::production(b),
+            &asset.key,
+            "generated/stolen.txt",
+            false
+        )
+        .await,
         Err(StorageError::Denied(_))
     ));
 
     // ...and a's asset is still intact.
-    assert_eq!(get(a, &asset.key).await.unwrap().unwrap().0, b"top");
+    assert_eq!(
+        get(&Silo::production(a), &asset.key)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
+        b"top"
+    );
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -605,10 +683,10 @@ async fn missing_objects_read_as_none_not_errors() {
     let tmp = use_temp_state_dir();
     let a = Uuid::new_v4();
     let absent = format!("{}generated/nope.txt", app_prefix(a));
-    assert!(get(a, &absent).await.unwrap().is_none());
-    assert!(head(a, &absent).await.unwrap().is_none());
+    assert!(get(&Silo::production(a), &absent).await.unwrap().is_none());
+    assert!(head(&Silo::production(a), &absent).await.unwrap().is_none());
     // Listing an empty silo is an empty page, not a failure.
-    let page = list(a, None, None, None).await.unwrap();
+    let page = list(&Silo::production(a), None, None, None).await.unwrap();
     assert!(page.objects.is_empty());
     assert!(!page.has_more);
     let _ = std::fs::remove_dir_all(&tmp);
@@ -620,7 +698,7 @@ async fn delete_app_assets_removes_the_whole_silo() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
     let mine = put(
-        a,
+        &Silo::production(a),
         "generated/x.txt",
         b"x".to_vec(),
         PutOptions::default(),
@@ -629,7 +707,7 @@ async fn delete_app_assets_removes_the_whole_silo() {
     .await
     .unwrap();
     let theirs = put(
-        b,
+        &Silo::production(b),
         "generated/y.txt",
         b"y".to_vec(),
         PutOptions::default(),
@@ -639,9 +717,19 @@ async fn delete_app_assets_removes_the_whole_silo() {
     .unwrap();
 
     delete_app_assets(a).await.expect("delete app assets");
-    assert!(head(a, &mine.key).await.unwrap().is_none());
+    assert!(
+        head(&Silo::production(a), &mine.key)
+            .await
+            .unwrap()
+            .is_none()
+    );
     // A neighbouring app is untouched.
-    assert!(head(b, &theirs.key).await.unwrap().is_some());
+    assert!(
+        head(&Silo::production(b), &theirs.key)
+            .await
+            .unwrap()
+            .is_some()
+    );
     // Idempotent.
     delete_app_assets(a)
         .await
@@ -657,10 +745,10 @@ async fn delete_rejects_an_unbounded_batch() {
         .map(|i| format!("{}generated/f{i}.txt", app_prefix(a)))
         .collect();
     assert!(matches!(
-        delete(a, &keys).await,
+        delete(&Silo::production(a), &keys).await,
         Err(StorageError::Invalid(_))
     ));
-    assert_eq!(delete(a, &[]).await.unwrap(), 0);
+    assert_eq!(delete(&Silo::production(a), &[]).await.unwrap(), 0);
 }
 
 // ── Retention tagging ────────────────────────────────────────────────────────
@@ -759,7 +847,7 @@ async fn copy_from_a_never_written_key_is_not_found() {
     let tmp = use_temp_state_dir();
     let a = Uuid::new_v4();
     let missing = format!("customer-app-storage/{a}/reports/never-written.csv");
-    let err = copy(a, &missing, "archive/report.csv", false)
+    let err = copy(&Silo::production(a), &missing, "archive/report.csv", false)
         .await
         .unwrap_err();
     assert!(matches!(err, StorageError::NotFound(_)), "{err}");

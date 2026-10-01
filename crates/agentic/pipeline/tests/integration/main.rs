@@ -18,4 +18,7 @@ mod automation_cache_resume_test;
 mod automation_recovery_test;
 mod commit_decision_test;
 mod integration_tests;
+mod preview_airway_sample_test;
+mod preview_run_recovery_test;
+mod run_platform_resolver_test;
 mod scheduler_test;

@@ -157,6 +157,14 @@ const SEEDS: &[Seed] = &[
         module: "workspace",
         function: "build_workspace_routes",
     },
+    // Mounted beside the workspace tree, not in it (its own access middleware),
+    // so it is not reached by the walk above.
+    Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}/previews",
+        module: "workspace",
+        function: "build_workspace_preview_routes",
+    },
     Seed {
         surface: "cameras",
         prefix: "/api",

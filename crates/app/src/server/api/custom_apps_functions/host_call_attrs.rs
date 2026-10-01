@@ -130,6 +130,13 @@ pub(super) fn db_query_summary(sql: &str) -> QuerySummary {
 /// from one place.
 pub(super) use super::url_shape::fetch_target;
 
+/// `classify_host_error_for` on a production host, where no label is the
+/// environment policy's.
+#[cfg(test)]
+pub(super) fn classify_host_error(message: &str) -> &'static str {
+    classify_host_error_for(message, false)
+}
+
 /// `error.type` for a failed host op, from the message the host returned.
 /// Coarse on purpose: these become a HyperDX facet, and a facet with one
 /// value per distinct message is no facet.
@@ -137,7 +144,18 @@ pub(super) use super::url_shape::fetch_target;
 /// `bad_request` is decided first: the host composes those messages itself,
 /// and some of them echo a value the caller sent (`unknown op '<op>'`,
 /// `unknown encoding '<encoding>'`), which must not get to pick the kind.
-pub(super) fn classify_host_error(message: &str) -> &'static str {
+///
+/// `environment_labels` is whether the host's environment policy decides —
+/// outside production, or a production run refused for reading a branch. Only
+/// there is a `HeldInStaging` / `EnvironmentRefused` label the policy's own: a
+/// call it held or refused did what it was built to do, neither the app's
+/// error nor the platform's, and never a page. Anywhere else the label means
+/// nothing and the message classifies as any other, so a production failure
+/// always pages.
+pub(super) fn classify_host_error_for(message: &str, environment_labels: bool) -> &'static str {
+    if environment_labels && let Some(kind) = environment_decision_kind(message) {
+        return kind;
+    }
     let m = message.to_ascii_lowercase();
     if is_caller_error(&m) {
         "bad_request"
@@ -153,6 +171,20 @@ pub(super) fn classify_host_error(message: &str) -> &'static str {
         "cancelled"
     } else {
         "host_call_failed"
+    }
+}
+
+/// `held` / `refused` for a message `env_policy` wrote, matched on its label
+/// at the head, case and all — the labels are the policy's own constants.
+fn environment_decision_kind(message: &str) -> Option<&'static str> {
+    use super::env_policy::{HELD_LABEL, REFUSED_LABEL};
+    let label = message.split_once(": ").map(|(head, _)| head)?;
+    if label == HELD_LABEL {
+        Some("held")
+    } else if label == REFUSED_LABEL {
+        Some("refused")
+    } else {
+        None
     }
 }
 
@@ -1110,6 +1142,48 @@ mod tests {
                     "HOST_OPS names `{name}`, which `host_call_span` never returns"
                 ),
             }
+        }
+    }
+
+    /// `HostOp` (the enum `EnvPolicy::decide` matches on) and `HOST_OPS` (the
+    /// list the canary-coverage and CLI drift tests read) are one set, in one
+    /// order, so a new op fails all of them until it is classified.
+    #[test]
+    fn host_ops_is_the_host_op_enum() {
+        use super::super::env_policy::HostOp;
+        let names: Vec<&str> = HostOp::ALL.iter().map(|op| op.name()).collect();
+        assert_eq!(names, HOST_OPS);
+    }
+
+    /// A held or refused call is the policy working, not a failure: it pages
+    /// nobody and leaves no host-call failure on the invocation — where the
+    /// policy decides. In production the labels mean nothing.
+    #[test]
+    fn a_held_or_refused_call_never_pages_where_the_policy_decides() {
+        use super::super::env_policy::{HostOp, held_message, refused_message};
+        use oxy_app_core::custom_app_environment::AppEnvironment;
+        for op in [HostOp::StoragePut, HostOp::OltpExec, HostOp::Fetch] {
+            let held = held_message(op, &AppEnvironment::Staging);
+            assert_eq!(classify_host_error_for(&held, true), "held", "{held}");
+        }
+        let refused = refused_message(HostOp::AirwayRun, &AppEnvironment::Staging, "fix");
+        assert_eq!(classify_host_error_for(&refused, true), "refused");
+        for kind in ["held", "refused"] {
+            assert!(!counts_toward_paging(kind), "{kind}");
+        }
+        assert_eq!(
+            classify_host_error_for("warehouse insert failed: HeldInStaging: x", true),
+            "host_call_failed",
+            "only the label at the head decides"
+        );
+        // Production: a message that merely starts with a label pages like
+        // any other failure.
+        for message in [
+            "HeldInStaging: upstream said so".to_string(),
+            refused_message(HostOp::AirwayRun, &AppEnvironment::Production, "fix"),
+        ] {
+            let kind = classify_host_error(&message);
+            assert!(counts_toward_paging(kind), "{message} classified {kind}");
         }
     }
 

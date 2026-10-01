@@ -420,6 +420,49 @@ mod tests {
         }
     }
 
+    /// The previews tree is mounted beside the workspace tree, reached by its
+    /// own seed in `build_route_catalog.rs`; its fleet routes must be listed
+    /// too, or `oxyc routes previews` hides the checks endpoint.
+    #[test]
+    fn the_previews_checks_route_is_catalogued() {
+        assert!(
+            routes()
+                .iter()
+                .any(|r| r.method == "GET" && r.path == "/api/{workspace_id}/previews/checks"),
+            "GET /api/{{workspace_id}}/previews/checks missing from the catalog"
+        );
+    }
+
+    /// The held procedure runs routes, from the same seed.
+    #[test]
+    fn the_previews_runs_routes_are_catalogued() {
+        for (method, path) in [
+            ("POST", "/api/{workspace_id}/previews/runs"),
+            ("GET", "/api/{workspace_id}/previews/runs"),
+            ("GET", "/api/{workspace_id}/previews/runs/{run_id}"),
+        ] {
+            assert!(
+                routes()
+                    .iter()
+                    .any(|r| r.method == method && r.path == path),
+                "{method} {path} missing from the catalog"
+            );
+        }
+    }
+
+    /// Airway samples' sandbox sources, from the same seed.
+    #[test]
+    fn the_previews_sources_routes_are_catalogued() {
+        for method in ["GET", "PUT"] {
+            assert!(
+                routes()
+                    .iter()
+                    .any(|r| r.method == method && r.path == "/api/{workspace_id}/previews/sources"),
+                "{method} /api/{{workspace_id}}/previews/sources missing from the catalog"
+            );
+        }
+    }
+
     #[test]
     fn paths_are_well_formed() {
         for r in routes() {

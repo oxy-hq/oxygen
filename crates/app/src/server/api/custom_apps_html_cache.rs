@@ -24,12 +24,15 @@
 //!
 //! ## Invalidation
 //!
-//! There is none, and there does not need to be. The key names the `build_id`
-//! and both slugs, so every input to the transform is in the key:
+//! There is none, and there does not need to be. The key names the `build_id`,
+//! both slugs and the app environment, so every input to the transform is in
+//! the key:
 //!
 //! - a publish, promote, or rollback moves the channel to a different
 //!   `build_id` → different key;
 //! - a rename changes a slug → different key;
+//! - staging and production serving the same build inject a different
+//!   `environment` → different key;
 //! - the transform itself changes only when the binary does → a deploy is a
 //!   new process with an empty cache.
 //!
@@ -81,35 +84,34 @@ fn cache() -> &'static Cache {
 
 /// Every input to the transform, in the key. See the module's invalidation
 /// note for why that is the whole invalidation story.
-fn key(app_id: Uuid, build_id: &str, object_key: &str, org_slug: &str, app_slug: &str) -> String {
-    format!("{app_id}\u{1}{build_id}\u{1}{object_key}\u{1}{org_slug}\u{1}{app_slug}")
+///
+/// `environment` is one of them: the rendered document injects it
+/// (`window.__OXY_APP__.environment`), and staging and production serve the
+/// **same** build — so without it one environment's render would be handed to
+/// the other.
+#[derive(Clone, Copy, Debug)]
+pub struct HtmlKey<'a> {
+    pub app_id: Uuid,
+    pub build_id: &'a str,
+    pub object_key: &'a str,
+    pub org_slug: &'a str,
+    pub app_slug: &'a str,
+    pub environment: &'a str,
 }
 
-pub fn get(
-    app_id: Uuid,
-    build_id: &str,
-    object_key: &str,
-    org_slug: &str,
-    app_slug: &str,
-) -> Option<RenderedHtml> {
-    cache()
-        .lock()
-        .get(&key(app_id, build_id, object_key, org_slug, app_slug))
-        .cloned()
+fn key(k: &HtmlKey<'_>) -> String {
+    format!(
+        "{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}",
+        k.app_id, k.build_id, k.object_key, k.org_slug, k.app_slug, k.environment
+    )
 }
 
-pub fn put(
-    app_id: Uuid,
-    build_id: &str,
-    object_key: &str,
-    org_slug: &str,
-    app_slug: &str,
-    rendered: RenderedHtml,
-) {
-    cache().lock().put(
-        key(app_id, build_id, object_key, org_slug, app_slug),
-        rendered,
-    );
+pub fn get(k: &HtmlKey<'_>) -> Option<RenderedHtml> {
+    cache().lock().get(&key(k)).cloned()
+}
+
+pub fn put(k: &HtmlKey<'_>, rendered: RenderedHtml) {
+    cache().lock().put(key(k), rendered);
 }
 
 /// Drop everything. Only for tests and for the rare mutation that changes the
@@ -124,6 +126,25 @@ pub fn clear() {
 mod tests {
     use super::*;
 
+    /// `(app, build, page, org, app slug, environment)`.
+    fn k<'a>(
+        app_id: Uuid,
+        build_id: &'a str,
+        object_key: &'a str,
+        org_slug: &'a str,
+        app_slug: &'a str,
+        environment: &'a str,
+    ) -> HtmlKey<'a> {
+        HtmlKey {
+            app_id,
+            build_id,
+            object_key,
+            org_slug,
+            app_slug,
+            environment,
+        }
+    }
+
     fn rendered(body: &str) -> RenderedHtml {
         RenderedHtml {
             body: Bytes::from(body.to_string()),
@@ -137,14 +158,10 @@ mod tests {
         clear();
         let app = Uuid::new_v4();
         put(
-            app,
-            "b1",
-            "index.html",
-            "acme",
-            "sales",
+            &k(app, "b1", "index.html", "acme", "sales", "production"),
             rendered("<html>1"),
         );
-        let hit = get(app, "b1", "index.html", "acme", "sales").expect("hit");
+        let hit = get(&k(app, "b1", "index.html", "acme", "sales", "production")).expect("hit");
         assert_eq!(hit.body, Bytes::from_static(b"<html>1"));
     }
 
@@ -157,33 +174,43 @@ mod tests {
         let app = Uuid::new_v4();
         let other_app = Uuid::new_v4();
         put(
-            app,
-            "b1",
-            "index.html",
-            "acme",
-            "sales",
+            &k(app, "b1", "index.html", "acme", "sales", "production"),
             rendered("<html>1"),
         );
 
         assert!(
-            get(app, "b2", "index.html", "acme", "sales").is_none(),
+            get(&k(app, "b2", "index.html", "acme", "sales", "production")).is_none(),
             "build"
         );
         assert!(
-            get(app, "b1", "about.html", "acme", "sales").is_none(),
+            get(&k(app, "b1", "about.html", "acme", "sales", "production")).is_none(),
             "page"
         );
         assert!(
-            get(app, "b1", "index.html", "acme2", "sales").is_none(),
+            get(&k(app, "b1", "index.html", "acme2", "sales", "production")).is_none(),
             "org slug"
         );
         assert!(
-            get(app, "b1", "index.html", "acme", "sales2").is_none(),
+            get(&k(app, "b1", "index.html", "acme", "sales2", "production")).is_none(),
             "app slug"
         );
         assert!(
-            get(other_app, "b1", "index.html", "acme", "sales").is_none(),
+            get(&k(
+                other_app,
+                "b1",
+                "index.html",
+                "acme",
+                "sales",
+                "production"
+            ))
+            .is_none(),
             "app id"
+        );
+        // Staging and production serve the same build, so this is the only
+        // component that tells their renders apart.
+        assert!(
+            get(&k(app, "b1", "index.html", "acme", "sales", "staging")).is_none(),
+            "environment"
         );
     }
 
@@ -197,14 +224,10 @@ mod tests {
         clear();
         let app = Uuid::new_v4();
         put(
-            app,
-            "b1",
-            "a/index.html",
-            "acme",
-            "sales",
+            &k(app, "b1", "a/index.html", "acme", "sales", "production"),
             rendered("<html>A"),
         );
         // Same concatenation if the separator were "/" — must still miss.
-        assert!(get(app, "b1/a", "index.html", "acme", "sales").is_none());
+        assert!(get(&k(app, "b1/a", "index.html", "acme", "sales", "production")).is_none());
     }
 }

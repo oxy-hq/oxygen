@@ -180,6 +180,29 @@ pub(super) async fn copy(from: &str, to: &str, allow_overwrite: bool) -> Result<
     Ok(())
 }
 
+/// The names of the directories directly under `prefix`. Empty when `prefix`
+/// does not exist.
+pub(super) async fn child_dirs(prefix: &str) -> Result<Vec<String>, StorageError> {
+    let dir = state_root().join(prefix);
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(StorageError::Io(format!("read_dir {}: {e}", dir.display()))),
+    };
+    let mut names = Vec::new();
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| StorageError::Io(format!("read_dir {}: {e}", dir.display())))?
+    {
+        let is_dir = entry.file_type().await.is_ok_and(|t| t.is_dir());
+        if is_dir && let Some(name) = entry.file_name().to_str() {
+            names.push(name.to_string());
+        }
+    }
+    Ok(names)
+}
+
 pub(super) async fn delete_prefix(prefix: &str) -> Result<(), StorageError> {
     let dir = state_root().join(prefix);
     match tokio::fs::remove_dir_all(&dir).await {

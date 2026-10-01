@@ -17,8 +17,9 @@
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
 //! * `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
-//!   `airway_compile_boundary`, `anomaly_bulk_status`, `simulation_routes` and
-//!   `simulation_lifecycle` are database-backed
+//!   `airway_compile_boundary`, `anomaly_bulk_status`, `simulation_routes`,
+//!   `simulation_lifecycle`, the two `workspace_previews_*` modules,
+//!   `preview_routes` and `preview_ttl` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `projects_query` and `local_mode_router` call `api_router(..)`, which
@@ -72,10 +73,20 @@ mod migration_rollback_safety;
 mod migration_rollback_tolerance;
 mod no_dropped_partner_tables;
 mod notification_devices;
+mod oltp_branches;
+mod oltp_branches_guards;
+mod oltp_branches_local;
+mod oltp_branches_teardown;
 mod oltp_provisioner;
 mod operating_graph;
 mod org_default_workspace;
 mod preagg_promote_nudge;
+mod preview_routes;
+mod preview_runs;
+mod preview_samples;
+mod preview_sources;
+mod preview_ttl;
+mod previews_e2e;
 mod projects_query;
 mod run;
 mod run_routes_workspace_scope;
@@ -89,4 +100,6 @@ mod workspace_details_fields;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;
+mod workspace_previews_lifecycle;
+mod workspace_previews_serving;
 mod world_model_cross_pod;

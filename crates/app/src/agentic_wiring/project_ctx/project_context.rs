@@ -47,14 +47,24 @@ impl ProjectContext for OxyProjectContext {
         }
     }
 
+    /// `None` while holding writes: the pipeline would build a bare config
+    /// unwrapped. [`Self::resolve_pre_built_connector`] answers instead.
     async fn resolve_connector(&self, db_name: &str) -> Option<ConnectorConfig> {
+        if self.holds_writes() {
+            return None;
+        }
         resolve_connector_impl(db_name, &self.workspace_manager).await
     }
 
+    /// Airhouse only — except while holding writes, when every database is
+    /// pre-built here, held.
     async fn resolve_pre_built_connector(
         &self,
         db_name: &str,
     ) -> Option<Arc<dyn DatabaseConnector>> {
+        if self.holds_writes() {
+            return self.held_pre_built(db_name).await;
+        }
         resolve_pre_built_airhouse(
             db_name,
             &self.workspace_manager,
@@ -64,11 +74,15 @@ impl ProjectContext for OxyProjectContext {
         .await
     }
 
+    /// `None` while holding writes: a destination is where a pipeline writes.
     async fn resolve_pipeline_destination(
         &self,
         db_name: &str,
         dataset_name: &str,
     ) -> Option<ResolvedPipelineDestination> {
+        if self.holds_writes() {
+            return None;
+        }
         let db = self
             .workspace_manager
             .config_manager
@@ -209,7 +223,7 @@ impl ProjectContext for OxyProjectContext {
                 "secrets_manager.resolve_secret failed; falling back to std::env::var"
             ),
         }
-        std::env::var(var_name).ok()
+        super::env_fallback(&self.workspace_manager.secrets_manager, var_name)
     }
 
     async fn persist_secret(&self, var_name: &str, value: &str) -> Result<(), String> {
@@ -222,6 +236,11 @@ impl ProjectContext for OxyProjectContext {
         // e.g. rotating QB_REFRESH_TOKEN into a project that never had it)
         // violates fk_secrets_created_by. self.subject is set by
         // build_project_context(user.id); nil only for subject-less cron.
+        if self.holds_writes() {
+            return Err(crate::server::previews::request_hold::refusal(&format!(
+                "Secret `{var_name}`"
+            )));
+        }
         self.workspace_manager
             .secrets_manager
             .upsert_secret(
@@ -259,6 +278,7 @@ impl ProjectContext for OxyProjectContext {
             role,
             self.runner_preagg(RollupFreshness::ServeStale),
             self.semantic_scan_root(),
+            self.holds_writes(),
         ))
     }
 
@@ -283,6 +303,11 @@ impl ProjectContext for OxyProjectContext {
         // `POST /semantic/anomalies/scan` of the SAME monitor answered from
         // different tiers and could write different anomalies for the same
         // monitor and granularity.
+        //
+        // Off while holding writes: its callers persist what it computes.
+        if self.holds_writes() {
+            return None;
+        }
         Some(super::super::metric_tree_runner::make_runner(
             self.workspace_manager.clone(),
             uuid::Uuid::nil(),
@@ -294,18 +319,24 @@ impl ProjectContext for OxyProjectContext {
             // background one that may be running where that directory is not —
             // or, for workspace health, where it holds edits nobody promoted.
             self.semantic_scan_root(),
+            false,
         ))
     }
 
+    /// Off while holding writes: the anomaly tools write anomaly rows.
     fn anomaly_store(&self) -> Option<Arc<dyn agentic_analytics::anomaly_store::AnomalyStore>> {
+        if self.holds_writes() {
+            return None;
+        }
         let db = self.db.clone()?;
         Some(Arc::new(oxy_metric_monitoring::store::OxyAnomalyStore {
             db,
         }))
     }
 
+    /// Off while holding writes: a scan persists anomalies.
     fn as_monitor_scan_port(&self) -> Option<&dyn agentic_pipeline::platform::MonitorScanPort> {
-        Some(self)
+        (!self.holds_writes()).then_some(self as _)
     }
 
     fn compile_dispatcher(
@@ -313,10 +344,21 @@ impl ProjectContext for OxyProjectContext {
     ) -> Option<std::sync::Arc<dyn agentic_pipeline::platform::CompileDispatcher>> {
         // The dispatcher only needs the DB; the rest comes from the
         // TaskSpec::Compile payload. Background / CLI paths that leave
-        // `db` unset get None and Compile fails with a clear message.
+        // `db` unset get None and Compile fails with a clear message. Off
+        // while holding writes: a compile writes a revision.
+        if self.holds_writes() {
+            return None;
+        }
         let db = self.db.clone()?;
         Some(std::sync::Arc::new(
             crate::agentic_wiring::compile_dispatcher::OxyCompileDispatcher::new(db),
         ))
+    }
+
+    /// A context built for a workspace-preview request is a preview: the
+    /// pipeline builds it no automation runner, gives it no builder bridges,
+    /// and refuses its Airway steps. See [`super::preview_hold`].
+    fn is_workspace_preview(&self) -> bool {
+        self.holds_writes()
     }
 }

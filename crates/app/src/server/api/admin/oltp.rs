@@ -56,6 +56,15 @@ where
             post(deprovision_writer),
         )
         .route("/orgs/{org_id}/oltp", delete(deprovision))
+        // The org's staging branch. Created through `…/provision` with
+        // `"branch": "staging"`; these read it and reset it. A reset is a POST
+        // that does nothing without `"confirm": true` (428 + the apps it
+        // would hit), because it discards every app's staging data at once.
+        .route("/orgs/{org_id}/oltp/branches/{branch}", get(get_branch))
+        .route(
+            "/orgs/{org_id}/oltp/branches/{branch}/reset",
+            post(reset_branch),
+        )
 }
 
 /// A connection, or a 500 that says which surface failed.
@@ -120,6 +129,7 @@ pub async fn provision(
         .await
         .map_err(msg)?;
     let writers = body.writers.clone();
+    let branch = body.branch.clone();
     let out = inner::provision(
         AuthenticatedUserExtractor(user.clone()),
         Path(org_id),
@@ -131,7 +141,12 @@ pub async fn provision(
         &user,
         org_id,
         "oltp.provisioned",
-        serde_json::json!({ "writers": writers }),
+        // `branch` only when asked for, so an ordinary provision's entry reads
+        // exactly as it always has.
+        match branch {
+            Some(branch) => serde_json::json!({ "writers": writers, "branch": branch }),
+            None => serde_json::json!({ "writers": writers }),
+        },
         out.is_ok(),
     )
     .await;
@@ -274,6 +289,83 @@ pub async fn credentials(
     )
     .await;
     out
+}
+
+/// The staging branch's status, age and the apps a reset would hit. No
+/// credentials, so not audited — the same line `get_status` draws.
+pub async fn get_branch(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    Path((org_id, branch)): Path<(Uuid, String)>,
+) -> Result<Json<oxy_oltp::api::branches::BranchStatusResponse>, (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    scope::deny_out_of_scope(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+    oxy_oltp::api::branches::get_branch(AuthenticatedUserExtractor(user), Path((org_id, branch)))
+        .await
+}
+
+/// Reset the org's staging branch. Audited only when it happened: the
+/// unconfirmed call is a preview that touched nothing, and an audit row saying
+/// "reset" for it would be the one lie the log must not tell.
+pub async fn reset_branch(
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    Path((org_id, branch)): Path<(Uuid, String)>,
+    Json(body): Json<oxy_oltp::api::branches::ResetRequest>,
+) -> Result<(StatusCode, Json<oxy_oltp::api::branches::ResetResponse>), (StatusCode, String)> {
+    let db = conn().await.map_err(msg)?;
+    scope::deny_out_of_scope(&db, &user, org_id)
+        .await
+        .map_err(msg)?;
+    let confirmed = body.confirm;
+    // Who the reset reaches, read BEFORE it runs: a reset that fails part way
+    // may already have discarded their staging data, and the audit row is where
+    // an operator goes to find out whose.
+    let reach = if confirmed {
+        branch_reach(&db, org_id, &branch).await
+    } else {
+        serde_json::Value::Null
+    };
+    let out = oxy_oltp::api::branches::reset_branch(
+        AuthenticatedUserExtractor(user.clone()),
+        Path((org_id, branch.clone())),
+        Json(body),
+    )
+    .await;
+    if confirmed {
+        audit_oltp(
+            &db,
+            &user,
+            org_id,
+            "oltp.branch.reset",
+            serde_json::json!({ "branch": branch, "reach": reach }),
+            out.as_ref().is_ok_and(|(_, Json(r))| r.reset),
+        )
+        .await;
+    }
+    out
+}
+
+/// The apps and pipelines a reset of `branch` discards, for the audit row.
+/// Empty rather than failing: the audit must not be what stops a reset.
+async fn branch_reach(
+    db: &sea_orm::DatabaseConnection,
+    org_id: Uuid,
+    branch: &str,
+) -> serde_json::Value {
+    let Ok(kind) = oxy_oltp::api::branches::parse_branch(branch) else {
+        return serde_json::Value::Null;
+    };
+    match oxy_oltp::api::branches::status_for(db, org_id, kind).await {
+        Ok(s) => serde_json::json!({
+            "apps": s.affected_apps.iter().map(|a| a.slug.clone()).collect::<Vec<_>>(),
+            "pipelines": s.affected_pipelines.iter().map(|p| p.schema.clone()).collect::<Vec<_>>(),
+        }),
+        Err(e) => {
+            tracing::warn!("oltp branch reset: could not read its reach for the audit: {e}");
+            serde_json::Value::Null
+        }
+    }
 }
 
 /// Best-effort: an audit write must never turn a successful provision into a

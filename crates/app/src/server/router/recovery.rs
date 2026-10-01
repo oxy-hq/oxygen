@@ -23,6 +23,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 
 use crate::agentic_wiring::{OxyProjectContext, build_builder_bridges};
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
+use crate::server::previews::runtime::PreviewRunResolver;
 use crate::server::service::secret_manager::SecretManagerService;
 use oxy::config::WorkingCopy;
 use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
@@ -463,6 +464,10 @@ pub(crate) fn spawn_recovery(
                             "global driver loop: drove scope_owned=false runs"
                         );
                     }
+                    // Held workspace-preview runs: finish those whose run is
+                    // terminal, then start each workspace's next queued one.
+                    // Row writes only — the runs themselves are queue work.
+                    crate::server::previews::runs::sweep(&db).await;
                 }
             }
         }
@@ -572,6 +577,7 @@ async fn recover_local(
             db.clone(),
             runtime,
             platform,
+            PreviewRunResolver::shared(db),
             bridges,
             schema_cache,
             builder_test_runner,
@@ -629,6 +635,7 @@ async fn recover_local(
             db.clone(),
             runtime,
             platform,
+            PreviewRunResolver::shared(db),
             bridges,
             schema_cache,
             builder_test_runner,
@@ -710,6 +717,7 @@ async fn recover_all_workspaces(
                 db.clone(),
                 runtime.clone(),
                 platform,
+                PreviewRunResolver::shared(db),
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
@@ -753,6 +761,7 @@ async fn recover_all_workspaces(
                 db.clone(),
                 runtime.clone(),
                 platform,
+                PreviewRunResolver::shared(db),
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
@@ -1279,6 +1288,48 @@ fn build_custom_task_registry(
         "preagg_cycle",
         Arc::new(PreaggTaskExecutor { db: db.clone() }),
     );
+    // Workspace previews' Airway change check. Reads the compile boundary and,
+    // at most, a Reader on the workspace's Airhouse; a pod without it fails the
+    // task (unknown kind) rather than running anything as production.
+    reg.register(
+        crate::server::previews::analyze::PREVIEW_ANALYZE_KIND,
+        Arc::new(crate::server::previews::analyze::PreviewAnalyzeExecutor::airhouse(db.clone())),
+    );
+    // Workspace previews' TTL drop, queued by `previews::maintenance`. Drops
+    // only schemas a registry row claimed by the run vouches for, through a
+    // system Writer that sends fixed DDL; a pod without it fails the task.
+    reg.register(
+        crate::server::previews::drop::PREVIEW_SCHEMA_DROP_KIND,
+        Arc::new(crate::server::previews::drop::PreviewSchemaDropExecutor::airhouse(db.clone())),
+    );
+    // Workspace previews' compare of a finished transform build with live,
+    // queued by `previews::maintenance::enqueue_compares`. Reads only, through
+    // the preview's Reader; its outcome is counts. A pod without it fails the
+    // task.
+    reg.register(
+        crate::server::previews::compare::PREVIEW_COMPARE_KIND,
+        Arc::new(crate::server::previews::compare::PreviewCompareExecutor::airhouse(db.clone())),
+    );
+    // Workspace previews' Airway sample, queued by `previews::runs::advance`.
+    // Builds its own preview platform from the run row: preview-owned pipeline
+    // name, lease and cursor; destination only in the preview's schemas on a
+    // confined Writer. A pod without it fails the task (unknown kind).
+    reg.register(
+        crate::server::previews::sample::PREVIEW_AIRWAY_SAMPLE_KIND,
+        Arc::new(
+            crate::server::previews::sample::PreviewAirwaySampleExecutor::airhouse(db.clone()),
+        ),
+    );
+    // A custom app's staging migrations, queued by every publish: the sibling
+    // Airhouse schema and the org's OLTP staging branch, one task per store,
+    // each under its own per-target lock and ledger.
+    {
+        use crate::server::api::custom_apps_nonproduction::{staging_task, staging_task_executor};
+        reg.register(
+            staging_task::STAGING_MIGRATIONS_KIND,
+            Arc::new(staging_task_executor::StagingMigrationsExecutor { db: db.clone() }),
+        );
+    }
     Arc::new(reg)
 }
 
@@ -1422,6 +1473,8 @@ async fn drive_pending(
         db.clone(),
         runtime.clone(),
         platform,
+        // Preview-owned roots get the preview platform; everything else `platform`.
+        PreviewRunResolver::shared(db),
         bridges,
         schema_cache.cloned(),
         builder_test_runner.cloned(),

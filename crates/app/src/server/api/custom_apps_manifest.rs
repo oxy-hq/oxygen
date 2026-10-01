@@ -10,6 +10,7 @@
 //! - `pick_channel_for` — which channel a request is served from.
 
 use entity::{app_builds, apps};
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
@@ -262,11 +263,17 @@ pub(super) async fn resolve_manifest(
     if let Some(raw) = &app.manifest_override {
         return parse_manifest_value(raw.clone());
     }
-    let build_pk = match channel {
-        Channel::Draft => app.draft_build_id,
-        Channel::Published => app.published_build_id,
-    }
-    .ok_or(ManifestError::NotFound)?;
+    // The draft channel is the staging environment's build; the published
+    // channel is production's.
+    let environment = match channel {
+        Channel::Draft => AppEnvironment::Staging,
+        Channel::Published => AppEnvironment::Production,
+    };
+    let build_pk = super::custom_apps_env_resolve::resolve_environment(db, app, &environment)
+        .await
+        .map_err(|e| ManifestError::Io(e.to_string()))?
+        .build_id
+        .ok_or(ManifestError::NotFound)?;
     let build = app_builds::Entity::find_by_id(build_pk)
         .one(db)
         .await
@@ -287,15 +294,21 @@ pub(super) async fn resolve_manifests_batch(
     apps: &[apps::Model],
 ) -> std::collections::HashMap<uuid::Uuid, OxyAppManifest> {
     use std::collections::{HashMap, HashSet};
-    // 1. Collect the build ids we might read (published + draft fallback),
-    //    skipping apps that carry an inline override (no build lookup needed).
+    // 1. Collect the build ids we might read (production's, staging's as the
+    //    fallback), skipping apps that carry an inline override (no build
+    //    lookup needed). One query for every app's environments.
+    let environments = super::custom_apps_env_resolve::load_environment_builds_batch(db, apps)
+        .await
+        .unwrap_or_default();
     let mut build_ids: HashSet<uuid::Uuid> = HashSet::new();
     for app in apps {
         if app.manifest_override.is_some() {
             continue;
         }
-        build_ids.extend(app.published_build_id);
-        build_ids.extend(app.draft_build_id);
+        if let Some(env) = environments.get(&app.id) {
+            build_ids.extend(env.production);
+            build_ids.extend(env.staging);
+        }
     }
     // 2. One query for every build manifest on the page.
     let builds: HashMap<uuid::Uuid, serde_json::Value> = if build_ids.is_empty() {
@@ -311,8 +324,12 @@ pub(super) async fn resolve_manifests_batch(
             .collect()
     };
     // 3. Resolve each app from the pre-fetched map (or its override).
+    let none = super::custom_apps_env_resolve::EnvironmentBuilds::default();
     apps.iter()
-        .filter_map(|app| Some((app.id, manifest_from_prefetched(app, &builds)?)))
+        .filter_map(|app| {
+            let env = environments.get(&app.id).unwrap_or(&none);
+            Some((app.id, manifest_from_prefetched(app, env, &builds)?))
+        })
         .collect()
 }
 
@@ -320,6 +337,7 @@ pub(super) async fn resolve_manifests_batch(
 /// same precedence as [`resolve_manifest`], minus the DB round-trip.
 fn manifest_from_prefetched(
     app: &apps::Model,
+    environments: &super::custom_apps_env_resolve::EnvironmentBuilds,
     builds: &std::collections::HashMap<uuid::Uuid, serde_json::Value>,
 ) -> Option<OxyAppManifest> {
     if let Some(raw) = &app.manifest_override {
@@ -329,7 +347,7 @@ fn manifest_from_prefetched(
         id.and_then(|i| builds.get(&i))
             .and_then(|v| parse_manifest_value(v.clone()).ok())
     };
-    from_build(app.published_build_id).or_else(|| from_build(app.draft_build_id))
+    from_build(environments.production).or_else(|| from_build(environments.staging))
 }
 
 // ── Channel selection ────────────────────────────────────────────────────────

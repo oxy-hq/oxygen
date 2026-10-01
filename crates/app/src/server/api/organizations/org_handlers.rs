@@ -197,6 +197,61 @@ pub async fn update_org(
     Ok(Json(org_response(&updated, &ctx.membership.role)))
 }
 
+/// Tear down the org's OLTP database — staging branch first — ahead of the
+/// org row. The tenant-facing org delete's step; the staff console's runs
+/// [`delete_org_oltp_branches`] instead.
+///
+/// OLTP is org-keyed, not workspace-keyed, so it is one call rather than a
+/// loop — and it has to happen BEFORE the delete, because the row carrying the
+/// provider's project id goes with the org (FK ON DELETE CASCADE).
+///
+/// On Neon that project is a real, billing resource: losing the row without
+/// deleting the project leaves something nobody can find and nobody stops
+/// paying for. The staging branch is a copy of the org's data, and the MSA's
+/// 30-day deletion commitment rests on it going with the org (env design §11
+/// #16, ruled 2026-09-29) — `deprovision` deletes it before the project.
+/// Failure is logged rather than fatal, matching airhouse — a provider outage
+/// must not make an org undeletable — but it is logged at `error`, because
+/// that line is the only way back to an orphan.
+pub async fn deprovision_org_oltp(db: &sea_orm::DatabaseConnection, org_id: Uuid) {
+    match oxy_oltp::provisioner::from_env(db.clone()).await {
+        Ok(provisioner) => {
+            if let Err(e) = provisioner.deprovision(org_id).await {
+                tracing::error!(
+                    org_id = %org_id,
+                    "OLTP deprovisioning failed; the provider-side database or its staging \
+                     branch may be orphaned and still billing: {e}"
+                );
+            }
+        }
+        // Disabled or misconfigured OLTP is the common case, and an org with no
+        // OLTP database has nothing to deprovision.
+        Err(e) => tracing::debug!(org_id = %org_id, "OLTP not configured: {e}"),
+    }
+}
+
+/// Delete the org's OLTP **staging branch** — and nothing of production.
+///
+/// What the staff console's org delete runs. A branch is a copy of the org's
+/// data, so it goes with the org (env design §11 #16). Production's database is
+/// not this path's to destroy: the org row delete that follows can still fail
+/// (an FK answers 409 and the org lives on), and a teardown of production here
+/// would leave a live org with no database, under a capability that is not
+/// the OLTP one and with no audit row. Logged, not fatal, like the rest.
+pub async fn delete_org_oltp_branches(db: &sea_orm::DatabaseConnection, org_id: Uuid) {
+    match oxy_oltp::provisioner::from_env(db.clone()).await {
+        Ok(provisioner) => {
+            if let Err(e) = provisioner.delete_branches(org_id).await {
+                tracing::error!(
+                    org_id = %org_id,
+                    "OLTP staging-branch deletion failed; the copy may be orphaned: {e}"
+                );
+            }
+        }
+        Err(e) => tracing::debug!(org_id = %org_id, "OLTP not configured: {e}"),
+    }
+}
+
 /// DELETE /orgs/:org_id
 pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
@@ -246,30 +301,7 @@ pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCod
         }
     }
 
-    // OLTP is org-keyed, not workspace-keyed, so it is one call rather than a
-    // loop — and it has to happen BEFORE the delete, because the row carrying
-    // the provider's project id goes with the org (FK ON DELETE CASCADE).
-    //
-    // On Neon that project is a real, billing resource: losing the row without
-    // deleting the project leaves something nobody can find and nobody stops
-    // paying for. Failure is logged rather than fatal, matching airhouse above
-    // — a provider outage must not make an org undeletable — but it is logged
-    // at `error` with the project id, because that string is the only way back
-    // to an orphan.
-    match oxy_oltp::provisioner::from_env(db.clone()).await {
-        Ok(provisioner) => {
-            if let Err(e) = provisioner.deprovision(ctx.org.id).await {
-                tracing::error!(
-                    org_id = %ctx.org.id,
-                    "OLTP deprovisioning failed; the provider-side database may be \
-                     orphaned and still billing: {e}"
-                );
-            }
-        }
-        // Disabled or misconfigured OLTP is the common case, and an org with no
-        // OLTP database has nothing to deprovision.
-        Err(e) => tracing::debug!(org_id = %ctx.org.id, "OLTP not configured: {e}"),
-    }
+    deprovision_org_oltp(&db, ctx.org.id).await;
 
     Organizations::delete_by_id(ctx.org.id)
         .exec(&db)

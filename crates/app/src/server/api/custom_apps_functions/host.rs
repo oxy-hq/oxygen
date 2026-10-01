@@ -30,6 +30,18 @@ use agentic_connector::SqlTransaction;
 
 mod airhouse_ops;
 mod destinations;
+mod env_guard;
+mod env_homes;
+mod held_log;
+mod oltp_guard;
+mod oltp_home;
+mod oltp_ops;
+mod semantic_op;
+mod tx_ops;
+mod warehouse_home;
+
+use super::env_policy::HostOp;
+pub use oltp_home::writer_connection;
 
 // Visible to the rest of custom_apps_functions so the preflight judges live
 // manifests with the host's own write rule, not a copy of it.
@@ -96,9 +108,12 @@ pub struct ProjectFunctionHost {
     /// one-shot transaction on its own connection — see `oltp`); this only saves
     /// the resolve. Filled lazily on the first `ctx.oltp` call.
     oltp_conn: tokio::sync::Mutex<Option<oxy_oltp::resolver::WriterConnection>>,
-    /// The app's own Airhouse connection for `ctx.airhouse`, filled on first
-    /// use. The connection behind it is pooled per app across invocations.
-    airhouse_conn: tokio::sync::Mutex<Option<Arc<dyn DatabaseConnector>>>,
+    /// The app's own Airhouse connections for `ctx.airhouse`, by the schema
+    /// each is scoped to, filled on first use: production's `app_<writer>`,
+    /// and outside production its sibling too. The connections behind them
+    /// are pooled per app and schema across invocations.
+    airhouse_conn:
+        tokio::sync::Mutex<std::collections::HashMap<String, Arc<dyn DatabaseConnector>>>,
     /// Who is running, for the audit record on every data-plane write.
     identity: InvocationIdentity,
     /// The writes each open `ctx.tx()` handle has made so far, keyed by the
@@ -126,6 +141,23 @@ pub struct ProjectFunctionHost {
     /// normalized, bounded form the fingerprint digests — `noted` takes the
     /// raw text and keeps none of it.
     host_call_failure: std::sync::Mutex<Option<super::failure_signal::HostCallFailure>>,
+    /// What each op may do in the environment this run was admitted to
+    /// (`environment_gate::Admission`), with the staging pin already in scope
+    /// where this host was built folded in — host calls run on tasks of their
+    /// own, which do not inherit it. Every op asks it; none re-derives the
+    /// environment. Production allows everything.
+    policy: super::env_policy::EnvPolicy,
+    /// Every call the policy held or refused this invocation, written as one
+    /// `app.staging.held` audit row (`held_log`). Empty in production.
+    held: Arc<held_log::HeldLog>,
+    /// Set when a production-admitted run was found reading a branch and an
+    /// op was refused for it (previews S9, I9): from then on the host's
+    /// held/refused labels classify as such (`env_guard`).
+    on_branch: std::sync::atomic::AtomicBool,
+    /// This invocation's running total for its environment storage silo,
+    /// measured on the first write (`env_homes::storage_limit`). Unused in
+    /// production, which answers to the org quota.
+    environment_meter: crate::server::api::custom_apps_storage::environment_limits::SiloMeter,
 }
 
 /// The audit state of one open transaction.
@@ -133,6 +165,13 @@ struct TxAudit {
     plane: &'static str,
     database: String,
     writes: Vec<WriteRecord>,
+    /// The isolated home `begin` opened the handle into; `None` when it was
+    /// opened as asked. Every statement on the handle is decided by it
+    /// (`EnvPolicy::decide_on_handle`).
+    opened_into: Option<super::env_policy::Target>,
+    /// For a handle on a mapped destination, the fence every statement on it
+    /// passes before it is sent (`env_policy::destination_sql`).
+    fence: Option<super::env_policy::destination_sql::DestinationFence>,
 }
 
 /// The fail-closed capability gates a function's manifest grants, plus the
@@ -246,8 +285,21 @@ impl ProjectFunctionHost {
         preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
         reach: crate::server::api::operating_graph::reach::Reach,
         identity: InvocationIdentity,
+        policy: super::env_policy::EnvPolicy,
     ) -> Self {
+        let policy = policy
+            .within_scope_pin(crate::server::api::custom_apps_staging_pin::current_staging_pin());
         Self {
+            held: held_log::HeldLog::new(
+                db.clone(),
+                identity.clone(),
+                org_id,
+                project_id,
+                policy.environment().name(),
+            ),
+            on_branch: std::sync::atomic::AtomicBool::new(false),
+            environment_meter: Default::default(),
+            policy,
             identity,
             tx_writes: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             writes: tokio::sync::Mutex::new(data_audit::WriteBuffer::new()),
@@ -266,7 +318,7 @@ impl ProjectFunctionHost {
             email_send_count: std::sync::atomic::AtomicUsize::new(0),
             transactions: super::tx::TxRegistry::default(),
             oltp_conn: tokio::sync::Mutex::new(None),
-            airhouse_conn: tokio::sync::Mutex::new(None),
+            airhouse_conn: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             host_call_failure: std::sync::Mutex::new(None),
             // `ctx.fetch` is defended in two layers:
             //  1. `is_safe_outbound` rejects the request URL up front (scheme,
@@ -361,6 +413,13 @@ impl ProjectFunctionHost {
             &writes,
             trace_id,
         );
+        // A row written outside production says so in its `environment`
+        // column; production's rows are written exactly as before.
+        let entry = if self.policy.is_production() {
+            entry
+        } else {
+            entry.environment(self.policy.environment().name())
+        };
         oxy_app_core::audit::record_best_effort(&self.db, entry).await;
     }
 
@@ -401,6 +460,8 @@ impl ProjectFunctionHost {
                 table: summary.table,
                 rows,
                 statements: 1,
+                op: None,
+                note: None,
             };
             data_audit::coalesce(&mut audit.writes, write);
         }
@@ -551,6 +612,9 @@ impl ProjectFunctionHost {
     /// invocation; that is the same lifetime as the isolate that already drives
     /// this credential, and the host is dropped when the invocation ends, so the
     /// secret's window is not widened.
+    ///
+    /// Which database is the policy's, decided at admission
+    /// (`EnvPolicy::oltp_home`): production's, or the org's staging branch.
     async fn oltp_connection(
         &self,
         writer_name: &str,
@@ -559,110 +623,14 @@ impl ProjectFunctionHost {
         if let Some(conn) = cached.as_ref() {
             return Ok(conn.clone());
         }
-        let writer = oxy_oltp::schema::WriterRef::app(writer_name)
-            .map_err(|e| format!("invalid writer '{writer_name}': {e}"))?;
-        let conn = with_db_timeout("resolve", async {
-            oxy_oltp::resolver::resolve_writer_connection_for_org(&self.db, self.org_id, &writer)
-                .await
-                .map_err(|e| {
-                    // Names the app's own writer, and points at the org operator
-                    // rather than a CLI the app author can't run.
-                    format!(
-                        "this app's OLTP store ('{writer_name}') is not provisioned yet — ask \
-                         whoever operates this org to provision it: {e}"
-                    )
-                })
-        })
+        let home = self.policy.oltp_home();
+        let conn = with_db_timeout(
+            "resolve",
+            writer_connection(&self.db, self.org_id, writer_name, home),
+        )
         .await?;
         *cached = Some(conn.clone());
         Ok(conn)
-    }
-
-    /// A connector for the resolved writer. Verifies the managed peer's
-    /// certificate (see `WriterConnection::verify_tls`); the DSN's
-    /// `sslmode=require` only encrypts.
-    fn oltp_connector(
-        conn: &oxy_oltp::resolver::WriterConnection,
-    ) -> Result<Arc<dyn DatabaseConnector>, String> {
-        let connector = PostgresConnector::from_dsn(&conn.dsn, conn.verify_tls)
-            .map_err(|e| format!("could not build a connection to '{}': {e}", conn.schema))?;
-        Ok(Arc::new(connector))
-    }
-
-    /// Open `ctx.tx(database, fn)`: the same fail-closed destination check as
-    /// `ctx.warehouse`, before a connector — and so a credential — exists.
-    async fn begin_warehouse_tx(
-        &self,
-        payload: &serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
-        let database = payload
-            .get("database")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| "`database` is required".to_string())?;
-        // Checked as a write even when the callback only reads: `begin` cannot
-        // know what the statements will be.
-        self.check_write_destination(database, WriteSurface::Transaction)?;
-        let connector = self.connect(database).await?;
-        let mut tx = with_db_timeout("begin", async {
-            connector
-                .begin_transaction()
-                .await
-                .map_err(|e| format!("could not open a transaction on '{database}': {e}"))
-        })
-        .await?;
-        data_audit::record_db_namespace(database);
-        if connector.dialect() == SqlDialect::Postgres {
-            let (trace_id, _) = Self::trace_context();
-            // On error `tx` drops here, which closes the connection and rolls
-            // the empty transaction back.
-            self.name_session(&mut *tx, trace_id.as_deref()).await?;
-        }
-        self.register_tx(
-            tx,
-            data_audit::plane_for_dialect(connector.dialect()),
-            database,
-        )
-        .await
-    }
-
-    /// Open `ctx.oltp.tx(fn)` on the app's own writer. No database crosses the
-    /// boundary, so there is no allowlist to check — only the `oltp` gate.
-    async fn begin_oltp_tx(&self) -> Result<serde_json::Value, String> {
-        let writer_name = self.oltp_writer()?;
-        let conn = self.oltp_connection(writer_name).await?;
-        let connector = Self::oltp_connector(&conn)?;
-        let mut tx = with_db_timeout("begin", async {
-            connector
-                .begin_transaction()
-                .await
-                .map_err(|e| format!("could not open a transaction: {e}"))
-        })
-        .await?;
-        data_audit::record_db_namespace(&conn.schema);
-        let (trace_id, _) = Self::trace_context();
-        // On error `tx` drops here, which closes the connection and rolls the
-        // empty transaction back.
-        self.name_session(&mut *tx, trace_id.as_deref()).await?;
-        self.register_tx(tx, "oltp", &conn.schema).await
-    }
-
-    /// Hand an open transaction to the registry and start its audit record.
-    async fn register_tx(
-        &self,
-        tx: Box<dyn SqlTransaction>,
-        plane: &'static str,
-        namespace: &str,
-    ) -> Result<serde_json::Value, String> {
-        let id = self.transactions.insert(tx).await?;
-        self.tx_writes.lock().await.insert(
-            id,
-            TxAudit {
-                plane,
-                database: namespace.to_string(),
-                writes: Vec::new(),
-            },
-        );
-        Ok(serde_json::json!({ "id": id }))
     }
 }
 
@@ -674,13 +642,17 @@ impl FunctionHost for ProjectFunctionHost {
     /// has finished, off the hot path; `ctx.tx()` commits were recorded as
     /// they happened.
     async fn end_of_invocation(&self) {
+        let (trace_id, _) = Self::trace_context();
+        // The held-write log first: one `app.staging.held` row, written from a
+        // task of its own, then closed so a held call racing this records
+        // itself (`held_log`).
+        self.held.flush(trace_id.clone()).await;
         // Drain and close under the one lock `note_write` checks, so a write
         // racing this either lands in `writes` here or records itself.
         let writes = self.writes.lock().await.drain();
         if writes.is_empty() {
             return;
         }
-        let (trace_id, _) = Self::trace_context();
         let mut by_action: BTreeMap<&'static str, Vec<WriteRecord>> = BTreeMap::new();
         for write in writes {
             by_action
@@ -719,6 +691,10 @@ impl FunctionHost for ProjectFunctionHost {
         *noted = super::failure_signal::HostCallFailure::recovered(noted.take(), op, target);
     }
 
+    fn decides_by_environment(&self) -> bool {
+        self.policy_decides()
+    }
+
     fn host_call_failure(&self) -> Option<super::failure_signal::HostCallFailure> {
         self.host_call_failure
             .lock()
@@ -727,6 +703,8 @@ impl FunctionHost for ProjectFunctionHost {
     }
 
     async fn query(&self, sql: String) -> Result<serde_json::Value, String> {
+        self.admit_op(HostOp::Query, ("warehouse", "", "QUERY", ""))
+            .await?;
         let db_name = self.default_database()?;
         let connector = self.connect(&db_name).await?;
         let (rows, truncated) =
@@ -737,6 +715,8 @@ impl FunctionHost for ProjectFunctionHost {
     }
 
     async fn query_stream(&self, sql: String) -> Result<serde_json::Value, String> {
+        self.admit_op(HostOp::QueryStream, ("warehouse", "", "QUERY", ""))
+            .await?;
         let db_name = self.default_database()?;
         let connector = self.connect(&db_name).await?;
         let rows = with_db_timeout(
@@ -763,6 +743,12 @@ impl FunctionHost for ProjectFunctionHost {
             .and_then(|m| m.as_str())
             .unwrap_or("GET")
             .to_uppercase();
+        // Outside production anything but a bodiless read method answers 409
+        // unsent; a read is sent as ever.
+        let has_body = !matches!(init.get("body"), None | Some(serde_json::Value::Null));
+        if let Some(held) = self.held_fetch(&method, parsed.host_str(), has_body).await {
+            return Ok(held);
+        }
         let mut req = self
             .http
             .request(
@@ -850,151 +836,18 @@ impl FunctionHost for ProjectFunctionHost {
         Ok(serde_json::json!({ "status": status, "body": body, "encoding": encoding }))
     }
 
-    async fn semantic_query(
-        &self,
-        mut spec: serde_json::Value,
-    ) -> Result<serde_json::Value, String> {
-        // `scope: "reach"` is oxy's, not the query's: peeled off before the
-        // config parses, then honoured below by pinning the bound view's key
-        // to the keys the caller's places carry. Anything else in `scope` is a
-        // typo, and a typo that silently answered everything is the one
-        // outcome this option exists to prevent.
-        let scope = spec
-            .as_object_mut()
-            .and_then(|m| m.remove("scope"))
-            .map(|v| v.as_str().map(str::to_string).unwrap_or_default());
-        let scoped = match scope.as_deref() {
-            None | Some("") => false,
-            Some("reach") => true,
-            Some(other) => {
-                return Err(format!(
-                    "invalid semantic query spec: unknown scope `{other}`"
-                ));
-            }
-        };
-        let mut query: SemanticQueryConfig = serde_json::from_value(spec)
-            .map_err(|e| format!("invalid semantic query spec: {e}"))?;
-
-        let cm = &self.proj_ctx.workspace_manager().config_manager;
-        // The compiled revision this invocation reads, materialised — the same
-        // `scan_dir` the `/semantic-query` route uses. This read
-        // `semantics_scan_path()`, the raw working copy: an IDE node answered
-        // from whatever was on disk, and a diskless replica from a directory
-        // that is not there. `_scan` keeps a materialised tempdir alive until
-        // the compile below is done.
-        let _scan = crate::server::api::semantic_scan::scan_dir(cm)
-            .await
-            .map_err(|e| {
-                format!("ctx.semantic.query: no compiled semantic model available: {e}")
-            })?;
-        let scan_path = _scan.path().to_path_buf();
-        // A scoped query needs the layer before it compiles, to know which of
-        // its views are bound. Loaded once and handed to the compile below,
-        // so the directory is walked one time, not two.
-        let pre_loaded_layer = if scoped {
-            let scan_for_layer = scan_path.clone();
-            // Sentry hubs are per thread; keep the invocation's on the blocking pool.
-            let hub = sentry::Hub::current();
-            let layer = tokio::task::spawn_blocking(move || {
-                sentry::Hub::run(hub, || {
-                    oxy_airlayer_compat::load_layer_from_dir(&scan_for_layer)
-                })
-            })
-            .await
-            .map_err(|e| format!("semantic layer task panicked: {e}"))?
-            .map_err(|e| format!("semantic layer failed to load: {e}"))?;
-            crate::server::api::operating_graph::binding::apply_reach_scope(
-                &self.db,
-                self.org_id,
-                &layer,
-                &self.reach,
-                &mut query,
-            )
-            .await
-            .map_err(|e| format!("ctx.semantic.query: {e}"))?;
-            Some(layer)
-        } else {
-            None
-        };
-        let databases: Vec<oxy_airlayer_compat::DatabaseConfig> = cm
-            .list_databases()
-            .iter()
-            .map(|db| oxy_airlayer_compat::database_config(db.name.clone(), db.dialect()))
-            .collect();
-
-        // The rollup short-circuit, resolved exactly as
-        // `/api/projects/{id}/semantic-query` resolves it — a bundle asking the
-        // same question through `ctx.semantic` instead of the HTTP route must
-        // not silently drop to the warehouse. `preagg_context` yields `None`
-        // when this composition carries no Layer-1 cache (the scheduled path),
-        // and `try_resolve_preagg` yields `None` when no rollup covers the
-        // request, so both fall through to the warehouse below.
-        //
-        // The threshold comes from THIS workspace's own
-        // `pre_aggregations.refresh_worker.renewal_threshold` when the process
-        // publishes no global value — the same key the rebuild cycle reads.
-        let workspace_id = self.proj_ctx.workspace_manager().workspace_id;
-        let renewal_threshold_secs = self.preagg.renewal_threshold_secs_or(cm);
-        let preagg = crate::server::preagg_context::preagg_context(
-            workspace_id,
-            self.preagg.cache.clone(),
-            Some(renewal_threshold_secs),
-            // A read surface: `ctx.semantic` renders a number for a bundle to
-            // display, and the badge says which tier answered.
-            crate::server::preagg_context::RollupFreshness::ServeStale,
-        );
-
-        // Sentry hubs are per thread; keep the invocation's on the blocking pool.
-        let hub = sentry::Hub::current();
-        let compiled = tokio::task::spawn_blocking(move || {
-            sentry::Hub::run(hub, || {
-                resolve_and_compile(
-                    &scan_path,
-                    &databases,
-                    &query,
-                    preagg.as_ref(),
-                    pre_loaded_layer,
-                )
-            })
-        })
+    async fn semantic_query(&self, spec: serde_json::Value) -> Result<serde_json::Value, String> {
+        self.admit_op(HostOp::SemanticQuery, ("semantic", "", "QUERY", ""))
+            .await?;
+        // A staging build's semantic pin (#3370), re-scoped here: a host call
+        // runs on a task of its own, which does not inherit the invocation's
+        // task-locals, and the pin is what makes the rollup short-circuit
+        // stand aside for a branch's model. `None` in production.
+        crate::server::api::custom_apps_staging_pin::with_staging_pin(
+            self.policy.semantic_pin(),
+            self.semantic_query_unpinned(spec),
+        )
         .await
-        .map_err(|e| format!("semantic compile task panicked: {e}"))?
-        .map_err(|e| format!("semantic compile failed: {e}"))?;
-
-        let (sql, database_name) = match compiled {
-            CompiledQuery::Warehouse { sql, database_name } => (sql, database_name),
-            CompiledQuery::Preaggregation {
-                preagg_sql,
-                source,
-                warehouse_sql,
-                warehouse_database,
-            } => {
-                // A rollup that won't read is not a failed query — the same
-                // question has a warehouse answer, and the variant carries the
-                // SQL for it. Same posture as the `/semantic-query` route.
-                match read_rollup(&preagg_sql, &source, FUNCTION_MAX_ROWS).await {
-                    Ok(result) => {
-                        enforce_result_byte_cap(&result)?;
-                        return Ok(result);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            remote = source.is_remote(),
-                            error = %e,
-                            "ctx.semantic: preagg rollup read failed; answering from the warehouse instead"
-                        );
-                        (warehouse_sql, warehouse_database)
-                    }
-                }
-            }
-        };
-
-        let connector = self.connect(&database_name).await?;
-        let (rows, truncated) =
-            query_with_truncation(&self.query_exec, connector, &sql, FUNCTION_MAX_ROWS).await?;
-        let result = serde_json::json!({ "rows": rows, "truncated": truncated });
-        enforce_result_byte_cap(&result)?;
-        Ok(result)
     }
 
     async fn airway_run(
@@ -1002,6 +855,27 @@ impl FunctionHost for ProjectFunctionHost {
         pipeline_ref: String,
         variables: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
+        // Refused outside production: a run has no environment, so any run is
+        // a production write (`env_policy`).
+        let target = ("airway", pipeline_ref.as_str(), "RUN", "");
+        self.admit_op(HostOp::AirwayRun, target).await?;
+        // A production-admitted invocation can still read a branch — a pin in
+        // scope where the host was built, or a context at a `staging`
+        // revision — and must not start production ELT (previews S9, I9).
+        // The policy decides that too, so the refusal is classified, never a
+        // failure that pages. Checked before anything is seeded.
+        let revision = self
+            .proj_ctx
+            .workspace_manager()
+            .config_manager
+            .revision_id();
+        if let Some(reason) =
+            super::staged_invocation::staged_reason(&self.db, self.policy.semantic_pin(), revision)
+                .await
+        {
+            self.admit_on_branch(HostOp::AirwayRun, target, &reason)
+                .await?;
+        }
         // Seed the run on the global queue and return the run id. We don't
         // drive a co-located coordinator (TaskScope::Global) because ELT runs
         // routinely outlast a function's timeout ceiling — the worker fleet
@@ -1053,6 +927,8 @@ impl FunctionHost for ProjectFunctionHost {
             .get("sql")
             .and_then(|v| v.as_str())
             .ok_or_else(|| "warehouse.query: `sql` is required".to_string())?;
+        self.admit_op(HostOp::WarehouseQuery, ("warehouse", database, "QUERY", ""))
+            .await?;
 
         data_audit::record_db_span(&db_query_summary(sql), Some(database), None);
         let connector = self.connect(database).await?;
@@ -1074,23 +950,59 @@ impl FunctionHost for ProjectFunctionHost {
             .ok_or_else(|| "`database` is required".to_string())?;
 
         self.check_write_destination(database, WriteSurface::Warehouse)?;
+        // Resolved before anything else is decided: an op off the list is
+        // refused as unknown, never let past the policy.
+        let host_op =
+            HostOp::sub_op("warehouse", &op).ok_or_else(|| format!("unknown op '{op}'"))?;
+        // After the destination gate, never instead of it (design §4.2).
+        // Outside production the write lands in the mapped database, which
+        // passes the same gate first; an unmapped one is held.
+        let payload_table = payload.get("table").and_then(|v| v.as_str());
+        let verb = op.to_ascii_uppercase();
+        let (database, mapped) = self
+            .write_database(
+                host_op,
+                database,
+                WriteSurface::Warehouse,
+                (
+                    "warehouse",
+                    database,
+                    &verb,
+                    payload_table.unwrap_or_default(),
+                ),
+            )
+            .await?;
+        let database = database.as_str();
 
-        let sql = match op.as_str() {
-            "exec" => payload
+        let build = |dialect| match host_op {
+            HostOp::WarehouseExec => payload
                 .get("sql")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| "warehouse.exec: `sql` is required".to_string())?
-                .to_string(),
-            "insert" => build_insert_sql(&payload, false)?,
-            "upsert" => build_insert_sql(&payload, true)?,
-            other => return Err(format!("unknown op '{other}'")),
+                .map(str::to_string)
+                .ok_or_else(|| "warehouse.exec: `sql` is required".to_string()),
+            HostOp::WarehouseInsert => build_insert_sql(&payload, false, dialect),
+            HostOp::WarehouseUpsert => build_insert_sql(&payload, true, dialect),
+            _ => Err(format!("unknown op '{op}'")),
         };
+        // Built, and so checked, before any connection. Outside production it
+        // is built again in the engine's own identifier quoting where that
+        // differs; production's SQL stays exactly what it always was.
+        let sql = build(SqlDialect::Postgres)?;
 
         let summary = db_query_summary(&sql);
-        let payload_table = payload.get("table").and_then(|v| v.as_str());
         data_audit::record_db_span(&summary, Some(database), payload_table);
         let connector = self.connect(database).await?;
-        if op == "upsert" {
+        let sql = if !self.policy.is_production() && backquotes_identifiers(connector.dialect()) {
+            build(connector.dialect())?
+        } else {
+            sql
+        };
+        if let Some(mapped) = &mapped {
+            let fence = mapped.fence(connector.dialect());
+            self.admit_on_mapped(host_op, &fence, &sql, database)
+                .await?;
+        }
+        if host_op == HostOp::WarehouseUpsert {
             upsert_support::check(connector.dialect())?;
         }
         let (_, traceparent) = Self::trace_context();
@@ -1121,180 +1033,31 @@ impl FunctionHost for ProjectFunctionHost {
                 table,
                 rows: None,
                 statements: 1,
+                op: None,
+                note: None,
             })
             .await;
         }
         Ok(serde_json::json!({ "ok": true }))
     }
 
-    /// `ctx.tx` and `ctx.oltp.tx` — six verbs over one op, dispatched onto the
-    /// per-invocation [`TxRegistry`].
-    ///
-    /// The two opening verbs are the only ones that touch authorization: `begin`
-    /// runs the same fail-closed `destinations` check as `ctx.warehouse` before a
-    /// connector exists, and `begin_oltp` the `oltp` gate on the app's own writer. The other four take an id that `begin` handed out, and the
-    /// registry rejects any id it did not issue — so a script cannot reach a
-    /// database by guessing a number.
-    ///
-    /// [`TxRegistry`]: super::tx::TxRegistry
+    /// `ctx.tx` and `ctx.oltp.tx` — six verbs over one op (`host/tx_ops.rs`).
     async fn tx(
         &self,
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        match op.as_str() {
-            "begin" => self.begin_warehouse_tx(&payload).await,
-            "begin_oltp" => self.begin_oltp_tx().await,
-            "query" => {
-                let (id, sql, params) = Self::tx_statement(&payload)?;
-                let summary = db_query_summary(&sql);
-                data_audit::record_db_span(&summary, self.tx_database(id).await.as_deref(), None);
-                let (_, traceparent) = Self::trace_context();
-                let tagged = data_audit::commented(&sql, &self.identity, traceparent.as_deref());
-                let rows =
-                    with_db_timeout("query", self.transactions.query(id, &tagged, &params)).await?;
-                self.note_tx_write(id, summary, Some(rows.len() as u64))
-                    .await;
-                let result = serde_json::json!({ "rows": rows });
-                enforce_result_byte_cap(&result)?;
-                Ok(result)
-            }
-            "exec" => {
-                let (id, sql, params) = Self::tx_statement(&payload)?;
-                let summary = db_query_summary(&sql);
-                data_audit::record_db_span(&summary, self.tx_database(id).await.as_deref(), None);
-                let (_, traceparent) = Self::trace_context();
-                let tagged = data_audit::commented(&sql, &self.identity, traceparent.as_deref());
-                let count =
-                    with_db_timeout("exec", self.transactions.exec(id, &tagged, &params)).await?;
-                self.note_tx_write(id, summary, Some(count)).await;
-                Ok(serde_json::json!({ "rowCount": count }))
-            }
-            "commit" | "rollback" => {
-                let id = payload
-                    .get("id")
-                    .and_then(|v| v.as_u64())
-                    .ok_or_else(|| "`id` is required".to_string())?;
-                // Bounded like the other ops: `take` waits on the slot lock, so
-                // a commit racing a statement on the same handle (an author bug)
-                // would otherwise wait unbounded on that statement.
-                let tx = with_db_timeout("take", self.transactions.take(id)).await?;
-                let committing = op == "commit";
-                let label = if committing { "commit" } else { "rollback" };
-                // Taken from the registry first, so a timeout here still drops
-                // the handle — which closes the connection, which rolls back.
-                with_db_timeout(label, async move {
-                    let outcome = if committing {
-                        tx.commit().await
-                    } else {
-                        tx.rollback().await
-                    };
-                    outcome.map_err(|e| format!("{op} failed: {e}"))
-                })
-                .await?;
-                // A rollback leaves no trace: nothing was written.
-                let audit = self.tx_writes.lock().await.remove(&id);
-                if committing && let Some(audit) = audit {
-                    let (trace_id, _) = Self::trace_context();
-                    self.record_writes(
-                        data_audit::ACTION_TX_COMMIT,
-                        audit.writes,
-                        trace_id.as_deref(),
-                    )
-                    .await;
-                }
-                Ok(serde_json::json!({ "ok": true }))
-            }
-            other => Err(format!("unknown op '{other}'")),
-        }
+        self.tx_op(&op, &payload).await
     }
 
-    /// `ctx.oltp.{query,exec}` — read or write the app's OWN per-org OLTP schema
-    /// (`app_<writer>`) on the managed Postgres tenant, and nothing else.
-    ///
-    /// This is the write half `ctx.warehouse` could not give an app: for a
-    /// `postgres_managed` database `ctx.warehouse` resolves the read-only
-    /// analyst (org-wide read, `raw_*` included), so a write authenticates and
-    /// then fails `permission denied`. `ctx.oltp` instead resolves the app's
-    /// **writer** role, whose DML rights are scoped to the one `app_<writer>`
-    /// schema — narrower on reads (no `raw_*`) and finally writable.
-    ///
-    /// Fail-closed on the `oltp` capability, and run in a one-shot transaction
-    /// so parameters are bound (never string-concatenated) and a failed
-    /// statement rolls back rather than leaving a partial write.
+    /// `ctx.oltp.{query,exec}` — the app's OWN per-org OLTP schema, and nothing
+    /// else (`host/oltp_ops.rs`).
     async fn oltp(
         &self,
         op: String,
         payload: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let writer_name = self.oltp_writer()?;
-        let (sql, params) = Self::oltp_statement(&payload)?;
-        let summary = db_query_summary(&sql);
-        let (trace_id, traceparent) = Self::trace_context();
-        let tagged = data_audit::commented(&sql, &self.identity, traceparent.as_deref());
-        let conn = self.oltp_connection(writer_name).await?;
-        let connector = Self::oltp_connector(&conn)?;
-        let mut tx = with_db_timeout("begin", async {
-            connector
-                .begin_transaction()
-                .await
-                .map_err(|e| format!("could not open a transaction: {e}"))
-        })
-        .await?;
-        data_audit::record_db_span(&summary, Some(&conn.schema), None);
-        // On error `tx` drops here, which closes the connection and rolls
-        // the empty transaction back.
-        self.name_session(&mut *tx, trace_id.as_deref()).await?;
-        let mut rows_touched: Option<u64> = None;
-        let outcome = match op.as_str() {
-            "query" => with_db_timeout("query", async {
-                tx.query(&tagged, &params).await.map_err(|e| e.to_string())
-            })
-            .await
-            .map(|rows| {
-                rows_touched = Some(rows.len() as u64);
-                serde_json::json!({ "rows": rows })
-            }),
-            "exec" => with_db_timeout("exec", async {
-                tx.exec(&tagged, &params).await.map_err(|e| e.to_string())
-            })
-            .await
-            .map(|count| {
-                rows_touched = Some(count);
-                serde_json::json!({ "rowCount": count })
-            }),
-            other => {
-                // Nothing ran; dropping `tx` rolls back the empty transaction.
-                return Err(format!("unknown op '{other}'"));
-            }
-        };
-        match outcome {
-            Ok(result) => {
-                with_db_timeout("commit", async move {
-                    tx.commit().await.map_err(|e| format!("commit failed: {e}"))
-                })
-                .await?;
-                if data_audit::is_write_verb(&summary.verb) {
-                    self.note_write(WriteRecord {
-                        plane: "oltp",
-                        namespace: conn.schema.clone(),
-                        verb: summary.verb,
-                        table: summary.table,
-                        rows: rows_touched,
-                        statements: 1,
-                    })
-                    .await;
-                }
-                enforce_result_byte_cap(&result)?;
-                Ok(result)
-            }
-            Err(e) => {
-                // Roll back explicitly; a rollback failure is moot (the dropped
-                // connection rolls back anyway) and must not mask the real error.
-                let _ = tx.rollback().await;
-                Err(format!("{op}: {e}"))
-            }
-        }
+        self.oltp_op(&op, &payload).await
     }
 
     /// `ctx.airhouse.{query,exec,append}` — the app's own facts in its
@@ -1325,10 +1088,16 @@ impl FunctionHost for ProjectFunctionHost {
                     .to_string(),
             );
         }
-        SecretManagerService::new(self.project_id)
-            .set_app_secret(&self.db, self.app_id, &key, &value, self.actor)
-            .await
-            .map_err(|e| format!("ctx.secrets.set failed: {e}"))?;
+        // After the capability gate, like production would refuse first. The
+        // key's name is logged when it is an identifier; never its value.
+        let name = if super::host_call_attrs::identifier_like(&key) {
+            key.as_str()
+        } else {
+            ""
+        };
+        // Outside production: the environment's own path (`env_homes`).
+        self.set_secret(&key, &value, ("secrets", "", "SET", name))
+            .await?;
         Ok(serde_json::json!({ "ok": true }))
     }
 
@@ -1385,6 +1154,8 @@ impl FunctionHost for ProjectFunctionHost {
                     .to_string(),
             );
         }
+        self.admit_op(HostOp::OrgPeople, ("org", "", "READ", ""))
+            .await?;
         org_directory(&self.db, self.org_id, self.app_id).await
     }
 
@@ -1396,6 +1167,8 @@ impl FunctionHost for ProjectFunctionHost {
         if !self.caps.org_read {
             return Err(org_capability_missing("places"));
         }
+        self.admit_op(HostOp::OrgPlaces, ("org", "", "READ", ""))
+            .await?;
         org_places_directory(&self.db, self.org_id).await
     }
 
@@ -1406,6 +1179,8 @@ impl FunctionHost for ProjectFunctionHost {
         if !self.caps.org_read {
             return Err(org_capability_missing("assignments"));
         }
+        self.admit_op(HostOp::OrgAssignments, ("org", "", "READ", ""))
+            .await?;
         org_assignments_directory(&self.db, self.org_id, self.app_id).await
     }
 
@@ -1434,11 +1209,17 @@ impl FunctionHost for ProjectFunctionHost {
                  {MAX_EMAILS_PER_INVOCATION}-email limit"
             ));
         }
+        // Parsed by reference, so a held send is refused for the same payload
+        // errors production would refuse it for.
         let parsed =
-            serde_json::from_value(input).map_err(|e| format!("InvalidEmailPayload: {e}"))?;
-        crate::emails::app_emailer::AppEmailer::from_env(self.app_name.clone())
-            .send(parsed)
-            .await
+            <crate::emails::app_emailer::EmailSendInput as serde::Deserialize>::deserialize(&input)
+                .map_err(|e| format!("InvalidEmailPayload: {e}"))?;
+        // Held where the policy holds email (`env_guard`); elsewhere outside
+        // production it goes to the invoking user alone (`env_homes`).
+        if let Some(held) = self.held_email(&input).await {
+            return Ok(held);
+        }
+        self.deliver_email(parsed).await
     }
 
     async fn storage(
@@ -1449,14 +1230,22 @@ impl FunctionHost for ProjectFunctionHost {
         use crate::server::api::custom_apps_storage as st;
 
         check_storage_capability(&op, &self.caps)?;
+        // Resolved before anything else is decided, so an op off the list is
+        // refused as unknown and never let past the policy; asked after the
+        // capability gate, like production refuses first. Outside production
+        // the op works in the environment's silo, reading production's same
+        // key as a fallback (`env_homes`).
+        let host_op = HostOp::sub_op("storage", &op)
+            .ok_or_else(|| format!("ctx.storage: unknown op '{op}'"))?;
+        let silo = self.storage_silo(host_op, ("storage", "", &op, "")).await?;
 
         let str_field = |key: &str| payload.get(key).and_then(|v| v.as_str());
         let bool_field = |key: &str| payload.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
         let u64_field = |key: &str| payload.get(key).and_then(|v| v.as_u64());
         let required = |field: &str| format!("ctx.storage.{op}: `{field}` is required");
 
-        match op.as_str() {
-            "getUploadUrl" => {
+        match host_op {
+            HostOp::StorageGetUploadUrl => {
                 // `pathname` is the general form; `filename` is the ergonomic
                 // shorthand for "a human picked a file", which lands under
                 // `uploads/`. Generated assets pass `pathname` directly.
@@ -1467,14 +1256,13 @@ impl FunctionHost for ProjectFunctionHost {
                 };
                 let content_length =
                     u64_field("contentLength").ok_or_else(|| required("contentLength"))?;
-                // Org-level quota. Checked before the URL is minted, not after
-                // the bytes land: a presigned PUT goes straight to S3, so this is
-                // the last moment oxy can refuse it.
-                st::quota::check_write_allowed(&self.db, self.org_id, content_length)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                // Org-level quota (an environment silo: its own cap). Checked
+                // before the URL is minted, not after the bytes land: a
+                // presigned PUT goes straight to S3, so this is the last moment
+                // oxy can refuse it.
+                self.storage_limit(&silo, content_length).await?;
                 let out = st::get_upload_url(
-                    self.app_id,
+                    &silo,
                     &pathname,
                     str_field("contentType").unwrap_or(""),
                     content_length,
@@ -1485,10 +1273,10 @@ impl FunctionHost for ProjectFunctionHost {
                 .map_err(|e| e.to_string())?;
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
-            "getDownloadUrl" => {
+            HostOp::StorageGetDownloadUrl => {
                 let key = str_field("key").ok_or_else(|| required("key"))?;
                 let out = st::get_download_url(
-                    self.app_id,
+                    &silo,
                     key,
                     u64_field("expiresInSeconds"),
                     bool_field("download"),
@@ -1497,7 +1285,7 @@ impl FunctionHost for ProjectFunctionHost {
                 .map_err(|e| e.to_string())?;
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
-            "put" => {
+            HostOp::StoragePut => {
                 let pathname = str_field("pathname")
                     .or_else(|| str_field("key"))
                     .ok_or_else(|| required("pathname"))?;
@@ -1527,11 +1315,9 @@ impl FunctionHost for ProjectFunctionHost {
                 // the runaway growth this gate exists to stop. The concern it was
                 // guarding against is moot anyway: past the hard limit *every*
                 // write is refused, so there is no cheaper name to escape to.
-                st::quota::check_write_allowed(&self.db, self.org_id, bytes.len() as u64)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                self.storage_limit(&silo, bytes.len() as u64).await?;
                 let out = st::put(
-                    self.app_id,
+                    &silo,
                     pathname,
                     bytes,
                     st::PutOptions {
@@ -1546,7 +1332,7 @@ impl FunctionHost for ProjectFunctionHost {
                 .map_err(|e| e.to_string())?;
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
-            "get" => {
+            HostOp::StorageGet => {
                 let key = str_field("key").ok_or_else(|| required("key"))?;
                 let encoding = encoding_or(str_field("encoding"), "utf8").to_string();
                 if !matches!(encoding.as_str(), "utf8" | "base64") {
@@ -1555,7 +1341,7 @@ impl FunctionHost for ProjectFunctionHost {
                          'base64')"
                     ));
                 }
-                match st::get(self.app_id, key).await.map_err(|e| e.to_string())? {
+                match st::get(&silo, key).await.map_err(|e| e.to_string())? {
                     Some((bytes, content_type)) => {
                         let size = bytes.len();
                         let body = if encoding == "base64" {
@@ -1573,19 +1359,16 @@ impl FunctionHost for ProjectFunctionHost {
                     None => Ok(serde_json::Value::Null),
                 }
             }
-            "head" => {
+            HostOp::StorageHead => {
                 let key = str_field("key").ok_or_else(|| required("key"))?;
-                match st::head(self.app_id, key)
-                    .await
-                    .map_err(|e| e.to_string())?
-                {
+                match st::head(&silo, key).await.map_err(|e| e.to_string())? {
                     Some(meta) => serde_json::to_value(meta).map_err(|e| e.to_string()),
                     None => Ok(serde_json::Value::Null),
                 }
             }
-            "list" => {
+            HostOp::StorageList => {
                 let out = st::list(
-                    self.app_id,
+                    &silo,
                     str_field("prefix"),
                     u64_field("limit").map(|v| v as usize),
                     str_field("cursor").map(str::to_string),
@@ -1594,7 +1377,7 @@ impl FunctionHost for ProjectFunctionHost {
                 .map_err(|e| e.to_string())?;
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
-            "delete" => {
+            HostOp::StorageDelete => {
                 // One key or a batch, mirroring the object-store idiom.
                 let keys: Vec<String> = match payload.get("keys") {
                     Some(serde_json::Value::Array(items)) => items
@@ -1603,20 +1386,19 @@ impl FunctionHost for ProjectFunctionHost {
                         .collect(),
                     _ => vec![str_field("key").ok_or_else(|| required("key"))?.to_string()],
                 };
-                let deleted = st::delete(self.app_id, &keys)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let deleted = st::delete(&silo, &keys).await.map_err(|e| e.to_string())?;
                 Ok(serde_json::json!({ "deleted": deleted }))
             }
-            "copy" => {
+            HostOp::StorageCopy => {
                 let from = str_field("fromKey").ok_or_else(|| required("fromKey"))?;
                 let to = str_field("toPathname").ok_or_else(|| required("toPathname"))?;
-                let out = st::copy(self.app_id, from, to, bool_field("allowOverwrite"))
+                self.environment_copy_limit(&silo).await?;
+                let out = st::copy(&silo, from, to, bool_field("allowOverwrite"))
                     .await
                     .map_err(|e| e.to_string())?;
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
-            other => Err(format!("ctx.storage: unknown op '{other}'")),
+            _ => Err(format!("ctx.storage: unknown op '{op}'")),
         }
     }
 }
@@ -1849,12 +1631,17 @@ async fn query_with_truncation(
 /// col = EXCLUDED.col` for every non-key column — the Postgres/DuckDB
 /// upsert syntax, which covers the destinations this is scoped to (§11.3).
 /// [`upsert_support::check`] refuses the others by name before this is sent.
-fn build_insert_sql(payload: &serde_json::Value, upsert: bool) -> Result<String, String> {
+fn build_insert_sql(
+    payload: &serde_json::Value,
+    upsert: bool,
+    dialect: SqlDialect,
+) -> Result<String, String> {
     let table = payload
         .get("table")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "`table` is required".to_string())?;
-    let (columns, values) = columns_and_values(payload)?;
+    let quote_ident = identifier_quoter(dialect);
+    let (columns, values) = columns_and_values_with(payload, quote_ident)?;
     let mut sql = format!("INSERT INTO {} {values}", quote_ident(table));
 
     if upsert {
@@ -1899,6 +1686,14 @@ fn build_insert_sql(payload: &serde_json::Value, upsert: bool) -> Result<String,
 /// that all carry the first row's columns. Returns the column names too, for
 /// callers that build more around them (`upsert`'s conflict clause).
 fn columns_and_values(payload: &serde_json::Value) -> Result<(Vec<String>, String), String> {
+    columns_and_values_with(payload, quote_ident)
+}
+
+/// [`columns_and_values`], quoting columns with `quote_ident`.
+fn columns_and_values_with(
+    payload: &serde_json::Value,
+    quote_ident: fn(&str) -> String,
+) -> Result<(Vec<String>, String), String> {
     let rows = payload
         .get("rows")
         .and_then(|v| v.as_array())
@@ -1951,6 +1746,26 @@ fn slug_cannot_back_a_schema(store: &str, slug: &str) -> String {
 /// ANSI-style quoting — the destinations `ctx.warehouse` targets).
 fn quote_ident(ident: &str) -> String {
     format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+/// Backquote an identifier, escaping embedded backquotes: BigQuery and MySQL
+/// read a double-quoted word as a string.
+fn backquote_ident(ident: &str) -> String {
+    format!("`{}`", ident.replace('`', "``"))
+}
+
+/// Whether `dialect` quotes identifiers with backquotes rather than `"`.
+fn backquotes_identifiers(dialect: SqlDialect) -> bool {
+    dialect == SqlDialect::BigQuery || dialect == SqlDialect::MYSQL
+}
+
+/// How `dialect` quotes an identifier the host builds into SQL.
+fn identifier_quoter(dialect: SqlDialect) -> fn(&str) -> String {
+    if backquotes_identifiers(dialect) {
+        backquote_ident
+    } else {
+        quote_ident
+    }
 }
 
 /// Render a JSON value as a SQL literal. Strings are single-quote escaped;
@@ -2250,6 +2065,24 @@ mod tests {
 
     // ── build_insert_sql / quote_ident / json_value_to_sql_literal ─────────
 
+    /// BigQuery and MySQL read a double-quoted word as a string, so the host
+    /// backquotes the identifiers it builds for them.
+    #[test]
+    fn a_host_built_insert_quotes_identifiers_as_its_dialect_does() {
+        let payload = json!({ "table": "orders", "rows": [{ "id": 1 }] });
+        for dialect in [SqlDialect::BigQuery, SqlDialect::MYSQL] {
+            assert_eq!(
+                build_insert_sql(&payload, false, dialect).unwrap(),
+                "INSERT INTO `orders` (`id`) VALUES (1)"
+            );
+        }
+        assert_eq!(
+            build_insert_sql(&payload, false, SqlDialect::CLICKHOUSE).unwrap(),
+            r#"INSERT INTO "orders" ("id") VALUES (1)"#
+        );
+        assert_eq!(backquote_ident("we`ird"), "`we``ird`");
+    }
+
     #[test]
     fn quote_ident_escapes_embedded_quotes() {
         assert_eq!(quote_ident("orders"), "\"orders\"");
@@ -2311,7 +2144,7 @@ mod tests {
                 { "day": "2026-06-13", "store_id": 12, "total": 4821.5 },
             ],
         });
-        let sql = build_insert_sql(&payload, false).unwrap();
+        let sql = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "daily_rollup" ("day", "store_id", "total") VALUES ('2026-06-13', 12, 4821.5)"#
@@ -2327,7 +2160,7 @@ mod tests {
                 { "a": 2, "b": "y" },
             ],
         });
-        let sql = build_insert_sql(&payload, false).unwrap();
+        let sql = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "t" ("a", "b") VALUES (1, 'x'), (2, 'y')"#
@@ -2337,14 +2170,14 @@ mod tests {
     #[test]
     fn build_insert_sql_requires_table() {
         let payload = json!({ "rows": [{ "a": 1 }] });
-        let err = build_insert_sql(&payload, false).unwrap_err();
+        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
         assert!(err.contains("`table`"));
     }
 
     #[test]
     fn build_insert_sql_requires_non_empty_rows() {
         let payload = json!({ "table": "t", "rows": [] });
-        let err = build_insert_sql(&payload, false).unwrap_err();
+        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
         assert!(err.contains("`rows`"));
     }
 
@@ -2357,7 +2190,7 @@ mod tests {
                 { "a": 1 },
             ],
         });
-        let err = build_insert_sql(&payload, false).unwrap_err();
+        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
         assert!(err.contains("missing column 'b'"));
     }
 
@@ -2368,7 +2201,7 @@ mod tests {
             "rows": [{ "day": "2026-06-13", "store_id": 12, "total": 4821.5 }],
             "conflictColumns": ["day", "store_id"],
         });
-        let sql = build_insert_sql(&payload, true).unwrap();
+        let sql = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "daily_rollup" ("day", "store_id", "total") VALUES ('2026-06-13', 12, 4821.5) ON CONFLICT ("day", "store_id") DO UPDATE SET "total" = EXCLUDED."total""#
@@ -2382,7 +2215,7 @@ mod tests {
             "rows": [{ "a": 1, "b": 2 }],
             "conflictColumns": ["a", "b"],
         });
-        let sql = build_insert_sql(&payload, true).unwrap();
+        let sql = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap();
         assert!(sql.ends_with("DO NOTHING"));
     }
 
@@ -2392,7 +2225,7 @@ mod tests {
             "table": "t",
             "rows": [{ "a": 1 }],
         });
-        let err = build_insert_sql(&payload, true).unwrap_err();
+        let err = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap_err();
         assert!(err.contains("conflictColumns"));
     }
 

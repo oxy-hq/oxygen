@@ -1,3 +1,4 @@
+import { usePreviewPin } from "@/contexts/PreviewPinContext";
 import { useIDE } from "@/pages/ide";
 import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import useIdeBranch from "@/stores/useIdeBranch";
@@ -21,6 +22,7 @@ const NO_GIT_CAPABILITIES: GitCapabilities = {
 export default function useCurrentWorkspaceBranch() {
   const { workspace } = useCurrentWorkspace();
   const { insideIDE } = useIDE();
+  const { branch: previewBranch } = usePreviewPin();
 
   const active_branch = workspace?.active_branch?.name ?? "";
 
@@ -64,7 +66,16 @@ export default function useCurrentWorkspaceBranch() {
     // outside the IDE should see: a working copy parked on a feature branch is
     // the IDE's business, and on a stateless replica the boundary is the only
     // answer there is.
-    branchName: insideIDE ? selectedBranch : "",
+    //
+    // A preview pin (`?preview=<revision_id>`, see `PreviewPinContext`)
+    // overrides both, inside the IDE and out: while pinned, every surface asks
+    // for the preview's branch LABEL. What the server serves is decided by the
+    // `x-oxy-preview-revision` header that rides along; the label is here
+    // because this value is also part of most query keys, so preview data is
+    // cached apart from live data.
+    branchName: previewBranch ?? (insideIDE ? selectedBranch : ""),
+    /** The pinned preview's branch label, or null when live. */
+    previewBranch,
     capabilities,
     isMainEditMode,
     gitEnabled

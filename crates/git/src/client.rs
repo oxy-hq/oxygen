@@ -97,6 +97,18 @@ pub trait GitClient: Send + Sync {
         branch: &str,
     ) -> Result<PathBuf, OxyError>;
 
+    /// Finds the worktree — if any — where `branch` is currently checked out,
+    /// including the repo's main working copy. See
+    /// [`crate::cli::worktree::find_branch_checkout`] for the full contract;
+    /// this is the shared helper callers use to resolve a branch to the
+    /// checkout that actually holds it, rather than assuming it, so
+    /// `get_or_create_worktree` and workspace-path resolution never disagree.
+    async fn find_branch_checkout(
+        &self,
+        workspace_root: &Path,
+        branch: &str,
+    ) -> Result<Option<PathBuf>, OxyError>;
+
     // ─── Commit ────────────────────────────────────────────────────────
 
     async fn commit_changes(&self, root: &Path, message: &str) -> Result<String, OxyError>;

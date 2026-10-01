@@ -23,6 +23,7 @@ use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::OnMissing;
 use oxy_app::agentic_wiring::OxyProjectContext;
 use oxy_app::server::api::custom_apps_functions::InvocationIdentity;
+use oxy_app::server::api::custom_apps_functions::env_policy::EnvPolicy;
 use oxy_app::server::api::custom_apps_functions::host::{
     FunctionCapabilities, ProjectFunctionHost, into_arc,
 };
@@ -255,6 +256,7 @@ async fn workspace_with(databases: &str, destinations: &[&str], with_reasons: bo
             user_id: None,
             user_email: None,
         },
+        EnvPolicy::production(),
     );
     Workspace {
         host: into_arc(host),

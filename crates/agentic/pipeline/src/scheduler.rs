@@ -413,19 +413,19 @@ pub async fn enqueue_app_function_job(
     )
     .await
     .map_err(ScheduleError::Db)?;
+    // Carry the trigger so the executor records the invocation `mode` to match
+    // (`manual` here) — the invocation history then agrees with the run's
+    // stamped `metadata.trigger` — and the input params (if any) so the worker
+    // replays them as the function's request body. No `environment`: every
+    // task is production until the reader that refuses others has shipped
+    // (see `app_function_task`).
+    let mut task = crate::app_function_task::AppFunctionTask::new(app_id, function_name);
+    task.trigger = Some(trigger.to_string());
+    task.input = input.filter(|v| !v.is_null());
+    task.traceparent = traceparent;
     let spec = agentic_core::delegation::TaskSpec::Custom {
-        kind: "app_function".into(),
-        // Carry the trigger so the executor records the invocation `mode` to
-        // match (`manual` here) — the invocation history then agrees with the
-        // run's stamped `metadata.trigger` — and the input params (if any) so the
-        // worker replays them as the function's request body.
-        payload: serde_json::json!({
-            "app_id": app_id,
-            "function_name": function_name,
-            "trigger": trigger,
-            "input": input,
-            "traceparent": traceparent,
-        }),
+        kind: crate::app_function_task::APP_FUNCTION_KIND.into(),
+        payload: task.to_payload(),
     };
     agentic_runtime::crud::enqueue_task(
         db,
@@ -1605,15 +1605,13 @@ async fn fire_schedule(
             )
             .await
             .map_err(|e| e.to_string())?;
+            // Carry the trigger (`scheduled` for a cron fire, `manual` for a
+            // run-now) so the executor records the invocation `mode` to match.
+            let mut task = crate::app_function_task::AppFunctionTask::new(app_id, function_name);
+            task.trigger = Some(trigger.to_string());
             let spec = agentic_core::delegation::TaskSpec::Custom {
-                kind: "app_function".into(),
-                // Carry the trigger (`scheduled` for a cron fire, `manual` for a
-                // run-now) so the executor records the invocation `mode` to match.
-                payload: serde_json::json!({
-                    "app_id": app_id,
-                    "function_name": function_name,
-                    "trigger": trigger,
-                }),
+                kind: crate::app_function_task::APP_FUNCTION_KIND.into(),
+                payload: task.to_payload(),
             };
             // The job's retry policy, if any, is stamped onto the schedule's
             // `variables` at publish (`{"task_policy": …}`). Deserialize it here

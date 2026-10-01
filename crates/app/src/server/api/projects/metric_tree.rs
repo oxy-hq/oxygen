@@ -466,6 +466,8 @@ async fn run_baseline_query(
         .into_read_only();
     let user_id = boundary.app.user.id;
     let handle = tokio::runtime::Handle::current();
+    // Read here: the executor builds its connectors on a blocking thread.
+    let holds_writes = crate::server::previews::request_hold::active();
     // This surface pins the layer to the compile-boundary tempdir and carries
     // no pre-aggregation cache of its own, so the short-circuit is off and the
     // other two fields are inert; `freshness` is stated anyway so a later
@@ -500,6 +502,7 @@ async fn run_baseline_query(
                     WorkspaceRole::Viewer,
                     handle,
                     preagg,
+                    holds_writes,
                 );
                 mt::baseline_reads(
                     &tree,

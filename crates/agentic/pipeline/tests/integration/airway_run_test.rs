@@ -33,7 +33,7 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
     Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
 > = tokio::sync::OnceCell::const_new();
 
-async fn test_db() -> Option<DatabaseConnection> {
+pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     let url = TEST_DB_URL
         .get_or_init(|| async {
             if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
@@ -730,6 +730,7 @@ resources:
         db.clone(),
         Arc::new(agentic_runtime::state::RuntimeState::new()),
         platform,
+        Arc::new(agentic_pipeline::platform::IdentityResolver),
         None,
         None,
         None,

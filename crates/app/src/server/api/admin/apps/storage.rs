@@ -420,7 +420,14 @@ pub async fn browse(
     };
 
     let (policy, retention_rules) = app_retention(&db, &app).await;
-    let page = match storage::list(app_id, q.prefix.as_deref(), q.limit, q.cursor).await {
+    let page = match storage::list(
+        &storage::Silo::production(app_id),
+        q.prefix.as_deref(),
+        q.limit,
+        q.cursor,
+    )
+    .await
+    {
         Ok(p) => p,
         Err(e) => {
             return err(
@@ -483,7 +490,7 @@ pub async fn delete_objects(
     // `storage::delete` re-validates every key against this app's silo, so a key
     // belonging to another app is refused here rather than trusted because it
     // arrived from an admin session.
-    match storage::delete(app_id, &body.keys).await {
+    match storage::delete(&storage::Silo::production(app_id), &body.keys).await {
         Ok(deleted) => {
             tracing::info!(%app_id, deleted, "admin deleted custom-app assets");
             Json(DeleteResponse { deleted }).into_response()

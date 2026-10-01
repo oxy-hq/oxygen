@@ -73,7 +73,11 @@ pub fn shares_role_namespace(provider: &str) -> bool {
 ///
 /// FNV-1a rather than a real hash: this only has to separate tenants on one
 /// developer's cluster, and it avoids a dependency for eight characters.
-fn tenant_tag(database: &str) -> String {
+///
+/// Also the short hash suffix on a `LocalProvider` branch database
+/// ([`crate::provider::branch_database_name`]), fed the database and the
+/// branch name together.
+pub(crate) fn tenant_tag(database: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in database.as_bytes() {
         h ^= *b as u64;

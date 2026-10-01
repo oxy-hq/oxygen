@@ -1398,8 +1398,13 @@ async fn create_shutdown_signal() {
 ///    never lands on another's events. `/customer-apps/{*path}` and the static
 ///    fallback have no hub of their own; `/api` nests one from this
 ///    (`router::entry::finalize_router`) and so inherits the tag.
-/// 2. the customer-apps host rewrite, then the org-subdomain dispatch.
-/// 3. `tag_custom_app_surface` — innermost, *after* both rewrites, so a
+/// 2. the app-environment guard (`custom_app_env_request`): which environment
+///    the request addresses, a 400 for an `X-Oxy-App-Env` it cannot honour, and
+///    the 403s for an `/api` write outside production or a cookie write from
+///    another environment's page. Before the rewrite, so it sees the `Host` and
+///    path the client sent.
+/// 3. the customer-apps host rewrite, then the org-subdomain dispatch.
+/// 4. `tag_custom_app_surface` — innermost, *after* both rewrites, so a
 ///    `<org>--<slug>.customer-apps…` host, `/a/<slug>/` on an org subdomain and a
 ///    plain `/customer-apps/**` all reach it as `/customer-apps/**` with the
 ///    caller's host header still intact. Tags the request hub so
@@ -1422,6 +1427,9 @@ fn wrap_outer_service(
         .layer(sentry::integrations::tower::NewSentryLayer::<
             axum::extract::Request,
         >::new_from_top())
+        .layer(axum::middleware::from_fn(
+            oxy_app_core::custom_app_env_request::environment_guard_middleware,
+        ))
         .layer(axum::middleware::from_fn(
             oxy_app_core::custom_apps_host_dispatch::subdomain_rewrite_middleware,
         ))
@@ -1482,6 +1490,86 @@ mod tests {
         });
         assert_eq!(events.len(), 1, "exactly one captured event");
         events[0].tags.clone()
+    }
+
+    /// The status the shipped stack answers `method path` with, and whether the
+    /// request reached the router behind it.
+    async fn through_the_shipped_stack(
+        method: &str,
+        host: &str,
+        path: &str,
+        extra: &[(&str, &str)],
+    ) -> (axum::http::StatusCode, bool) {
+        let reached = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = reached.clone();
+        let app = Router::new().route(
+            "/{*path}",
+            axum::routing::any(move || {
+                let seen = seen.clone();
+                async move {
+                    seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                    axum::http::StatusCode::OK
+                }
+            }),
+        );
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header(axum::http::header::HOST, host);
+        for (name, value) in extra {
+            request = request.header(*name, *value);
+        }
+        let response = wrap_outer_service(app)
+            .oneshot(request.body(Body::empty()).expect("request"))
+            .await
+            .expect("response");
+        (
+            response.status(),
+            reached.load(std::sync::atomic::Ordering::SeqCst),
+        )
+    }
+
+    /// Design §3.2, through the real stack: a staging bundle's direct `/api`
+    /// writes never reach a handler, its reads do, and production's writes are
+    /// untouched. Fails if the guard layer is dropped from [`wrap_outer_service`].
+    #[tokio::test]
+    async fn api_writes_from_a_staging_host_are_refused_before_any_handler() {
+        let staging = "staging--acme--store.customer-apps.oxygen-hq.com";
+        let production = "acme--store.customer-apps.oxygen-hq.com";
+        let cookie = [("cookie", "oxy_session=jwt")];
+
+        assert_eq!(
+            through_the_shipped_stack("POST", staging, "/api/customer-apps/a1/events", &cookie)
+                .await,
+            (axum::http::StatusCode::FORBIDDEN, false)
+        );
+        assert_eq!(
+            through_the_shipped_stack("GET", staging, "/api/projects/p1/threads", &cookie).await,
+            (axum::http::StatusCode::OK, true),
+            "reads are allowed"
+        );
+        assert_eq!(
+            through_the_shipped_stack("POST", staging, "/api/projects/p1/query", &cookie).await,
+            (axum::http::StatusCode::OK, true),
+            "the data plane's read-only POSTs are reads"
+        );
+        assert_eq!(
+            through_the_shipped_stack("POST", production, "/api/customer-apps/a1/events", &cookie)
+                .await,
+            (axum::http::StatusCode::OK, true),
+            "production writes are unchanged"
+        );
+        assert_eq!(
+            through_the_shipped_stack(
+                "GET",
+                "app.oxygen-hq.com",
+                "/api/projects/p1/threads",
+                &[("cookie", "oxy_session=jwt"), ("x-oxy-app-env", "staging")],
+            )
+            .await,
+            (axum::http::StatusCode::BAD_REQUEST, false),
+            "a header on a cookie request is refused, never downgraded"
+        );
     }
 
     /// The end-to-end guarantee, through the real stack: an error raised while

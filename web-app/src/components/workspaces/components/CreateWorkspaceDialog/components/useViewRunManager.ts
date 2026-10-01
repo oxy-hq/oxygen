@@ -1,6 +1,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SseEvent } from "@/hooks/useAnalyticsRun";
+import { previewRequestHeaders } from "@/libs/utils/preview";
 import { AnalyticsService } from "@/services/api/analytics";
 
 const MAX_CONCURRENT = 10;
@@ -294,7 +295,7 @@ async function runSingleView(
 
     fetchEventSource(url, {
       method: "GET",
-      headers: { Authorization: token ?? "" },
+      headers: { Authorization: token ?? "", ...previewRequestHeaders() },
       signal: controller.signal,
       openWhenHidden: true,
 

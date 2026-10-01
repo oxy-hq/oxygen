@@ -338,6 +338,14 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("oidc_used_jti", Control("OIDC replay ledger")),
     (
+        "oltp_branch_roles",
+        Control("sealed per-branch passwords for org database roles"),
+    ),
+    (
+        "oltp_branches",
+        Control("org staging-branch registry: endpoint and sealed owner"),
+    ),
+    (
         "oltp_roles",
         Control("org database writer roles and sealed passwords"),
     ),
@@ -485,6 +493,26 @@ const TABLES: &[(&str, Placement)] = &[
     ("workspace_health_state", Control("workspace health")),
     ("workspace_members", Control("workspace membership")),
     ("workspace_oxy_lockdown", Control("staff lockout")),
+    (
+        "workspace_preview_runs",
+        Control("preview runs: which revision, key and target a staff preview run reads"),
+    ),
+    (
+        "workspace_preview_schemas",
+        Control("preview schema registry: names and expiry for the TTL drop"),
+    ),
+    (
+        "workspace_preview_sources",
+        Control("preview sandbox source overrides: var names and realm ids, never secrets"),
+    ),
+    (
+        "workspace_preview_tables",
+        Control("preview shadow map: which live tables a preview holds copies of"),
+    ),
+    (
+        "workspace_previews",
+        Control("which branches Oxy staff are previewing, and at which commit"),
+    ),
     ("workspaces", Control("workspace registry")),
     ("world_model_configs", Control("compiled .world-model.yml")),
     (

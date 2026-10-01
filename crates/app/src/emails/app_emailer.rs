@@ -10,6 +10,9 @@
 use aws_sdk_sesv2::types::{Destination, EmailContent, RawMessage};
 use serde::Deserialize;
 
+mod redirect;
+pub use redirect::IgnoredRecipients;
+
 /// Max combined `to` + `cc` + `bcc` recipients per `ctx.email.send` call
 /// (Cloudflare's number). Bounds fan-out from a single send.
 pub const MAX_RECIPIENTS_PER_SEND: usize = 50;
@@ -208,18 +211,9 @@ impl AppEmailer {
         // it into the envelope. `" a@b.com "` out of a form field is ordinary
         // input, not a payload bug worth failing a send over.
         let to = addresses(input.to);
-        if to.is_empty() {
-            return Err("InvalidEmailPayload: at least one `to` recipient is required".to_string());
-        }
         let cc = addresses(input.cc);
         let bcc = addresses(input.bcc);
-        let total = to.len() + cc.len() + bcc.len();
-        if total > MAX_RECIPIENTS_PER_SEND {
-            return Err(format!(
-                "TooManyRecipients: {total} recipients exceeds the per-send limit of \
-                 {MAX_RECIPIENTS_PER_SEND}"
-            ));
-        }
+        check_recipients(&to, &cc, &bcc)?;
         if input.html.is_none() && input.text.is_none() {
             return Err("InvalidEmailPayload: provide `html` or `text`".to_string());
         }
@@ -494,6 +488,24 @@ fn validate_attachments(
         });
     }
     Ok(out)
+}
+
+/// The recipient rules of a send: at least one `to`, at most
+/// [`MAX_RECIPIENTS_PER_SEND`] in all. Shared with the non-production redirect,
+/// which checks the recipients the call NAMED, so staging refuses what
+/// production would.
+fn check_recipients(to: &[String], cc: &[String], bcc: &[String]) -> Result<(), String> {
+    if to.is_empty() {
+        return Err("InvalidEmailPayload: at least one `to` recipient is required".to_string());
+    }
+    let total = to.len() + cc.len() + bcc.len();
+    if total > MAX_RECIPIENTS_PER_SEND {
+        return Err(format!(
+            "TooManyRecipients: {total} recipients exceeds the per-send limit of \
+             {MAX_RECIPIENTS_PER_SEND}"
+        ));
+    }
+    Ok(())
 }
 
 /// Normalize a `string | string[]` recipient field: trim each address and drop

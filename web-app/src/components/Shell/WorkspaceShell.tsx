@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AskDock } from "@/components/Ask/AskDock";
 import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
+import { PreviewBar } from "@/components/PreviewBar";
 import WorkspaceStatus from "@/components/WorkspaceStatus";
 import { useCustomApps } from "@/hooks/api/customApps/useCustomApps";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
@@ -125,8 +126,8 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   if (isPartnerAdmin) footerItems.push(partner);
   if (isOperator) footerItems.push(admin);
 
-  return (
-    <div className='flex h-full w-full'>
+  const layout = (
+    <div className='flex min-h-0 w-full flex-1'>
       {!hideRail && (
         <ShellRail
           top={<RailWorkspaceTile />}
@@ -158,6 +159,16 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {!hideRail && <AskDock />}
         </div>
       </div>
+    </div>
+  );
+
+  // The preview bar sits above everything — rail, top bar and the IDE's own
+  // chrome alike: while a page is pinned to a preview it is the only thing
+  // saying so. It renders nothing on a live page.
+  return (
+    <div className='flex h-full w-full flex-col'>
+      <PreviewBar />
+      {layout}
     </div>
   );
 }

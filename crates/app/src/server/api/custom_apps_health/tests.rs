@@ -52,7 +52,11 @@ async fn evaluate_reports_the_whole_ladder_in_order_on_a_bail_out() {
     // A row left over from the removed `v0` source → `AppSource::from_model`
     // errors at the second rung, before anything touches Postgres.
     let app = fake_app("v0", serde_json::json!({ "url": "https://example.v0.dev" }));
-    let (build, checks) = evaluate(&app).await;
+    let production = super::ResolvedEnvironment {
+        environment: super::AppEnvironment::Production,
+        build_id: None,
+    };
+    let (build, checks) = evaluate(&app, &production).await;
 
     assert!(build.is_none());
     assert!(

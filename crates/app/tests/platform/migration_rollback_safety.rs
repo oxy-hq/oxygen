@@ -84,6 +84,15 @@ enum Why {
     /// deploy that stopped using what this one removes — that is what a reviewer
     /// checks, and what makes the claim falsifiable.
     Phase2 { after: &'static str },
+    /// A key or unique index replaced by a **wider** one: the same columns plus
+    /// one the migration adds with a constant `DEFAULT`. The previous deploy
+    /// never writes the new column, so every row it writes carries the default,
+    /// and among such rows the wider key rejects exactly what the old one did.
+    /// The detector sees a constraint added or redefined, which is why this
+    /// needs saying. `because` states the argument for this table, including
+    /// that nothing the previous deploy runs names the old key (an
+    /// `ON CONFLICT` on it would stop resolving).
+    Widens { because: &'static str },
 }
 
 /// Every migration at or after the cutoff that removes something, and why it
@@ -99,6 +108,25 @@ const DECLARED: &[(&str, &str, Why)] = &[
         Why::Phase2 {
             after: "#3362: the preflight went report-only and stopped using both tables; \
                     in prod since 0.5.153 (b7f49d7)",
+        },
+    ),
+    (
+        "central",
+        "m20260928_000003_function_invocation_environment",
+        Why::Widens {
+            because: "uq_app_function_invocations_idempotency (app, function, user, key) \
+                      becomes ..._env with `environment` (DEFAULT 'production') added; the \
+                      previous deploy inserts keyed rows with plain INSERTs and resolves a \
+                      duplicate by re-reading, never ON CONFLICT",
+        },
+    ),
+    (
+        "central",
+        "m20260928_000004_custom_app_migrations_target",
+        Why::Widens {
+            because: "custom_app_migrations_pkey (app_id, store, filename) gains `target` \
+                      (DEFAULT 'production'); the previous deploy writes the ledger with plain \
+                      INSERTs, never ON CONFLICT",
         },
     ),
 ];

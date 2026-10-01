@@ -414,6 +414,10 @@ export interface OxyAirhouseApi {
  * **Credentials only — not state.** A secret is for a value you authenticate
  * with, like a rotated token. A cursor, a counter or a JSON blob that changes
  * between runs is a record: keep it in `ctx.oltp`.
+ *
+ * Outside production `set` writes the environment's own value of the key,
+ * never production's, and is refused for a key this run's `ctx.env` read from
+ * production through its `"shared": true` fallback.
  */
 export interface OxySecretsApi {
   set(key: string, value: string): Promise<void>;
@@ -575,6 +579,22 @@ export interface EmailAttachment {
 export interface EmailSendResult {
   /** Provider (SES) message id of the sent message. */
   messageId: string;
+  /**
+   * Outside production only: the environment that redirected the message
+   * (`"staging"`). Absent in production, which sends to the recipients named.
+   */
+  environment?: string;
+  /**
+   * Outside production only: who the message actually reached — the verified
+   * human caller alone, who also receives replies. With no such caller (a
+   * system run) the send is refused rather than delivered to anyone else.
+   */
+  deliveredTo?: string[];
+  /**
+   * Outside production only: the `to` / `cc` / `bcc` the call named and did
+   * not reach.
+   */
+  ignoredRecipients?: { to: string[]; cc: string[]; bcc: string[] };
 }
 
 /** `ctx.email` — send email (gated by the `email.send` capability). */
@@ -708,6 +728,15 @@ export interface StoragePutResult {
  * Gated by the fail-closed `storage.read` / `storage.write` capabilities in
  * `oxy-app.json`. Every asset is private; reads are always presigned and
  * time-boxed. Keys are confined to your app — another app's key is rejected.
+ *
+ * Outside production (`ctx.channel !== "production"`) the store is the
+ * environment's own silo, `customer-app-storage/<app_id>~<env>/`: writes,
+ * `delete` and `copy`'s destination land there and never in production's;
+ * `get`, `head`, `getDownloadUrl` and `copy`'s source read it first, then
+ * production's same key, read-only; `list` lists the environment's silo alone.
+ * Without `allowOverwrite`, a key production holds counts as existing there.
+ * The environment's silo has its own size cap and its objects expire after 30
+ * days.
  *
  * ```ts
  * // Uploaded: mint a URL, browser PUTs to it, then record `key`.
@@ -870,8 +899,29 @@ export interface OxyFunctionContext {
      */
     assignments(): Promise<{ assignments: OxyOrgAssignment[]; total: number }>;
   };
-  /** Read-only view of the app's configured secrets (project-scoped). */
+  /**
+   * Read-only view of the app's configured secrets (project-scoped). Outside
+   * production it holds the environment's own values, plus production's for
+   * a key that both this build and production's build mark `"shared": true`
+   * and that the environment has no value of; any other key with no
+   * environment value is unset.
+   */
   env: Record<string, string>;
+  /**
+   * The app environment this invocation runs in: `"production"`, or
+   * `"staging"` — an Oxy staff call on the app's staging host, which runs the
+   * staging build against production data. Outside production a write with an
+   * isolated home lands there: `ctx.storage` works in the environment's own
+   * silo (reads fall back to production's same key, read-only),
+   * `ctx.email.send` reaches the invoking user alone with the subject prefixed
+   * `[staging]`, and `ctx.secrets.set` / `ctx.env` use the environment's own
+   * secrets (production's only for keys both builds mark `"shared": true`). Every other
+   * write is **held** (`HeldInStaging`; a mutating `ctx.fetch` answers 409).
+   * Read it to choose a third-party sandbox.
+   */
+  channel: string;
+  /** Alias of {@link channel}: the environments design's name for it. */
+  environment: string;
   /** Structured per-invocation logging (captured + surfaced with the response). */
   log(...args: unknown[]): void;
   /**

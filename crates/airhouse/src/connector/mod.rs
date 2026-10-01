@@ -807,8 +807,9 @@ fn typed_row_stream_from_messages(messages: &[SimpleQueryMessage]) -> TypedRowSt
 // ── Schema pre-fetch ──────────────────────────────────────────────────────────
 
 /// Query `information_schema.columns` via the simple query protocol and build a
-/// [`SchemaInfo`]. Filters out internal DuckLake / pg_catalog tables and our
-/// own `_agentic_%` temp tables.
+/// [`SchemaInfo`]. Filters out internal DuckLake / pg_catalog tables, our own
+/// `_agentic_%` temp tables, and custom apps' non-production sibling schemas
+/// (`crate::app_schema`).
 async fn fetch_schema(client: &Client) -> Result<SchemaInfo, ConnectorError> {
     let schema_sql = "\
         SELECT table_schema, table_name, column_name, data_type \
@@ -846,6 +847,12 @@ async fn fetch_schema(client: &Client) -> Result<SchemaInfo, ConnectorError> {
             Some(s) => s.to_string(),
             None => continue,
         };
+        // A custom app's non-production sibling (`app_<writer>__staging`)
+        // never lists beside production's schemas: not to the analytics agent,
+        // not in the IDE's schema tree, not to a semantic-model builder.
+        if crate::app_schema::is_environment_schema(&schema) {
+            continue;
+        }
         let qualified = format!("{}.{}", quote_ident(&schema), quote_ident(&table));
         let column = match row.get("column_name") {
             Some(s) => s.to_string(),

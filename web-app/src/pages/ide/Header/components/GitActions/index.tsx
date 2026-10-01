@@ -6,11 +6,12 @@ import { useIdeGit } from "../../context/IdeGitContext";
 import { BranchInfo } from "../BranchInfo";
 import { WorkspaceBranchSwitcher } from "../BranchPopover/WorkspaceBranchSwitcher";
 import { HistoryPopover } from "../HistoryPopover";
+import { OpenPreviewButton } from "../OpenPreviewButton";
 import { ActionsRow } from "./ActionsRow";
 
 export function GitActions() {
   const { isLocalMode } = useAuth();
-  const { workspaceId, branch, gitState, refresh } = useIdeGit();
+  const { workspaceId, branch, isOnMain, gitState, refresh } = useIdeGit();
   const [isBranchPickerOpen, setIsBranchPickerOpen] = useState(false);
 
   if (isLocalMode) return null;
@@ -35,6 +36,13 @@ export function GitActions() {
         open={isBranchPickerOpen}
         onOpenChange={setIsBranchPickerOpen}
       />
+
+      {/* Only a branch that is not the default one has anything to preview:
+          the default branch IS what's live. Hides itself for non-staff. Keyed
+          by branch so a switch mid-wait can't open the new branch instead. */}
+      {workspaceId && branch && !isOnMain && (
+        <OpenPreviewButton key={branch} workspaceId={workspaceId} branch={branch} />
+      )}
 
       {canBrowseHistory && (
         <HistoryPopover workspaceId={workspaceId} branch={branch} onResetSuccess={refresh} />

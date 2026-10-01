@@ -191,6 +191,34 @@ describe("visibleNavGroups", () => {
     });
   });
 
+  describe("the staff axis", () => {
+    // Previews are an Oxy-staff tool, never the customer's: no role inside the
+    // tenant — not even owning the org — reaches them.
+    it("hides Previews from every tenant role", () => {
+      for (const ctx of [
+        {},
+        { isWorkspaceAdmin: true },
+        { isOrgAdmin: true, isWorkspaceAdmin: true }
+      ]) {
+        expect(sectionsFor(ctx)).not.toContain("workspace.previews");
+      }
+      expect(
+        gateSatisfied("staff", { ...CLOUD_BASE, isOrgAdmin: true, isWorkspaceAdmin: true })
+      ).toBe(false);
+    });
+
+    it("shows Previews to Oxy staff, whatever their role in the tenant", () => {
+      expect(sectionsFor({ isStaff: true })).toContain("workspace.previews");
+      expect(sectionsFor({ isStaff: true, isOrgAdmin: true })).toContain("workspace.previews");
+    });
+
+    it("keeps Previews out of an org with no workspace loaded", () => {
+      expect(sectionsFor({ isStaff: true, hasWorkspace: false })).not.toContain(
+        "workspace.previews"
+      );
+    });
+  });
+
   describe("unloaded context", () => {
     it("drops the workspace group before the workspace resolves", () => {
       expect(groupsFor({ hasWorkspace: false })).not.toContain("Workspace");

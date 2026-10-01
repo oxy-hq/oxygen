@@ -357,6 +357,7 @@ impl ClickHouseObservabilityStorage {
         for alter in schema::CUSTOM_APP_TRACE_ID_ALTERS
             .iter()
             .chain(schema::CUSTOM_APP_METER_ALTERS)
+            .chain(schema::CUSTOM_APP_ENVIRONMENT_ALTERS)
         {
             if let Err(e) = self.client.query(alter).execute().await {
                 tracing::warn!(error = %e, alter, "ClickHouse schema ALTER skipped");

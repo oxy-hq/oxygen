@@ -68,6 +68,10 @@ pub struct Model {
     /// app. Collapsing them to one column would lose whichever the operator
     /// happened to need.
     pub org_role: Option<String>,
+    /// The app environment that served the view (`production`, `staging`,
+    /// `dev-<handle>`). The Activity tab counts production only, so a staff
+    /// member opening staging is not an app user. `DEFAULT 'production'`.
+    pub environment: String,
     #[sea_orm(
         belongs_to,
         from = "app_id",

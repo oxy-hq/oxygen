@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use agentic_automation::workspace::IntegrationConfig;
-use agentic_automation::{ContextRoot, WorkspaceContext, WorkspaceReadError};
+use agentic_automation::{ContextRoot, HttpReview, WorkspaceContext, WorkspaceReadError};
 use agentic_connector::DatabaseConnector;
 use async_trait::async_trait;
 use oxy::config::model::IntegrationType;
@@ -166,10 +166,15 @@ impl WorkspaceContext for OxyProjectContext {
                 "secrets_manager.resolve_secret failed; falling back to std::env::var"
             ),
         }
-        std::env::var(var_name).ok()
+        super::env_fallback(&self.workspace_manager.secrets_manager, var_name)
     }
 
     async fn store_secret(&self, var_name: &str, value: &str) -> Result<(), String> {
+        if self.holds_writes() {
+            return Err(crate::server::previews::request_hold::refusal(&format!(
+                "Secret `{var_name}`"
+            )));
+        }
         self.workspace_manager
             .secrets_manager
             .upsert_secret(
@@ -179,6 +184,16 @@ impl WorkspaceContext for OxyProjectContext {
             )
             .await
             .map_err(|e| format!("persist secret `{var_name}`: {e}"))
+    }
+
+    /// Production sends every request; a context holding writes (a
+    /// workspace-preview request) sends only `GET`/`HEAD`. SQL needs no review
+    /// here: every connector such a context hands out refuses a write.
+    async fn review_http(&self, method: &str, _url: &str) -> HttpReview {
+        if !self.holds_writes() {
+            return HttpReview::Proceed;
+        }
+        crate::server::previews::request_hold::http_review(method)
     }
 
     async fn get_integration(&self, name: &str) -> Result<IntegrationConfig, String> {

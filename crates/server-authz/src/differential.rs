@@ -563,6 +563,82 @@ fn app_access_manage_ring_matches_the_shipped_grant_surface() {
 }
 
 #[test]
+fn app_non_production_ring_matches_the_staff_draft_preview_gate() {
+    // Oracle = `globals::platform_reaches(.., Cap::DevelopApps, app.org_id)`, the gate
+    // the staff draft preview ships with and the `existing_allow` the staging serve
+    // path passes: the global owner, or a grant holding develop_apps whose scope
+    // reaches the app's org. No tenant standing: not a member, an officer, an app
+    // admin, a partner or a frontline worker.
+    for restricted in [false, true] {
+        assert_app_ring(Action::AppNonProduction, restricted, |s| s.is_staff);
+    }
+
+    // The two axes the app scenarios hold fixed (staff there is an unscoped
+    // Global Admin): scope, and whether the grant carries the capability.
+    let resource = Resource::app(app_id(), org());
+    let other = Uuid::from_u128(2);
+    let shapes: Vec<(&str, bool, Option<PlatformStanding>, bool)> = vec![
+        ("global owner", true, None, false),
+        (
+            "app operator scoped to this org",
+            false,
+            Some(PlatformStanding::from_role(
+                PlatformRole::AppOperator,
+                Scope::Orgs(vec![org()]),
+            )),
+            false,
+        ),
+        (
+            "app operator scoped to another org",
+            false,
+            Some(PlatformStanding::from_role(
+                PlatformRole::AppOperator,
+                Scope::Orgs(vec![other]),
+            )),
+            false,
+        ),
+        (
+            "app operator scoped to another org who is a member here",
+            false,
+            Some(PlatformStanding::from_role(
+                PlatformRole::AppOperator,
+                Scope::Orgs(vec![other]),
+            )),
+            true,
+        ),
+        (
+            "staff without develop_apps",
+            false,
+            Some(PlatformStanding {
+                role: PlatformRole::AppOperator,
+                caps: vec![Cap::ManageApps],
+                scope: Scope::All,
+            }),
+            false,
+        ),
+        ("nobody", false, None, false),
+    ];
+    for (name, is_global_owner, platform, is_member) in shapes {
+        let expected = is_global_owner
+            || platform
+                .as_ref()
+                .is_some_and(|g| g.grants(Cap::DevelopApps, org()));
+        let facts = PrincipalFacts {
+            user_id: user(),
+            is_global_owner,
+            platform,
+            member_orgs: if is_member { vec![org()] } else { vec![] },
+            ..Default::default()
+        };
+        assert_eq!(
+            allows(&facts, Action::AppNonProduction, &resource),
+            expected,
+            "ring drift for AppNonProduction — scenario {name:?}"
+        );
+    }
+}
+
+#[test]
 fn app_admin_ring_matches_the_shipped_role_resolution() {
     // Oracle = `custom_apps_auth::resolve_app_role`'s "admin" verdict: any org
     // officer (owner/admin), an app-admin row, or staff. NOT a plain org member,
@@ -572,4 +648,76 @@ fn app_admin_ring_matches_the_shipped_role_resolution() {
             s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin
         });
     }
+}
+
+// ── Workspace previews ─────────────────────────────────────────────────────────
+//
+// A new surface, but not one without a shipped check: the `WorkspacePreviewer`
+// guard passes the `/admin` console's staff door (`OXY_OWNER`, or any row in the
+// platform-grant table) as `existing_allow`. That door is the oracle. The ring may
+// only SUBTRACT from it, and it subtracts exactly two shapes the door is too coarse
+// to see — both stated below rather than left to be discovered.
+
+/// The staff door as the loader reports it: the owner allow-list or a grant row of
+/// any role. What `globals::platform_standing(..).is_staff()` answers.
+fn staff_door(facts: &PrincipalFacts) -> bool {
+    facts.is_global_owner || facts.platform.is_some()
+}
+
+#[test]
+fn workspace_preview_ring_matches_the_staff_door_across_the_org_caller_shapes() {
+    let ws = Resource::workspace(ws_id(), org());
+    for s in scenarios() {
+        let expected = staff_door(&s.facts);
+        let actual = allows(&s.facts, Action::WorkspacePreview, &ws);
+        assert_eq!(
+            actual, expected,
+            "ring drift for WorkspacePreview — scenario {:?}: the staff door says \
+             {expected}, the model says {actual}",
+            s.name
+        );
+    }
+}
+
+#[test]
+fn workspace_preview_subtracts_only_what_the_staff_door_cannot_see() {
+    let ws = Resource::workspace(ws_id(), org());
+    let base = || PrincipalFacts {
+        user_id: user(),
+        ..Default::default()
+    };
+
+    // An App Operator passes the door (it holds a grant row) but its grant is
+    // custom apps and nothing else — previewing a workspace is not an app.
+    let app_operator = PrincipalFacts {
+        platform: Some(PlatformStanding::from_role(
+            PlatformRole::AppOperator,
+            Scope::All,
+        )),
+        ..base()
+    };
+    assert!(staff_door(&app_operator));
+    assert!(!allows(&app_operator, Action::WorkspacePreview, &ws));
+
+    // A Global Admin bounded to another org passes the door, which never consults
+    // scope; the workspace is a tenant resource, so the ring does.
+    let elsewhere = PrincipalFacts {
+        platform: Some(PlatformStanding::from_role(
+            PlatformRole::GlobalAdmin,
+            Scope::Orgs(vec![Uuid::from_u128(2)]),
+        )),
+        ..base()
+    };
+    assert!(staff_door(&elsewhere));
+    assert!(!allows(&elsewhere, Action::WorkspacePreview, &ws));
+
+    // The same grant bounded to THIS org is not subtracted.
+    let here = PrincipalFacts {
+        platform: Some(PlatformStanding::from_role(
+            PlatformRole::GlobalAdmin,
+            Scope::Orgs(vec![org()]),
+        )),
+        ..base()
+    };
+    assert!(allows(&here, Action::WorkspacePreview, &ws));
 }

@@ -412,6 +412,11 @@ pub struct CustomAppEventRecord {
     /// row to the request's trace.
     pub trace_id: String,
     pub span_id: String,
+    /// The app environment that served the request: `production`, `staging` or
+    /// `dev-<handle>`. The availability SLI and the fleet views count
+    /// production only, so a staging page failing does not page anyone or dent
+    /// the app's number.
+    pub environment: String,
 }
 
 /// One durable `ctx.log()` / `console.*` line from an Oxy Function.
@@ -432,6 +437,8 @@ pub struct CustomAppLogRecord {
     pub message: String,
     pub trace_id: String,
     pub span_id: String,
+    /// The app environment the invocation ran in. Readers default to production.
+    pub environment: String,
 }
 
 /// Success/failure counts for one app over one window — the raw material for
@@ -486,6 +493,9 @@ pub struct CustomAppClientErrorRecord {
     /// has no span of its own, so `span_id` stays empty.
     pub trace_id: String,
     pub span_id: String,
+    /// The app environment of the page that threw. Readers default to
+    /// production.
+    pub environment: String,
 }
 
 /// One distinct client error, with its occurrence count over the window.

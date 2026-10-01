@@ -1856,6 +1856,83 @@ fn airway_policy_preview_is_fleet_ok() {
     );
 }
 
+/// Workspace previews' Airway change check is served from the analyze row and
+/// its run outcome — Postgres only — so viewing it must not need the ide. Its
+/// siblings that read `.git` (create, refresh) stay pinned.
+#[test]
+fn preview_checks_is_fleet_ok_beside_ide_only_refresh() {
+    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+    assert_eq!(
+        classify("GET", &format!("/api/{ws}/previews/checks")),
+        RouteRole::FleetOk
+    );
+    // `FleetOk` is also what an undeclared path answers, so the classification
+    // alone would pass with the route deleted: it must be declared, as FleetOk.
+    let declared: Vec<_> = dump_manifest()
+        .into_iter()
+        .filter(|(_, path, _)| path.ends_with("/previews/checks"))
+        .collect();
+    assert_eq!(
+        declared,
+        vec![(
+            "*",
+            "/api/{workspace_id}/previews/checks".to_string(),
+            RouteRole::FleetOk.as_str()
+        )],
+        "the checks route is declared once (`route_fleet` declares every method), FleetOk"
+    );
+    assert_eq!(
+        classify("POST", &format!("/api/{ws}/previews/refresh")),
+        RouteRole::IdeOnly
+    );
+}
+
+/// Held procedure runs only write and read Postgres rows — the run executes on
+/// the worker fleet — so submitting, listing and viewing all stay on any replica.
+#[test]
+fn preview_runs_routes_are_fleet_ok() {
+    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+    let run = "3f0b6c1e-8d2a-4c61-9d7e-0a1b2c3d4e5f";
+    for (method, path) in [
+        ("POST", format!("/api/{ws}/previews/runs")),
+        ("GET", format!("/api/{ws}/previews/runs")),
+        ("GET", format!("/api/{ws}/previews/runs/{run}")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path}"
+        );
+    }
+}
+
+/// Airway samples' sandbox sources are rows in Postgres (names, never secret
+/// values): reading and registering them stays on any replica, declared.
+#[test]
+fn preview_sources_routes_are_fleet_ok() {
+    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+    for method in ["GET", "PUT"] {
+        assert_eq!(
+            classify(method, &format!("/api/{ws}/previews/sources")),
+            RouteRole::FleetOk,
+            "{method} /previews/sources"
+        );
+    }
+    let declared: Vec<_> = dump_manifest()
+        .into_iter()
+        .filter(|(_, path, _)| path.ends_with("/previews/sources"))
+        .collect();
+    assert_eq!(
+        declared,
+        vec![(
+            "*",
+            "/api/{workspace_id}/previews/sources".to_string(),
+            RouteRole::FleetOk.as_str()
+        )],
+        "declared once, FleetOk"
+    );
+}
+
 /// The operational tier's three routes are Postgres-only and must stay
 /// HA. The read one is the interesting case: it also reads a process-local
 /// `OnceLock` to report what the answering replica installed. That is

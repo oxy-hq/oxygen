@@ -1,5 +1,6 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { previewRequestHeaders } from "@/libs/utils/preview";
 import type { UiBlock } from "@/services/api/analytics";
 import { AnalyticsService } from "@/services/api/analytics";
 
@@ -41,7 +42,8 @@ export function useBuilderDelegationEvents(
     fetchEventSource(url, {
       method: "GET",
       headers: {
-        Authorization: token ?? ""
+        Authorization: token ?? "",
+        ...previewRequestHeaders()
       },
       openWhenHidden: true,
       signal: controller.signal,

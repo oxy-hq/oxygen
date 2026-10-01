@@ -120,6 +120,28 @@ const ALLOWED_SEAMS: &[Seam] = &[
                sea-orm), as `build_pretty_url` moved to `oxy_shared`, rather than into \
                custom-apps, which would make admin depend on it.",
     },
+    Seam {
+        prefix: "crate::emails::app_emailer",
+        why: "the app emailer behind `ctx.email.send` (SES, the per-send recipient cap, the \
+               local-test preview). The function host always delivered through it — by an \
+               inline `crate::emails::app_emailer::AppEmailer` path this scan cannot see — and \
+               the environment policy now names it in a `use`: outside production \
+               `host/env_homes.rs` parses the send input and redirects it to the invoking user \
+               before delivery, and the test-only `env_policy/differential.rs` resolves the \
+               same redirect. Its only callers are custom apps, so at a Functions-crate cut it \
+               moves with the function runtime.",
+    },
+    Seam {
+        prefix: "crate::server::previews::sql_kind",
+        why: "the previews statement classifier (read vs write, failing closed on anything \
+               that does not parse). A non-production run holds its writes with it — \
+               `env_policy/oltp_sql.rs` sends production's OLTP one read and nothing else, \
+               `env_policy/destination_sql.rs` gates a mapped destination — so a workspace \
+               preview and a custom-app staging run cannot disagree about what a write is. \
+               A pure leaf over sqlparser, `agentic_connector::SqlDialect` and \
+               `airhouse::sql_rules`, no `AppState`: at a Functions-crate cut it moves DOWN \
+               into a crate both sides depend on.",
+    },
 ];
 
 /// Compute a file's module path (`crate::a::b`) from its path relative to `src/`.

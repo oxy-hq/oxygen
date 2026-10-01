@@ -85,12 +85,27 @@ const ALLOWED: &[(&str, &str)] = &[
          pass is the cost this avoids.",
     ),
     (
+        "src/agentic_wiring/preview_ctx.rs",
+        "Builds the workspace-preview platform's manager: reads the staging \
+         revision's compiled config and hands it to the builder as a provided \
+         config, because the builder's own load falls back to the working copy \
+         (and to an EMPTY config) on a miss. Resolving the `Origin` — there is no \
+         manager yet.",
+    ),
+    (
         "src/server/api/custom_apps_functions/preflight.rs",
         "Runs inside `oxy migrate`, before any server or manager exists, and takes \
          the `databases` key from the compiled config of every workspace that has \
          a live custom app — the promoted revision the serve fleet reads. Building \
          a workspace context per workspace in a deploy hook to learn a list of \
          names is the cost this avoids.",
+    ),
+    (
+        "src/server/api/custom_apps_nonproduction/mod.rs",
+        "Publish checks a build's `nonProduction.destinations` against the \
+         `databases` key of the promoted revision's compiled config; publish \
+         has no manager, and building one would read the node's working copy. \
+         The host re-checks every staging write against its manager's config.",
     ),
 ];
 

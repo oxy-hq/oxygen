@@ -92,6 +92,23 @@ pub struct ValidationContext {
     pub metadata: Option<ValidationContextMetadata>,
 }
 
+/// The prefix a workspace-preview run scopes every side-effecting name with
+/// (`preview:<run_id>:<name>`; `agentic_automation::preview_names`, which this
+/// platform crate may not import). A database named with it would let a preview
+/// run's scoped name resolve on a pod that does not know previews — the fence
+/// the prefix exists to be.
+pub const RESERVED_DATABASE_PREFIX: &str = "preview:";
+
+pub fn validate_database_name(name: &str, _: &ValidationContext) -> garde::Result {
+    if name.starts_with(RESERVED_DATABASE_PREFIX) {
+        return Err(garde::Error::new(format!(
+            "database name `{name}` must not start with `{RESERVED_DATABASE_PREFIX}`: \
+             the prefix is reserved for workspace previews"
+        )));
+    }
+    Ok(())
+}
+
 pub fn validate_database_exists(database_name: &str, context: &ValidationContext) -> garde::Result {
     let database = context.config.find_database(database_name);
     match database {
@@ -287,6 +304,19 @@ mod tests {
                 pre_aggregations: None,
             },
             metadata: None,
+        }
+    }
+
+    /// `preview:` names a workspace-preview run's scoped database; a real
+    /// database may not start with it (see `RESERVED_DATABASE_PREFIX`).
+    #[test]
+    fn a_database_name_cannot_start_with_preview() {
+        let ctx = create_test_context(PathBuf::new());
+        for bad in ["preview:", "preview:run:clickhouse"] {
+            assert!(validate_database_name(bad, &ctx).is_err(), "{bad}");
+        }
+        for ok in ["clickhouse", "preview", "previews", "my_preview:db"] {
+            assert!(validate_database_name(ok, &ctx).is_ok(), "{ok}");
         }
     }
 

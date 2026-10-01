@@ -27,6 +27,7 @@ pub mod preagg_promote;
 pub(super) mod preagg_rebuild;
 mod preagg_retract;
 mod preagg_workspace;
+pub mod previews;
 pub mod role_manifest;
 pub mod role_middleware;
 pub mod route_catalog;

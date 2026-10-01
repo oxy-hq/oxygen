@@ -124,13 +124,46 @@ pub fn parse_app_host(host: &str) -> Option<ParsedAppHost> {
     })
 }
 
-/// `(org_slug, app_slug)` for a **production** custom-app host; `None` for every
-/// other host, including environment-prefixed ones. The existing callers (serve,
-/// health, shell context) route production only until Phase 1b makes them
-/// environment-aware.
+/// `(org_slug, app_slug)` for a custom-app host **of any environment**; `None`
+/// for every other host. The rewrite, the login bounce and the serve plane's
+/// "on a subdomain?" all need the app, and the environment is read separately
+/// ([`crate::custom_app_env_request::request_environment`]) where it matters.
 pub fn parse_subdomain(host: &str) -> Option<(String, String)> {
     let parsed = parse_app_host(host)?;
-    (parsed.environment == AppEnvironment::Production).then_some((parsed.org_slug, parsed.app_slug))
+    Some((parsed.org_slug, parsed.app_slug))
+}
+
+/// A DNS label is at most 63 bytes. An environment whose `<env>--<org>--<slug>`
+/// label would be longer has no host (spec §3.2).
+pub const MAX_HOST_LABEL_LEN: usize = 63;
+
+/// The first host label of `environment` of app `org_slug/app_slug`, or `None`
+/// when it would not fit in a DNS label.
+pub fn environment_host_label(
+    environment: &AppEnvironment,
+    org_slug: &str,
+    app_slug: &str,
+) -> Option<String> {
+    let label = match environment {
+        AppEnvironment::Production => format!("{org_slug}--{app_slug}"),
+        other => format!("{other}--{org_slug}--{app_slug}"),
+    };
+    (label.len() <= MAX_HOST_LABEL_LEN).then_some(label)
+}
+
+/// The absolute URL of an app environment's host, e.g.
+/// `https://staging--acme--store.customer-apps.oxygen-hq.com/`. `None` when the
+/// zone cannot be derived (see [`subdomain_url_for`]) or the label would exceed
+/// [`MAX_HOST_LABEL_LEN`] — that environment is then reachable only by the path
+/// URL with an explicit credential.
+pub fn environment_url_for(
+    environment: &AppEnvironment,
+    org_slug: &str,
+    app_slug: &str,
+) -> Option<String> {
+    let label = environment_host_label(environment, org_slug, app_slug)?;
+    let zone = custom_apps_zone()?;
+    Some(format!("https://{label}.{zone}/"))
 }
 
 /// Build the absolute subdomain URL for an app, e.g.
@@ -742,18 +775,85 @@ mod tests {
         );
     }
 
+    /// Phase 1b routes every environment's host to its app; which environment
+    /// it is gets read separately, where it matters.
     #[test]
-    fn parse_subdomain_sees_only_production_hosts() {
+    fn parse_subdomain_routes_every_environment_to_its_app() {
         assert_eq!(
             parse_subdomain("acme--store.customer-apps.oxygen-hq.com"),
             Some(("acme".into(), "store".into()))
         );
-        // Before this change this parsed as org `staging`, slug `acme--store`, which
-        // is not a valid app slug and so already 404'd downstream. It now stays
-        // unrouted until Phase 1b resolves environments.
         assert_eq!(
             parse_subdomain("staging--acme--store.customer-apps.oxygen-hq.com"),
-            None
+            Some(("acme".into(), "store".into()))
+        );
+        assert_eq!(
+            parse_subdomain("dev-luong--acme--store.customer-apps.oxygen-hq.com"),
+            Some(("acme".into(), "store".into()))
+        );
+        assert_eq!(
+            parse_subdomain("qa--acme--store.customer-apps.oxygen-hq.com"),
+            None,
+            "an unknown environment is not a host"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_staging_host_is_rewritten_to_its_apps_path() {
+        use axum::http::Request;
+        use axum::{Router, body::Body, routing::any};
+        use tower::{Layer, ServiceExt};
+
+        async fn echo(uri: axum::http::Uri) -> String {
+            uri.path().to_string()
+        }
+        let inner = Router::new().route("/customer-apps/{*path}", any(echo));
+        let svc = axum::middleware::from_fn(subdomain_rewrite_middleware).layer(inner);
+        let req = Request::builder()
+            .uri("/assets/app.js")
+            .header("host", "staging--acme--store.customer-apps.oxygen-hq.com")
+            .body(Body::empty())
+            .unwrap();
+        let resp = svc.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        assert_eq!(&body[..], b"/customer-apps/acme/store/assets/app.js");
+    }
+
+    #[test]
+    fn an_environment_whose_label_exceeds_63_bytes_has_no_host() {
+        let _g = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var("OXY_API_URL", "https://app.oxygen-hq.com/api");
+        }
+        let staging_url = environment_url_for(&AppEnvironment::Staging, "acme", "store");
+        // 63 bytes exactly fits; one more does not.
+        let org = "o".repeat(63 - "staging----store".len());
+        let at_limit = environment_url_for(&AppEnvironment::Staging, &org, "store");
+        let over = environment_url_for(&AppEnvironment::Staging, &format!("{org}x"), "store");
+        let production = environment_url_for(&AppEnvironment::Production, &org, "store");
+        unsafe {
+            std::env::remove_var("OXY_API_URL");
+        }
+        assert_eq!(
+            staging_url.as_deref(),
+            Some("https://staging--acme--store.customer-apps.oxygen-hq.com/")
+        );
+        assert!(at_limit.is_some(), "a 63-byte label is a valid host");
+        assert_eq!(over, None, "a 64-byte label is not");
+        assert!(
+            production.is_some(),
+            "production's label is shorter, so the same app still has a production host"
+        );
+        assert_eq!(
+            environment_host_label(
+                &AppEnvironment::Dev {
+                    handle: "abcdefghijkl".into()
+                },
+                "acme",
+                "store"
+            )
+            .as_deref(),
+            Some("dev-abcdefghijkl--acme--store")
         );
     }
 }

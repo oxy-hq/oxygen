@@ -330,7 +330,7 @@ fn urlencode(s: &str) -> String {
 #[async_trait]
 impl DatabaseConnector for MysqlConnector {
     fn dialect(&self) -> SqlDialect {
-        SqlDialect::Other("MySQL")
+        SqlDialect::MYSQL
     }
 
     #[tracing::instrument(

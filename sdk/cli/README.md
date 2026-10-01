@@ -181,6 +181,8 @@ Staff can see and request an org's transactional Postgres — the store behind
 ```bash
 oxyc oltp status [--org <slug|uuid|url>] [--json]
 oxyc oltp provision --org <slug|uuid|url> --writer app:<slug> [--writer pipeline:<source> …] [--yes] [--json]
+oxyc oltp provision --org <slug|uuid|url> --branch staging [--yes] [--json]
+oxyc oltp reset --org <slug|uuid|url> --branch staging [--yes] [--json]
 ```
 
 `status` lists every org, with a database or without; with `--org` it shows
@@ -193,6 +195,15 @@ derived the way the platform derives `ctx.oltp`'s schema (`app:store-ops` →
 `app:store_ops`, schema `app_store_ops`); `pipeline:<source>` names
 `raw_<source>`. A 404 can be an org outside your staff grant's scope, and an
 active `assume` session closes `/admin`.
+
+`--branch staging` also cuts the org's **staging branch**: one copy of the whole
+database per org, which every app's staging environment writes to. It is made
+only by this flag — never by a publish — and re-running it mints whatever a
+writer added since the cut needs, without resetting anyone's data. `status`
+shows its age and calls it stale past 30 days; nothing resets it on a timer.
+`reset --branch staging` re-copies it from production, discarding every app's
+staging data in the org, so it lists those apps and asks first (`--yes`
+without a terminal).
 
 ## Customer workspaces
 

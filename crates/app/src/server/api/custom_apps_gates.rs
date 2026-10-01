@@ -374,13 +374,15 @@ pub async fn check_custom_app_gates(
         ));
     }
 
-    // Staging: the draft build's semantic pin, decided by the same cookie +
-    // `DevelopApps` reach the serve path uses to pick the draft bundle. After
-    // the access decision, so it can only narrow WHICH revision an already
-    // authorized request reads, never whether it may read.
+    // Staging: the staging build's semantic pin, for a request on the app's
+    // staging host or carrying the preview cookie, decided by the same reach
+    // rule that serves that viewer the staging bundle. After the access
+    // decision, so it can only narrow WHICH revision an already authorized
+    // request reads, never whether it may read.
     let staging_pin = crate::server::api::custom_apps_staging_pin::staging_pin_for_data_request(
         &db,
         headers,
+        user.id,
         user.email.as_deref().unwrap_or(""),
         project_id,
     )

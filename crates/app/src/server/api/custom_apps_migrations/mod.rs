@@ -19,8 +19,10 @@
 //!
 //! # The guarantee
 //!
-//! A migration runs **exactly once per app, ever**, recorded in
-//! `custom_app_migrations`. Re-running is a no-op *by construction* — the
+//! A migration runs **exactly once per app and target, ever**, recorded in
+//! `custom_app_migrations` (a target is one database of a store: production
+//! today, a non-production branch or schema under the environments design —
+//! [`MigrationTarget`]). Re-running is a no-op *by construction* — the
 //! ledger is consulted, not the SQL's own defensiveness — so an author who
 //! forgets `IF NOT EXISTS` gets the same answer as one who remembers.
 //!
@@ -82,13 +84,28 @@
 //! * [`airhouse`] — the same ledger for `airhouseMigrations`, against the app's
 //!   schema in its workspace's Airhouse, where every file is also checked
 //!   against the schema and DuckLake's rules (no keys, `UNIQUE`, indexes).
+//! * [`airhouse_home`] — which schema an Airhouse apply writes and which
+//!   target records it: production's `app_<writer>`, or a non-production
+//!   environment's sibling `app_<writer>__<env>` under `schema:<sibling>`.
+//! * [`branch`] — the same files on the org's OLTP staging branch, on every
+//!   publish, recorded under `branch:<provider id>`; a failure there warns and
+//!   never fails the publish (previews P4b).
 
 mod airhouse;
+mod airhouse_home;
 mod apply;
+mod branch;
 mod plan;
 mod types;
 
-pub(super) use airhouse::apply_airhouse_on_promote;
+pub(super) use airhouse::{AirhouseRun, apply_airhouse_on_promote, apply_airhouse_to_environment};
+pub use airhouse::{airhouse_lock_key, apply_airhouse_over, apply_airhouse_over_until};
+pub use airhouse_home::AirhouseHome;
 pub(super) use apply::apply_on_promote;
-pub(super) use plan::{declare, declare_airhouse};
-pub use types::MigrationError;
+pub use apply::read_ledger;
+#[doc(hidden)]
+pub use branch::apply_to_resolved_branch;
+pub(super) use branch::{apply_to_staging_branch, branch_warning};
+pub(super) use plan::declare;
+pub use plan::declare_airhouse;
+pub use types::{Applied, DeclaredMigration, MigrationError, MigrationTarget};

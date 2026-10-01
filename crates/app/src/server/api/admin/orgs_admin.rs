@@ -689,6 +689,11 @@ pub async fn delete_org(
     let db = establish_connection().await.map_err(internal)?;
     // Scope: a bounded grant must not reach this org. See `admin::scope`.
     scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    // The OLTP staging branch — a copy of the org's data — before the cascade
+    // takes the row that names it. ONLY the branch: tearing down production
+    // OLTP from here is not in this change (the delete below can still 409 on
+    // an FK and leave the org alive). A no-op for an org without a branch.
+    crate::server::api::organizations::delete_org_oltp_branches(&db, org_id).await;
     let res = organizations::Entity::delete_by_id(org_id)
         .exec(&db)
         .await
@@ -1070,6 +1075,32 @@ fn plan_owner_transfer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The staff org delete removes the OLTP staging branch and nothing of
+    /// production. A full teardown here runs under `PlatformOrgs` rather than
+    /// the OLTP capability, writes no audit row, and precedes a row delete that
+    /// can still 409 — leaving a live org whose database is gone. The
+    /// provisioner half (`delete_branches` keeps the tenant) is pinned in
+    /// `tests/platform/oltp_branches_teardown.rs`.
+    #[test]
+    fn staff_org_delete_removes_only_the_staging_branch() {
+        let src = include_str!("orgs_admin.rs");
+        let body = src
+            .split_once("pub async fn delete_org(")
+            .expect("delete_org is here")
+            .1
+            .split("\n}\n")
+            .next()
+            .unwrap_or_default();
+        assert!(
+            body.contains("delete_org_oltp_branches(&db, org_id)"),
+            "the staging branch must go with the org"
+        );
+        assert!(
+            !body.contains("deprovision"),
+            "production OLTP teardown is not this path's (not in this change)"
+        );
+    }
 
     #[test]
     fn status_label_covers_all_variants() {

@@ -35,6 +35,22 @@ const DEFAULT_INTERVAL_SECS: u64 = 300; // 5 min
 /// tick continues where this one stopped.
 const DELETE_BATCH: i64 = 1000;
 
+/// The retention rule — what keeps a revision alive against **every** delete,
+/// the periodic sweep below and an owner releasing its own revisions early (a
+/// deleted or refreshed workspace preview, `previews::revisions`) alike:
+///
+/// * a workspace serves it (`workspaces.current_revision_id`), or
+/// * a custom-app build pins it (`app_builds.semantic_revision_id`, the staging
+///   pin — "never delete a revision a build pins").
+///
+/// A SQL predicate over `revisions r`; a delete keeps every row it matches. One
+/// statement of the rule, so an early release can never be looser than retention.
+pub const REVISION_IN_USE: &str = "(EXISTS ( \
+         SELECT 1 FROM workspaces w WHERE w.current_revision_id = r.revision_id \
+     ) OR EXISTS ( \
+         SELECT 1 FROM app_builds b WHERE b.semantic_revision_id = r.revision_id \
+     ))";
+
 #[derive(Clone, Copy, Debug)]
 pub struct CompileMaintenanceConfig {
     pub interval: Duration,
@@ -132,21 +148,16 @@ async fn reap_stuck_compiles(db: &DatabaseConnection, timeout_secs: u64) {
 /// keep-last-N per app — the pin is released when its build is.
 pub async fn prune_old_revisions(db: &DatabaseConnection, retention_days: u64) {
     let secs = retention_days as i64 * 86_400;
-    let sql = "DELETE FROM revisions \
-               WHERE revision_id IN ( \
-                   SELECT r.revision_id FROM revisions r \
-                   WHERE r.finished_at IS NOT NULL \
-                     AND r.finished_at < now() - ($1::bigint * interval '1 second') \
-                     AND NOT EXISTS ( \
-                         SELECT 1 FROM workspaces w \
-                         WHERE w.current_revision_id = r.revision_id \
-                     ) \
-                     AND NOT EXISTS ( \
-                         SELECT 1 FROM app_builds b \
-                         WHERE b.semantic_revision_id = r.revision_id \
-                     ) \
-                   LIMIT $2 \
-               )";
+    let sql = format!(
+        "DELETE FROM revisions \
+         WHERE revision_id IN ( \
+             SELECT r.revision_id FROM revisions r \
+             WHERE r.finished_at IS NOT NULL \
+               AND r.finished_at < now() - ($1::bigint * interval '1 second') \
+               AND NOT {REVISION_IN_USE} \
+             LIMIT $2 \
+         )"
+    );
     match db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

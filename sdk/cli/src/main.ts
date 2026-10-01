@@ -29,6 +29,7 @@ import { runGuide } from "./commands/guide.js";
 import { runInitCi } from "./commands/init-ci.js";
 import { runLaunch } from "./commands/launch.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
+import { runOltpReset } from "./commands/oltp-branch.js";
 import { runProxy } from "./commands/proxy.js";
 import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
@@ -311,7 +312,9 @@ function buildProgram(): Command {
 
   const oltp = program
     .command("oltp")
-    .description("an org's OLTP database (ctx.oltp) — status, and provisioning, for staff");
+    .description(
+      "an org's OLTP database (ctx.oltp) — status, provisioning and its staging branch, for staff"
+    );
 
   withGlobals(
     oltp
@@ -332,6 +335,10 @@ function buildProgram(): Command {
       .description("create or reconcile an org's OLTP database and writers — a billable resource")
       // `--org` comes from `withGlobals`, as it does for `assume`.
       .option("--writer <app:slug|pipeline:source>", "a writer to ensure (repeatable)", collect, [])
+      .option(
+        "--branch <staging>",
+        "also cut the org's staging branch of the database (one per org; manual by design)"
+      )
       .option("--yes", "provision without asking")
       .option("--json", "emit the server's response")
   ).action(async (opts: Record<string, unknown>) => {
@@ -339,8 +346,29 @@ function buildProgram(): Command {
       createContext(globals(opts)),
       opts.org as string | undefined,
       opts.writer as string[],
-      { yes: opts.yes as boolean | undefined, json: opts.json as boolean | undefined }
+      {
+        yes: opts.yes as boolean | undefined,
+        json: opts.json as boolean | undefined,
+        branch: opts.branch as string | undefined
+      }
     );
+  });
+
+  withGlobals(
+    oltp
+      .command("reset")
+      .description(
+        "re-copy an org's staging branch from production — discards every app's staging data"
+      )
+      .option("--branch <staging>", "the branch to reset (required; production is never reset)")
+      .option("--yes", "reset without asking")
+      .option("--json", "emit the server's response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runOltpReset(createContext(globals(opts)), opts.org as string | undefined, {
+      branch: opts.branch as string | undefined,
+      yes: opts.yes as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
   });
 
   withGlobals(

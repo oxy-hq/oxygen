@@ -25,8 +25,9 @@ pub struct Project {
     pub name: String,
     pub region_id: String,
     pub pg_version: u8,
-    /// The default branch. Oxy pins to this one; per-branch databases (the
-    /// mapping onto Oxy's git branches) are a later slice.
+    /// The default branch — production. Oxy's other branches (the org's
+    /// staging branch) are [`ProjectBranch`]es cut from it and recorded in
+    /// `oltp_branches`, never here.
     pub branch: Branch,
     pub database: DatabaseInfo,
     /// Role that owns the database. Its password is disclosed only at project
@@ -68,6 +69,51 @@ impl Role {
             password: None,
         }
     }
+}
+
+/// What to branch, and from where. Shared by `create_branch` and
+/// `reset_branch`, which need the same four facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BranchRequest {
+    pub project_id: String,
+    /// The branch the copy is cut from — the tenant's production branch.
+    pub parent_branch_id: String,
+    /// Provider-visible branch name. Derived from the branch kind
+    /// (`oxy-staging`), never chosen, which is what makes adopting an existing
+    /// branch of the same name an identity match rather than a coincidence.
+    pub name: String,
+    /// The tenant database the branch carries a copy of.
+    pub database_name: String,
+    /// The role that owns that database. On a provider that gives the branch
+    /// its own copy of every role, this is the one whose password is reset on
+    /// the branch, so production's owner credential stops opening it.
+    pub owner_role: String,
+}
+
+/// A copy-on-write branch of a tenant's database, cut from production's head.
+///
+/// Same data, same schemas and the same role *names* as production, on a
+/// different endpoint — which is the whole contract a caller relies on: point
+/// the connection at [`Self::host`] / [`Self::database`] and every `app_<slug>`
+/// schema is where it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectBranch {
+    /// Provider-side branch id. On `LocalProvider` it is the branch database's
+    /// name.
+    pub id: String,
+    pub name: String,
+    pub parent_id: String,
+    /// Hostname clients connect to — the branch's own endpoint.
+    pub host: String,
+    pub database: DatabaseInfo,
+    /// The owner on the branch.
+    ///
+    /// `password` is `Some` when this call minted a branch-only credential
+    /// (Neon: reset on the branch, so the production owner password no longer
+    /// opens it and this one never opens production), and `None` when the
+    /// branch shares the project's roles — `LocalProvider`, where roles are
+    /// cluster-global and resetting one would rotate production's too.
+    pub owner_role: Role,
 }
 
 impl Project {

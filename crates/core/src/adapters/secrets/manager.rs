@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 use crate::{
@@ -13,12 +16,15 @@ use oxy_shared::errors::OxyError;
 #[derive(Debug, Clone)]
 pub struct SecretsManager {
     storage: SecretsStorageImpl,
+    /// Names this manager must never resolve or write — see [`Self::withholding`].
+    withheld: Option<Arc<HashSet<String>>>,
 }
 
 impl SecretsManager {
     pub fn from_environment() -> Result<Self, OxyError> {
         Ok(SecretsManager {
             storage: SecretsStorageImpl::EnvironmentStorage(SecretsEnvironmentStorage {}),
+            withheld: None,
         })
     }
 
@@ -26,6 +32,7 @@ impl SecretsManager {
         let secrets_database_storage = SecretsDatabaseStorage::new(secret_manager);
         Ok(SecretsManager {
             storage: SecretsStorageImpl::DatabaseStorage(secrets_database_storage),
+            withheld: None,
         })
     }
 
@@ -37,10 +44,42 @@ impl SecretsManager {
         let db_storage = SecretsDatabaseStorage::new(secret_manager);
         Ok(SecretsManager {
             storage: SecretsStorageImpl::FallbackStorage(SecretsFallbackStorage::new(db_storage)),
+            withheld: None,
         })
     }
 
+    /// This manager, except that every name in `names` resolves to nothing and
+    /// cannot be written. For a context that runs a workspace's code but must
+    /// not reach one of its credentials — a workspace preview holding
+    /// production's rotate-on-use tokens. Every read in the workspace (a
+    /// database `*_var`, an LLM `key_var`, a header `env_var`) goes through
+    /// [`Self::resolve_secret`], so one gate here covers them; a caller with its
+    /// own environment fallback asks [`Self::withholds`] first.
+    pub fn withholding(mut self, names: HashSet<String>) -> Self {
+        self.withheld = Some(Arc::new(names));
+        self
+    }
+
+    /// Whether `secret_name` is withheld from this manager.
+    pub fn withholds(&self, secret_name: &str) -> bool {
+        self.withheld
+            .as_ref()
+            .is_some_and(|w| w.contains(secret_name))
+    }
+
+    fn refuse_withheld(&self, secret_name: &str) -> Result<(), OxyError> {
+        if self.withholds(secret_name) {
+            return Err(OxyError::SecretManager(format!(
+                "`{secret_name}` is withheld from this context"
+            )));
+        }
+        Ok(())
+    }
+
     pub async fn resolve_secret(&self, secret_name: &str) -> Result<Option<String>, OxyError> {
+        if self.withholds(secret_name) {
+            return Ok(None);
+        }
         self.storage.resolve_secret(secret_name).await
     }
 
@@ -50,6 +89,7 @@ impl SecretsManager {
         secret_value: &str,
         created_by: Uuid,
     ) -> Result<(), OxyError> {
+        self.refuse_withheld(secret_name)?;
         self.storage
             .create_secret(secret_name, secret_value, created_by)
             .await
@@ -64,12 +104,14 @@ impl SecretsManager {
         secret_value: &str,
         updated_by: Uuid,
     ) -> Result<(), OxyError> {
+        self.refuse_withheld(secret_name)?;
         self.storage
             .upsert_secret(secret_name, secret_value, updated_by)
             .await
     }
 
     pub async fn remove_secret(&self, secret_name: &str) -> Result<(), OxyError> {
+        self.refuse_withheld(secret_name)?;
         self.storage.remove_secret(secret_name).await
     }
 
@@ -123,5 +165,45 @@ impl SecretsManager {
             "{} or {}_var must be specified",
             field_name, field_name
         )))
+    }
+}
+
+#[cfg(test)]
+mod withholding_tests {
+    use super::*;
+
+    /// A withheld name resolves to nothing — directly and through
+    /// `resolve_config_value` (a database `password_var`) — and cannot be
+    /// written; every other name is untouched.
+    #[tokio::test]
+    async fn a_withheld_name_neither_resolves_nor_writes() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var("S9_WITHHELD_TOKEN", "secret");
+            std::env::set_var("S9_ORDINARY_TOKEN", "fine");
+        }
+        let sm = SecretsManager::from_environment()
+            .unwrap()
+            .withholding(HashSet::from(["S9_WITHHELD_TOKEN".to_string()]));
+        assert!(sm.withholds("S9_WITHHELD_TOKEN"));
+        assert_eq!(sm.resolve_secret("S9_WITHHELD_TOKEN").await.unwrap(), None);
+        assert!(
+            sm.resolve_config_value(None, Some("S9_WITHHELD_TOKEN"), "password", None)
+                .await
+                .is_err()
+        );
+        assert!(
+            sm.upsert_secret("S9_WITHHELD_TOKEN", "x", Uuid::nil())
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            sm.resolve_secret("S9_ORDINARY_TOKEN")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("fine"),
+            "the control resolves"
+        );
     }
 }

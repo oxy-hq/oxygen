@@ -19,13 +19,41 @@
 //! - **`rest`** feature — Axum handlers for
 //!   `/airhouse/me/{connection,credentials,provision,tokens/:username}`.
 //!   Requires `admin`.
+//! - **`sql-rules`** feature — what SQL a custom app may send to its own
+//!   schema (`sql_rules`).
+//! - **`preview-sql`** feature — implies `sql-rules`. The AST rewrite and the
+//!   independent verifier that keep a workspace preview's Airhouse writes in
+//!   `preview_<key>__<schema>` (`preview_sql`).
 
 #[cfg(feature = "connector")]
 pub mod connector;
 
+/// The schemas a custom app owns, and how a non-production environment's
+/// sibling of one is named — pure, so every feature can hide the siblings.
+pub mod app_schema;
+
 /// The SQL a custom app may send to its own Airhouse schema.
 #[cfg(feature = "sql-rules")]
 pub mod sql_rules;
+
+/// An app's statement moved from its own schema to a non-production sibling,
+/// checked against both.
+#[cfg(feature = "sql-rules")]
+pub mod sql_retarget;
+
+/// How SQL is parsed wherever a check depends on it: tokenized once, refused
+/// when nested too deep, and parsed on a stack that holds the tree.
+#[cfg(feature = "sql-rules")]
+pub mod sql_parse;
+
+/// An upper bound on a statement's tree depth, read from its tokens.
+#[cfg(feature = "sql-rules")]
+mod sql_depth;
+
+/// The rewrite and verifier that keep a workspace preview's Airhouse writes in
+/// the preview's own schemas.
+#[cfg(feature = "preview-sql")]
+pub mod preview_sql;
 
 #[cfg(feature = "credentials")]
 pub mod entity;
@@ -74,9 +102,9 @@ pub use broker::{
 #[cfg(feature = "admin")]
 pub use config::{
     AIRHOUSE_ADMIN_TOKEN_VAR, AIRHOUSE_ANALYTICS_WIRE_HOST_VAR, AIRHOUSE_ANALYTICS_WIRE_PORT_VAR,
-    AIRHOUSE_BASE_URL_VAR, AIRHOUSE_WIRE_HOST_VAR, AIRHOUSE_WIRE_PORT_VAR, AirhouseConfig,
-    AirhouseRuntimeConfig, LOCAL_ORG_ID, REQUIRED_VARS, WireEndpoint, analytics_wire_endpoint,
-    provisioner_for, token_broker, wire_endpoint,
+    AIRHOUSE_BASE_URL_VAR, AIRHOUSE_CATALOG_VAR, AIRHOUSE_WIRE_HOST_VAR, AIRHOUSE_WIRE_PORT_VAR,
+    AirhouseConfig, AirhouseRuntimeConfig, LOCAL_ORG_ID, REQUIRED_VARS, WireEndpoint,
+    analytics_wire_endpoint, ducklake_catalog, provisioner_for, token_broker, wire_endpoint,
 };
 
 #[cfg(feature = "admin")]

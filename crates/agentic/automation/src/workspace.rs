@@ -10,6 +10,7 @@ use std::sync::{Arc, RwLock};
 use agentic_connector::DatabaseConnector;
 
 use crate::refresh_key_cache::RefreshKeyCache;
+pub use crate::review::{HttpReview, SqlReview};
 
 /// Why a workspace read failed, when the caller has to tell the two apart.
 ///
@@ -210,6 +211,24 @@ pub trait WorkspaceContext: Send + Sync {
     /// only hosts with real secret storage allow it.
     async fn store_secret(&self, _name: &str, _value: &str) -> Result<(), String> {
         Err("secret persistence is not supported in this context".to_string())
+    }
+
+    /// Review an `execute_sql` step's SQL — rendered, exactly as it would run —
+    /// before any connector is built for `database`.
+    ///
+    /// Defaults to [`SqlReview::Proceed`], and every production host keeps the
+    /// default: the only override is the workspace-preview platform, which holds
+    /// writes (see [`SqlReview`]). `Err` fails the step; a host that cannot
+    /// decide must never fall back to running the SQL.
+    async fn review_sql(&self, _database: &str, _sql: &str) -> Result<SqlReview, String> {
+        Ok(SqlReview::Proceed)
+    }
+
+    /// Review an `http_request` step — method upper-cased, URL rendered —
+    /// before the request is built. Defaults to [`HttpReview::Proceed`]; see
+    /// [`Self::review_sql`] for who overrides it.
+    async fn review_http(&self, _method: &str, _url: &str) -> HttpReview {
+        HttpReview::Proceed
     }
 
     async fn list_automation_files(&self) -> Result<Vec<PathBuf>, String>;

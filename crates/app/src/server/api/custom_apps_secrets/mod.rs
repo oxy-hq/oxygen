@@ -38,38 +38,44 @@
 //!
 //! All of it is Postgres-only (no workspace FS, no git), so every route is
 //! `FleetOk`.
+//!
+//! # Environments
+//!
+//! Every route takes an optional environment — `environment` in the POST body,
+//! `?environment=` on the others — and acts on that environment's path
+//! (`scope`): production's `apps/<app_id>/<KEY>` by default, staging's
+//! `apps/<app_id>/staging/<KEY>` for staff only ([`environment::authorize`],
+//! oxy-authz `AppNonProduction`). A view lists that environment's keys alone,
+//! reconciled against the build that environment serves; in staging a `shared`
+//! key with no staging value reads as inherited from production, not missing.
 
 pub(crate) mod declared;
+pub mod environment;
+mod ops;
+pub(crate) mod scope;
+pub(crate) mod shared_env;
 
 use axum::Json;
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use entity::{app_builds, app_functions, apps};
 use oxy::database::client::establish_connection;
 use oxy::service::secret_manager::SecretManagerService;
-use oxy_app_core::audit;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_auth::types::AuthenticatedUser;
 use oxy_server_authz::role_guards::WorkspaceAdmin;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use declared::{AppSecretEntry, StoredSecret};
+use environment::EnvironmentQuery;
 
-/// Whether a submitted value would land as the empty string.
-///
-/// Split out and named so the trim is pinned by a test rather than by a reader
-/// noticing it — the bug this replaced was a bare `is_empty()`, which looks
-/// correct until you read `sanitize_secret_value` two crates away.
-fn is_blank(value: &str) -> bool {
-    value.trim().is_empty()
-}
-
-/// Storage-name prefix for one app's secrets. The single definition — every
-/// read strips it and every write is built from it, so the two can't drift.
-fn prefix_for(app_id: Uuid) -> String {
-    format!("apps/{app_id}/")
+/// Storage-name prefix for one app's secrets in `environment`. The single
+/// definition (`scope`) — every read strips it and every write is built from
+/// it, so the two can't drift.
+fn prefix_for(app_id: Uuid, environment: &AppEnvironment) -> String {
+    scope::secret_prefix(app_id, environment)
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
@@ -79,6 +85,8 @@ pub struct AppSecretsResponse {
     pub app_id: Uuid,
     pub app_slug: String,
     pub app_name: String,
+    /// The environment whose secrets these are (`production` / `staging`).
+    pub environment: String,
     /// Declared ∪ stored, action-first. See [`declared::reconcile`].
     pub entries: Vec<AppSecretEntry>,
     /// Count of `required` keys with nothing stored — the badge the UI shows on
@@ -103,6 +111,10 @@ pub struct SetSecretRequest {
     /// inside its own namespace.
     pub key: String,
     pub value: String,
+    /// `production` (the default) or `staging` — staff only
+    /// ([`environment::authorize`]).
+    #[serde(default)]
+    pub environment: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -166,11 +178,21 @@ fn scoped_to_workspace(app: apps::Model, workspace_id: Uuid) -> Result<apps::Mod
 
 // ── Core operations ──────────────────────────────────────────────────────────
 
-/// The build whose declarations are in force: published, else draft. Matches how
-/// `list_functions` and the storage sweeper pick a manifest — the declarations
-/// have to come from the same build as the code that reads them.
-fn declaring_build(app: &apps::Model) -> Option<Uuid> {
-    app.published_build_id.or(app.draft_build_id)
+/// The build whose declarations are in force in `environment`: for
+/// production, production's, else staging's for an app never promoted; for
+/// staging, staging's. Matches how `/fn` and the storage sweeper pick a
+/// manifest — the declarations have to come from the same build as the code
+/// that reads them — so it asks the same resolver
+/// (`custom_apps_env_resolve::resolve_function_environment`).
+async fn declaring_build(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+) -> Result<Option<Uuid>, String> {
+    crate::server::api::custom_apps_env_resolve::resolve_function_environment(db, app, environment)
+        .await
+        .map(|resolved| resolved.build_id)
+        .map_err(|e| e.to_string())
 }
 
 /// What the active build declares, plus why the answer might be incomplete.
@@ -184,6 +206,8 @@ struct Declarations {
     /// block, or a query that failed.
     error: Option<String>,
     build_id: Option<String>,
+    /// The declaring build's manifest, for the `shared` overlay.
+    manifest: Option<serde_json::Value>,
 }
 
 impl Declarations {
@@ -193,6 +217,7 @@ impl Declarations {
             keys: Default::default(),
             error: None,
             build_id: None,
+            manifest: None,
         }
     }
 
@@ -209,13 +234,23 @@ impl Declarations {
                  already stored is listed below."
             )),
             build_id: None,
+            manifest: None,
         }
     }
 }
 
-async fn build_declarations(db: &DatabaseConnection, app: &apps::Model) -> Declarations {
-    let Some(build_pk) = declaring_build(app) else {
-        return Declarations::none();
+async fn build_declarations(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    environment: &AppEnvironment,
+) -> Declarations {
+    let build_pk = match declaring_build(db, app, environment).await {
+        Ok(Some(build_pk)) => build_pk,
+        Ok(None) => return Declarations::none(),
+        Err(e) => {
+            tracing::error!(app_id = %app.id, "environment lookup failed: {e}");
+            return Declarations::unreadable("its environments could not be read");
+        }
     };
 
     let build = match app_builds::Entity::find_by_id(build_pk).one(db).await {
@@ -249,17 +284,21 @@ async fn build_declarations(db: &DatabaseConnection, app: &apps::Model) -> Decla
     Declarations {
         keys: declared::merge_declared(env, declared::webhook_secret_vars(fn_manifests.iter())),
         error: manifest_error,
+        manifest: build.as_ref().and_then(|b| b.manifest_json.clone()),
         build_id: build.map(|b| b.build_id),
     }
 }
 
-/// Everything stored under this app's prefix, keys bared and attributed.
+/// Everything stored directly under this app's prefix in `environment`, keys
+/// bared and attributed. Directly: production's view never lists staging's
+/// `staging/KEY`, the rule `ctx.env` follows too.
 async fn stored_secrets(
     db: &DatabaseConnection,
     app: &apps::Model,
+    environment: &AppEnvironment,
 ) -> Result<Vec<StoredSecret>, Failure> {
     let manager = SecretManagerService::new(app.project_id);
-    let prefix = prefix_for(app.id);
+    let prefix = prefix_for(app.id, environment);
 
     let rows = manager.list_secrets(db).await.map_err(|e| {
         tracing::error!(app_id = %app.id, "listing secrets failed: {e}");
@@ -273,7 +312,7 @@ async fn stored_secrets(
         .into_iter()
         .filter_map(|s| {
             let key = s.name.strip_prefix(&prefix)?.to_string();
-            Some((key, s))
+            (!key.is_empty() && !key.contains('/')).then_some((key, s))
         })
         .collect();
 
@@ -300,148 +339,45 @@ async fn stored_secrets(
         .collect())
 }
 
-async fn view(db: &DatabaseConnection, app: apps::Model) -> Result<AppSecretsResponse, Failure> {
-    let stored = stored_secrets(db, &app).await?;
-    let declarations = build_declarations(db, &app).await;
-    let entries = declared::reconcile(declarations.keys, stored);
+async fn view(
+    db: &DatabaseConnection,
+    app: apps::Model,
+    environment: &AppEnvironment,
+) -> Result<AppSecretsResponse, Failure> {
+    let stored = stored_secrets(db, &app, environment).await?;
+    let declarations = build_declarations(db, &app, environment).await;
+    let mut entries = declared::reconcile(declarations.keys, stored);
+    environment::mark_inherited(
+        db,
+        &app,
+        environment,
+        declarations.manifest.as_ref(),
+        &mut entries,
+    )
+    .await;
     Ok(AppSecretsResponse {
         missing_required: entries.iter().filter(|e| e.is_missing_required()).count(),
         app_id: app.id,
         app_slug: app.slug,
         app_name: app.name,
+        environment: environment.name(),
         entries,
         declaring_build_id: declarations.build_id,
         declaration_error: declarations.error,
     })
 }
 
-async fn set(
-    db: &DatabaseConnection,
-    app: &apps::Model,
-    body: SetSecretRequest,
-    actor: Uuid,
-) -> Result<StatusCode, Failure> {
-    let key = body.key.trim().to_string();
-    // `trim()`, not `is_empty()`. An empty value resolves to an empty
-    // `ctx.env.KEY`, which reads as "configured" everywhere downstream while
-    // behaving like unset — the `usable_secret` / `timingSafeEqual` footguns
-    // both start here, and for a `webhook.secretVar` it means verifying an HMAC
-    // against an empty key instead of answering 401 with a nameable cause.
-    //
-    // A whitespace-only value is that same state wearing a disguise:
-    // `sanitize_secret_value` tests emptiness BEFORE it trims and then stores
-    // the trimmed string, so `" "` clears both its check and a bare
-    // `is_empty()` here and lands as `""`. Deleting is how you unset.
-    if is_blank(&body.value) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "value must not be empty or whitespace — delete the secret instead of blanking it"
-                .to_string(),
-        ));
-    }
-
-    SecretManagerService::new(app.project_id)
-        .set_app_secret(db, app.id, &key, &body.value, actor)
-        .await
-        .map_err(|e| {
-            // `set_app_secret` validates the caller's key against the name
-            // charset; that's a request problem, not a server one.
-            tracing::warn!(app_id = %app.id, "setting app secret failed: {e}");
-            (StatusCode::BAD_REQUEST, e.to_string())
-        })?;
-
-    tracing::info!(app_id = %app.id, secret.key = %key, actor = %actor, "app secret set");
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn delete(
-    db: &DatabaseConnection,
-    app: &apps::Model,
-    key: &str,
-    actor: &AuthenticatedUser,
-) -> Result<StatusCode, Failure> {
-    // Trimmed, like `set` — otherwise `DELETE …/secrets/%20SIG` 404s on a key
-    // the sibling POST would have normalised to `SIG`.
-    let key = key.trim();
-    let name = format!("{}{key}", prefix_for(app.id));
-    SecretManagerService::new(app.project_id)
-        .delete_secret(db, &name)
-        .await
-        .map_err(|e| {
-            tracing::warn!(app_id = %app.id, "deleting app secret failed: {e}");
-            // `delete_secret` distinguishes "no such row" from a database
-            // failure by variant; collapsing both to 404 would report an
-            // outage as a missing key.
-            let code = match e {
-                oxy_shared::errors::OxyError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                _ => StatusCode::NOT_FOUND,
-            };
-            (code, e.to_string())
-        })?;
-    tracing::info!(
-        app_id = %app.id,
-        secret.key = %key,
-        actor = %actor.label(),
-        "app secret deleted"
-    );
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// `SecretManagerService::get_secret` owns its own connection (and a 300s
-/// decrypt cache), so unlike the other operations this one takes no `db`.
-async fn reveal(
-    db: &DatabaseConnection,
-    app: &apps::Model,
-    key: &str,
-    actor: &AuthenticatedUser,
-) -> Result<Json<RevealResponse>, Failure> {
-    // Parity with project secrets, which are already revealable by id on the
-    // existing route — an app-scoped one is not a different kind of secret, and
-    // pretending otherwise would just push people back to the raw table.
-    let key = key.trim();
-    let name = format!("{}{key}", prefix_for(app.id));
-    let value = SecretManagerService::new(app.project_id)
-        .get_secret(&name)
-        .await
-        .ok_or((StatusCode::NOT_FOUND, "secret not found".to_string()))?;
-
-    // The one action here that hands a human plaintext tenant secret material,
-    // reachable by any in-scope App Operator — so it is the one worth a durable
-    // record rather than only a log line. Best-effort: failing to write the
-    // audit row must not fail the read the operator is entitled to, and the
-    // helper logs its own failure.
-    audit::record_best_effort(
-        db,
-        audit::AuditEntry::new(actor.label().to_string(), "custom_app.secret.revealed")
-            .actor(actor.id, audit::ActorType::User)
-            .org(app.org_id)
-            .workspace(app.project_id)
-            .target(
-                "custom_app_secret",
-                name.clone(),
-                format!("{}/{key}", app.slug),
-            ),
-    )
-    .await;
-
-    tracing::info!(
-        app_id = %app.id,
-        secret.key = %key,
-        actor = %actor.label(),
-        "app secret revealed"
-    );
-    Ok(Json(RevealResponse {
-        key: key.to_string(),
-        value,
-    }))
-}
-
 // ── Staff-surface handlers (`/admin/apps/{id}`, `/customer-apps/{id}`) ───────
 
-pub async fn admin_list(Path(app_id): Path<Uuid>) -> Result<Json<AppSecretsResponse>, Failure> {
+pub async fn admin_list(
+    Path(app_id): Path<Uuid>,
+    Query(q): Query<EnvironmentQuery>,
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+) -> Result<Json<AppSecretsResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    Ok(Json(view(&db, app).await?))
+    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    Ok(Json(view(&db, app, &environment).await?))
 }
 
 pub async fn admin_set(
@@ -451,25 +387,30 @@ pub async fn admin_set(
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    set(&db, &app, body, user.id).await
+    let environment = environment::resolve(&db, &app, &user, body.environment.as_deref()).await?;
+    ops::set(&db, &app, &environment, body, &user).await
 }
 
 pub async fn admin_delete(
     Path((app_id, key)): Path<(Uuid, String)>,
+    Query(q): Query<EnvironmentQuery>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    delete(&db, &app, &key, &user).await
+    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    ops::delete(&db, &app, &environment, &key, &user).await
 }
 
 pub async fn admin_reveal(
     Path((app_id, key)): Path<(Uuid, String)>,
+    Query(q): Query<EnvironmentQuery>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Result<Json<RevealResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    reveal(&db, &app, &key, &user).await
+    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    ops::reveal(&db, &app, &environment, &key, &user).await
 }
 
 // ── Tenant-surface handler (`/workspaces/{ws}/custom-apps/{app_id}`) ────────
@@ -492,7 +433,9 @@ pub async fn workspace_set(
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = scoped_to_workspace(load_app(&db, app_id).await?, workspace_id)?;
-    set(&db, &app, body, user.id).await
+    // Staging here too is staff-only: a workspace admin is refused.
+    let environment = environment::resolve(&db, &app, &user, body.environment.as_deref()).await?;
+    ops::set(&db, &app, &environment, body, &user).await
 }
 
 #[cfg(test)]
@@ -526,23 +469,17 @@ mod tests {
         }
     }
 
-    /// Regression: `sanitize_secret_value` tests emptiness BEFORE trimming and
-    /// then stores the trimmed string, so a whitespace-only value cleared a bare
-    /// `is_empty()` guard here and landed as `""` — the "configured but behaves
-    /// like unset" state this guard exists to prevent.
-    #[test]
-    fn whitespace_is_not_a_value() {
-        assert!(is_blank(""));
-        assert!(is_blank(" "), "a space would otherwise be stored as empty");
-        assert!(is_blank("\t\n  "));
-        assert!(!is_blank("sk_test_123"));
-        assert!(!is_blank("  padded  "), "a real value survives its padding");
-    }
-
     #[test]
     fn prefix_is_the_namespace_ctx_env_reads() {
         let id = Uuid::nil();
-        assert_eq!(prefix_for(id), format!("apps/{id}/"));
+        assert_eq!(
+            prefix_for(id, &AppEnvironment::Production),
+            format!("apps/{id}/")
+        );
+        assert_eq!(
+            prefix_for(id, &AppEnvironment::Staging),
+            format!("apps/{id}/staging/")
+        );
     }
 
     #[test]
@@ -565,13 +502,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn published_build_declares_over_draft() {
-        let mut app = app_row(Uuid::new_v4());
-        let (published, draft) = (Uuid::new_v4(), Uuid::new_v4());
-        app.draft_build_id = Some(draft);
-        assert_eq!(declaring_build(&app), Some(draft), "draft when unpublished");
-        app.published_build_id = Some(published);
-        assert_eq!(declaring_build(&app), Some(published));
-    }
+    // Which build declares (production's, else staging's for an app never
+    // promoted) is `EnvironmentBuilds::resolve_for_functions`, tested beside it
+    // in `custom_apps_env_resolve`.
 }

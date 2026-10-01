@@ -2,6 +2,7 @@ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/shadcn/dialog";
 import { useAuth } from "@/contexts/AuthContext";
+import useCanUsePreviews from "@/hooks/useCanUsePreviews";
 import { useRole } from "@/hooks/useRole";
 import { cn } from "@/libs/shadcn/utils";
 import useCurrentOrg from "@/stores/useCurrentOrg";
@@ -19,6 +20,7 @@ export default function SettingsDialog() {
   const role = useCurrentOrg((s) => s.role);
   const { workspace } = useCurrentWorkspace();
   const { is } = useRole();
+  const isStaff = !!useCanUsePreviews();
 
   const billingEnabled = authConfig.billing_enabled;
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -33,6 +35,7 @@ export default function SettingsDialog() {
     isLocalMode,
     isOrgAdmin: is.orgAdmin,
     isWorkspaceAdmin: is.workspaceAdmin,
+    isStaff,
     billingEnabled,
     hasOrg: !!org && !!role,
     hasWorkspace: !!workspace,

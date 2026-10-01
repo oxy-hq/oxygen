@@ -47,6 +47,20 @@
 //! replica that died goes stale after [`DELIVERY_GRACE_MINUTES`] minutes and the
 //! next failure retries it; if no failure follows, that page is lost.
 //!
+//! **Production only, guarded twice.** [`claim`] refuses a non-production
+//! invocation itself — it reads the environment of the invocation it is asked
+//! about from `app_function_invocations`, and claims nothing unless that row
+//! says `production` — and `failure_page::observe` never calls it for another
+//! environment. Either guard alone keeps a staging failure off the pager, so a
+//! regression in one does not page. Every invocation query here also reads
+//! `environment = 'production'`. A staging failure recurs on the same
+//! fingerprint as production's — a caught host-call failure is fingerprinted
+//! `host_call {op} {kind} {message}` in every environment — so without both
+//! halves it would not merely page: it would claim the slot and hold back
+//! production's first-occurrence page, or make production's own history look
+//! older than it is (design §3.4). Never claiming outside production is why the
+//! claim key needs no environment: nothing but production ever writes one.
+//!
 //! **Cost.** Inline at finalization, only for a failure. Every failure costs a
 //! primary-key read. One already paged or held back stops there. Any other
 //! failure also costs an index probe — so a familiar failure, first seen more
@@ -117,15 +131,23 @@ enum Prior {
     Due,
 }
 
-/// Decide what the failure `key` calls for as of `now`, claiming the page (or
-/// recording why it is held back) when one is due. `history_since` is when
-/// invocations started carrying a fingerprint.
+/// Decide what the failure `key` of `invocation` calls for as of `now`,
+/// claiming the page (or recording why it is held back) when one is due.
+/// `history_since` is when invocations started carrying a fingerprint.
+///
+/// `invocation` is the finalized invocation behind the failure. Unless its row
+/// says it ran in production, nothing is claimed and nothing pages — the
+/// second of the two production-only guards (see the module docs).
 pub async fn claim(
     db: &impl ConnectionTrait,
+    invocation: Uuid,
     key: FailureKey<'_>,
     now: DateTime<Utc>,
     history_since: DateTime<Utc>,
 ) -> Result<Verdict, DbErr> {
+    if !ran_in_production(db, invocation).await? {
+        return Ok(Verdict::Quiet);
+    }
     let (first_seen, persistent) = match prior(db, key, now).await? {
         Prior::Handled => return Ok(Verdict::Quiet),
         Prior::Due => {
@@ -163,6 +185,22 @@ pub async fn claim(
         });
     };
     Ok(Verdict::Suppressed(reason))
+}
+
+/// Whether `invocation`'s row says it ran in production. A row that cannot be
+/// found is not evidence of production, so it does not page either.
+async fn ran_in_production(db: &impl ConnectionTrait, invocation: Uuid) -> Result<bool, DbErr> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT environment FROM app_function_invocations WHERE id = $1",
+            [invocation.into()],
+        ))
+        .await?;
+    Ok(match row {
+        Some(row) => row.try_get::<String>("", "environment")? == "production",
+        None => false,
+    })
 }
 
 /// When an existing alert row may be taken over, as SQL over the columns of
@@ -282,7 +320,7 @@ async fn occurred_between(
     let row = db
         .query_one_raw(keyed(
             "SELECT EXISTS (SELECT 1 FROM app_function_invocations \
-               WHERE app_id = $1 AND function_name = $2 AND failure_fingerprint = $3 \
+               WHERE app_id = $1 AND function_name = $2 AND environment = 'production' AND failure_fingerprint = $3 \
                  AND created_at >= $4 AND created_at < $5) AS occurred",
             key,
             [at(from), at(until)],
@@ -331,7 +369,7 @@ async fn answered(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT EXISTS (SELECT 1 FROM app_function_invocations \
-               WHERE app_id = $1 AND function_name = $2 AND created_at >= $3 \
+               WHERE app_id = $1 AND function_name = $2 AND environment = 'production' AND created_at >= $3 \
                  AND ($4::timestamptz IS NULL OR created_at < $4) \
                  AND status = 'success' AND failure_fingerprint IS NULL) AS answered",
             [key.app_id.into(), key.function_name.into(), at(from), until],
@@ -352,7 +390,7 @@ async fn first_seen(
     let row = db
         .query_one_raw(keyed(
             "SELECT created_at FROM app_function_invocations \
-             WHERE app_id = $1 AND function_name = $2 AND failure_fingerprint = $3 \
+             WHERE app_id = $1 AND function_name = $2 AND environment = 'production' AND failure_fingerprint = $3 \
                AND created_at >= $4 \
              ORDER BY created_at LIMIT 1",
             key,
@@ -375,7 +413,7 @@ async fn reached_threshold(
     let row = db
         .query_one_raw(keyed(
             "SELECT count(*) AS n FROM (SELECT 1 FROM app_function_invocations \
-               WHERE app_id = $1 AND function_name = $2 AND failure_fingerprint = $3 \
+               WHERE app_id = $1 AND function_name = $2 AND environment = 'production' AND failure_fingerprint = $3 \
                  AND created_at >= $4 LIMIT $5) capped",
             key,
             [at(since), threshold.into()],
@@ -448,7 +486,7 @@ async fn unfingerprinted_history(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT EXISTS (SELECT 1 FROM app_function_invocations \
-               WHERE app_id = $1 AND function_name = $2 \
+               WHERE app_id = $1 AND function_name = $2 AND environment = 'production' \
                  AND (status IN ('error', 'timeout') \
                       OR (status = 'success' AND result_status >= 500)) \
                  AND created_at >= $3 AND created_at < $4) AS unfingerprinted",

@@ -216,3 +216,117 @@ mod branch_escalation {
         }
     }
 }
+
+/// Workspace previews on a serve replica: a `?branch=` fleet route carrying the
+/// preview header stays on the fleet (the workspace middleware finishes the
+/// decision), one without it escalates exactly as before, and the previews API
+/// — whose `?branch=` names a preview, not a working copy — never escalates.
+mod preview_header {
+    use super::*;
+    use crate::server::previews::pin::DeferredBranchEscalation;
+
+    const WS: &str = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+
+    fn router() -> Router {
+        async fn threads(req: axum::extract::Request) -> String {
+            let deferred = req.extensions().get::<DeferredBranchEscalation>().is_some();
+            format!("served here, deferred={deferred}")
+        }
+        let workspace_routes = Router::new()
+            .route("/threads", get(threads))
+            .route(
+                "/previews",
+                get(|| async { "list" }).delete(|| async { "deleted" }),
+            )
+            .route("/previews/checks", get(|| async { "checks" }))
+            .route("/previews/runs", get(|| async { "runs" }));
+        let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
+        Router::new()
+            .nest("/api", api_routes)
+            .layer(middleware::from_fn(enforce_role))
+    }
+
+    async fn call(method: &str, uri: &str, header: Option<&str>) -> (StatusCode, String) {
+        let mut req = HttpRequest::builder().method(method).uri(uri);
+        if let Some(h) = header {
+            req = req.header(crate::server::previews::pin::REQUEST_HEADER, h);
+        }
+        let resp = router()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body = to_bytes(resp.into_body(), 4096).await.unwrap();
+        (status, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    fn as_serve() {
+        install_roles();
+        unsafe { std::env::set_var("OXY_ROLE", "serve") };
+        crate::server::role_manifest::init_process_role_from_env();
+    }
+
+    #[tokio::test]
+    async fn without_the_header_a_branch_escalates_as_before() {
+        as_serve();
+        let (status, _) = call("GET", &format!("/api/{WS}/threads?branch=feat%2Fx"), None).await;
+        // No ide upstream in this process, so escalation surfaces as the 421.
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn with_the_header_a_fleet_route_stays_and_the_decision_is_deferred() {
+        as_serve();
+        let (status, body) = call(
+            "GET",
+            &format!("/api/{WS}/threads?branch=feat%2Fx"),
+            Some("5f0e6c1e-7c3e-4d0a-9f8a-2b1f6f0d9c11"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "served here, deferred=true");
+    }
+
+    #[tokio::test]
+    async fn the_previews_api_is_never_escalated_by_its_branch_parameter() {
+        as_serve();
+        let (status, body) = call(
+            "DELETE",
+            &format!("/api/{WS}/previews?branch=feat%2Fx"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, "deleted");
+    }
+
+    /// `?branch=` on the checks route names the preview whose check to read
+    /// (Postgres), not a working copy — so a serve replica answers it.
+    #[tokio::test]
+    async fn the_checks_route_is_never_escalated_by_its_branch_parameter() {
+        as_serve();
+        let (status, body) = call(
+            "GET",
+            &format!("/api/{WS}/previews/checks?branch=feat%2Fx"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, "checks");
+    }
+
+    /// Same for the held procedure runs list: `?branch=` names the preview
+    /// whose runs to list, all of it Postgres.
+    #[tokio::test]
+    async fn the_runs_route_is_never_escalated_by_its_branch_parameter() {
+        as_serve();
+        let (status, body) = call(
+            "GET",
+            &format!("/api/{WS}/previews/runs?branch=feat%2Fx"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, "runs");
+    }
+}

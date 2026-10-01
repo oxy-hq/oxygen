@@ -23,6 +23,12 @@
 //!    copy, so it serves the latest promoted revision regardless of branch.
 //! 3. Read `workspaces.current_revision_id`. If null → `Ok(None)`.
 //! 4. Query the per-entity table keyed by that revision_id.
+//!
+//! A workspace **preview** never enters this resolution. The workspace
+//! middleware pins a preview's revision for a request that asked for one (see
+//! `server::previews`), and the pin short-circuits everything above; nothing
+//! here consults the preview registry. That is what keeps background work —
+//! which has no request, so no pin — on the promoted revision.
 
 use crate::server::role_manifest::current_process_role;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -88,6 +94,16 @@ pub async fn resolve_request_revision(
         "pinned revision config does not deserialise; searching for last-known-good"
     );
     last_known_good_revision(&db, workspace_id, candidate).await
+}
+
+/// Whether `revision_id` can be pinned for a request: its compiled config (if
+/// any) deserialises into the runtime `Config`. The same check
+/// [`resolve_request_revision`] makes before pinning the promoted revision,
+/// exposed for the preview pin, which must refuse a broken preview outright —
+/// the last-known-good walk that rescues a broken promoted revision would hand
+/// a preview request MAIN's content.
+pub async fn revision_is_servable(db: &DatabaseConnection, revision_id: Uuid) -> bool {
+    revision_config_loads(db, revision_id).await
 }
 
 /// Process-local memo of "revision R's compiled config deserialises into

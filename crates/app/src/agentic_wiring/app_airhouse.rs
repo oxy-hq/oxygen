@@ -17,12 +17,17 @@ use uuid::Uuid;
 /// That is logged, not refused: the host checks every statement against the
 /// schema before it is sent (`airhouse::sql_rules`), so the scope is a second
 /// fence, not the only one.
+///
+/// Pooled per **schema** as well as per app: a staging run writes the app's
+/// sibling (`app_<writer>__staging`) on a credential scoped to it, and sharing
+/// one pooled connection would hand staging production's scope — or
+/// production a credential confined to staging's schema.
 pub async fn connector(
     workspace_id: Uuid,
     app_slug: &str,
     schema: &str,
 ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
-    let key = format!("app:{workspace_id}:{app_slug}");
+    let key = pool_key(workspace_id, app_slug, schema);
     let (slug, schema) = (app_slug.to_string(), schema.to_string());
     super::airhouse_pool::get_or_build(key, || async move {
         let endpoint = airhouse::wire_endpoint().ok_or_else(|| {
@@ -73,4 +78,24 @@ pub async fn connector(
         Ok(Arc::new(conn))
     })
     .await
+}
+
+/// The pool entry an app's connection to `schema` lives under. Starts with the
+/// pool's app prefix, so it counts against the app identity budget.
+fn pool_key(workspace_id: Uuid, app_slug: &str, schema: &str) -> String {
+    format!("app:{workspace_id}:{app_slug}:{schema}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_and_its_sibling_are_two_pooled_connections() {
+        let ws = Uuid::nil();
+        let production = pool_key(ws, "store-ops", "app_store_ops");
+        let staging = pool_key(ws, "store-ops", "app_store_ops__staging");
+        assert_ne!(production, staging);
+        assert!(production.starts_with("app:") && staging.starts_with("app:"));
+    }
 }

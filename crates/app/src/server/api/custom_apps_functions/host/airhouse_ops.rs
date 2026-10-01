@@ -3,9 +3,18 @@
 //! Split out of `host.rs` by surface. What SQL may be sent is decided by
 //! `airhouse::sql_rules`; this module owns the connection, the capability gate
 //! and the audit record.
+//!
+//! Outside production a write lands in the app schema's sibling,
+//! `app_<writer>__<env>` (`env_policy::homes::airhouse_write`): checked as
+//! production would check it, moved, checked again against the sibling, and
+//! sent on a credential scoped to the sibling. `ctx.airhouse.query` keeps
+//! reading production's schema, and `ctx.airhouse.schema` keeps naming it, so
+//! the same code runs in both.
 
 use airhouse::sql_rules::{self, Access};
 
+use super::super::env_policy::homes::{self, AirhouseWrite, Routed};
+use super::env_guard::HeldTarget;
 use super::*;
 
 impl ProjectFunctionHost {
@@ -16,23 +25,43 @@ impl ProjectFunctionHost {
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         let schema = self.airhouse_schema()?;
-        match op {
-            "query" => self.airhouse_query(&schema, payload).await,
-            "exec" => {
-                let sql = checked_statement(required_str(payload, "sql")?, &schema, Access::Write)?;
-                self.airhouse_write(&schema, &sql, None, None).await?;
+        // Each op asks the environment policy after the statement is checked,
+        // so a held write is refused for exactly what production refuses.
+        let plane = data_audit::PLANE_APP_AIRHOUSE;
+        let host_op = HostOp::sub_op("airhouse", op).ok_or_else(|| format!("unknown op '{op}'"))?;
+        match host_op {
+            HostOp::AirhouseQuery => {
+                self.admit_op(HostOp::AirhouseQuery, (plane, &schema, "QUERY", ""))
+                    .await?;
+                self.airhouse_query(&schema, payload).await
+            }
+            HostOp::AirhouseExec => {
+                let sql = required_str(payload, "sql")?;
+                let write = self
+                    .airhouse_route(
+                        HostOp::AirhouseExec,
+                        sql,
+                        &schema,
+                        (plane, &schema, "EXEC", ""),
+                    )
+                    .await?;
+                self.airhouse_write(&write.schema, &write.statement, None, None)
+                    .await?;
                 Ok(serde_json::json!({ "ok": true }))
             }
-            "append" => {
+            HostOp::AirhouseAppend => {
                 let (sql, table, rows) = build_append_sql(&schema, payload)?;
                 // Host-built, but sent the way every other statement is: only
                 // what `sql_rules` checked and re-rendered leaves this module.
-                let sql = checked_statement(&sql, &schema, Access::Write)?;
-                self.airhouse_write(&schema, &sql, Some(table), Some(rows))
+                let target = (plane, schema.as_str(), "APPEND", table);
+                let write = self
+                    .airhouse_route(HostOp::AirhouseAppend, &sql, &schema, target)
+                    .await?;
+                self.airhouse_write(&write.schema, &write.statement, Some(table), Some(rows))
                     .await?;
                 Ok(serde_json::json!({ "rowCount": rows }))
             }
-            other => Err(format!("unknown op '{other}'")),
+            _ => Err(format!("unknown op '{op}'")),
         }
     }
 
@@ -55,9 +84,35 @@ impl ProjectFunctionHost {
         }
     }
 
+    /// Where a write `sql` to the app's schema goes: the statement to send
+    /// and the schema it writes — production's, or outside production its
+    /// sibling. A held or refused write is noted and its error returned; a
+    /// statement production would refuse is refused first.
+    async fn airhouse_route(
+        &self,
+        op: HostOp,
+        sql: &str,
+        app_schema: &str,
+        target: HeldTarget<'_>,
+    ) -> Result<AirhouseWrite, String> {
+        match homes::airhouse_write(&self.policy, op, sql, app_schema)? {
+            Routed::AsAsked(write) | Routed::Isolated(write) => Ok(write),
+            Routed::NotRun(decided) => Err(match self.admit_decided(op, decided, target).await {
+                Err(held) => held,
+                // A `NotRun` is never `Allow`; if it were, nothing runs.
+                Ok(()) => super::super::env_policy::refused_message(
+                    op,
+                    self.policy.environment(),
+                    super::super::env_policy::MISROUTED_FIX,
+                ),
+            }),
+        }
+    }
+
+    /// The app's connection scoped to `schema` — its own, or its sibling.
     async fn airhouse_connector(&self, schema: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
         let mut cached = self.airhouse_conn.lock().await;
-        if let Some(connector) = cached.as_ref() {
+        if let Some(connector) = cached.get(schema) {
             return Ok(connector.clone());
         }
         let connector = with_db_timeout("connect", async {
@@ -67,7 +122,7 @@ impl ProjectFunctionHost {
                 .map_err(|e| format!("could not connect to this app's Airhouse schema: {e}"))
         })
         .await?;
-        *cached = Some(connector.clone());
+        cached.insert(schema.to_string(), connector.clone());
         Ok(connector)
     }
 
@@ -119,6 +174,8 @@ impl ProjectFunctionHost {
                 table,
                 rows,
                 statements: 1,
+                op: None,
+                note: None,
             })
             .await;
         }

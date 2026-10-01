@@ -93,6 +93,10 @@ pub struct AuditEntry {
     pub outcome: Outcome,
     pub reason: Option<String>,
     pub metadata: Value,
+    /// The custom-app environment the action happened in
+    /// (`audit_events.environment`). `None` is production — the column's
+    /// default, and every row written before environments existed.
+    pub environment: Option<String>,
 }
 
 impl AuditEntry {
@@ -114,6 +118,7 @@ impl AuditEntry {
             outcome: Outcome::Success,
             reason: None,
             metadata: json!({}),
+            environment: None,
         }
     }
 
@@ -179,6 +184,28 @@ impl AuditEntry {
         self.metadata = metadata;
         self
     }
+
+    /// The custom-app environment the action happened in. `production` is
+    /// stored as the default it already is.
+    pub fn environment(mut self, environment: impl Into<String>) -> Self {
+        let environment = environment.into();
+        self.environment = (environment != PRODUCTION).then_some(environment);
+        self
+    }
+}
+
+/// `audit_events.environment`'s default.
+const PRODUCTION: &str = "production";
+
+/// The digest's environment suffix: nothing for production, so every row
+/// written before the column (and every production row after) hashes exactly
+/// as it always has, and `|env=<name>` otherwise, so a non-production row's
+/// environment is covered by the chain like every other column.
+fn environment_suffix(environment: Option<&str>) -> String {
+    match environment {
+        None | Some(PRODUCTION) => String::new(),
+        Some(env) => format!("|env={env}"),
+    }
 }
 
 /// Advisory-lock key derived from an org id (first 8 bytes, little-endian). Same
@@ -206,7 +233,7 @@ fn content_digest_input(entry: &AuditEntry, id: Uuid, created_at: &str) -> Strin
     // Covers EVERY persisted column so the chain is tamper-evident over the whole
     // row (target label, reason, and request context included), not just a subset.
     format!(
-        "{id}|{created_at}|{action}|{actor}|{atype}|{org}|{ws}|{partner}|{ttype}|{tid}|{tlabel}|{before}|{after}|{ip}|{ua}|{req}|{outcome}|{reason}|{meta}",
+        "{id}|{created_at}|{action}|{actor}|{atype}|{org}|{ws}|{partner}|{ttype}|{tid}|{tlabel}|{before}|{after}|{ip}|{ua}|{req}|{outcome}|{reason}|{meta}{env}",
         action = entry.action,
         actor = entry.actor_email,
         atype = entry.actor_type.as_str(),
@@ -224,6 +251,7 @@ fn content_digest_input(entry: &AuditEntry, id: Uuid, created_at: &str) -> Strin
         outcome = entry.outcome.as_str(),
         reason = s(&entry.reason),
         meta = entry.metadata,
+        env = environment_suffix(entry.environment.as_deref()),
     )
 }
 
@@ -234,7 +262,7 @@ fn content_digest_from_model(m: &audit_events::Model) -> String {
     let s = |v: &Option<String>| v.clone().unwrap_or_default();
     let uuid = |v: &Option<Uuid>| v.map(|u| u.to_string()).unwrap_or_default();
     format!(
-        "{id}|{created_at}|{action}|{actor}|{atype}|{org}|{ws}|{partner}|{ttype}|{tid}|{tlabel}|{before}|{after}|{ip}|{ua}|{req}|{outcome}|{reason}|{meta}",
+        "{id}|{created_at}|{action}|{actor}|{atype}|{org}|{ws}|{partner}|{ttype}|{tid}|{tlabel}|{before}|{after}|{ip}|{ua}|{req}|{outcome}|{reason}|{meta}{env}",
         id = m.id,
         created_at = m.created_at.to_utc().to_rfc3339(),
         action = m.action,
@@ -254,6 +282,7 @@ fn content_digest_from_model(m: &audit_events::Model) -> String {
         outcome = m.outcome,
         reason = s(&m.reason),
         meta = m.metadata,
+        env = environment_suffix(Some(m.environment.as_str())),
     )
 }
 
@@ -478,6 +507,12 @@ async fn insert_event<C: ConnectionTrait>(
         prev_hash: Set(prev_hash),
         hash: Set(Some(hash)),
         seq: sea_orm::ActiveValue::NotSet, // DB-assigned BIGSERIAL
+        // Unset is the column's default, `production`: a production row is
+        // inserted exactly as before the column existed.
+        environment: match &entry.environment {
+            Some(env) => Set(env.clone()),
+            None => sea_orm::ActiveValue::NotSet,
+        },
     };
     model.insert(conn).await?;
     Ok(())
@@ -749,12 +784,36 @@ mod tests {
             prev_hash: None,
             hash: None,
             seq: 1,
+            environment: "production".to_string(),
         };
         let verified = content_digest_from_model(&model);
         assert_eq!(
             written, verified,
             "writer/verifier digest drift — verify_chain would flag every chain broken"
         );
+        assert!(
+            !written.contains("|env="),
+            "a production row hashes exactly as it did before the environment column"
+        );
+
+        // A staging row: its environment is in the digest on both sides, so
+        // rewriting it to `production` breaks the chain.
+        let staged = entry.environment("staging");
+        let written = content_digest_input(&staged, id, &created_at.to_rfc3339());
+        let mut model = model;
+        model.environment = "staging".to_string();
+        assert_eq!(written, content_digest_from_model(&model));
+        assert!(written.ends_with("|env=staging"), "{written}");
+        model.environment = "production".to_string();
+        assert_ne!(written, content_digest_from_model(&model));
+    }
+
+    #[test]
+    fn production_is_stored_as_the_default() {
+        let entry = AuditEntry::new("op@oxy.tech", "app.oltp.write").environment("production");
+        assert_eq!(entry.environment, None);
+        let entry = AuditEntry::new("op@oxy.tech", "app.oltp.write").environment("staging");
+        assert_eq!(entry.environment.as_deref(), Some("staging"));
     }
 
     /// A tampered row must not reproduce its stored hash.

@@ -240,7 +240,10 @@ impl SecretManagerService {
             .map_err(|e| OxyError::SecretManager(format!("Invalid UTF-8 in decrypted value: {e}")))
     }
 
-    fn validate_secret_name(name: &str) -> Result<(), OxyError> {
+    /// A caller-chosen secret name: 1–255 of alphanumerics, `_`, `-` and `.`
+    /// — never a `/`, so it is one segment of a system-built path such as
+    /// `apps/<app_id>/<KEY>`.
+    pub fn validate_secret_name(name: &str) -> Result<(), OxyError> {
         if name.is_empty() {
             return Err(OxyError::SecretManager(
                 "Secret name cannot be empty".to_string(),
@@ -572,10 +575,42 @@ impl SecretManagerService {
         value: &str,
         actor: Uuid,
     ) -> Result<(), OxyError> {
-        // Validate only the caller's key; the prefix is trusted/system-built.
+        self.set_app_secret_in(db, app_id, None, key, value, actor)
+            .await
+    }
+
+    /// The storage name of an app secret: `apps/<app_id>/<key>` for
+    /// production (`environment: None`), `apps/<app_id>/<env>/<key>` for a
+    /// non-production environment of the app. One definition, shared by this
+    /// writer and the `ctx.env` reader, so the two cannot drift.
+    pub fn app_secret_name(app_id: Uuid, environment: Option<&str>, key: &str) -> String {
+        match environment {
+            None => format!("apps/{app_id}/{key}"),
+            Some(env) => format!("apps/{app_id}/{env}/{key}"),
+        }
+    }
+
+    /// [`Self::set_app_secret`] into one environment's path of the app
+    /// (`apps/<app_id>/<env>/<key>`), or production's for `None`. The
+    /// environment name is validated like a key, so it is one path segment
+    /// and can never reach another app's or production's path.
+    pub async fn set_app_secret_in(
+        &self,
+        db: &sea_orm::DatabaseConnection,
+        app_id: Uuid,
+        environment: Option<&str>,
+        key: &str,
+        value: &str,
+        actor: Uuid,
+    ) -> Result<(), OxyError> {
+        // Validate only the caller's key (and environment); the prefix is
+        // trusted/system-built.
         Self::validate_secret_name(key)?;
+        if let Some(env) = environment {
+            Self::validate_secret_name(env)?;
+        }
         let sanitized = Self::sanitize_secret_value(value)?;
-        let name = format!("apps/{app_id}/{key}");
+        let name = Self::app_secret_name(app_id, environment, key);
         let encrypted = self.encrypt_value(&sanitized)?;
         let now = chrono::Utc::now();
 

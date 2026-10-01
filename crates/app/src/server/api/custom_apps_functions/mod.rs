@@ -16,6 +16,9 @@
 //! call is an invocation only — no durable run, not in the coordinator. A job
 //! runs the SAME isolate, wrapped in the queue/monitoring/trigger machinery.
 
+/// Whose call this is — the scope every per-call key (result cache,
+/// idempotency record, rate-limit bucket) is built from, environment included.
+mod call_scope;
 /// Drift guard: `oxyc`'s copy of the capability gates
 /// (`sdk/cli/src/publish/capabilities.ts`) names exactly the fields of
 /// `FunctionCapabilities`. Text scans of `host.rs` and the TypeScript, so it
@@ -26,6 +29,13 @@ mod cli_capabilities_drift;
 /// tag, statement trailer, `audit_events` row).
 #[cfg(feature = "custom-app-functions")]
 mod data_audit;
+/// What each host op may do in the environment a function runs in: one
+/// exhaustive decision per `HostOp` (production allows all; staging holds
+/// every write).
+pub mod env_policy;
+/// The one place a function run is admitted or refused by its environment,
+/// and where its `EnvPolicy` comes from.
+pub(crate) mod environment_gate;
 /// Whether a failed function should page ops: new in a week, capped, once.
 pub mod failure_alert;
 /// The page `failure_alert` decides on: the finalization hook and Slack post.
@@ -45,6 +55,8 @@ pub mod limits;
 /// `oxy migrate`'s check that a release does not stop a working live function.
 #[cfg(feature = "custom-app-functions")]
 pub mod preflight;
+/// The rate-limit bucket per (user, app, environment, function).
+mod rate_limit;
 mod result_cache;
 #[cfg(feature = "custom-app-functions")]
 pub mod runtime;
@@ -56,6 +68,9 @@ pub mod runtime;
 mod sdk_testing_drift;
 /// The always-compiled dependency-inversion seam (see `seam.rs`).
 pub mod seam;
+/// Whether an invocation reads a branch, so may not start production work.
+#[cfg(feature = "custom-app-functions")]
+mod staged_invocation;
 /// Per-invocation registry of open `ctx.tx()` transactions.
 #[cfg(feature = "custom-app-functions")]
 mod tx;
@@ -76,7 +91,6 @@ pub use data_audit::InvocationIdentity;
 #[cfg(feature = "custom-app-functions")]
 pub use host_call_attrs::HOST_OPS;
 
-use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -88,7 +102,13 @@ use entity::prelude::AppFunctionInvocations;
 use entity::prelude::{AppBuilds, AppFunctions};
 use entity::{app_function_invocations, app_functions};
 use oxy::database::client::establish_connection;
+use oxy_app_core::custom_app_env_request::{check_origin, request_environment};
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_shared::utils::request_id::from_headers as request_id_from_headers;
+
+use super::custom_apps_env_resolve::resolve_function_environment;
+#[cfg(feature = "custom-app-functions")]
+use super::custom_apps_secrets::shared_env::effective_shared_env;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sentry::SentryFutureExt;
 use serde::Deserialize;
@@ -97,48 +117,6 @@ use uuid::Uuid;
 
 use super::custom_apps_auth::authenticate_and_authorize;
 use super::custom_apps_build_store;
-
-// ── Rate limit: 60/min/(user, app, function) by default ────────────────────
-// Mirrors the (user, app) `RateBucket` in `custom_apps_activity.rs`
-// (design doc §11.6), extended with the function name.
-//
-// TODO(scaling): this table is per-process, so in the multi-instance worker
-// fleet (see oxy-scaling-design) the effective limit is `limit * N` instances,
-// not `limit`. Acceptable for the MVP; back this with a shared counter (e.g.
-// a Postgres-backed sliding window) before relying on it as a hard cap.
-
-const DEFAULT_RATE_PER_MIN: u64 = 60;
-const RATE_BUCKET_TTL: Duration = Duration::from_secs(120);
-
-#[derive(Debug)]
-struct RateBucket {
-    window_start: Instant,
-    count: u64,
-}
-
-fn rate_table() -> &'static Mutex<HashMap<(Uuid, Uuid, String), RateBucket>> {
-    static TABLE: std::sync::OnceLock<Mutex<HashMap<(Uuid, Uuid, String), RateBucket>>> =
-        std::sync::OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn would_exceed_rate(user_id: Uuid, app_id: Uuid, function: &str, limit_per_min: u64) -> bool {
-    let now = Instant::now();
-    let mut table = rate_table().lock().unwrap();
-    table.retain(|_, b| now.duration_since(b.window_start) < RATE_BUCKET_TTL);
-
-    let key = (user_id, app_id, function.to_string());
-    let bucket = table.entry(key).or_insert_with(|| RateBucket {
-        window_start: now,
-        count: 0,
-    });
-    if now.duration_since(bucket.window_start).as_secs() >= 60 {
-        bucket.window_start = now;
-        bucket.count = 0;
-    }
-    bucket.count += 1;
-    bucket.count > limit_per_min
-}
 
 // ── Manifest entry shape (subset relevant to invocation) ────────────────────
 
@@ -545,10 +523,17 @@ pub(crate) async fn trigger_function_job(
         .await
         .map_err(|e| format!("app lookup failed: {e}"))?
         .ok_or_else(|| format!("app {app_id} not found"))?;
-    let build_id = app
-        .published_build_id
-        .or(app.draft_build_id)
-        .ok_or_else(|| "app has no build".to_string())?;
+    // A job runs in production: the admin console's Run now and a provider
+    // webhook both address the live app, and the task carries no environment.
+    let build_id = super::custom_apps_env_resolve::resolve_function_environment(
+        db,
+        &app,
+        &AppEnvironment::Production,
+    )
+    .await
+    .map_err(|e| format!("environment lookup failed: {e}"))?
+    .build_id
+    .ok_or_else(|| "app has no build".to_string())?;
     // Validate the function exists in the active build before enqueuing, so a
     // typo produces a 400 now rather than a failed run later.
     let func_row = AppFunctions::find()
@@ -605,6 +590,35 @@ fn resolve_fetch_max_bytes(entry: &FunctionManifestEntry) -> Option<u64> {
         .and_then(|f| f.max_response_bytes)
         .filter(|n| *n > 0)
         .map(|n| n.min(fetch_ceiling_bytes()))
+}
+
+/// The fail-closed capability gates `entry` grants, the same for a route call
+/// and a queued run.
+#[cfg(feature = "custom-app-functions")]
+fn manifest_capabilities(
+    entry: &FunctionManifestEntry,
+    app: &entity::apps::Model,
+    build: &entity::app_builds::Model,
+) -> host::FunctionCapabilities {
+    host::FunctionCapabilities {
+        secrets_write: entry.secrets_write(),
+        email_send: entry.email_send(),
+        org_read: entry.org_read(),
+        storage_read: entry.storage_read(),
+        storage_write: entry.storage_write(),
+        // DERIVED from the invoking app's slug, gated by the manifest — never
+        // named by the manifest, so one app cannot reach another's schema.
+        // A slug that can't back a schema is a distinct fail-closed reason so
+        // the host diagnoses it as such, not as "capability missing".
+        oltp: host::WriterCapability::resolve(entry.oltp_enabled(), &app.slug),
+        airhouse: host::WriterCapability::resolve(entry.airhouse_enabled(), &app.slug),
+        customer_warehouse_writes: entry.customer_warehouse_writes(),
+        fetch_max_bytes: resolve_fetch_max_bytes(entry),
+        storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
+            build.manifest_json.as_ref(),
+            app.id,
+        ),
+    }
 }
 
 fn resolve_timeout(entry: &FunctionManifestEntry) -> Duration {
@@ -736,41 +750,40 @@ fn json_error(status: StatusCode, error: &str, message: &str) -> Response {
         .into_response()
 }
 
+/// The keyed row for this call's scope, if one exists. The environment is part
+/// of the lookup: a key spent in one environment says nothing about the same
+/// key in another (see [`call_scope`]).
 async fn find_keyed_invocation(
     db: &sea_orm::DatabaseConnection,
-    app_id: Uuid,
-    function_name: &str,
-    user_id: Uuid,
+    scope: &call_scope::CallScope<'_>,
     key: &str,
 ) -> Option<app_function_invocations::Model> {
     app_function_invocations::Entity::find()
-        .filter(app_function_invocations::Column::AppId.eq(app_id))
-        .filter(app_function_invocations::Column::FunctionName.eq(function_name))
-        .filter(app_function_invocations::Column::UserId.eq(Some(user_id)))
+        .filter(app_function_invocations::Column::AppId.eq(scope.app_id))
+        .filter(app_function_invocations::Column::Environment.eq(scope.environment_name()))
+        .filter(app_function_invocations::Column::FunctionName.eq(scope.function_name))
+        .filter(app_function_invocations::Column::UserId.eq(Some(scope.user_id)))
         .filter(app_function_invocations::Column::IdempotencyKey.eq(key))
         .one(db)
         .await
         .unwrap_or(None)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn insert_running_invocation(
     db: &sea_orm::DatabaseConnection,
     id: Uuid,
-    app_id: Uuid,
+    scope: &call_scope::CallScope<'_>,
     build_id: Uuid,
-    function_name: &str,
-    user_id: Uuid,
     key: Option<&str>,
     request_hash: Option<i64>,
 ) -> Result<(), sea_orm::DbErr> {
     app_function_invocations::ActiveModel {
         id: Set(id),
-        app_id: Set(app_id),
+        app_id: Set(scope.app_id),
         build_id: Set(build_id),
-        function_name: Set(function_name.to_string()),
+        function_name: Set(scope.function_name.to_string()),
         mode: Set("route".to_string()),
-        user_id: Set(Some(user_id)),
+        user_id: Set(Some(scope.user_id)),
         status: Set("running".to_string()),
         duration_ms: Set(None),
         error: Set(None),
@@ -781,6 +794,7 @@ async fn insert_running_invocation(
         result_status: Set(None),
         request_hash: Set(request_hash),
         failure_fingerprint: Set(None),
+        environment: Set(scope.environment_name()),
     }
     .insert(db)
     .await
@@ -902,47 +916,31 @@ async fn resolve_keyed_row(
 /// Acquire an invocation slot. Keyless → a fresh row (no dedup). Keyed →
 /// exactly-once **with retry**: replay a prior success, reject a concurrent
 /// duplicate / body mismatch, or reclaim a prior failure so it can run again.
-#[allow(clippy::too_many_arguments)]
+/// "Prior" means in the same [`call_scope::CallScope`], environment included.
 async fn acquire_invocation(
     db: &sea_orm::DatabaseConnection,
-    app_id: Uuid,
+    scope: &call_scope::CallScope<'_>,
     build_id: Uuid,
-    function_name: &str,
-    user_id: Uuid,
     key: Option<&str>,
     request_hash: i64,
 ) -> Acquire {
     let Some(key) = key else {
         let id = Uuid::new_v4();
-        if let Err(e) =
-            insert_running_invocation(db, id, app_id, build_id, function_name, user_id, None, None)
-                .await
-        {
+        if let Err(e) = insert_running_invocation(db, id, scope, build_id, None, None).await {
             error!("failed to write app_function_invocations row: {e}");
         }
         return Acquire::Run(id);
     };
     // Fast path: an existing keyed row decides the outcome.
-    if let Some(row) = find_keyed_invocation(db, app_id, function_name, user_id, key).await {
+    if let Some(row) = find_keyed_invocation(db, scope, key).await {
         return resolve_keyed_row(db, row, request_hash).await;
     }
     // No row yet: claim by inserting. A lost race (concurrent first call) hits
     // the unique index; resolve against the winner.
     let id = Uuid::new_v4();
-    match insert_running_invocation(
-        db,
-        id,
-        app_id,
-        build_id,
-        function_name,
-        user_id,
-        Some(key),
-        Some(request_hash),
-    )
-    .await
-    {
+    match insert_running_invocation(db, id, scope, build_id, Some(key), Some(request_hash)).await {
         Ok(()) => Acquire::Run(id),
-        Err(_) => match find_keyed_invocation(db, app_id, function_name, user_id, key).await {
+        Err(_) => match find_keyed_invocation(db, scope, key).await {
             Some(row) => resolve_keyed_row(db, row, request_hash).await,
             // Not a uniqueness conflict (some other DB error): run without a row.
             None => Acquire::Run(id),
@@ -977,6 +975,19 @@ pub async fn handle_function_request(
         );
     }
 
+    // §3.2: the environment this call addresses (host label, or the header on a
+    // bearer request — 400 if it cannot be honoured), and, for a call riding the
+    // session cookie, that the page sending it lives in that same environment.
+    // Without the second, a staging page could post here with a production
+    // viewer's cookie. Both before authentication: they read headers only.
+    let environment = match request_environment(&headers) {
+        Ok(environment) => environment,
+        Err(e) => return e.into_response(),
+    };
+    if let Err(refused) = check_origin(&headers, &environment) {
+        return refused.into_response();
+    }
+
     let outcome = match authenticate_and_authorize(&headers, org_slug, app_slug).await {
         Ok(o) => o,
         Err(status) => return status.into_response(),
@@ -995,7 +1006,46 @@ pub async fn handle_function_request(
         }
     };
 
-    let Some(build_id) = app.published_build_id.or(app.draft_build_id) else {
+    let resolved = match resolve_function_environment(&db, &app, &environment).await {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            error!("app environment lookup failed: {e}");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EnvironmentLookupFailed",
+                "could not read the app's environments; retry shortly",
+            );
+        }
+    };
+    // The one environment decision (see `environment_gate`): production for
+    // everyone; staging for staff, with every write held by the policy the
+    // host is built from; dev slots refused.
+    let entrance = environment_gate::route_entrance(
+        &db,
+        &resolved,
+        outcome.user_id,
+        outcome.user_email.as_deref(),
+        &app,
+    )
+    .await;
+    let admission = match environment_gate::admit(&resolved, entrance) {
+        Ok(admission) => admission,
+        Err(refused) => return refused.into_response(),
+    };
+    // Where a staging run's `ctx.oltp` lands: the org's staging branch, or
+    // production held read-only. Decided once, for the whole invocation.
+    let admission = match environment_gate::with_oltp_home(&db, admission, app.org_id).await {
+        Ok(admission) => admission,
+        Err(e) => {
+            error!("OLTP staging branch lookup failed: {e}");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EnvironmentLookupFailed",
+                "could not read the org's OLTP staging branch; retry shortly",
+            );
+        }
+    };
+    let Some(build_id) = resolved.build_id else {
         return json_error(
             StatusCode::NOT_FOUND,
             "AppNotPublished",
@@ -1062,14 +1112,25 @@ pub async fn handle_function_request(
         .map(str::to_string);
     let request_hash = request_body_hash(&body);
 
+    // Every per-call key below — result cache, rate-limit bucket, idempotency
+    // record — is built from this scope, so each carries the environment the
+    // gate above admitted.
+    let scope = call_scope::CallScope {
+        app_id: app.id,
+        environment: &resolved.environment,
+        function_name,
+        user_id: outcome.user_id,
+    };
+
     // Opt-in result cache (manifest `cache.ttlSeconds`). A hit skips the isolate
     // run entirely; `?refresh` bypasses it. Side-effectful functions don't
-    // declare a cache and never reach this. Keyed per (build, function, user,
-    // body), so it can't leak across users or survive a redeploy.
+    // declare a cache and never reach this. Keyed per (environment, build,
+    // function, user, body), so it can't leak across users or environments or
+    // survive a redeploy.
     let cache_ttl = manifest.cache_ttl();
     if cache_ttl.is_some()
         && !refresh
-        && let Some(cached) = result_cache::get(build_id, function_name, outcome.user_id, &body)
+        && let Some(cached) = result_cache::get(&scope, build_id, &body)
     {
         // 200, and that is now a fact rather than a default: only a 2xx result
         // is ever cached (see the `put` below), and the status is not stored
@@ -1078,11 +1139,11 @@ pub async fn handle_function_request(
         return sse_response(success_sse_body(&cached, 200));
     }
 
-    // §11.6 — rate limit per (user, app, function).
+    // §11.6 — rate limit per (user, app, environment, function).
     let limit = manifest
         .rate_limit_per_minute
-        .unwrap_or(DEFAULT_RATE_PER_MIN);
-    if would_exceed_rate(outcome.user_id, app.id, function_name, limit) {
+        .unwrap_or(rate_limit::DEFAULT_RATE_PER_MIN);
+    if rate_limit::would_exceed_rate(&scope, limit) {
         // Return JSON, not an SSE frame: the client throws on any non-2xx
         // *before* it starts reading the event stream and JSON-parses the body,
         // so an `event: error\ndata: …` blob would surface as a garbled error.
@@ -1152,10 +1213,8 @@ pub async fn handle_function_request(
     // reclaims a prior failure so it can retry — see `acquire_invocation`.
     let invocation_id = match acquire_invocation(
         &db,
-        app.id,
+        &scope,
         build_id,
-        function_name,
-        outcome.user_id,
         idempotency_key.as_deref(),
         request_hash,
     )
@@ -1176,62 +1235,74 @@ pub async fn handle_function_request(
     // between deciding to run and tenant code running, thread spawn included.
     let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
+    // A staging build may pin the semantic model compiled from a branch
+    // (`custom_apps_staging_pin`, #3370), and the `env` keys it may read from
+    // production are those both it and production's build mark `shared`.
+    // Production never looks: it always reads the promoted revision and its
+    // own secrets.
     #[cfg(feature = "custom-app-functions")]
-    let (status_str, error_msg, body_text, http_status, host_call) = run_with_runtime(RunArgs {
-        db: &db,
-        query_exec,
-        app: &app,
-        artifact_js,
-        body: body.to_vec(),
-        method: method.as_str().to_string(),
-        headers: sanitize_request_headers(&headers),
-        user_id: outcome.user_id,
-        user_email: outcome.user_email.clone(),
-        user_name: Some(outcome.user_name.clone()),
-        user_picture: outcome.user_picture.clone(),
-        identity_kind: runtime::CtxIdentityKind::User,
-        org_id: app.org_id,
-        invocation_id,
-        function_name,
-        mode: "route",
-        build_id,
-        // The one path with a real request behind it. Read from the header the
-        // outer middleware stamped rather than minted here, so the id on this
-        // span is the same one the caller got back in the response.
-        request_id: request_id_from_headers(&headers),
-        timeout,
-        write_destinations: manifest.write_destinations(),
-        caps: host::FunctionCapabilities {
-            secrets_write: manifest.secrets_write(),
-            email_send: manifest.email_send(),
-            org_read: manifest.org_read(),
-            storage_read: manifest.storage_read(),
-            storage_write: manifest.storage_write(),
-            // DERIVED from the invoking app's slug, gated by the manifest — never
-            // named by the manifest, so one app cannot reach another's schema.
-            // A slug that can't back a schema is a distinct fail-closed reason so
-            // the host diagnoses it as such, not as "capability missing".
-            oltp: host::WriterCapability::resolve(manifest.oltp_enabled(), &app.slug),
-            airhouse: host::WriterCapability::resolve(manifest.airhouse_enabled(), &app.slug),
-            customer_warehouse_writes: manifest.customer_warehouse_writes(),
-            fetch_max_bytes: resolve_fetch_max_bytes(&manifest),
-            storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
+    let shared = effective_shared_env(
+        &db,
+        &app,
+        admission.policy.environment(),
+        build.manifest_json.as_ref(),
+    )
+    .await;
+    #[cfg(feature = "custom-app-functions")]
+    let policy = environment_gate::with_build_pin(&db, admission.policy, build_id)
+        .await
+        .with_shared_env(shared)
+        // Where a non-production write to a customer warehouse lands, from
+        // the manifest that shipped with this build. Production ignores it.
+        .with_destinations(
+            super::custom_apps_nonproduction::destinations_from_build_manifest(
                 build.manifest_json.as_ref(),
                 app.id,
             ),
-        },
-        logs: logs.clone(),
-        meters: meters.clone(),
-        // Route path: cancellation is the `cancel_requested_at` DB flag (set on
-        // client-gone / dashboard cancel), so a never-fired token suffices here.
-        cancel: tokio_util::sync::CancellationToken::new(),
-        preagg,
-    })
-    .await;
+        );
+    #[cfg(feature = "custom-app-functions")]
+    let (status_str, error_msg, body_text, http_status, host_call) =
+        super::custom_apps_staging_pin::with_staging_pin(
+            policy.semantic_pin(),
+            run_with_runtime(RunArgs {
+                db: &db,
+                query_exec,
+                app: &app,
+                artifact_js,
+                body: body.to_vec(),
+                method: method.as_str().to_string(),
+                headers: sanitize_request_headers(&headers),
+                user_id: outcome.user_id,
+                user_email: outcome.user_email.clone(),
+                user_name: Some(outcome.user_name.clone()),
+                user_picture: outcome.user_picture.clone(),
+                identity_kind: runtime::CtxIdentityKind::User,
+                org_id: app.org_id,
+                invocation_id,
+                function_name,
+                mode: "route",
+                build_id,
+                // The one path with a real request behind it. Read from the header the
+                // outer middleware stamped rather than minted here, so the id on this
+                // span is the same one the caller got back in the response.
+                request_id: request_id_from_headers(&headers),
+                timeout,
+                write_destinations: manifest.write_destinations(),
+                caps: manifest_capabilities(&manifest, &app, &build),
+                logs: logs.clone(),
+                meters: meters.clone(),
+                // Route path: cancellation is the `cancel_requested_at` DB flag (set on
+                // client-gone / dashboard cancel), so a never-fired token suffices here.
+                cancel: tokio_util::sync::CancellationToken::new(),
+                preagg,
+                policy,
+            }),
+        )
+        .await;
 
     #[cfg(not(feature = "custom-app-functions"))]
     let (status_str, error_msg, body_text, http_status, host_call) = {
-        let _ = (&artifact_js, &body, timeout, &query_exec);
+        let _ = (&artifact_js, &body, timeout, &query_exec, &admission);
         (
             "error",
             Some("custom-app-functions feature not enabled".to_string()),
@@ -1269,7 +1340,15 @@ pub async fn handle_function_request(
     if let Err(e) = update.update(&db).await {
         error!("failed to update app_function_invocations row: {e}");
     } else if let Some(failure) = &failure {
-        failure_page::observe(&db, &app, function_name, invocation_id, failure).await;
+        failure_page::observe(
+            &db,
+            &app,
+            &resolved.environment,
+            function_name,
+            invocation_id,
+            failure,
+        )
+        .await;
     }
     let request_id = request_id_from_headers(&headers);
     super::custom_apps_telemetry::record_function(super::custom_apps_telemetry::FunctionEvent {
@@ -1286,6 +1365,7 @@ pub async fn handle_function_request(
         host_calls: meters.host_calls(),
         init_ms: meters.init_ms(),
         error: error_msg.as_deref(),
+        environment: &resolved.environment.name(),
     });
 
     // Cache the successful result for functions that opted into `cache`.
@@ -1300,14 +1380,7 @@ pub async fn handle_function_request(
         && (200..300).contains(&http_status)
         && let Some(ttl) = cache_ttl
     {
-        result_cache::put(
-            build_id,
-            function_name,
-            outcome.user_id,
-            &body,
-            body_text.clone(),
-            ttl,
-        );
+        result_cache::put(&scope, build_id, &body, body_text.clone(), ttl);
     }
 
     // Drain captured logs and send them as `log` frames ahead of the terminal
@@ -1335,6 +1408,7 @@ pub async fn handle_function_request(
             .iter()
             .map(|l| (l.level.clone(), l.message.clone()))
             .collect::<Vec<_>>(),
+        &resolved.environment.name(),
     );
     let mut sse_body = String::new();
     for line in &captured {
@@ -1408,10 +1482,17 @@ pub(crate) type RunEventSink = tokio::sync::mpsc::Sender<(String, serde_json::Va
 /// `metadata.trigger`), `user_id=None`, and — when `events`
 /// is set — drains the isolate's log buffer into `function_log` events so the
 /// run's output is persisted and observable. Returns the response body on success.
+///
+/// `environment` is the one the task named (production for every task queued
+/// today). It is resolved and put through the same [`environment_gate`] a route
+/// call takes, so a non-production task is refused here rather than run on
+/// production's build and secrets.
 #[cfg(feature = "custom-app-functions")]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_scheduled_function(
     db: &sea_orm::DatabaseConnection,
     app_id: Uuid,
+    environment: &AppEnvironment,
     function_name: &str,
     mode: &str,
     // Request body handed to the isolate as `req` — the function's input params
@@ -1430,9 +1511,15 @@ pub(crate) async fn run_scheduled_function(
         .map_err(|e| format!("app lookup failed: {e}"))?
         .ok_or_else(|| format!("app {app_id} not found"))?;
 
-    let build_id = app
-        .published_build_id
-        .or(app.draft_build_id)
+    let resolved = resolve_function_environment(db, &app, environment)
+        .await
+        .map_err(|e| format!("environment lookup failed: {e}"))?;
+    // A queued run has no viewer, so staging is refused here: schedules,
+    // webhooks and Run now stay production-only (`environment_gate`).
+    let admission = environment_gate::admit(&resolved, environment_gate::Entrance::Queued)
+        .map_err(|refused| refused.message())?;
+    let build_id = resolved
+        .build_id
         .ok_or_else(|| "app has no build".to_string())?;
 
     let func_row = AppFunctions::find()
@@ -1491,6 +1578,7 @@ pub(crate) async fn run_scheduled_function(
         result_status: Set(None),
         request_hash: Set(None),
         failure_fingerprint: Set(None),
+        environment: Set(resolved.environment.name()),
     })
     .insert(db)
     .await
@@ -1533,29 +1621,20 @@ pub(crate) async fn run_scheduled_function(
         request_id: None,
         timeout,
         write_destinations: manifest.write_destinations(),
-        caps: host::FunctionCapabilities {
-            secrets_write: manifest.secrets_write(),
-            email_send: manifest.email_send(),
-            org_read: manifest.org_read(),
-            storage_read: manifest.storage_read(),
-            storage_write: manifest.storage_write(),
-            // DERIVED from the invoking app's slug, gated by the manifest — never
-            // named by the manifest, so one app cannot reach another's schema.
-            // A slug that can't back a schema is a distinct fail-closed reason so
-            // the host diagnoses it as such, not as "capability missing".
-            oltp: host::WriterCapability::resolve(manifest.oltp_enabled(), &app.slug),
-            airhouse: host::WriterCapability::resolve(manifest.airhouse_enabled(), &app.slug),
-            customer_warehouse_writes: manifest.customer_warehouse_writes(),
-            fetch_max_bytes: resolve_fetch_max_bytes(&manifest),
-            storage_retention: super::custom_apps_manifest::retention_policy_from_build_manifest(
-                build.manifest_json.as_ref(),
-                app.id,
-            ),
-        },
+        caps: manifest_capabilities(&manifest, &app, &build),
         logs: logs.clone(),
         meters: meters.clone(),
         cancel,
         preagg,
+        policy: admission.policy.clone().with_shared_env(
+            effective_shared_env(
+                db,
+                &app,
+                admission.policy.environment(),
+                build.manifest_json.as_ref(),
+            )
+            .await,
+        ),
     })
     .await;
 
@@ -1581,7 +1660,15 @@ pub(crate) async fn run_scheduled_function(
     if let Err(e) = update.update(db).await {
         error!("failed to update scheduled invocation row: {e}");
     } else if let Some(failure) = &failure {
-        failure_page::observe(db, &app, function_name, invocation_id, failure).await;
+        failure_page::observe(
+            db,
+            &app,
+            &resolved.environment,
+            function_name,
+            invocation_id,
+            failure,
+        )
+        .await;
     }
     super::custom_apps_telemetry::record_function(super::custom_apps_telemetry::FunctionEvent {
         org_id: app.org_id,
@@ -1598,6 +1685,7 @@ pub(crate) async fn run_scheduled_function(
         host_calls: meters.host_calls(),
         init_ms: meters.init_ms(),
         error: error_msg.as_deref(),
+        environment: &resolved.environment.name(),
     });
 
     // Persist the isolate's log output. The buffer was filled during the run but
@@ -1631,6 +1719,7 @@ pub(crate) async fn run_scheduled_function(
             .iter()
             .map(|l| (l.level.clone(), l.message.clone()))
             .collect::<Vec<_>>(),
+        &resolved.environment.name(),
     );
     if let Some(tx) = events.as_ref() {
         let total = drained.len();
@@ -1817,6 +1906,9 @@ struct RunArgs<'a> {
     /// Layer-1 preagg cache + renewal threshold for `ctx.semantic`. Default on
     /// the scheduled path (see `run_scheduled_function`).
     preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
+    /// What each host op may do in the environment this run was admitted to
+    /// (`environment_gate::Admission`). Handed to the host at construction.
+    policy: env_policy::EnvPolicy,
 }
 
 /// The span the isolate thread runs under — see the call site in
@@ -2059,7 +2151,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     // never "admin".
     let human = args.identity_kind == runtime::CtxIdentityKind::User;
     let (env, app_role, org_standing, held) = tokio::join!(
-        resolve_function_env(args.db, args.app.project_id, args.app.id),
+        resolve_function_env(args.db, args.app.project_id, args.app.id, &args.policy),
         crate::server::api::custom_apps_auth::resolve_app_role(
             args.db,
             args.user_id,
@@ -2164,9 +2256,16 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             user_id: human.then_some(args.user_id),
             user_email: if human { args.user_email.clone() } else { None },
         },
+        // The keys `ctx.env` took from production through the shared
+        // fallback travel with the policy: `ctx.secrets.set` refuses them.
+        args.policy
+            .clone()
+            .with_read_through_fallback(env.read_through_fallback),
     ));
 
     let ctx = runtime::InvocationCtx {
+        // `ctx.channel`: the environment this run was admitted to.
+        channel: args.policy.environment().name(),
         user: runtime::CtxUser {
             id: args.user_id.to_string(),
             email: args.user_email,
@@ -2179,7 +2278,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             kind: args.identity_kind,
             reach,
         },
-        env,
+        env: env.values,
         airhouse_schema: args.caps.airhouse.schema(),
     };
 
@@ -2312,43 +2411,54 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
 /// `apps/<app_id>/<KEY>` prefix in the project's secret manager, exposed to
 /// the isolate with the prefix stripped (so the function sees plain `KEY`).
 /// Resolved fresh per invocation — never cached in the artifact.
+///
+/// Outside production the environment's own path, `apps/<app_id>/<env>/<KEY>`,
+/// is read instead, falling back to production's value only for the
+/// manifest's `shared` keys (`custom_apps_secrets::scope`); production reads
+/// its top-level keys only, never an environment's.
 #[cfg(feature = "custom-app-functions")]
 async fn resolve_function_env(
     db: &sea_orm::DatabaseConnection,
     project_id: Uuid,
     app_id: Uuid,
-) -> std::collections::BTreeMap<String, String> {
+    policy: &env_policy::EnvPolicy,
+) -> ResolvedEnv {
     use oxy::service::secret_manager::SecretManagerService;
 
     let secret_manager = SecretManagerService::new(project_id);
-    let prefix = format!("apps/{app_id}/");
-
-    let names = match secret_manager.list_secrets(db).await {
-        Ok(secrets) => secrets
-            .into_iter()
-            .filter_map(|s| {
-                // Take the suffix as an owned `String` first so the borrow of
-                // `s.name` ends before we move `s.name` into the tuple.
-                let key = s.name.strip_prefix(&prefix)?.to_string();
-                Some((s.name, key))
-            })
-            .collect::<Vec<_>>(),
+    let names: Vec<String> = match secret_manager.list_secrets(db).await {
+        Ok(secrets) => secrets.into_iter().map(|s| s.name).collect(),
         Err(e) => {
             error!("ctx.env: failed to list secrets for app {app_id}: {e}");
-            return Default::default();
+            return ResolvedEnv::default();
         }
     };
+    let shared = policy.shared_env();
+    let plan =
+        super::custom_apps_secrets::scope::plan_env(app_id, policy.environment(), shared, &names);
 
-    let mut env = std::collections::BTreeMap::new();
-    for (full_name, key) in names {
-        match secret_manager.get_secret(&full_name).await {
+    let mut resolved = ResolvedEnv::default();
+    for entry in plan {
+        match secret_manager.get_secret(&entry.stored_name).await {
             Some(value) => {
-                env.insert(key, value);
+                if entry.through_fallback {
+                    resolved.read_through_fallback.insert(entry.key.clone());
+                }
+                resolved.values.insert(entry.key, value);
             }
-            None => error!("ctx.env: failed to resolve secret '{full_name}'"),
+            None => error!("ctx.env: failed to resolve secret '{}'", entry.stored_name),
         }
     }
-    env
+    resolved
+}
+
+/// `ctx.env` for one run, and which of its keys came from production through
+/// the shared fallback.
+#[cfg(feature = "custom-app-functions")]
+#[derive(Default)]
+struct ResolvedEnv {
+    values: std::collections::BTreeMap<String, String>,
+    read_through_fallback: std::collections::BTreeSet<String>,
 }
 
 /// Resolve `cancel_tx` (which terminates the isolate) on the first of two

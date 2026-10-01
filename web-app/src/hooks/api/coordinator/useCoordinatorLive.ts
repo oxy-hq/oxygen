@@ -2,6 +2,7 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { previewRequestHeaders } from "@/libs/utils/preview";
 import { CoordinatorService } from "@/services/api/coordinator";
 import queryKeys from "../queryKey";
 
@@ -24,7 +25,8 @@ const useCoordinatorLive = () => {
     fetchEventSource(CoordinatorService.liveStreamUrl(projectId), {
       method: "GET",
       headers: {
-        Authorization: token ?? ""
+        Authorization: token ?? "",
+        ...previewRequestHeaders()
       },
       openWhenHidden: true,
       signal: controller.signal,

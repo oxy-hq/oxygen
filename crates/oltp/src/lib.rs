@@ -37,12 +37,22 @@
 //! proceed if a role turns out to hold membership it should not, raising
 //! SQLSTATE `OXY01`.
 //!
+//! # The staging branch
+//!
+//! An org may also have ONE non-production copy of its database — the staging
+//! branch every app's staging environment writes to ([`branches`],
+//! [`entity::branches`]). Provisioned by hand, reset on demand, deleted with
+//! the tenant; resolved through
+//! [`resolver::resolve_branch_writer_connection_for_org`].
+//!
 //! Design: `internal-docs/per-org-oltp-postgres.md`.
 
 pub mod api;
+pub mod branches;
 pub mod config;
 pub mod connect;
 pub mod entity;
+mod host;
 pub mod local_seed;
 pub mod migration;
 pub mod migrator;
@@ -55,6 +65,7 @@ pub mod schema;
 pub mod sql;
 
 pub use config::{OltpConfig, OltpRuntimeConfig, ProviderKind};
+pub use entity::branches::OltpBranch;
 pub use provider::{OltpProvider, ProviderError};
 pub use provisioner::{OltpProvisioner, ProvisionerError};
 pub use schema::{GrantLevel, WriterRef};

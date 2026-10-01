@@ -22,6 +22,7 @@ import {
   WRITER_NAME_RULE
 } from "./manifest.js";
 import { scanAirhouseMigration, secretsUsedAsState } from "./placement-scan.js";
+import { checkSharedEnv } from "./shared-env.js";
 
 export interface PlacementIssue {
   level: "error" | "warning";
@@ -97,6 +98,7 @@ export function checkAppPlacement(
     checkSecretsAsState(appDir, manifest, name, spec, issues);
   }
   usesSchema = checkAirhouseMigrations(appDir, manifest, writer, issues) || usesSchema;
+  issues.push(...checkSharedEnv(appDir, manifest));
 
   if (usesSchema && writer.kind === "unknown") {
     issues.push(

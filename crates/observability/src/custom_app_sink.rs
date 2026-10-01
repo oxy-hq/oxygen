@@ -270,6 +270,7 @@ mod tests {
             error_detail: String::new(),
             trace_id: String::new(),
             span_id: String::new(),
+            environment: "production".into(),
         });
         record_logs(vec![CustomAppLogRecord {
             timestamp_ms: 0,
@@ -285,6 +286,7 @@ mod tests {
             message: "hi".into(),
             trace_id: String::new(),
             span_id: String::new(),
+            environment: "production".into(),
         }]);
     }
 }

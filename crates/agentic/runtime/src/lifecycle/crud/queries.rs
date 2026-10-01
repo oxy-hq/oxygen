@@ -25,7 +25,36 @@ use super::user_facing_status;
 /// "does a failure here indict the tenant?". `health_eval_workspace` is excluded
 /// there but stays visible here on purpose. A new daemon `source_type` should be
 /// considered for both.
-pub const SYSTEM_SOURCE_TYPES: &[&str] = &["preagg_cycle"];
+///
+/// `preview_analyze` is the staff-only Airway change check of a previewed
+/// branch (`oxy-app` `server::previews::analyze`), not the customer's work;
+/// `preview_schema_drop` is the TTL drop of a preview's Airhouse schemas
+/// (`server::previews::drop`), queued by a maintenance sweep; `preview_compare`
+/// compares a preview's transform build with live (`server::previews::compare`);
+/// `preview_airway_sample` is staff sampling a branch's Airway pipeline into
+/// the preview's own schemas (`server::previews::sample`).
+/// `custom_app_staging_migrations` is a custom app's staging migrations, queued
+/// by every publish (`server::api::custom_apps_nonproduction::staging_task`).
+pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
+    "preagg_cycle",
+    "preview_analyze",
+    "preview_schema_drop",
+    "preview_compare",
+    "preview_airway_sample",
+    "custom_app_staging_migrations",
+];
+
+/// Keeps a workspace preview's dry run out of the customer's run feed.
+///
+/// A held preview procedure run is an ordinary `workflow` run (other code keys
+/// on that `source_type`), so it is told apart by `metadata.trigger =
+/// 'preview'` — the same predicate `oxy-app`'s workspace health uses. It is a
+/// staffer running an unmerged branch, so unlike [`SYSTEM_SOURCE_TYPES`] it is
+/// hidden even with `include_system`: that toggle is the customer's own.
+/// `IS DISTINCT FROM` keeps runs with no metadata (a bare `<>` would drop them).
+fn not_a_preview_run() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust("metadata->>'trigger' IS DISTINCT FROM 'preview'")
+}
 
 pub struct ToolExchangeRow {
     pub name: String,
@@ -115,7 +144,8 @@ pub async fn list_recent_runs(
 /// `schedule_id_filter` narrows the list to runs seeded by a specific job;
 /// hits the `(schedule_id, created_at desc)` index for cheap per-job history.
 /// `include_system` lets background-daemon runs (preagg_cycle, etc.) into
-/// the result — default `false` keeps the operator's feed clean.
+/// the result — default `false` keeps the operator's feed clean. A preview
+/// dry run is never listed (see [`not_a_preview_run`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn list_runs_filtered(
     db: &DatabaseConnection,
@@ -131,7 +161,8 @@ pub async fn list_runs_filtered(
 
     let mut query = run::Entity::find()
         .filter(run::Column::WorkspaceId.eq(workspace_id))
-        .filter(run::Column::ParentRunId.is_null());
+        .filter(run::Column::ParentRunId.is_null())
+        .filter(not_a_preview_run());
 
     if let Some(statuses) = status_filter {
         // Map user-facing statuses to internal task_status values.
@@ -498,7 +529,8 @@ pub async fn airway_table_summary_for_run(
 /// Used by the coordinator dashboard to show in-flight pipelines.
 /// **Workspace-scoped** so the live feed never crosses tenants.
 /// `include_system` lets background-daemon runs through; default-off so
-/// the live feed stays focused on user work.
+/// the live feed stays focused on user work. A preview dry run is never
+/// listed (see [`not_a_preview_run`]).
 pub async fn list_active_runs(
     db: &DatabaseConnection,
     workspace_id: Uuid,
@@ -507,6 +539,7 @@ pub async fn list_active_runs(
     let mut query = run::Entity::find()
         .filter(run::Column::WorkspaceId.eq(workspace_id))
         .filter(run::Column::ParentRunId.is_null())
+        .filter(not_a_preview_run())
         .filter(
             Condition::any()
                 .add(run::Column::TaskStatus.eq("running"))

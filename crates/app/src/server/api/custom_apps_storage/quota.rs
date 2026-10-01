@@ -41,6 +41,7 @@ use entity::app_storage_usage;
 use entity::prelude::AppStorageUsage;
 
 use super::StorageError;
+use super::environment_limits::production_bytes;
 
 /// Default soft limit per org. Generous on purpose — the first version of a
 /// quota exists to catch runaway growth, not to ration normal use, and a limit
@@ -91,6 +92,7 @@ pub enum QuotaState {
 /// An org's usage against its limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QuotaStatus {
+    /// Production's bytes: environment silos are metered but not counted.
     pub used_bytes: i64,
     pub soft_limit_bytes: Option<i64>,
     pub hard_limit_bytes: Option<i64>,
@@ -147,7 +149,13 @@ pub async fn status_for_org(
         .await
         .map_err(|e| StorageError::S3(format!("storage usage lookup for org {org_id}: {e}")))?;
 
-    let used_bytes = rows.iter().map(|r| r.bytes).sum();
+    // Production's bytes only: an environment silo is metered with its app but
+    // capped on its own (`environment_limits`), so staging never pauses
+    // production's writes.
+    let used_bytes = rows
+        .iter()
+        .map(|r| production_bytes(r.bytes, r.prefix_breakdown.as_ref()))
+        .sum();
     let measurement_incomplete = rows
         .iter()
         .any(|r| r.measure_status != entity::app_storage_usage::measure_status::OK);
@@ -241,7 +249,15 @@ pub async fn orgs_over_soft_limit(
         .await
         .map_err(|e| StorageError::S3(format!("org usage aggregate: {e}")))?;
 
-    let per_app: Vec<(Uuid, i64)> = rows.into_iter().map(|r| (r.org_id, r.bytes)).collect();
+    let per_app: Vec<(Uuid, i64)> = rows
+        .into_iter()
+        .map(|r| {
+            (
+                r.org_id,
+                production_bytes(r.bytes, r.prefix_breakdown.as_ref()),
+            )
+        })
+        .collect();
     // Fold + sort live in `totals_by_org` so the unit tests exercise THIS path
     // rather than a copy of it.
     Ok(totals_by_org(&per_app)

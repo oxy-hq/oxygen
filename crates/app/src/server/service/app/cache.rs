@@ -188,6 +188,18 @@ impl<S: DiskSlot> AppCache<S> {
         }
 
         let tasks_hash = self.generate_task_hash(tasks)?;
+        // Partitioned under a staging pin (a workspace preview): the same tasks
+        // can answer differently against a branch's semantic model, and this
+        // file is shared by every reader of the app.
+        let partition = crate::server::api::custom_apps_staging_pin::cache_partition();
+        let tasks_hash = if partition.is_empty() {
+            tasks_hash
+        } else {
+            format!(
+                "{:x}",
+                xxh3_64(format!("{tasks_hash}|{partition}").as_bytes())
+            )
+        };
         let data_file_name = format!(
             "{}.{}",
             tasks_hash,

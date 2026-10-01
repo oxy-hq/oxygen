@@ -161,6 +161,7 @@ fn spawn_driver(db: DatabaseConnection, platform: Arc<dyn PlatformContext>) -> J
                 db.clone(),
                 state.clone(),
                 platform.clone(),
+                Arc::new(agentic_pipeline::platform::IdentityResolver),
                 None,
                 None,
                 None,

@@ -535,6 +535,8 @@ pub async fn post_opportunity(
     // the request and shares nothing with the workspace's.
     let engine = std::sync::Arc::new(build_engine(layer.clone(), &databases)?);
     let handle = tokio::runtime::Handle::current();
+    // Read here: the executor builds its connectors on a blocking thread.
+    let holds_writes = crate::server::previews::request_hold::active();
     let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
@@ -553,6 +555,7 @@ pub async fn post_opportunity(
             role,
             handle,
             preagg,
+            holds_writes,
         );
         oxy_airlayer_compat::engine::metric_tree_ops::opportunity(
             &tree,
@@ -1081,6 +1084,8 @@ async fn run_baseline_query(
     let databases = workspace_databases(&workspace_manager);
     let engine = std::sync::Arc::new(build_engine(layer.clone(), &databases)?);
     let handle = tokio::runtime::Handle::current();
+    // Read here: the executor builds its connectors on a blocking thread.
+    let holds_writes = crate::server::previews::request_hold::active();
     let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
@@ -1105,6 +1110,7 @@ async fn run_baseline_query(
                 role,
                 handle,
                 preagg,
+                holds_writes,
             );
             baseline_reads(
                 &tree,
@@ -1288,6 +1294,8 @@ pub async fn post_opportunity_drill(
     let shared: oxy_airlayer_compat::engine::metric_tree_ops::SharedLayer =
         std::sync::Arc::new(std::sync::RwLock::new(clean_layer));
     let handle = tokio::runtime::Handle::current();
+    // Read here: the executor builds its connectors on a blocking thread.
+    let holds_writes = crate::server::previews::request_hold::active();
     let preagg = crate::agentic_wiring::metric_tree_runner::RunnerPreagg {
         cache: preagg_ctx.cache.clone(),
         renewal_threshold_secs: preagg_ctx
@@ -1315,6 +1323,7 @@ pub async fn post_opportunity_drill(
             role,
             handle,
             preagg,
+            holds_writes,
         );
         oxy_airlayer_compat::engine::metric_tree_ops::opportunity_drill(
             &tree,

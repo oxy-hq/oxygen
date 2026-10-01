@@ -731,23 +731,35 @@ mod tests {
         /// A spawn, blocking-pool hop, thread or stream that outlives the hub
         /// it was created under. `spawn_blocking(` is matched bare so the
         /// `tokio::task::` spelling and a `use`d one both count; `thread::spawn(`
-        /// likewise covers `std::thread::spawn(`.
-        const DETECTORS: [&str; 6] = [
+        /// likewise covers `std::thread::spawn(`. A spawn through a runtime
+        /// `Handle` is a spawn too — the held-write log's `Drop` wrote its row
+        /// that way, unbound, and no `tokio::spawn(` detector saw it — so the
+        /// usual spellings of one count: a `handle`/`runtime` binding, and
+        /// `Handle::current().spawn(` / `Handle::spawn(` inline.
+        const DETECTORS: [&str; 10] = [
             "tokio::spawn(",
             "tokio::task::spawn(",
             "spawn_blocking(",
             "async_stream::stream!",
             "std::thread::Builder",
             "thread::spawn(",
+            "handle.spawn(",
+            "runtime.spawn(",
+            "Handle::current().spawn(",
+            "Handle::spawn(",
         ];
         /// The ways to carry the hub across one: `bind_hub` on a future (the
         /// request's hub, or the one [`custom_app_hub`] mints for a job),
         /// [`bind_hub_stream`] on a stream, and `Hub::run` around a blocking
         /// closure or a thread body. The `bind_hub` forms are spelled out in
-        /// full so a `.bind_hub(..)` of some other hub is not taken for a carry.
-        const BINDINGS: [&str; 4] = [
+        /// full so a `.bind_hub(..)` of some other hub is not taken for a carry
+        /// — including the one hub carried from *earlier*: the held-write
+        /// log's, captured when the log is made, because its `Drop` runs where
+        /// `Hub::current()` is no longer the request's.
+        const BINDINGS: [&str; 5] = [
             ".bind_hub(sentry::Hub::current())",
             ".bind_hub(crate::server::api::middlewares::sentry_surface::custom_app_hub())",
+            ".bind_hub(Arc::clone(&self.writer.hub))",
             "bind_hub_stream(",
             "Hub::run(",
         ];
@@ -755,8 +767,12 @@ mod tests {
         let mut scanned = 0usize;
         let mut sites = 0usize;
         for (relative, text) in data_plane_scope(&GATE_ENTRY_POINTS) {
-            // Production code only: a trailing `#[cfg(test)] mod tests` spawns
-            // under the test's own hub.
+            // Production code only: a test module in its own file
+            // (`foo_tests.rs`, `tests.rs`, declared `#[cfg(test)] mod …;`) and a
+            // trailing `#[cfg(test)] mod tests` both spawn under the test's own hub.
+            if relative.ends_with("_tests.rs") || relative.ends_with("/tests.rs") {
+                continue;
+            }
             let text = match text.rfind("#[cfg(test)]\nmod ") {
                 Some(cut) => &text[..cut],
                 None => text.as_str(),

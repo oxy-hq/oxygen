@@ -14,6 +14,7 @@ use oxy_shared::errors::OxyError;
 use serde::{Deserialize, Serialize};
 
 use super::ClickHouseObservabilityStorage;
+use super::schema::PRODUCTION_ONLY;
 use crate::types::{
     AppAvailabilityWindow, ClientErrorGroup, CustomAppClientErrorRecord, CustomAppEventRecord,
     CustomAppLogRecord, FunctionLogRow,
@@ -50,6 +51,7 @@ struct CustomAppEventInsertRow {
     error_detail: String,
     trace_id: String,
     span_id: String,
+    environment: String,
 }
 
 #[derive(Debug, Serialize, Row)]
@@ -67,6 +69,7 @@ struct CustomAppLogInsertRow {
     message: String,
     trace_id: String,
     span_id: String,
+    environment: String,
 }
 
 #[derive(Debug, Serialize, Row)]
@@ -86,6 +89,7 @@ struct ClientErrorInsertRow {
     user_agent: String,
     trace_id: String,
     span_id: String,
+    environment: String,
 }
 
 #[derive(Debug, Deserialize, Row)]
@@ -195,6 +199,7 @@ pub(super) async fn insert_custom_app_events(
             error_detail: e.error_detail,
             trace_id: e.trace_id,
             span_id: e.span_id,
+            environment: e.environment,
         };
         insert.write(&row).await.map_err(|err| {
             OxyError::RuntimeError(format!("ClickHouse custom_app_events write failed: {err}"))
@@ -235,6 +240,7 @@ pub(super) async fn insert_custom_app_logs(
             message: clamp_message(l.message),
             trace_id: l.trace_id,
             span_id: l.span_id,
+            environment: l.environment,
         };
         insert.write(&row).await.map_err(|err| {
             OxyError::RuntimeError(format!("ClickHouse custom_app_logs write failed: {err}"))
@@ -281,6 +287,7 @@ pub(super) async fn insert_custom_app_client_errors(
             user_agent: e.user_agent,
             trace_id: e.trace_id,
             span_id: e.span_id,
+            environment: e.environment,
         };
         insert.write(&row).await.map_err(|err| {
             OxyError::RuntimeError(format!(
@@ -322,6 +329,7 @@ fn client_errors_sql(org_id: &str, app_id: &str, hours: u32, limit: u32, build_i
          {last_seen} AS last_seen \
          FROM custom_app_client_errors \
          WHERE org_id = '{org}' AND app_id = '{app}' \
+         AND {PRODUCTION_ONLY} \
          AND timestamp >= now() - INTERVAL {hours} HOUR{build_clause} \
          GROUP BY stack_hash \
          ORDER BY max(timestamp) DESC \
@@ -407,6 +415,7 @@ fn function_logs_sql(
          trace_id \
          FROM custom_app_logs \
          WHERE org_id = '{org}' AND app_id = '{app}' \
+         AND {PRODUCTION_ONLY} \
          AND timestamp >= now() - INTERVAL {hours} HOUR{invocation_clause}{request_clause} \
          ORDER BY timestamp DESC, seq DESC \
          LIMIT {limit}",
@@ -475,7 +484,8 @@ fn availability_sql(org_id: &str, app_id: &str, window_minutes: u32) -> String {
          FROM custom_app_events \
          WHERE org_id = '{org}' AND app_id = '{app}' \
          AND timestamp >= now() - INTERVAL {minutes} MINUTE \
-         AND {AVAILABILITY_KINDS}",
+         AND {AVAILABILITY_KINDS} \
+         AND {PRODUCTION_ONLY}",
         org = escape_sql_literal(org_id),
         app = escape_sql_literal(app_id),
         minutes = window_minutes,
@@ -517,6 +527,7 @@ fn fleet_availability_sql(apps: &[(String, String)], window_minutes: u32) -> Str
          WHERE {predicate} \
          AND timestamp >= now() - INTERVAL {window_minutes} MINUTE \
          AND {AVAILABILITY_KINDS} \
+         AND {PRODUCTION_ONLY} \
          GROUP BY app_id",
         predicate = fleet_predicate(apps),
     )
@@ -536,6 +547,7 @@ fn fleet_baseline_sql(apps: &[(String, String)], window_minutes: u32, cycle_days
          AND timestamp >= now() - INTERVAL {cycle_days} DAY - INTERVAL {window_minutes} MINUTE \
          AND timestamp < now() - INTERVAL {cycle_days} DAY \
          AND {AVAILABILITY_KINDS} \
+         AND {PRODUCTION_ONLY} \
          GROUP BY app_id",
         predicate = fleet_predicate(apps),
     )
@@ -830,6 +842,50 @@ mod tests {
                 .all(|a| a.contains("IF NOT EXISTS")),
             "the ALTERs run on every boot, so they must be idempotent"
         );
+    }
+
+    /// Design §3.4: the SLI, the fleet view and the default log and error reads
+    /// count production only, so a failing staging page dents nothing and pages
+    /// nobody. `''` stays production for a row from before the column.
+    #[test]
+    fn every_default_read_counts_production_only() {
+        let fleet = vec![("o".to_string(), "a".to_string())];
+        for (name, sql) in [
+            ("availability", availability_sql("o", "a", 60)),
+            ("fleet availability", fleet_availability_sql(&fleet, 60)),
+            ("fleet baseline", fleet_baseline_sql(&fleet, 60, 7)),
+            ("client errors", client_errors_sql("o", "a", 24, 50, "")),
+            ("function logs", function_logs_sql("o", "a", 24, 50, "", "")),
+        ] {
+            assert!(
+                sql.contains("environment IN ('production', '')"),
+                "{name} must read production only: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_environment_column_is_in_every_create_and_its_alter() {
+        use super::super::schema;
+        for (table, ddl) in [
+            ("custom_app_events", schema::CREATE_CUSTOM_APP_EVENTS_TABLE),
+            ("custom_app_logs", schema::CREATE_CUSTOM_APP_LOGS_TABLE),
+            (
+                "custom_app_client_errors",
+                schema::CREATE_CUSTOM_APP_CLIENT_ERRORS_TABLE,
+            ),
+        ] {
+            assert!(
+                ddl.contains("environment LowCardinality(String) DEFAULT 'production'"),
+                "{table} CREATE lacks the environment column"
+            );
+            assert!(
+                schema::CUSTOM_APP_ENVIRONMENT_ALTERS.iter().any(|a| {
+                    a.contains(&format!("ALTER TABLE {table} ")) && a.contains("IF NOT EXISTS")
+                }),
+                "{table} lacks an idempotent environment ALTER"
+            );
+        }
     }
 
     /// Single quotes are the one escape ClickHouse takes unconditionally, and a

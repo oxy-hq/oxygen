@@ -110,7 +110,7 @@ impl Fx {
     /// `retries = 2` on that group it surfaces as an intermittent flake
     /// attributed to whichever test lost the race, which is the worst possible
     /// shape for it. Suffixing with the org id removes the shared name.
-    fn writer(&self, base: &str) -> WriterRef {
+    pub(crate) fn writer(&self, base: &str) -> WriterRef {
         let tag = &self.org_id.simple().to_string()[..12];
         WriterRef::app(format!("{base}_{tag}")).expect("valid writer name")
     }
@@ -127,7 +127,7 @@ impl Fx {
     }
 
     /// `ensure_writer`, recording the role so cleanup can reclaim it.
-    async fn ensure_writer(
+    pub(crate) async fn ensure_writer(
         &self,
         writer: &WriterRef,
         grant: GrantLevel,
@@ -143,7 +143,7 @@ impl Fx {
         Ok(created)
     }
 
-    async fn tenant_row(&self) -> Option<oltp_tenants::Model> {
+    pub(crate) async fn tenant_row(&self) -> Option<oltp_tenants::Model> {
         OltpTenants::find()
             .filter(oltp_tenants::Column::OrgId.eq(self.org_id))
             .one(&self.db)
@@ -207,6 +207,18 @@ impl Fx {
         // stranded database blocks the whole oxy-oltp integration suite until
         // someone runs `just oltp-down`.
         let _ = self.provider.delete_project(&project).await;
+        // The staging branch's database, by its derived name — the same
+        // belt-and-braces as the tenant's, for a test that failed between the
+        // copy and the row.
+        let req = oxy_oltp::provider::BranchRequest {
+            project_id: project.clone(),
+            parent_branch_id: "local".into(),
+            name: oxy_oltp::OltpBranch::Staging.provider_name().into(),
+            database_name: project.clone(),
+            owner_role: format!("{project}_owner"),
+        };
+        let branch = oxy_oltp::provider::branch_database_name(&project, &req.name);
+        let _ = self.provider.delete_branch(&req, &branch).await;
         let roles = self.minted_roles.lock().expect("minted_roles").clone();
         for role in roles {
             let _ = self.provider.delete_role(&project, "local", &role).await;

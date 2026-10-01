@@ -51,8 +51,10 @@ the fact is missing from `PrincipalFacts`, not that the crate needs a connection
 
 Rings, briefly: `Read` · `MemberStrict` · `OrgAdmin` · `OrgAdminStrict` · `OwnerOnly` ·
 `OrgAdminOrCreator` · `WorkspaceAdmin` · `WorkspaceAdminStrict` · `WorkspaceEdit` ·
-`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `PlatformAny` · `PlatformCap` ·
-`GlobalOwnerOnly`.
+`AppAccess` · `WorkspaceData` · `AppAdmin` · `AppGrant` · `PartnerCap` · `StaffReach` · `PlatformAny` ·
+`PlatformCap` · `GlobalOwnerOnly`. `StaffReach` is `PlatformCap` on a *tenant* resource: a staff-only
+tool used inside one org (non-production app hosts, workspace previews), so the grant's scope is
+consulted.
 
 ## Staff standing is a grant, not a flag
 

@@ -168,6 +168,7 @@ async fn invocation(
         result_status: Set(None),
         request_hash: Set(None),
         failure_fingerprint: Set(fingerprint.map(str::to_string)),
+        environment: Set("production".into()),
     }
     .insert(db)
     .await

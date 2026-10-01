@@ -538,6 +538,7 @@ pub async fn post_cohort(
             // A read surface, same as `/semantic-query` and `ctx.semantic`.
             freshness: crate::server::preagg_context::RollupFreshness::ServeStale,
         },
+        crate::server::previews::request_hold::active(),
     );
 
     // Wrap rather than pre-filter: `resolve_cohort` builds its own

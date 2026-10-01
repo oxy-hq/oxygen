@@ -734,6 +734,20 @@ impl PipelineTaskExecutor {
         backfill_to: Option<&str>,
         admission: agentic_airway::AirwayAdmission,
     ) -> Result<ExecutingTask, String> {
+        // A workspace-preview run holds its airway steps, and holds them HERE,
+        // before the pipeline is even loaded: nothing below — the lease, the
+        // cursor, token custody, the destination — belongs to a preview.
+        if let Some(scope) = self.platform.preview_scope() {
+            return Ok(preview_hold::held_airway_task(&scope, pipeline_ref));
+        }
+        // A request pinned to a preview has no dry run to record a hold in:
+        // refused, before anything is loaded, leased or written.
+        if crate::platform::preview::is_preview(self.platform.as_ref()) {
+            return Err(format!(
+                "airway: `{pipeline_ref}` is not run in a workspace preview; merge the branch \
+                 to run it"
+            ));
+        }
         // Compile boundary first: this runs on the durable worker fleet, which
         // is stateless and has NO working copy — an FS read here is the
         // instance-affinity failure ("workspace directory not found" on a
@@ -781,9 +795,38 @@ impl PipelineTaskExecutor {
         // Render with the same `variables` that `start_airway_run`
         // validated against, so the worker's document matches what the
         // submitter saw.
-        let mut spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, variables)
+        let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, variables)
             .map_err(|e| format!("airway: parse `{pipeline_ref}`: {e}"))?;
+        self.launch_prepared_airway(
+            run_id,
+            pipeline_ref,
+            spec,
+            resources,
+            backfill_from.zip(backfill_to),
+            admission,
+            LaunchMode::Production,
+        )
+        .await
+    }
 
+    /// Everything [`Self::execute_airway`] does once the pipeline is loaded and
+    /// parsed: take the single-flight lease, resolve token custody, secrets and
+    /// the destination, and start the worker. Split out so the preview hold at
+    /// the top of `execute_airway` visibly returns before any of it, and so a
+    /// workspace preview's sample ([`preview_sample`]) runs the same tail under
+    /// its own name.
+    #[allow(clippy::too_many_arguments)]
+    async fn launch_prepared_airway(
+        &self,
+        run_id: &str,
+        pipeline_ref: &str,
+        mut spec: agentic_airway::AirwayPipelineSpec,
+        resources: &[String],
+        backfill: Option<(&str, &str)>,
+        admission: agentic_airway::AirwayAdmission,
+        mode: LaunchMode,
+    ) -> Result<ExecutingTask, String> {
+        preview_sample::check_launch_name(mode, &spec.name)?;
         // SINGLE-FLIGHT, ACQUIRED HERE — at claim, not at submit.
         //
         // This is the only place an airway pipeline can start, which is what
@@ -869,7 +912,7 @@ impl PipelineTaskExecutor {
         let resumable_backfill = apply_backfill_window(
             &spec.source.kind,
             &mut spec.source.config,
-            backfill_from.zip(backfill_to),
+            backfill,
             pipeline_ref,
         )?;
 
@@ -916,7 +959,8 @@ impl PipelineTaskExecutor {
         }
         // A resumable backfill drives the run-scoped state store keyed by run_id
         // (cursor → resume_state); everything else uses the pipeline-global store.
-        let resume_run_id = resumable_backfill.then(|| run_id.to_string());
+        // A preview sample never does (`resume_run_id_for`).
+        let resume_run_id = preview_sample::resume_run_id_for(mode, resumable_backfill, run_id);
         Ok(worker.execute(spec, resume_run_id, run_id.to_string(), workspace_id))
     }
 
@@ -1154,9 +1198,13 @@ impl PipelineTaskExecutor {
                 ("client_secret", "client_secret_var"),
                 ("client_id", "client_id_var"),
             ],
+            // `client_id` is an identifier, usually literal; `client_id_var` is
+            // accepted because a preview's sandbox company registers its
+            // Intuit development keys by secret name (`agentic_airway::preview`).
             "quickbooks" => &[
                 ("client_secret", "client_secret_var"),
                 ("refresh_token", "refresh_token_var"),
+                ("client_id", "client_id_var"),
             ],
             // Amazon SP-API. `client_id` is an identifier (it travels in every
             // LWA request body and identifies the app, not the seller); the LWA
@@ -1643,6 +1691,13 @@ impl agentic_airway::CredentialProvider for PlatformAirhouseCredentialProvider {
 
 mod automation;
 mod cursor_reset;
+mod preview_hold;
+#[cfg(test)]
+pub(crate) mod preview_hold_tests;
+mod preview_sample;
+
+use preview_sample::LaunchMode;
+pub use preview_sample::PREVIEW_AIRWAY_SAMPLE;
 
 pub use automation::run_decision_task;
 pub use cursor_reset::{ClearedCursors, CursorResetRefusal, CursorScope, ResetCursorsError};
@@ -1706,15 +1761,11 @@ fn apply_declared_base_path(obj: &mut serde_json::Map<String, serde_json::Value>
 
 /// Kinds whose airway source reads `backfill_start` / `backfill_end`.
 ///
-/// `pub` so the several doc comments that describe this list — in `airway_run`,
-/// in `agentic-airway`'s `task_spec`, on the `/backfill` route — can name it
-/// rather than restate it. Restating is what put four of them out of date at
-/// once when `sp_api` was added.
-///
-/// Adding a kind here is only half the job — the source builder in
-/// `agentic-airway`'s `source_factory` has to parse the pair and hand it to the
-/// connector, or the window is accepted here and silently ignored there.
-pub const WINDOWED_BACKFILL_KINDS: [&str; 3] = ["toast", "quickbooks", "sp_api"];
+/// Defined in `agentic-airway` (a workspace preview's sample policy decides by
+/// it too) and re-exported here under the path the doc comments in
+/// `airway_run`, on the `/backfill` route and elsewhere name. Restating the
+/// list is what put four of them out of date at once when `sp_api` was added.
+pub use agentic_airway::task_spec::WINDOWED_BACKFILL_KINDS;
 
 /// Kinds whose backfill cursor must land in the RUN-SCOPED store.
 ///
@@ -2295,6 +2346,112 @@ mod tests {
             .await
             .expect_err("an unresolvable secret must fail loudly");
         assert!(err.contains("OLTP_ANALYST_DSN"), "got: {err}");
+    }
+
+    use super::preview_hold_tests as preview_hold_fake;
+
+    /// An airway step in a preview run is `Done` with the hold recorded, and
+    /// never reaches the lease: the executor's database is `Disconnected`, so a
+    /// lease attempt would fail the task. The control — the same step with no
+    /// preview scope — does reach it, which is what makes the first half mean
+    /// anything.
+    #[tokio::test]
+    async fn airway_step_in_a_preview_run_holds_instead_of_leasing() {
+        use agentic_core::delegation::{TaskAssignment, TaskOutcome, TaskSpec};
+        use agentic_runtime::worker::TaskExecutor;
+        use preview_hold_fake::{PIPELINE, PreviewAirwayPlatform, ROOT, executor, preview_scope};
+        use std::sync::atomic::Ordering;
+
+        let assignment = || TaskAssignment {
+            task_id: format!("{ROOT}.1"),
+            parent_task_id: Some(ROOT.into()),
+            run_id: format!("{ROOT}.1"),
+            spec: TaskSpec::Airway {
+                pipeline_ref: agentic_automation::preview_names::scoped(ROOT, PIPELINE),
+                variables: None,
+                resources: vec![],
+                backfill_from: None,
+                backfill_to: None,
+                contract_policy: None,
+                environment: None,
+            },
+            policy: None,
+        };
+        let platform = |scope| {
+            Arc::new(PreviewAirwayPlatform {
+                scope,
+                request_preview: false,
+                yaml_reads: Default::default(),
+            })
+        };
+
+        let preview = platform(Some(preview_scope()));
+        let mut task = executor(preview.clone())
+            .execute(assignment())
+            .await
+            .expect("a held step is not an error");
+        let Some(TaskOutcome::Done { answer, metadata }) = task.outcomes.recv().await else {
+            panic!("a held airway step is Done");
+        };
+        let note = &metadata.expect("metadata carries the hold")["preview"];
+        assert_eq!(note["held"], true);
+        assert_eq!(note["pipeline_ref"], PIPELINE, "reported unscoped");
+        let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(
+            answer["preview"], *note,
+            "the step result carries the same note"
+        );
+        assert_eq!(
+            preview.yaml_reads.load(Ordering::SeqCst),
+            0,
+            "held before any load"
+        );
+
+        let production = platform(None);
+        let err = match executor(production.clone()).execute(assignment()).await {
+            Err(e) => e,
+            Ok(_) => panic!("without a preview scope the step must reach the lease"),
+        };
+        assert!(err.contains("lease"), "got: {err}");
+        assert_eq!(production.yaml_reads.load(Ordering::SeqCst), 1);
+    }
+
+    /// A request pinned to a preview (chat, a data app) has no dry run to
+    /// record a hold in, so its airway step is refused — before the pipeline is
+    /// loaded, and so before any lease, cursor or destination.
+    #[tokio::test]
+    async fn airway_step_in_a_preview_request_is_refused_before_it_loads() {
+        use agentic_core::delegation::{TaskAssignment, TaskSpec};
+        use agentic_runtime::worker::TaskExecutor;
+        use preview_hold_fake::{PIPELINE, PreviewAirwayPlatform, ROOT, executor};
+        use std::sync::atomic::Ordering;
+
+        let platform = Arc::new(PreviewAirwayPlatform {
+            scope: None,
+            request_preview: true,
+            yaml_reads: Default::default(),
+        });
+        let assignment = TaskAssignment {
+            task_id: format!("{ROOT}.1"),
+            parent_task_id: Some(ROOT.into()),
+            run_id: format!("{ROOT}.1"),
+            spec: TaskSpec::Airway {
+                pipeline_ref: PIPELINE.into(),
+                variables: None,
+                resources: vec![],
+                backfill_from: None,
+                backfill_to: None,
+                contract_policy: None,
+                environment: None,
+            },
+            policy: None,
+        };
+        let err = match executor(platform.clone()).execute(assignment).await {
+            Err(e) => e,
+            Ok(_) => panic!("an airway step in a preview request must be refused"),
+        };
+        assert!(err.contains("not run in a workspace preview"), "got: {err}");
+        assert_eq!(platform.yaml_reads.load(Ordering::SeqCst), 0);
     }
 }
 

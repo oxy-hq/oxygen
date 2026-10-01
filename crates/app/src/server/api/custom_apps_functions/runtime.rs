@@ -59,6 +59,11 @@ pub struct InvocationCtx {
     /// the function declared the `airhouse` capability.
     #[serde(rename = "airhouseSchema", skip_serializing_if = "Option::is_none")]
     pub airhouse_schema: Option<String>,
+    /// `ctx.channel` (and its alias `ctx.environment`, the environments
+    /// design's name): the app environment this invocation runs in —
+    /// `"production"`, or `"staging"`, where the host holds every write
+    /// (`custom_apps_functions::env_policy`).
+    pub channel: String,
 }
 
 /// One org team the caller belongs to, as surfaced through `ctx.user.teams`.
@@ -266,6 +271,14 @@ pub trait FunctionHost: Send + Sync {
     /// caller's side of the channel: the place for work that must happen once
     /// per invocation rather than once per host call.
     async fn end_of_invocation(&self) {}
+
+    /// Whether this host's environment policy decides — outside production,
+    /// or a production run refused for reading a branch. Only then is a
+    /// `HeldInStaging` / `EnvironmentRefused` label on its errors the
+    /// policy's own (`host_call_attrs::classify_host_error_for`).
+    fn decides_by_environment(&self) -> bool {
+        false
+    }
     /// Called by the broker when a host call failed in a way that pages
     /// (`host_call_attrs::counts_toward_paging`), before the isolate sees the
     /// rejection — so a handler that catches it and answers 2xx still leaves a
@@ -1385,6 +1398,10 @@ globalThis.__buildCtx = (ctxData) => ({
   // live app points at contains `.org_id`.
   user: { ...ctxData.user, org_id: ctxData.user.orgId },
   env: ctxData.env,
+  // The app environment this run is in. `environment` is the design's name;
+  // `channel` the hold layer's. Same value: "production" or "staging".
+  channel: ctxData.channel,
+  environment: ctxData.channel,
   log: (...args) => Deno.core.ops.op_ctx_log("info", args.map(String).join(" ")),
   // Synchronous — pure CPU, so these skip the host-call channel entirely.
   //
@@ -1941,13 +1958,16 @@ pub async fn run(
                                 // `dispatch_host_call` consumes its host.
                                 let host_note = host.clone();
                                 let (reply, result) = dispatch_host_call(call, host).await;
-                                record_host_call_outcome(kind, &result);
+                                let labels = host_note.decides_by_environment();
+                                record_host_call_outcome(kind, &result, labels);
                                 // Before the reply: once the handler can catch
                                 // the error, the failure is already noted.
                                 match &result {
                                     Err(message) => {
                                         let error_kind =
-                                            super::host_call_attrs::classify_host_error(message);
+                                            super::host_call_attrs::classify_host_error_for(
+                                                message, labels,
+                                            );
                                         if super::host_call_attrs::counts_toward_paging(error_kind)
                                         {
                                             host_note.note_host_call_failure(
@@ -2262,13 +2282,20 @@ async fn dispatch_host_call(
 
 /// Record how a host op ended on the current span: an `error.type` facet on
 /// failure, rows / truncation for a query, the upstream status for a fetch.
-fn record_host_call_outcome(kind: HostCallKind, result: &Result<serde_json::Value, String>) {
-    use super::host_call_attrs::{classify_host_error, fetch_status, rows_and_truncated};
+fn record_host_call_outcome(
+    kind: HostCallKind,
+    result: &Result<serde_json::Value, String>,
+    environment_labels: bool,
+) {
+    use super::host_call_attrs::{classify_host_error_for, fetch_status, rows_and_truncated};
     let span = tracing::Span::current();
     match result {
         Err(message) => {
             span.record("otel.status_code", "ERROR");
-            span.record("error.type", classify_host_error(message));
+            span.record(
+                "error.type",
+                classify_host_error_for(message, environment_labels),
+            );
         }
         Ok(value) => match kind {
             HostCallKind::Query => {
@@ -2873,6 +2900,7 @@ mod tests {
             },
             env: Default::default(),
             airhouse_schema: None,
+            channel: "production".into(),
         }
     }
 
@@ -3007,6 +3035,7 @@ mod tests {
                 user: full_identity(),
                 env: Default::default(),
                 airhouse_schema: None,
+                channel: "production".into(),
             },
         )
         .await;

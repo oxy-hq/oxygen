@@ -59,6 +59,9 @@ admin = [
 rest = ["admin", "dep:axum"]
 # The SQL a custom app may send to its own Airhouse schema (`sql_rules`).
 sql-rules = ["dep:sqlparser", "dep:thiserror"]
+# The rewrite and verifier that keep a workspace preview's Airhouse writes in
+# its own schemas (`preview_sql`). Pure: no connector, no platform deps.
+preview-sql = ["sql-rules", "dep:uuid", "dep:sha2", "dep:hex"]
 
 [dependencies]
 # Connector feature deps
@@ -90,6 +93,10 @@ axum = { workspace = true, optional = true }
 # sql-rules feature deps
 sqlparser = { workspace = true, optional = true, features = ["visitor"] }
 
+# preview-sql feature deps (the preview key's hash)
+sha2 = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
+
 # Shared by both connector and admin
 tokio = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -102,3 +109,10 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 wiremock = { workspace = true }
+# In-process stand-in for Airhouse in `tests/integration/preview_sql_duckdb.rs`.
+duckdb = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+required-features = ["preview-sql"]

@@ -38,20 +38,28 @@ export function useActingSession(): {
    * `home`. Always a same-origin path.
    */
   returnTo: string;
+  /**
+   * The session list has not answered yet for someone who can hold one. A redirect
+   * that depends on `isActing` waits on this; deciding early would bounce an acting
+   * operator on the first render. Never true for anyone who can't act.
+   */
+  isPending: boolean;
 } {
   const { data: user } = useCurrentUser();
   const isStaff = !!(user?.is_owner || user?.is_app_admin);
   const isPartner = (user?.partner_memberships?.length ?? 0) > 0;
   // Staff act as any org; a partner acts as an assigned client. Nobody else can
   // hold a session, so don't poll for them.
-  const { data: sessions } = useCurrentAssume(isStaff || isPartner);
+  const canAct = isStaff || isPartner;
+  const { data: sessions, isPending } = useCurrentAssume(canAct);
 
-  const session = isStaff || isPartner ? sessions?.[0] : undefined;
+  const session = canAct ? sessions?.[0] : undefined;
   // Staff came from admin; a partner came from their console. Returning someone
   // to a surface they can't reach would just 403 them at the door.
   const home = isStaff ? "/admin/tenants" : "/partners";
   return {
     session,
+    isPending: canAct && isPending,
     isActing: !!session,
     landing: session ? landingFor(session) : null,
     isStaff,

@@ -29,6 +29,7 @@
 import { CliError, ExitCode } from "../util/errors.js";
 import { GATED_CAPABILITIES } from "./capabilities.js";
 import { type CtxCall, describeLintIssue, type FunctionLintIssue } from "./function-lint.js";
+import { describeWrite } from "./staging-destinations.js";
 
 /** The fields of `DatabaseInfo` this reads; the route answers more. */
 export interface DatabaseEngine {
@@ -105,8 +106,11 @@ function issue(call: CtxCall, rule: FunctionLintIssue["rule"], message: string):
   return { rule, fn: call.fn, level: "error", file: call.file, path: `line ${call.line}`, message };
 }
 
-/** `ctx.warehouse.upsert("db", …)` — the call with the database it named. */
-const written = (call: CtxCall) => `${call.call}"${call.database}", …)`;
+/**
+ * `ctx.warehouse.upsert("db", …)` — the call with the database it named, and
+ * for a staging twin the mapping that sent it to this one.
+ */
+const written = (call: CtxCall) => describeWrite(call);
 
 /**
  * Every refusal the engine list settles for the writes `lintAppFunctions`
@@ -153,6 +157,16 @@ function kindIssue(
   spec: Record<string, unknown>,
   db: DatabaseEngine
 ): FunctionLintIssue | undefined {
+  if (call.mappedFrom !== undefined && db.db_type === "airhouse_managed") {
+    return issue(
+      call,
+      "destinations",
+      `\`${written(call)}\` — \`${db.name}\` is the workspace's own Airhouse (airhouse_managed), ` +
+        "production's tenant, so a staging write there is a production write; the host and " +
+        "publish refuse the mapping — write staging facts with `ctx.airhouse`, whose staging " +
+        "writes land in the app's sibling schema"
+    );
+  }
   if (AIRHOUSE_TYPES.includes(db.db_type)) return undefined;
   if (db.db_type === MANAGED_OLTP_TYPE) {
     return issue(

@@ -155,8 +155,25 @@ pub(crate) fn agentic_error_response(
     // missing columns, etc.). Upstream-unreachable (`ConnectionError`)
     // becomes 502 so the IDE shows a "warehouse is down" surface
     // distinguishable from "your SQL is wrong"; everything else
-    // (decoder errors, internal driver bugs) is 500.
+    // (decoder errors, internal driver bugs) is 500. A statement a workspace
+    // preview held (`previews::hold`) is the preview's `409 preview_read_only`:
+    // nothing failed, and nothing was sent.
     let (status, body) = match err {
+        SqlExecuteError::Connector(ConnectorError::QueryFailed(d))
+            if d.code.as_deref() == Some(crate::server::previews::hold::HELD_CODE) =>
+        {
+            (
+                StatusCode::CONFLICT,
+                SqlErrorResponse {
+                    message: d.message,
+                    code: d.code,
+                    detail: None,
+                    hint: None,
+                    position: None,
+                    sql: None,
+                },
+            )
+        }
         SqlExecuteError::Connector(ConnectorError::QueryFailed(d)) => {
             let QueryFailedDetails {
                 sql,

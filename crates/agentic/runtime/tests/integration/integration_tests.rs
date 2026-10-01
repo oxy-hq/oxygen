@@ -29,8 +29,9 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
 > = tokio::sync::OnceCell::const_new();
 
 /// Get a database connection for testing. Uses testcontainers to spin up
-/// Postgres automatically, or OXY_DATABASE_URL if set.
-async fn test_db() -> Option<DatabaseConnection> {
+/// Postgres automatically, or OXY_DATABASE_URL if set. Shared with sibling
+/// modules (e.g. `run_feed_test`) so they don't copy the container setup.
+pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     let url = TEST_DB_URL
         .get_or_init(|| async {
             // If OXY_DATABASE_URL is set, use it (external DB).

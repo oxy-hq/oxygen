@@ -1,6 +1,7 @@
 //! Custom-app staging, semantic half (`internal-docs/customer-apps-staging.md`
 //! D4): a draft build pins a `staging` revision, and only a staging request —
-//! preview cookie + `DevelopApps` reach — reads it.
+//! the app's staging host, or the preview cookie, from a caller who may open
+//! staging — reads it.
 //!
 //! The workspace has a promoted `main` revision carrying view `orders` at
 //! definition A, and a `staging` revision with the same view at definition B.
@@ -226,8 +227,14 @@ async fn a_staging_request_reads_the_pinned_revision_and_live_reads_the_promoted
     let db = test_db().await;
     let w = seed_world(&db).await;
 
-    let pin =
-        staging_pin_for_data_request(&db, &staging_headers(w.app, true), STAFF, w.workspace).await;
+    let pin = staging_pin_for_data_request(
+        &db,
+        &staging_headers(w.app, true),
+        Uuid::new_v4(),
+        STAFF,
+        w.workspace,
+    )
+    .await;
     assert_eq!(
         pin,
         Some(w.staging),
@@ -276,13 +283,20 @@ async fn no_cookie_no_reach_or_another_workspace_means_no_pin() {
     let db = test_db().await;
     let w = seed_world(&db).await;
 
-    let no_cookie =
-        staging_pin_for_data_request(&db, &staging_headers(w.app, false), STAFF, w.workspace).await;
+    let no_cookie = staging_pin_for_data_request(
+        &db,
+        &staging_headers(w.app, false),
+        Uuid::new_v4(),
+        STAFF,
+        w.workspace,
+    )
+    .await;
     assert_eq!(no_cookie, None, "the cookie is the trigger");
 
     let member = staging_pin_for_data_request(
         &db,
         &staging_headers(w.app, true),
+        Uuid::new_v4(),
         "customer@example.com",
         w.workspace,
     )
@@ -293,12 +307,79 @@ async fn no_cookie_no_reach_or_another_workspace_means_no_pin() {
     );
 
     let (_, other_ws) = seed_org_workspace(&db).await;
-    let elsewhere =
-        staging_pin_for_data_request(&db, &staging_headers(w.app, true), STAFF, other_ws).await;
+    let elsewhere = staging_pin_for_data_request(
+        &db,
+        &staging_headers(w.app, true),
+        Uuid::new_v4(),
+        STAFF,
+        other_ws,
+    )
+    .await;
     assert_eq!(
         elsewhere, None,
         "the named app must be published from the request's workspace"
     );
+}
+
+/// A data request on the app's staging host (environments design §3.2) is a
+/// staging request with no cookie at all: the pin comes from the build the
+/// staging environment serves, for a viewer who may open staging.
+#[tokio::test]
+async fn a_staging_host_request_reads_the_staging_builds_pin() {
+    let db = test_db().await;
+    let w = seed_world(&db).await;
+    let (org_slug, app_slug) = short_slugs(&db, w.app).await;
+    let on = |host: &str| {
+        let mut h = staging_headers(w.app, false);
+        h.insert("host", HeaderValue::from_str(host).unwrap());
+        h
+    };
+    let staging_host = format!("staging--{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
+    let production_host = format!("{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
+
+    let staff =
+        staging_pin_for_data_request(&db, &on(&staging_host), Uuid::new_v4(), STAFF, w.workspace)
+            .await;
+    assert_eq!(staff, Some(w.staging), "the staging build's pin, no cookie");
+
+    let customer = staging_pin_for_data_request(
+        &db,
+        &on(&staging_host),
+        Uuid::new_v4(),
+        "customer@example.com",
+        w.workspace,
+    )
+    .await;
+    assert_eq!(customer, None, "staging is Oxy staff's");
+
+    let production = staging_pin_for_data_request(
+        &db,
+        &on(&production_host),
+        Uuid::new_v4(),
+        STAFF,
+        w.workspace,
+    )
+    .await;
+    assert_eq!(production, None, "production reads the promoted revision");
+}
+
+/// Slugs short enough for a `staging--<org>--<slug>` DNS label (63 bytes).
+async fn short_slugs(db: &DatabaseConnection, app: Uuid) -> (String, String) {
+    let app_row = apps::Entity::find_by_id(app)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut org: organizations::ActiveModel = organizations::Entity::find_by_id(app_row.org_id)
+        .one(db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into();
+    let org_slug = format!("stg{}", &app.simple().to_string()[..6]);
+    org.slug = ActiveValue::Set(org_slug.clone());
+    org.update(db).await.expect("shorten the org slug");
+    (org_slug, app_row.slug)
 }
 
 #[tokio::test]
@@ -397,4 +478,95 @@ async fn promoting_a_pinned_build_names_the_views_that_differ() {
     assert_eq!(notice.current_revision_id, Some(w.promoted));
     assert_eq!(notice.views_differ, vec!["orders".to_string()]);
     assert!(notice.topics_differ.is_empty());
+}
+
+// The function host exists only with the `custom-app-functions` feature.
+#[cfg(feature = "custom-app-functions")]
+mod airway_host;
+
+/// I9: a staging (or preview) invocation cannot start production ELT. Refused
+/// for a host built under a staging pin — then called outside it, as the
+/// isolate thread calls it — and for a host whose context reads a `staging`
+/// revision. The control, a live host, gets past the refusal and fails on the
+/// pipeline it cannot find, which is what makes the refusals mean anything.
+///
+/// The pinned run is a preview, so it holds every other write as staging does
+/// (a `POST` answers 409 unsent) — and, being production-admitted, logs no
+/// `app.staging.held` row for any of it.
+#[cfg(feature = "custom-app-functions")]
+#[tokio::test]
+async fn ctx_airway_run_is_refused_under_a_staging_pin() {
+    const REFUSED: &str = "isn't available in a staging or preview invocation";
+    let db = test_db().await;
+    let w = seed_world(&db).await;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO workspace_compiled_configs (revision_id, databases) VALUES ($1, '[]'::jsonb)",
+        [w.staging.into()],
+    ))
+    .await
+    .expect("staging config");
+    let root = tempfile::tempdir().expect("workspace dir");
+    std::fs::write(
+        root.path().join("config.yml"),
+        "databases: []\nmodels: []\n",
+    )
+    .unwrap();
+    let run = |host: std::sync::Arc<
+        dyn oxy_app::server::api::custom_apps_functions::runtime::FunctionHost,
+    >| async move {
+        let err = host
+            .airway_run("airway/orders.airway.yml".into(), serde_json::Value::Null)
+            .await
+            .expect_err("no call here seeds a run");
+        // Where a held-write row would be written, were one due.
+        host.end_of_invocation().await;
+        err
+    };
+
+    let pinned = with_staging_pin(
+        Some(w.staging),
+        airway_host::host(&db, w.workspace, root.path(), None),
+    )
+    .await;
+    // Held before anything is sent: nothing here reaches api.example.com.
+    let posted = pinned
+        .fetch(
+            "https://api.example.com/hook".into(),
+            json!({ "method": "POST", "body": "{}" }),
+        )
+        .await
+        .expect("a held fetch resolves");
+    assert_eq!(posted["status"], 409, "held as staging holds it: {posted}");
+    let held_body = posted["body"].as_str().unwrap_or_default();
+    assert!(
+        held_body.contains("reads a branch") && held_body.contains(&w.staging.to_string()),
+        "the hold names the branch read, not an environment: {held_body}"
+    );
+    let err = run(pinned).await;
+    assert!(
+        err.contains(REFUSED) && err.contains(&w.staging.to_string()),
+        "{err}"
+    );
+
+    let at_staging = airway_host::host(&db, w.workspace, root.path(), Some(w.staging)).await;
+    let err = run(at_staging).await;
+    assert!(err.contains(REFUSED), "{err}");
+
+    let live = airway_host::host(&db, w.workspace, root.path(), None).await;
+    let err = run(live).await;
+    assert!(
+        !err.contains(REFUSED),
+        "a live invocation is not refused: {err}"
+    );
+
+    // Each hold and refusal was a production-admitted run's: none is logged as
+    // a held staging call, whose `environment` column would say `production`.
+    use sea_orm::{ColumnTrait, QueryFilter};
+    let held = entity::audit_events::Entity::find()
+        .filter(entity::audit_events::Column::Action.eq("app.staging.held"))
+        .all(&db)
+        .await
+        .expect("query audit_events");
+    assert!(held.is_empty(), "no held row for a branch read: {held:?}");
 }

@@ -31,7 +31,22 @@ use super::evaluator::{HealthThresholds, WorkspaceSignals};
 /// per-job "Recent runs" history, where scheduled health fires are meant to stay
 /// visible (see `start_health_eval_run`'s `schedule_id` stamping). A new daemon
 /// `source_type` therefore has to be weighed against **both** lists.
-const NON_WORKSPACE_RUN_SOURCES: &[&str] = &["health_eval_workspace", "preagg_cycle"];
+///
+/// `preview_analyze` is staff checking a *branch* (workspace previews),
+/// `preview_schema_drop` the TTL drop of a preview's schemas, and
+/// `preview_compare` a preview build's compare with live, `preview_airway_sample`
+/// staff sampling a branch's pipeline: no such failure says anything about the
+/// workspace production serves. Nor does `custom_app_staging_migrations`, a
+/// custom app's staging homes migrated after a publish.
+const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
+    "health_eval_workspace",
+    "preagg_cycle",
+    "preview_analyze",
+    "preview_schema_drop",
+    "preview_compare",
+    "preview_airway_sample",
+    "custom_app_staging_migrations",
+];
 
 /// SQL predicate excluding [`NON_WORKSPACE_RUN_SOURCES`], for a table aliased
 /// `alias` (empty for an unaliased `agentic_runs`).
@@ -39,6 +54,22 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &["health_eval_workspace", "preagg_cy
 /// Rows with a NULL `source_type` are explicitly kept: a bare `NOT IN` evaluates
 /// to NULL for them, which the WHERE clause treats as false and would silently
 /// drop legacy runs out of the denominator.
+///
+/// A held preview procedure run is an ordinary `workflow` run, so it is told
+/// apart by `metadata.trigger = 'preview'` instead: a staffer's dry run of a
+/// branch failing says nothing about the workspace production serves.
+/// `IS DISTINCT FROM` keeps runs with no metadata.
+///
+/// `agentic_runs` has no supporting index at all for the `created_at` window
+/// every caller here filters on (PR #3381 review nit 3), so every one of
+/// these queries is already an unbounded scan *before* this predicate — a
+/// pre-existing condition, out of this predicate's scope to fix. Against
+/// that baseline, `metadata->>'trigger' IS DISTINCT FROM 'preview'` is a
+/// cheap residual: one more per-row JSONB comparison on a scan that was
+/// already reading every row in the window. It stops being cheap the day
+/// `agentic_runs` gets a `created_at` index and this predicate is the thing
+/// keeping it non-sargable — see the follow-up in
+/// `internal-docs/workspace-previews.md`.
 fn exclude_daemon_runs(alias: &str) -> String {
     let col = format!("{alias}source_type");
     let list = NON_WORKSPACE_RUN_SOURCES
@@ -46,7 +77,10 @@ fn exclude_daemon_runs(alias: &str) -> String {
         .map(|s| format!("'{s}'"))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(" AND ({col} IS NULL OR {col} NOT IN ({list}))")
+    format!(
+        " AND ({col} IS NULL OR {col} NOT IN ({list})) \
+         AND ({alias}metadata->>'trigger' IS DISTINCT FROM 'preview')"
+    )
 }
 
 #[derive(Debug, FromQueryResult)]
@@ -446,6 +480,10 @@ mod tests {
         let sql = exclude_daemon_runs("r.");
         assert!(sql.contains("r.source_type IS NULL"), "got: {sql}");
         assert!(sql.contains("r.source_type NOT IN"), "got: {sql}");
+        assert!(
+            sql.contains("r.metadata->>'trigger' IS DISTINCT FROM 'preview'"),
+            "a preview dry run is not the workspace's run: {sql}"
+        );
     }
 
     #[tokio::test]

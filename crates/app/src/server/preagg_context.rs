@@ -80,6 +80,14 @@ pub fn preagg_context(
     renewal_threshold_secs: Option<u64>,
     freshness: RollupFreshness,
 ) -> Option<PreaggContext> {
+    // Never under a staging pin. Rollups are built from the PROMOTED model and
+    // matched by `(view, rollup, rollup_hash)`, so a branch that changes a
+    // view's SQL but not its rollup declaration would be answered from a rollup
+    // of the old model. A pinned request compiles to warehouse SQL: slower,
+    // always right. (`custom_apps_staging_pin::with_staging_pin`.)
+    if crate::server::api::custom_apps_staging_pin::current_staging_pin().is_some() {
+        return None;
+    }
     Some(PreaggContext {
         workspace_id,
         cache: cache?,

@@ -29,6 +29,7 @@ use oxy_shared::errors::OxyError;
 // `OxyProjectContext` are in scope.
 mod function_context;
 mod monitor_scan;
+mod preview_hold;
 mod project_context;
 mod workspace_context;
 
@@ -103,6 +104,10 @@ pub struct OxyProjectContext {
     /// someone is editing in the IDE right now and an uncommitted edit must
     /// never page the on-call about a promoted revision that is fine.
     semantic_scan_required: bool,
+    /// Built for a workspace-preview request (`previews::request_hold`): every
+    /// write it would make is held. Captured at construction, so a run driven
+    /// on a spawned task keeps the answer the request had. See [`preview_hold`].
+    holds_writes: bool,
 }
 
 impl OxyProjectContext {
@@ -118,6 +123,7 @@ impl OxyProjectContext {
             db: None,
             semantic_scan: None,
             semantic_scan_required: false,
+            holds_writes: crate::server::previews::request_hold::active(),
         }
     }
 
@@ -350,17 +356,20 @@ impl OxyProjectContext {
     /// over the capability so a handler holding a read-only manager can build a
     /// connector without genericizing `OxyProjectContext` (26 construction
     /// sites). This stays a delegation so every existing caller is untouched.
+    ///
+    /// Held when this context was built for a workspace-preview request.
     pub async fn build_connector_for(
         &self,
         db_name: &str,
     ) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
-        build_connector_for_db(
+        let conn = build_unheld_connector(
             &self.workspace_manager,
             db_name,
             self.subject,
             self.role.clone(),
         )
-        .await
+        .await?;
+        Ok(self.held(conn, db_name))
     }
 }
 
@@ -371,7 +380,30 @@ impl OxyProjectContext {
 /// with a working copy it resolves; on one without it returns the error naming
 /// the fix. Every other database — remote warehouses, DuckDB with an S3 mirror,
 /// airhouse — never touches a file and works anywhere.
+///
+/// Inside a workspace-preview request (`previews::request_hold`) the connector
+/// is held: reads are sent, writes refused. A caller off the request's task
+/// that must hold too (the metric-tree runner's blocking threads) wraps with
+/// `request_hold::hold_if` itself.
 pub async fn build_connector_for_db<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
+    db_name: &str,
+    subject: Option<uuid::Uuid>,
+    role: Option<WorkspaceRole>,
+) -> Result<Arc<dyn DatabaseConnector>, OxyError>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
+    let conn = build_unheld_connector(workspace_manager, db_name, subject, role).await?;
+    let held = crate::server::previews::request_hold::active();
+    Ok(crate::server::previews::request_hold::hold_if(
+        held, conn, db_name,
+    ))
+}
+
+/// [`build_connector_for_db`] without the preview hold: never handed out
+/// without asking whether the caller is a preview request.
+async fn build_unheld_connector<S: DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
     db_name: &str,
     subject: Option<uuid::Uuid>,
@@ -466,6 +498,14 @@ impl OxyProjectContext {
         };
 
         cell.get_or_try_init(|| async {
+            if self.holds_writes() {
+                // Held, and with the real reason on failure: under a preview
+                // there is no bare config to fall back to.
+                return self
+                    .build_connector_for(name)
+                    .await
+                    .map_err(|e| format!("failed to build connector for '{name}': {e}"));
+            }
             if let Some(conn) = self.resolve_pre_built_connector(name).await {
                 return Ok(conn);
             }
@@ -489,6 +529,19 @@ impl OxyProjectContext {
         .await
         .cloned()
     }
+}
+
+/// The process-environment fallback for a secret the store did not answer —
+/// never for a name the manager withholds (`SecretsManager::withholding`, the
+/// workspace-preview platform), which would otherwise come back through here.
+pub(super) fn env_fallback(
+    secrets: &oxy::adapters::secrets::SecretsManager,
+    name: &str,
+) -> Option<String> {
+    if secrets.withholds(name) {
+        return None;
+    }
+    std::env::var(name).ok()
 }
 
 /// Validate that `workflow_ref` is a single relative path that stays under
@@ -540,7 +593,26 @@ fn validate_automation_ref_syntax(workflow_ref: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{airhouse_pool_key, validate_automation_ref_syntax};
+    use super::{airhouse_pool_key, env_fallback, validate_automation_ref_syntax};
+
+    /// A withheld name does not come back through the environment fallback
+    /// (the LLM `key_var` and `resolve_secret` paths); any other name does.
+    #[test]
+    fn env_fallback_skips_a_withheld_name() {
+        // SAFETY: nextest runs each test in its own process.
+        unsafe {
+            std::env::set_var("S9_FALLBACK_WITHHELD", "secret");
+            std::env::set_var("S9_FALLBACK_ORDINARY", "fine");
+        }
+        let sm = oxy::adapters::secrets::SecretsManager::from_environment()
+            .unwrap()
+            .withholding(["S9_FALLBACK_WITHHELD".to_string()].into());
+        assert_eq!(env_fallback(&sm, "S9_FALLBACK_WITHHELD"), None);
+        assert_eq!(
+            env_fallback(&sm, "S9_FALLBACK_ORDINARY").as_deref(),
+            Some("fine")
+        );
+    }
 
     #[test]
     fn airhouse_pool_key_is_stable_per_identity() {
@@ -1521,7 +1593,7 @@ async fn resolve_model_impl(
                     .await
                     .ok()
                     .flatten()
-                    .or_else(|| std::env::var(kv).ok())
+                    .or_else(|| env_fallback(&workspace_manager.secrets_manager, kv))
             } else {
                 None
             };

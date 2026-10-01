@@ -265,6 +265,13 @@ pub async fn bulk_create_secrets(
     Ok((status_code, axum::Json(response)).into_response())
 }
 
+/// A non-production app secret (`apps/<id>/<env>/<KEY>`): staff-only, so these
+/// tenant routes neither list it nor reach it by id — it answers 404 as a row
+/// that does not exist would.
+fn staff_only(name: &str) -> bool {
+    crate::server::api::custom_apps_secrets::scope::is_non_production_app_secret(name)
+}
+
 /// List all secrets (without values)
 pub async fn list_secrets(
     _: WorkspaceAdmin,
@@ -279,6 +286,10 @@ pub async fn list_secrets(
     let secret_manager = SecretManagerService::new(workspace_id);
     match secret_manager.list_secrets(&db).await {
         Ok(secrets) => {
+            let secrets: Vec<_> = secrets
+                .into_iter()
+                .filter(|s| !staff_only(&s.name))
+                .collect();
             // Resolve created_by and updated_by UUIDs → emails in one batch query
             let user_ids: Vec<Uuid> = secrets
                 .iter()
@@ -339,10 +350,10 @@ pub async fn get_secret(
     let secret_manager = SecretManagerService::new(workspace_id);
 
     match secret_manager.get_secret_by_id(secret_id).await {
-        Some(secret) => {
+        Some(secret) if !staff_only(&secret.name) => {
             Ok((StatusCode::OK, axum::Json(SecretResponse::from(secret))).into_response())
         }
-        None => Ok((
+        _ => Ok((
             StatusCode::NOT_FOUND,
             axum::Json(json!({ "error": "Secret not found" })),
         )
@@ -396,7 +407,11 @@ pub async fn update_secret(
 
     let secret_manager = SecretManagerService::new(workspace_id);
 
-    let Some(secret) = secret_manager.get_secret_by_id(secret_id).await else {
+    let Some(secret) = secret_manager
+        .get_secret_by_id(secret_id)
+        .await
+        .filter(|s| !staff_only(&s.name))
+    else {
         return Ok((
             StatusCode::NOT_FOUND,
             axum::Json(json!({ "error": "Secret not found" })),
@@ -853,7 +868,11 @@ pub async fn delete_secret(
 
     let secret_manager = SecretManagerService::new(workspace_id);
 
-    let Some(secret) = secret_manager.get_secret_by_id(secret_id).await else {
+    let Some(secret) = secret_manager
+        .get_secret_by_id(secret_id)
+        .await
+        .filter(|s| !staff_only(&s.name))
+    else {
         return Ok((
             StatusCode::NOT_FOUND,
             axum::Json(json!({ "error": "Secret not found" })),
@@ -895,6 +914,15 @@ pub async fn reveal_secret(
     };
 
     let secret_manager = SecretManagerService::new(workspace_id);
+    if let Some(secret) = secret_manager.get_secret_by_id(secret_id).await
+        && staff_only(&secret.name)
+    {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            axum::Json(json!({ "error": "Secret not found" })),
+        )
+            .into_response());
+    }
 
     // 404 and 500 are different answers and the caller acts on them differently:
     // a missing secret gets re-created, an unreadable one gets investigated. The

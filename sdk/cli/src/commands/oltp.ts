@@ -1,23 +1,22 @@
 /**
- * `oxyc oltp status | provision` — an org's OLTP database, from a laptop.
+ * `oxyc oltp status | provision | reset` — an org's OLTP database, from a laptop.
  *
  * A thin client over the admin console's routes, so staff can see and request
  * provisioning without a shell on the server. The Rust `oxy oltp` reads
  * `OXY_DATABASE_URL` and has no `--env`: it only reaches the control plane of
  * the machine it runs on.
  *
- *   GET  /api/admin/oltp                          every org, with a database or without
- *   GET  /api/admin/orgs/{org_id}/oltp            one org's store and writers
- *   POST /api/admin/orgs/{org_id}/oltp/provision  {"writers": ["app:<writer>", …]}
+ *   GET  /api/admin/oltp                                  every org, with a database or without
+ *   GET  /api/admin/orgs/{org_id}/oltp                    one org's store and writers
+ *   POST /api/admin/orgs/{org_id}/oltp/provision          {"writers": [...], "branch"?: "staging"}
+ *   GET  /api/admin/orgs/{org_id}/oltp/branches/staging   the staging branch (`oltp-branch.ts`)
+ *   POST /api/admin/orgs/{org_id}/oltp/branches/staging/reset  {"confirm": true}
  *
- * All three sit behind the `PlatformOltp` capability and the admin scope fence,
- * so an org outside a bounded staff grant answers 404 rather than 403. None of
- * them returns a credential.
+ * All of them sit behind the `PlatformOltp` capability and the admin scope
+ * fence, so an org outside a bounded staff grant answers 404 rather than 403.
+ * None of them returns a credential.
  */
 
-import { createInterface } from "node:readline/promises";
-
-import { type ApiResponse, parseJson, request } from "../api/request.js";
 import type { Context } from "../context/resolve.js";
 import {
   appWriterName,
@@ -28,8 +27,16 @@ import {
 import * as log from "../ui/log.js";
 import { table } from "../ui/render.js";
 import { out } from "../ui/tty.js";
-import { CliError, ExitCode, exitCodeForStatus, usageError } from "../util/errors.js";
+import { CliError, ExitCode, usageError } from "../util/errors.js";
 import { orgOrHint, resolveOrgId } from "./assume.js";
+import {
+  type BranchName,
+  type BranchStatus,
+  branchLines,
+  fetchBranch,
+  parseBranch
+} from "./oltp-branch.js";
+import { call, confirm, orgPath, PROVISION_TIMEOUT_MS } from "./oltp-client.js";
 
 /** One row of `GET /admin/oltp` — `oxy_oltp::api::admin::TenantRow`. */
 interface TenantRow {
@@ -71,13 +78,6 @@ interface ConnectionInfo {
   expected_platform_schema_version: number;
   schemas: SchemaInfo[];
 }
-
-/**
- * Provisioning creates a project at the provider and its roles, which is slower
- * than a read. The default two-minute client timeout would abandon a call the
- * server is still completing; retrying is safe, but the timeout reads as failure.
- */
-const PROVISION_TIMEOUT_MS = 5 * 60_000;
 
 /** A writer as the server takes it, and as it was typed. */
 export interface WriterPlan {
@@ -125,70 +125,6 @@ export function parseWriter(typed: string): WriterPlan {
   throw usageError(`--writer ${typed} must look like app:<slug> or pipeline:<source>`);
 }
 
-/** Why the server refused, in the terms an operator acts on. */
-function refusalReason(status: number): string | undefined {
-  switch (status) {
-    case 400:
-      return "the server rejected the request as malformed";
-    case 401:
-      return "not authenticated for this target";
-    case 403:
-      return (
-        "the OLTP console needs platform staff standing that may operate it — and an active " +
-        "`oxyc assume` session closes /admin"
-      );
-    case 404:
-      return "no such org here — or one outside your staff grant's scope, which answers 404 on purpose";
-    case 409:
-      return "the provisioner refused a state an operator has to resolve";
-    case 503:
-      return "this deployment has no OLTP provider configured — not an Oxy fault";
-    default:
-      return undefined;
-  }
-}
-
-function oltpError(method: string, path: string, response: ApiResponse): CliError {
-  const body = response.body.trim();
-  const detail = [refusalReason(response.status), body && body !== "{}" ? `server: ${body}` : ""]
-    .filter((line): line is string => Boolean(line))
-    .join("\n");
-  return new CliError(`${method} ${path} failed (${response.status})`, {
-    code: exitCodeForStatus(response.status),
-    detail: detail || undefined,
-    remedy: response.status === 401 ? "oxyc login --env <env>" : undefined
-  });
-}
-
-/** A 2xx JSON body, or the error its status deserves. */
-async function call<T>(
-  ctx: Context,
-  method: string,
-  path: string,
-  opts: { body?: unknown; timeoutMs?: number } = {}
-): Promise<T> {
-  const response = await request({
-    target: ctx.target(),
-    path,
-    method,
-    bearer: ctx.bearer(),
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-    timeoutMs: opts.timeoutMs
-  });
-  if (response.status < 200 || response.status >= 300) throw oltpError(method, path, response);
-  const parsed = parseJson(response.body);
-  if (parsed === undefined || parsed === null) {
-    throw new CliError(`${method} ${path} did not return JSON`, {
-      code: ExitCode.FAILURE,
-      detail: response.body.trim().slice(0, 500) || undefined,
-      hint: "the deployment may predate this route — `oxyc routes oltp` lists what it mounts"
-    });
-  }
-  return parsed as T;
-}
-
-const orgPath = (orgId: string) => `/api/admin/orgs/${encodeURIComponent(orgId)}/oltp`;
-
 export async function runOltpStatus(
   ctx: Context,
   org: string | undefined,
@@ -198,11 +134,29 @@ export async function runOltpStatus(
   if (!named) return listTenants(ctx, json);
   const orgId = await resolveOrgId(ctx, org);
   const info = await call<ConnectionInfo>(ctx, "GET", orgPath(orgId));
+  // No database, no branch — so no second request to say so.
+  const staging = info.is_provisioned ? await stagingOrNothing(ctx, orgId) : undefined;
   if (json) {
-    process.stdout.write(`${JSON.stringify(info, null, 2)}\n`);
+    const doc = staging === undefined ? info : { ...info, staging_branch: staging };
+    process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
     return;
   }
   printStore(named, info);
+  if (staging !== undefined) process.stdout.write(`\n${branchLines(named, staging).join("\n")}\n`);
+}
+
+/**
+ * The staging branch's status, or nothing from a deployment that predates the
+ * route — a 404 here cannot be the scope fence, which just let the store read
+ * through for the same org.
+ */
+async function stagingOrNothing(ctx: Context, orgId: string): Promise<BranchStatus | undefined> {
+  try {
+    return await fetchBranch(ctx, orgId, "staging");
+  } catch (e) {
+    if (e instanceof CliError && e.code === ExitCode.NOT_FOUND) return undefined;
+    throw e;
+  }
 }
 
 async function listTenants(ctx: Context, json: boolean): Promise<void> {
@@ -287,13 +241,14 @@ export async function runOltpProvision(
   ctx: Context,
   org: string | undefined,
   typedWriters: string[],
-  flags: { yes?: boolean; json?: boolean }
+  flags: { yes?: boolean; json?: boolean; branch?: string }
 ): Promise<void> {
   // EVERY USAGE ERROR BEFORE A REQUEST. The server also parses writers before it
   // provisions, but a typo should not first cost an org lookup and a login.
-  if (typedWriters.length === 0) {
+  const branch = parseBranch(flags.branch);
+  if (typedWriters.length === 0 && branch === undefined) {
     throw usageError(
-      "name at least one --writer",
+      "name at least one --writer, or --branch staging",
       "app:<slug> for a custom app's ctx.oltp store, pipeline:<source> for an Airway pipeline"
     );
   }
@@ -303,20 +258,48 @@ export async function runOltpProvision(
   }
 
   const orgId = await resolveOrgId(ctx, org);
+  const named = orgOrHint(ctx, org);
   const current = await call<ConnectionInfo>(ctx, "GET", orgPath(orgId));
-  printPlan(ctx.target(), orgOrHint(ctx, org), orgId, current, [...writers.values()]);
-  if (!flags.yes) await confirm();
+  const currentBranch =
+    branch !== undefined && current.is_provisioned
+      ? await fetchBranch(ctx, orgId, branch)
+      : undefined;
+  printPlan(ctx.target(), named, orgId, current, [...writers.values()]);
+  if (branch !== undefined) printBranchPlan(branch, currentBranch);
+  if (!flags.yes) {
+    await confirm("Provision?", {
+      verb: "provisioning",
+      why: "it creates billable resources at the deployment's OLTP provider",
+      declined: "not provisioned — the confirmation was declined"
+    });
+  }
 
+  // `branch` only when asked for: the body an ordinary provision sends is
+  // exactly what it always was.
+  const specs = [...writers.keys()];
   const info = await call<ConnectionInfo>(ctx, "POST", `${orgPath(orgId)}/provision`, {
-    body: { writers: [...writers.keys()] },
+    body: branch === undefined ? { writers: specs } : { writers: specs, branch },
     timeoutMs: PROVISION_TIMEOUT_MS
   });
+  const staging = branch === undefined ? undefined : await fetchBranch(ctx, orgId, branch);
   if (flags.json) {
-    process.stdout.write(`${JSON.stringify(info, null, 2)}\n`);
+    const doc = staging === undefined ? info : { ...info, staging_branch: staging };
+    process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
     return;
   }
   process.stdout.write(`${out.green(`provisioned ${info.database} on ${info.host}`)}\n`);
-  printStore(orgOrHint(ctx, org), info);
+  printStore(named, info);
+  if (staging !== undefined) process.stdout.write(`\n${branchLines(named, staging).join("\n")}\n`);
+}
+
+/** The branch's line of the plan: new (and whom it serves) or reconciled. */
+function printBranchPlan(branch: BranchName, current: BranchStatus | undefined): void {
+  const line = current?.provisioned
+    ? `  branch    ${branch}: ${current.database} on ${current.host} — exists, reconciled ` +
+      "(writers added since the cut get their schema there; nobody's data is reset)"
+    : `  branch    ${branch}: a NEW copy of the database, cut from production now — staging ` +
+      "for every app in the org, and a billable compute on a managed provider";
+  process.stderr.write(`${line}\n`);
 }
 
 /**
@@ -343,29 +326,4 @@ function printPlan(
     lines.push(`  writer    ${w.spec} → ${w.schema}${from} — ${state}`);
   }
   process.stderr.write(`${lines.join("\n")}\n`);
-}
-
-/**
- * Never assumes yes. With no terminal to ask, an unconfirmed provision refuses
- * rather than proceeding or hanging on a prompt nobody can answer.
- */
-async function confirm(): Promise<void> {
-  if (!process.stdin.isTTY) {
-    throw new CliError("provisioning needs --yes when stdin is not a terminal", {
-      code: ExitCode.REFUSED,
-      detail: "it creates a billable database at the deployment's OLTP provider",
-      remedy: "re-run with --yes once the plan above is what you want"
-    });
-  }
-  const prompt = createInterface({ input: process.stdin, output: process.stderr });
-  let answer: string;
-  try {
-    answer = (await prompt.question("Provision? [y/N] ")).trim().toLowerCase();
-  } finally {
-    prompt.close();
-  }
-  if (answer === "y" || answer === "yes") return;
-  throw new CliError("not provisioned — the confirmation was declined", {
-    code: ExitCode.REFUSED
-  });
 }

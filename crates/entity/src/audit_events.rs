@@ -44,6 +44,10 @@ pub struct Model {
     /// so the per-org chain is ordered by this rather than the app-generated
     /// `created_at` (skew-independent). Filled by the DB on insert.
     pub seq: i64,
+    /// The custom-app environment the action happened in: `production` (the
+    /// column default, and every row before environments), `staging` or a
+    /// `dev-<handle>` slot (`m20260929_000001_custom_app_activity_environment`).
+    pub environment: String,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -1,6 +1,7 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isIdeUnavailableError } from "@/libs/utils/ideHealth";
+import { previewRequestHeaders } from "@/libs/utils/preview";
 import type {
   ChartConfig,
   HumanInputQuestion,
@@ -324,6 +325,7 @@ export function useAnalyticsRun({ projectId }: UseAnalyticsRunOptions): UseAnaly
         method: "GET",
         headers: {
           Authorization: token ?? "",
+          ...previewRequestHeaders(),
           ...(lastSeq != null && { "Last-Event-ID": lastSeq })
         },
         openWhenHidden: true,

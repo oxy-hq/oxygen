@@ -111,6 +111,8 @@ use crate::server::router::AppState;
 ///   - POST   /admin/orgs/{org_id}/oltp/visibility
 ///   - POST   /admin/orgs/{org_id}/oltp/deprovision-writer
 ///   - DELETE /admin/orgs/{org_id}/oltp
+///   - GET    /admin/orgs/{org_id}/oltp/branches/{branch}
+///   - POST   /admin/orgs/{org_id}/oltp/branches/{branch}/reset
 ///
 /// Admin routes. The outer nest layer in `router::global` is the **door**
 /// (`oxy_owner_or_app_admin_guard`): it answers "are you Oxy staff at all". Each
@@ -461,6 +463,10 @@ mod tests {
             ("POST", format!("/orgs/{org}/oltp/visibility")),
             ("POST", format!("/orgs/{org}/oltp/deprovision-writer")),
             ("DELETE", format!("/orgs/{org}/oltp")),
+            // The staging branch: its status, and the reset that discards every
+            // app's staging data in the org.
+            ("GET", format!("/orgs/{org}/oltp/branches/staging")),
+            ("POST", format!("/orgs/{org}/oltp/branches/staging/reset")),
             // Airhouse rides the same mount and would 404 the same way.
             ("GET", "/airhouse".to_string()),
             ("POST", format!("/workspaces/{org}/airhouse/provision")),

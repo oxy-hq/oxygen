@@ -25,8 +25,14 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde::Deserialize;
 
-use super::types::{Branch, CreateProjectRequest, DatabaseInfo, Project, Role};
+use super::types::{
+    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+};
 use super::{OltpProvider, ProviderError};
+
+// The staging branch's half of the client. A child module so it reaches
+// `send` / `await_operations` without widening them.
+mod branches;
 
 const DEFAULT_BASE_URL: &str = "https://console.neon.tech/api/v2";
 
@@ -312,6 +318,10 @@ struct WireProject {
 struct WireBranch {
     id: String,
     name: String,
+    /// Absent on a project's root branch. Read on adoption: only a branch cut
+    /// from production is the one Oxy made.
+    #[serde(default)]
+    parent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -709,6 +719,31 @@ impl OltpProvider for NeonProvider {
             self.await_operations(project_id, &raw).await?;
         }
         Ok(())
+    }
+
+    async fn create_branch(&self, req: &BranchRequest) -> Result<ProjectBranch, ProviderError> {
+        self.create_branch_impl(req).await
+    }
+
+    async fn reset_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<ProjectBranch, ProviderError> {
+        self.reset_branch_impl(req, branch_id).await
+    }
+
+    async fn delete_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<(), ProviderError> {
+        self.delete_branch_impl(req, branch_id).await
+    }
+
+    /// A branch lives inside its project on Neon.
+    fn project_delete_takes_branches(&self) -> bool {
+        true
     }
 }
 

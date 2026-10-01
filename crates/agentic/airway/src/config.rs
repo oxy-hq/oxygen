@@ -82,6 +82,18 @@ pub struct AirwayPipelineSpec {
 /// rejected at validation time.
 pub const MAX_CONCURRENCY: usize = 16;
 
+/// Pipeline-name prefix reserved for workspace previews.
+///
+/// A preview's Airway sample runs under `preview:<key>:<name>`, and that name
+/// keys its own lease, cursor, stored-schema and load-audit rows — which is
+/// what keeps production's `(workspace_id, name)` rows untouched. The
+/// isolation holds only if no authored pipeline can already be called that:
+/// a YAML `name: preview:…` would share a preview's rows, and the legacy
+/// `airway_pipeline_state` adoption (keyed by name alone) could hand a sample
+/// production's cursor. So [`AirwayPipelineSpec::validate`] refuses the
+/// prefix from every caller that parses authored YAML.
+pub const RESERVED_NAME_PREFIX: &str = "preview:";
+
 fn default_concurrency() -> usize {
     1
 }
@@ -247,6 +259,22 @@ impl AirwayPipelineSpec {
                 "airway pipeline `name` must not be empty".into(),
             ));
         }
+        if self.name.starts_with(RESERVED_NAME_PREFIX) {
+            return Err(crate::AirwayError::Other(format!(
+                "airway pipeline `name` must not start with `{RESERVED_NAME_PREFIX}`: \
+                 that prefix is reserved for workspace previews"
+            )));
+        }
+        if self.source.kind == "quickbooks"
+            && self.source.config.get("client_id").is_some()
+            && self.source.config.get("client_id_var").is_some()
+        {
+            return Err(crate::AirwayError::Other(
+                "quickbooks config: name the client id once — `client_id` or `client_id_var`, \
+                 not both"
+                    .into(),
+            ));
+        }
         if self.concurrency == 0 {
             return Err(crate::AirwayError::Other(
                 "`concurrency` must be >= 1".into(),
@@ -376,6 +404,63 @@ destination:
 "#;
         let err = AirwayPipelineSpec::from_yaml_str(yaml).unwrap_err();
         assert!(err.to_string().contains("name"));
+    }
+
+    /// A QuickBooks client id comes from one place: the literal, or the secret
+    /// `client_id_var` resolves (a preview sandbox's development keys).
+    #[test]
+    fn a_quickbooks_client_id_is_named_once() {
+        let yaml = |extra: &str| {
+            format!(
+                "name: qb\nsource:\n  kind: quickbooks\n  config:\n    realm_id: \"1\"\n{extra}\
+                 destination:\n  database: airhouse\n  dataset_name: qb\n"
+            )
+        };
+        let both = "    client_id: c\n    client_id_var: QB_CLIENT_ID\n";
+        let err = AirwayPipelineSpec::from_yaml_str(&yaml(both)).unwrap_err();
+        assert!(err.to_string().contains("not both"), "{err}");
+        assert!(AirwayPipelineSpec::from_yaml_str(&yaml("    client_id: c\n")).is_ok());
+        assert!(AirwayPipelineSpec::from_yaml_str(&yaml("    client_id_var: V\n")).is_ok());
+    }
+
+    /// `preview:` names key a preview's own lease, cursor and audit rows, so an
+    /// authored pipeline may not take one — through the plain parse, through
+    /// templating (a variable could render the prefix in), or through a spec a
+    /// caller deserialized itself and then validated, as the compiled-row
+    /// readers do.
+    #[test]
+    fn a_pipeline_name_cannot_start_with_preview() {
+        let yaml = r#"
+name: "preview:feat_je_v2_91ab0e:quickbooks_financials"
+source:
+  kind: memory
+destination:
+  kind: memory
+"#;
+        let err = AirwayPipelineSpec::from_yaml_str(yaml).unwrap_err();
+        assert!(err.to_string().contains("reserved"), "got: {err}");
+
+        let vars = serde_json::json!({ "env": "preview:x" });
+        let templated =
+            "name: \"{{ env }}\"\nsource:\n  kind: memory\ndestination:\n  kind: memory\n";
+        let err = AirwayPipelineSpec::from_yaml_with_vars(templated, Some(&vars)).unwrap_err();
+        assert!(err.to_string().contains("reserved"), "got: {err}");
+
+        let mut spec = AirwayPipelineSpec::from_yaml_str(
+            "name: quickbooks_financials\nsource:\n  kind: memory\ndestination:\n  kind: memory\n",
+        )
+        .expect("a plain name parses");
+        spec.name = format!("{RESERVED_NAME_PREFIX}abc_123456:quickbooks_financials");
+        assert!(spec.validate().is_err(), "validate() itself refuses it");
+
+        // Only the exact prefix is reserved: a name merely containing the word
+        // is an ordinary pipeline.
+        for ok in ["previews_daily", "quickbooks_preview", "preview_rollups"] {
+            let spec = AirwayPipelineSpec::from_yaml_str(&format!(
+                "name: {ok}\nsource:\n  kind: memory\ndestination:\n  kind: memory\n"
+            ));
+            assert!(spec.is_ok(), "`{ok}` must stay valid: {:?}", spec.err());
+        }
     }
 
     #[test]

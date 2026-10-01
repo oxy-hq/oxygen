@@ -9,6 +9,7 @@
 //! which resolves the read-only analyst server-side.
 
 pub mod admin;
+pub mod branches;
 pub mod erd;
 pub mod handlers;
 
@@ -26,8 +27,11 @@ pub(crate) fn resolve_status(e: crate::resolver::ResolveError) -> (StatusCode, S
         | R::WorkspaceHasNoOrg(_)
         | R::NotProvisioned(_)
         | R::NoAnalystCredential(_)
-        | R::WriterNotProvisioned { .. } => StatusCode::NOT_FOUND,
-        R::NotActive(..) => StatusCode::CONFLICT,
+        | R::WriterNotProvisioned { .. }
+        | R::BranchCredentialMissing { .. } => StatusCode::NOT_FOUND,
+        R::NotActive(..) | R::BranchNotActive(..) | R::BranchIsProduction(..) => {
+            StatusCode::CONFLICT
+        }
         R::Db(_) | R::Crypto(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (code, e.to_string())

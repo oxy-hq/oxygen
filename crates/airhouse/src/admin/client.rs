@@ -1,6 +1,9 @@
 use reqwest::{Client, StatusCode};
 use serde::Serialize;
 
+mod capabilities;
+pub use capabilities::Capabilities;
+
 use super::error::AirhouseError;
 use super::types::{
     CatalogIndexesResponse, CreatedServiceAccount, EphemeralCredential, ServiceAccountRecord,

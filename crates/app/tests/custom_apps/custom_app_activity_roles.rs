@@ -22,7 +22,7 @@ use entity::{
     app_members, apps, custom_app_view_event, org_members, org_members::OrgRole, organizations,
     users, workspaces,
 };
-use oxy_app::server::api::custom_apps_activity::{VisitorsQuery, get_visitors};
+use oxy_app::server::api::custom_apps_activity::{VisitorsQuery, get_summary, get_visitors};
 use oxy_app::server::api::custom_apps_tracking::record_view;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, QueryFilter};
 use sea_orm::{EntityTrait, QueryOrder};
@@ -120,6 +120,7 @@ async fn insert_view(
         source: ActiveValue::Set("subpath".into()),
         app_role: ActiveValue::Set(app_role.map(str::to_string)),
         org_role: ActiveValue::Set(org_role.map(str::to_string)),
+        environment: ActiveValue::Set("production".into()),
     }
     .insert(conn)
     .await
@@ -165,6 +166,7 @@ async fn recording_a_view_snapshots_app_and_org_role_separately() {
         None,
         "browser".into(),
         "subpath".into(),
+        "production".into(),
     )
     .await;
 
@@ -210,6 +212,7 @@ async fn a_view_with_no_standing_records_no_role_rather_than_a_default() {
         None,
         "browser".into(),
         "subpath".into(),
+        "production".into(),
     )
     .await;
 
@@ -424,4 +427,50 @@ async fn an_event_names_only_an_app_its_sender_can_open() {
             .map(|a| a.id),
         Err(EventAppRefusal::NoneInWorkspace)
     );
+}
+
+/// Design §3.4: the Activity tab counts production only. A staff member
+/// opening an app's staging host is release testing, not an app user, and
+/// must not show up in the numbers the customer is shown.
+#[tokio::test]
+async fn a_staging_view_is_not_app_activity() {
+    let conn = test_db().await;
+    let org = seed_org(&conn).await;
+    let app = seed_app(&conn, org).await;
+    let (user, email) = seed_user(&conn).await;
+    seed_member(&conn, org, user, OrgRole::Member).await;
+
+    insert_view(&conn, app.id, user, &email, 30, None, None).await;
+    record_view(
+        app.clone(),
+        user,
+        Some(email.clone()),
+        Uuid::new_v4(),
+        None,
+        "browser".into(),
+        "subdomain".into(),
+        "staging".into(),
+    )
+    .await;
+
+    let visitors = get_visitors(
+        axum::extract::Path(app.id),
+        axum::extract::Query(VisitorsQuery { days: 7, limit: 50 }),
+    )
+    .await
+    .expect("visitors query")
+    .0;
+    let row = visitors
+        .rows
+        .iter()
+        .find(|r| r.user_id == user)
+        .expect("the production visitor appears");
+    assert_eq!(row.views, 1, "the staging view is not counted");
+
+    let summary = get_summary(axum::extract::Path(app.id))
+        .await
+        .expect("summary query")
+        .0;
+    assert_eq!(summary.total_views_7d, 1);
+    assert_eq!(summary.unique_users_7d, 1);
 }

@@ -41,15 +41,25 @@ use super::handlers::{ConnectionInfoResponse, status_for_org};
 /// Both design docs promise 503 for this, and the difference is what keeps a
 /// monitoring alert off a normal state — an unconfigured deployment is not an
 /// Oxy bug, and the console can say so instead of "Could not provision".
-fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (StatusCode, String) {
+pub(crate) fn provisioner_status(e: crate::provisioner::ProvisionerError) -> (StatusCode, String) {
     use crate::provisioner::ProvisionerError as P;
     let code = match &e {
         P::NotConfigured(_) => StatusCode::SERVICE_UNAVAILABLE,
-        P::OrgNotFound(_) | P::NotProvisioned(_) => StatusCode::NOT_FOUND,
+        P::OrgNotFound(_) | P::NotProvisioned(_) | P::BranchNotProvisioned(..) => {
+            StatusCode::NOT_FOUND
+        }
         // Operator error, not an Oxy fault: a state the caller has to resolve
-        // (deprovision first, wait for the tenant to settle, rename a writer).
-        // `ProviderMismatch` in particular read as a bug when it is a refusal.
-        P::NotActive(..) | P::ProviderMismatch { .. } | P::SchemaNamespaceClaimed { .. } => {
+        // (deprovision first, wait for the tenant to settle, rename a writer,
+        // finish a reset). `ProviderMismatch` in particular read as a bug when
+        // it is a refusal.
+        P::NotActive(..)
+        | P::ProviderMismatch { .. }
+        | P::SchemaNamespaceClaimed { .. }
+        | P::BranchNotReady { .. }
+        | P::BranchIsProduction { .. }
+        | P::BranchStateChanged { .. }
+        | P::Provider(crate::provider::ProviderError::BranchParentMismatch { .. })
+        | P::Provider(crate::provider::ProviderError::BranchIsProduction(_)) => {
             StatusCode::CONFLICT
         }
         // Also operator-actionable, and it used to fall through to 500: a
@@ -238,6 +248,10 @@ pub struct ProvisionRequest {
     /// first and add writers when an app actually exists.
     #[serde(default)]
     pub writers: Vec<String>,
+    /// Also cut (or finish) this branch of the database — `"staging"`, the
+    /// only one. Absent means production only, exactly as before.
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 /// Provision (or reconcile) the org's database.
@@ -264,6 +278,12 @@ pub async fn provision(
         .map(|spec| parse_writer(spec))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // Same rule for the branch: an unknown name costs nothing.
+    let branch = body
+        .branch
+        .as_deref()
+        .map(super::branches::parse_branch)
+        .transpose()?;
 
     let provisioner = crate::provisioner::from_env(db.clone())
         .await
@@ -281,8 +301,39 @@ pub async fn provision(
         .provision(org_id)
         .await
         .map_err(provisioner_status)?;
+    ensure_writers(&provisioner, org_id, &writers).await?;
 
-    for writer in &writers {
+    // Last, so the branch is cut from a production that already carries every
+    // writer this request named — and so a branch failure never leaves those
+    // writers unprovisioned. Manual by ruling: this flag is the only way a
+    // branch comes into being.
+    if let Some(branch) = branch {
+        info!(user = %user.label(), org_id = %org_id, %branch, "provisioning OLTP branch");
+        provisioner
+            .provision_branch(org_id, branch)
+            .await
+            .map_err(|e| {
+                let (code, message) = provisioner_status(e);
+                (code, format!("branch {branch}: {message}"))
+            })?;
+    }
+
+    let db2 = establish_connection()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let status = status_for_org(&db2, org_id)
+        .await
+        .map_err(|s| (s, "could not read back status".to_string()))?;
+    Ok(Json(status))
+}
+
+/// `provision`'s writer loop, split out of the handler unchanged.
+async fn ensure_writers(
+    provisioner: &crate::provisioner::OltpProvisioner,
+    org_id: Uuid,
+    writers: &[crate::schema::WriterRef],
+) -> Result<(), (StatusCode, String)> {
+    for writer in writers {
         provisioner
             .ensure_writer(
                 org_id,
@@ -312,14 +363,7 @@ pub async fn provision(
                 (code, format!("{writer}: {message}"))
             })?;
     }
-
-    let db2 = establish_connection()
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let status = status_for_org(&db2, org_id)
-        .await
-        .map_err(|s| (s, "could not read back status".to_string()))?;
-    Ok(Json(status))
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

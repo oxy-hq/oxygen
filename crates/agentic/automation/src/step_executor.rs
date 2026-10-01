@@ -12,6 +12,7 @@ use crate::config::{SemanticQueryConfig, TaskType};
 use crate::render::{
     normalize_workspace_relative_ref, render_jinja_string, validate_workspace_relative_path,
 };
+use crate::review::{HttpReview, SqlReview};
 use crate::workspace::WorkspaceContext;
 
 /// Default row limit for step execution results.
@@ -103,13 +104,54 @@ async fn execute_sql(
     let sql =
         render_jinja_string(&raw_sql, &sql_context).map_err(|e| format!("render SQL body: {e}"))?;
 
+    // Asked after rendering, so the host sees what would run, and before
+    // `get_connector`, so a held statement never has a connection to reach.
+    let review = workspace
+        .review_sql(database, &sql)
+        .await
+        .map_err(|e| format!("execute_sql: review failed: {e}"))?;
+    match review {
+        SqlReview::Proceed => run_sql(workspace, database, &sql).await,
+        SqlReview::Hold {
+            reason,
+            verb,
+            targets,
+        } => Ok(held_sql_result(&sql, reason, verb, targets)),
+        SqlReview::Rewrite { sql, notes } => {
+            let mut result = run_sql(workspace, database, &sql).await?;
+            if let Value::Object(map) = &mut result {
+                map.insert("preview".to_string(), notes);
+            }
+            Ok(result)
+        }
+    }
+}
+
+async fn run_sql(
+    workspace: &dyn WorkspaceContext,
+    database: &str,
+    sql: &str,
+) -> Result<Value, String> {
     let connector = workspace.get_connector(database).await?;
     let exec_result = connector
-        .execute_query(&sql, DEFAULT_SAMPLE_LIMIT)
+        .execute_query(sql, DEFAULT_SAMPLE_LIMIT)
         .await
         .map_err(|e| format!("SQL execution failed: {e}"))?;
 
-    Ok(attach_sql(query_result_to_json(&exec_result.result), &sql))
+    Ok(attach_sql(query_result_to_json(&exec_result.result), sql))
+}
+
+/// A held `execute_sql` step's result: the shape of an empty query result,
+/// so downstream steps read zero rows rather than failing, plus the hold.
+fn held_sql_result(sql: &str, reason: String, verb: String, targets: Vec<String>) -> Value {
+    json!({
+        "columns": [],
+        "rows": [],
+        "row_count": 0,
+        "truncated": false,
+        "sql": sql,
+        "preview": { "held": true, "reason": reason, "verb": verb, "targets": targets },
+    })
 }
 
 /// Resolve a `sql_file` ref to its SQL body: compile boundary first, working
@@ -623,6 +665,16 @@ async fn execute_http_request(
         .unwrap_or_default();
     validate_egress(&url, &allow_hosts)?;
 
+    // After the egress check, so a preview fails where production would; before
+    // the request exists.
+    if let HttpReview::Hold { reason } = workspace.review_http(&method, &url).await {
+        // A preview scopes the method (`preview_names::parse_scoped_method`);
+        // the note says the verb a person would recognise.
+        let shown = crate::preview_names::parse_scoped_method(&method)
+            .map_or(method.as_str(), |(_, verb)| verb);
+        return Ok(held_http_result(reason, shown, url_tmpl));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_secs))
         // Do NOT follow redirects: `validate_egress` only vets the initial URL, so a
@@ -717,6 +769,18 @@ async fn execute_http_request(
     Ok(json!({ "status": status, "json": json, "text": text }))
 }
 
+/// A held `http_request` step's result: the keys of a sent one, empty, plus
+/// the hold. `url_template` is the unrendered URL — the rendered one may carry
+/// a secret, and step results are stored.
+fn held_http_result(reason: String, method: &str, url_template: &str) -> Value {
+    json!({
+        "status": null,
+        "json": null,
+        "text": "",
+        "preview": { "held": true, "reason": reason, "method": method, "url": url_template },
+    })
+}
+
 /// SSRF guard for `http_request`. Requires HTTPS, denies localhost / cloud
 /// metadata hostnames and private/loopback/link-local IP literals, and — when
 /// `allow_hosts` is non-empty — requires the URL host to be in it.
@@ -787,6 +851,10 @@ fn ipv4_blocked(v4: &std::net::Ipv4Addr) -> bool {
         || v4.is_unspecified()
         || v4.is_broadcast()
 }
+
+#[cfg(test)]
+#[path = "step_executor_tests.rs"]
+mod tests;
 
 #[cfg(test)]
 mod sql_file_tests {

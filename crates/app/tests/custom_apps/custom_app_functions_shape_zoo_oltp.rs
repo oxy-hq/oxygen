@@ -68,17 +68,17 @@ fn functions() -> Vec<FunctionSpec> {
 }
 
 /// The org's OLTP tenant and this app's writer, on the control plane's cluster.
-struct AppStore {
+pub(crate) struct AppStore {
     provisioner: OltpProvisioner,
     provider: Arc<LocalProvider>,
     org_id: Uuid,
-    writer: WriterRef,
+    pub(crate) writer: WriterRef,
     /// The role `ensure_writer` minted, which cleanup drops.
     minted: Mutex<Option<String>>,
 }
 
 impl AppStore {
-    async fn new(t: &Tenant, slug: &str) -> Self {
+    pub(crate) async fn new(t: &Tenant, slug: &str) -> Self {
         let admin = admin_url().await;
         let provider = Arc::new(LocalProvider::new(admin.clone(), host_from_dsn(&admin)));
         let provisioner = OltpProvisioner::new(
@@ -99,7 +99,7 @@ impl AppStore {
         }
     }
 
-    async fn provision(&self, claimant: Uuid) {
+    pub(crate) async fn provision(&self, claimant: Uuid) {
         self.provisioner
             .provision(self.org_id)
             .await
@@ -117,6 +117,23 @@ impl AppStore {
         *self.minted.lock().expect("minted") = Some(created.role_name.clone());
     }
 
+    /// Cut the org's OLTP staging branch (P4a): on this cluster, a sibling
+    /// database copied from the tenant's. `cleanup` drops it with the tenant.
+    pub(crate) async fn provision_branch(&self) -> oxy_oltp::entity::branches::Model {
+        self.provisioner
+            .provision_branch(self.org_id, oxy_oltp::OltpBranch::Staging)
+            .await
+            .expect("cut the org's staging branch")
+    }
+
+    /// Re-copy the staging branch from production (`oxyc oltp reset`).
+    pub(crate) async fn reset_branch(&self) -> oxy_oltp::entity::branches::Model {
+        self.provisioner
+            .reset_branch(self.org_id, oxy_oltp::OltpBranch::Staging)
+            .await
+            .expect("reset the org's staging branch")
+    }
+
     /// Loads the Postgres zoo through the writer's DSN, whose `search_path` is the app's schema.
     async fn load(&self, t: &Tenant, zoo: &LoadedZoo) {
         let conn = resolve_writer_connection_for_org(&t.db, self.org_id, &self.writer)
@@ -128,7 +145,7 @@ impl AppStore {
     }
 
     /// Database first, then the role: a role still owning tables cannot be dropped.
-    async fn cleanup(&self) {
+    pub(crate) async fn cleanup(&self) {
         let project = database_name_for(&project_name_for(self.org_id));
         let _ = self.provisioner.deprovision(self.org_id).await;
         let _ = self.provider.delete_project(&project).await;

@@ -27,6 +27,21 @@ pub const AIRHOUSE_WIRE_PORT_VAR: &str = "AIRHOUSE_WIRE_PORT";
 pub const AIRHOUSE_ANALYTICS_WIRE_HOST_VAR: &str = "AIRHOUSE_ANALYTICS_WIRE_HOST";
 pub const AIRHOUSE_ANALYTICS_WIRE_PORT_VAR: &str = "AIRHOUSE_ANALYTICS_WIRE_PORT";
 
+/// Optional: the name of the tenants' DuckLake catalog on this deployment
+/// (Airhouse's default is `lake`). Nothing in the Admin API reports it, so a
+/// workspace preview accepts a catalog-qualified name (`lake.S.t`) only when
+/// this names the catalog; unset, every such name is refused (fail closed).
+pub const AIRHOUSE_CATALOG_VAR: &str = "AIRHOUSE_CATALOG";
+
+/// [`AIRHOUSE_CATALOG_VAR`], trimmed; `None` when unset or empty. Read fresh
+/// from the environment, like [`analytics_wire_endpoint`].
+pub fn ducklake_catalog() -> Option<String> {
+    std::env::var(AIRHOUSE_CATALOG_VAR)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 // ── Local-mode constants ──────────────────────────────────────────────────────
 
 /// Well-known nil-UUID organization id used in local mode. Mirrors the

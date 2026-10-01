@@ -245,6 +245,39 @@ export interface OxyAppManifest {
    */
   airhouseMigrations?: { dir: string };
   /**
+   * What the app's non-production environments (staging) write instead of
+   * production. Read by the platform at publish and on every staging call.
+   *
+   * `destinations` maps a database a function writes in production to the one
+   * staging writes instead. In staging, `ctx.warehouse.insert` / `exec` /
+   * `upsert` and `ctx.tx` naming `clickhouse` run against
+   * `clickhouse_staging`; reads (`ctx.warehouse.query`) stay on production.
+   * The mapped database must pass the same checks production's does: listed in
+   * the function's `destinations` and, unless it is Airhouse, named in its
+   * `customerWarehouseWrites` with a reason. A staging write to a database with
+   * no mapping is **held** — not performed, and listed in the invocation's
+   * `app.staging.held` audit row.
+   *
+   * Publish refuses a mapping onto the same database, onto the workspace's own
+   * Airhouse (`airhouse_managed` is production's tenant), DuckDB to DuckDB, a
+   * chain (a target that is itself a key here), or a target whose database
+   * resolves to the same host and user as any production database mapped here —
+   * a heuristic, not proof; the credential behind the staging entry is yours to
+   * keep separate, with no write grant on production. The platform repeats the
+   * check on every staging write, refusing it when a secret does not resolve,
+   * and holds a statement that names production's database, or writes through
+   * another database than the mapped one's.
+   *
+   * `ctx.airhouse` needs no mapping: staging's appends land in the app's
+   * sibling schema, `app_<writer>__staging`, whose tables come from the same
+   * `airhouseMigrations`.
+   *
+   * ```jsonc
+   * "nonProduction": { "destinations": { "clickhouse": "clickhouse_staging" } }
+   * ```
+   */
+  nonProduction?: OxyAppNonProductionManifest;
+  /**
    * Optional Ask Oxygen binding (agent ref + composer chips). The
    * platform's registered copy is authoritative (surfaced by
    * shell-context); this local copy is the dev-time fallback so the
@@ -273,7 +306,8 @@ export interface OxyAppManifest {
    * ```jsonc
    * "env": {
    *   "STRIPE_API_KEY":    { "required": true, "description": "Restricted key, Dashboard → Developers" },
-   *   "SLACK_WEBHOOK_URL": { "description": "Optional ops channel" }
+   *   "SLACK_WEBHOOK_URL": { "description": "Optional ops channel" },
+   *   "POKEHOUSE_API_KEY": { "shared": true }  // staging reads production's value
    * }
    * ```
    *
@@ -316,6 +350,12 @@ export interface OxyAppManifest {
   analytics?: boolean;
 }
 
+/** The `nonProduction` block of `oxy-app.json`. */
+export interface OxyAppNonProductionManifest {
+  /** Production database → the database staging writes instead. */
+  destinations?: Record<string, string>;
+}
+
 /** One declared secret — an entry in the `env` block of `oxy-app.json`. */
 export interface OxyAppEnvDeclaration {
   /**
@@ -333,6 +373,23 @@ export interface OxyAppEnvDeclaration {
    * get one — this is the text that saves someone a Slack message.
    */
   description?: string;
+  /**
+   * Outside production (staging), fall back to production's value for this
+   * key while the environment holds none of its own. Each environment reads
+   * its own secrets (`apps/<id>/<env>/<KEY>`, set on the Secrets surface with
+   * the staging option); an unshared key with no staging value reads as
+   * **unset**, so staging never holds a production credential nobody chose to
+   * give it.
+   *
+   * For read-only keys only (an API key staging may use as-is). A publish is
+   * refused when a shared key is written by a function (`ctx.secrets.set`) or
+   * is a `webhook.secretVar` — those must be set per environment — and
+   * `ctx.secrets.set` in staging refuses a key the run read through this
+   * fallback.
+   *
+   * Default: `false`.
+   */
+  shared?: boolean;
 }
 
 /** Browser-runtime performance opt-outs — the `performance` block in `oxy-app.json`. */

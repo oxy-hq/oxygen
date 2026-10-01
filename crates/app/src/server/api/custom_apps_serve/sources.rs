@@ -74,10 +74,24 @@ pub(crate) struct AppRuntimeConfig {
     /// which has no build in the store to name.
     #[serde(rename = "buildId")]
     pub build_id: String,
+    /// The app environment serving this document: `production`, `staging` or
+    /// `dev-<handle>`. Builds are byte-identical across environments, so this
+    /// is the only way an app can tell staging from production — to pick a
+    /// payment provider's sandbox, or to label itself. Read-only to the app;
+    /// the server decides it from the host.
+    ///
+    /// App-level, not viewer-level, so it keeps the HTML body shareable — but it
+    /// IS an input to the rendered document, which is why the memoized render
+    /// (`custom_apps_html_cache`) keys on it.
+    pub environment: String,
 }
 
 impl AppRuntimeConfig {
-    pub(super) fn from_app(app: &entity::apps::Model, org_slug: &str) -> Self {
+    pub(super) fn from_app(
+        app: &entity::apps::Model,
+        org_slug: &str,
+        environment: &oxy_app_core::custom_app_environment::AppEnvironment,
+    ) -> Self {
         Self {
             app_id: app.id,
             slug: app.slug.clone(),
@@ -97,6 +111,7 @@ impl AppRuntimeConfig {
                 .published_build_id
                 .map(|id| id.to_string())
                 .unwrap_or_default(),
+            environment: environment.name(),
         }
     }
 }
@@ -454,26 +469,21 @@ async fn html_response(
     runtime: &AppRuntimeConfig,
     headers: &HeaderMap,
 ) -> Response {
-    let rendered = match html_cache::get(
-        build.app_id,
-        build.build_id,
-        build.object_key,
-        &runtime.org_slug,
-        &runtime.slug,
-    ) {
+    let key = html_cache::HtmlKey {
+        app_id: build.app_id,
+        build_id: build.build_id,
+        object_key: build.object_key,
+        org_slug: &runtime.org_slug,
+        app_slug: &runtime.slug,
+        environment: &runtime.environment,
+    };
+    let rendered = match html_cache::get(&key) {
         Some(hit) => hit,
         None => {
             let rendered = render_html(bytes, resolved_path, runtime, build.app_id, {
                 load_asset_manifest(build.app_id, build.build_id).await
             });
-            html_cache::put(
-                build.app_id,
-                build.build_id,
-                build.object_key,
-                &runtime.org_slug,
-                &runtime.slug,
-                rendered.clone(),
-            );
+            html_cache::put(&key, rendered.clone());
             rendered
         }
     };
@@ -804,6 +814,7 @@ mod tests {
             service_worker: true,
             analytics: true,
             build_id: String::new(),
+            environment: "production".to_string(),
         }
     }
 

@@ -12,7 +12,9 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use super::types::{Branch, CreateProjectRequest, DatabaseInfo, Project, Role};
+use super::types::{
+    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+};
 use super::{OltpProvider, ProviderError};
 
 /// Key for a role within a project branch.
@@ -26,6 +28,17 @@ struct State {
     names_taken: HashMap<String, String>,
     /// (project, branch, role) → current password
     roles: HashMap<RoleKey, String>,
+    /// (project, branch id) → a non-default branch, stored redacted
+    branches: HashMap<(String, String), ProjectBranch>,
+    /// branch id → how many times it was reset, for assertions
+    branch_resets: HashMap<String, u32>,
+    /// Every branch id `delete_branch` was asked to delete, refused or not —
+    /// so a test can prove a caller never ASKED to delete production, which a
+    /// refusal here would otherwise hide.
+    branch_delete_attempts: Vec<String>,
+    /// Held before a branch create answers, so a test can make two provisions
+    /// overlap deterministically.
+    branch_create_delay: Option<std::time::Duration>,
     seq: u64,
     faults: VecDeque<ProviderError>,
 }
@@ -73,6 +86,22 @@ impl MockProvider {
             .collect();
         names.sort();
         names
+    }
+
+    /// Non-default branches across every project.
+    pub fn branch_count(&self) -> usize {
+        self.state.lock().expect("mock lock").branches.len()
+    }
+
+    /// How many times `branch_id` has been reset.
+    pub fn branch_resets(&self, branch_id: &str) -> u32 {
+        self.state
+            .lock()
+            .expect("mock lock")
+            .branch_resets
+            .get(branch_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Current password for a role, if it exists. Test-only: a real provider
@@ -159,6 +188,8 @@ impl OltpProvider for MockProvider {
         if let Some(p) = state.projects.remove(project_id) {
             state.names_taken.remove(&p.name);
             state.roles.retain(|(proj, _, _), _| proj != project_id);
+            // A project's branches die with it, as on Neon.
+            state.branches.retain(|(proj, _), _| proj != project_id);
         }
         // Idempotent: absent is success.
         Ok(())
@@ -263,173 +294,44 @@ impl OltpProvider for MockProvider {
         ));
         Ok(())
     }
+
+    async fn create_branch(&self, req: &BranchRequest) -> Result<ProjectBranch, ProviderError> {
+        // Read, then release the lock before sleeping: a std mutex held across
+        // an await would serialize exactly the overlap a test is asking for.
+        let delay = self.state.lock().expect("mock lock").branch_create_delay;
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
+        }
+        self.create_branch_impl(req)
+    }
+
+    async fn reset_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<ProjectBranch, ProviderError> {
+        self.reset_branch_impl(req, branch_id)
+    }
+
+    async fn delete_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<(), ProviderError> {
+        self.delete_branch_impl(req, branch_id)
+    }
+
+    /// As on Neon, a project's branches go with it.
+    fn project_delete_takes_branches(&self) -> bool {
+        true
+    }
 }
+
+// Branches, in their own file to keep this one readable.
+mod branches;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod branch_tests;
 
-    fn req(name: &str) -> CreateProjectRequest {
-        CreateProjectRequest {
-            name: name.to_string(),
-            region_id: "aws-us-east-2".into(),
-            // Deliberately NOT `DEFAULT_PG_VERSION`: this asserts the value
-            // round-trips, which a number equal to the default could satisfy by
-            // coincidence. The literals in the provider test doubles are meant
-            // to differ from it — only `config.rs` carries the shipped default.
-            pg_version: 17,
-        }
-    }
-
-    #[tokio::test]
-    async fn create_discloses_the_owner_password_exactly_once() {
-        let p = MockProvider::new();
-        let created = p.create_project(req("acme")).await.unwrap();
-        assert!(created.owner_role.password.is_some());
-
-        let refetched = p.get_project(&created.id).await.unwrap().unwrap();
-        assert!(
-            refetched.owner_role.password.is_none(),
-            "re-reading a project must not re-disclose the owner password"
-        );
-    }
-
-    #[tokio::test]
-    async fn duplicate_name_is_rejected_not_adopted() {
-        let p = MockProvider::new();
-        p.create_project(req("acme")).await.unwrap();
-        let err = p.create_project(req("acme")).await.unwrap_err();
-        assert!(matches!(err, ProviderError::ProjectNameTaken(n) if n == "acme"));
-        assert_eq!(
-            p.project_count(),
-            1,
-            "the second create must not have landed"
-        );
-    }
-
-    #[tokio::test]
-    async fn delete_project_is_idempotent_and_frees_the_name() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        p.delete_project(&proj.id).await.unwrap();
-        p.delete_project(&proj.id).await.unwrap();
-        assert_eq!(p.project_count(), 0);
-        // Name is reusable once the project is gone.
-        p.create_project(req("acme")).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn deleting_a_project_takes_its_roles_with_it() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        p.create_role(&proj.id, &proj.branch.id, "app_x_rw")
-            .await
-            .unwrap();
-        p.delete_project(&proj.id).await.unwrap();
-        assert!(p.role_names(&proj.id, &proj.branch.id).is_empty());
-    }
-
-    #[tokio::test]
-    async fn get_role_never_returns_a_password() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        p.create_role(&proj.id, &proj.branch.id, "app_x_rw")
-            .await
-            .unwrap();
-        let role = p
-            .get_role(&proj.id, &proj.branch.id, "app_x_rw")
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(role.password.is_none());
-    }
-
-    #[tokio::test]
-    async fn reset_changes_the_password() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        let before = p
-            .create_role(&proj.id, &proj.branch.id, "app_x_rw")
-            .await
-            .unwrap()
-            .password
-            .unwrap();
-        let after = p
-            .reset_role_password(&proj.id, &proj.branch.id, "app_x_rw")
-            .await
-            .unwrap()
-            .password
-            .unwrap();
-        assert_ne!(before, after);
-        assert_eq!(
-            p.peek_password(&proj.id, &proj.branch.id, "app_x_rw"),
-            Some(after)
-        );
-    }
-
-    #[tokio::test]
-    async fn reset_on_a_missing_role_errors_rather_than_creating_one() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        let err = p
-            .reset_role_password(&proj.id, &proj.branch.id, "nope")
-            .await
-            .unwrap_err();
-        assert!(matches!(err, ProviderError::RoleNotFound(..)));
-    }
-
-    #[tokio::test]
-    async fn create_role_on_a_missing_project_errors() {
-        let p = MockProvider::new();
-        let err = p.create_role("proj-nope", "br-1", "r").await.unwrap_err();
-        assert!(matches!(err, ProviderError::ProjectNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn delete_role_is_idempotent() {
-        let p = MockProvider::new();
-        let proj = p.create_project(req("acme")).await.unwrap();
-        p.delete_role(&proj.id, &proj.branch.id, "ghost")
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn injected_faults_pop_in_order() {
-        let p = MockProvider::new();
-        p.push_fault(ProviderError::RateLimited);
-        p.push_fault(ProviderError::Transport("boom".into()));
-
-        assert!(matches!(
-            p.create_project(req("acme")).await.unwrap_err(),
-            ProviderError::RateLimited
-        ));
-        assert!(matches!(
-            p.create_project(req("acme")).await.unwrap_err(),
-            ProviderError::Transport(_)
-        ));
-        // Queue drained — the third call succeeds.
-        p.create_project(req("acme")).await.unwrap();
-    }
-
-    #[test]
-    fn retryable_classification_matches_intent() {
-        assert!(ProviderError::RateLimited.is_retryable());
-        assert!(ProviderError::Transport("x".into()).is_retryable());
-        assert!(
-            ProviderError::Api {
-                status: 503,
-                message: "x".into()
-            }
-            .is_retryable()
-        );
-        assert!(!ProviderError::ProjectNameTaken("x".into()).is_retryable());
-        assert!(
-            !ProviderError::Api {
-                status: 400,
-                message: "x".into()
-            }
-            .is_retryable()
-        );
-    }
-}
+#[cfg(test)]
+mod tests;

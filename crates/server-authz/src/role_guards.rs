@@ -312,6 +312,84 @@ where
     }
 }
 
+/// Caller may create, refresh, delete or open a workspace **preview**: Oxy staff
+/// whose grant carries `OperatePlatform` over the workspace's org
+/// (`Action::WorkspacePreview`). Customers never do — they don't build or change
+/// workspaces; Oxy does.
+///
+/// Runs behind the workspace middleware, so the caller already reached this
+/// workspace (a real membership, or staff with a live assume session); this adds
+/// the staff half on top.
+#[derive(Debug)]
+pub struct WorkspacePreviewer;
+
+impl<S> FromRequestParts<S> for WorkspacePreviewer
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            if parts
+                .extensions
+                .get::<entity::workspaces::Model>()
+                .is_none()
+            {
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            if may_preview(parts).await {
+                Ok(WorkspacePreviewer)
+            } else {
+                Err(StatusCode::FORBIDDEN)
+            }
+        }
+    }
+}
+
+/// The [`WorkspacePreviewer`] decision as a boolean, for the request middleware
+/// that decides whether to honour a `?branch=` preview pin. One function, so the
+/// API and the pin can never disagree about who may preview.
+///
+/// `existing_allow` is the shipped staff door — what the `/admin` console grants
+/// today (`OXY_OWNER` or a platform-grant row, any role). The ring then subtracts
+/// what that door is too coarse to see: an App Operator (apps and nothing else)
+/// and a grant whose scope does not reach this org. A workspace with no org has
+/// no tenant to be staff *in*, so it is never previewable.
+pub async fn may_preview(parts: &mut Parts) -> bool {
+    let Some(ws) = parts.extensions.get::<entity::workspaces::Model>().cloned() else {
+        return false;
+    };
+    let Some(org_id) = ws.org_id else {
+        return false;
+    };
+    let Some(user) = parts
+        .extensions
+        .get::<oxy_auth::types::AuthenticatedUser>()
+        .cloned()
+    else {
+        return false;
+    };
+    let legacy = match oxy_platform::db::establish_connection().await {
+        Ok(db) => crate::globals::platform_standing(&db, user.email.as_deref().unwrap_or(""))
+            .await
+            .is_staff(),
+        // No database, no standing we can vouch for: previews fail closed.
+        Err(_) => false,
+    };
+    authz::enforce_guard(
+        parts,
+        "guard.workspace_previewer",
+        authz::Action::WorkspacePreview,
+        authz::Resource::workspace(ws.id, org_id),
+        legacy,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

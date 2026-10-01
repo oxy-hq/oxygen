@@ -202,7 +202,14 @@ export const sourceTypeToJobType = (source: string | null | undefined): JobType 
 // for these so operators don't mistake heartbeat noise for their work.
 
 /** Run source_types that are internal daemons, not user-scheduled jobs. */
-const SYSTEM_SOURCE_TYPES: readonly string[] = ["preagg_cycle"];
+const SYSTEM_SOURCE_TYPES: readonly string[] = [
+  "preagg_cycle",
+  "preview_analyze",
+  "preview_schema_drop",
+  "preview_compare",
+  "preview_airway_sample",
+  "custom_app_staging_migrations"
+];
 
 export const isSystemSource = (source: string | null | undefined): boolean =>
   !!source && SYSTEM_SOURCE_TYPES.includes(source);

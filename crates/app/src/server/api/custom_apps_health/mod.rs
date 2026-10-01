@@ -89,7 +89,11 @@ use sea_orm::EntityTrait;
 use uuid::Uuid;
 
 use super::custom_apps_auth::authenticate_and_authorize;
+use super::custom_apps_env_resolve::{
+    ResolvedEnvironment, may_open_non_production, resolve_environment,
+};
 use super::custom_apps_source::AppSource;
+use oxy_app_core::custom_app_environment::AppEnvironment;
 
 mod report;
 
@@ -104,7 +108,7 @@ pub async fn get_health(
     Path((org_slug, app_slug)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    health_for(&headers, &org_slug, &app_slug).await
+    health_for(&headers, &org_slug, &app_slug, &AppEnvironment::Production).await
 }
 
 /// `GET /api/customer-apps/health`
@@ -119,8 +123,18 @@ pub async fn get_health_for_host(headers: HeaderMap) -> Response {
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    match oxy_app_core::custom_apps_host_dispatch::parse_subdomain(host) {
-        Some((org_slug, app_slug)) => health_for(&headers, &org_slug, &app_slug).await,
+    match oxy_app_core::custom_apps_host_dispatch::parse_app_host(host) {
+        // Each environment's host reports on the build THAT environment serves:
+        // `staging--acme--store…/api/customer-apps/health` is staging's verdict.
+        Some(parsed) => {
+            health_for(
+                &headers,
+                &parsed.org_slug,
+                &parsed.app_slug,
+                &parsed.environment,
+            )
+            .await
+        }
         // Deliberately 404 rather than 400: on the admin host this path simply
         // does not name an app, and the slug-explicit route above is the one to
         // use there.
@@ -131,37 +145,77 @@ pub async fn get_health_for_host(headers: HeaderMap) -> Response {
     }
 }
 
-async fn health_for(headers: &HeaderMap, org_slug: &str, app_slug: &str) -> Response {
+async fn health_for(
+    headers: &HeaderMap,
+    org_slug: &str,
+    app_slug: &str,
+    environment: &AppEnvironment,
+) -> Response {
     // Auth first, app lookup second — that ordering is what keeps this from
     // becoming an anonymous enumeration oracle. See the module docs.
     let outcome = match authenticate_and_authorize(headers, org_slug, app_slug).await {
         Ok(o) => o,
         Err(status) => return error_response(status, reason(status)),
     };
+    let db = match establish_connection().await {
+        Ok(db) => db,
+        Err(_) => {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "database unreachable");
+        }
+    };
+    // A non-production environment's verdict is staff's to read, like its HTML.
+    if *environment != AppEnvironment::Production
+        && !may_open_non_production(
+            &db,
+            outcome.user_id,
+            outcome.user_email.as_deref().unwrap_or(""),
+            &outcome.app,
+        )
+        .await
+    {
+        return error_response(StatusCode::FORBIDDEN, reason(StatusCode::FORBIDDEN));
+    }
+    let resolved = match resolve_environment(&db, &outcome.app, environment).await {
+        Ok(resolved) => resolved,
+        Err(_) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the app's environments could not be read",
+            );
+        }
+    };
     let app_ref = AppRef {
         id: outcome.app.id,
         org_slug: org_slug.to_string(),
         slug: app_slug.to_string(),
     };
-    let (build, checks) = evaluate(&outcome.app).await;
+    let (build, checks) = evaluate(&outcome.app, &resolved).await;
     respond(app_ref, build, checks)
 }
 
-/// The two columns the publication rung reads, lifted off the row so the rule can
-/// be unit-tested without constructing a whole `apps::Model`.
+/// What the publication rung reads, lifted off the row so the rule can be
+/// unit-tested without constructing a whole `apps::Model`.
 #[derive(Debug, Clone, Copy)]
 struct PublicationState {
     /// `published_at` is set — what the customer access gate reads.
     marked_published: bool,
-    /// `published_build_id` is set — what the serve path reads.
+    /// The environment serves a build — what the serve path reads.
     has_published_build: bool,
 }
 
 impl PublicationState {
-    fn of(app: &apps::Model) -> Self {
+    /// For production, the access gate's `published_at` and production's build.
+    /// Any other environment has no `published_at` to disagree with — it serves
+    /// a build or it does not — so it is "marked" exactly when it has one.
+    fn of(app: &apps::Model, resolved: &ResolvedEnvironment) -> Self {
+        let has_build = resolved.build_id.is_some();
         Self {
-            marked_published: app.published_at.is_some(),
-            has_published_build: app.published_build_id.is_some(),
+            marked_published: if resolved.is_production() {
+                app.published_at.is_some()
+            } else {
+                has_build
+            },
+            has_published_build: has_build,
         }
     }
 }
@@ -191,9 +245,14 @@ fn publication_check(state: PublicationState) -> Check {
     }
 }
 
-/// Walk [`report::LADDER`] against the **published** channel. A draft build is what
-/// staff see behind a cookie; an external monitor is asking what a real visitor gets.
-async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
+/// Walk [`report::LADDER`] against the build `resolved` serves. For production
+/// that is the **published** channel — a draft build is what staff see behind a
+/// cookie, and an external monitor is asking what a real visitor gets; a
+/// staging host asks about staging's build.
+async fn evaluate(
+    app: &apps::Model,
+    resolved: &ResolvedEnvironment,
+) -> (Option<BuildRef>, Vec<Check>) {
     let mut checks = vec![Check::pass("registered")];
 
     // Source first. A source the serve path doesn't know — in practice a row
@@ -214,7 +273,7 @@ async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
     }
     checks.push(Check::pass("source_config"));
 
-    let publication = publication_check(PublicationState::of(app));
+    let publication = publication_check(PublicationState::of(app, resolved));
     let published = publication.result == PASS;
     checks.push(publication);
     if !published {
@@ -228,7 +287,7 @@ async fn evaluate(app: &apps::Model) -> (Option<BuildRef>, Vec<Check>) {
     // the two ever drift, a panic here costs a monitor its answer entirely —
     // there is no `CatchPanicLayer` in this workspace, so the caller gets a
     // dropped connection instead of the `fail` body every other path guarantees.
-    let Some(build_pk) = app.published_build_id else {
+    let Some(build_pk) = resolved.build_id else {
         checks.push(Check::fail(
             "build_record",
             "internal inconsistency: the app passed the publication check without a \

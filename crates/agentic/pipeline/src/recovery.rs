@@ -18,7 +18,8 @@ use agentic_runtime::worker::Worker;
 use sea_orm::DatabaseConnection;
 
 use crate::executor::PipelineTaskExecutor;
-use crate::platform::{BuilderBridges, PlatformContext};
+use crate::platform::preview::platform_for_root;
+use crate::platform::{BuilderBridges, PlatformContext, RunPlatformResolver};
 
 /// How many times the recovery *loops* may re-drive one run before retiring it.
 ///
@@ -107,11 +108,16 @@ fn log_recovery_failure(run_id: &str, err: &str, message: &'static str) {
 /// with the wrong workspace's connectors/secrets). `None` resumes every
 /// workspace's runs — appropriate for local mode (single workspace) and
 /// tests.
+///
+/// `run_platform` picks the platform each root is driven with (`platform` is
+/// the base it may hand back) — see [`crate::platform::preview`]. A root it
+/// cannot answer for is skipped, never driven with the base.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_active_runs(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
+    run_platform: Arc<dyn RunPlatformResolver>,
     builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
@@ -145,11 +151,14 @@ pub async fn recover_active_runs(
     let mut recovered = 0;
     for root in roots {
         let run_id = root.id.clone();
+        let Some(root_platform) = platform_for_root(&*run_platform, &root, &platform).await else {
+            continue;
+        };
         match recover_single_run(
             &root,
             db.clone(),
             state.clone(),
-            platform.clone(),
+            root_platform,
             builder_bridges.clone(),
             schema_cache.clone(),
             builder_test_runner.clone(),
@@ -198,11 +207,14 @@ pub async fn recover_active_runs(
 /// `workspace_id` — see [`recover_active_runs`]. The cloud-mode periodic
 /// loop passes the iteration's workspace id so it never drives a
 /// foreign workspace's row with this context.
+///
+/// `run_platform` — see [`recover_active_runs`].
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_stranded_runs(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
+    run_platform: Arc<dyn RunPlatformResolver>,
     builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
@@ -247,11 +259,14 @@ pub async fn recover_stranded_runs(
                 continue;
             }
         };
+        let Some(root_platform) = platform_for_root(&*run_platform, &root, &platform).await else {
+            continue;
+        };
         match recover_single_run(
             &root,
             db.clone(),
             state.clone(),
-            platform.clone(),
+            root_platform,
             builder_bridges.clone(),
             schema_cache.clone(),
             builder_test_runner.clone(),
@@ -323,11 +338,15 @@ pub fn may_drive(source_type: Option<&str>, exclude_source_types: &[&str]) -> bo
 /// tick. Declining AFTER the claim cannot hand off at all — only the
 /// lease-holder may claim the row, so it re-selects its own work while its
 /// heartbeat excludes everyone else. See [`may_drive`].
+///
+/// `run_platform` — see [`recover_active_runs`]. Asked after the exclusion and
+/// before the lease, so a root it cannot answer for keeps `driver_id IS NULL`.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_pending_global_runs(
     db: DatabaseConnection,
     state: Arc<RuntimeState>,
     platform: Arc<dyn PlatformContext>,
+    run_platform: Arc<dyn RunPlatformResolver>,
     builder_bridges: Option<BuilderBridges>,
     schema_cache: Option<Arc<Mutex<HashMap<String, agentic_analytics::SchemaCatalog>>>>,
     builder_test_runner: Option<Arc<dyn agentic_builder::BuilderTestRunner>>,
@@ -376,11 +395,14 @@ pub async fn recover_pending_global_runs(
                 continue;
             }
         };
+        let Some(root_platform) = platform_for_root(&*run_platform, &root, &platform).await else {
+            continue;
+        };
         match recover_single_run(
             &root,
             db.clone(),
             state.clone(),
-            platform.clone(),
+            root_platform,
             builder_bridges.clone(),
             schema_cache.clone(),
             builder_test_runner.clone(),
@@ -460,6 +482,15 @@ async fn recover_single_run(
             return Ok(RecoveryOutcome::Drove);
         }
         Err(e) => return Err(format!("driver lease acquire failed: {e}")),
+    }
+
+    // A run started in a workspace preview is never recovered: its platform
+    // (the branch, every write held) died with the process that drove it, and
+    // the platform here would be production's. Retired as the lease owner, on
+    // every entry point, before any budget or state is touched.
+    if crate::platform::preview_stamp::is_stamped(root.metadata.as_ref()) {
+        crate::platform::preview_stamp::retire_interrupted(&db, &root.id).await?;
+        return Ok(RecoveryOutcome::Retired);
     }
 
     // Spend one unit of the run's recovery budget, and retire it if that was the
@@ -628,12 +659,16 @@ async fn recover_single_run_owned(
     // `lib.rs` for the full explanation of why this matters under
     // LISTEN/NOTIFY-driven wake.
     let transport = DurableTransport::with_router(db.clone(), router, Some(root.id.clone()));
+    // A preview run gets no builder: its bridges edit the working copy, and an
+    // analytics agent can delegate to it. Without bridges the delegation fails
+    // instead of writing a file.
+    let is_preview = crate::platform::preview::is_preview(platform.as_ref());
     let executor = Arc::new(PipelineTaskExecutor {
         platform,
-        builder_bridges,
+        builder_bridges: builder_bridges.filter(|_| !is_preview),
         schema_cache,
-        builder_test_runner,
-        builder_app_runner,
+        builder_test_runner: builder_test_runner.filter(|_| !is_preview),
+        builder_app_runner: builder_app_runner.filter(|_| !is_preview),
         db: db.clone(),
         state: Some(state.clone()),
         custom_executors,

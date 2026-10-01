@@ -8,6 +8,7 @@
 
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 
+import { previewRequestHeaders } from "@/libs/utils/preview";
 import type { Automation } from "@/types/automation";
 import { apiBaseURL } from "../env";
 import { apiClient } from "./axios";
@@ -426,7 +427,7 @@ export class AutomationService {
     const token = localStorage.getItem("auth_token");
     await fetchEventSource(url, {
       method: "GET",
-      headers: { Authorization: token ?? "" },
+      headers: { Authorization: token ?? "", ...previewRequestHeaders() },
       openWhenHidden: true,
       signal: options.signal,
       async onopen(res) {

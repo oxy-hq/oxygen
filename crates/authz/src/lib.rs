@@ -179,6 +179,22 @@ pub enum Action {
     /// gate something other than apps, that consumer needs its own action rather
     /// than riding this one.
     AppAccessManage,
+    /// Open a custom app's **non-production** environment — its staging host
+    /// today (`internal-docs/2026-09-10-custom-app-environments-design.md`
+    /// §3.3), and any later non-production surface. Oxy staff holding
+    /// `develop_apps` over the app's org, and nobody else.
+    ///
+    /// Customers never build apps themselves, so no tenant standing reaches an
+    /// unreleased build: not an org officer, not an `app_members` admin, and not
+    /// a partner — not even one holding `develop_apps`, which reads the org's
+    /// production data but does not ship its apps. A staffer who is also a
+    /// member of the org still reaches it: this is staff work, and membership
+    /// neither adds to it nor takes it away.
+    ///
+    /// The same audience as the staff draft preview it replaces
+    /// (`globals::platform_reaches(.., Cap::DevelopApps, org)`), which is its
+    /// `existing_allow`.
+    AppNonProduction,
     /// Rename a workspace (`ensure_org_admin_or_workspace_creator`): an org
     /// owner/admin, OR the plain member who CREATED that workspace. The creator half
     /// is the only place a `created_by` self-claim grants a workspace action, so it
@@ -192,6 +208,19 @@ pub enum Action {
     /// workspace owner/admin. The global-operator override is rejected on purpose —
     /// staff must not be able to self-grant access to a tenant's workspace.
     WorkspaceOxyAccess,
+    /// Create, refresh, delete or OPEN a workspace **preview** — a branch compiled
+    /// into a revision that is never promoted, which the serve fleet pins for a
+    /// request carrying `?branch=`. Oxy staff only: customers do not build or change
+    /// workspaces, Oxy does, so an unmerged branch is staff tooling.
+    ///
+    /// Staff whose grant carries `OperatePlatform` over the workspace's org — scope
+    /// consulted, because the resource is a tenant's workspace, not the console.
+    /// Deliberately NOT: an org owner/admin/member (tenant standing is not staff
+    /// standing), a managing partner, or an App Operator, whose grant is custom
+    /// apps and nothing else. Membership neither grants nor blocks it: a staffer
+    /// who is also a member of the org is still staff, and this is a staff tool
+    /// rather than a tenant role the override could out-rank.
+    WorkspacePreview,
 
     // ── Partner ceiling (one action per PartnerCapability) ────────────────────
     // The partner tier shipped a whole second decision engine of its own. These absorb
@@ -297,7 +326,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 42] = [
+    pub const ALL: [Action; 44] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -315,9 +344,11 @@ impl Action {
         Action::WorkspaceDataAccess,
         Action::AppAdmin,
         Action::AppAccessManage,
+        Action::AppNonProduction,
         Action::WorkspaceRename,
         Action::NamespaceDelete,
         Action::WorkspaceOxyAccess,
+        Action::WorkspacePreview,
         Action::PartnerManageMembers,
         Action::PartnerManageApps,
         Action::PartnerDevelopApps,
@@ -364,9 +395,11 @@ impl Action {
             Action::WorkspaceDataAccess => "workspace_data_access",
             Action::AppAdmin => "app_admin",
             Action::AppAccessManage => "app_access_manage",
+            Action::AppNonProduction => "app_non_production",
             Action::WorkspaceRename => "workspace_rename",
             Action::NamespaceDelete => "namespace_delete",
             Action::WorkspaceOxyAccess => "workspace_oxy_access",
+            Action::WorkspacePreview => "workspace_preview",
             // Ids match PartnerCapability::as_str, prefixed — the partner tier's own
             // policy uses the bare cap name; these live in the shared action space.
             Action::PartnerManageMembers => "partner_manage_members",
@@ -412,8 +445,10 @@ impl Action {
             Action::WorkspaceDataAccess => Ring::WorkspaceData,
             Action::AppAdmin => Ring::AppAdmin,
             Action::AppAccessManage => Ring::AppGrant,
+            Action::AppNonProduction => Ring::StaffReach(Cap::DevelopApps),
             Action::WorkspaceRename | Action::NamespaceDelete => Ring::OrgAdminOrCreator,
             Action::WorkspaceOxyAccess => Ring::WorkspaceAdminStrict,
+            Action::WorkspacePreview => Ring::StaffReach(Cap::OperatePlatform),
             Action::PartnerManageMembers => Ring::PartnerCap(Cap::ManageMembers),
             Action::PartnerManageApps => Ring::PartnerCap(Cap::ManageApps),
             Action::PartnerDevelopApps => Ring::PartnerCap(Cap::DevelopApps),
@@ -941,6 +976,19 @@ enum Ring {
     /// No global or membership term, deliberately: the ceiling is the whole story, so
     /// standing elsewhere cannot widen it.
     PartnerCap(Cap),
+    /// Oxy staff holding `cap` **over the resource's org** — scope applied, no
+    /// tenant or partner term, and not conditioned on membership. The tenant-side
+    /// twin of [`Self::PlatformCap`]: that one gates a platform surface and leaves
+    /// scope to the handler; this one is asked of a tenant resource, so the
+    /// grant's scope is the whole answer. The ring `globals::platform_reaches`
+    /// states for the resolve-an-actor call sites, and the one staff-only tools
+    /// used inside one tenant sit on (non-production app hosts, workspace previews).
+    ///
+    /// No membership, override or partner term, which is what separates it from the
+    /// staff half of the tenant rings: those model the synthetic-owner override and
+    /// are therefore conditioned on NOT being a member. A staff-only tool has no
+    /// tenant role to out-rank, so neither membership nor its absence moves it.
+    StaffReach(Cap),
     /// Platform tier — holds ANY staff standing. The `/admin/*` door only
     /// (`oxy_owner_or_app_admin_guard`); every section behind it escalates to
     /// [`Self::PlatformCap`].
@@ -1386,6 +1434,11 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
                 || in_org(&facts.admin_orgs)
                 || facts.any_partner_grants(Cap::ManageApps, resource.org_id)
         }
+        // Staff work inside one tenant: the grant must name the capability AND reach
+        // this org. A TENANT resource only — the platform singleton's nil org would
+        // satisfy an all-scope grant and turn this into a console door, and a
+        // platform surface is `PlatformCap`'s to gate.
+        Ring::StaffReach(cap) => !is_platform && facts.platform_grants(cap, resource.org_id),
         // The console IS scoped: the capability must come from the partner being acted
         // as. Operating a partner that grants `cap` over some other client authorizes
         // nothing here — that scope is what a flattened model silently dropped.
@@ -1561,6 +1614,90 @@ mod policy_tests {
             PlatformRole::AppOperator,
             scope,
         ))
+    }
+
+    /// A non-production environment is staff-only: every tenant standing that
+    /// reaches the app's production surface is refused, and a staff grant counts
+    /// only inside its scope and only if it carries `develop_apps`.
+    #[test]
+    fn only_staff_reaching_the_org_with_develop_apps_open_a_non_production_environment() {
+        let app = Resource::app(Uuid::from_u128(77), org());
+        let yes = |f: PrincipalFacts| allows(&f, Action::AppNonProduction, &app);
+
+        assert!(yes(PrincipalFacts {
+            platform: app_operator_standing(Scope::Orgs(vec![org()])),
+            ..facts()
+        }));
+        assert!(yes(PrincipalFacts {
+            platform: global_admin_standing(),
+            ..facts()
+        }));
+        assert!(yes(PrincipalFacts {
+            is_global_owner: true,
+            ..facts()
+        }));
+        assert!(
+            yes(PrincipalFacts {
+                platform: app_operator_standing(Scope::All),
+                member_orgs: vec![org()],
+                ..facts()
+            }),
+            "a staffer who is also a member is still staff here"
+        );
+
+        assert!(
+            !yes(PrincipalFacts {
+                platform: app_operator_standing(Scope::Orgs(vec![other_org()])),
+                ..facts()
+            }),
+            "a grant scoped to another org does not reach this one"
+        );
+        assert!(
+            !yes(PrincipalFacts {
+                platform: Some(PlatformStanding {
+                    role: PlatformRole::AppOperator,
+                    caps: vec![Cap::ManageApps, Cap::ViewTenants],
+                    scope: Scope::All,
+                }),
+                ..facts()
+            }),
+            "staff without develop_apps"
+        );
+        assert!(
+            !yes(PrincipalFacts {
+                owned_orgs: vec![org()],
+                admin_orgs: vec![org()],
+                member_orgs: vec![org()],
+                ..facts()
+            }),
+            "an org owner does not open unreleased builds"
+        );
+        assert!(
+            !yes(PrincipalFacts {
+                member_orgs: vec![org()],
+                app_admin_memberships: vec![app.id],
+                ..facts()
+            }),
+            "nor does an app admin"
+        );
+        assert!(
+            !yes(PrincipalFacts {
+                partners: vec![standing(partner_org(), org(), &[Cap::DevelopApps])],
+                ..facts()
+            }),
+            "nor a develop_apps partner"
+        );
+        assert!(
+            !allows(
+                &PrincipalFacts {
+                    platform: global_admin_standing(),
+                    ..facts()
+                },
+                Action::AppNonProduction,
+                &Resource::platform()
+            ),
+            "never asked of the platform singleton"
+        );
     }
 
     /// Airhouse provisioning rides `OperatePlatform`, so it must answer exactly
@@ -2287,6 +2424,8 @@ mod policy_tests {
             Ring::WorkspaceEdit,
             Ring::AppAccess,
             Ring::WorkspaceData,
+            Ring::StaffReach(Cap::DevelopApps),
+            Ring::StaffReach(Cap::OperatePlatform),
         ] {
             assert!(
                 Action::ALL.iter().any(|a| a.ring() == ring),
@@ -2898,12 +3037,87 @@ mod policy_tests {
             (Action::WorkspaceEdit, &ws),
             (Action::WorkspaceRename, &ws),
             (Action::WorkspaceOxyAccess, &ws),
+            (Action::WorkspacePreview, &ws),
         ] {
             assert!(
                 !allows(&op, action, resource),
                 "{action:?} leaked to an app operator"
             );
         }
+    }
+
+    /// Previews are staff tooling: an all-scope Global Admin and the Global Owner
+    /// reach them, tenant standing of any rank does not, and a partner does not.
+    #[test]
+    fn workspace_preview_is_staff_only() {
+        let ws = Resource::workspace(Uuid::from_u128(77), org());
+        let ga = PrincipalFacts {
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        let owner = PrincipalFacts {
+            is_global_owner: true,
+            ..facts()
+        };
+        // A member of the org as well as staff: membership neither grants nor
+        // blocks a staff tool, so the grant still answers.
+        let ga_member = PrincipalFacts {
+            member_orgs: vec![org()],
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        assert!(allows(&ga, Action::WorkspacePreview, &ws));
+        assert!(allows(&owner, Action::WorkspacePreview, &ws));
+        assert!(allows(&ga_member, Action::WorkspacePreview, &ws));
+
+        let org_owner = PrincipalFacts {
+            owned_orgs: vec![org()],
+            admin_orgs: vec![org()],
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        let partner = PrincipalFacts {
+            partners: vec![standing(partner_org(), org(), &Cap::ALL)],
+            ..facts()
+        };
+        let elevated = PrincipalFacts {
+            member_orgs: vec![org()],
+            ws_admin_override: vec![Uuid::from_u128(77)],
+            ..facts()
+        };
+        for (who, f) in [
+            ("org owner", &org_owner),
+            ("partner with every cap", &partner),
+            ("workspace admin override", &elevated),
+            ("nobody", &facts()),
+        ] {
+            assert!(
+                !allows(f, Action::WorkspacePreview, &ws),
+                "{who} must not reach a staff-only preview"
+            );
+        }
+    }
+
+    /// Scope is consulted, because the resource is a tenant's workspace: a grant
+    /// bounded to one org previews that org and no other. And the ring refuses
+    /// the platform singleton, whose nil org an all-scope grant would satisfy.
+    #[test]
+    fn workspace_preview_honours_grant_scope_and_refuses_the_platform() {
+        let here = Resource::workspace(Uuid::from_u128(77), org());
+        let there = Resource::workspace(Uuid::from_u128(78), other_org());
+        let bounded = admin_over(Scope::Orgs(vec![org()]));
+        assert!(allows(&bounded, Action::WorkspacePreview, &here));
+        assert!(!allows(&bounded, Action::WorkspacePreview, &there));
+
+        let ga = PrincipalFacts {
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        assert!(!allows(
+            &ga,
+            Action::WorkspacePreview,
+            &Resource::platform()
+        ));
     }
 
     /// The other half: the role must actually work. Both app capabilities reach their

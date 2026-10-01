@@ -396,7 +396,7 @@ async fn seed_objects(app_id: Uuid, profile: Profile) -> Result<(), OxyError> {
         // them would make a local run's lifecycle behaviour differ from what the
         // app's own manifest declares.
         storage::put(
-            app_id,
+            &storage::Silo::production(app_id),
             path,
             body,
             opts,

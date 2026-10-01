@@ -20,11 +20,12 @@ use async_trait::async_trait;
 
 use super::super::KNOWN_SOURCE_KINDS;
 use super::{ResourceVerdict, verdicts};
-// `substitute_secret_vars` lives with the scan half (it exists to make a
-// *stored* definition constructible) but is itself pure, so its tests stay in
-// this file rather than moving into the DB-backed one where they could
-// self-skip.
-use super::super::preview_scan::{evaluate_pipeline, substitute_secret_vars};
+// `evaluate_pipeline` lives with the scan half (it scores a *stored*
+// definition) but is itself pure, so its tests stay in this file rather than
+// moving into the DB-backed one where they could self-skip. The placeholder
+// substitution it relies on moved to `agentic_airway::placeholder`, which the
+// workspace previews' Airway change check shares; its own tests moved with it.
+use super::super::preview_scan::evaluate_pipeline;
 
 /// The kind the un-suffixed helper scores under. Since airway 0.1.24 every
 /// kind is on the "fixable" side of the `not_fixable_here` split, so this is
@@ -386,81 +387,8 @@ fn verdicts_agree_with_airway_admission() {
     }
 }
 
-// Credential placeholders
-
-/// Flat and nested `*_var` references both become literals, so a connector
-/// whose `Params` is `deny_unknown_fields` around a required credential still
-/// constructs. Without this the toast/quickbooks arms would reject every real
-/// pipeline and the whole preview would be one long `unevaluated` list.
-#[test]
-fn secret_var_references_become_placeholder_literals() {
-    let mut config = serde_json::json!({
-        "client_id": "id-123",
-        "client_secret_var": "TOAST_SECRET",
-        "restaurant_guids": ["g-1"],
-        "auth": { "token_var": "REST_TOKEN" },
-        "endpoints": [{ "name": "charges", "key_var": "NESTED_KEY" }],
-    });
-    substitute_secret_vars(&mut config);
-
-    assert!(
-        config.get("client_secret_var").is_none(),
-        "`_var` is stripped"
-    );
-    assert!(
-        config["client_secret"].is_string(),
-        "the literal field it names is filled in"
-    );
-    assert!(config["auth"]["token"].is_string(), "nested objects too");
-    assert!(
-        config["endpoints"][0]["key"].is_string(),
-        "and objects inside arrays"
-    );
-    assert_eq!(
-        config["client_id"], "id-123",
-        "non-credential fields are untouched"
-    );
-}
-
-/// A spec that already carries the literal keeps it — the placeholder fills a
-/// gap, it does not overwrite an author's value.
-#[test]
-fn an_explicit_literal_survives_substitution() {
-    let mut config = serde_json::json!({
-        "client_secret": "literal-in-yaml",
-        "client_secret_var": "TOAST_SECRET",
-    });
-    substitute_secret_vars(&mut config);
-    assert_eq!(config["client_secret"], "literal-in-yaml");
-    assert!(config.get("client_secret_var").is_none());
-}
-
-/// `access_token_var` is a token-custody *mode selector*, not a credential the
-/// factory reads — the executor turns it into an `AccessTokenSource`, never a
-/// literal. Substituting it would both erase the read-only declaration (so the
-/// source falls into the rotating branch and fails for want of `client_secret`)
-/// and produce a field `QuickBooksParams` rejects under `deny_unknown_fields`.
-/// Either way every read-only quickbooks pipeline would land in `unevaluated`
-/// — permanently, on the staff surface whose whole job is keeping that list
-/// empty.
-#[test]
-fn access_token_var_survives_substitution() {
-    let mut config = serde_json::json!({
-        "client_id": "id-123",
-        "realm_id": "9341456441393444",
-        "access_token_var": "apps/app-id/QB_ACCESS_TOKEN",
-    });
-    substitute_secret_vars(&mut config);
-
-    assert_eq!(
-        config["access_token_var"], "apps/app-id/QB_ACCESS_TOKEN",
-        "the mode selector must reach the factory intact"
-    );
-    assert!(
-        config.get("access_token").is_none(),
-        "and must not be rewritten into a literal the params struct rejects"
-    );
-}
+// Credential placeholders (`agentic_airway::placeholder` owns the substitution
+// and its unit tests; these pin the end-to-end symptom through the scan).
 
 /// The symptom, not a mechanism inside it: a quickbooks pipeline in read-only
 /// token custody must **evaluate** — produce verdicts — rather than land in
@@ -539,19 +467,4 @@ fn a_rotating_quickbooks_pipeline_still_evaluates() {
     .expect("kind matches");
 
     assert!(!verdicts.is_empty());
-}
-
-/// The exclusion is by exact key, so a genuine credential whose name merely
-/// ends the same way is still substituted.
-#[test]
-fn other_token_vars_are_still_substituted() {
-    let mut config = serde_json::json!({
-        "refresh_token_var": "QB_REFRESH_TOKEN",
-        "auth": { "token_var": "REST_TOKEN" },
-    });
-    substitute_secret_vars(&mut config);
-
-    assert!(config.get("refresh_token_var").is_none());
-    assert!(config["refresh_token"].is_string());
-    assert!(config["auth"]["token"].is_string());
 }

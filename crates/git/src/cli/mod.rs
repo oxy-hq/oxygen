@@ -143,6 +143,14 @@ impl GitClient for CliGitClient {
         worktree::get_or_create_worktree(workspace_root, branch_name).await
     }
 
+    async fn find_branch_checkout(
+        &self,
+        workspace_root: &Path,
+        branch_name: &str,
+    ) -> Result<Option<PathBuf>, OxyError> {
+        worktree::find_branch_checkout(workspace_root, branch_name).await
+    }
+
     // ─── Commit ────────────────────────────────────────────────────────
 
     async fn commit_changes(&self, root: &Path, message: &str) -> Result<String, OxyError> {

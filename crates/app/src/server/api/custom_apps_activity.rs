@@ -361,6 +361,9 @@ pub async fn post_event(
         session_id,
         req.event_name,
         req.payload,
+        // Always production: the environment guard refuses this write from any
+        // other environment's host before it reaches here.
+        "production",
     )
     .await;
 
@@ -384,6 +387,14 @@ pub async fn post_event(
 }
 
 // ── Admin endpoints: activity queries ───────────────────────────────────
+//
+// Every read below counts **production only** (design §3.4). A staff member
+// opening an app's staging host is not an app user, and a staging page's
+// events are not the app's: counting them would put release testing in the
+// numbers a customer is shown.
+
+/// The environment the Activity tab reports on.
+const PRODUCTION: &str = "production";
 
 #[derive(Debug, Serialize)]
 pub struct ActivitySummary {
@@ -404,6 +415,7 @@ pub async fn get_summary(
 
     let total_views_7d = custom_app_view_event::Entity::find()
         .filter(custom_app_view_event::Column::AppId.eq(app_id))
+        .filter(custom_app_view_event::Column::Environment.eq(PRODUCTION))
         .filter(custom_app_view_event::Column::ViewedAt.gte(cutoff))
         .count(&db)
         .await
@@ -416,6 +428,7 @@ pub async fn get_summary(
 
     let total_events_7d = custom_app_event::Entity::find()
         .filter(custom_app_event::Column::AppId.eq(app_id))
+        .filter(custom_app_event::Column::Environment.eq(PRODUCTION))
         .filter(custom_app_event::Column::OccurredAt.gte(cutoff))
         .count(&db)
         .await
@@ -424,6 +437,7 @@ pub async fn get_summary(
 
     let last_viewed_at = custom_app_view_event::Entity::find()
         .filter(custom_app_view_event::Column::AppId.eq(app_id))
+        .filter(custom_app_view_event::Column::Environment.eq(PRODUCTION))
         .order_by_desc(custom_app_view_event::Column::ViewedAt)
         .one(&db)
         .await
@@ -452,7 +466,7 @@ async fn unique_user_count(
         backend,
         r#"SELECT COUNT(DISTINCT user_id)::bigint AS n
            FROM custom_app_view_event
-           WHERE app_id = $1 AND viewed_at >= $2"#,
+           WHERE app_id = $1 AND viewed_at >= $2 AND environment = 'production'"#,
         [app_id.into(), cutoff.into()],
     );
     let row = Count::find_by_statement(stmt).one(db).await?;
@@ -543,7 +557,7 @@ pub async fn get_visitors(
              (array_agg(org_role ORDER BY viewed_at DESC)
                 FILTER (WHERE org_role IS NOT NULL))[1] AS org_role
            FROM custom_app_view_event
-           WHERE app_id = $1 AND viewed_at >= $2
+           WHERE app_id = $1 AND viewed_at >= $2 AND environment = 'production'
            GROUP BY user_id
            ORDER BY last_seen_at DESC
            LIMIT $3"#,
@@ -621,6 +635,7 @@ pub async fn get_events(
     if let Some(name) = q.event_name {
         let rows = custom_app_event::Entity::find()
             .filter(custom_app_event::Column::AppId.eq(app_id))
+            .filter(custom_app_event::Column::Environment.eq(PRODUCTION))
             .filter(custom_app_event::Column::EventName.eq(name))
             .filter(custom_app_event::Column::OccurredAt.gte(cutoff))
             .order_by_desc(custom_app_event::Column::OccurredAt)
@@ -655,7 +670,7 @@ pub async fn get_events(
                  COUNT(*)::bigint AS count,
                  MAX(occurred_at) AS last_fired_at
                FROM custom_app_event
-               WHERE app_id = $1 AND occurred_at >= $2
+               WHERE app_id = $1 AND occurred_at >= $2 AND environment = 'production'
                GROUP BY event_name
                ORDER BY count DESC
                LIMIT $3"#,
@@ -706,7 +721,7 @@ pub async fn last_active_at_by_app(
     let sql = format!(
         r#"SELECT app_id, MAX(viewed_at) AS last_active_at
            FROM custom_app_view_event
-           WHERE app_id IN ({placeholders})
+           WHERE app_id IN ({placeholders}) AND environment = 'production'
            GROUP BY app_id"#
     );
     let values: Vec<sea_orm::Value> = app_ids.iter().map(|&id| id.into()).collect();

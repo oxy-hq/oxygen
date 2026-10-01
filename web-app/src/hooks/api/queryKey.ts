@@ -274,11 +274,27 @@ const workspaceKeys = {
 
   revisionInfo: (workspaceId: string, branchName: string) =>
     [...workspaceKeys.all, "revisionInfo", workspaceId, branchName] as const,
+  /** Prefix of every branch's `revisionInfo` for one workspace. */
+  revisionInfoAll: (workspaceId: string) =>
+    [...workspaceKeys.all, "revisionInfo", workspaceId] as const,
 
   status: (workspaceId: string, branchName: string) =>
     [...workspaceKeys.all, "status", workspaceId, branchName] as const,
 
   members: (workspaceId: string) => [...workspaceKeys.all, "members", workspaceId] as const,
+
+  previews: (workspaceId: string) => [...workspaceKeys.all, "previews", workspaceId] as const,
+
+  previewChecks: (workspaceId: string, branch: string) =>
+    [...workspaceKeys.all, "previewChecks", workspaceId, branch] as const,
+  previewRuns: (workspaceId: string, branch: string) =>
+    [...workspaceKeys.all, "previewRuns", workspaceId, branch] as const,
+  previewRun: (workspaceId: string, runId: string) =>
+    [...workspaceKeys.all, "previewRun", workspaceId, runId] as const,
+  previewAutomationPaths: (workspaceId: string, branch: string) =>
+    [...workspaceKeys.all, "previewAutomationPaths", workspaceId, branch] as const,
+  previewSources: (workspaceId: string) =>
+    [...workspaceKeys.all, "previewSources", workspaceId] as const,
 
   recentCommits: (workspaceId: string, branchName: string) =>
     [...workspaceKeys.all, "recentCommits", workspaceId, branchName] as const,

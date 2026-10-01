@@ -72,25 +72,55 @@ pub async fn enqueue_staging_compile(
         .await
         .map_err(internal)?
         .ok_or_else(|| not_found(workspace_id))?;
-    let branch = q.branch.trim().to_string();
-    let git_sha = resolve_branch_head(&workspace, &branch).await?;
+    Ok(Json(stage_branch(&db, &workspace, &q.branch).await?))
+}
+
+/// Compile `branch`'s head into a staging revision, or answer with the one that
+/// already exists: a ready revision of that SHA is reused, a compile already in
+/// flight is reported rather than doubled. The body of the POST above, shared
+/// with the staff previews API (`server::previews`), which calls it behind its
+/// own guard. IDE-only: it reads `.git` and the branch's worktree.
+pub(crate) async fn stage_branch(
+    db: &DatabaseConnection,
+    workspace: &entity::workspaces::Model,
+    branch: &str,
+) -> Result<StagingCompileResponse, (StatusCode, String)> {
+    let workspace_id = workspace.id;
+    let branch = branch.trim().to_string();
+    let git_sha = resolve_branch_head(workspace, &branch).await?;
 
     if let Some(revision_id) =
-        oxy_compile::find_reusable_revision(&db, workspace_id, RevisionKind::Staging, &git_sha)
+        oxy_compile::find_reusable_revision(db, workspace_id, RevisionKind::Staging, &git_sha)
             .await
             .map_err(internal)?
     {
-        return Ok(Json(ready(workspace_id, git_sha, revision_id)));
+        return Ok(ready(workspace_id, git_sha, revision_id));
     }
     // One in flight already: answer with it rather than compiling twice.
-    if let Some(latest) = latest_for_sha(&db, workspace_id, &git_sha).await?
+    if let Some(latest) = latest_for_sha(db, workspace_id, &git_sha).await?
         && latest.status == "compiling"
     {
-        return Ok(Json(from_row(workspace_id, git_sha, latest)));
+        return Ok(from_row(workspace_id, git_sha, latest));
+    }
+    // Queued but not yet claimed has no revision row, so the check above cannot
+    // see it; the queue can. Without this a second request before a worker
+    // picks the first up compiles the same commit twice.
+    if compile_task_in_flight(db, workspace_id, &git_sha)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(StagingCompileResponse {
+            workspace_id,
+            git_sha,
+            status: "pending".into(),
+            revision_id: None,
+            task_id: None,
+            error: None,
+        });
     }
 
     let task_id = crate::server::api::compile::enqueue_compile_task(
-        &db,
+        db,
         workspace_id,
         &git_sha,
         &branch,
@@ -99,14 +129,14 @@ pub async fn enqueue_staging_compile(
     )
     .await?;
     tracing::info!(%workspace_id, %task_id, %branch, %git_sha, "compile: staging compile enqueued");
-    Ok(Json(StagingCompileResponse {
+    Ok(StagingCompileResponse {
         workspace_id,
         git_sha,
         status: "pending".into(),
         revision_id: None,
         task_id: Some(task_id),
         error: None,
-    }))
+    })
 }
 
 /// GET /{workspace_id}/compile/staging/status?git_sha=<sha>
@@ -119,27 +149,37 @@ pub async fn staging_compile_status(
     Query(q): Query<StagingStatusQuery>,
 ) -> ApiResult<StagingCompileResponse> {
     let db = connect().await?;
-    let git_sha = q.git_sha.trim().to_string();
+    Ok(Json(
+        status_for_sha(&db, workspace_id, q.git_sha.trim()).await?,
+    ))
+}
+
+/// Where the staging compile of `git_sha` stands — the body of the status route,
+/// shared with the previews list. Reads only `revisions`.
+pub(crate) async fn status_for_sha(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+    git_sha: &str,
+) -> Result<StagingCompileResponse, (StatusCode, String)> {
+    let git_sha = git_sha.to_string();
     if let Some(revision_id) =
-        oxy_compile::find_reusable_revision(&db, workspace_id, RevisionKind::Staging, &git_sha)
+        oxy_compile::find_reusable_revision(db, workspace_id, RevisionKind::Staging, &git_sha)
             .await
             .map_err(internal)?
     {
-        return Ok(Json(ready(workspace_id, git_sha, revision_id)));
+        return Ok(ready(workspace_id, git_sha, revision_id));
     }
-    Ok(Json(
-        match latest_for_sha(&db, workspace_id, &git_sha).await? {
-            Some(row) => from_row(workspace_id, git_sha, row),
-            None => StagingCompileResponse {
-                workspace_id,
-                git_sha,
-                status: "pending".into(),
-                revision_id: None,
-                task_id: None,
-                error: None,
-            },
+    Ok(match latest_for_sha(db, workspace_id, &git_sha).await? {
+        Some(row) => from_row(workspace_id, git_sha, row),
+        None => StagingCompileResponse {
+            workspace_id,
+            git_sha,
+            status: "pending".into(),
+            revision_id: None,
+            task_id: None,
+            error: None,
         },
-    ))
+    })
 }
 
 /// The branch's head commit, after making sure its worktree exists on this
@@ -177,9 +217,9 @@ async fn resolve_branch_head(
             ),
         ));
     }
-    git.get_or_create_worktree(&root, branch)
-        .await
-        .map_err(internal)?;
+    if let Err(e) = git.get_or_create_worktree(&root, branch).await {
+        return Err(worktree_add_conflict(&git, &root, branch, e).await);
+    }
     let worktree = oxy::adapters::workspace::effective_workspace_path(workspace, Some(branch))
         .await
         .map_err(internal)?;
@@ -195,6 +235,56 @@ async fn resolve_branch_head(
         ));
     }
     Ok(sha)
+}
+
+/// Turns a `get_or_create_worktree` failure into a 409, not a bare 500.
+///
+/// `get_or_create_worktree` already reuses a branch's existing checkout when
+/// one exists (see `oxy_git::cli::worktree::find_branch_checkout`), so a
+/// failure here means something changed the state out from under that check
+/// — most plausibly a race where another process checked the branch out
+/// between the two calls. Either way this is a conflict the caller can
+/// retry or resolve, not a server bug: name the checkout that is in the way
+/// when we can find one, and fall back to the raw git error otherwise.
+async fn worktree_add_conflict(
+    git: &impl GitClient,
+    root: &std::path::Path,
+    branch: &str,
+    err: oxy_shared::errors::OxyError,
+) -> (StatusCode, String) {
+    tracing::error!(%branch, error = %err, "compile_staging: worktree add failed");
+    let message = match git.find_branch_checkout(root, branch).await {
+        Ok(Some(path)) => format!(
+            "branch {branch:?} is checked out at {}; staging compile cannot add a second worktree for it",
+            path.display()
+        ),
+        _ => format!("could not prepare a worktree for branch {branch:?}: {err}"),
+    };
+    (StatusCode::CONFLICT, message)
+}
+
+/// Whether a compile of `git_sha` for this workspace is queued or running on the
+/// task queue — the one state `revisions` cannot show, because a compile writes
+/// its revision row only once a worker has claimed it.
+pub(crate) async fn compile_task_in_flight(
+    db: &DatabaseConnection,
+    workspace_id: Uuid,
+    git_sha: &str,
+) -> Result<bool, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT 1 FROM agentic_task_queue \
+             WHERE queue_status IN ('queued', 'claimed') \
+               AND spec->>'type' = 'compile' \
+               AND spec->>'workspace_id' = $1 \
+               AND spec->>'git_sha' = $2 \
+             LIMIT 1",
+            [workspace_id.to_string().into(), git_sha.into()],
+        ))
+        .await?;
+    Ok(row.is_some())
 }
 
 /// Newest staging-or-main revision row of this SHA, whatever its status.

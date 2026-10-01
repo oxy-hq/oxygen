@@ -747,25 +747,72 @@ pub async fn workspace_middleware(
         .as_ref()
         .map(|s| std::sync::Arc::new(s.db.clone()));
 
+    // Authorize before choosing the revision: a preview pin depends on who is
+    // asking. Reads no compiled data, so it needs no pin of its own.
+    let workspace_row = authorize_workspace(
+        workspace_id,
+        user.id,
+        user.email.as_deref().unwrap_or(""),
+        &mut request,
+    )
+    .await?;
+
+    // A preview request (`x-oxy-preview-revision`) from staff, naming a ready
+    // staging revision of this workspace, reads that revision. Every other
+    // request — the IDE on the same branch included, which sends no header — is
+    // untouched. See `server::previews::pin`.
+    let (mut request, preview) =
+        crate::server::previews::pin::for_request(workspace_id, query.branch.as_deref(), request)
+            .await;
+    if preview.is_none()
+        && let Some(response) = forward_deferred_branch_escalation(&mut request).await
+    {
+        return Ok(response);
+    }
+
     // Resolve the one revision this request reads — ONCE — and pin it for the
     // whole downstream (config resolution below + every compiled reader the
     // handler calls). Without this, each reader re-resolves `current_revision_id`
     // independently and a promotion landing mid-request yields a torn read.
-    let pinned_revision = crate::server::api::compiled_reader::resolve_request_revision(
-        workspace_id,
-        query.branch.as_deref(),
-    )
-    .await;
+    // A preview is pinned by id, so there is nothing to resolve.
+    let preview_revision = preview.as_ref().map(|p| p.revision_id);
+    let pinned_revision = match preview_revision {
+        Some(_) => None,
+        None => {
+            crate::server::api::compiled_reader::resolve_request_revision(
+                workspace_id,
+                query.branch.as_deref(),
+            )
+            .await
+        }
+    };
+    // Rollups are built from the promoted model, so a preview never gets the
+    // cache that would let a spawned task answer from one either.
+    let preagg_cache = match preview {
+        Some(_) => None,
+        None => app_state.preagg_cache,
+    };
 
-    crate::server::api::compiled_reader::with_pinned_revision(pinned_revision, async move {
-        match authorize_workspace(workspace_id, user.id, user.email.as_deref().unwrap_or(""), &mut request).await? {
+    // Boxed: the whole downstream request runs inside `serve`, and each pin
+    // wrapper below holds its future by value — a debug build's poll frames
+    // copy it at every layer, which overflowed a 2 MiB tokio worker serving
+    // `/sql/query` in the custom-app canary.
+    let serve = Box::pin(async move {
+        // Read-only in a preview: refused before any handler work.
+        if let Some(pin) = &preview {
+            request = match crate::server::previews::read_only::check(request, pin).await {
+                Ok(request) => request,
+                Err(refusal) => return Ok(refusal),
+            };
+        }
+        match workspace_row {
             Some(workspace_row) => {
                 try_attach_workspace_manager(
                     &workspace_row,
                     query.branch.as_deref(),
                     workspace_id,
                     user.id,
-                    app_state.preagg_cache,
+                    preagg_cache,
                     app_state.preagg_renewal_threshold_secs,
                     agentic_db,
                     app_state.semantic_layer_cache,
@@ -801,26 +848,98 @@ pub async fn workspace_middleware(
                 "serve replica: no compiled config — forwarding to ide node (fail-safe) \
                  while the lazy compile lands"
             );
-            // This middleware runs INSIDE the `/api/{workspace_id}` nest, where
-            // axum has rewritten the request URI to the stripped remainder
-            // (`/agents`, not `/api/{ws}/agents`). `forward_to_ide` proxies
-            // `req.uri()` verbatim, so restore the original full URI first — else
-            // the ide receives the bare `/agents` and serves the SPA fallback.
-            // (The enforce_role self-proxy needs no such fix: it runs at the top
-            // level where the URI is already the full path.)
-            if let Some(original) = request
-                .extensions()
-                .get::<axum::extract::OriginalUri>()
-                .map(|o| o.0.clone())
-            {
-                *request.uri_mut() = original;
-            }
-            return Ok(crate::server::ide_proxy::forward_to_ide(upstream, request).await);
+            return Ok(forward_with_original_uri(upstream, request).await);
         }
 
-        Ok(next.run(request).await)
-    })
-    .await
+        let mut response = next.run(request).await;
+        if let Some(pin) = &preview {
+            pin.stamp(&mut response);
+        }
+        Ok(response)
+    });
+    match preview_revision {
+        // The staging pin, not the bare revision pin: inside it the staging
+        // rules hold for everything the handler calls (no rollups, partitioned
+        // result caches) — the same scope a custom-app draft build reads in.
+        // Inside it, the preview-request scope: whatever the handler runs holds
+        // its writes (`previews::request_hold`), whatever route it came in on.
+        Some(revision_id) => {
+            crate::server::api::custom_apps_staging_pin::with_staging_pin(
+                Some(revision_id),
+                crate::server::previews::request_hold::scope(serve),
+            )
+            .await
+        }
+        None => {
+            crate::server::api::compiled_reader::with_pinned_revision(pinned_revision, serve).await
+        }
+    }
+}
+
+/// Proxy `request` to the ide node from inside the `/api/{workspace_id}` nest.
+///
+/// axum has rewritten the URI here to the stripped remainder (`/agents`, not
+/// `/api/{ws}/agents`), and `forward_to_ide` proxies `req.uri()` verbatim, so the
+/// original full URI goes back first — else the ide receives the bare `/agents`
+/// and serves the SPA fallback. (The enforce_role self-proxy needs no such fix:
+/// it runs at the top level where the URI is already the full path.)
+async fn forward_with_original_uri(
+    upstream: &str,
+    mut request: Request<axum::body::Body>,
+) -> Response {
+    if let Some(original) = request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .map(|o| o.0.clone())
+    {
+        *request.uri_mut() = original;
+    }
+    crate::server::ide_proxy::forward_to_ide(upstream, request).await
+}
+
+/// Finish the branch escalation `enforce_role` deferred for a request carrying
+/// the preview header. The preview did not apply (not staff, no servable
+/// preview, or the header disagreed with `?branch=`), so the request goes where
+/// it would have gone without the header — the ide, which serves `?branch=`
+/// from its working copy. `None` when nothing was deferred, or there is no ide
+/// to send it to (then it is served here, exactly as a replica always has).
+async fn forward_deferred_branch_escalation(
+    request: &mut Request<axum::body::Body>,
+) -> Option<Response> {
+    request
+        .extensions()
+        .get::<crate::server::previews::pin::DeferredBranchEscalation>()?;
+    let upstream = crate::server::ide_proxy::ide_upstream()?;
+    if crate::server::ide_proxy::already_forwarded(request) {
+        return None;
+    }
+    let taken = std::mem::replace(request, Request::new(axum::body::Body::empty()));
+    Some(forward_with_original_uri(upstream, taken).await)
+}
+
+/// The access half of [`workspace_middleware`] and nothing else: authorize the
+/// caller for `{workspace_id}` and attach the workspace row, effective role and
+/// org membership, so the role guards work. No revision is resolved, no
+/// workspace manager is built, and `?branch=` means nothing here — for surfaces
+/// (the previews API) that decide who may act on a workspace but read neither
+/// its config nor its files.
+pub async fn workspace_access_middleware(
+    Path(WorkspacePath { workspace_id }): Path<WorkspacePath>,
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, WorkspaceAccessError> {
+    if workspace_id == Uuid::nil() {
+        return Err(StatusCode::NOT_FOUND.into());
+    }
+    authorize_workspace(
+        workspace_id,
+        user.id,
+        user.email.as_deref().unwrap_or(""),
+        &mut request,
+    )
+    .await?;
+    Ok(next.run(request).await)
 }
 
 /// Looks up the workspace, authorizes the caller, and inserts request extensions
@@ -1099,12 +1218,27 @@ const COMPILE_TASK_TERMINAL_STATUSES: [&str; 4] = ["completed", "failed", "dead"
 /// Change either predicate, the ordering, or the column list and the index
 /// silently stops being used. That is a planner regression, not an error, so
 /// `the_backoff_window_matches_the_index_that_serves_it` pins it.
+///
+/// Only compiles of the MAIN revision count (a residual filter on the same
+/// index scan, not a new predicate): a staging compile — a staff preview, or
+/// `oxyc publish --semantic-branch` — failing on its branch must not back off
+/// the self-heal of the workspace's main revision.
 const RECENT_COMPILE_TASKS_SQL: &str = "SELECT queue_status, updated_at FROM agentic_task_queue \
      WHERE spec->>'type' = 'compile' \
        AND spec->>'workspace_id' = $1 \
        AND queue_status IN ('completed', 'failed', 'dead', 'cancelled') \
+       AND COALESCE(spec->>'kind', 'main') = 'main' \
      ORDER BY updated_at DESC \
      LIMIT $2";
+
+/// The in-flight check for the lazy self-heal. A queued STAGING compile is not
+/// a compile of the workspace's main revision, so it must not suppress one.
+const IN_FLIGHT_MAIN_COMPILE_SQL: &str = "SELECT 1 FROM agentic_task_queue \
+     WHERE queue_status IN ('queued', 'claimed') \
+       AND spec->>'type' = 'compile' \
+       AND spec->>'workspace_id' = $1 \
+       AND COALESCE(spec->>'kind', 'main') = 'main' \
+     LIMIT 1";
 
 /// Length of the leading run of failures in a NEWEST-FIRST status list.
 ///
@@ -1343,11 +1477,7 @@ pub(crate) async fn enqueue_compile_deduped(
     let already = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT 1 FROM agentic_task_queue \
-             WHERE queue_status IN ('queued', 'claimed') \
-               AND spec->>'type' = 'compile' \
-               AND spec->>'workspace_id' = $1 \
-             LIMIT 1",
+            IN_FLIGHT_MAIN_COMPILE_SQL,
             [workspace_id.to_string().into()],
         ))
         .await;
@@ -1789,6 +1919,22 @@ mod tests {
                 "the window dropped {fragment:?}, which idx_task_queue_compile_terminal \
                  is built around — add a NEW migration reshaping the index, do not \
                  edit the shipped one"
+            );
+        }
+    }
+
+    /// A staging compile is a branch, not the workspace's main revision:
+    /// neither a queued one nor a failed one may hold back the self-heal
+    /// compile of main. (A main compile's spec may omit `kind`.)
+    #[test]
+    fn staging_compiles_never_gate_the_main_self_heal() {
+        for sql in [
+            super::RECENT_COMPILE_TASKS_SQL,
+            super::IN_FLIGHT_MAIN_COMPILE_SQL,
+        ] {
+            assert!(
+                sql.contains("COALESCE(spec->>'kind', 'main') = 'main'"),
+                "{sql}"
             );
         }
     }

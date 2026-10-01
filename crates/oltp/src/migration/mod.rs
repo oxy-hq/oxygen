@@ -18,16 +18,19 @@
 //!
 //! Squashing again after merge would not be free, and should not be done.
 //!
-//! The trim — the tables are already in the right shape, so nothing is rebuilt:
+//! The trim — the tables are already in the right shape, so nothing is rebuilt.
+//! It spares the later migrations, which were never part of the squash:
 //!
 //! ```sql
 //! DELETE FROM seaql_migrations_oltp
-//!  WHERE version <> 'm20260804_000001_create_oltp_tables';
+//!  WHERE version NOT IN ('m20260804_000001_create_oltp_tables',
+//!                        'm20260929_000001_create_oltp_branches');
 //! ```
 //!
 //! A fresh database is unaffected.
 
 mod m20260804_000001_create_oltp_tables;
+mod m20260929_000001_create_oltp_branches;
 
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::prelude::*;
@@ -37,10 +40,13 @@ pub struct OltpMigrator;
 #[async_trait::async_trait]
 impl MigratorTrait for OltpMigrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        // ONE migration, deliberately. Nothing has deployed this feature, so
-        // the four alters that followed the original create were history with
-        // no audience — squashed into the shape the code actually expects.
-        vec![Box::new(m20260804_000001_create_oltp_tables::Migration)]
+        vec![
+            // The squash: the four alters that followed the original create
+            // were history with no audience while nothing had deployed it.
+            Box::new(m20260804_000001_create_oltp_tables::Migration),
+            // Appended, never squashed in — see the module doc.
+            Box::new(m20260929_000001_create_oltp_branches::Migration),
+        ]
     }
 
     fn migration_table_name() -> sea_orm::DynIden {

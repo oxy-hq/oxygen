@@ -106,6 +106,16 @@ pub async fn get_or_create_worktree(
 
     branch::validate_branch_name(branch_name)?;
 
+    // Git allows a branch to be checked out in at most one worktree at a time.
+    // If `branch_name` is already checked out somewhere in this repo — most
+    // commonly the main working copy itself, when the repo's main checkout
+    // sits on a non-default branch — reuse that checkout instead of asking
+    // git to add a second one, which it refuses with "already used by
+    // worktree at ...".
+    if let Some(existing) = find_branch_checkout(workspace_root, branch_name).await? {
+        return Ok(existing);
+    }
+
     // The worktree lives at `<workspace_root>/.worktrees/<branch>`, i.e. nested
     // inside the main working copy. Git reports that nested directory as an
     // untracked entry (`?? .worktrees/`) in the main branch's status, which
@@ -128,6 +138,29 @@ pub async fn get_or_create_worktree(
 
     config::ensure_user_config().await?;
 
+    add_worktree(workspace_root, branch_name, &worktree_path).await?;
+
+    info!(
+        "Created git worktree '{}' at {}",
+        branch_name,
+        worktree_path.display()
+    );
+    Ok(worktree_path)
+}
+
+/// Runs `git worktree add` for `branch_name` at `worktree_path`, creating the
+/// branch first when it does not already exist locally.
+///
+/// Tolerates losing a creation race: if the command fails but the directory
+/// materialised anyway, a concurrent caller won and that counts as success.
+/// Any other failure (including the branch having become checked out
+/// elsewhere between [`get_or_create_worktree`]'s upfront check and this
+/// call) is returned as-is — the caller decides how to surface it.
+async fn add_worktree(
+    workspace_root: &Path,
+    branch_name: &str,
+    worktree_path: &Path,
+) -> Result<(), OxyError> {
     let branch_exists = branch::branch_exists(workspace_root, branch_name).await?;
 
     let result = if branch_exists {
@@ -156,25 +189,16 @@ pub async fn get_or_create_worktree(
     };
 
     match result {
-        Ok(_) => {}
-        Err(e) => {
-            if worktree_path.exists() {
-                info!(
-                    "Worktree at {} already exists (concurrent creation), using it",
-                    worktree_path.display()
-                );
-            } else {
-                return Err(e);
-            }
+        Ok(_) => Ok(()),
+        Err(_) if worktree_path.exists() => {
+            info!(
+                "Worktree at {} already exists (concurrent creation), using it",
+                worktree_path.display()
+            );
+            Ok(())
         }
+        Err(e) => Err(e),
     }
-
-    info!(
-        "Created git worktree '{}' at {}",
-        branch_name,
-        worktree_path.display()
-    );
-    Ok(worktree_path)
 }
 
 /// A worktree as reported by `git worktree list --porcelain`.
@@ -195,6 +219,28 @@ pub struct WorktreeEntry {
 pub async fn list_worktrees(workspace_root: &Path) -> Result<Vec<WorktreeEntry>, OxyError> {
     let out = run::run(workspace_root, &["worktree", "list", "--porcelain"]).await?;
     Ok(parse_worktree_list(&out))
+}
+
+/// Finds the worktree — if any — where `branch` is currently checked out,
+/// including the repo's main working copy. Git allows a branch to be checked
+/// out in at most one worktree at a time, so this is authoritative: when it
+/// returns `Some`, a `git worktree add` for that branch is doomed to fail
+/// with "already used by worktree at ...".
+///
+/// The single source of truth for "where does this branch actually live on
+/// disk" — shared by [`get_or_create_worktree`] (to skip a doomed `add`) and
+/// `oxy::adapters::workspace::effective_workspace_path` (so reads of the
+/// branch land on the same checkout), so the two can never disagree.
+pub async fn find_branch_checkout(
+    workspace_root: &Path,
+    branch: &str,
+) -> Result<Option<PathBuf>, OxyError> {
+    let target = format!("refs/heads/{branch}");
+    let entries = list_worktrees(workspace_root).await?;
+    Ok(entries
+        .into_iter()
+        .find(|e| e.branch.as_deref() == Some(target.as_str()))
+        .map(|e| e.path))
 }
 
 /// Parses `git worktree list --porcelain`. Records are blank-line separated;
@@ -386,5 +432,48 @@ detached
             .filter(|l| l.trim() == ".worktrees/")
             .count();
         assert_eq!(count, 1, "exclude entry written exactly once:\n{exclude}");
+    }
+
+    /// Regression: when the repo's main working copy is itself checked out on
+    /// the branch being staged — a non-default branch, e.g. an ephemeral
+    /// environment whose root sits on its feature branch — `get_or_create_worktree`
+    /// must reuse that checkout rather than ask git to `worktree add` a second
+    /// one for the same branch. Git refuses that outright:
+    /// `fatal: '<branch>' is already used by worktree at '<root>'`, which
+    /// before the fix surfaced as exactly this function returning `Err`.
+    #[tokio::test]
+    async fn get_or_create_worktree_reuses_main_checkout_already_on_the_branch() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let repo = tmp.path();
+        git(repo, &["init", "-q", "-b", "main"]).await;
+        git(repo, &["config", "user.email", "t@example.com"]).await;
+        git(repo, &["config", "user.name", "Test"]).await;
+        std::fs::write(repo.join("f.txt"), "hi").expect("seed file");
+        git(repo, &["add", "."]).await;
+        git(repo, &["commit", "-qm", "init"]).await;
+
+        // The main working copy moves to a non-default branch — "feature" is
+        // not git's default (git's fallback here is "main", and this repo has
+        // no remote to say otherwise), so this does not hit the
+        // `branch_name == default_branch` early return.
+        git(repo, &["checkout", "-q", "-b", "feature"]).await;
+
+        let wt = get_or_create_worktree(repo, "feature")
+            .await
+            .expect("must reuse the main checkout instead of erroring");
+
+        // `git worktree list` reports a canonicalized path (e.g. resolving
+        // macOS's `/var` -> `/private/var` symlink), so compare against the
+        // canonical form of `repo` rather than the raw tempdir path.
+        let canonical_repo = std::fs::canonicalize(repo).expect("repo path resolves");
+        assert_eq!(
+            wt, canonical_repo,
+            "branch already checked out at the main working copy must resolve there, \
+             not a new .worktrees/ entry"
+        );
+        assert!(
+            !repo.join(WORKTREES_DIR).join("feature").exists(),
+            "must not have attempted (or succeeded) to add a second worktree for the same branch"
+        );
     }
 }

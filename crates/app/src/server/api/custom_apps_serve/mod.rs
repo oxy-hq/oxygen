@@ -61,9 +61,15 @@ use sentry::SentryFutureExt;
 use tracing::Instrument;
 use uuid::Uuid;
 
+use oxy_app_core::custom_app_env_request::request_environment;
+use oxy_app_core::custom_app_environment::AppEnvironment;
+
 use super::custom_apps_auth::user_can_access_app;
 use super::custom_apps_cache::{
     ResolvedApp, cached_app_resolution, cached_user, set_cached_app_resolution, set_cached_user,
+};
+use super::custom_apps_env_resolve::{
+    EnvironmentBuilds, load_environment_builds, may_open_non_production,
 };
 use super::custom_apps_functions::seam::FunctionQueryExecutor;
 
@@ -254,6 +260,14 @@ pub(crate) async fn serve_pretty(
     // being slow from the viewer's seat, and a timer that excluded it would
     // report health the viewer does not have.
     let started = std::time::Instant::now();
+    // 0. Which environment of the app this request addresses: the host label,
+    //    or `X-Oxy-App-Env` on a bearer request. A header that cannot be
+    //    honoured is a 400 — never a silent production serve. Pure header work,
+    //    so it reveals nothing about which apps exist.
+    let environment = match request_environment(&headers) {
+        Ok(environment) => environment,
+        Err(e) => return e.into_response(),
+    };
     // 1. Authenticate FIRST so an unauthenticated probe can't distinguish a
     //    real registered (org, app) pair (302 redirect) from a fake one
     //    (404). No DB work happens before we know the caller has a valid
@@ -377,19 +391,55 @@ pub(crate) async fn serve_pretty(
                 }
             };
 
-            let resolved = ResolvedApp { org, app };
+            let environments = match load_environment_builds(&db, &app)
+                .instrument(tracing::info_span!(
+                    target: "custom_apps_serve",
+                    "custom_app_resolve_environments"
+                ))
+                .await
+            {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to read the environments of custom app {org_slug}/{app_slug}: {e}"
+                    );
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                }
+            };
+
+            let resolved = ResolvedApp {
+                org,
+                app,
+                environments,
+            };
             set_cached_app_resolution(org_slug, app_slug, resolved.clone());
             resolved
         }
     };
-    let ResolvedApp { org, app } = resolved;
+    let ResolvedApp {
+        org,
+        app,
+        environments,
+    } = resolved;
     let id = app.id;
 
-    // Combined access check (org member | workspace grant | global app
-    // admin). Cached per (user_id, app_id) for 60s — see
-    // `custom_apps_auth::user_can_access_app`. Critical for the Next.js
-    // asset storm (30-100 requests per page load).
-    let allowed = match user_can_access_app(&db, user.id, user.email.as_deref().unwrap_or(""), &app)
+    // Who may open this environment. Production: the combined access check
+    // (org member | workspace grant | global app admin), cached per (user_id,
+    // app_id) for 60s — see `custom_apps_auth::user_can_access_app`; critical
+    // for the Next.js asset storm (30-100 requests per page load). Any other
+    // environment: Oxy staff reaching the org, decided by oxy-authz — an
+    // unreleased build is never a customer's to open.
+    let access = async {
+        if environment == AppEnvironment::Production {
+            user_can_access_app(&db, user.id, user.email.as_deref().unwrap_or(""), &app).await
+        } else {
+            Ok(
+                may_open_non_production(&db, user.id, user.email.as_deref().unwrap_or(""), &app)
+                    .await,
+            )
+        }
+    };
+    let allowed = match access
         .instrument(tracing::info_span!(
             target: "custom_apps_serve",
             "custom_app_authorize"
@@ -455,7 +505,7 @@ pub(crate) async fn serve_pretty(
         }
     };
 
-    let runtime = AppRuntimeConfig::from_app(&app, &org.slug);
+    let runtime = AppRuntimeConfig::from_app(&app, &org.slug, &environment);
 
     // 3a. The platform-reserved `__oxy/` namespace, answered by us rather than
     //     by the bundle. Deliberately placed HERE — after authentication and
@@ -486,6 +536,7 @@ pub(crate) async fn serve_pretty(
                     app.org_id,
                     user.id,
                     user.email.as_deref().unwrap_or(""),
+                    &environment,
                 )
                 .await;
             }
@@ -533,35 +584,15 @@ pub(crate) async fn serve_pretty(
     let response = async {
         match source {
             AppSource::S3 => {
-                // The customer URL accepts no view modifier. Draft mode
-                // lives on a staff-only HttpOnly cookie set via
-                // `POST /api/customer-apps/preview-draft`. Customer's
-                // browser never carries this cookie; even if a customer
-                // forged it, `is_app_admin_email` denies them draft
-                // access below.
-                let cookie_wants_draft = super::custom_apps_preview::wants_draft_preview(&headers);
-                // Fail-closed inside the one reader: a lookup error reports no standing.
-                // Admin OR owner — both operator tiers reach every custom-app surface.
-                // Scoped to THIS app's org: a grant bounded elsewhere must not unlock the
-                // draft channel here. `is_staff()` would, and is now true for every role.
-                let is_staff = oxy_server_authz::globals::platform_reaches(
+                let (build_pk, label) = build_to_serve(
                     &db,
+                    &headers,
                     user.email.as_deref().unwrap_or(""),
-                    oxy_authz::Cap::DevelopApps,
-                    app.org_id,
+                    &app,
+                    &environment,
+                    &environments,
                 )
                 .await;
-                let channel =
-                    resolve_channel(cookie_wants_draft && is_staff, app.published_at.is_some());
-                // New publish pipeline: when the channel has a build pointer,
-                // serve straight from S3 (no local state dir). Legacy `s3`
-                // rows leave both pointers NULL and fall through to the
-                // state-dir path until they're re-published.
-                use super::custom_apps_sync::Channel;
-                let build_pk = match channel {
-                    Channel::Draft => app.draft_build_id,
-                    Channel::Published => app.published_build_id,
-                };
                 match build_pk {
                     Some(build_pk) => {
                         // The runtime config was built ~100 lines above, before the
@@ -596,7 +627,7 @@ pub(crate) async fn serve_pretty(
                         // An s3-source app with no build pointer hasn't been
                         // published through the new pipeline yet (`oxyc publish`).
                         tracing::warn!(
-                            "app {id}: no build for {channel:?} channel — not yet published via `oxyc publish`"
+                            "app {id}: no build for {label} — not yet published via `oxyc publish`"
                         );
                         no_store_404()
                     }
@@ -666,6 +697,7 @@ pub(crate) async fn serve_pretty(
             route: &rest,
             status: response.status().as_u16(),
             duration_ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+            environment: &environment.name(),
         });
     }
     // A browser-initiated speculation is not a view. The HQ launcher warms an
@@ -701,6 +733,7 @@ pub(crate) async fn serve_pretty(
         let user_id = user.id;
         let user_email = user.email.clone();
         let source_label = source_label.to_string();
+        let view_environment = environment.name();
         // Fire-and-forget; a slow DB insert must not stall the HTML
         // response. Losing a row on crash is the documented acceptable
         // failure mode for tracking-grade data.
@@ -714,6 +747,7 @@ pub(crate) async fn serve_pretty(
                     sanitized_referrer,
                     user_agent_class,
                     source_label,
+                    view_environment,
                 )
                 .await;
             }
@@ -735,6 +769,56 @@ pub(crate) async fn serve_pretty(
     response
 }
 
+/// The build this request serves, and a label for the log when there is none.
+///
+/// **Production** is today's channel decision, unchanged: the published build,
+/// the staging (draft) build for a staff member carrying the preview cookie, and
+/// the staging build for an app never promoted. The preview cookie keeps its
+/// draft-HTML-only meaning on the production host (design §3.2) until staging
+/// hosts retire it.
+///
+/// **Any other environment** serves its own build, and nothing else: the
+/// preview cookie means nothing there, and a staging host never falls back to
+/// production's build.
+async fn build_to_serve(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    email: &str,
+    app: &entity::apps::Model,
+    environment: &AppEnvironment,
+    environments: &EnvironmentBuilds,
+) -> (Option<Uuid>, String) {
+    if *environment != AppEnvironment::Production {
+        return (
+            environments.resolve(environment).build_id,
+            format!("the {environment} environment"),
+        );
+    }
+    // The customer URL accepts no view modifier. Draft mode lives on a
+    // staff-only HttpOnly cookie set via `POST /api/customer-apps/preview-draft`.
+    // Customer's browser never carries this cookie; even if a customer forged
+    // it, the standing check below denies them draft access.
+    let cookie_wants_draft = super::custom_apps_preview::wants_draft_preview(headers);
+    // Fail-closed inside the one reader: a lookup error reports no standing.
+    // Scoped to THIS app's org: a grant bounded elsewhere must not unlock the
+    // draft channel here. `is_staff()` would, and is now true for every role.
+    let is_staff = cookie_wants_draft
+        && oxy_server_authz::globals::platform_reaches(
+            db,
+            email,
+            oxy_authz::Cap::DevelopApps,
+            app.org_id,
+        )
+        .await;
+    let channel = resolve_channel(is_staff, app.published_at.is_some());
+    use super::custom_apps_sync::Channel;
+    let build = match channel {
+        Channel::Draft => environments.staging,
+        Channel::Published => environments.production,
+    };
+    (build, format!("the {channel:?} channel"))
+}
+
 /// Emit a serve event for a request that fails BEFORE reaching the normal
 /// recording point at the bottom of `serve_pretty`.
 ///
@@ -751,6 +835,11 @@ fn record_early_exit(
     status: StatusCode,
     started: std::time::Instant,
 ) {
+    // The same header read `serve_pretty` made; an unhonourable header never
+    // gets this far, so the fallback is unreachable rather than a guess.
+    let environment = request_environment(headers)
+        .unwrap_or(AppEnvironment::Production)
+        .name();
     super::custom_apps_telemetry::record_serve(super::custom_apps_telemetry::ServeEvent {
         org_id: app.org_id,
         app_id: app.id,
@@ -762,6 +851,7 @@ fn record_early_exit(
         route: rest,
         status: status.as_u16(),
         duration_ms: started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+        environment: &environment,
     });
 }
 
@@ -1053,6 +1143,7 @@ fn monogram_icon_for(app: &entity::apps::Model) -> Response {
 /// may open the app — the beacon deliberately makes no second authorization
 /// decision, because it is dispatched from inside the gate the bundle's own
 /// bytes pass through.
+#[allow(clippy::too_many_arguments)]
 async fn ingest_beacon(
     body: axum::body::Body,
     headers: &HeaderMap,
@@ -1061,6 +1152,7 @@ async fn ingest_beacon(
     org_id: Uuid,
     user_id: Uuid,
     user_email: &str,
+    environment: &AppEnvironment,
 ) -> Response {
     let bytes = match axum::body::to_bytes(body, super::custom_apps_beacon::MAX_BODY_BYTES).await {
         Ok(b) => b,
@@ -1076,6 +1168,7 @@ async fn ingest_beacon(
         user_email.to_string(),
         headers,
         bytes,
+        environment.name(),
     )
     .await
 }

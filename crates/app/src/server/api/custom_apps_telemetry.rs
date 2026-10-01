@@ -87,6 +87,9 @@ pub struct ServeEvent<'a> {
     pub route: &'a str,
     pub status: u16,
     pub duration_ms: u32,
+    /// The app environment that served the request (`production`, `staging`, …).
+    /// The SLI counts production only.
+    pub environment: &'a str,
 }
 
 /// Record one served request (HTML shell or bundle asset).
@@ -135,6 +138,7 @@ pub fn record_serve(event: ServeEvent<'_>) {
         error_detail: String::new(),
         trace_id,
         span_id,
+        environment: event.environment.to_string(),
     });
 }
 
@@ -245,6 +249,8 @@ pub struct FunctionEvent<'a> {
     /// timeout during setup — because a `0` would claim setup was instant.
     pub init_ms: Option<u32>,
     pub error: Option<&'a str>,
+    /// The app environment the invocation ran in.
+    pub environment: &'a str,
 }
 
 /// Record one function invocation.
@@ -303,6 +309,7 @@ pub fn record_function(event: FunctionEvent<'_>) {
         error_detail: event.error.unwrap_or_default().to_string(),
         trace_id,
         span_id,
+        environment: event.environment.to_string(),
     });
 }
 
@@ -374,6 +381,7 @@ pub fn record_function_logs(
     function_name: &str,
     mode: &str,
     lines: &[(String, String)],
+    environment: &str,
 ) {
     if !custom_app_sink::is_enabled() || lines.is_empty() {
         return;
@@ -397,6 +405,7 @@ pub fn record_function_logs(
             message: message.clone(),
             trace_id: trace_id.clone(),
             span_id: span_id.clone(),
+            environment: environment.to_string(),
         })
         .collect();
     custom_app_sink::record_logs(records);
@@ -407,6 +416,7 @@ pub fn record_function_logs(
 /// `oxy-app-ready` is the one that resolves the implicit-failure class: a
 /// served shell with no `app-ready` behind it is a white screen, and no status
 /// code anywhere can say so.
+#[allow(clippy::too_many_arguments)]
 pub fn record_client_event(
     org_id: Uuid,
     app_id: Uuid,
@@ -415,6 +425,7 @@ pub fn record_client_event(
     event_name: &str,
     path: &str,
     outcome: &'static str,
+    environment: &str,
 ) {
     if !custom_app_sink::is_enabled() {
         return;
@@ -441,6 +452,7 @@ pub fn record_client_event(
         error_detail: String::new(),
         trace_id,
         span_id,
+        environment: environment.to_string(),
     });
 }
 
@@ -474,6 +486,7 @@ pub fn record_client_errors(
     session_id: Uuid,
     payload: &serde_json::Value,
     headers: &axum::http::HeaderMap,
+    environment: &str,
 ) {
     if !custom_app_sink::is_enabled() {
         return;
@@ -521,6 +534,7 @@ pub fn record_client_errors(
             // threw, when the SDK could name one; the browser has no span.
             trace_id: trace_id_field(d),
             span_id: String::new(),
+            environment: environment.to_string(),
         })
         .collect();
     custom_app_sink::record_client_errors(records);

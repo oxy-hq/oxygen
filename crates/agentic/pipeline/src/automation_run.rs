@@ -34,6 +34,9 @@ use uuid::Uuid;
 use crate::executor::PipelineTaskExecutor;
 use crate::platform::PlatformContext;
 
+mod preview;
+pub use preview::{PreviewAutomationSeed, seed_preview_automation_run};
+
 /// Inputs for [`start_automation_run`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct StartAutomationRequest {
@@ -156,6 +159,16 @@ fn validate_automation_ref(workflow_ref: &str) -> Result<(), AutomationRunError>
         return Err(AutomationRunError::InvalidInput(
             "workflow_ref is empty".into(),
         ));
+    }
+    // `preview:<run_id>:<ref>` is what a workspace-preview run's root task
+    // carries, and only `seed_preview_automation_run` writes one. From any other
+    // caller it would be a forged preview run — or, on a pod that knows
+    // previews, a request to be driven like one.
+    if agentic_automation::preview_names::is_scoped(workflow_ref) {
+        return Err(AutomationRunError::InvalidInput(format!(
+            "workflow_ref {workflow_ref:?} uses the reserved `{}` prefix",
+            agentic_automation::preview_names::PREVIEW_PREFIX
+        )));
     }
     let candidate = std::path::Path::new(workflow_ref);
     if candidate.is_absolute() {
@@ -1035,6 +1048,27 @@ mod tests {
     #[test]
     fn rejects_empty_automation_ref() {
         assert_invalid(&base_request(""), "workflow_ref is empty");
+    }
+
+    /// Only the preview seed writes a `preview:` ref. Through the public door
+    /// it is refused — whoever the run id names, and however the rest looks.
+    #[test]
+    fn public_refs_cannot_be_preview_scoped() {
+        let run = uuid::Uuid::new_v4().to_string();
+        for r in [
+            agentic_automation::preview_names::scoped(&run, "workflows/je.procedure.yml"),
+            "preview:x:workflows/je.procedure.yml".to_string(),
+            "preview:".to_string(),
+        ] {
+            assert_invalid(&base_request(&r), "reserved `preview:` prefix");
+        }
+        // A ref that merely mentions previews is an ordinary ref.
+        assert!(
+            base_request("workflows/preview:x.procedure.yml")
+                .validate()
+                .is_ok()
+        );
+        assert!(base_request("previews/je.procedure.yml").validate().is_ok());
     }
 
     #[test]

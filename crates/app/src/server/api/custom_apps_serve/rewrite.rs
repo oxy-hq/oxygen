@@ -328,6 +328,7 @@ mod tests {
             service_worker: true,
             analytics: true,
             build_id: String::new(),
+            environment: "production".to_string(),
         }
     }
 

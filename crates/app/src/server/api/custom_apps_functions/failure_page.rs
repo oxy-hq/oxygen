@@ -26,10 +26,19 @@ const POST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub(super) async fn observe(
     db: &DatabaseConnection,
     app: &entity::apps::Model,
+    environment: &oxy_app_core::custom_app_environment::AppEnvironment,
     function_name: &str,
     invocation_id: Uuid,
     failure: &Failure,
 ) {
+    // Only production pages, and only production claims the page slot — see
+    // `failure_alert`'s "Production only, guarded twice": this is the first
+    // guard, and `claim` reads the invocation's own row for the second. A
+    // failing staging function is visible in its invocation rows and logs,
+    // and pages nobody.
+    if *environment != oxy_app_core::custom_app_environment::AppEnvironment::Production {
+        return;
+    }
     let Some((token, channel)) = ops_slack_target() else {
         return;
     };
@@ -38,7 +47,15 @@ pub(super) async fn observe(
         function_name,
         fingerprint: &failure.fingerprint,
     };
-    let (first_seen, persistent) = match claim(db, key, Utc::now(), history_since(db).await).await {
+    let (first_seen, persistent) = match claim(
+        db,
+        invocation_id,
+        key,
+        Utc::now(),
+        history_since(db).await,
+    )
+    .await
+    {
         Ok(Verdict::Page {
             first_seen,
             persistent,

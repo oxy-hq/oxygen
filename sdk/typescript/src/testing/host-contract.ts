@@ -4,7 +4,8 @@
  *
  * ONE SOURCE OF TRUTH, AND IT IS NOT THIS FILE. Every string below is quoted
  * from the host's source — `host.rs`, `host/destinations.rs`,
- * `host/airhouse_ops.rs`, `upsert_support.rs`, `tx.rs`, `runtime.rs` under
+ * `host/airhouse_ops.rs`, `host/tx_ops.rs`, `upsert_support.rs`, `tx.rs`,
+ * `runtime.rs` under
  * `crates/app/src/server/api/custom_apps_functions/`, and the connector's
  * `transaction.rs` / `postgres_tx/convert.rs` — never paraphrased.
  * `{placeholder}`s stand for what the host formats in (`{database}`,
@@ -184,7 +185,7 @@ export const REFUSALS = {
       "warehouse.upsert is not supported on {dialect}: it compiles to `INSERT … ON CONFLICT … DO UPDATE`, which only Postgres and DuckDB parse. Use warehouse.insert, or warehouse.exec with this warehouse's own upsert statement."
   },
   transactionOpen: {
-    source: "host.rs",
+    source: "host/tx_ops.rs",
     refusal: "could not open a transaction on '{database}': {e}"
   },
   transactionUnsupported: {

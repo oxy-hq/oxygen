@@ -77,6 +77,46 @@ pub enum ProvisionerError {
     },
     #[error("envelope crypto failed: {0}")]
     Crypto(String),
+    #[error(
+        "org {0} has no {1} OLTP branch. Create it with: oxyc oltp provision --org {0} --branch {1}"
+    )]
+    BranchNotProvisioned(Uuid, crate::OltpBranch),
+    /// A reset that did not finish. Nothing hands out a connection to the
+    /// branch in this state; running the reset again completes it.
+    #[error(
+        "org {org_id}'s {branch} OLTP branch is {status}; finish it with: \
+         oxyc oltp reset --org {org_id} --branch {branch}"
+    )]
+    BranchNotReady {
+        org_id: Uuid,
+        branch: crate::OltpBranch,
+        status: &'static str,
+    },
+    /// A recorded branch id that names production. Never acted on: a reset or
+    /// delete of it would be production's.
+    #[error(
+        "org {org_id}'s {branch} branch is recorded as {branch_id:?}, which is its production \
+         database — refusing to touch it"
+    )]
+    BranchIsProduction {
+        org_id: Uuid,
+        branch: crate::OltpBranch,
+        branch_id: String,
+    },
+    #[error("org {0}'s {1} OLTP branch has no stored owner password; reset the branch")]
+    BranchOwnerPasswordMissing(Uuid, crate::OltpBranch),
+    /// The row was not in the status this operation read it in — something
+    /// else moved it. Refused rather than overwritten, so a stale write can
+    /// never flip a `resetting` branch back to `active`.
+    #[error(
+        "the {branch} OLTP branch changed under this operation (expected {expected}, found \
+         {found}); another provision or reset ran — re-run once it finishes"
+    )]
+    BranchStateChanged {
+        branch: crate::OltpBranch,
+        expected: &'static str,
+        found: &'static str,
+    },
     /// OLTP is not configured on this deployment.
     ///
     /// Its own variant rather than a `ProviderError::Transport`, which is what
@@ -153,6 +193,10 @@ pub fn is_derived_project_name(name: &str) -> bool {
 
 // `provisioner.rs` beside a `provisioner/` directory — edition 2018 allows it,
 // so this needs no `#[path]` attribute and no invented `_parts` suffix.
+mod branch_ledger;
+mod branch_roles;
+mod branch_state;
+mod branches;
 mod credentials;
 
 pub struct OltpProvisioner {
@@ -243,8 +287,20 @@ impl OltpProvisioner {
             return Ok(());
         };
 
+        // Branches first, and each one explicitly. On Neon the project delete
+        // would take them anyway; on a local cluster a branch is a separate
+        // database that nothing else would ever drop — and the staging branch
+        // is a copy of the org's data, which the org-deletion path must not
+        // leave behind (the 2026-09-29 ruling rests the MSA's 30-day deletion
+        // commitment on exactly this).
+        let strict = if self.provider.project_delete_takes_branches() {
+            branches::Strict::UnlessProjectDeleteTakesBranches
+        } else {
+            branches::Strict::Always
+        };
+        self.delete_tenant_branches(&local, strict).await?;
         self.provider.delete_project(&local.project_id).await?;
-        // `oltp_roles` rows go with it via ON DELETE CASCADE.
+        // `oltp_roles` and `oltp_branches` rows go with it via ON DELETE CASCADE.
         OltpTenants::delete_by_id(local.id).exec(&self.db).await?;
 
         info!(project_id = %local.project_id, "deprovisioned per-org OLTP database");

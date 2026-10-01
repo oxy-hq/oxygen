@@ -38,6 +38,12 @@ export interface PublishManifest {
   migrations?: { dir?: string };
   /** Airhouse (DuckLake) migrations for `app_<writer>`, run once each on promote. */
   airhouseMigrations?: { dir?: string };
+  /**
+   * What staging writes instead of production: `destinations` maps a database
+   * a function writes to the one staging writes. The lint checks the mapped
+   * name like the one the call names.
+   */
+  nonProduction?: { destinations?: Record<string, string> };
 }
 
 /**

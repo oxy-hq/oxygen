@@ -1,5 +1,5 @@
-//! Airhouse tests — the credential broker, workspace lifecycle, and the
-//! provisioner.
+//! Airhouse tests — the credential broker, workspace lifecycle, the
+//! provisioner, and the connector pool.
 //!
 //! One binary for the whole domain; see `tests/authz/main.rs` for why. Add a
 //! case as a `mod` here rather than a new `tests/*.rs`.
@@ -14,5 +14,7 @@
 mod common;
 
 mod airhouse_broker;
+mod airhouse_broker_preview;
 mod airhouse_lifecycle;
+mod airhouse_pool_poison;
 mod airhouse_provisioner;

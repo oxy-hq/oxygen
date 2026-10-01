@@ -12,7 +12,7 @@ const HEADER_SERVED_BY: &str = "x-oxy-served-by";
 const HEADER_REQUIRED_ROLE: &str = "x-oxy-required-role";
 const HEADER_FORWARDED_VIA: &str = "x-oxy-forwarded-via";
 
-pub async fn enforce_role(req: Request, next: Next) -> Response {
+pub async fn enforce_role(mut req: Request, next: Next) -> Response {
     let role = current_process_role();
     if matches!(role, Role::All) {
         return stamp(next.run(req).await, role);
@@ -20,7 +20,26 @@ pub async fn enforce_role(req: Request, next: Next) -> Response {
 
     let method = req.method().as_str().to_string();
     let path = req.uri().path().to_string();
-    let route_role = escalate_for_branch(classify(&method, &path), req.uri().query());
+    let classified = classify(&method, &path);
+    let mut route_role = if branch_names_a_resource(&path) {
+        classified
+    } else {
+        escalate_for_branch(classified, req.uri().query())
+    };
+    // A preview request keeps a fleet route on the fleet: its `?branch=` names a
+    // compiled preview, not the ide's working copy. Whether the preview applies
+    // depends on who is asking, which is not known yet — so the workspace
+    // middleware finishes the decision, forwarding to the ide after all when it
+    // does not (see `previews::pin::DeferredBranchEscalation`).
+    if matches!(role, Role::Serve)
+        && classified == RouteRole::FleetOk
+        && route_role == RouteRole::IdeOnly
+        && crate::server::previews::pin::has_preview_header(req.headers())
+    {
+        route_role = RouteRole::FleetOk;
+        req.extensions_mut()
+            .insert(crate::server::previews::pin::DeferredBranchEscalation);
+    }
     if route_role.accepted_by(role) {
         return stamp(next.run(req).await, role);
     }
@@ -93,6 +112,22 @@ fn escalate_for_branch(role: RouteRole, query: Option<&str>) -> RouteRole {
             .any(|(k, v)| k == "branch" && !v.is_empty())
     });
     if has_branch { RouteRole::IdeOnly } else { role }
+}
+
+/// Routes whose `?branch=` names the resource being acted on rather than a
+/// working copy to read — the previews API (`DELETE /previews?branch=X`,
+/// `GET /previews/checks?branch=X`, `GET /previews/runs?branch=X`). The
+/// escalation above would otherwise send a Postgres-only request to the ide.
+fn branch_names_a_resource(path: &str) -> bool {
+    const PATTERNS: &[&str] = &[
+        "/api/{workspace_id}/previews",
+        "/api/{workspace_id}/previews/refresh",
+        "/api/{workspace_id}/previews/checks",
+        "/api/{workspace_id}/previews/runs",
+    ];
+    PATTERNS
+        .iter()
+        .any(|p| crate::server::role_manifest::pattern_matches(p, path))
 }
 
 fn required_role_for(route_role: RouteRole) -> &'static str {

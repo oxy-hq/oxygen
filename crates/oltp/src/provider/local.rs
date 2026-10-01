@@ -36,8 +36,14 @@
 use async_trait::async_trait;
 use tokio_postgres::NoTls;
 
-use super::types::{Branch, CreateProjectRequest, DatabaseInfo, Project, Role};
+use super::types::{
+    Branch, BranchRequest, CreateProjectRequest, DatabaseInfo, Project, ProjectBranch, Role,
+};
 use super::{OltpProvider, ProviderError};
+
+// A branch here is a sibling DATABASE copied from the tenant's — see the module.
+mod branches;
+pub use branches::branch_database_name;
 
 /// Fixed branch id. Local Postgres has no branching; the field exists to keep
 /// the row shape identical to Neon's.
@@ -568,6 +574,26 @@ impl OltpProvider for LocalProvider {
         self.exec(&format!("DROP ROLE IF EXISTS \"{role_name}\""))
             .await?;
         Ok(())
+    }
+
+    async fn create_branch(&self, req: &BranchRequest) -> Result<ProjectBranch, ProviderError> {
+        self.create_branch_impl(req).await
+    }
+
+    async fn reset_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<ProjectBranch, ProviderError> {
+        self.reset_branch_impl(req, branch_id).await
+    }
+
+    async fn delete_branch(
+        &self,
+        req: &BranchRequest,
+        branch_id: &str,
+    ) -> Result<(), ProviderError> {
+        self.delete_branch_impl(req, branch_id).await
     }
 }
 

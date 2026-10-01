@@ -132,8 +132,18 @@ pub async fn apps_due(
 
 /// Resolve the retention policy the app's live build declares, so the untagged
 /// split reflects the policy actually in force.
+///
+/// The sweeper runs over production's silo, so it reads production's build —
+/// staging's for an app never promoted, as `/fn` does, since that is the code
+/// writing the silo.
 async fn policy_for(db: &DatabaseConnection, app: &apps::Model) -> super::RetentionPolicy {
-    let Some(build_pk) = app.published_build_id.or(app.draft_build_id) else {
+    let resolved = crate::server::api::custom_apps_env_resolve::resolve_function_environment(
+        db,
+        app,
+        &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+    )
+    .await;
+    let Some(build_pk) = resolved.ok().and_then(|r| r.build_id) else {
         return super::RetentionPolicy::default();
     };
     let manifest = AppBuilds::find_by_id(build_pk)
@@ -239,6 +249,17 @@ pub async fn sweep_once(
 ) -> Result<SweepReport, sea_orm::DbErr> {
     let mut report = SweepReport::default();
     for app in apps_due(db, batch_size(), orgs).await? {
+        // Environment objects past their 30 days go first, so the measurement
+        // below reads what is left (`environment_limits`).
+        match super::environment_limits::sweep_expired(app.id).await {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!(app_id = %app.id, deleted = n, "expired environment objects swept")
+            }
+            Err(e) => {
+                tracing::warn!(app_id = %app.id, error = %e, "environment object expiry failed")
+            }
+        }
         let policy = policy_for(db, &app).await;
         let measurement = usage::measure_app(app.id, &policy).await;
         if !measurement.is_exact() {

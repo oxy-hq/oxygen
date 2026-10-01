@@ -30,7 +30,6 @@
 //! declares one fails and leaves its writer inert, so [`Access::Ddl`] refuses
 //! them before anything runs.
 
-use std::fmt::Display;
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
@@ -39,16 +38,19 @@ use sqlparser::ast::{
     SchemaName, SetExpr, Statement, TableConstraint, TableFactor, TableObject, TableWithJoins,
     Visit, Visitor,
 };
-use sqlparser::dialect::DuckDbDialect;
-use sqlparser::parser::Parser;
-use sqlparser::tokenizer::{Token, Tokenizer};
+
+use crate::app_schema::is_environment_schema;
+use crate::sql_parse::{
+    address, check_relation, described_table, on_sql_stack, write_target_addresses,
+};
 
 /// Table functions that compute rows and touch nothing.
 const PURE_TABLE_FUNCTIONS: [&str; 3] = ["range", "generate_series", "unnest"];
 
 /// Scalar function families that reach outside the rows: files, the process
-/// environment, session settings (which hold secrets such as S3 keys) and the
-/// engine's own catalogs. Matched on the function's unqualified name.
+/// environment, session settings (which hold secrets such as S3 keys), the
+/// engine's own catalogs, and sequences (`nextval` writes one). Matched on the
+/// function's unqualified name.
 const IO_FUNCTION_PREFIXES: [&str; 9] = [
     "read_",
     "parquet_",
@@ -60,7 +62,8 @@ const IO_FUNCTION_PREFIXES: [&str; 9] = [
     "sqlite_",
     "mysql_",
 ];
-const IO_FUNCTIONS: [&str; 6] = [
+const IO_FUNCTIONS: [&str; 7] = [
+    "nextval",
     "getenv",
     "glob",
     "sniff_csv",
@@ -90,21 +93,16 @@ pub struct Refused(pub String);
 /// Check `sql` against `schema` and return its statements, each re-rendered
 /// from the checked tree. Send those, not `sql`.
 pub fn check(sql: &str, schema: &str, access: Access) -> Result<Vec<String>, Refused> {
-    let dialect = DuckDbDialect {};
-    let tokens = Tokenizer::new(&dialect, sql).tokenize().map_err(unparsed)?;
-    if tokens
-        .iter()
-        .any(|t| matches!(t, Token::Word(w) if w.quote_style == Some('`')))
-    {
-        return Err(Refused(
-            "backtick-quoted identifiers are not DuckDB syntax; quote names with double quotes"
-                .into(),
-        ));
-    }
-    let statements = Parser::parse_sql(&dialect, sql).map_err(unparsed)?;
-    if statements.is_empty() {
-        return Err(Refused("there is no statement to run".into()));
-    }
+    on_sql_stack(sql, "an app", |statements| {
+        check_here(&statements, schema, access)
+    })
+}
+
+fn check_here(
+    statements: &[Statement],
+    schema: &str,
+    access: Access,
+) -> Result<Vec<String>, Refused> {
     if access != Access::Ddl && statements.len() > 1 {
         return Err(Refused(format!(
             "{} statements in one call; send one statement per call",
@@ -114,8 +112,9 @@ pub fn check(sql: &str, schema: &str, access: Access) -> Result<Vec<String>, Ref
     let mut checker = Checker {
         schema: schema.to_ascii_lowercase(),
         access,
+        write_targets: Vec::new(),
     };
-    for statement in &statements {
+    for statement in statements {
         if let ControlFlow::Break(refused) = statement.visit(&mut checker) {
             return Err(refused);
         }
@@ -123,10 +122,26 @@ pub fn check(sql: &str, schema: &str, access: Access) -> Result<Vec<String>, Ref
     Ok(statements.iter().map(ToString::to_string).collect())
 }
 
-fn unparsed(e: impl Display) -> Refused {
-    Refused(format!(
-        "could not parse this as DuckDB SQL ({e}); SQL an app sends to Airhouse must parse"
-    ))
+/// A read of another environment's copy of an app schema
+/// (`app_<writer>__<env>`, `crate::app_schema`) is refused unless it is the
+/// schema being checked for — staging's own sibling. Production reads
+/// production, and staging reads production too. A schema that merely looks
+/// like one — a legacy `--`-slug production schema — is not a sibling and
+/// passes ([`is_environment_schema`]).
+fn not_a_sibling(name: &ObjectName, schema: &str) -> Result<(), Refused> {
+    let len = name.0.len();
+    let Some(ObjectNamePart::Identifier(part)) = len.checked_sub(2).and_then(|i| name.0.get(i))
+    else {
+        return Ok(());
+    };
+    if is_environment_schema(&part.value) && !part.value.eq_ignore_ascii_case(schema) {
+        return Err(Refused(format!(
+            "{name} is in {}, a non-production environment's copy of an app schema, which an app \
+             never reads by name: read its own schema",
+            part.value
+        )));
+    }
+    Ok(())
 }
 
 fn not_allowed(what: &str) -> Refused {
@@ -139,12 +154,22 @@ fn not_allowed(what: &str) -> Refused {
 struct Checker {
     schema: String,
     access: Access,
+    /// Where the DML targets seen so far sit in the tree: table names that
+    /// are written, never read as files.
+    write_targets: Vec<usize>,
 }
 
 impl Visitor for Checker {
     type Break = Refused;
 
     fn pre_visit_statement(&mut self, statement: &Statement) -> ControlFlow<Refused> {
+        self.write_targets.extend(write_target_addresses(statement));
+        if let Some(table) = described_table(statement)
+            && let Err(refused) =
+                check_relation(table).and_then(|()| not_a_sibling(table, &self.schema))
+        {
+            return ControlFlow::Break(refused);
+        }
         into_flow(self.statement(statement))
     }
 
@@ -159,6 +184,13 @@ impl Visitor for Checker {
     }
 
     fn pre_visit_table_factor(&mut self, factor: &TableFactor) -> ControlFlow<Refused> {
+        if let TableFactor::Table { name, .. } = factor
+            && !self.write_targets.contains(&address(name))
+            && let Err(refused) =
+                check_relation(name).and_then(|()| not_a_sibling(name, &self.schema))
+        {
+            return ControlFlow::Break(refused);
+        }
         into_flow(table_factor(factor))
     }
 
@@ -168,7 +200,7 @@ impl Visitor for Checker {
         {
             return ControlFlow::Break(Refused(format!(
                 "function {} is not allowed from an app: it reads files, the environment or \
-                 session settings rather than rows",
+                 session settings, or advances a sequence, rather than reading rows",
                 function.name
             )));
         }
@@ -176,7 +208,9 @@ impl Visitor for Checker {
     }
 }
 
-fn is_io_function(name: &ObjectName) -> bool {
+/// A scalar function that reads files, the environment or session settings,
+/// or advances a sequence.
+pub(crate) fn is_io_function(name: &ObjectName) -> bool {
     let Some(ObjectNamePart::Identifier(last)) = name.0.last() else {
         return true;
     };
@@ -334,7 +368,7 @@ impl Checker {
             } => match schema_name {
                 SchemaName::Simple(name)
                     if clone.is_none()
-                        && idents(name).as_deref() == Some(&[self.schema.clone()]) =>
+                        && idents(name).as_deref() == Some(std::slice::from_ref(&self.schema)) =>
                 {
                     Ok(())
                 }
@@ -414,7 +448,12 @@ impl Checker {
 
 /// Statements that only read. A statement nested in one (an `EXPLAIN
 /// ANALYZE`'s body) is visited and classified on its own.
-fn is_read_only(statement: &Statement) -> bool {
+///
+/// Public because it is also the read set of the workspace-preview hold
+/// classifier (`oxy-app`'s `server::previews::sql_kind`), so what "read" means
+/// is decided once for both fences. Widening it widens what a preview lets
+/// reach a customer warehouse.
+pub fn is_read_only(statement: &Statement) -> bool {
     matches!(
         statement,
         Statement::Query(_)
@@ -470,7 +509,7 @@ fn is_pure_table_function(name: &ObjectName) -> bool {
 
 /// The name's parts, lowercased the way DuckDB compares identifiers (quoted or
 /// not). `None` when a part is computed rather than named.
-fn idents(name: &ObjectName) -> Option<Vec<String>> {
+pub(crate) fn idents(name: &ObjectName) -> Option<Vec<String>> {
     name.0
         .iter()
         .map(|part| match part {
@@ -512,7 +551,8 @@ fn ducklake(what: &str) -> Refused {
     ))
 }
 
-fn selects_into(body: &SetExpr) -> bool {
+/// `SELECT … INTO`, which creates a table.
+pub(crate) fn selects_into(body: &SetExpr) -> bool {
     match body {
         SetExpr::Select(select) => select.into.is_some(),
         SetExpr::Query(query) => selects_into(&query.body),
@@ -522,7 +562,7 @@ fn selects_into(body: &SetExpr) -> bool {
 }
 
 /// `INSERT`, `DROP`, `ATTACH` … — the statement's first word, for messages.
-fn leading_keyword(statement: &Statement) -> String {
+pub(crate) fn leading_keyword(statement: &Statement) -> String {
     statement
         .to_string()
         .split_whitespace()
@@ -558,6 +598,44 @@ mod tests {
         );
         ok("WITH x AS (SELECT 1) SELECT * FROM x", Access::Read);
         ok("SELECT * FROM range(10)", Access::Read);
+    }
+
+    /// A non-production environment's copy of an app schema is never read by
+    /// name — production reads production, and so does staging. Checked for
+    /// the sibling itself (staging's moved write), it is the app's own.
+    #[test]
+    fn a_sibling_schema_is_not_read_by_name() {
+        for sql in [
+            "SELECT * FROM app_store_ops__staging.visits",
+            "SELECT * FROM app_other__staging.visits",
+            "DESCRIBE app_store_ops__staging.visits",
+        ] {
+            let msg = refused(sql, Access::Read);
+            assert!(msg.contains("non-production environment"), "{sql}: {msg}");
+        }
+        check(
+            "INSERT INTO app_store_ops__staging.daily SELECT * FROM app_store_ops__staging.visits",
+            "app_store_ops__staging",
+            Access::Write,
+        )
+        .expect("the sibling is the schema checked for");
+        ok("SELECT * FROM app_store_ops_staging.visits", Access::Read);
+    }
+
+    /// A legacy `--`-slug app's production schema (`app_schema.rs`:
+    /// `app_a__b`) matches the `app_*__*` shape a sibling also has, but it
+    /// names no environment — `environment_schema` never produces it, since
+    /// its app part already holds `__`. Another app reading it by name still
+    /// works; only an actual `<app>__staging` sibling is refused.
+    #[test]
+    fn a_legacy_double_underscore_production_schema_is_not_a_sibling() {
+        ok("SELECT * FROM app_a__b.t", Access::Read);
+        ok(
+            "SELECT * FROM app_a__b.t JOIN app_store_ops.v ON true",
+            Access::Read,
+        );
+        let msg = refused("SELECT * FROM app_store_ops__staging.t", Access::Read);
+        assert!(msg.contains("non-production environment"), "{msg}");
     }
 
     #[test]

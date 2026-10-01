@@ -60,7 +60,22 @@ pub async fn effective_workspace_path(
     let resolved = if branch == git.get_default_branch(&root).await {
         root
     } else {
-        match git.get_worktree_path(&root, branch) {
+        // The `.worktrees/<branch>` disk check answers the common case without
+        // spawning git on every request. On a miss, ask git where the branch
+        // is checked out — the same lookup `get_or_create_worktree` uses, so a
+        // branch held by the repo's main working copy resolves there. A failed
+        // lookup (no repository) keeps the old fallback to the root.
+        let checkout = match git.get_worktree_path(&root, branch) {
+            Some(worktree) => Some(worktree),
+            None => git
+                .find_branch_checkout(&root, branch)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(%branch, error = %e, "could not list worktrees; using the workspace root");
+                    None
+                }),
+        };
+        match checkout {
             Some(worktree) => worktree_project_path(&root, worktree),
             None => root,
         }

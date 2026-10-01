@@ -239,6 +239,7 @@ fn admit(body: &[u8]) -> Result<Vec<(String, serde_json::Value)>, Response> {
 /// Always answers `204` on success and never blocks on the write: the sender is
 /// a page that is usually in the middle of unloading, and a slow insert would
 /// hold the browser's unload path open for telemetry.
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     db: sea_orm::DatabaseConnection,
     app_id: Uuid,
@@ -247,6 +248,7 @@ pub async fn handle(
     user_email: String,
     headers: &HeaderMap,
     body: axum::body::Bytes,
+    environment: String,
 ) -> Response {
     let events = match admit(&body) {
         Ok(e) => e,
@@ -275,7 +277,13 @@ pub async fn handle(
             continue;
         }
         super::custom_apps_telemetry::record_client_errors(
-            org_id, app_id, user_id, session_id, payload, headers,
+            org_id,
+            app_id,
+            user_id,
+            session_id,
+            payload,
+            headers,
+            &environment,
         );
     }
 
@@ -305,6 +313,7 @@ pub async fn handle(
             name,
             path,
             outcome,
+            &environment,
         );
     }
 
@@ -319,6 +328,7 @@ pub async fn handle(
                     session_id,
                     name,
                     payload,
+                    &environment,
                 )
                 .await
                 {

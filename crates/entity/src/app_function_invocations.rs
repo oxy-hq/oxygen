@@ -46,6 +46,12 @@ pub struct Model {
     /// out — `None` when it did not fail, and on rows from before the column.
     /// Written with `error`; see `custom_apps_functions::failure_signal`.
     pub failure_fingerprint: Option<String>,
+    /// The app environment the invocation ran in: `production`, `staging` or
+    /// `dev-<handle>` (`oxy_app_core::custom_app_environment::AppEnvironment`).
+    /// Part of the idempotency key, so a key spent in one environment never
+    /// replays in another. `DEFAULT 'production'`, which every row written
+    /// before the column existed was.
+    pub environment: String,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

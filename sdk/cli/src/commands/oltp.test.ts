@@ -103,13 +103,56 @@ let requests: Array<{ method: string; url: string; body: string }> = [];
 let provisioned = true;
 let provisionStatus = 200;
 let provisionBody = "";
+/** The staging branch: absent, or present at this age in days. */
+let branchAge: number | undefined;
 
 beforeEach(() => {
   requests = [];
   provisioned = true;
   provisionStatus = 200;
   provisionBody = "";
+  branchAge = undefined;
 });
+
+const BRANCH_PATH = `/api/admin/orgs/${ORG_ID}/oltp/branches/staging`;
+
+/** `BranchStatusResponse` — the branch as the server reports it. */
+function branch(age: number | undefined) {
+  const apps = [{ app_id: "a1", slug: "store-ops", name: "Store Ops", schema: "app_store_ops" }];
+  const pipelines = [{ source: "toast", schema: "raw_toast" }];
+  if (age === undefined) {
+    return {
+      branch: "staging",
+      provisioned: false,
+      status: null,
+      host: null,
+      database: null,
+      provider_branch_id: null,
+      created_at: null,
+      last_reset_at: null,
+      age_days: null,
+      stale: false,
+      stale_after_days: 30,
+      affected_apps: apps,
+      affected_pipelines: pipelines
+    };
+  }
+  return {
+    branch: "staging",
+    provisioned: true,
+    status: "active",
+    host: "ep-stg.neon.tech",
+    database: "neondb",
+    provider_branch_id: "br-stg",
+    created_at: "2026-08-01T00:00:00Z",
+    last_reset_at: null,
+    age_days: age,
+    stale: age > 30,
+    stale_after_days: 30,
+    affected_apps: apps,
+    affected_pipelines: pipelines
+  };
+}
 
 function json(res: import("node:http").ServerResponse, value: unknown): void {
   res.writeHead(200, { "content-type": "application/json" });
@@ -136,7 +179,12 @@ beforeAll(async () => {
             : UNPROVISIONED
         );
       }
+      if (method === "GET" && url === BRANCH_PATH) return json(res, branch(branchAge));
+      if (method === "POST" && url === `${BRANCH_PATH}/reset`) {
+        return json(res, { reset: true, ...branch(0) });
+      }
       if (method === "POST" && url === `/api/admin/orgs/${ORG_ID}/oltp/provision`) {
+        if (JSON.parse(body).branch === "staging") branchAge = 0;
         if (provisionStatus !== 200) {
           res.writeHead(provisionStatus, { "content-type": "text/plain" });
           return res.end(provisionBody);
@@ -232,7 +280,8 @@ describe("oltp status", () => {
   it("shows one org's store and writers, resolving a slug", async () => {
     const r = await oxyc("oltp", "status", "--org", "acme");
     expect(r.status, r.stderr).toBe(0);
-    expect(requests.at(-1)?.url).toBe(`/api/admin/orgs/${ORG_ID}/oltp`);
+    expect(requests.map((q) => q.url)).toContain(`/api/admin/orgs/${ORG_ID}/oltp`);
+    expect(r.stdout).toMatch(/staging\s+none — oxyc oltp provision --org acme --branch staging/);
     expect(r.stdout).toMatch(/database\s+oxy_org_acme/);
     expect(r.stdout).toMatch(/analyst\s+oxy_analyst_ro \(ready\)/);
     for (const part of ["app_store_ops", "store_ops", "app_store_ops_rw", "hidden"]) {
@@ -363,5 +412,84 @@ describe("oltp provision", () => {
     );
     expect(r.status).toBe(ExitCode.REQUEST);
     expect(r.stderr).toContain("[OXY02] schema app_store_ops is owned by another role");
+  });
+});
+
+describe("the staging branch", () => {
+  it("status shows the branch's age, and warns once it is stale", async () => {
+    branchAge = 45;
+    const r = await oxyc("oltp", "status", "--org", "acme");
+    expect(r.status, r.stderr).toBe(0);
+    expect(requests.map((q) => `${q.method} ${q.url}`)).toContain(`GET ${BRANCH_PATH}`);
+    expect(r.stdout).toMatch(
+      /staging\s+neondb on ep-stg\.neon\.tech — active, cut 45 day\(s\) ago/
+    );
+    expect(r.stdout).toContain("STALE: older than 30 days");
+    expect(r.stdout).toContain("oxyc oltp reset --org acme --branch staging");
+  });
+
+  it("status --json carries the branch beside the store", async () => {
+    branchAge = 3;
+    const r = await oxyc("oltp", "status", "--org", ORG_ID, "--json");
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      is_provisioned: true,
+      staging_branch: { provisioned: true, age_days: 3, stale: false }
+    });
+  });
+
+  it("provision --branch staging needs no writer and asks the server for the branch", async () => {
+    const r = await oxyc("oltp", "provision", "--org", "acme", "--branch", "staging", "--yes");
+    expect(r.status, r.stderr).toBe(0);
+    const post = requests.find((q) => q.method === "POST");
+    expect(post?.url).toBe(`/api/admin/orgs/${ORG_ID}/oltp/provision`);
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({ writers: [], branch: "staging" });
+    expect(r.stderr).toMatch(
+      /branch {4}staging: a NEW copy of the database, cut from production now/
+    );
+    expect(r.stdout).toMatch(/staging\s+neondb on ep-stg\.neon\.tech — active, cut 0 day\(s\) ago/);
+  });
+
+  it.each([
+    [["provision", "--branch", "production"], /--branch production is not an OLTP branch/],
+    [["provision", "--branch", "prod", "--writer", "app:x"], /--branch prod is not an OLTP branch/],
+    [["reset"], /name the branch to reset: --branch staging/],
+    [["reset", "--branch", "main"], /--branch main is not an OLTP branch/]
+  ])("refuses %j before any request", async (args, message) => {
+    const r = await oxyc("oltp", ...(args as string[]), "--org", "acme", "--yes");
+    expect(r.status).toBe(ExitCode.USAGE);
+    expect(r.stderr).toMatch(message as RegExp);
+    expect(requests).toEqual([]);
+  });
+
+  it("reset lists every app it hits and refuses without --yes off a terminal", async () => {
+    branchAge = 12;
+    const r = await oxyc("oltp", "reset", "--org", "acme", "--branch", "staging");
+    expect(r.status).toBe(ExitCode.REFUSED);
+    expect(r.stderr).toMatch(/a branch reset needs --yes when stdin is not a terminal/);
+    expect(r.stderr).toContain(
+      "every staging write in the org's OLTP branch, for EVERY app and pipeline below"
+    );
+    expect(r.stderr).toContain("app       store-ops (Store Ops) — app_store_ops");
+    expect(r.stderr).toContain("pipeline  toast (Airway) — raw_toast");
+    expect(requests.some((q) => q.method === "POST")).toBe(false);
+  });
+
+  it("reset --yes confirms explicitly on the wire", async () => {
+    branchAge = 40;
+    const r = await oxyc("oltp", "reset", "--org", "acme", "--branch", "staging", "--yes");
+    expect(r.status, r.stderr).toBe(0);
+    const post = requests.find((q) => q.method === "POST");
+    expect(post?.url).toBe(`${BRANCH_PATH}/reset`);
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({ confirm: true });
+    expect(r.stdout).toContain("reset staging: neondb re-copied from production");
+  });
+
+  it("reset of an org with no branch says how to make one and posts nothing", async () => {
+    const r = await oxyc("oltp", "reset", "--org", "acme", "--branch", "staging", "--yes");
+    expect(r.status).toBe(ExitCode.NOT_FOUND);
+    expect(r.stderr).toContain("org acme has no staging branch — nothing to reset");
+    expect(r.stderr).toContain("oxyc oltp provision --org acme --branch staging");
+    expect(requests.some((q) => q.method === "POST")).toBe(false);
   });
 });

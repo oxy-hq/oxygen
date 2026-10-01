@@ -240,18 +240,26 @@ async fn resolve_app(
         .ok()?
 }
 
-/// A function's `manifest_json` from the app's PUBLISHED build.
+/// A function's `manifest_json` from the build **production** serves.
 ///
-/// Published only — never the draft. A draft is unreviewed by definition, and
-/// this route is reachable by anyone on the internet: letting a draft declare a
-/// webhook would make "publish" stop being the thing that decides what the
-/// world can reach.
+/// Production only — never staging, and no fallback to it. A staging build is
+/// unreviewed by definition, and this route is reachable by anyone on the
+/// internet: letting it declare a webhook would make "promote" stop being the
+/// thing that decides what the world can reach. Staging gets its own webhook
+/// route when its writes are isolated (design §4.2, Phase 2).
 async fn function_manifest(
     db: &DatabaseConnection,
     app: &entity::apps::Model,
     function_name: &str,
 ) -> Option<serde_json::Value> {
-    let build_id = app.published_build_id?;
+    let build_id = crate::server::api::custom_apps_env_resolve::resolve_environment(
+        db,
+        app,
+        &oxy_app_core::custom_app_environment::AppEnvironment::Production,
+    )
+    .await
+    .ok()?
+    .build_id?;
     entity::app_functions::Entity::find()
         .filter(entity::app_functions::Column::BuildId.eq(build_id))
         .filter(entity::app_functions::Column::Name.eq(function_name))

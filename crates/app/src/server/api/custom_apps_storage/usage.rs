@@ -33,7 +33,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{RetentionPolicy, StorageError, app_prefix};
+use super::{RetentionPolicy, StorageError};
 use entity::app_storage_usage::measure_status;
 
 /// Objects per LIST page. Page count is what the walk costs, so this asks for
@@ -68,7 +68,10 @@ pub struct UsageMeasurement {
     pub untagged_bytes: i64,
     pub untagged_object_count: i64,
     /// Keyed by top-level segment with its trailing slash (`"uploads/"`), or
-    /// `"(root)"` for objects sitting directly in the silo.
+    /// `"(root)"` for objects sitting directly in the silo. An environment's
+    /// silo is split the same way under its own `~<env>/` label
+    /// (`"~staging/uploads/"`), so production's rows read as they always did
+    /// and the total is still the sum of the rows.
     pub prefix_breakdown: BTreeMap<String, PrefixUsage>,
     pub status: &'static str,
     pub detail: Option<String>,
@@ -79,7 +82,31 @@ pub struct UsageMeasurement {
 const ROOT_BUCKET: &str = "(root)";
 
 impl UsageMeasurement {
+    /// One object of production's silo (`environment: None`) or of an
+    /// environment's.
+    fn record_in(
+        &mut self,
+        environment: Option<&str>,
+        relative_key: &str,
+        size: i64,
+        policy: &RetentionPolicy,
+    ) {
+        let label = environment.map(|env| format!("~{env}/"));
+        self.record_labelled(label.as_deref().unwrap_or(""), relative_key, size, policy);
+    }
+
+    #[cfg(test)]
     fn record(&mut self, relative_key: &str, size: i64, policy: &RetentionPolicy) {
+        self.record_labelled("", relative_key, size, policy);
+    }
+
+    fn record_labelled(
+        &mut self,
+        label: &str,
+        relative_key: &str,
+        size: i64,
+        policy: &RetentionPolicy,
+    ) {
         // A negative size is nonsense the object store should never emit; clamp
         // rather than let it silently subtract from a quota.
         let size = size.max(0);
@@ -93,8 +120,8 @@ impl UsageMeasurement {
         }
 
         let bucket = match relative_key.split_once('/') {
-            Some((head, _)) if !head.is_empty() => format!("{head}/"),
-            _ => ROOT_BUCKET.to_string(),
+            Some((head, _)) if !head.is_empty() => format!("{label}{head}/"),
+            _ => format!("{label}{ROOT_BUCKET}"),
         };
         let entry = self.prefix_breakdown.entry(bucket).or_default();
         entry.bytes += size;
@@ -118,7 +145,10 @@ impl UsageMeasurement {
     }
 }
 
-/// Walk one app's silo and total it.
+/// Walk every silo of one app — production's and each environment's — and
+/// total them. An environment's bytes are in the app's row and breakdown
+/// under `~<env>/`, but `quota::production_bytes` excludes them from the org
+/// total; each silo answers to its own cap (`environment_limits`) instead.
 ///
 /// Never returns `Err` for a partial read: a walk that dies halfway still
 /// carries real information (a floor on the size), and losing it entirely would
@@ -129,11 +159,45 @@ pub async fn measure_app(app_id: Uuid, policy: &RetentionPolicy) -> UsageMeasure
         status: measure_status::OK,
         ..Default::default()
     };
-    let prefix = app_prefix(app_id);
-    let mut cursor: Option<String> = None;
+    let roots = match super::environments::silo_roots(app_id).await {
+        Ok(roots) => roots,
+        Err(e) => {
+            out.status = measure_status::FAILED;
+            out.detail = Some(describe(&e));
+            return out;
+        }
+    };
+    let mut pages_left = MAX_MEASURE_PAGES;
+    for root in roots {
+        if !walk_root(&mut out, app_id, &root, policy, &mut pages_left).await {
+            return out;
+        }
+    }
+    out
+}
 
-    for _ in 0..MAX_MEASURE_PAGES {
-        let page = match super::list(app_id, None, Some(MEASURE_PAGE_SIZE), cursor.clone()).await {
+/// Walk one prefix into `out`, spending from the app's shared page budget.
+/// `false` when the walk stopped short; `out` then says why.
+async fn walk_root(
+    out: &mut UsageMeasurement,
+    app_id: Uuid,
+    root: &str,
+    policy: &RetentionPolicy,
+    pages_left: &mut usize,
+) -> bool {
+    let mut cursor: Option<String> = None;
+    loop {
+        if *pages_left == 0 {
+            out.status = measure_status::PARTIAL;
+            out.detail = Some(format!(
+                "walk stopped at the {MAX_MEASURE_PAGES}-page ceiling ({} objects); \
+                 this app should move to an S3 Inventory-based measure",
+                out.object_count
+            ));
+            return false;
+        }
+        *pages_left -= 1;
+        let page = match super::ops::list_raw(root, MEASURE_PAGE_SIZE, cursor.clone()).await {
             Ok(p) => p,
             Err(e) => {
                 // Distinguish "nothing measured" from "measured, then broke".
@@ -144,18 +208,16 @@ pub async fn measure_app(app_id: Uuid, policy: &RetentionPolicy) -> UsageMeasure
                     measure_status::PARTIAL
                 };
                 out.detail = Some(describe(&e));
-                return out;
+                return false;
             }
         };
         for object in &page.objects {
-            let relative = object
-                .key
-                .strip_prefix(prefix.as_str())
-                .unwrap_or(&object.key);
-            out.record(relative, object.size, policy);
+            let (environment, relative) = super::silo::split_silo_key(app_id, &object.key)
+                .unwrap_or((None, object.key.as_str()));
+            out.record_in(environment, relative, object.size, policy);
         }
         if !page.has_more {
-            return out;
+            return true;
         }
         cursor = page.cursor;
         if cursor.is_none() {
@@ -163,17 +225,9 @@ pub async fn measure_app(app_id: Uuid, policy: &RetentionPolicy) -> UsageMeasure
             // contradiction as a truncated walk rather than spinning.
             out.status = measure_status::PARTIAL;
             out.detail = Some("listing reported more pages but returned no cursor".to_string());
-            return out;
+            return false;
         }
     }
-
-    out.status = measure_status::PARTIAL;
-    out.detail = Some(format!(
-        "walk stopped at the {MAX_MEASURE_PAGES}-page ceiling ({} objects); \
-         this app should move to an S3 Inventory-based measure",
-        out.object_count
-    ));
-    out
 }
 
 fn describe(e: &StorageError) -> String {
@@ -298,6 +352,31 @@ mod tests {
         assert!(!m.is_exact());
         m.status = measure_status::FAILED;
         assert!(!m.is_exact());
+    }
+
+    #[test]
+    fn an_environment_silo_counts_toward_the_total_under_its_own_label() {
+        let p = policy(&[("generated/", Some("90d"))]);
+        let mut m = measure(&[("generated/a.pdf", 10)], &p);
+        m.record_in(Some("staging"), "generated/b.pdf", 5, &p);
+        m.record_in(Some("staging"), "loose.bin", 1, &p);
+        assert_eq!(
+            (m.bytes, m.object_count),
+            (16, 3),
+            "staging's bytes are the app's"
+        );
+        assert_eq!(m.untagged_bytes, 1);
+        assert_eq!(m.prefix_breakdown["generated/"].bytes, 10);
+        let staging = &m.prefix_breakdown["~staging/generated/"];
+        assert_eq!(staging.bytes, 5);
+        assert_eq!(
+            staging.expire_after.as_deref(),
+            Some("90d"),
+            "the policy reads the relative key"
+        );
+        assert_eq!(m.prefix_breakdown["~staging/(root)"].bytes, 1);
+        let rows: i64 = m.prefix_breakdown.values().map(|r| r.bytes).sum();
+        assert_eq!(rows, m.bytes, "the rows still sum to the total");
     }
 
     #[test]

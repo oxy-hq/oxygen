@@ -28,6 +28,10 @@ pub struct Model {
     pub event_name: String,
     pub payload: Json,
     pub occurred_at: DateTimeWithTimeZone,
+    /// The app environment of the page that recorded it (`production`,
+    /// `staging`, `dev-<handle>`). The Activity tab counts production only.
+    /// `DEFAULT 'production'`, which every earlier row was.
+    pub environment: String,
     #[sea_orm(
         belongs_to,
         from = "app_id",

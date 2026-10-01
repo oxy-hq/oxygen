@@ -18,7 +18,10 @@
  * - `destinations` / `engine` / `customer-warehouse` — a `ctx.warehouse` /
  *   `ctx.tx` write to a database the function may not write, or an op the
  *   engine refuses by name. The allowlist half is answered here; the half that
- *   needs the database's engine is `function-engines.ts`, at publish.
+ *   needs the database's engine is `function-engines.ts`, at publish. A write
+ *   whose database `nonProduction.destinations` maps is checked twice: as
+ *   written, and as staging sends it to the mapped database — which the host
+ *   holds to the same checks (`host/warehouse_home.rs`).
  *
  * LEXICAL, NOT A PARSER, AND NOT THE AUTHORITY — the same footing as
  * `placement-scan.ts`, whose `maskJs` this reuses: comments, strings, template
@@ -43,6 +46,7 @@ import { capabilitiesFor, WRITE_OPS } from "./capabilities.js";
 import { functionEntry, type PublishManifest } from "./manifest.js";
 import type { PlacementIssue } from "./placement.js";
 import { lineAt, literalString, maskJs, splitArgs } from "./placement-scan.js";
+import { describeWrite, stagingDestinations, stagingTwin } from "./staging-destinations.js";
 
 export type LintRule =
   | "capability"
@@ -69,6 +73,12 @@ export interface CtxCall {
   call: string;
   /** The first argument when it is a string literal — the database of a write. */
   database?: string;
+  /**
+   * Set on the staging twin of a write whose database `nonProduction.destinations`
+   * maps: the database the call names, while `database` is the one staging
+   * writes instead.
+   */
+  mappedFrom?: string;
 }
 
 export interface FunctionLintResult {
@@ -413,7 +423,7 @@ function destinationIssue(
   const destinations = Array.isArray(spec.destinations)
     ? spec.destinations.filter((d): d is string => typeof d === "string")
     : [];
-  const written = call.database === undefined ? call.call : `${call.call}"${call.database}", …)`;
+  const written = describeWrite(call);
   const at = `functions.${call.fn}.destinations`;
   if (destinations.length === 0) {
     return {
@@ -462,6 +472,7 @@ export function lintAppFunctions(
   // reached it: scanned once, reported once, credited to the first function.
   const globalsScanned = new Set<string>();
   const functions = isObject(manifest.functions) ? manifest.functions : {};
+  const mapping = stagingDestinations(manifest);
   for (const [fn, spec] of Object.entries(functions)) {
     if (!isObject(spec) || (spec.entry != null && typeof spec.entry !== "string")) continue;
     const entry = functionEntry(manifest as PublishManifest, fn);
@@ -483,8 +494,16 @@ export function lintAppFunctions(
       for (const call of ctxCalls(fn, file, masked)) {
         result.issues.push(...capabilityIssues(spec, call));
         const destination = destinationIssue(spec, call);
-        if (destination) result.issues.push(destination);
-        else if (WRITE_OPS.includes(call.member)) result.writes.push(call);
+        if (destination) {
+          result.issues.push(destination);
+          continue;
+        }
+        if (WRITE_OPS.includes(call.member)) result.writes.push(call);
+        const twin = stagingTwin(call, mapping);
+        if (!twin) continue;
+        const staged = destinationIssue(spec, twin);
+        if (staged) result.issues.push(staged);
+        else result.writes.push(twin);
       }
     }
   }

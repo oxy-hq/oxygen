@@ -37,7 +37,7 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
     std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
 > = tokio::sync::OnceCell::const_new();
 
-async fn test_db() -> Option<DatabaseConnection> {
+pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     let url = TEST_DB_URL
         .get_or_init(|| async {
             if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
@@ -1441,6 +1441,7 @@ async fn test_recovery_processes_stuck_needs_resume_analytics_run() {
         db.clone(),
         state,
         platform,
+        Arc::new(agentic_pipeline::platform::IdentityResolver),
         None,
         None,
         None,
@@ -1546,7 +1547,7 @@ async fn test_graceful_shutdown_marks_active_runs_resumable() {
 }
 
 #[derive(Default)]
-struct FakePlatform;
+pub(crate) struct FakePlatform;
 
 #[async_trait]
 impl agentic_pipeline::platform::ProjectContext for FakePlatform {

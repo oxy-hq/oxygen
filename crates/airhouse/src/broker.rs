@@ -10,7 +10,8 @@
 //! # Caching
 //!
 //! Mints are cached in process memory keyed by
-//! `(workspace_id, subject, role)`. A cached entry is returned as long as
+//! `(workspace_id, subject, role)` — for a preview, the subject includes the
+//! schemas its Writer is scoped to. A cached entry is returned as long as
 //! its `expires_at` is more than [`CACHE_REFRESH_BUFFER`] in the future; once
 //! within the buffer we mint fresh so the caller doesn't get an
 //! about-to-expire credential. Multi-replica oxy multiplies the mint load
@@ -55,6 +56,11 @@ use crate::admin::{AirhouseAdminClient, AirhouseError, EphemeralCredential, Toke
 use crate::entity::Tenants as AirhouseTenants;
 use crate::entity::tenants::{self as airhouse_tenants};
 
+/// Workspace-preview credentials: [`BrokerSubject::Preview`] and
+/// [`AirhouseTokenBroker::mint_for_preview`].
+#[cfg(feature = "preview-sql")]
+mod preview;
+
 /// Refresh a cached credential when it's within this many seconds of its
 /// `expires_at`. Picked so a slow caller (60s+ between checking cache and
 /// opening a SCRAM session) never gets a credential that expires mid-handshake.
@@ -93,6 +99,37 @@ pub enum BrokerError {
     Db(#[from] sea_orm::DbErr),
     #[error("airhouse error: {0}")]
     Airhouse(#[from] AirhouseError),
+    /// A preview asked for a credential it may not have (a schema outside its
+    /// namespace, an empty Writer scope, an Admin). Nothing was minted.
+    #[error("refused to mint a preview credential: {0}")]
+    PreviewScope(String),
+    /// Airhouse minted a Writer without confining it to exactly the schemas
+    /// asked for. An Airhouse older than 0.1.49 ignores `write_schemas` and
+    /// hands back a tenant-wide Writer; the credential is revoked, not used.
+    #[error(
+        "Airhouse did not confine this preview Writer to {asked:?} (echoed {echoed:?}); it \
+         predates scoped credentials (airhouse 0.1.49), so preview writes stay held until it \
+         is upgraded"
+    )]
+    UnscopedWriter {
+        asked: Vec<String>,
+        echoed: Option<Vec<String>>,
+    },
+    /// This deployment's Airhouse does not scope Writers: `GET
+    /// /admin/v1/capabilities` has no `mint.write_schemas` (older than 0.1.49).
+    /// A preview Writer is refused before anything is minted.
+    #[error(
+        "this Airhouse cannot confine a Writer to named schemas (it predates airhouse 0.1.49's \
+         write_schemas), so preview writes stay held until it is upgraded"
+    )]
+    ScopedWritersUnsupported,
+    /// `GET /admin/v1/capabilities` did not answer in time. Not an answer:
+    /// nothing is kept, and the next preview Writer mint asks again.
+    #[error(
+        "Airhouse did not say within {0:?} whether it can confine a Writer to named schemas \
+         (GET /admin/v1/capabilities), so preview writes stay held"
+    )]
+    CapabilitiesUnanswered(Duration),
 }
 
 impl From<BrokerError> for OxyError {
@@ -123,6 +160,17 @@ pub enum BrokerSubject {
         app_slug: String,
         schema: String,
     },
+    /// A workspace preview: reads anything its role can, writes only its own
+    /// schemas (`preview_<key>__<live schema>`). Audited as
+    /// `system:workspace:<uuid>:preview:<key>`. Every mint for it is checked
+    /// against the key, and a Writer is refused unless Airhouse echoes exactly
+    /// `schemas`; see [`AirhouseTokenBroker::mint_for_preview`].
+    #[cfg(feature = "preview-sql")]
+    Preview {
+        workspace_id: Uuid,
+        preview_key: String,
+        schemas: Vec<String>,
+    },
 }
 
 /// Reason a system-issued credential is needed. Embedded in the audit
@@ -141,6 +189,17 @@ pub enum SystemPurpose {
     /// human-driven SELECTs out of the bulk write traffic, and so the
     /// broker mints them as Reader (least privilege).
     ComplianceReportsRead,
+    /// Workspace previews reading the live tables a branch's `.airway.yml`
+    /// change lands on (`information_schema.columns`), to tell staff whether
+    /// the change is additive before it merges. Always minted as Reader: a
+    /// preview never writes production.
+    Preview,
+    /// Workspace previews creating and dropping their own schemas
+    /// (`preview_<key>__<live schema>`): a Writer that sends only the fixed
+    /// `CREATE SCHEMA` / `DROP SCHEMA` / `DROP TABLE|VIEW` statements
+    /// `server::previews::ddl` builds, from names a registry row vouches for.
+    /// Its own audit segment, so a TTL drop never reads as a preview's reads.
+    PreviewDdl,
 }
 
 impl SystemPurpose {
@@ -151,6 +210,8 @@ impl SystemPurpose {
             SystemPurpose::AgenticBackground => "agentic-bg",
             SystemPurpose::EdgeIngest => "edge-ingest",
             SystemPurpose::ComplianceReportsRead => "compliance-reports-read",
+            SystemPurpose::Preview => "preview",
+            SystemPurpose::PreviewDdl => "preview-ddl",
         }
     }
 }
@@ -171,15 +232,23 @@ impl BrokerSubject {
                 app_slug,
                 ..
             } => format!("system:workspace:{workspace_id}:app:{app_slug}"),
+            #[cfg(feature = "preview-sql")]
+            BrokerSubject::Preview {
+                workspace_id,
+                preview_key,
+                ..
+            } => format!("system:workspace:{workspace_id}:preview:{preview_key}"),
         }
     }
 
     /// The schemas a mint for this subject asks Airhouse to confine writes to.
-    /// Only an app's Writer credential is scoped: Airhouse refuses a scope on
-    /// any other role, and a Reader has nothing to confine.
+    /// Only an app's or a preview's Writer credential is scoped: Airhouse
+    /// refuses a scope on any other role, and a Reader has nothing to confine.
     fn write_schemas(&self, role: UserRole) -> Option<Vec<String>> {
         match (self, role) {
             (BrokerSubject::App { schema, .. }, UserRole::Writer) => Some(vec![schema.clone()]),
+            #[cfg(feature = "preview-sql")]
+            (BrokerSubject::Preview { schemas, .. }, UserRole::Writer) => Some(schemas.clone()),
             _ => None,
         }
     }
@@ -189,6 +258,8 @@ impl BrokerSubject {
             BrokerSubject::User(_) => None,
             BrokerSubject::System { workspace_id, .. }
             | BrokerSubject::App { workspace_id, .. } => Some(*workspace_id),
+            #[cfg(feature = "preview-sql")]
+            BrokerSubject::Preview { workspace_id, .. } => Some(*workspace_id),
         }
     }
 }
@@ -205,6 +276,35 @@ pub fn airhouse_role_for(role: WorkspaceRole) -> UserRole {
         WorkspaceRole::Member => UserRole::Reader,
         WorkspaceRole::Viewer => UserRole::Reader,
     }
+}
+
+/// The cache entry a mint for `subject` reads and fills.
+///
+/// The subject may carry its own workspace_id (system subjects do; user
+/// subjects don't) — that field is informational only. The cache key
+/// intentionally uses the `workspace_id` parameter, never `subject.workspace_id()`,
+/// so the same user across two workspaces hashes to two distinct entries.
+///
+/// An app's mint is keyed by its **scope** too. Its audit subject names the app
+/// alone, but a Writer minted for `app_x` and one minted for staging's sibling
+/// `app_x__staging` are different credentials: sharing one entry would hand a
+/// staging write production's scope, or production a credential confined to
+/// staging's schema.
+///
+/// A scoped credential's key also names its scope (`write_schemas`), so two
+/// differently scoped credentials — an app's or a preview's Writer — never
+/// share an entry.
+fn cache_key(workspace_id: Uuid, subject: &BrokerSubject, role: UserRole) -> CacheKey {
+    let audited = subject.audit_subject();
+    let scoped = match subject.write_schemas(role) {
+        Some(schemas) => format!("{audited}|{}", schemas.join(",")),
+        None => audited,
+    };
+    let keyed = match subject {
+        BrokerSubject::App { schema, .. } => format!("{scoped}#schema={schema}"),
+        _ => scoped,
+    };
+    (workspace_id, keyed, role)
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +328,9 @@ type SharedCache = Arc<RwLock<HashMap<CacheKey, CacheEntry>>>;
 pub struct AirhouseTokenBroker {
     client: AirhouseAdminClient,
     cache: SharedCache,
+    /// Whether this deployment's Airhouse scopes Writers (`preview`).
+    #[cfg(feature = "preview-sql")]
+    scoped_writers: preview::ScopedWriters,
 }
 
 impl AirhouseTokenBroker {
@@ -235,6 +338,8 @@ impl AirhouseTokenBroker {
         Self {
             client,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "preview-sql")]
+            scoped_writers: preview::ScopedWriters::default(),
         }
     }
 
@@ -430,13 +535,12 @@ impl AirhouseTokenBroker {
     }
 
     fn cache_key(&self, workspace_id: Uuid, subject: &BrokerSubject, role: UserRole) -> CacheKey {
-        // The subject may carry its own workspace_id (system subjects do; user
-        // subjects don't) — that field is informational only. The cache key
-        // intentionally uses the `workspace_id` parameter, never `subject.workspace_id()`,
-        // so the same user across two workspaces hashes to two distinct entries.
-        (workspace_id, subject.audit_subject(), role)
+        cache_key(workspace_id, subject, role)
     }
 
+    /// Mint (or reuse) a credential for `subject`. A preview's mint is checked
+    /// before and after (`preview::mint_preview`), whichever entry point
+    /// built the subject.
     async fn mint(
         &self,
         workspace_id: Uuid,
@@ -444,7 +548,21 @@ impl AirhouseTokenBroker {
         role: UserRole,
         ttl: Duration,
     ) -> Result<EphemeralCredential, BrokerError> {
-        let key = self.cache_key(workspace_id, &subject, role);
+        #[cfg(feature = "preview-sql")]
+        if matches!(subject, BrokerSubject::Preview { .. }) {
+            return self.mint_preview(workspace_id, &subject, role, ttl).await;
+        }
+        self.mint_or_cached(workspace_id, &subject, role, ttl).await
+    }
+
+    async fn mint_or_cached(
+        &self,
+        workspace_id: Uuid,
+        subject: &BrokerSubject,
+        role: UserRole,
+        ttl: Duration,
+    ) -> Result<EphemeralCredential, BrokerError> {
+        let key = self.cache_key(workspace_id, subject, role);
 
         // Fast path: cache hit.
         {
@@ -462,7 +580,7 @@ impl AirhouseTokenBroker {
             sa_bearer,
         } = self.load_tenant_secret(workspace_id).await?;
         let cred = self
-            .mint_with_retry(&tenant_id, &sa_bearer, &subject, role, ttl)
+            .mint_with_retry(&tenant_id, &sa_bearer, subject, role, ttl)
             .await?;
 
         info!(
@@ -576,76 +694,4 @@ fn jittered(base: Duration) -> Duration {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn user_subject_renders_as_uuid() {
-        let uid = Uuid::nil();
-        assert_eq!(BrokerSubject::User(uid).audit_subject(), uid.to_string());
-    }
-
-    #[test]
-    fn system_subject_includes_workspace_and_purpose() {
-        let ws = Uuid::nil();
-        let s = BrokerSubject::System {
-            workspace_id: ws,
-            purpose: SystemPurpose::Scheduler,
-        };
-        assert_eq!(
-            s.audit_subject(),
-            format!("system:workspace:{ws}:scheduler")
-        );
-    }
-
-    #[test]
-    fn airhouse_role_mapping_matches_user_provisioner() {
-        assert_eq!(airhouse_role_for(WorkspaceRole::Owner), UserRole::Admin);
-        assert_eq!(airhouse_role_for(WorkspaceRole::Admin), UserRole::Writer);
-        assert_eq!(airhouse_role_for(WorkspaceRole::Member), UserRole::Reader);
-        assert_eq!(airhouse_role_for(WorkspaceRole::Viewer), UserRole::Reader);
-    }
-
-    #[test]
-    fn cache_entry_fresh_outside_buffer() {
-        let cred = mock_cred(Utc::now() + chrono::Duration::seconds(3600));
-        let entry = CacheEntry { cred };
-        assert!(entry.is_fresh(Utc::now()));
-    }
-
-    #[test]
-    fn cache_entry_stale_inside_buffer() {
-        let cred = mock_cred(Utc::now() + chrono::Duration::seconds(30));
-        let entry = CacheEntry { cred };
-        assert!(!entry.is_fresh(Utc::now()));
-    }
-
-    #[test]
-    fn cache_entry_stale_when_expired() {
-        let cred = mock_cred(Utc::now() - chrono::Duration::seconds(1));
-        let entry = CacheEntry { cred };
-        assert!(!entry.is_fresh(Utc::now()));
-    }
-
-    #[test]
-    fn jittered_stays_within_envelope() {
-        let base = Duration::from_millis(1000);
-        for _ in 0..1000 {
-            let j = jittered(base);
-            assert!(j.as_millis() >= 800);
-            assert!(j.as_millis() <= 1200);
-        }
-    }
-
-    fn mock_cred(expires_at: DateTime<Utc>) -> EphemeralCredential {
-        EphemeralCredential {
-            username: "eph_test".into(),
-            password: "tk_test".into(),
-            tenant: "test".into(),
-            role: "reader".into(),
-            expires_at,
-            service_account_id: "sa_test".into(),
-            write_schemas: None,
-        }
-    }
-}
+mod tests;

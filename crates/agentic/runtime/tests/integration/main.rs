@@ -12,6 +12,7 @@ mod eviction_safety_test;
 mod integration_tests;
 mod reset_task_to_queued_test;
 mod router_test;
+mod run_feed_test;
 mod stuck_run_sweeper_test;
 mod suspension_clock_test;
 mod tls_smoke_test;

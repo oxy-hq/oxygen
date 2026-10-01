@@ -713,8 +713,11 @@ pub struct BranchHintQuery {
 
 fn get_result_cache_filename(app_path: &PathBuf) -> String {
     use xxhash_rust::xxh3::xxh3_64;
-    let path_bytes = app_path.to_string_lossy();
-    let hash = xxh3_64(path_bytes.as_bytes());
+    // A staging pin (a workspace preview) gets its own cache file: the same app
+    // rendered against a branch's model must never answer a live reader.
+    let partition = crate::server::api::custom_apps_staging_pin::cache_partition();
+    let key = format!("{}{partition}", app_path.to_string_lossy());
+    let hash = xxh3_64(key.as_bytes());
     format!("{hash:x}.app.result.yml")
 }
 
@@ -1221,4 +1224,37 @@ pub async fn save_app_builder_run(
         app_path64,
         app_path: relative,
     }))
+}
+
+#[cfg(test)]
+mod preview_cache_tests {
+    use super::*;
+
+    /// A data app's result cache is keyed by its path. Under a staging pin (a
+    /// workspace preview) the same path gets a different file, so an answer
+    /// rendered from a branch's model never serves a live reader — and the
+    /// unpinned key is byte-for-byte what it always was.
+    #[tokio::test]
+    async fn a_preview_renders_into_its_own_result_cache() {
+        let path = PathBuf::from("apps/sales.app.yml");
+        let live = get_result_cache_filename(&path);
+        let legacy = format!(
+            "{:x}.app.result.yml",
+            xxhash_rust::xxh3::xxh3_64(path.to_string_lossy().as_bytes())
+        );
+        assert_eq!(live, legacy, "unpinned keys do not move");
+
+        let pinned = crate::server::api::custom_apps_staging_pin::with_staging_pin(
+            Some(uuid::Uuid::new_v4()),
+            async { get_result_cache_filename(&path) },
+        )
+        .await;
+        assert_ne!(pinned, live);
+        let other = crate::server::api::custom_apps_staging_pin::with_staging_pin(
+            Some(uuid::Uuid::new_v4()),
+            async { get_result_cache_filename(&path) },
+        )
+        .await;
+        assert_ne!(pinned, other, "two previews do not share one either");
+    }
 }

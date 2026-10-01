@@ -35,6 +35,8 @@ use serde::Serialize;
 use tar::Archive;
 use uuid::Uuid;
 
+use super::custom_apps_nonproduction::publish as staging;
+use super::custom_apps_nonproduction::staging_task;
 use super::{
     custom_apps_asset_manifest as asset_manifest, custom_apps_auth,
     custom_apps_build_store as store, custom_apps_bundle_cache as cache,
@@ -257,6 +259,14 @@ pub enum PublishError {
         .missing.join(", ")
     )]
     MissingFunctionArtifacts { missing: Vec<String> },
+    /// The manifest marks `shared` a key that must be set per environment: one
+    /// a function writes, or a `webhook.secretVar`. Surfaced as 422 — see
+    /// `custom_apps_secrets::shared_env::check_shared_env`.
+    #[error(
+        "oxy-app.json marks env keys \"shared\" that each environment must hold its own value of: {}. Remove `\"shared\": true` from them and set a staging value instead.",
+        .conflicts.join("; ")
+    )]
+    SharedEnvConflict { conflicts: Vec<String> },
     /// A fast bundle-validation check failed (design doc §8, gate 1). Carries an
     /// actionable check/message/remediation; surfaced as 422.
     #[error("{0}")]
@@ -271,6 +281,10 @@ pub enum PublishError {
     /// is a 400 (the request is contradictory); the rest are 422.
     #[error("{0}")]
     SemanticPin(crate::server::api::custom_apps_staging_pin::PinRefusal),
+    /// `nonProduction.destinations` cannot ship: a 422 the author fixes, or a
+    /// 409 to retry once the workspace has a compiled config to check it by.
+    #[error("{0}")]
+    DestinationMapping(crate::server::api::custom_apps_nonproduction::MappingRefusal),
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
@@ -304,7 +318,8 @@ impl PublishError {
             }
             PublishError::InvalidBuildId(_)
             | PublishError::InvalidSlug(_)
-            | PublishError::MissingFunctionArtifacts { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            | PublishError::MissingFunctionArtifacts { .. }
+            | PublishError::SharedEnvConflict { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             PublishError::Migration(e) => {
                 if e.is_retryable() {
                     StatusCode::CONFLICT
@@ -320,6 +335,13 @@ impl PublishError {
                     PinRefusal::WithPromote => StatusCode::BAD_REQUEST,
                     PinRefusal::Db(_) => StatusCode::INTERNAL_SERVER_ERROR,
                     _ => StatusCode::UNPROCESSABLE_ENTITY,
+                }
+            }
+            PublishError::DestinationMapping(r) => {
+                use crate::server::api::custom_apps_nonproduction::MappingRefusal;
+                match r {
+                    MappingRefusal::Author(_) => StatusCode::UNPROCESSABLE_ENTITY,
+                    MappingRefusal::Unchecked(_) => StatusCode::CONFLICT,
                 }
             }
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -1397,11 +1419,12 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     if !crate::server::api::admin::apps::is_valid_slug(&input.app_slug) {
         return Err(PublishError::InvalidSlug(input.app_slug.clone()));
     }
-    if let Some(app) = find_app(&db, org.id, &input.app_slug).await? {
+    let existing_app = find_app(&db, org.id, &input.app_slug).await?;
+    if let Some(app) = &existing_app {
         // Same fast-path reasoning for a publish that names another workspace:
         // refuse it before inflating the bundle. `upsert_app` re-checks, and is
         // the one that writes a re-home.
-        ensure_same_workspace(&db, &app, &input).await?;
+        ensure_same_workspace(&db, app, &input).await?;
         if build_id_taken(&db, app.id, &input.build_id).await? {
             return Err(PublishError::DuplicateBuild {
                 app_slug: input.app_slug.clone(),
@@ -1459,6 +1482,17 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // without them used to go live with a 200 and every function missing.
     let fn_specs = function_specs(manifest_json.as_ref());
     check_declared_functions(&files, &fn_specs)?;
+    // A `shared` env key falls back to production's value outside production,
+    // so it may not be one an environment must hold its own of — in this
+    // bundle, or in the build production serves.
+    crate::server::api::custom_apps_secrets::shared_env::check_publish(
+        &db,
+        existing_app.as_ref(),
+        manifest_json.as_ref(),
+        &fn_specs,
+        &files,
+    )
+    .await?;
 
     // Advisory, never a gate: an oversized card image renders fine and only
     // slows the home page. Read now, because `files` moves into `put_build`.
@@ -1486,6 +1520,13 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // parsed against the app's schema and DuckLake's rules here.
     let declared_airhouse_migrations =
         migrations::declare_airhouse(manifest_json.as_ref(), &files, &input.app_slug)?;
+    // Where staging's warehouse writes land, checked before a byte is stored
+    // (and again by the host on every staging write). An author error refuses
+    // the publish; nothing staging does fails a promoting one.
+    let mapping_warning =
+        staging::mapping_warning(input.project_id, manifest_json.as_ref(), input.promote)
+            .await
+            .map_err(PublishError::DestinationMapping)?;
 
     // Reserve the bundle's `__oxy/` namespace and write the platform's asset
     // manifest into it — the document that gives the serve path its preload
@@ -1690,6 +1731,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     };
     // On drafts too: the author should hear about it before promoting.
     warnings.extend(art_warning);
+    warnings.extend(mapping_warning);
     gc_builds(&db, app_id, &[build_pk]).await;
 
     // The serve path caches the `apps` row — including the channel pointers
@@ -1722,6 +1764,30 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     for (path, bytes) in seed_entries {
         cache::seed(app_id, &input.build_id, &path, bytes);
     }
+
+    // The last thing a publish does: every publish moves staging's pointer, so
+    // staging's homes get this build's tables — the sibling Airhouse schema
+    // (P5b) and the org's OLTP staging branch, if any (P4b), each under its
+    // own ledger target. Queued for the worker fleet once the pointers have
+    // moved and the caches are dropped, and not waited for: an apply can run
+    // for minutes, and a failure is recorded on its run — never a failed
+    // publish (`custom_apps_nonproduction::staging_task`).
+    let staging_build = staging_task::StagingBuild {
+        app_id,
+        app_slug: &input.app_slug,
+        workspace_id: input.project_id,
+        org_id: org.id,
+        build_pk,
+    };
+    warnings.extend(
+        staging_task::queue_staging_migrations(
+            &db,
+            staging_build,
+            &declared_migrations,
+            &declared_airhouse_migrations,
+        )
+        .await,
+    );
 
     Ok(PublishResult {
         app_id,

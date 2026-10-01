@@ -48,7 +48,7 @@ enum Strictness {
 /// `EXECUTE` inside the block because `ALTER DEFAULT PRIVILEGES` is a utility
 /// statement that PL/pgSQL will not accept inline, and dollar-quoting because
 /// the statement carries quoted identifiers of its own.
-fn tolerate_missing(statements: Vec<String>) -> Vec<String> {
+pub(super) fn tolerate_missing(statements: Vec<String>) -> Vec<String> {
     statements
         .into_iter()
         .map(|stmt| {
@@ -226,6 +226,12 @@ impl OltpProvisioner {
             .provider
             .role_admin_dsn()
             .unwrap_or_else(|| tenant_dsn.clone());
+
+        // The org's branches first: their copy of the app's staging data goes
+        // with the app, and on a shared cluster production's DROP ROLE below
+        // cannot succeed while a branch database still depends on the role.
+        self.drop_writer_on_branches(&tenant, &role_name, &drop_schema, &plan)
+            .await?;
 
         // Run each statement group on the connection it MUST run on. Extracted
         // so that routing — the thing the original bug got wrong — is

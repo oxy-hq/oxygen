@@ -156,6 +156,11 @@ pub mod work_items;
 pub mod workspace_health_state;
 pub mod workspace_members;
 pub mod workspace_oxy_lockdown;
+pub mod workspace_preview_runs;
+pub mod workspace_preview_schemas;
+pub mod workspace_preview_sources;
+pub mod workspace_preview_tables;
+pub mod workspace_previews;
 pub mod workspaces;
 
 // ── compile boundary (Phase 1.6a) ────────────────────────────────────

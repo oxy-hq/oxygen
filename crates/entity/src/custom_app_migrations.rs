@@ -26,6 +26,13 @@ pub struct Model {
     /// because an app may ship `0001_init.sql` for both.
     #[sea_orm(primary_key, auto_increment = false)]
     pub store: String,
+    /// Which database of that store the file ran against: `production`,
+    /// `branch:<id>` (a non-production OLTP branch) or `schema:<name>` (a
+    /// non-production Airhouse schema). In the key because an environment's
+    /// applied files say nothing about production's — without it a staging
+    /// apply would make the next promote skip production's DDL.
+    #[sea_orm(primary_key, auto_increment = false)]
+    pub target: String,
     /// The last part: the path RELATIVE to the bundle's declared migrations
     /// directory, so renaming that directory does not re-run everything.
     #[sea_orm(primary_key, auto_increment = false)]

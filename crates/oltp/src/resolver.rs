@@ -50,7 +50,57 @@ pub enum ResolveError {
     Db(#[from] sea_orm::DbErr),
     #[error("envelope crypto failed: {0}")]
     Crypto(String),
+    /// The branch exists but is mid-provision or mid-reset. Refused rather than
+    /// served: its credentials may be the ones the reset is replacing.
+    #[error(
+        "org {0}'s {1} OLTP branch is not active (status: {2}). {fix}",
+        fix = branch_fix(.0, .1, .2)
+    )]
+    BranchNotActive(Uuid, crate::OltpBranch, &'static str),
+    /// The branch row names production — its branch id, or its exact host and
+    /// database. Nothing records that on purpose, and serving it would hand a
+    /// staging caller a writable production connection, so it is refused here
+    /// as well as wherever the row is written.
+    #[error(
+        "org {0}'s {1} OLTP branch is recorded as production's own database; refusing to \
+         resolve it"
+    )]
+    BranchIsProduction(Uuid, crate::OltpBranch),
+    /// The branch has no credential for a role production has — a writer
+    /// provisioned after the branch was cut. Re-running the branch provision
+    /// mints it and gives it its schema there, without touching anyone's data.
+    #[error(
+        "org {org_id}'s {branch} OLTP branch has no credential for {role}. \
+         Run: oxyc oltp provision --org {org_id} --branch {branch}"
+    )]
+    BranchCredentialMissing {
+        org_id: Uuid,
+        branch: crate::OltpBranch,
+        role: String,
+    },
 }
+
+/// The command that gets a branch out of `status` — they differ, and naming
+/// the wrong one sends an operator to a provision that refuses a reset in flight.
+fn branch_fix(org_id: &Uuid, branch: &crate::OltpBranch, status: &str) -> String {
+    match status {
+        "resetting" => format!(
+            "A reset is running or failed part way; finish it with: \
+             oxyc oltp reset --org {org_id} --branch {branch}"
+        ),
+        _ => format!(
+            "It was never finished; finish it with: \
+             oxyc oltp provision --org {org_id} --branch {branch}"
+        ),
+    }
+}
+
+// Non-production branches: same connection shapes, pointed at the branch.
+mod branch;
+pub use branch::{
+    BranchWriter, branch_is_active, resolve_branch_analyst_connection_for_org,
+    resolve_branch_writer_connection_for_org, resolve_branch_writer_for_org,
+};
 
 /// Read-only connection coordinates for a workspace's per-org OLTP database.
 ///
@@ -321,7 +371,7 @@ async fn org_for_workspace(
 /// `::1` would otherwise split into host `::` and port `1`. Per RFC 3986 an
 /// IPv6 literal carrying a port is bracketed (`[::1]:5432`), so an unbracketed
 /// string with more than one colon is an address, not an address plus port.
-fn split_host_port(host: &str) -> (String, u16) {
+pub(crate) fn split_host_port(host: &str) -> (String, u16) {
     const DEFAULT_PORT: u16 = 5432;
 
     // Bracketed IPv6: `[::1]` or `[::1]:5432`.
