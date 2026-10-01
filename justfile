@@ -69,17 +69,22 @@ seed-dyn source="":
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 
+# Heavy cargo recipes run under a machine-wide build lease, so agents in N
+# worktrees queue for a slot instead of all compiling and linking at once.
+# OXY_BUILD_SLOTS=N to resize, OXY_BUILD_LEASE=off to bypass. scripts/build-lease.py
+lease := "python3 scripts/build-lease.py"
+
 # Build everything (debug)
 build: build-backend build-frontend
 
 # Build the Rust backend (debug)
 build-backend:
-    cargo build 2>&1 | grep -E "^(error|warning\[)" || true
+    {{lease}} cargo build 2>&1 | grep -E "^(error|warning\[|build-lease:)" || true
 
 # Build the backend FAST: full debug, but skips V8/Functions (deno_core) — a much
 # smaller binary to link. Opt back in with `just build-backend` when editing Functions.
 build-backend-fast:
-    cargo bf 2>&1 | grep -E "^(error|warning\[)" || true
+    {{lease}} cargo bf 2>&1 | grep -E "^(error|warning\[|build-lease:)" || true
 
 # Build the frontend
 build-frontend:
@@ -89,18 +94,18 @@ build-frontend:
 
 # Run cargo check (fast type-check)
 check:
-    cargo check 2>&1 | grep -E "^(error|warning\[)" || true
+    {{lease}} cargo check 2>&1 | grep -E "^(error|warning\[|build-lease:)" || true
 
 # Type-check FAST: skips V8/Functions (deno_core).
 check-fast:
-    cargo cf 2>&1 | grep -E "^(error|warning\[)" || true
+    {{lease}} cargo cf 2>&1 | grep -E "^(error|warning\[|build-lease:)" || true
 
 # Lint everything
 lint: lint-backend lint-frontend
 
 # Run clippy
 lint-backend:
-    cargo clippy --workspace
+    {{lease}} cargo clippy --workspace
 
 # Run ESLint / Biome
 lint-frontend:
@@ -179,26 +184,26 @@ fmt-check:
 
 # Run all tests with nextest (whole workspace — slow; prefer `unit` / `test-crate`)
 test:
-    cargo nextest run
+    {{lease}} cargo nextest run
 
 # Unit tests only (`src/**` `#[cfg(test)]`) for one crate — ONE binary, one link.
 # This is the right verification loop for almost every change.
 unit crate="oxy-app":
-    cargo nextest run -p {{crate}} --lib
+    {{lease}} cargo nextest run -p {{crate}} --lib
 
 # Every test for one crate, unit + integration binaries.
 test-crate crate="oxy-app":
-    cargo nextest run -p {{crate}}
+    {{lease}} cargo nextest run -p {{crate}}
 
 # Run tests matching a nextest filterset, e.g.
 #   just test-filter 'test(authz)'
 #   just test-filter 'binary(custom_apps)'
 test-filter expr:
-    cargo nextest run -E '{{expr}}'
+    {{lease}} cargo nextest run -E '{{expr}}'
 
 # Compile every test target without running any — catches breakage cheaply.
 test-build:
-    cargo nextest list --workspace >/dev/null
+    {{lease}} cargo nextest list --workspace >/dev/null
 
 # Remove dangling test containers (Postgres/ClickHouse/MySQL) left by test runs
 clean-test-containers:
@@ -251,7 +256,7 @@ build-backend-dyn:
     # Full output (no grep filter / `|| true`): this is the recipe most likely to
     # fail at LINK, where the actionable part is the `ld: Undefined symbols …` notes
     # under `error: linking with cc failed` — a grep for `^error` drops exactly those.
-    RUSTFLAGS="$(just _dyn-rustflags)" cargo build -p oxy-server --features dev-dynamic
+    RUSTFLAGS="$(just _dyn-rustflags)" {{lease}} cargo build -p oxy-server --features dev-dynamic
 
 dev-backend-dyn *ARGS="start":
     RUSTFLAGS="$(just _dyn-rustflags)" cargo run -p oxy-server --features dev-dynamic -- {{ ARGS }}

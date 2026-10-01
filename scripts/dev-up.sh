@@ -237,7 +237,7 @@ cargo_build() {
   done
   (
     for var in $drop; do unset "$var"; done
-    cd "$REPO" && cargo build -p oxy-server
+    cd "$REPO" && python3 scripts/build-lease.py cargo build -p oxy-server
   )
 }
 

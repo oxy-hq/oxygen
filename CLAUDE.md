@@ -77,6 +77,8 @@ Many crates carry their own `CLAUDE.md` — all `agentic/*`, `authz`, `cameras`,
 - **Need a separate worktree? `cd "$(just wt-claim <branch>)"`, not `git worktree add`.** A slot
   keeps its path, so its `target/` stays warm, incremental caches included. Release it with
   `just wt-release`. Details, and `just target-gc` for disk: `internal-docs/rust-build-performance.md`.
+- **Build and test through `just`, not bare `cargo`.** The heavy recipes queue on a machine-wide
+  build lease so parallel agents don't thrash one box; a waiting `build-lease:` line is normal.
 
 **Never verify with a bare `cargo nextest run`.** That builds and links every test
 target in 84 crates. The cost of a test run here is *linking*, not asserting: each
