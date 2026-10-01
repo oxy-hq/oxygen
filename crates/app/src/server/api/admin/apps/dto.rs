@@ -117,6 +117,22 @@ pub struct AppResponse {
     ///
     /// The admin UI shows the subdomain row only when this is set.
     pub url_subdomain: Option<String>,
+    /// Absolute URL of this app's staging environment, e.g.
+    /// `https://staging--acme--store.customer-apps.oxygen-hq.com/` — the
+    /// unpromoted (draft) build, served with writes held or isolated (see
+    /// `internal-docs/customer-apps-functions.md` "## Staging").
+    ///
+    /// `None` when there is nothing distinct to open there: no staging build
+    /// at all, the staging build is the same one already live in production
+    /// (nothing to preview), or the zone can't be derived (unset/malformed
+    /// `OXY_API_URL`, e.g. local dev).
+    ///
+    /// Detail-response only (`get_app`) — filled from one extra
+    /// `app_environments` read already paid for by that handler.
+    /// `list_apps` leaves this `None` rather than add a query per row; see
+    /// [`staging_url_for`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging_url: Option<String>,
     pub source_type: String,
     pub source_config: serde_json::Value,
     /// Set after a successful PR scaffold; null otherwise.
@@ -209,6 +225,9 @@ impl AppResponse {
             status: m.status,
             url,
             url_subdomain,
+            // Needs an `app_environments` read the cheap constructor doesn't
+            // have; filled by `get_app` via `staging_url_for`.
+            staging_url: None,
             source_type: m.source_type,
             source_config: m.source_config,
             bootstrap_pr_url: m.bootstrap_pr_url,
@@ -229,6 +248,27 @@ impl AppResponse {
             live_published_via: None,
         }
     }
+}
+
+/// [`AppResponse::staging_url`]'s value: `None` unless the staging
+/// environment has a build that differs from what production currently
+/// serves (nothing to preview otherwise), in which case it's
+/// `environment_url_for(Staging, ..)` — itself `None` when the zone can't be
+/// derived (e.g. local dev; see `custom_apps_host_dispatch`).
+pub(super) fn staging_url_for(
+    org_slug: &str,
+    app_slug: &str,
+    builds: &crate::server::api::custom_apps_env_resolve::EnvironmentBuilds,
+) -> Option<String> {
+    let staging_build = builds.staging?;
+    if Some(staging_build) == builds.production {
+        return None;
+    }
+    oxy_app_core::custom_apps_host_dispatch::environment_url_for(
+        &oxy_app_core::custom_app_environment::AppEnvironment::Staging,
+        org_slug,
+        app_slug,
+    )
 }
 
 #[derive(Serialize)]
@@ -395,3 +435,7 @@ impl BatchResponse {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "dto_tests.rs"]
+mod tests;

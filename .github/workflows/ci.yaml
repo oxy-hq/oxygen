@@ -807,7 +807,18 @@ jobs:
     # this job produces, so force it to run even if
     # `needs.changesets.outputs.oxy` is false (a no-Rust PR can still
     # iterate on browser tests).
-    if: inputs.agentic_only == true || needs.changesets.outputs.oxy == 'true'
+    #
+    # `agentic` is the same need arriving from a diff instead of a dispatch: a
+    # PR that changes the flows, the runner or `agentic-tests.yaml` and no Rust
+    # has to run the matrix, and the matrix has no binary unless this job
+    # builds one. Skipped here, `agentic-tests` below is skipped with it — which
+    # is how a PR that rewired every bucket merged without booting any of them.
+    # The `Run task` step drops to the build-only path whenever `oxy` did not
+    # fire, so such a PR pays for `cargo build`, not for clippy and nextest.
+    if: |
+      inputs.agentic_only == true ||
+      needs.changesets.outputs.oxy == 'true' ||
+      needs.changesets.outputs.agentic == 'true'
     name: Format cargo, check & test (${{ matrix.task }})
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
     # The 5h CI runaway that motivated these guardrails happened here: with no
@@ -1073,7 +1084,11 @@ jobs:
         env:
           OXY_DATABASE_URL: "postgresql://admin:password@localhost:5432/default"
           OXY_BIN: "${{ github.workspace }}/target/debug/oxy"
-          AGENTIC_ONLY: ${{ inputs.agentic_only }}
+          # Build-only (no clippy, no migrate/nextest) when the job is here just
+          # for the binary: a dispatch that asked for it, or a diff that fired
+          # `agentic` without `oxy` — no Rust changed, so there is nothing for
+          # clippy or nextest to say that main's run has not already said.
+          AGENTIC_ONLY: ${{ inputs.agentic_only == true || needs.changesets.outputs.oxy != 'true' }}
           OXY_TEST_CLICKHOUSE_URL: "http://localhost:18123"
           OXY_TEST_CLICKHOUSE_PASSWORD: "clickhouse"
         run: |
@@ -1857,6 +1872,15 @@ jobs:
   # `.github/workflows/agentic-tests.yaml`. That file is also runnable
   # standalone via workflow_dispatch — see its `on:` block for the
   # required inputs.
+  #
+  # The `if:` below is not the whole gate. It carries the implicit `success()`,
+  # so a SKIPPED `cargo-check-and-test` skips this job whatever the filters
+  # say — and that job runs only for `oxy`, `agentic` or an `agentic_only`
+  # dispatch. `web-app == 'true'` alone therefore runs nothing: a PR that
+  # changes only `web-app/src/**` still gets no browser test, because there is
+  # no binary carrying its bundle. `agentic` (changesets.yaml) closes that for
+  # the suite's own files; closing it for every web-app PR means a Rust build
+  # on each one, which is a cost decision this comment records rather than makes.
   agentic-tests:
     name: Agentic browser tests
     needs: [changesets, cargo-check-and-test]
@@ -1864,7 +1888,8 @@ jobs:
       github.repository == 'oxy-hq/oxygen-internal' && (
         inputs.agentic_only == true ||
         needs.changesets.outputs.web-app == 'true' ||
-        needs.changesets.outputs.oxy == 'true'
+        needs.changesets.outputs.oxy == 'true' ||
+        needs.changesets.outputs.agentic == 'true'
       ) && (
         github.event_name == 'workflow_dispatch' ||
         github.event_name == 'pull_request' ||

@@ -1,13 +1,46 @@
 import { describe, expect, it } from "vitest";
 import {
   BudgetExceeded,
+  caseBudgetUsd,
   charge,
   createMeter,
+  DEFAULT_CASE_BUDGET_USD,
   ensurePriced,
   remaining,
   reserve,
   worstCaseUsd
 } from "./budget";
+
+// The suite meters every case run. Before it did, a case whose page never
+// loaded spent $3.67 and $6.39 on one CI run, because a step that cannot
+// succeed is not a failed step — it runs to `max_steps`.
+describe("the suite's per-case budget", () => {
+  it("applies the default when the variable is unset or blank", () => {
+    expect(caseBudgetUsd({})).toBe(DEFAULT_CASE_BUDGET_USD);
+    expect(caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "  " })).toBe(DEFAULT_CASE_BUDGET_USD);
+  });
+
+  it("takes a dollar amount", () => {
+    expect(caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "0.5" })).toBe(0.5);
+    expect(caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: " 4 " })).toBe(4);
+  });
+
+  it("is unmetered only when asked for by name", () => {
+    expect(caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "0" })).toBeUndefined();
+    expect(caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "OFF" })).toBeUndefined();
+  });
+
+  it("refuses a value it cannot read rather than running without a limit", () => {
+    expect(() => caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "two" })).toThrow(/dollar amount/);
+    expect(() => caseBudgetUsd({ AGENTIC_CASE_BUDGET_USD: "-1" })).toThrow(/dollar amount/);
+  });
+
+  it("is a limit a meter accepts, above the dearest flow's cold budget", () => {
+    expect(() => createMeter(DEFAULT_CASE_BUDGET_USD)).not.toThrow();
+    // metric-tree-scenario, the dearest entry in flows/_budgets.yml, for two cases.
+    expect(DEFAULT_CASE_BUDGET_USD).toBeGreaterThan(1.55);
+  });
+});
 
 describe("the cost meter", () => {
   it("charges under the limit and stops the call that crosses it", () => {
@@ -41,7 +74,7 @@ describe("the cost meter", () => {
     expect(() => ensurePriced(meter, "some-unpriced-model")).toThrow(/no price/);
   });
 
-  it("is a no-op when nothing is metered — the test suite runs unchanged", () => {
+  it("is a no-op when there is no meter", () => {
     expect(() => charge(undefined, 100)).not.toThrow();
     expect(() => reserve(undefined, 100)).not.toThrow();
     expect(() => ensurePriced(undefined, "some-unpriced-model")).not.toThrow();

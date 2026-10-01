@@ -711,9 +711,26 @@ pub async fn get_app(
         &row.slug,
         row.published_build_id,
     );
+    // One extra `app_environments` read, detail-response only — see
+    // `AppResponse::staging_url` / `staging_url_for`. Degrades rather than
+    // failing the whole detail page: the manifest lookup just above does the
+    // same, and an optional link isn't worth a 500 on an otherwise-loadable
+    // app.
+    let staging_url = match crate::server::api::custom_apps_env_resolve::load_environment_builds(
+        &db, &row,
+    )
+    .await
+    {
+        Ok(env_builds) => staging_url_for(&org.slug, &row.slug, &env_builds),
+        Err(e) => {
+            tracing::warn!(app_id = %row.id, "staging_url: couldn't load app_environments: {e}");
+            None
+        }
+    };
     let mut resp = AppResponse::from_model_with_org(row, &org.slug);
     resp.icon_url = icon_url;
     resp.art_url = art_url;
+    resp.staging_url = staging_url;
     Ok(Json(resp))
 }
 

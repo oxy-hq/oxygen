@@ -17,6 +17,8 @@ on:
         value: ${{ jobs.changesets.outputs.canary-zoo }}
       custom-app-canary:
         value: ${{ jobs.changesets.outputs.custom-app-canary }}
+      agentic:
+        value: ${{ jobs.changesets.outputs.agentic }}
       docker:
         value: ${{ jobs.changesets.outputs.docker }}
       changes:
@@ -46,6 +48,7 @@ jobs:
       ci-counter: ${{ steps.changes.outputs.ci-counter }}
       canary-zoo: ${{ steps.changes.outputs.canary-zoo }}
       custom-app-canary: ${{ steps.changes.outputs.custom-app-canary }}
+      agentic: ${{ steps.changes.outputs.agentic }}
       docker: ${{ steps.changes.outputs.docker }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -240,6 +243,38 @@ jobs:
               - "scripts/ci/platform-canary-checkpoint.test.mjs"
               - ".github/workflows/ci.yaml"
               - ".github/workflows/changesets.yaml"
+            # `agentic` gates the BINARY the agentic browser matrix runs
+            # against, for a diff that changes the suite and no Rust.
+            #
+            # `agentic-tests` in ci.yaml needs `cargo-check-and-test` for the
+            # `oxy-binary-ci` artifact, and that job ran only when `oxy` fired.
+            # A skipped need skips its dependents, so a diff confined to the
+            # flows, the runner or the workflow ran no browser test at all —
+            # while the job's own `if:` (`web-app == 'true'`) read as though it
+            # would. That is how the move of every bucket to enterprise mode
+            # merged with three of the six red: its CI never booted one.
+            #
+            # With this set and `oxy` not, `cargo-check-and-test` runs in its
+            # build-only shape (the `agentic_only` path: no clippy, no
+            # nextest), which costs a warm `cargo build` and buys the only
+            # thing that can say whether a flow change works.
+            #
+            # Listed: the flows and the runner, the workflow and the two
+            # composite actions it boots with, the script that reads its
+            # results, and `demo_project/` — the fixture every bucket is
+            # authored against (the Demo workspace IS that directory), where a
+            # dropped `drivers:` block breaks metric-tree-scenario as surely as
+            # an edit to the flow does.
+            #
+            # NOT ci.yaml or this file, unlike the filters above: nearly every
+            # PR that touches CI edits them, and this suite is priced in USD.
+            agentic:
+              - "web-app/tests/agentic/**"
+              - ".github/workflows/agentic-tests.yaml"
+              - ".github/actions/download-oxy-binary/**"
+              - ".github/actions/setup-web-app-test-env/**"
+              - ".github/scripts/agentic-healing-comment.mjs"
+              - "demo_project/**"
             docker:
               - "Dockerfile*"
               - ".dockerignore"

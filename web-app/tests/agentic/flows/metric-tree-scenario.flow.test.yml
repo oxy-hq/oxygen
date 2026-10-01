@@ -78,6 +78,14 @@ cases:
           [data-testid=metric-tree-view] to be visible. You are now in
           Explore mode.
 
+      # The graph must exist before the discovery step below is allowed to
+      # spend anything. `metric-tree-view` is absent while the tree loads and
+      # when its request fails, and an `act:` that misses its goal is not a
+      # failed step: without this gate the discovery step ran its full 30 turns
+      # against a page with no graph ($3.43 here, $3.84 in case 2), each turn
+      # re-sending every snapshot before it.
+      - wait_for: "selector:[data-testid=metric-tree-view];timeout_ms=30000"
+
       - act: |
           Find a measure with at least one declared driver, using the
           Drivers tab in the right-hand panel:
@@ -244,6 +252,9 @@ cases:
           "Metric Tree" tab (role=tab, name "Metric Tree"). Wait for
           [data-testid=metric-tree-view] to be visible. You are now in
           Explore mode.
+
+      # Same gate as case 1, for the same reason.
+      - wait_for: "selector:[data-testid=metric-tree-view];timeout_ms=30000"
 
       - act: |
           Find a measure with at least one declared driver, using the

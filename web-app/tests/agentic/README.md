@@ -73,6 +73,9 @@ In enterprise mode (`runner/backend.ts`, `runner/session.ts`):
 - **Fixture.** `demo_project/` is seeded as the `local` org's Demo workspace (the deterministic id above), compiled and promoted, with the LLM keys this shell exports stored as workspace secrets. `reset_test_file` / `restore_demo_file:` write `demo_project/` directly — it *is* the workspace's working copy.
 - **Identity.** `flow@oxy.local`, bound as Owner of `local` by the seed (`OXY_GLOBAL_ADMINS` on the seed process only) and signed in through `GET /api/auth/dev-login`; the spawned server gets it on `OXY_DEV_LOGIN_EMAILS`. It has no platform standing, which is what every workspace flow needs. Override with `OXY_FLOW_EMAIL`, or export `OXY_SESSION_TOKEN` / `OXY_SESSION_USER` yourself (the admin flows do, as staff).
 - **Routing.** `goto:` and `browser_navigate` paths get `OXY_PATH_PREFIX` (default the Demo workspace) unless they are a top-level surface (`/admin`, `/partners`, `/customer-apps`, `/dev-login`, …) or bare `/`, which the post-login dispatcher routes.
+- **Git state.** `demo_project/` sits inside this repository, so the IDE sees *this checkout's* branch — and every IDE flow depends on which one it is. The flows are authored for a **named, non-default branch** (an ordinary feature branch): the IDE reads and writes the working copy directly. Two other states break them without saying so on screen:
+  - **Detached HEAD** (a CI `pull_request` checkout, a fresh `git worktree add --detach`). The server names the branch `HEAD@<sha>`, the IDE sends that back as `?branch=`, and every branch-aware request answers 400. A run the runner signs in itself refuses to start on it (`[session] workspace … is on a detached HEAD`); CI runs `git switch -C agentic-ci` before booting. A run handed its own `OXY_SESSION_TOKEN` (the `verify-all.sh` phases) is not checked, so there the same state still fails the slow way.
+  - **The default branch** (`main`). It is protected, so a save forks a feature branch into a worktree of the whole repository, and reads on the default branch serve the revision the seed compiled — not what a flow just wrote — with no Compile button on a single process to ship it.
 
 `local` is the unmaintained `--local` mode: no auth, one fixed workspace, nothing it shows says anything about the product. No committed flow uses it; opt in only for a flow that tests legacy local mode itself.
 
@@ -413,19 +416,30 @@ Common failure modes and fixes:
 
 The cost reporter writes `cost_usd` per step, per run, and per total. Trust those numbers for budgeting — they apply Anthropic's published rates (input × 1× / cache-read × 0.10× / cache-write × 1.25× / output × 1×) per the table in `runner/pricing.ts`.
 
+### The per-case limit, and why a failing case is the expensive one
+
+Every case run is metered (`runner/budget.ts`) and stopped at **$2.00**: the step that would cross it fails with `stopped at the $2.00 budget`, the case fails, and the next case starts with a fresh meter. `AGENTIC_CASE_BUDGET_USD=<dollars>` moves the limit; `0` or `off` removes it.
+
+The limit exists because a case that *cannot* pass costs far more than one that does. An `act:` step that never reaches its goal is not a failed step — the model keeps trying until `max_steps`, then the next `act:` starts on the same broken page and does it again. Each turn re-sends the whole conversation so far (only the system prompt, the tool list and the step text are prompt-cached; every snapshot and tool result after them is billed as fresh input on every later turn), so a step's cost grows with the square of its turns: 30 turns averaging ~40k tokens is 1.2M input tokens, about $3.60. `browser_screenshot` makes it worse — its PNG comes back as base64 *text*, cut at 16k characters, which the model cannot read and pays for again on every turn after. On 2026-10-01 one bucket spent $11.50 this way across three cases whose graph had failed to load.
+
+The limit bounds that; a gate prevents it. Follow an `act:` whose result the next step depends on with a `wait_for: selector:…` — a missing element then fails the case in 30 seconds for $0, instead of handing the next step a page it will spend its whole turn budget exploring.
+
 ## CI
 
-CI integration lives in `.github/workflows/agentic-tests.yaml`, a reusable workflow that `.github/workflows/ci.yaml` calls via `workflow_call`. The same file can also be triggered standalone via `workflow_dispatch` (with a `flow_bucket` input to run a single bucket, and an `oxy_binary_run_id` input pointing at a prior CI run's binary artifact). It runs on every PR (and on pushes to main, plus manual `workflow_dispatch`) when the `web-app` or `oxy` change groups are non-empty.
+CI integration lives in `.github/workflows/agentic-tests.yaml`, a reusable workflow that `.github/workflows/ci.yaml` calls via `workflow_call`. The same file can also be triggered standalone via `workflow_dispatch` (with a `flow_bucket` input to run a single bucket, and an `oxy_binary_run_id` input pointing at a prior CI run's binary artifact). It runs on PRs and pushes to main when the `oxy` or `agentic` change group fired (`.github/workflows/changesets.yaml`), and on manual `workflow_dispatch`.
+
+**What actually gates it is the binary.** The matrix needs the `oxy-binary-ci` artifact from `cargo-check-and-test`, and a skipped need skips its dependents — so the `web-app == 'true'` in the job's own `if:` runs nothing by itself. `oxy` (any Rust change) builds the binary as part of the full check; `agentic` (the flows, the runner, `agentic-tests.yaml` and its composite actions, `demo_project/`) builds it in the build-only shape, with no clippy or nextest. A PR that changes only `web-app/src/**` still runs no browser test: nothing builds a binary carrying its bundle. Before the `agentic` group existed, a PR confined to this directory and the workflow ran none either, which is how every bucket moved to enterprise mode with three of the six red.
 
 A `resolve-matrix` setup job emits the 6-bucket matrix as JSON; the main `agentic-tests` job consumes it via `strategy.matrix.flow`. Each sub-job:
 
 - Downloads the prebuilt CI binary via the `download-oxy-binary` composite action (`.github/actions/download-oxy-binary/`), which supports both same-run and cross-run downloads.
 - Sets up pnpm + Node + Playwright (cached) via the `setup-web-app-test-env` composite action (`.github/actions/setup-web-app-test-env/`).
+- Puts the checkout on a named branch (`git switch -C agentic-ci`). A `pull_request` checkout is a detached HEAD, and the Demo workspace lives inside it — see "Git state" under Run.
 - Boots an ephemeral Postgres service container.
 - Boots Oxy in the bucket's `backend_mode` and health-checks the appropriate port.
 - **Restores the action cache via `actions/cache`** keyed on a hash of every flow YAML + the bespoke runtime files. On a cache hit, every step that's text-identical to a previously-recorded step replays without an LLM call. Falls back to a prefix-match restore-key on flow edits, so unchanged steps still warm-replay.
 - Runs `pnpm test:agentic <flow1> <flow2> ... --no-auto-backend --no-auto-frontend --output ../agentic-results-<bucket>.json`.
-- Uploads `agentic-results-<bucket>.json`, `web-app/tests/agentic/.results/`, `.traces/`, and `.logs/` as the `agentic-results-<bucket>` artifact.
+- Uploads `agentic-results-<bucket>.json`, `web-app/tests/agentic/.results/`, `.traces/`, and `.logs/` (`backend.log`, `seed.log`) as the `agentic-results-<bucket>` artifact. The three dot-directories need `include-hidden-files: true`; without it the artifact is the JSON alone.
 - On `pull_request` events, reads `web-app/tests/agentic/.results/healing.json` and (if non-empty) posts a markdown drift-events table via `.github/scripts/agentic-healing-comment.mjs`.
 
 The job is `continue-on-error: true` while we calibrate. Flip it to `false` once the suite is steady-state.
@@ -443,6 +457,8 @@ If you intentionally want to nuke the cache (e.g. to remeasure cold cost), bump 
 - **`oxy seed failed`** — tail `web-app/tests/agentic/.logs/seed.log`. A compile error in `demo_project/` fails the seed (every seeded workspace points at it).
 - **`[session] dev-login as flow@oxy.local failed: 404 / 403`** — the backend you are reusing does not list the identity in `OXY_DEV_LOGIN_EMAILS`. Stop it and let the runner spawn its own, or see "Run" above for signing in as someone it does list.
 - **Every page lands on `/onboarding`** — dev-login minted an account that belongs to no org: the backend was never seeded with `OXY_GLOBAL_ADMINS=flow@oxy.local`.
+- **`[session] workspace … is on a detached HEAD`** — the checkout holding `demo_project/` has no branch, so every IDE request would answer 400. `git switch -c <name>` and rerun. See "Git state" under Run.
+- **`stopped at the $2.00 budget`** — the case hit its spend limit, almost always because an earlier step left the page somewhere the later ones cannot work from. Read `step_debug` for the first step whose `tool_calls` end in errors, and gate it with a `wait_for:`. Raise `AGENTIC_CASE_BUDGET_USD` only for a case that is legitimately that expensive.
 - **`cannot run flows with mixed backend_mode`** — you loaded a glob that matched a flow opted into the legacy `local` mode alongside enterprise ones. Filter to one mode per invocation.
 - **Stale local cache** — delete `tests/agentic/.cache/bespoke-actions.json` to force a full re-derive on the next run, or pass `cache_actions: false` in the flow's settings.
 - **Snapshot too large** — the LLM can call `browser_get_page_text` as a fallback, or `browser_snapshot` with `region: "main"` to scope. If it consistently struggles, narrow the `act:` prompt or split the step.

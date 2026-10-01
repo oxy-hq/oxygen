@@ -27,6 +27,14 @@ cases:
       - act: |
           Click the "Metric Tree" tab (role=tab, name "Metric Tree"),
           then wait for [data-testid=metric-tree-view] to be visible.
+      # The gate the act above only asks for in prose. `metric-tree-view` is
+      # absent while the tree loads AND when its request fails
+      # (`MetricTree/index.tsx` renders a spinner or the error text instead),
+      # and an `act:` that does not reach its goal is not a failed step — the
+      # model's own wait timed out, it ended its turn, and the next step went
+      # looking for nodes in a graph that was never there: 20 turns and $1.39
+      # before the assert below said what this line says for $0.
+      - wait_for: "selector:[data-testid=metric-tree-view];timeout_ms=30000"
       - act: |
           Click the first measure node in the graph — measure nodes
           carry a data-testid starting with `metric-node-` (e.g.

@@ -28,6 +28,7 @@ import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
 import { resolveBundleUrl } from "../../../../resolveBundleUrl";
 import { ActAsOrgButton } from "./ActAsOrgButton";
+import { OpenStagingButton } from "./OpenStagingButton";
 import { OrgHomeButton } from "./OrgHomeButton";
 
 type DetailTab = "preview" | "info" | "activity" | "settings";
@@ -289,6 +290,7 @@ export const DetailToolbar = ({
         <div className='flex items-center gap-1'>
           <OrgHomeButton app={app} />
           <ActAsOrgButton app={app} />
+          <OpenStagingButton app={app} />
         </div>
 
         <Tooltip>

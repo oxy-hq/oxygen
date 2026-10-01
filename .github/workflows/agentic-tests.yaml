@@ -188,6 +188,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The Demo workspace IS `demo_project/` inside this checkout, so the IDE
+      # sees this checkout's git state — and a `pull_request` checkout is a
+      # detached HEAD. The server labels that `HEAD@<sha>`
+      # (`get_current_branch`), the IDE sends the label back as `?branch=` on
+      # every branch-aware request, and the workspace middleware answers 400
+      # because `@` is not a branch character (`validate_branch_name`). Nothing
+      # on screen says so: the editor opens empty and a save leaves the Save
+      # button up, the Metric Tree renders an error instead of the graph, the
+      # Explorer lists no fields. That is what the ide, metric-tree and
+      # semantic buckets failed on from the day they moved to enterprise mode;
+      # the buckets that never enter the IDE send no branch and passed.
+      #
+      # A named, non-default branch is the state a developer's checkout is in
+      # when these flows pass locally: the IDE reads and writes the working
+      # copy. Not `main` — a save on a protected branch forks a feature branch
+      # into a worktree of this whole repository, and a default-branch read
+      # serves the revision the seed compiled rather than what a flow just
+      # wrote. `-C` so a `push` to main and a dispatch land where a PR does.
+      # The runner refuses a detached workspace up front (runner/session.ts),
+      # so dropping this step fails with that sentence, not with six timeouts.
+      - name: Put the checkout on a named branch
+        run: git switch -C agentic-ci
+
       # Empty `oxy_binary_run_id` means the artifact lives in the
       # current run (workflow_call from ci.yaml). A non-empty value
       # routes the composite action through cross-run download with the
@@ -298,6 +321,11 @@ jobs:
             web-app/tests/agentic/.results/
             web-app/tests/agentic/.traces/
             web-app/tests/agentic/.logs/
+          # Three of the four paths are dot-directories, and upload-artifact
+          # skips hidden files unless told otherwise — so this artifact held
+          # the results JSON and nothing else: no trace, no backend log, no
+          # seed log, which is every file a red bucket is diagnosed from.
+          include-hidden-files: true
           retention-days: 3
 
       - name: Comment on PR with healing events

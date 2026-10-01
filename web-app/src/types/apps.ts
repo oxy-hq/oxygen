@@ -33,6 +33,18 @@ export interface CustomApp {
    * a custom-branded host) — admin UI shows whichever URLs are present.
    */
   url_subdomain: string | null;
+  /**
+   * Absolute URL of this app's staging environment, e.g.
+   * `https://staging--acme--store.customer-apps.oxygen-hq.com/` — the
+   * unpromoted (draft) build, served with writes held or isolated (see
+   * "## Staging" in `internal-docs/customer-apps-functions.md`).
+   *
+   * `null`/absent when there's nothing distinct to open there: no staging
+   * build, the staging build is already what production serves, or the
+   * zone can't be derived (e.g. local dev). Detail responses only — list
+   * responses leave this absent rather than pay a query per row.
+   */
+  staging_url?: string | null;
   /** Manifest-derived app glyph URL (`<url><manifest.icon>`), or absent when the
    *  app declares no `icon`. Same source the homepage launcher uses (there is no
    *  favicon.ico probe) — render with a monogram fallback via <AppMark>. See the

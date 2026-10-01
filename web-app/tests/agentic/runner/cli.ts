@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadEnv } from "dotenv";
 import { ensureBackend, resolveBaseUrl, resolveHealthUrl } from "./backend";
+import { caseBudgetUsd, createMeter } from "./budget";
 import {
   defaultCachePath,
   defaultStagingPath,
@@ -157,6 +158,15 @@ async function main(): Promise<void> {
   const runtime = await loadRuntime();
   console.log(`[runner] using runtime: ${runtime.name}`);
 
+  // Read before anything is spawned: a mistyped limit should cost a second,
+  // not a backend boot.
+  const budgetUsd = caseBudgetUsd();
+  console.log(
+    budgetUsd === undefined
+      ? "[runner] per-case budget: none (AGENTIC_CASE_BUDGET_USD)"
+      : `[runner] per-case budget: $${budgetUsd.toFixed(2)}`
+  );
+
   const mode = pickBackendMode(flows);
   // Propagate the resolved URLs into the environment so anything reading
   // them downstream (the bespoke runtime's Playwright context, the seed
@@ -187,7 +197,7 @@ async function main(): Promise<void> {
       const tag = args.tag;
       const filtered = tag ? flow.cases.filter((c) => c.tags.includes(tag)) : flow.cases;
       if (filtered.length === 0) continue;
-      flowResults.push(await runFlow(flow, filtered, runtime, apiKey, args));
+      flowResults.push(await runFlow(flow, filtered, runtime, apiKey, args, budgetUsd));
     }
   } finally {
     if (frontend.spawned) await frontend.shutdown();
@@ -235,7 +245,8 @@ async function runFlow(
   cases: FlowCase[],
   runtime: Runtime,
   apiKey: string,
-  args: CliArgs
+  args: CliArgs,
+  budgetUsd: number | undefined
 ): Promise<FlowResult> {
   const caseResults: CaseResult[] = [];
 
@@ -247,7 +258,10 @@ async function runFlow(
         testCase: c,
         apiKey,
         debug: args.debug,
-        headless: !args.headed
+        headless: !args.headed,
+        // One meter per case run: a stopped meter stays stopped, and one case
+        // running away must not take the budget of the cases after it.
+        meter: budgetUsd === undefined ? undefined : createMeter(budgetUsd)
       };
       const start = Date.now();
       try {

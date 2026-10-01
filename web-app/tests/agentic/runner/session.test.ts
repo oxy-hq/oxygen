@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEMO_WORKSPACE_ID, ensureSession } from "./session";
+import { assertOnBranch, DEMO_WORKSPACE_ID, ensureSession } from "./session";
 
 // Enterprise mode is the default backend, and a flow that runs without a
 // session or a workspace prefix does not fail — it lands on /login or the org
@@ -83,5 +83,71 @@ describe("ensureSession", () => {
     fetchMock.mockResolvedValue(new Response("", { status: 403 }));
     await expect(ensureSession("cloud")).rejects.toThrow(/OXY_DEV_LOGIN_EMAILS/);
     expect(process.env.OXY_SESSION_TOKEN).toBeUndefined();
+  });
+
+  it("stops a run whose workspace is on a detached HEAD", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "tok", user: {} })))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ active_branch: { name: "HEAD@765aa85" } }))
+      );
+    await expect(ensureSession("cloud")).rejects.toThrow(/detached HEAD/);
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `http://localhost:3000/api/${DEMO_WORKSPACE_ID}/git-state`
+    );
+  });
+});
+
+// A CI `pull_request` checkout is a detached HEAD, and the Demo workspace lives
+// inside it. The server calls that branch `HEAD@<sha>`, the IDE sends it back as
+// `?branch=`, and every branch-aware request answers 400 — three buckets failed
+// on it, each reading like its own broken page. This is the sentence they should
+// have failed with.
+describe("assertOnBranch", () => {
+  const fetchMock = vi.fn();
+  const gitState = (name: string | null) =>
+    new Response(JSON.stringify({ active_branch: name === null ? null : { name } }));
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("refuses a detached HEAD, naming the label and the fix", async () => {
+    fetchMock.mockResolvedValue(gitState("HEAD@765aa85"));
+    await expect(assertOnBranch("http://localhost:3000/", "tok", PREFIX)).rejects.toThrow(
+      /detached HEAD \(HEAD@765aa85\)[\s\S]*git switch -c/
+    );
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `http://localhost:3000/api/${DEMO_WORKSPACE_ID}/git-state`
+    );
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: "tok" });
+  });
+
+  it("accepts a named branch, and a workspace with no repository", async () => {
+    fetchMock.mockResolvedValueOnce(gitState("agentic-ci")).mockResolvedValueOnce(gitState(null));
+    await expect(assertOnBranch("http://localhost:3000", "tok", PREFIX)).resolves.toBeUndefined();
+    await expect(assertOnBranch("http://localhost:3000", "tok", PREFIX)).resolves.toBeUndefined();
+  });
+
+  it("reports a probe it could not make, and does not call that a refusal", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response("", { status: 502 }))
+      .mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+    await expect(assertOnBranch("http://localhost:3000", "tok", PREFIX)).resolves.toBeUndefined();
+    await expect(assertOnBranch("http://localhost:3000", "tok", PREFIX)).resolves.toBeUndefined();
+    expect(console.warn).toHaveBeenCalledTimes(2);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("branch not checked"));
+  });
+
+  it("asks nothing when the prefix names no workspace", async () => {
+    await assertOnBranch("http://localhost:3000", "tok", "/admin");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

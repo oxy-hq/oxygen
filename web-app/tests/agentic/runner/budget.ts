@@ -1,13 +1,46 @@
-// A hard spend limit for one unit of work (one showcase capture). Before a
-// model call, its worst case — every input token at the cache-write rate, and
-// the full `max_tokens` of output — must fit in what is left; after it, the
-// real cost is charged. Once the meter stops a call it stays stopped: nothing
-// after it may spend, however small. Unset, nothing is metered: the test suite
-// is unchanged.
+// A hard spend limit for one unit of work (one showcase capture, one case run
+// of the suite). Before a model call, its worst case — every input token at the
+// cache-write rate, and the full `max_tokens` of output — must fit in what is
+// left; after it, the real cost is charged. Once the meter stops a call it
+// stays stopped: nothing after it may spend, however small. With no meter,
+// nothing is metered.
 
 import { computeCost, hasRates } from "./pricing";
 
 export class BudgetExceeded extends Error {}
+
+/**
+ * What one case run of the suite may spend before the meter stops it.
+ *
+ * A step that cannot succeed does not fail — the model keeps trying until
+ * `max_steps`, and every turn re-sends the whole conversation so far, so the
+ * bill grows with the square of the turns. A metric-tree bucket whose graph
+ * could not render spent $11.50 that way across three cases (1.1–2.1M input
+ * tokens each) before reporting the same failure a `wait_for:` gives for $0.
+ *
+ * $2 sits above every legitimate cold case — the dearest flow in
+ * `_budgets.yml` is $1.55 for two — and below the $3.67 and $6.39 the two
+ * runaway cases cost.
+ */
+export const DEFAULT_CASE_BUDGET_USD = 2;
+
+/**
+ * The per-case limit for this invocation: `AGENTIC_CASE_BUDGET_USD` in dollars,
+ * the default when unset, and `undefined` (unmetered) for `0` or `off`. Anything
+ * else is refused — a typo here must not quietly remove the limit.
+ */
+export function caseBudgetUsd(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const raw = env.AGENTIC_CASE_BUDGET_USD?.trim().toLowerCase();
+  if (!raw) return DEFAULT_CASE_BUDGET_USD;
+  if (raw === "0" || raw === "off") return undefined;
+  const usd = Number(raw);
+  if (!(usd > 0)) {
+    throw new Error(
+      `AGENTIC_CASE_BUDGET_USD must be a dollar amount, or 0/off for no limit — got '${raw}'`
+    );
+  }
+  return usd;
+}
 
 export interface CostMeter {
   readonly limitUsd: number;

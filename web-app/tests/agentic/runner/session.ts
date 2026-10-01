@@ -62,6 +62,12 @@ export async function ensureSession(mode: BackendMode): Promise<void> {
   if (!process.env.OXY_PATH_PREFIX) process.env.OXY_PATH_PREFIX = demoPathPrefix();
 
   if (process.env.OXY_SESSION_TOKEN) {
+    // No detached-HEAD check on this path, deliberately: a caller that brought
+    // its own session gets no request from the runner at all (pinned by "keeps
+    // a caller's session and prefix"). So verify-all.sh's phases are NOT
+    // guarded — an IDE flow there, against a detached checkout, still fails
+    // the slow way. `assertOnBranch` covers the runs the runner signs in
+    // itself, which is every CI bucket.
     console.log("[session] using the caller's OXY_SESSION_TOKEN");
     return;
   }
@@ -83,6 +89,61 @@ export async function ensureSession(mode: BackendMode): Promise<void> {
   process.env.OXY_SESSION_TOKEN = token;
   process.env.OXY_SESSION_USER = JSON.stringify(user ?? {});
   console.log(`[session] signed in as ${email}; workspace prefix ${process.env.OXY_PATH_PREFIX}`);
+  await assertOnBranch(base, token, process.env.OXY_PATH_PREFIX ?? demoPathPrefix());
+}
+
+/**
+ * Refuse a workspace whose working copy is on a detached HEAD.
+ *
+ * The Demo workspace is `demo_project/` inside a git checkout, so the IDE sees
+ * that checkout's git state. Detached — which is what a CI `pull_request`
+ * checkout is — the server names the branch `HEAD@<sha>`, the IDE sends that
+ * back as `?branch=` on every branch-aware request, and the server answers 400
+ * because `@` is not a branch character. Nothing on screen reports it: the
+ * editor opens empty and a save leaves the Save button up, the Metric Tree
+ * shows an error instead of the graph, the Explorer lists no fields. Three CI
+ * buckets were red on exactly that, each reading like its own broken page, and
+ * one spent $11 looking for a graph that could not render.
+ *
+ * Only a positive answer stops the run. A probe that cannot be made — a
+ * deployment without the route, an identity it refuses — says nothing either
+ * way, and is reported as that rather than as a pass.
+ */
+export async function assertOnBranch(base: string, token: string, prefix: string): Promise<void> {
+  const workspaceId = /\/workspaces\/([^/]+)/.exec(prefix)?.[1];
+  if (!workspaceId) return;
+  const branch = await activeBranch(base, token, workspaceId);
+  if (branch === undefined) return;
+  if (branch.startsWith("HEAD@")) {
+    throw new Error(
+      `[session] workspace ${workspaceId} is on a detached HEAD (${branch}). The IDE sends that ` +
+        "as ?branch= and the server answers 400 to every branch-aware request, so each IDE " +
+        "flow fails on a page that never loads. Put the checkout that holds the workspace on " +
+        "a branch first: `git switch -c <name>`."
+    );
+  }
+}
+
+/** The branch the workspace's working copy is on, or undefined when it cannot be read. */
+async function activeBranch(
+  base: string,
+  token: string,
+  workspaceId: string
+): Promise<string | undefined> {
+  const url = `${base.replace(/\/+$/, "")}/api/${workspaceId}/git-state`;
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: token },
+      signal: AbortSignal.timeout(15_000)
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const json = (await res.json()) as { active_branch?: { name?: string } | null };
+    return json.active_branch?.name ?? "";
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    console.warn(`[session] could not read the workspace's git state (${why}); branch not checked`);
+    return undefined;
+  }
 }
 
 async function mintSession(base: string, email: string): Promise<{ token: string; user: unknown }> {

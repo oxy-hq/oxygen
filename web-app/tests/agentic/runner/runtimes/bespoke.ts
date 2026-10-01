@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { type Browser, chromium, type Page } from "@playwright/test";
 import { type ActionCache, createActionCache, type RecordedAction } from "../action-cache";
-import { bytesOf, charge, ensurePriced, reserve, worstCaseUsd } from "../budget";
+import { BudgetExceeded, bytesOf, charge, ensurePriced, reserve, worstCaseUsd } from "../budget";
 import {
   captureContextOptions,
   closeAndCollectVideo,
@@ -259,17 +259,29 @@ async function runActStep(inputs: ActStepInputs): Promise<RuntimeStepDebug> {
   }
 
   const stepTokens = emptyTokens();
-  const outcome = await runLLMLoop({
-    client,
-    step,
-    ctx,
-    page,
-    sdkTools,
-    tools,
-    debug,
-    model: settings.model,
-    tokenSink: stepTokens
-  });
+  let outcome: LoopOutcome;
+  try {
+    outcome = await runLLMLoop({
+      client,
+      step,
+      ctx,
+      page,
+      sdkTools,
+      tools,
+      debug,
+      model: settings.model,
+      tokenSink: stepTokens
+    });
+  } catch (err) {
+    // The meter stopped the step. Hand back what it spent first: thrown
+    // onward, case-runner rebuilds the step from nothing and the stop reads as
+    // a $0 step with no tool calls — the opposite of what it was. Nothing is
+    // recorded either; a sequence cut off by the budget is not one to replay.
+    if (!(err instanceof BudgetExceeded)) throw err;
+    debug.error = err.message;
+    debug.cost_usd = computeCost(settings.model, stepTokens);
+    return debug;
+  }
 
   // Persist recordings either to the main cache (normal cold redrive)
   // or to the healing staging file (Tier 2 — UI was redesigned, needs
