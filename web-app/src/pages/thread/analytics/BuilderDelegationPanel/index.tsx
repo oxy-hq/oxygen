@@ -1,6 +1,7 @@
 import { Hammer, Loader2, Maximize2, RotateCcw, Sparkles, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent } from "@/components/ui/shadcn/dialog";
 import useRevertBuilderFileChanges from "@/hooks/api/analytics/useRevertBuilderFileChanges";
@@ -25,7 +26,11 @@ export default function BuilderDelegationPanel({
   projectId,
   onClose
 }: BuilderDelegationPanelProps) {
-  const { events, isStreaming } = useBuilderDelegationEvents(projectId, childRunId, true);
+  const {
+    events,
+    isStreaming,
+    error: streamError
+  } = useBuilderDelegationEvents(projectId, childRunId, true);
   const [fullscreen, setFullscreen] = useState<BuilderFileChange | null>(null);
   // Optimistic: the child run's SSE is one-shot, so a revert's audit event
   // won't re-stream — track locally for immediate feedback (a reload
@@ -94,7 +99,12 @@ export default function BuilderDelegationPanel({
     [revertMutation, childRunId]
   );
 
-  const subtitle = isStreaming ? "Working on semantic model changes…" : "Completed";
+  // A failed stream is not a finished run: what is shown may be missing or partial.
+  const subtitle = isStreaming
+    ? "Working on semantic model changes…"
+    : streamError
+      ? "Activity unavailable"
+      : "Completed";
 
   return (
     <div className='flex h-full flex-col border-l bg-background'>
@@ -140,6 +150,14 @@ export default function BuilderDelegationPanel({
 
       {/* Reasoning trace + per-file change cards */}
       <div className='flex min-h-0 flex-1 flex-col overflow-y-auto p-4'>
+        {streamError && (
+          <ErrorAlert
+            className='mb-4'
+            title="Failed to load the Builder Agent's activity"
+            message='The steps and changes shown may be incomplete. Close and reopen this panel to try again.'
+          />
+        )}
+
         {(events.length > 0 || isStreaming) && (
           <div className='mb-4'>
             <AnalyticsReasoningTrace
@@ -196,7 +214,8 @@ export default function BuilderDelegationPanel({
             })}
           </div>
         ) : (
-          !isStreaming && (
+          !isStreaming &&
+          !streamError && (
             <div className='flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center'>
               <div className='rounded-full bg-muted p-3'>
                 <Sparkles className='h-5 w-5 text-muted-foreground' />

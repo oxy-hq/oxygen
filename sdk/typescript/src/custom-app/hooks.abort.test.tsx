@@ -53,7 +53,7 @@ function deferredFetcher(): { fetcher: typeof fetch; pending: Pending[] } {
   const fetcher = ((input: RequestInfo | URL, init?: RequestInit) =>
     new Promise<Response>((resolve, reject) => {
       const entry: Pending = {
-        url: String(input),
+        url: input instanceof Request ? input.url : String(input),
         settle: (body) => resolve({ ok: true, status: 200, json: async () => body } as Response),
         fail: reject,
         aborted: false
@@ -411,7 +411,7 @@ function droppingSseFetcher(opts: { deliverEvent: boolean; ending: "error" | "eo
 } {
   let opens = 0;
   const fetcher = ((input: RequestInfo | URL) => {
-    const url = String(input);
+    const url = input instanceof Request ? input.url : String(input);
     if (!url.endsWith("/events")) {
       return Promise.resolve({
         ok: true,

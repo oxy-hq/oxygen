@@ -43,9 +43,11 @@ export const useRunsModel = (filters: RunFilters, limit: number) => {
     hasMore: (history.data?.total ?? 0) > fetched,
     isPending: history.isPending,
     error: history.error,
+    // TanStack refetches resolve with the error rather than rejecting; a failed
+    // reload shows through each query's own `error`.
     refetch: () => {
-      active.refetch();
-      history.refetch();
+      void active.refetch();
+      void history.refetch();
     }
   };
 };

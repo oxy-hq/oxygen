@@ -2,6 +2,7 @@ import { memo } from "react";
 import { DisplayBlock } from "@/components/AppPreview/Displays";
 import type { ArtifactItem, SqlItem } from "@/hooks/analyticsSteps";
 import type { AnalyticsDisplayBlock } from "@/hooks/useAnalyticsRun";
+import { toText } from "@/libs/utils/string";
 import type { DataContainer, Display } from "@/types/app";
 import type { SqlArtifact } from "@/types/artifact";
 
@@ -125,8 +126,8 @@ export function sqlArtifactFromPreviewData(item: ArtifactItem): SqlArtifact | nu
       cols,
       ...(rows ?? []).map((row) =>
         Array.isArray(row)
-          ? row.map((v) => String(v ?? ""))
-          : cols.map((col) => String((row as Record<string, unknown>)?.[col] ?? ""))
+          ? row.map((v) => toText(v))
+          : cols.map((col) => toText((row as Record<string, unknown>)?.[col]))
       )
     ];
   }
@@ -156,8 +157,8 @@ export function sqlArtifactFromExecutePreview(item: ArtifactItem): SqlArtifact |
       cols,
       ...(rows ?? []).map((row) =>
         Array.isArray(row)
-          ? row.map((v) => String(v ?? ""))
-          : cols.map((col) => String((row as Record<string, unknown>)?.[col] ?? ""))
+          ? row.map((v) => toText(v))
+          : cols.map((col) => toText((row as Record<string, unknown>)?.[col]))
       )
     ];
   }
@@ -183,8 +184,8 @@ function rowsToTable(
     columns,
     ...(rows ?? []).map((row) =>
       Array.isArray(row)
-        ? row.map((value) => String(value ?? ""))
-        : columns.map((column) => String((row as Record<string, unknown>)?.[column] ?? ""))
+        ? row.map((value) => toText(value))
+        : columns.map((column) => toText((row as Record<string, unknown>)?.[column]))
     )
   ];
 }

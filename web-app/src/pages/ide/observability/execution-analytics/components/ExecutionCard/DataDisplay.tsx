@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { useCopyTimeout } from "@/components/automation/output/useCopyTimeout";
 import { Button } from "@/components/ui/shadcn/button";
 import usePrismTheme from "@/hooks/usePrismTheme";
 import { deepParseJson } from "../../../trace/components/utils";
@@ -11,14 +11,12 @@ interface OutputDisplayProps {
 }
 
 export default function DataDisplay({ value, label }: OutputDisplayProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, handleCopy } = useCopyTimeout();
   const prismTheme = usePrismTheme();
 
-  const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // `handleCopy` catches a refused clipboard write itself and only flips to the check
+  // on success.
+  const copyToClipboard = () => void handleCopy(value);
 
   let parsedValue: string | null = null;
   let isJson = false;

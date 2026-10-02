@@ -245,14 +245,14 @@ test.describe("IDE Files - File/Folder Creation", () => {
   });
 
   test("2.16 - should show toast error on API failure during create", async ({ page }) => {
-    await page.route("**/api/v1/**/files**", (route, request) => {
+    await page.route("**/api/v1/**/files**", async (route, request) => {
       if (request.method() === "POST") {
-        route.fulfill({
+        await route.fulfill({
           status: 500,
           body: JSON.stringify({ error: "Internal Server Error" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -290,8 +290,8 @@ test.describe("IDE Files - File/Folder Creation", () => {
       await input.fill("test-network-file.txt");
 
       // Simulate network failure
-      await page.route("**/api/v1/**/files**", (route) => {
-        route.abort("failed");
+      await page.route("**/api/v1/**/files**", async (route) => {
+        await route.abort("failed");
       });
 
       await page.keyboard.press("Enter");

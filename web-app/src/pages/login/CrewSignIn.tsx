@@ -229,17 +229,20 @@ const CrewSignIn = ({
     login.mutate(
       { org: device.org, identifier, pin: data.pin },
       {
-        onSuccess: async ({ name }) => {
+        onSuccess: ({ name }) => {
           // Only a sign-in that worked puts a name at the top of the board.
           rememberCrewSignIn(device, identifier);
           setRedirecting(true);
-          const destination = await resolveCrewDestination(returnTo, device.returnTo);
-          if (destination) {
-            window.location.href = destination;
-            return;
-          }
-          setRedirecting(false);
-          setSignedInAs(name);
+          // Cannot reject — the return-to check answers "not allowed" on any failure —
+          // so `redirecting` is always cleared (or the page is on its way out).
+          void resolveCrewDestination(returnTo, device.returnTo).then((destination) => {
+            if (destination) {
+              window.location.href = destination;
+              return;
+            }
+            setRedirecting(false);
+            setSignedInAs(name);
+          });
         },
         onError: (error) => {
           resetField("pin");

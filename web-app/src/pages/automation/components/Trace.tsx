@@ -133,7 +133,10 @@ function summarize(event: AutomationEvent): string {
         case "fail":
           return `→ fail · ${p.error ?? ""}`;
         default:
-          return `→ ${p.kind ?? "?"}`;
+          // The union is exhausted above, so `p` is `never` here — but the payload
+          // comes off the wire, and a newer backend can send a kind this build
+          // does not know. Read it as the string it is.
+          return `→ ${(p as { kind?: string }).kind ?? "?"}`;
       }
     }
     default:

@@ -75,7 +75,11 @@ const ViewExplorerProviderInner = ({
         viewData,
         viewError,
         viewLoading,
-        refetchViewDetails
+        // TanStack's `refetch` resolves with the error rather than rejecting; a failed
+        // reload surfaces as `viewError`.
+        refetchViewDetails: () => {
+          void refetchViewDetails();
+        }
       }}
     >
       <SemanticExplorerProvider

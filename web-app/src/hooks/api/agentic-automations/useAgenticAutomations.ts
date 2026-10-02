@@ -522,7 +522,9 @@ export const useAutomationRunController = () => {
       const { run_id } = await start.mutateAsync(request);
       setRunId(run_id);
       // Pre-warm the snapshot cache so a follow-up <Run page> render is fast.
-      queryClient.prefetchQuery({
+      // `prefetchQuery` swallows a failed fetch (it resolves either way), so there
+      // is nothing to catch — the run page's own query reports the error.
+      void queryClient.prefetchQuery({
         queryKey: keys.run(project.id, run_id),
         queryFn: () => AutomationService.getRun(project.id, run_id)
       });

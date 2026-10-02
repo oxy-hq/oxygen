@@ -8,6 +8,13 @@ export interface QuickBooksPipelineSource {
 }
 
 /**
+ * A hand-written YAML scalar as text. A mapping, list or boolean where an id or a
+ * variable name belongs reads as missing, rather than as `[object Object]`.
+ */
+const scalarText = (value: unknown): string =>
+  typeof value === "string" || typeof value === "number" ? String(value) : "";
+
+/**
  * Parse a `.airway.yml` and return its QuickBooks source config, or `null`
  * if the pipeline isn't a QuickBooks source (or the required fields are
  * missing / the YAML is unparsable). Used to drive the Reconnect button.
@@ -22,9 +29,9 @@ export function parseQuickBooksSource(yamlText: string): QuickBooksPipelineSourc
   const source = (doc as { source?: { kind?: unknown; config?: Record<string, unknown> } })?.source;
   if (source?.kind !== "quickbooks") return null;
   const config = source.config ?? {};
-  const clientId = String(config.client_id ?? "");
-  const clientSecretVar = String(config.client_secret_var ?? "");
-  const refreshTokenVar = String(config.refresh_token_var ?? "");
+  const clientId = scalarText(config.client_id);
+  const clientSecretVar = scalarText(config.client_secret_var);
+  const refreshTokenVar = scalarText(config.refresh_token_var);
   if (!clientId || !clientSecretVar || !refreshTokenVar) return null;
   return { kind: "quickbooks", clientId, clientSecretVar, refreshTokenVar };
 }

@@ -520,7 +520,11 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const question = thread.input;
   const isBuilder = agentId === "__builder__";
 
-  const { builderModel, isLoading: isCheckingBuilder } = useBuilderAvailable();
+  const {
+    builderModel,
+    isLoading: isCheckingBuilder,
+    isError: builderCheckFailed
+  } = useBuilderAvailable();
 
   const isStreaming = state.tag === "running" || state.tag === "suspended";
   const runExists = isStreaming || isTerminal;
@@ -549,13 +553,17 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   // for the refetch to complete before concluding this is truly a first visit.
   // Without this, navigating back to a thread whose run hasn't finished yet would
   // see allRuns=[] + isLoading=false and fire a second auto-start run.
+  const hasNoRunYet =
+    !isLookingUp && !isFetchingRuns && allRuns.length === 0 && state.tag === "idle";
   const isFirstVisit =
-    !isLookingUp &&
-    !isFetchingRuns &&
-    allRuns.length === 0 &&
-    state.tag === "idle" &&
+    hasNoRunYet &&
     // For builder threads, wait until the model is resolved (covers both in-flight and error cases).
     !(isBuilder && (isCheckingBuilder || !builderModel));
+  // The builder check has settled without a model — the request failed, the workspace
+  // has no `builder_agent`, or its `model` is empty. Auto-start is the only thing that
+  // starts a builder thread's first run and it never fires here, so the thread says why
+  // instead of sitting blank.
+  const builderCannotStart = hasNoRunYet && isBuilder && !isCheckingBuilder && !builderModel;
 
   // Auto-start the run on first visit so the user doesn't need to click a button
   // after already submitting their question from ChatPanel.
@@ -744,6 +752,24 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     isRunning={true}
                     onSelectArtifact={handleSelectArtifact}
                   />
+                )}
+
+                {builderCannotStart && (
+                  <RunEntry
+                    question={question}
+                    events={[]}
+                    isRunning={false}
+                    onSelectArtifact={handleSelectArtifact}
+                  >
+                    <ErrorAlert
+                      title="The Builder Agent didn't start"
+                      message={
+                        builderCheckFailed
+                          ? "Couldn't check this workspace's Builder Agent configuration. Reload the page to try again."
+                          : "No model is configured for the Builder Agent. Set builder_agent.model in config.yml, then reload the page."
+                      }
+                    />
+                  </RunEntry>
                 )}
 
                 {runExists && (

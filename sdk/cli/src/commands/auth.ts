@@ -131,7 +131,7 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   const cached = loadCredential(target);
   const lines = [
     `${out.bold("target")}      ${target}`,
-    `${out.bold("email")}       ${String(user.email ?? cached?.email ?? "unknown")}`,
+    `${out.bold("email")}       ${typeof user.email === "string" ? user.email : (cached?.email ?? "unknown")}`,
     `${out.bold("app admin")}   ${user.is_app_admin ? "yes" : "no"}`
   ];
   if (typeof user.id === "string") lines.push(`${out.bold("user id")}     ${user.id}`);

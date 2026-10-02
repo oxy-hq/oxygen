@@ -21,13 +21,12 @@ type RunTestsFileResult = {
 function suiteSummaryToTestResult(suite: RunTestsSuiteSummary): TestResult {
   return {
     errors: suite.errors ?? [],
-    metrics: [
-      {
-        type: MetricKind.Correctness,
-        score: suite.score ?? 0,
-        records: []
-      }
-    ]
+    // No score means the suite was never judged (it errored first). That is no
+    // metric at all — a made-up 0 would read as a suite that ran and failed.
+    metrics:
+      typeof suite.score === "number"
+        ? [{ type: MetricKind.Correctness, score: suite.score, records: [] }]
+        : []
   };
 }
 

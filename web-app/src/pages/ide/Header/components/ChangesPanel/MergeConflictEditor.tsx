@@ -366,7 +366,10 @@ export function MergeConflictEditor({ file, onResolved }: MergeConflictEditorPro
   }, [project?.id, branchName, pathb64, result, isSavingDraft]);
 
   useEffect(() => {
-    saveDraftRef.current = handleSaveDraft;
+    // `handleSaveDraft` catches a failed save and toasts it, so the promise carries nothing.
+    saveDraftRef.current = () => {
+      void handleSaveDraft();
+    };
   }, [handleSaveDraft]);
 
   const scrollSyncRef = useRef<{ dispose: () => void } | null>(null);

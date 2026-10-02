@@ -1,13 +1,18 @@
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
+import { toText } from "@/libs/utils/string";
 import type { SemanticQueryFilter } from "@/services/api/semantic";
 import CollapsibleSection from "./CollapsibleSection";
 import FilterRow, { type FilterDimension } from "./FilterRow";
 
 const formatFilterValue = (f: SemanticQueryFilter): string => {
   if ("relative" in f && f.relative) return String(f.relative);
-  if ("from" in f || "to" in f)
-    return `${"from" in f ? (f.from ?? "…") : "…"} → ${"to" in f ? (f.to ?? "…") : "…"}`;
+  if ("from" in f || "to" in f) {
+    // Bounds are ISO or relative strings; the type also admits a Date, which prints as ISO.
+    const from = "from" in f ? toText(f.from ?? "…") : "…";
+    const to = "to" in f ? toText(f.to ?? "…") : "…";
+    return `${from} → ${to}`;
+  }
   if ("values" in f && Array.isArray(f.values)) return (f.values as unknown[]).join(", ");
   if ("value" in f && f.value != null)
     return Array.isArray(f.value) ? f.value.join(", ") : String(f.value);

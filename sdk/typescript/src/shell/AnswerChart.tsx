@@ -35,7 +35,13 @@ const toNum = (v: unknown): number => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
 };
-const toStr = (v: unknown): string => (v === null || v === undefined ? "" : String(v));
+const toStr = (v: unknown): string => {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  // A struct or array cell: its JSON names it, "[object Object]" names nothing.
+  return JSON.stringify(v);
+};
 
 /** "sales_daily__total_net_sales" → "Total Net Sales" — a friendly series
  *  label instead of the raw semantic column id. */

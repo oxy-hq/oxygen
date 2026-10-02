@@ -1,6 +1,7 @@
 import { AlertTriangle, Bot, Database, GitBranch, Repeat, Wrench } from "lucide-react";
 import type React from "react";
 import { cn } from "@/libs/shadcn/utils";
+import { toText } from "@/libs/utils/string";
 import { formatDurationMs } from "../../../../components/utils";
 import { Waterfall } from "../Waterfall";
 import type { AutomationNode } from "./model";
@@ -196,7 +197,7 @@ const ResultPreview: React.FC<{ columns: string[]; rows: unknown[][] }> = ({ col
                       ) : typeof cell === "object" ? (
                         JSON.stringify(cell)
                       ) : (
-                        String(cell)
+                        toText(cell)
                       )}
                     </td>
                   ))}

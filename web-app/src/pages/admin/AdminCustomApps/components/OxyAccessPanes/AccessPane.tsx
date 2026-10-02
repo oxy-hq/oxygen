@@ -74,7 +74,9 @@ export const AccessPane = () => {
     // an unguarded effect re-fires forever and retries a dead page in a loop. This one
     // is pre-existing rather than introduced here, but it is the same bug in the same
     // shape, in a file this change already touches.
-    if (hasMoreApps && !fetchingApps && !appsError) fetchMoreApps();
+    // `void`: TanStack's `fetchNextPage` resolves with the error, never rejects — the
+    // failure is the `appsError` this guard reads.
+    if (hasMoreApps && !fetchingApps && !appsError) void fetchMoreApps();
   }, [hasMoreApps, fetchingApps, fetchMoreApps, appsError]);
   const appsByOrg = useMemo(() => {
     const map = new Map<string, CustomApp[]>();

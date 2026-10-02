@@ -131,7 +131,8 @@ function createAuthListener(
         window.removeEventListener("message", listener);
         reject(
           new PostMessageAuthInvalidResponseError(
-            `Unsupported protocol version: ${response.version}`
+            // The type says "1.0"; this branch is what arrives when it is not.
+            `Unsupported protocol version: ${JSON.stringify(response.version)}`
           )
         );
         return;

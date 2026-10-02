@@ -39,8 +39,12 @@ export function useSetWorkspaceAppSecret(workspaceId: string) {
   return useMutation({
     mutationFn: ({ appId, key, value }: { appId: string; key: string; value: string }) =>
       CustomAppsService.setWorkspaceAppSecret(workspaceId, appId, key, value),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.secret.list(workspaceId) }),
+    // The hook owns the success toast as well, as `useCreateSecret` does: the
+    // dialog's callers only close it, so each path says it exactly once.
+    onSuccess: () => {
+      toast.success("Secret created successfully");
+      return queryClient.invalidateQueries({ queryKey: queryKeys.secret.list(workspaceId) });
+    },
     // The dialog calling this catches and only `console.error`s, on the
     // assumption — true of `useCreateSecret`, and it had to become true here —
     // that the hook owns the toast. Without this a rejected key (400), an app

@@ -107,7 +107,8 @@ const LivePlayer: React.FC<Props> = ({ cameraId, onStatusChange, className, cont
       setStatus("loading");
     };
 
-    (async () => {
+    // Cannot reject: the whole body is inside the `try`, and its `catch` falls back to HLS.
+    void (async () => {
       try {
         const session = await CameraService.requestWebrtcSession(effectiveWorkspaceId, cameraId);
         if (aborted) return;

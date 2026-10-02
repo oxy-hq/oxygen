@@ -166,7 +166,9 @@ const EditorPageWrapperContent = ({
     useNavigationBlock(fileState);
 
   const handleSaveAndNavigate = () => {
-    actions.save(() => blocker.proceed?.());
+    // `actions.save` never rejects: it catches a failed save and puts the file back to
+    // "modified", so the blocked navigation just does not proceed.
+    void actions.save(() => blocker.proceed?.());
   };
 
   const renderContent = () => {

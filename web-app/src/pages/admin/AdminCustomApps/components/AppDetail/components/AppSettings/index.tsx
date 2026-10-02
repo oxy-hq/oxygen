@@ -34,7 +34,9 @@ export const AppSettings = ({ app }: { app: CustomApp }) => {
       return;
     }
     del(app.id, {
-      onSuccess: () => navigate("/admin/apps")
+      onSuccess: () => {
+        void navigate("/admin/apps");
+      }
     });
   };
 

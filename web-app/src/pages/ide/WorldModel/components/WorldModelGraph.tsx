@@ -100,7 +100,7 @@ export function WorldModelGraph({
   // whichever entity card actually owns each contributor measure — grouped
   // by entity (resolved from the breakdown's view names) rather than spawned
   // as synthetic floating nodes.
-  const { data: breakdown } = useWmMeasureBreakdown(
+  const { data: breakdown, error: breakdownError } = useWmMeasureBreakdown(
     expandedEntityId,
     instanceKey,
     breakdownMeasure
@@ -255,6 +255,7 @@ export function WorldModelGraph({
               ...selData,
               breakdownMeasure,
               breakdownMeasures,
+              breakdownFailed: !!breakdownError,
               instanceKey,
               onExpandEntity,
               dimmed: false
@@ -318,6 +319,7 @@ export function WorldModelGraph({
       expandedEntityId,
       breakdownMeasure,
       breakdown,
+      breakdownError,
       contributorsByEntity,
       instanceKey,
       onExpandEntity,

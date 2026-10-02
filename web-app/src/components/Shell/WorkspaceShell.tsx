@@ -57,7 +57,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: "rail-hq",
     icon: <House className='h-4 w-4' />,
     active: isHome,
-    onSelect: () => navigate(ws.HOME)
+    onSelect: () => {
+      navigate(ws.HOME);
+    }
   };
   // The Chat landing (composer + recent threads) reached at /threads. Replaces
   // the old "Threads" list item; "Automations" was removed from the rail.
@@ -67,7 +69,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: "rail-chat",
     icon: <MessagesSquare className='h-4 w-4' />,
     active: path.startsWith(ws.THREADS),
-    onSelect: () => navigate(ws.THREADS)
+    onSelect: () => {
+      navigate(ws.THREADS);
+    }
   };
   // Apps open in their own tab, never inside the shell — see `appWindowName`
   // for why HQ must not host an app in its own browsing context.
@@ -90,7 +94,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: "rail-core",
     icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),
-    onSelect: () => navigate(ws.IDE.ROOT)
+    onSelect: () => {
+      navigate(ws.IDE.ROOT);
+    }
   };
   // Admin console entry — pinned directly beneath Oxygen Factory in the system
   // zone, visible only to operators. Full-page-ish SPA nav to the customer-apps
@@ -102,7 +108,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: "rail-admin",
     icon: <Shield className='h-4 w-4' />,
     active: path.startsWith("/admin"),
-    onSelect: () => navigate("/admin/apps")
+    onSelect: () => {
+      navigate("/admin/apps");
+    }
   };
 
   // Partner console entry — shown to partner admins (non-operators reach it
@@ -114,7 +122,9 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     testId: "rail-partner",
     icon: <Handshake className='h-4 w-4' />,
     active: path.startsWith("/partners"),
-    onSelect: () => navigate("/partners")
+    onSelect: () => {
+      navigate("/partners");
+    }
   };
 
   // Home + Chat share one block (no divider — both are primary HQ nav); apps get

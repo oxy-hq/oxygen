@@ -505,12 +505,14 @@ function renderInputBlock(
           buttonLabel={block.buttonLabel}
           disabled={block.busy}
           errorMessage={block.errorMessage}
+          // The save actions cannot reject: each catches its own request
+          // failures and reports them on the step (inline error) or by toast.
           onSubmit={(value) => {
             if (message.id === "llm_key") {
-              actions.saveLlmKey(value);
+              void actions.saveLlmKey(value);
             } else if (message.id.startsWith(GITHUB_LLM_KEY_PREFIX)) {
               const varName = message.id.substring(GITHUB_LLM_KEY_PREFIX.length);
-              actions.saveGithubLlmKey(varName, value);
+              void actions.saveGithubLlmKey(varName, value);
             }
           }}
         />
@@ -525,15 +527,17 @@ function renderInputBlock(
           initialUploadedFiles={block.initialUploadedFiles}
           disabled={block.busy}
           errorMessage={block.errorMessage}
+          // Neither action can reject: a failed save, test or sync is caught
+          // there and lands on the step as its connection error.
           onSubmit={(values) => {
             if (message.id.startsWith(GITHUB_WAREHOUSE_PREFIX)) {
               const name = message.id.substring(GITHUB_WAREHOUSE_PREFIX.length);
               const warehouse = orchestrator.state.githubSetup?.warehouses.find(
                 (w) => w.name === name
               );
-              if (warehouse) actions.saveGithubWarehouseCreds(warehouse, values);
+              if (warehouse) void actions.saveGithubWarehouseCreds(warehouse, values);
             } else {
-              actions.testAndSaveWarehouse(values);
+              void actions.testAndSaveWarehouse(values);
             }
           }}
           onFileUpload={actions.uploadWarehouseFiles}

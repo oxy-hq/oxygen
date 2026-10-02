@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/shadcn/button";
 import { Spinner } from "@/components/ui/shadcn/spinner";
+import { toText } from "@/libs/utils/string";
 import type { ControlConfig, DataContainer } from "@/types/app";
 import { DateControl } from "./DateControl";
 import { SelectControl } from "./SelectControl";
@@ -39,7 +40,7 @@ export function ControlsBar({ controls, values, data, onChange, onRun, isRunning
             <DateControl
               key={control.name}
               control={control}
-              value={String(value ?? "")}
+              value={toText(value)}
               onChange={(v) => onChange(control.name, v)}
             />
           );
@@ -50,7 +51,7 @@ export function ControlsBar({ controls, values, data, onChange, onRun, isRunning
           <SelectControl
             key={control.name}
             control={control}
-            value={String(value ?? "")}
+            value={toText(value)}
             data={data}
             onChange={(v) => onChange(control.name, v)}
           />

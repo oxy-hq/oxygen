@@ -89,7 +89,8 @@ export const useCreateTestFile = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleCreate();
+      // `handleCreate` catches its own failures and toasts them.
+      void handleCreate();
     }
   };
 

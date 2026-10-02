@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { useCopyTimeout } from "@/components/automation/output/useCopyTimeout";
 import { Button } from "@/components/ui/shadcn/button";
 import usePrismTheme from "@/hooks/usePrismTheme";
 
@@ -15,14 +15,12 @@ export default function SqlDisplay({
   label = "SQL Query",
   isPreview = false
 }: SqlDisplayProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, handleCopy } = useCopyTimeout();
   const prismTheme = usePrismTheme();
 
-  const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(sql);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // `handleCopy` catches a refused clipboard write itself and only flips to the check
+  // on success.
+  const copyToClipboard = () => void handleCopy(sql);
 
   if (isPreview) {
     return (

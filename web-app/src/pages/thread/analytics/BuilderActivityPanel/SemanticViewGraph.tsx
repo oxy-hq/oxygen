@@ -298,9 +298,14 @@ export const SemanticViewGraph = ({
   const [layoutedNodes, setLayoutedNodes] = useState<RFNode[]>([]);
   const [layoutedEdges, setLayoutedEdges] = useState<RFEdge[]>([]);
   const [rfInstance, setRfInstance] = useState<{ fitView: (opts?: object) => void } | null>(null);
+  const [layoutFailed, setLayoutFailed] = useState(false);
 
   useEffect(() => {
     if (baseNodes.length === 0) return;
+
+    // Layout is async and the inputs change while the builder streams: a slower,
+    // earlier layout must not overwrite the result of a newer one.
+    let cancelled = false;
 
     // Source is excluded from ELK so it stays on the same row as view (to its right).
     const elkNodes = baseNodes
@@ -335,6 +340,8 @@ export const SemanticViewGraph = ({
         edges: elkEdges
       })
       .then((layout) => {
+        if (cancelled) return;
+        setLayoutFailed(false);
         const viewPos = layout.children?.find((n) => n.id === "view");
         setLayoutedNodes(
           baseNodes.map((node) => {
@@ -368,7 +375,21 @@ export const SemanticViewGraph = ({
             return svgPath ? { ...e, type: "elkRouted", data: { svgPath } } : e;
           })
         );
+      })
+      // ELK rejects on a graph it cannot lay out (e.g. an edge naming a node that
+      // is not in `children`). Left alone the canvas stays blank, or keeps showing the
+      // graph of the previous inputs — clear it and say so instead.
+      .catch((error: unknown) => {
+        console.error("Semantic view graph layout failed", error);
+        if (cancelled) return;
+        setLayoutedNodes([]);
+        setLayoutedEdges([]);
+        setLayoutFailed(true);
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [baseNodes, rfEdges]);
 
   useEffect(() => {
@@ -416,7 +437,7 @@ export const SemanticViewGraph = ({
         )}
       </div>
 
-      <div className='min-h-0 flex-1'>
+      <div className='relative min-h-0 flex-1'>
         <ReactFlow
           nodes={layoutedNodes}
           edges={layoutedEdges}
@@ -442,6 +463,11 @@ export const SemanticViewGraph = ({
             variant={BackgroundVariant.Dots}
           />
         </ReactFlow>
+        {layoutFailed && (
+          <div className='pointer-events-none absolute inset-0 flex items-center justify-center text-destructive text-sm'>
+            Failed to lay out this graph
+          </div>
+        )}
       </div>
     </div>
   );

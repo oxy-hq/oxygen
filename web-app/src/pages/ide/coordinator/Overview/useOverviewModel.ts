@@ -140,10 +140,12 @@ export const useOverviewModel = (range: TimeRange, typeFilter: JobTypeChoice) =>
     metrics,
     isPending: history.isPending,
     error: history.error,
+    // TanStack refetches resolve with the error rather than rejecting; a failed
+    // reload shows through each query's own `error`.
     refetch: () => {
-      active.refetch();
-      history.refetch();
-      schedules.refetch();
+      void active.refetch();
+      void history.refetch();
+      void schedules.refetch();
     }
   };
 };

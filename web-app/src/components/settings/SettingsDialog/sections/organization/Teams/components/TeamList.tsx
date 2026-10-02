@@ -129,7 +129,8 @@ export function TeamList({
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
-                handleDelete();
+                // handleDelete toasts its own failure and cannot reject.
+                void handleDelete();
               }}
               disabled={deleteTeam.isPending}
             >

@@ -43,6 +43,7 @@ describe("reachOf", () => {
   });
 
   it("can be awaited by code written against the app-side version", async () => {
+    // oxlint-disable-next-line typescript/await-thenable -- awaiting the synchronous return is what this test is about
     expect(await reachOf(ctx({ reach: scoped("clovis") }))).toEqual(scoped("clovis"));
   });
 });

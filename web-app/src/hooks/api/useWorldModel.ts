@@ -104,6 +104,7 @@ export function useWmFilterCounts(entityId: string | null, keyValue: string | nu
 
   const [counts, setCounts] = useState<Record<string, WmEntityCount> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // Buffer totals until matched arrives so nodes never flash "0 / N".
   const bufferRef = useRef<
@@ -115,6 +116,7 @@ export function useWmFilterCounts(entityId: string | null, keyValue: string | nu
     bufferRef.current = {};
     setCounts(null);
     setIsLoading(false);
+    setError(null);
   }, []);
 
   useEffect(() => {
@@ -130,6 +132,7 @@ export function useWmFilterCounts(entityId: string | null, keyValue: string | nu
     bufferRef.current = {};
     setCounts(null);
     setIsLoading(true);
+    setError(null);
 
     WorldModelService.streamFilterCounts(
       projectId,
@@ -163,6 +166,13 @@ export function useWmFilterCounts(entityId: string | null, keyValue: string | nu
         }
       },
       () => setIsLoading(false),
+      (streamError) => {
+        // An abort never reports a failure, but one that settled just before this
+        // stream was superseded must not land on the seed that replaced it.
+        if (controller.signal.aborted) return;
+        setError(streamError);
+        setIsLoading(false);
+      },
       controller.signal,
       branchName
     );
@@ -172,7 +182,7 @@ export function useWmFilterCounts(entityId: string | null, keyValue: string | nu
     };
   }, [projectId, branchName, entityId, keyValue, reset]);
 
-  return { counts, isLoading };
+  return { counts, isLoading, error };
 }
 
 /**
@@ -284,12 +294,14 @@ export function useWmInstanceDetail(entityId: string | null, keyValue: string | 
 
   const [state, setState] = useState<WmInstanceDetailState>(EMPTY_INSTANCE_DETAIL_STATE);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setState(EMPTY_INSTANCE_DETAIL_STATE);
     setIsLoading(false);
+    setError(null);
   }, []);
 
   useEffect(() => {
@@ -303,6 +315,7 @@ export function useWmInstanceDetail(entityId: string | null, keyValue: string | 
     abortRef.current = controller;
     setState(EMPTY_INSTANCE_DETAIL_STATE);
     setIsLoading(true);
+    setError(null);
 
     WorldModelService.streamInstanceDetail(
       projectId,
@@ -316,6 +329,12 @@ export function useWmInstanceDetail(entityId: string | null, keyValue: string | 
         setState((prev) => applyInstanceDetailEvent(prev, event));
       },
       () => setIsLoading(false),
+      (streamError) => {
+        // See `useWmFilterCounts`: a failure of a superseded stream is not this one's.
+        if (controller.signal.aborted) return;
+        setError(streamError);
+        setIsLoading(false);
+      },
       controller.signal,
       branchName
     );
@@ -325,7 +344,7 @@ export function useWmInstanceDetail(entityId: string | null, keyValue: string | 
     };
   }, [projectId, branchName, entityId, keyValue, reset]);
 
-  return { data: state.data, isLoading, error: null };
+  return { data: state.data, isLoading, error };
 }
 
 /**
@@ -363,7 +382,9 @@ export function applyBreakdownEvent(
  * a single in-flight query, so the (expensive) breakdown SSE stream runs once and
  * both consumers share it. Progressive SSE events are folded into the cache via
  * `setQueryData` so subscribers re-render as values arrive, and the query resolves
- * with the fully assembled tree on `done`.
+ * with the fully assembled tree on `done`. A stream that fails, or ends before
+ * `done`, rejects the query: `error` is set and the partial tree is not cached as
+ * a finished one (`data` may still hold what arrived, its unvalued nodes null).
  */
 export function useWmMeasureBreakdown(
   entityId: string | null,
@@ -392,7 +413,7 @@ export function useWmMeasureBreakdown(
     staleTime: 60 * 1000,
     retry: false,
     queryFn: ({ signal }) =>
-      new Promise<WmMeasureBreakdown | null>((resolve) => {
+      new Promise<WmMeasureBreakdown | null>((resolve, reject) => {
         // React Query cancels the query (aborts `signal`) when the last
         // observer unmounts mid-flight or the key changes — forward that to
         // the underlying SSE fetch so we don't leak a stream.
@@ -415,12 +436,15 @@ export function useWmMeasureBreakdown(
             // Publish each partial tree to every subscriber of this key.
             queryClient.setQueryData(queryKey, assembled);
           },
-          () => resolve(assembled),
+          // The server always ends with `done`, which has resolved by now (settling
+          // twice is a no-op). A close without it is a stream cut short.
+          () => reject(new Error("Measure breakdown stream ended before it finished")),
+          reject,
           controller.signal,
           branchName
         );
       })
   });
 
-  return { data: query.data ?? null, isLoading: query.isLoading };
+  return { data: query.data ?? null, isLoading: query.isLoading, error: query.error };
 }

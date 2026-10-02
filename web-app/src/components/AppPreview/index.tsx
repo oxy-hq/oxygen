@@ -171,7 +171,8 @@ export default function AppPreview({ appPath64, runButton = true, autoRun = true
       if (cached && JSON.stringify(cached.controlValues) === JSON.stringify(defaults)) {
         setParamData(cached.data);
       } else if (autoRun) {
-        runClientTasks(defaults);
+        // runClientTasks cannot reject: its catch falls back to the server run.
+        void runClientTasks(defaults);
       }
     }
   }, [appDisplayControls, allClientMode, runClientTasks, appPath64, autoRun]);
@@ -185,7 +186,7 @@ export default function AppPreview({ appPath64, runButton = true, autoRun = true
     // forcedServerMode was just reset above; read allClientMode directly so this
     // render's stale closure value doesn't send us to the server unnecessarily.
     if (allClientMode) {
-      runClientTasks(controlValues);
+      void runClientTasks(controlValues);
     } else {
       runApp({
         pathb64: appPath64,
@@ -208,7 +209,7 @@ export default function AppPreview({ appPath64, runButton = true, autoRun = true
     if (allClientMode && !forcedServerMode) {
       if (clientDebounceRef.current) clearTimeout(clientDebounceRef.current);
       clientDebounceRef.current = setTimeout(() => {
-        runClientTasks(next);
+        void runClientTasks(next);
       }, 300);
     } else {
       if (serverDebounceRef.current) clearTimeout(serverDebounceRef.current);

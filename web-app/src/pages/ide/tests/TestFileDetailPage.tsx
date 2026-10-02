@@ -21,9 +21,11 @@ import {
   XCircle,
   Zap
 } from "lucide-react";
+
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { CanWorkspaceAdmin, CanWorkspaceEditor } from "@/components/auth/Can";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Badge } from "@/components/ui/shadcn/badge";
@@ -1142,8 +1144,14 @@ const TestFileDetailPage: React.FC = () => {
       testFile.cases.forEach((_, index) => {
         runCase(projectId, branchName, pathb64, index, run.run_index);
       });
-    } catch {
-      // Fallback: run without persisted run
+    } catch (error) {
+      // Fallback: run without a persisted run — and say so, because without a
+      // `run_index` the server saves none of these results.
+      console.error("Failed to create test run:", error);
+      toast.error("Failed to create a test run", {
+        id: "test-run-not-saved",
+        description: "The tests will still run, but their results won't be saved."
+      });
       testFile.cases.forEach((_, index) => {
         runCase(projectId, branchName, pathb64, index);
       });
@@ -1426,7 +1434,12 @@ const TestFileDetailPage: React.FC = () => {
                     const run = await createRun.mutateAsync({ pathb64 });
                     handleSelectRun(run.run_index);
                     runCase(projectId, branchName, pathb64, selectedCaseIndex, run.run_index);
-                  } catch {
+                  } catch (error) {
+                    console.error("Failed to create test run:", error);
+                    toast.error("Failed to create a test run", {
+                      id: "test-run-not-saved",
+                      description: "The test will still run, but its result won't be saved."
+                    });
                     runCase(projectId, branchName, pathb64, selectedCaseIndex);
                   }
                 }

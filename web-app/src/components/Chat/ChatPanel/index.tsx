@@ -78,8 +78,9 @@ const ChatPanel = ({
       case "workflow":
         // `data.source` carries the automation's path-base64 (set when the
         // thread was created above). The new agentic-automations runner
-        // decodes it back into a workflow_ref.
-        runAutomation(data.id, data.source);
+        // decodes it back into a workflow_ref. Cannot reject: the run catches
+        // its own start/stream failures and reports them with a toast.
+        void runAutomation(data.id, data.source);
         break;
     }
     // Clear the composer once the thread exists. On the onThreadCreated

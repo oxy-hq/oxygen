@@ -224,14 +224,14 @@ test.describe("IDE Files - File/Folder Delete", () => {
     const idePage = new IDEPage(page);
     await idePage.verifyFilesMode();
 
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "DELETE") {
-        route.fulfill({
+        await route.fulfill({
           status: 500,
           body: JSON.stringify({ error: "Internal Server Error" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -261,14 +261,14 @@ test.describe("IDE Files - File/Folder Delete", () => {
     const idePage = new IDEPage(page);
     await idePage.verifyFilesMode();
 
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "DELETE") {
-        route.fulfill({
+        await route.fulfill({
           status: 404,
           body: JSON.stringify({ error: "File not found" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 

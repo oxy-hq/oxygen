@@ -127,10 +127,10 @@ describe("PreviewBar", () => {
     );
 
     // Same branch, different revision: not a confirmation of THIS preview.
-    act(() => reportPreviewServed("feat/x@rev-0"));
+    await act(() => reportPreviewServed("feat/x@rev-0"));
     expect(el).toHaveAttribute("data-confirmed", "false");
 
-    act(() => reportPreviewServed("feat/x@rev-1"));
+    await act(() => reportPreviewServed("feat/x@rev-1"));
     expect(el).toHaveAttribute("data-confirmed", "true");
     expect(screen.getByTestId("preview-bar-confirmed")).toHaveTextContent(
       "Served from this revision"
@@ -144,7 +144,7 @@ describe("PreviewBar", () => {
     renderAt(PINNED);
     const el = await bar();
 
-    act(() => reportPreviewServed("main@rev-1"));
+    await act(() => reportPreviewServed("main@rev-1"));
 
     expect(el).toHaveAttribute("data-confirmed", "true");
     expect(screen.getByTestId("preview-bar-branch")).toHaveTextContent("feat/x");

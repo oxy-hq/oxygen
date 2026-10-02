@@ -50,7 +50,8 @@ export const GitNamespaceSelection = ({ value, onChange }: Props) => {
 
   const handleConnected = (namespaceId: string) => {
     setAddOpen(false);
-    refetch().then(() => onChange?.(namespaceId));
+    // refetch settles into the query's error state; it does not reject.
+    void refetch().then(() => onChange?.(namespaceId));
   };
 
   const handleDelete = (ns: GitHubNamespace) => {

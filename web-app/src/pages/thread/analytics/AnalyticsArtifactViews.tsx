@@ -4,6 +4,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import type { ArtifactItem } from "@/hooks/analyticsSteps";
 import type { AnalyticsDisplayBlock } from "@/hooks/useAnalyticsRun";
+import { toText } from "@/libs/utils/string";
 import { ExplainBody } from "@/pages/ide/SemanticLayer/AnomaliesInbox/ExplainDrawer";
 import type {
   ExplainResult,
@@ -371,7 +372,7 @@ const SingleColumnCard = ({ col }: { col: ColumnResult }) => {
                 {sampleValues.map((v, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered list
                   <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}>
-                    <td className='px-2.5 py-1 font-mono'>{String(v ?? "null")}</td>
+                    <td className='px-2.5 py-1 font-mono'>{v == null ? "null" : toText(v)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -758,7 +759,7 @@ export const ColumnValuesView = ({ item }: { item: ArtifactItem }) => {
                   {values.map((v, i) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: stable ordered list
                     <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}>
-                      <td className='px-2.5 py-1 font-mono'>{String(v ?? "null")}</td>
+                      <td className='px-2.5 py-1 font-mono'>{v == null ? "null" : toText(v)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -865,8 +866,8 @@ export const CompileSemanticQueryView = ({ item }: { item: ArtifactItem }) => {
               <p className='mb-1.5 font-medium text-muted-foreground text-xs'>Time dimensions</p>
               <div className='flex flex-wrap gap-1'>
                 {(input.time_dimensions as Record<string, unknown>[]).map((td) => {
-                  const dimension = String(td.dimension ?? "");
-                  const granularity = td.granularity != null ? String(td.granularity) : null;
+                  const dimension = toText(td.dimension);
+                  const granularity = td.granularity != null ? toText(td.granularity) : null;
                   return (
                     <span
                       key={`${dimension}-${granularity ?? "none"}`}
@@ -888,14 +889,12 @@ export const CompileSemanticQueryView = ({ item }: { item: ArtifactItem }) => {
               <div className='flex flex-wrap gap-1'>
                 {(input.filters as Record<string, unknown>[]).map((f, i) => {
                   // Handle both formats: { field, op, value } and { member, operator, values }
-                  const field = String(f.field ?? f.member ?? "");
-                  const op = String(f.op ?? f.operator ?? "");
+                  const field = toText(f.field ?? f.member);
+                  const op = toText(f.op ?? f.operator);
                   const rawVal = f.value ?? f.values;
                   const val = Array.isArray(rawVal)
-                    ? rawVal.join(", ")
-                    : rawVal != null
-                      ? String(rawVal)
-                      : "";
+                    ? rawVal.map((v) => toText(v)).join(", ")
+                    : toText(rawVal);
                   return (
                     <span
                       key={`${field}-${op}-${i}`}

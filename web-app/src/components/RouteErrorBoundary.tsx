@@ -49,7 +49,8 @@ export function RouteErrorBoundary() {
   // as an update.
   useEffect(() => {
     let cancelled = false;
-    fetchDeployedVersion().then((deployed) => {
+    // fetchDeployedVersion never rejects: any failure resolves to null.
+    void fetchDeployedVersion().then((deployed) => {
       if (!cancelled) {
         setVerdict(deployed !== null && deployed !== APP_VERSION ? "outdated" : "current");
       }

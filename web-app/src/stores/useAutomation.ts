@@ -231,14 +231,14 @@ const useAutomation = create<AutomationState>((set, get) => ({
       edges: applyEdgeChanges(changes, get().edges)
     });
   },
-  initFromTasks: async (tasks: TaskConfigWithId[]) => {
+  initFromTasks: (tasks: TaskConfigWithId[]) => {
     const { nodes, edges } = buildAutomationNodes(tasks);
     set({
       baseNodes: nodes,
       edges
     });
   },
-  setNodeExpanded: async (nodeId: string, expanded: boolean) => {
+  setNodeExpanded: (nodeId: string, expanded: boolean) => {
     const nodes = get().baseNodes.map((node) => {
       if (node.id === nodeId) {
         return {

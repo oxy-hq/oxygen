@@ -176,6 +176,14 @@ export function buildLogItems(events: AutomationEvent[]): LogItem[] {
         }
         break;
       }
+      default:
+        // Deliberately not in the Output log: the loop-iteration events
+        // (`subrun_step_iteration_*`) only drive the diagram's progress bar —
+        // each iteration's result arrives in the loop step's own
+        // `subrun_step_output` — and `task_failed` / `worker_task_claimed` /
+        // `waiting_on_children` / `decider_decided` are coordinator
+        // diagnostics shown in the admin Trace view.
+        break;
     }
   }
 

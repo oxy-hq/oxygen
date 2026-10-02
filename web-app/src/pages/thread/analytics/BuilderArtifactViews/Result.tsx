@@ -47,7 +47,10 @@ const Similarity = ({ score, records }: SimilarityMetric) => {
               <ReactMarkdown
                 components={{
                   code: ({ children, ...props }) => {
-                    const text = typeof children === "string" ? children : String(children);
+                    // A fenced block reaches here as its one text node. Anything else
+                    // (nested elements) has no diff text to split, so render nothing
+                    // rather than "[object Object]".
+                    const text = typeof children === "string" ? children : "";
                     // Split on +++ / --- diff markers while preserving them, then
                     // render each segment as a React text node so injected HTML
                     // in record.cot (LLM-generated) cannot escape into the DOM.
@@ -177,6 +180,16 @@ const Result = ({ result }: { result: TestResult }) => {
                 score={metric.score}
                 records={metric.records as RecallRecord[]}
               />
+            );
+          case MetricKind.Correctness:
+            // The only kind `RunTestsView` builds (a suite's correctness score, with
+            // no judge records to expand) — without this case every suite rendered
+            // an empty block.
+            return (
+              <div key={metric.type} className='flex items-center gap-2 py-1'>
+                <p className='text-sidebar-foreground'>Correctness score:</p>
+                <p className='text-success'>{metric.score.toFixed(2)}</p>
+              </div>
             );
         }
       })}

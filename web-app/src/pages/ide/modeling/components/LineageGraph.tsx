@@ -216,17 +216,38 @@ function LineageGraphInner({ nodeId, dbtProjectName }: LineageGraphProps) {
   const [flowNodes, setFlowNodes] = useState<Node[]>([]);
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [layoutPending, setLayoutPending] = useState(false);
+  const [layoutFailed, setLayoutFailed] = useState(false);
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      // Nothing to lay out. A layout cancelled below no longer clears this itself.
+      setLayoutPending(false);
+      return;
+    }
     const { visibleNodes, visibleEdges } = collectVisible(nodeId, data.nodes, data.edges);
+    // A layout still running for a previous node belongs to a selection that is gone:
+    // its graph, its failure and its "finished" must not land on this one.
+    let cancelled = false;
     setLayoutPending(true);
+    setLayoutFailed(false);
     computeLayout(nodeId, visibleNodes, visibleEdges)
       .then(({ flowNodes: fn, flowEdges: fe }) => {
+        if (cancelled) return;
         setFlowNodes(fn);
         setFlowEdges(fe);
       })
-      .finally(() => setLayoutPending(false));
+      // ELK rejects a graph it cannot lay out (e.g. an edge naming a node the lineage
+      // does not list). Say so, rather than leave the previous node's graph on screen.
+      .catch((err) => {
+        console.error("Failed to lay out lineage graph:", err);
+        if (!cancelled) setLayoutFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLayoutPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [nodeId, data]);
 
   if (isLoading || layoutPending) {
@@ -237,7 +258,7 @@ function LineageGraphInner({ nodeId, dbtProjectName }: LineageGraphProps) {
     );
   }
 
-  if (error) {
+  if (error || layoutFailed) {
     return (
       <div className='flex h-full items-center justify-center text-destructive text-sm'>
         Failed to load lineage

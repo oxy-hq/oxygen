@@ -123,7 +123,9 @@ export default function TracesPage() {
         onOpenChange={setCompareOpen}
         onOpenTrace={(id) => {
           setCompareOpen(false);
-          goToTrace(id);
+          // `goToTrace` is react-router's `navigate`, whose promise only marks the
+          // navigation settling.
+          void goToTrace(id);
         }}
       />
     </div>

@@ -33,8 +33,12 @@ export function LinkedRepoActions({ repoName }: { repoName: string }) {
   const handleCommit = async (message: string) => {
     try {
       await commit.mutateAsync(message);
+    } catch {
+      // `useRepoCommit`'s `onError` already toasts the failure. Swallowed here because
+      // `onPush` is not awaited by its caller, so a rethrow is an unhandled rejection.
     } finally {
-      refetchDiff();
+      // A TanStack refetch resolves with the error rather than rejecting.
+      void refetchDiff();
     }
   };
 
@@ -72,7 +76,7 @@ export function LinkedRepoActions({ repoName }: { repoName: string }) {
       <button
         type='button'
         onClick={() => {
-          refetchDiff();
+          void refetchDiff();
           setChangesPanelOpen(true);
         }}
         disabled={commit.isPending}

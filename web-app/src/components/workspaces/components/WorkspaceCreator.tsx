@@ -139,7 +139,8 @@ export default function WorkspaceCreator({
             value={workspaceName}
             onChange={(e) => setWorkspaceName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleNewCreate();
+              // handleNewCreate cannot reject: it catches the failure and shows it inline.
+              if (e.key === "Enter") void handleNewCreate();
             }}
             autoFocus
           />

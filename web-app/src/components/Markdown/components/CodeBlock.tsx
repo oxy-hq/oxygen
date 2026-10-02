@@ -1,12 +1,23 @@
 import { cx } from "class-variance-authority";
 import type React from "react";
-import type { ReactNode } from "react";
+import { isValidElement, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import usePrismTheme from "@/hooks/usePrismTheme";
 
 type CodeBlockProps = {
   children?: ReactNode;
   className?: string;
+};
+
+// A fenced block arrives as one string. Raw HTML (rehype-raw) can put elements,
+// several nodes or nothing at all inside <code class="language-…">: take the
+// text, instead of printing "[object Object]", a comma-joined list or "undefined".
+const textOf = (node: ReactNode): string => {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
 };
 
 const CodeBlock: React.FC<CodeBlockProps> = ({ children, className }) => {
@@ -24,7 +35,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className }) => {
       lineProps={{ style: { wordBreak: "break-all", whiteSpace: "pre-wrap" } }}
       wrapLines={true}
     >
-      {String(children)}
+      {textOf(children)}
     </SyntaxHighlighter>
   ) : (
     <code

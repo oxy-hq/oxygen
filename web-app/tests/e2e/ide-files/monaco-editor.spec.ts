@@ -408,14 +408,14 @@ test.describe("IDE Files - Monaco Editor - Saving", () => {
     await idePage.insertTextAtEnd("Content that will fail to save");
     await idePage.verifySaveButtonVisible();
 
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "PUT" || request.method() === "POST") {
-        route.fulfill({
+        await route.fulfill({
           status: 500,
           body: JSON.stringify({ error: "Internal Server Error" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -435,14 +435,14 @@ test.describe("IDE Files - Monaco Editor - Saving", () => {
     await idePage.verifySaveButtonVisible();
 
     // Intercept save with 409
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "PUT" || request.method() === "POST") {
-        route.fulfill({
+        await route.fulfill({
           status: 409,
           body: JSON.stringify({ error: "File modified externally" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 

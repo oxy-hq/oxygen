@@ -161,6 +161,11 @@ function buildStreamSegments(events: SseEvent[]): StreamSegment[] {
         }
         break;
       }
+      default:
+        // Segments are the LLM's token and tool stream only. Every other event
+        // (step lifecycle, queries, charts, delegation, usage, the terminal
+        // done / error) is read off the event list by its own consumer.
+        break;
     }
   }
   return segments;

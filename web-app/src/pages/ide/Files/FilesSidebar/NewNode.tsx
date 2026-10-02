@@ -81,7 +81,8 @@ const NewNode = React.forwardRef<HTMLInputElement, NewNodeProps>(
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
-        handleCreate();
+        // `handleCreate` catches a failed create itself and toasts it.
+        void handleCreate();
       } else if (e.key === "Escape") {
         onCancel();
       }

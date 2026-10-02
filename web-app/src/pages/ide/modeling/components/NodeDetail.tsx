@@ -164,9 +164,15 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                 size='icon'
                 className='absolute top-2 right-2 z-10 h-6 w-6 bg-muted/50 opacity-60 hover:opacity-100'
                 onClick={() => {
-                  navigator.clipboard.writeText(sql);
-                  setCopyState("copied");
-                  setTimeout(() => setCopyState("idle"), 1500);
+                  // "Copied!" only once the write lands: the browser rejects it when
+                  // clipboard access is denied or the page is not focused.
+                  navigator.clipboard
+                    .writeText(sql)
+                    .then(() => {
+                      setCopyState("copied");
+                      setTimeout(() => setCopyState("idle"), 1500);
+                    })
+                    .catch((err) => console.error("Failed to copy SQL:", err));
                 }}
                 tooltip={{
                   content: copyState === "copied" ? "Copied!" : "Copy SQL",

@@ -97,7 +97,8 @@ export default function OrgLogoUpload({ org }: { org: Organization }) {
             accept={ACCEPT}
             className='hidden'
             onChange={(e) => {
-              handleFile(e.target.files?.[0]);
+              // handleFile toasts its own failures and cannot reject.
+              void handleFile(e.target.files?.[0]);
               e.target.value = "";
             }}
           />

@@ -182,10 +182,10 @@ moved** (`git log -1 --oneline`) rather than trusting the command's exit.
 `web-app/CLAUDE.md`.
 
 **`pnpm lint:bugs` must pass** (Biome errors + type-aware Oxlint, ~10s; rules in
-`.oxlintrc.json`). When it reports a new violation, fix it — **do not run the
-`oxlint --suppress-all` its error message suggests**: `oxlint-suppressions.json` is the
-backlog from the day each rule was turned on, and CI fails if it grows. After fixing an
-old one, `pnpm lint:bugs:prune` shrinks it.
+`.oxlintrc.json`). When it reports a violation, fix it — **do not run the
+`oxlint --suppress-all` its error message suggests**: `oxlint-suppressions.json` is empty
+and CI fails if it grows. Where the code is right and the rule is not, say so at the site:
+`// oxlint-disable-next-line typescript/<rule> -- <why>`.
 
 ## Database & Runtime
 

@@ -169,10 +169,10 @@ export class OxyClient {
           ? (options.headers as Record<string, string>).Accept
           : undefined;
       if (acceptHeader === "application/octet-stream") {
-        return response.blob() as Promise<T>;
+        return (await response.blob()) as T;
       }
 
-      return response.json();
+      return await response.json();
     } catch (error: unknown) {
       clearTimeout(timeoutId);
 

@@ -7,6 +7,8 @@ import { AnalyticsService } from "@/services/api/analytics";
 interface BuilderDelegationEventsResult {
   events: UiBlock[];
   isStreaming: boolean;
+  /** Set when the event stream itself failed (bad status, network) — not a run error. */
+  error: Error | null;
 }
 
 /**
@@ -20,6 +22,7 @@ export function useBuilderDelegationEvents(
 ): BuilderDelegationEventsResult {
   const [events, setEvents] = useState<UiBlock[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const appendEvent = useCallback((ev: UiBlock) => {
@@ -38,6 +41,7 @@ export function useBuilderDelegationEvents(
 
     setIsStreaming(true);
     setEvents([]);
+    setError(null);
 
     fetchEventSource(url, {
       method: "GET",
@@ -48,8 +52,10 @@ export function useBuilderDelegationEvents(
       openWhenHidden: true,
       signal: controller.signal,
       async onopen(res) {
+        // Throwing routes a refused connection through `onerror`. Returning instead
+        // would have the error body read as an empty, finished stream.
         if (res.status !== 200) {
-          setIsStreaming(false);
+          throw new Error(`Builder delegation event stream failed with status: ${res.status}`);
         }
       },
       onmessage(ev) {
@@ -81,6 +87,13 @@ export function useBuilderDelegationEvents(
       onclose() {
         setIsStreaming(false);
       }
+    }).catch((streamError: unknown) => {
+      // `onerror` rethrows to stop the retries, which rejects this promise. The
+      // streaming flag is already cleared there; an abort resolves instead.
+      console.error("Builder delegation event stream failed", streamError);
+      // A failure of a stream this effect has since replaced is not the current one's.
+      if (controller.signal.aborted) return;
+      setError(streamError instanceof Error ? streamError : new Error(String(streamError)));
     });
 
     return () => {
@@ -88,5 +101,5 @@ export function useBuilderDelegationEvents(
     };
   }, [isOpen, childRunId, projectId, appendEvent]);
 
-  return { events, isStreaming };
+  return { events, isStreaming, error };
 }

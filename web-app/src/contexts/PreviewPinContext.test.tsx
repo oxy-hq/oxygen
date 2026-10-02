@@ -78,7 +78,9 @@ function Pending() {
 function Url() {
   const location = useLocation();
   const navigate = useNavigate();
-  navigateTo = (to) => (typeof to === "number" ? navigate(to) : navigate(to));
+  navigateTo = (to) => {
+    void (typeof to === "number" ? navigate(to) : navigate(to));
+  };
   return createElement("span", { "data-testid": "url" }, `${location.pathname}${location.search}`);
 }
 

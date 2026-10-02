@@ -152,6 +152,14 @@ fn extract_agent_id(metadata: &Option<serde_json::Value>) -> String {
         .to_string()
 }
 
+/// The events of a pre-aggregation cycle that run detail shows: the
+/// `preagg_rollup_*` family and `preagg_refresh_key_error`. The latter is the
+/// one `PreaggEvent` that is not about a rollup, so a `preagg_rollup` prefix
+/// test dropped it — and a failed refresh-key probe never reached the log.
+fn is_preagg_event(event_type: &str) -> bool {
+    event_type.starts_with("preagg_rollup") || event_type == "preagg_refresh_key_error"
+}
+
 /// Whitelist of event types kept in the agent-run event log when the
 /// frontend waterfall view loads. Token-level chatter
 /// (`llm_token`/`thinking_token`) and noisy validators are dropped so
@@ -697,7 +705,7 @@ pub async fn get_run_tree(
             "preagg_cycle" => {
                 node.event_log = events
                     .into_iter()
-                    .filter(|e| e.event_type.starts_with("preagg_rollup"))
+                    .filter(|e| is_preagg_event(&e.event_type))
                     .map(|e| RunEventEntry {
                         seq: e.seq,
                         event_type: e.event_type,
@@ -1092,5 +1100,33 @@ fn build_snapshot(state: &AgenticState) -> Vec<LiveStatusEntry> {
 impl PartialEq for LiveStatusEntry {
     fn eq(&self, other: &Self) -> bool {
         self.run_id == other.run_id && self.status == other.status
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_preagg_event;
+
+    #[test]
+    fn every_preagg_event_reaches_the_run_detail_log() {
+        // The eight `PreaggEvent::event_type()` strings (agentic-automation).
+        for event_type in [
+            "preagg_rollup_fresh",
+            "preagg_rollup_started",
+            "preagg_rollup_done",
+            "preagg_rollup_retracted",
+            "preagg_rollup_failed",
+            "preagg_refresh_key_error",
+            "preagg_rollup_skipped_no_refresh_key",
+            "preagg_rollup_skipped_no_datasource",
+        ] {
+            assert!(is_preagg_event(event_type), "{event_type} was dropped");
+        }
+    }
+
+    #[test]
+    fn other_event_types_stay_out_of_a_preagg_log() {
+        assert!(!is_preagg_event("llm_token"));
+        assert!(!is_preagg_event("state_enter"));
     }
 }

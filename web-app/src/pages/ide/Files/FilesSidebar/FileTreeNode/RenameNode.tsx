@@ -93,7 +93,8 @@ const RenameNode = React.forwardRef<HTMLInputElement, RenameNodeProps>(
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") {
-        handleRename();
+        // `handleRename` catches a failed rename itself and toasts it.
+        void handleRename();
       }
       if (e.key === "Escape") {
         onCancel();

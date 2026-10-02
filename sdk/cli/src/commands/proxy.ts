@@ -312,6 +312,7 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
     log.hint(`oxyc login --env ${ctx.flags.env ?? "production"}`);
   }
 
+  // oxlint-disable-next-line typescript/no-misused-promises -- both awaits below sit in a try/catch that answers the request, so nothing is left to reject
   const server = createServer(async (req, res) => {
     const path = req.url ?? "/";
     const method = (req.method ?? "GET").toUpperCase();

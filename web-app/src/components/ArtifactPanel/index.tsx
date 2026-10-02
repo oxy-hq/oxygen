@@ -101,7 +101,12 @@ const ArtifactPanel = ({
           <ErrorAlert message='Unable to load the selected artifact. Please check your connection or try again later.' />
           <Button
             variant='outline'
-            onClick={() => artifactQueries.forEach((query) => query.refetch())}
+            onClick={() =>
+              artifactQueries.forEach((query) => {
+                // refetch settles into the query's error state; it does not reject.
+                void query.refetch();
+              })
+            }
           >
             Retry
           </Button>

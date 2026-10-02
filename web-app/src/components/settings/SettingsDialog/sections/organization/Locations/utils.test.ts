@@ -99,7 +99,8 @@ describe("locationTree", () => {
       location("b", { parent_id: "a" }),
       location("root")
     ]);
-    expect(rows.map((r) => r.location.id).sort()).toEqual(["a", "b", "root"]);
+    const ids = rows.map((r) => r.location.id).sort((a, b) => a.localeCompare(b));
+    expect(ids).toEqual(["a", "b", "root"]);
   });
 });
 
@@ -174,7 +175,8 @@ describe("externalIdDiff", () => {
       { toast: "1", unifi: "old", payroll: "p" },
       { toast: "1", unifi: "new", momos: "m" }
     );
-    expect(diff.set.sort()).toEqual([
+    // By system: each appears once in a diff, so that orders the pairs fully.
+    expect(diff.set.sort(([a], [b]) => a.localeCompare(b))).toEqual([
       ["momos", "m"],
       ["unifi", "new"]
     ]);

@@ -100,9 +100,15 @@ const useTestFileResults = create<TestFileResultsState>()((set, get) => ({
   },
   runCase: (projectId, branchName, pathb64, index, runIndex?) => {
     const key = createCaseKey(projectId, branchName, pathb64, index);
+    // A re-run replaces a run still in flight: close its stream, or both keep writing
+    // to this case. `isCurrent` then keeps the superseded run's ending — which arrives
+    // after this one has started — from overwriting this run's state or removing this
+    // run's controller, which is what Stop needs to reach it.
+    get().abortControllers.get(key)?.abort();
     get().setCase(key, { ...defaultCaseState });
 
     const abortController = new AbortController();
+    const isCurrent = () => get().abortControllers.get(key) === abortController;
     set((prev) => {
       const newControllers = new Map(prev.abortControllers);
       newControllers.set(key, abortController);
@@ -111,12 +117,15 @@ const useTestFileResults = create<TestFileResultsState>()((set, get) => ({
 
     let receivedFinished = false;
 
-    TestFileService.runTestCase(
+    // Cannot reject past this chain: the `.catch` below turns every failure into the
+    // case's error, and the `.then` / `.finally` after it only write store state.
+    void TestFileService.runTestCase(
       projectId,
       branchName,
       pathb64,
       index,
       (message) => {
+        if (!isCurrent()) return;
         const currentState = get().caseMap.get(key) ?? { ...defaultCaseState };
         const updated = { ...currentState };
 
@@ -126,6 +135,9 @@ const useTestFileResults = create<TestFileResultsState>()((set, get) => ({
         } else if (message.event) {
           updated.state = message.event.type;
           switch (message.event.type) {
+            case EvalEventState.Started:
+              // Carries no payload: the `state` assignment above is the whole update.
+              break;
             case EvalEventState.Progress:
               updated.progress = {
                 id: message.event.id,
@@ -149,6 +161,7 @@ const useTestFileResults = create<TestFileResultsState>()((set, get) => ({
       abortController.signal
     )
       .catch((err: Error) => {
+        if (!isCurrent()) return;
         if (err.name === "AbortError") {
           get().setCase(key, {
             ...defaultCaseState,
@@ -165,16 +178,21 @@ const useTestFileResults = create<TestFileResultsState>()((set, get) => ({
         // If the stream closed without sending a Finished event and no error was set,
         // the run must have failed silently — mark it as errored.
         // Note: state may still be null if the connection closed before any events arrived.
+        //
+        // A stop lands here, not in the catch above: `fetch-event-source` resolves when
+        // its signal aborts rather than rejecting with an `AbortError`, so the signal is
+        // what tells a stopped case from one whose stream closed on its own.
         const finalState = get().caseMap.get(key);
-        if (finalState && !receivedFinished && !finalState.error) {
+        if (isCurrent() && finalState && !receivedFinished && !finalState.error) {
           get().setCase(key, {
             ...finalState,
             state: null,
-            error: "Run ended without results"
+            error: abortController.signal.aborted ? "Stopped by user" : "Run ended without results"
           });
         }
       })
       .finally(() => {
+        if (!isCurrent()) return;
         set((prev) => {
           const newControllers = new Map(prev.abortControllers);
           newControllers.delete(key);

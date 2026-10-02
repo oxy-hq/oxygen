@@ -349,7 +349,10 @@ const refusalOf = (r: ZooRefusal) => new ZooRefusalError(r);
 function looselyEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || b === null || a === undefined || b === undefined) return false;
-  return String(a) === String(b);
+  // `"1"` and `1` are equal here; two objects are equal only if their JSON is.
+  // `String()` would make every pair of objects equal, as "[object Object]".
+  const text = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+  return text(a) === text(b);
 }
 
 function compare(a: unknown, b: unknown): number {

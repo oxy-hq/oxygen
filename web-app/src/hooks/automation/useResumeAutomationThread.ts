@@ -38,7 +38,9 @@ export const useResumeAutomationThread = (threadId: string | undefined) => {
     const abort = new AbortController();
     let cancelled = false;
 
-    (async () => {
+    // Cannot reject: the lookup has its own `.catch` and the replay sits in a
+    // try/catch; everything between is synchronous store writes.
+    void (async () => {
       const latest = await AutomationService.latestRunForThread(projectId, threadId).catch((e) => {
         console.error("resumeAutomationThread: latest-run lookup failed", e);
         return null;

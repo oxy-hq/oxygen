@@ -40,6 +40,7 @@ const WEBP_QUALITY = 0.8;
 const DEV_PORT = 5173;
 
 function parseArgs(argv) {
+  /** @type {{ url: string | null, wait: string, selector: string | null, settle: number, port: number }} */
   const opts = {
     url: null, // when set, screenshot a server we don't manage
     wait: "#root > *", // default: app mounted something under #root
@@ -106,8 +107,9 @@ function startDevServer(port) {
         // Vite's subtree may linger — acceptable for a local dev helper.
         child.kill();
       } else {
-        // Negative pid → kill the group (Vite + its children).
-        process.kill(-child.pid, "SIGTERM");
+        // Negative pid → kill the group (Vite + its children). No pid means
+        // the spawn itself failed, so there is no group to signal.
+        if (child.pid !== undefined) process.kill(-child.pid, "SIGTERM");
       }
     } catch {
       /* already gone */

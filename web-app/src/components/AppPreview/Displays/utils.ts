@@ -20,6 +20,7 @@ dayjs.extend(timezone);
 
 import { getDuckDB } from "@/libs/duckdb";
 import { encodeBase64 } from "@/libs/encoding";
+import { toText } from "@/libs/utils/string";
 import { apiClient } from "@/services/api/axios";
 import type { DataContainer, DisplayFormat } from "@/types/app";
 
@@ -51,6 +52,10 @@ export const getArrowValueWithType = (
   value: unknown,
   type: DataType
 ): number | string | unknown => {
+  // A NULL cell stays null whatever its column type, for the caller to show as
+  // it shows any other NULL. The readers below expect a value: a NULL decimal
+  // throws in them and a NULL date reads "Invalid Date".
+  if (value === null || value === undefined) return value;
   if (DataType.isDate(type)) {
     return formatDate(value as number);
   }
@@ -67,22 +72,57 @@ export const getArrowValueWithType = (
     return formatSnowflakeTimestamp(value as { epoch: number; fraction: number });
   }
   if (DataType.isDecimal(type)) {
-    const scale = (type as { scale: number }).scale;
-    // BigNum.valueOf() / Number(bigNum) throws "is not safe to convert to a number"
-    // when the internal 128-bit integer exceeds Number.MAX_SAFE_INTEGER.
-    // Call .toString() directly (which invokes bigNumToString, not bigNumToNumber)
-    // to get the raw integer digits, then manually insert the decimal point.
-    const rawStr = (value as { toString(): string }).toString();
-    const isNeg = rawStr.startsWith("-");
-    const digits = isNeg ? rawStr.slice(1) : rawStr;
-    if (!scale) return formatNumber(parseFloat(isNeg ? `-${digits}` : digits));
-    const padded = digits.padStart(scale + 1, "0");
-    const intPart = padded.slice(0, padded.length - scale);
-    const fracPart = padded.slice(-scale).replace(/0+$/, "");
-    const decimalStr = `${isNeg ? "-" : ""}${intPart}${fracPart ? `.${fracPart}` : ""}`;
-    return formatNumber(parseFloat(decimalStr));
+    return formatNumber(parseFloat(decimalText(value, type.scale)));
   }
   return getArrowValue(value);
+};
+
+/**
+ * The exact decimal an Arrow DECIMAL cell stands for, e.g. "1234.56". The cell
+ * holds only the unscaled integer (123456); the scale is on the column's type.
+ */
+const decimalText = (value: unknown, scale: number): string => {
+  // BigNum.valueOf() / Number(bigNum) throws "is not safe to convert to a number"
+  // when the internal 128-bit integer exceeds Number.MAX_SAFE_INTEGER.
+  // Call .toString() directly (which invokes bigNumToString, not bigNumToNumber)
+  // to get the raw integer digits, then manually insert the decimal point.
+  const rawStr = (value as { toString(): string }).toString();
+  if (!scale) return rawStr;
+  const isNeg = rawStr.startsWith("-");
+  const digits = isNeg ? rawStr.slice(1) : rawStr;
+  const padded = digits.padStart(scale + 1, "0");
+  return `${isNeg ? "-" : ""}${padded.slice(0, -scale)}.${padded.slice(-scale)}`;
+};
+
+// A timestamp in an export keeps its seconds, and its milliseconds when it has any.
+const EXPORT_TIMESTAMP_FORMAT = "YYYY-MM-DD HH:mm:ss.SSS";
+const withoutZeroMillis = (timestamp: string) => timestamp.replace(/\.000$/, "");
+
+/**
+ * Text for one Arrow cell in an export. It reads the cell the way the table
+ * does (a decimal is scaled, a date or timestamp is a date, not its epoch) but
+ * without the table's display rounding: a decimal keeps every digit, a float
+ * its full precision and a timestamp its seconds.
+ */
+export const getArrowExportText = (value: unknown, type?: DataType): string => {
+  if (value === null || value === undefined || !type) return cellText(value);
+  if (DataType.isDecimal(type)) return decimalText(value, type.scale);
+  if (DataType.isDate(type)) return formatDate(value as number);
+  if (DataType.isTimestamp(type)) {
+    return withoutZeroMillis(
+      formatDateTime(value as number, type.timezone, EXPORT_TIMESTAMP_FORMAT)
+    );
+  }
+  if (DataType.isTime(type)) return formatTime(value as number);
+  if (isSnowflakeTimestamp(value, type)) {
+    return withoutZeroMillis(
+      formatSnowflakeTimestamp(
+        value as { epoch: number; fraction: number },
+        EXPORT_TIMESTAMP_FORMAT
+      )
+    );
+  }
+  return cellText(value);
 };
 
 function isSnowflakeTimestamp(value: unknown, type: DataType): boolean {
@@ -95,23 +135,30 @@ function isSnowflakeTimestamp(value: unknown, type: DataType): boolean {
   );
 }
 
-function formatSnowflakeTimestamp(value: {
-  epoch: number | bigint;
-  fraction: number | bigint;
-}): string {
+function formatSnowflakeTimestamp(
+  value: {
+    epoch: number | bigint;
+    fraction: number | bigint;
+  },
+  format = "YYYY-MM-DD HH:mm"
+): string {
   const epoch = typeof value.epoch === "bigint" ? Number(value.epoch) : value.epoch;
   const fraction = typeof value.fraction === "bigint" ? Number(value.fraction) : value.fraction;
   const milliseconds = epoch * 1000 + Math.floor(fraction / 1_000_000);
-  return dayjs.utc(milliseconds).format("YYYY-MM-DD HH:mm");
+  return dayjs.utc(milliseconds).format(format);
 }
 
 function formatDate(value: number | string): string {
   return dayjs.utc(value).format("YYYY-MM-DD");
 }
 
-function formatDateTime(value: number | string, tz?: string | null): string {
-  if (tz) return dayjs(value).tz(tz).format("YYYY-MM-DD HH:mm");
-  return dayjs.utc(value).format("YYYY-MM-DD HH:mm");
+function formatDateTime(
+  value: number | string,
+  tz?: string | null,
+  format = "YYYY-MM-DD HH:mm"
+): string {
+  if (tz) return dayjs(value).tz(tz).format(format);
+  return dayjs.utc(value).format(format);
 }
 
 function formatTime(value: number | bigint | string): string {
@@ -214,6 +261,14 @@ export function inferCurrencyFormat(
   return parts.some((part) => MONETARY_KEYWORDS.has(part)) ? "currency" : undefined;
 }
 
+/**
+ * Whether a column holds numbers. A format is only inferred from the name of
+ * one that does: `payment_date` is a date and `discount_code` is text, however
+ * monetary their names.
+ */
+export const isNumericType = (type: DataType | undefined): boolean =>
+  DataType.isInt(type) || DataType.isFloat(type) || DataType.isDecimal(type);
+
 // Intl.NumberFormat instances are expensive to construct; cache one per
 // (format, compact) pairing so repeat chart renders don't allocate.
 const formatterCache = new Map<string, Intl.NumberFormat>();
@@ -244,6 +299,21 @@ function getFormatter(format: DisplayFormat, compact: boolean): Intl.NumberForma
 }
 
 /**
+ * Text for one value out of an Arrow result. Arrow values (lists, structs,
+ * decimals), Dates and arrays print through their own toString — their JSON
+ * form is worse (a decimal comes out quoted) and throws on a BIGINT inside a
+ * list. Only a bare object has no toString of its own; it would read
+ * "[object Object]", so that one prints as JSON. null and undefined are empty.
+ */
+export const cellText = (value: unknown): string => {
+  if (typeof value !== "object" || value === null || value.toString === Object.prototype.toString) {
+    return toText(value);
+  }
+  // oxlint-disable-next-line typescript/no-base-to-string -- the check above rules out Object's default toString
+  return String(value);
+};
+
+/**
  * Format a numeric value according to the requested `DisplayFormat`.
  *
  * - `currency` → `$301,397,792.46` (compact: `$301M`)
@@ -253,11 +323,15 @@ function getFormatter(format: DisplayFormat, compact: boolean): Intl.NumberForma
  * Returns a passthrough string conversion when the value is not a finite
  * number or when `format` is undefined, so callers can pipe every cell value
  * through the same helper.
+ *
+ * A raw Arrow DECIMAL cell is only its unscaled integer, so pass the column's
+ * `type` with it: without the scale it cannot be read as a number, and prints
+ * as those unscaled digits.
  */
 export function formatValue(
   value: unknown,
   format?: DisplayFormat,
-  options: { compact?: boolean } = {}
+  options: { compact?: boolean; type?: DataType } = {}
 ): string {
   if (value === null || value === undefined) return "";
   const compact = options.compact ?? false;
@@ -269,10 +343,12 @@ export function formatValue(
         ? Number(value)
         : typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))
           ? Number(value)
-          : NaN;
+          : typeof value === "object" && options.type && DataType.isDecimal(options.type)
+            ? parseFloat(decimalText(value, options.type.scale))
+            : NaN;
 
   if (!Number.isFinite(num)) {
-    return String(value);
+    return cellText(value);
   }
 
   if (!format) {
@@ -507,18 +583,18 @@ export function renderJinja(template: string, controls: Record<string, unknown>)
   // {{ controls.x | sqlquote }} — wraps value in single quotes with internal quotes escaped
   result = result.replace(
     /\{\{-?\s*controls\.(\w+)\s*\|\s*sqlquote\s*-?\}\}/g,
-    (_, name: string) => `'${String(controls[name] ?? "").replace(/'/g, "''")}'`
+    (_, name: string) => `'${toText(controls[name]).replace(/'/g, "''")}'`
   );
 
   // {{ controls.x | default('fallback') }}
   result = result.replace(
     /\{\{-?\s*controls\.(\w+)\s*\|\s*default\(['"]([^'"]*)['"]\)\s*-?\}\}/g,
-    (_, name: string, fallback: string) => String(controls[name] ?? fallback).replace(/'/g, "''")
+    (_, name: string, fallback: string) => toText(controls[name] ?? fallback).replace(/'/g, "''")
   );
 
   // {{ controls.x }}
   result = result.replace(/\{\{-?\s*controls\.(\w+)\s*-?\}\}/g, (_, name: string) =>
-    String(controls[name] ?? "").replace(/'/g, "''")
+    toText(controls[name]).replace(/'/g, "''")
   );
 
   // Detect any remaining Jinja tokens — unsupported syntax.

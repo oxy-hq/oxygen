@@ -211,7 +211,8 @@ function FitViewOnResize({
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
-      fitView({ padding: 0.25 });
+      // React Flow's `fitView` only ever resolves (to whether it fitted).
+      void fitView({ padding: 0.25 });
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -305,20 +306,41 @@ function RunGraphInner({ dbtProjectName, runStream, selectedNodeId }: RunGraphPr
   const [baseNodes, setBaseNodes] = useState<Node[]>([]);
   const [flowEdges, setFlowEdges] = useState<Edge[]>([]);
   const [layoutPending, setLayoutPending] = useState(false);
+  const [layoutFailed, setLayoutFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!data) return;
+    if (!data) {
+      // Nothing to lay out. A layout cancelled below no longer clears this itself.
+      setLayoutPending(false);
+      return;
+    }
     const { visibleNodes, visibleEdges } = selectedNodeId
       ? collectVisible(selectedNodeId, data.nodes, data.edges)
       : { visibleNodes: data.nodes, visibleEdges: data.edges };
+    // A layout still running for a previous selection belongs to a selection that is
+    // gone: its graph, its failure and its "finished" must not land on this one.
+    let cancelled = false;
     setLayoutPending(true);
+    setLayoutFailed(false);
     computeLayout(visibleNodes, visibleEdges)
       .then(({ baseNodes: bn, flowEdges: fe }) => {
+        if (cancelled) return;
         setBaseNodes(bn);
         setFlowEdges(fe);
       })
-      .finally(() => setLayoutPending(false));
+      // ELK rejects a graph it cannot lay out (e.g. an edge naming a node the lineage
+      // does not list). Say so, rather than leave the previous selection's graph on screen.
+      .catch((err) => {
+        console.error("Failed to lay out run graph:", err);
+        if (!cancelled) setLayoutFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setLayoutPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [data, selectedNodeId]);
 
   const infoMap = useMemo(() => deriveInfoMap(runStream), [runStream]);
@@ -356,7 +378,7 @@ function RunGraphInner({ dbtProjectName, runStream, selectedNodeId }: RunGraphPr
     );
   }
 
-  if (error) {
+  if (error || layoutFailed) {
     return (
       <div className='flex h-full items-center justify-center text-destructive text-sm'>
         Failed to load lineage

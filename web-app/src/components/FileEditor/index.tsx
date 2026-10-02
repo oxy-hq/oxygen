@@ -22,7 +22,11 @@ const FileEditor = ({ readOnly = false, className }: Props) => {
   const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
 
   useMonacoEditor({
-    saveFile: actions.save
+    // The Cmd+S command ignores the result, and save cannot reject: a failed
+    // save is caught there and puts the file back to "modified".
+    saveFile: (onSuccess) => {
+      void actions.save(onSuccess);
+    }
   });
 
   // Show git gutter decorations when: git is enabled, not in diff mode, not read-only.

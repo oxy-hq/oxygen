@@ -33,7 +33,7 @@ process.stdin.setEncoding("utf8");
 
 let input = "";
 process.stdin
-  .on("data", (chunk) => (input += chunk))
+  .on("data", (chunk) => (input += String(chunk)))
   .on("end", () => {
     try {
       const files = JSON.parse(input).files || [];

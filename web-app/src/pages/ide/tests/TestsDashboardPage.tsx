@@ -21,6 +21,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useResizeDetector } from "react-resize-detector";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { resolveColor, resolveColorWithAlpha } from "@/components/Echarts/resolveColor";
 import theme from "@/components/Echarts/theme.json";
 import { Badge } from "@/components/ui/shadcn/badge";
@@ -698,8 +699,13 @@ const TestsDashboardPage: React.FC = () => {
         const pr = await createProjectRun.mutateAsync({ name });
         projectRunId = pr.id;
         handleSelectRun(pr.id);
-      } catch {
-        // Continue without project run grouping
+      } catch (error) {
+        // Continue without project run grouping — but say so: the files still run, and
+        // nothing ties them together as one run afterwards.
+        console.error("Failed to create project run:", error);
+        toast.error("Failed to create the run", {
+          description: "The tests will still run, but won't be grouped into one run."
+        });
       }
     }
 
@@ -714,7 +720,14 @@ const TestsDashboardPage: React.FC = () => {
         for (let i = 0; i < file.case_count; i++) {
           store.runCase(projectId, branchName, pathb64, i, run.run_index);
         }
-      } catch {
+      } catch (error) {
+        // The cases still run, but without a `run_index` the server persists nothing.
+        // One toast id, so a failure on every file does not stack a toast per file.
+        console.error("Failed to create test run:", error);
+        toast.error("Failed to create a test run", {
+          id: "test-run-not-saved",
+          description: "The tests will still run, but their results won't be saved."
+        });
         for (let i = 0; i < file.case_count; i++) {
           store.runCase(projectId, branchName, pathb64, i);
         }
@@ -1383,7 +1396,9 @@ const TestsDashboardPage: React.FC = () => {
                 value={pendingRunName}
                 onChange={(e) => setPendingRunName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleConfirmRun();
+                  // Cannot reject: `handleConfirmRun` catches both mutations it awaits and
+                  // runs the cases either way.
+                  if (e.key === "Enter") void handleConfirmRun();
                 }}
                 placeholder={`Run — ${new Date().toLocaleDateString()}`}
                 autoFocus

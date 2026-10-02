@@ -217,8 +217,8 @@ test.describe("IDE Files - Topic Editor - Loading", () => {
 
   // 10.14-10.16 Loading and error states
   test("10.14 - should show error for non-existent view reference", async ({ page }) => {
-    await page.route("**/api/v1/**/topics/**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/topics/**", async (route) => {
+      await route.fulfill({
         status: 500,
         body: JSON.stringify({ error: "View not found" })
       });

@@ -171,7 +171,10 @@ function fetchCustomers(org: string): Customer[] {
       name: repo.name as string,
       // Tabs, CRs and newlines squeezed out so a description holds the line
       // format for any value GitHub will accept.
-      description: String(repo.description ?? "").replace(/[\t\r\n]+/g, " ")
+      description: (typeof repo.description === "string" ? repo.description : "").replace(
+        /[\t\r\n]+/g,
+        " "
+      )
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

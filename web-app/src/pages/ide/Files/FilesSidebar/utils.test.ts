@@ -68,4 +68,25 @@ describe("groupObjectsByType", () => {
     const result = groupObjectsByType([dir]);
     expect(result.agents).toHaveLength(0);
   });
+
+  it("sorts every group by name, pipelines included", () => {
+    // The files arrive from a directory walk, so their order is whatever the walk
+    // produced — each group has to sort itself.
+    const result = groupObjectsByType([
+      makeFile("zeta.airway.yml", "b/zeta.airway.yml"),
+      makeFile("Alpha.airway.yml", "c/Alpha.airway.yml"),
+      makeFile("mid.airway.yml", "a/mid.airway.yml"),
+      makeFile("zeta.automation.yml", "zeta.automation.yml"),
+      makeFile("alpha.automation.yml", "alpha.automation.yml")
+    ]);
+    expect(result.pipelines.map((f) => f.name)).toEqual([
+      "Alpha.airway.yml",
+      "mid.airway.yml",
+      "zeta.airway.yml"
+    ]);
+    expect(result.automations.map((f) => f.name)).toEqual([
+      "alpha.automation.yml",
+      "zeta.automation.yml"
+    ]);
+  });
 });

@@ -90,8 +90,12 @@ export async function readFunctionSseStream<Data>(resp: Response): Promise<Funct
       const status = typeof meta.status === "number" ? meta.status : 200;
       if (status < 200 || status >= 300) {
         const payload = parsed as { error?: unknown; message?: unknown } | null;
+        // A function may answer with a structured `error`; as a message that
+        // has to be its JSON, not "[object Object]".
+        const text = (v: unknown) =>
+          typeof v === "string" ? v : v === null || v === undefined ? undefined : JSON.stringify(v);
         const err = new Error(
-          String(payload?.message ?? payload?.error ?? `function returned ${status}`)
+          text(payload?.message) ?? text(payload?.error) ?? `function returned ${status}`
         ) as FunctionError;
         err.name = "FunctionStatusError";
         err.status = status;

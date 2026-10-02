@@ -105,10 +105,17 @@ export const groupObjectsByType = (files: FileTreeModel[]): GroupedObjects => {
       case FileType.TOPIC:
         groups.semanticObjects.push(file);
         break;
+      // Not objects — absent from OBJECT_FILE_TYPES, so the Objects view never lists
+      // them. Named rather than a `default` so a new FileType has to be placed here.
+      case FileType.SQL:
+      case FileType.MARKDOWN:
+      case FileType.DEFAULT:
+        break;
     }
   });
 
   groups.automations.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
+  groups.pipelines.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.agents.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.apps.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));
   groups.tests.sort((a, b) => NAME_COLLATOR.compare(a.name, b.name));

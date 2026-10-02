@@ -1,7 +1,6 @@
 import { KeyRound, Plus } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { CanWorkspaceAdmin } from "@/components/auth/Can";
 import { CreateSecretDialog } from "@/components/settings/secrets/CreateSecretDialog";
 import { UnifiedSecretsTable } from "@/components/settings/secrets/UnifiedSecretsTable";
@@ -33,10 +32,8 @@ const Secrets: React.FC = () => {
         <CreateSecretDialog
           open={isCreateDialogOpen}
           onOpenChange={setIsCreateDialogOpen}
-          onSecretCreated={() => {
-            toast.success("Secret created successfully");
-            setIsCreateDialogOpen(false);
-          }}
+          // No toast here: the mutation hooks say so already.
+          onSecretCreated={() => setIsCreateDialogOpen(false)}
         />
       </div>
     </CanWorkspaceAdmin>

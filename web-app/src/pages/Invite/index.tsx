@@ -60,7 +60,9 @@ export default function InvitePage() {
         {...errorContent(state.status, {
           token,
           retry,
-          signIn: () => navigate(ROUTES.AUTH.LOGIN, { replace: true }),
+          signIn: () => {
+            void navigate(ROUTES.AUTH.LOGIN, { replace: true });
+          },
           signOut: logout
         })}
       />

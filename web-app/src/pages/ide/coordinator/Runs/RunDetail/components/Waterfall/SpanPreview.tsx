@@ -1,6 +1,7 @@
 import { Brain, ChevronsRight, Code2, Database, GitBranch, Wrench } from "lucide-react";
 import type React from "react";
 import { cn } from "@/libs/shadcn/utils";
+import { toText } from "@/libs/utils/string";
 import { formatTokens } from "../../../../components/utils";
 import { type ChildSpan, colorsFor, formatMs, type PhaseSpan } from "./model";
 
@@ -170,7 +171,7 @@ const ResultPreview: React.FC<{ columns: string[]; rows: unknown[][] }> = ({ col
                       ) : typeof cell === "object" ? (
                         JSON.stringify(cell)
                       ) : (
-                        String(cell)
+                        toText(cell)
                       )}
                     </td>
                   ))}

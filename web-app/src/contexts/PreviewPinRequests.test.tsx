@@ -88,7 +88,9 @@ function Surface() {
   const navigate = useNavigate();
   listAgents = () => AgentService.listAgents("ws-1", branchName);
   exitPreview = exit;
-  navigateTo = navigate;
+  navigateTo = (to) => {
+    void navigate(to);
+  };
   return createElement("span", { "data-testid": "surface" });
 }
 

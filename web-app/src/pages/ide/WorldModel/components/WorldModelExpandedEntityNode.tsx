@@ -20,6 +20,8 @@ interface WmExpandedEntityData {
   /** breakdownMeasure's own row plus any of its direct components that live
    *  on this same entity — null while the breakdown hasn't loaded yet. */
   breakdownMeasures?: WmComputedMeasure[] | null;
+  /** The breakdown stream failed — nothing more will arrive for this card. */
+  breakdownFailed?: boolean;
   onExpandEntity?: (id: string | null) => void;
 }
 
@@ -39,8 +41,14 @@ const NON_ADDITIVE_LABELS: Record<string, string> = {
 };
 
 export function WorldModelExpandedEntityNode({ data }: NodeProps) {
-  const { entity, breakdownMeasure, instanceKey, breakdownMeasures, onExpandEntity } =
-    data as unknown as WmExpandedEntityData;
+  const {
+    entity,
+    breakdownMeasure,
+    instanceKey,
+    breakdownMeasures,
+    breakdownFailed,
+    onExpandEntity
+  } = data as unknown as WmExpandedEntityData;
 
   return (
     <>
@@ -76,6 +84,10 @@ export function WorldModelExpandedEntityNode({ data }: NodeProps) {
         ) : !instanceKey ? (
           <div className='px-3 py-3 font-mono text-[10px] text-muted-foreground'>
             pick an instance to value this breakdown
+          </div>
+        ) : breakdownFailed ? (
+          <div className='px-3 py-3 font-mono text-destructive text-xs'>
+            failed to compute breakdown
           </div>
         ) : breakdownMeasures === null || breakdownMeasures === undefined ? (
           <div className='px-3 py-3 font-mono text-[10px] text-muted-foreground'>

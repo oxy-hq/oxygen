@@ -38,7 +38,7 @@ const AutomationDiagram: React.FC<AutomationDiagramProps> = ({
 }) => {
   const onNodesChange = useAutomation((state) => state.onNodesChange);
   const onEdgesChange = useAutomation((state) => state.onEdgesChange);
-  const { nodes, edges, fitViewOptions } = useAutomationLayout(
+  const { nodes, edges, fitViewOptions, layoutFailed } = useAutomationLayout(
     automationId,
     automationConfig.tasks,
     runId
@@ -50,6 +50,14 @@ const AutomationDiagram: React.FC<AutomationDiagramProps> = ({
   );
 
   const { theme } = useTheme();
+
+  if (layoutFailed) {
+    return (
+      <div className='flex h-full w-full items-center justify-center text-destructive text-sm'>
+        Failed to draw the automation diagram
+      </div>
+    );
+  }
 
   if (nodes.length === 0) {
     return <LoadingSkeleton />;

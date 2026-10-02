@@ -56,7 +56,8 @@ const CliAuth: React.FC = () => {
     // did not resolve to a user". `/api/user` returns the user when valid and
     // `null` when not, so on null we bounce through login to mint a fresh one.
     let cancelled = false;
-    (async () => {
+    // Cannot reject: the whole body is inside the try/catch, which falls back to login.
+    void (async () => {
       try {
         const res = await fetch("/api/user", {
           headers: { Authorization: `Bearer ${token}` },

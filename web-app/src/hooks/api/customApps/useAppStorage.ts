@@ -77,10 +77,9 @@ export const useSweepStorage = () => {
       // number we never received. Refetch shortly so the rows update on their
       // own; each carries its own `measuredAt` so progress is visible.
       toast.success("Measuring in the background…");
-      setTimeout(
-        () => qc.invalidateQueries({ queryKey: ["customApps", "storage"] }),
-        SWEEP_REFETCH_DELAY_MS
-      );
+      setTimeout(() => {
+        void qc.invalidateQueries({ queryKey: ["customApps", "storage"] });
+      }, SWEEP_REFETCH_DELAY_MS);
     },
     onError: (err) => {
       if (!isAxiosError(err) || err.response?.status !== 409) {

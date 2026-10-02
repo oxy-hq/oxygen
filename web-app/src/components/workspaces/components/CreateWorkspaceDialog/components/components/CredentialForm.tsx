@@ -295,7 +295,8 @@ export default function CredentialForm({
                 disabled={disabled}
                 className='font-mono text-sm'
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && allRequiredFilled && !disabled) handleSubmit();
+                  // handleSubmit cannot reject: a failed upload is caught and shown on its field.
+                  if (e.key === "Enter" && allRequiredFilled && !disabled) void handleSubmit();
                 }}
               />
             </div>

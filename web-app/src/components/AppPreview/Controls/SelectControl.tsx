@@ -39,7 +39,7 @@ export function SelectControl({ control, value, data, onChange }: Props) {
     if (!tableData?.file_path) return;
 
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
         const fileName = await registerFromTableData(tableData, project.id, branchName);
         const db = await getDuckDB();

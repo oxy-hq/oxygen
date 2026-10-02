@@ -49,6 +49,7 @@ async function body(req: IncomingMessage): Promise<Buffer> {
 }
 
 beforeAll(async () => {
+  // oxlint-disable-next-line typescript/no-misused-promises -- a throw in this stub is an unhandled rejection, which vitest reports as a failure
   server = createServer(async (req, res) => {
     const path = req.url ?? "/";
     const raw = await body(req);

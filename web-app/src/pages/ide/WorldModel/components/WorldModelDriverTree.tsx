@@ -95,8 +95,17 @@ function WorldModelDriverTree({ breakdown }: { breakdown: WmMeasureBreakdown }) 
   return <DriverRow node={root} nodes={breakdown.nodes} edges={breakdown.edges} depth={0} />;
 }
 
-function TreeMessage({ children }: { children: React.ReactNode }) {
-  return <div className='py-1 font-mono text-[10px] text-muted-foreground'>{children}</div>;
+function TreeMessage({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "py-1 font-mono text-[10px]",
+        error ? "text-destructive" : "text-muted-foreground"
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 /** Stream + render a measure's breakdown valued at a specific instance. */
@@ -109,9 +118,11 @@ export function WorldModelDriverTreeLive({
   keyValue: string | null;
   measure: string;
 }) {
-  const { data, isLoading } = useWmMeasureBreakdown(entityId, keyValue, measure);
+  const { data, isLoading, error } = useWmMeasureBreakdown(entityId, keyValue, measure);
 
   if (!keyValue) return <TreeMessage>pick an instance to value this breakdown</TreeMessage>;
+  // A failed stream leaves at most a partial tree, whose unvalued nodes would pulse forever.
+  if (error) return <TreeMessage error>failed to compute breakdown</TreeMessage>;
   if (!data) {
     return (
       <TreeMessage>{isLoading ? "computing breakdown…" : "no breakdown available"}</TreeMessage>

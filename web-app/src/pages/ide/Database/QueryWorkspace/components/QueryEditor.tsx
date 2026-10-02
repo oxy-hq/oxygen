@@ -147,7 +147,14 @@ export default function QueryEditor({ onSave }: QueryEditorProps) {
     }
   }, [getActiveTab, project.id, branchName, setTabExecuting, setTabResults, setTabError]);
 
-  useMonacoSetup({ onSave, onExecute: handleRunQuery });
+  // `handleRunQuery` catches its own failures (they land on the tab via `setTabError`),
+  // so the promise carries nothing. Memoized for the same reason as above: a fresh
+  // `onExecute` identity re-registers the Cmd+Enter command.
+  const handleExecuteShortcut = useCallback(() => {
+    void handleRunQuery();
+  }, [handleRunQuery]);
+
+  useMonacoSetup({ onSave, onExecute: handleExecuteShortcut });
 
   const handleNewTab = () => {
     const result = addTab({ selectedDatabase: activeTab?.selectedDatabase });

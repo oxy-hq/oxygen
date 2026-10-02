@@ -1,7 +1,13 @@
 import { ChevronDown, ChevronsUpDown, ChevronUp, Download } from "lucide-react";
 import Papa from "papaparse";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getArrowFieldType, getArrowValueWithType } from "@/components/AppPreview/Displays/utils";
+import { toast } from "sonner";
+import {
+  cellText,
+  getArrowExportText,
+  getArrowFieldType,
+  getArrowValueWithType
+} from "@/components/AppPreview/Displays/utils";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Button } from "@/components/ui/shadcn/button";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
@@ -104,64 +110,71 @@ export const VirtualizedTable = ({
       try {
         const db = await getDuckDB();
         const conn = await db.connect();
+        // Closed again whether the queries succeed or fail: a connection is opened
+        // for every page and every sort.
+        try {
+          // Use a local variable to track the table name for this execution
+          let tableToQuery = tableNameRef.current;
 
-        // Use a local variable to track the table name for this execution
-        let tableToQuery = tableNameRef.current;
+          // Register the file if not already registered OR if filePath has changed
+          const needsRegistration = registeredFilePathRef.current !== filePath;
 
-        // Register the file if not already registered OR if filePath has changed
-        const needsRegistration = registeredFilePathRef.current !== filePath;
+          if (needsRegistration) {
+            const registeredName = await registerAuthenticatedParquetFile(
+              filePath,
+              project.id,
+              branchName
+            );
+            // Set ref before state so that if this effect is cancelled and re-runs,
+            // needsRegistration is already false and we don't register again.
+            tableNameRef.current = registeredName;
+            registeredFilePathRef.current = filePath;
+            setTableName(registeredName);
+            tableToQuery = registeredName;
 
-        if (needsRegistration) {
-          const registeredName = await registerAuthenticatedParquetFile(
-            filePath,
-            project.id,
-            branchName
+            const countResult = await conn.query(
+              `SELECT COUNT(*) as count FROM "${registeredName}"`
+            );
+            setTotalRows(Number(countResult.toArray()[0].count));
+
+            // Get columns
+            const schemaResult = await conn.query(`SELECT * FROM "${registeredName}" LIMIT 0`);
+            const cols = schemaResult.schema.fields.map((f) => f.name);
+            columnsRef.current = cols;
+            schemaRef.current = schemaResult.schema;
+            setColumns(cols);
+          }
+
+          // Build query with sorting
+          const offset = page * pageSize;
+          let query = `SELECT * FROM "${tableToQuery}"`;
+
+          if (sort.column && sort.direction) {
+            query += ` ORDER BY "${sort.column}" ${sort.direction.toUpperCase()}`;
+          }
+
+          // Add pagination
+          query += ` LIMIT ${pageSize} OFFSET ${offset}`;
+
+          const result = await conn.query(query);
+          const rows = result.toArray();
+
+          // Convert to array format for rendering
+          const formattedData = rows.map((row) =>
+            columnsRef.current.map((col) => {
+              const value = (row as Record<string, unknown>)[col];
+              if (schemaRef.current) {
+                const fieldType = getArrowFieldType(col, result.schema);
+                return fieldType ? getArrowValueWithType(value, fieldType) : value;
+              }
+              return value;
+            })
           );
-          // Set ref before state so that if this effect is cancelled and re-runs,
-          // needsRegistration is already false and we don't register again.
-          tableNameRef.current = registeredName;
-          registeredFilePathRef.current = filePath;
-          setTableName(registeredName);
-          tableToQuery = registeredName;
 
-          const countResult = await conn.query(`SELECT COUNT(*) as count FROM "${registeredName}"`);
-          setTotalRows(Number(countResult.toArray()[0].count));
-
-          // Get columns
-          const schemaResult = await conn.query(`SELECT * FROM "${registeredName}" LIMIT 0`);
-          const cols = schemaResult.schema.fields.map((f) => f.name);
-          columnsRef.current = cols;
-          schemaRef.current = schemaResult.schema;
-          setColumns(cols);
+          setData(formattedData);
+        } finally {
+          await conn.close();
         }
-
-        // Build query with sorting
-        const offset = page * pageSize;
-        let query = `SELECT * FROM "${tableToQuery}"`;
-
-        if (sort.column && sort.direction) {
-          query += ` ORDER BY "${sort.column}" ${sort.direction.toUpperCase()}`;
-        }
-
-        // Add pagination
-        query += ` LIMIT ${pageSize} OFFSET ${offset}`;
-
-        const result = await conn.query(query);
-        const rows = result.toArray();
-
-        // Convert to array format for rendering
-        const formattedData = rows.map((row) =>
-          columnsRef.current.map((col) => {
-            const value = (row as Record<string, unknown>)[col];
-            if (schemaRef.current) {
-              const fieldType = getArrowFieldType(col, result.schema);
-              return fieldType ? getArrowValueWithType(value, fieldType) : value;
-            }
-            return value;
-          })
-        );
-
-        setData(formattedData);
       } catch (err) {
         console.error("Error loading data:", err);
         throw err;
@@ -190,7 +203,7 @@ export const VirtualizedTable = ({
       }
     };
 
-    fetchData();
+    void fetchData();
 
     return () => {
       cancelled = true;
@@ -205,7 +218,7 @@ export const VirtualizedTable = ({
       if ((e.metaKey || e.ctrlKey) && e.key === "c" && selectedCell) {
         const value = data[selectedCell.row - 1]?.[selectedCell.col];
         if (value !== undefined) {
-          navigator.clipboard.writeText(String(value ?? "")).catch((err) => {
+          navigator.clipboard.writeText(cellText(value)).catch((err) => {
             console.error("Failed to copy:", err);
           });
         }
@@ -282,37 +295,44 @@ export const VirtualizedTable = ({
     try {
       const db = await getDuckDB();
       const conn = await db.connect();
+      // Closed again whether the export succeeds or fails.
+      try {
+        // Get all data (up to a reasonable limit)
+        let query = `SELECT * FROM "${tableName}"`;
+        if (sortConfig.column && sortConfig.direction) {
+          query += ` ORDER BY "${sortConfig.column}" ${sortConfig.direction.toUpperCase()}`;
+        }
 
-      // Get all data (up to a reasonable limit)
-      let query = `SELECT * FROM "${tableName}"`;
-      if (sortConfig.column && sortConfig.direction) {
-        query += ` ORDER BY "${sortConfig.column}" ${sortConfig.direction.toUpperCase()}`;
+        const result = await conn.query(query);
+        const rows = result.toArray();
+
+        // Convert to CSV format. A raw cell is not its value: a decimal is an
+        // unscaled integer and a date an epoch, so each is read by its column type.
+        const columnTypes = columns.map((col) => getArrowFieldType(col, result.schema));
+        const csvData = [
+          columns,
+          ...rows.map((row) =>
+            columns.map((col, colIdx) => {
+              const value = (row as Record<string, unknown>)[col];
+              return getArrowExportText(value, columnTypes[colIdx]);
+            })
+          )
+        ];
+
+        const csvContent = Papa.unparse(csvData);
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "query_result.csv";
+        a.click();
+        URL.revokeObjectURL(url);
+      } finally {
+        await conn.close();
       }
-
-      const result = await conn.query(query);
-      const rows = result.toArray();
-
-      // Convert to CSV format
-      const csvData = [
-        columns,
-        ...rows.map((row) =>
-          columns.map((col) => {
-            const value = (row as Record<string, unknown>)[col];
-            return String(value ?? "");
-          })
-        )
-      ];
-
-      const csvContent = Papa.unparse(csvData);
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "query_result.csv";
-      a.click();
-      URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Error downloading CSV:", err);
+      toast.error("Failed to download CSV");
     }
   };
 
@@ -407,7 +427,7 @@ export const VirtualizedTable = ({
                   {row.map((cell, cellIdx) => (
                     <DataCell
                       key={cellIdx}
-                      cell={String(cell ?? "")}
+                      cell={cellText(cell)}
                       rowIdx={rowIdx}
                       cellIdx={cellIdx}
                       isSelected={selectedCell?.row === rowIdx + 1 && selectedCell?.col === cellIdx}

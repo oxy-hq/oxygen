@@ -59,10 +59,11 @@ export default function WorldModelView() {
   );
 
   // Stream filter counts lazily when a seed is set — counts appear progressively.
-  const { counts: filterCounts, isLoading: isCountLoading } = useWmFilterCounts(
-    filterSeed?.entityId ?? null,
-    filterSeed?.keyValue ?? null
-  );
+  const {
+    counts: filterCounts,
+    isLoading: isCountLoading,
+    error: countError
+  } = useWmFilterCounts(filterSeed?.entityId ?? null, filterSeed?.keyValue ?? null);
 
   // Load computed measures for the filter seed so entity card chips can show values.
   const { data: seedDetail } = useWmInstanceDetail(
@@ -178,6 +179,7 @@ export default function WorldModelView() {
           <FilterPill
             seed={filterSeed}
             isCountLoading={isCountLoading}
+            countFailed={!!countError}
             onClear={handleClearFilter}
           />
         )}

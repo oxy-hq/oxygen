@@ -203,7 +203,9 @@ export default function AdminBillingQueue() {
           onClose={() => setSelected(null)}
           onSuccess={() => {
             setSelected(null);
-            orgs.refetch();
+            // A TanStack refetch resolves with the error rather than rejecting; a failed
+            // reload shows through `orgs.error` in the table above.
+            void orgs.refetch();
           }}
         />
       ) : null}

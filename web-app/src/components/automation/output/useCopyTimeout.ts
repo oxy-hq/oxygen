@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 export function useCopyTimeout() {
   const [copied, setCopied] = useState(false);
@@ -29,7 +30,10 @@ export function useCopyTimeout() {
 
       return true;
     } catch (err) {
+      // The browser refused the write (no permission, or the page lost focus). Without
+      // this the button just does nothing, which reads as "copied".
       console.error("Failed to copy:", err);
+      toast.error("Couldn't copy to the clipboard");
       return false;
     }
   }, []);

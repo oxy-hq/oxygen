@@ -86,13 +86,20 @@ const SandboxArtifactPanel = ({ artifact, apiKey }: Props) => {
   const handleFullscreen = () => {
     if (!containerRef.current) return;
 
+    // Both calls reject when the browser denies them. There is nothing to show
+    // the user: isFullscreen only follows `fullscreenchange`, so the button
+    // keeps reflecting the state the panel is really in.
     if (!isFullscreen) {
       if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen();
+        containerRef.current.requestFullscreen().catch((error: unknown) => {
+          console.error("Sandbox preview could not enter fullscreen:", error);
+        });
       }
     } else {
       if (document.exitFullscreen) {
-        document.exitFullscreen();
+        document.exitFullscreen().catch((error: unknown) => {
+          console.error("Sandbox preview could not exit fullscreen:", error);
+        });
       }
     }
   };

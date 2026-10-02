@@ -15,7 +15,7 @@ export const VersionBadge = () => {
       }
     };
 
-    fetchVersion();
+    void fetchVersion();
   }, []);
 
   if (!versionInfo) {

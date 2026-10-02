@@ -332,7 +332,8 @@ export default function ExplainGraph({ result, height = 360 }: ExplainGraphProps
       const { width, height: h } = entry.contentRect;
       const hasSize = width > 0 && h > 0;
       if (hasSize && !hadSize) {
-        rfRef.current?.fitView({ padding: 0.2 });
+        // React Flow's `fitView` only ever resolves (to whether it fitted).
+        void rfRef.current?.fitView({ padding: 0.2 });
       }
       hadSize = hasSize;
     });

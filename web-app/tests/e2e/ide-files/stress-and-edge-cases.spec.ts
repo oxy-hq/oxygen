@@ -322,14 +322,14 @@ test.describe("IDE Files - API Error Responses", () => {
   });
 
   test("19.1 - should show file not found for 404", async ({ page }) => {
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({
+        await route.fulfill({
           status: 404,
           body: JSON.stringify({ error: "File not found" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -342,14 +342,14 @@ test.describe("IDE Files - API Error Responses", () => {
   });
 
   test("19.2 - should show error with retry for 500", async ({ page }) => {
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({
+        await route.fulfill({
           status: 500,
           body: JSON.stringify({ error: "Internal Server Error" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -368,14 +368,14 @@ test.describe("IDE Files - API Error Responses", () => {
     await idePage.openFile("config.yml");
     await idePage.waitForEditorToLoad();
 
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "PUT" || request.method() === "POST") {
-        route.fulfill({
+        await route.fulfill({
           status: 409,
           body: JSON.stringify({ error: "Conflict: File modified externally" })
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -386,15 +386,15 @@ test.describe("IDE Files - API Error Responses", () => {
   });
 
   test("19.6 - should handle truncated JSON gracefully", async ({ page }) => {
-    await page.route("**/api/v1/**/files/**", (route, request) => {
+    await page.route("**/api/v1/**/files/**", async (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: '{"content": "truncated'
         });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 

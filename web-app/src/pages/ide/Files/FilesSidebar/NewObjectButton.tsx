@@ -282,7 +282,10 @@ const NewObjectButton: React.FC<NewObjectButtonProps> = ({ disabled }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleCreate();
+      // Gated like the Create button, so a second Enter does not create the file twice.
+      if (isCreating) return;
+      // `handleCreate` catches a failed create itself and toasts it.
+      void handleCreate();
     }
   };
 

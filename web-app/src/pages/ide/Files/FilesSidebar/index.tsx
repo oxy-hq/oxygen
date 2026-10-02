@@ -175,7 +175,11 @@ const FilesSidebar: React.FC<{
   const isAnyCloning = repos.some((r) => r.sync_status === "cloning");
   useEffect(() => {
     if (!isAnyCloning) return;
-    const id = setInterval(() => refetch(), 3_000);
+    // TanStack's `refetch` resolves with the error rather than rejecting, so a failed
+    // poll is simply retried on the next tick.
+    const id = setInterval(() => {
+      void refetch();
+    }, 3_000);
     return () => clearInterval(id);
   }, [isAnyCloning, refetch]);
 

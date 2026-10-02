@@ -11,7 +11,7 @@ export type ErrorContext = {
   token: string;
   retry: () => void;
   signIn: () => void;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 };
 
 export function errorContent(status: InviteStatus, ctx: ErrorContext): ErrorContent {
@@ -31,8 +31,13 @@ export function errorContent(status: InviteStatus, ctx: ErrorContext): ErrorCont
       primaryAction: {
         label: "Sign out",
         onClick: () => {
-          ctx.signOut();
-          sessionStorage.setItem(PENDING_INVITE_TOKEN_KEY, ctx.token);
+          // Sign-out ends by clearing sessionStorage, so the pending-invite token is
+          // stored only once it has finished — any earlier and it is wiped, and signing
+          // in with the invited address never comes back to this invitation.
+          ctx
+            .signOut()
+            .then(() => sessionStorage.setItem(PENDING_INVITE_TOKEN_KEY, ctx.token))
+            .catch((error: unknown) => console.error("Sign out failed", error));
         }
       }
     };

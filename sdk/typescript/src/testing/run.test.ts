@@ -14,6 +14,7 @@ describe("run", () => {
     const seen = await run(() =>
       ABSENT_GLOBALS.map((g) => {
         try {
+          // oxlint-disable-next-line typescript/no-implied-eval -- evaluating the bare name is the only way to see a ReferenceError for it
           new Function(`return ${g.name}`)();
           return "present";
         } catch (err) {

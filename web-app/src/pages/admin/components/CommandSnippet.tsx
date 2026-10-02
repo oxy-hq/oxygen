@@ -25,7 +25,9 @@ export const CommandSnippet = ({ command, className }: { command: string; classN
         title={command}
         onClick={(e) => {
           e.stopPropagation();
-          handleCopy(command);
+          // `handleCopy` catches a refused clipboard write itself and only flips to the
+          // check on success.
+          void handleCopy(command);
         }}
         className='inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground'
       >

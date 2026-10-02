@@ -233,7 +233,9 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
       gaps.push({
         icon: KeyRound,
         label: "LLM API key not set",
-        action: () => navigate(routes.ONBOARDING),
+        action: () => {
+          void navigate(routes.ONBOARDING);
+        },
         cta: "Finish setup"
       });
     }
@@ -244,7 +246,9 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
           warehousesNeedingCreds.length === 1
             ? `Missing credentials for ${warehousesNeedingCreds[0].name}`
             : `Missing credentials for ${warehousesNeedingCreds.length} databases`,
-        action: () => navigate(routes.ONBOARDING),
+        action: () => {
+          void navigate(routes.ONBOARDING);
+        },
         cta: "Finish setup"
       });
     }
@@ -262,7 +266,9 @@ export default function useWorkspaceReadiness(): WorkspaceReadiness {
       gaps.push({
         icon: GitFork,
         label: "No agents configured",
-        action: () => navigate(routes.IDE.ROOT),
+        action: () => {
+          void navigate(routes.IDE.ROOT);
+        },
         cta: "Open IDE"
       });
     }

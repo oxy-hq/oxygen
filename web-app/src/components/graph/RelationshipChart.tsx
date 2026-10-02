@@ -13,7 +13,7 @@ import {
   useNodesState
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { type ComponentType, useEffect, useMemo } from "react";
+import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { cn } from "@/libs/shadcn/utils";
 import { layoutTree } from "./elkLayout";
 
@@ -69,6 +69,7 @@ function Chart({
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RelationshipNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [layoutFailed, setLayoutFailed] = useState(false);
 
   // The raw graph, before layout. Memoized on the input identity so a parent
   // re-render doesn't re-run ELK unless the shape actually changed.
@@ -96,15 +97,35 @@ function Chart({
 
   useEffect(() => {
     let cancelled = false;
-    layoutTree(rawNodes, rawEdges).then((laidOut) => {
-      if (cancelled) return;
-      setNodes(laidOut);
-      setEdges(rawEdges);
-    });
+    layoutTree(rawNodes, rawEdges)
+      .then((laidOut) => {
+        if (cancelled) return;
+        setNodes(laidOut);
+        setEdges(rawEdges);
+        setLayoutFailed(false);
+      })
+      // ELK rejects a graph it cannot lay out, such as an edge naming a node
+      // that is not in it. Say so, rather than leave the chart blank or showing
+      // what it last drew.
+      .catch((error: unknown) => {
+        console.error("Failed to lay out the relationship chart:", error);
+        if (!cancelled) setLayoutFailed(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [rawNodes, rawEdges, setNodes, setEdges]);
+
+  if (layoutFailed) {
+    return (
+      <div
+        style={{ height }}
+        className='flex w-full items-center justify-center rounded-lg border bg-muted/20 text-destructive text-sm'
+      >
+        Failed to draw the chart
+      </div>
+    );
+  }
 
   return (
     <div style={{ height }} className='w-full overflow-hidden rounded-lg border bg-muted/20'>

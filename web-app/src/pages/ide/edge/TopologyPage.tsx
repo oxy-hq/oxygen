@@ -314,7 +314,8 @@ const TopologyContent: React.FC<{
   // biome-ignore lint/correctness/useExhaustiveDependencies: reactFlow handle is stable
   useEffect(() => {
     const id = window.setTimeout(() => {
-      reactFlow.fitView({ padding: 0.2, duration: 300 });
+      // React Flow's `fitView` only ever resolves (to whether it fitted).
+      void reactFlow.fitView({ padding: 0.2, duration: 300 });
     }, 0);
     return () => window.clearTimeout(id);
   }, [direction]);

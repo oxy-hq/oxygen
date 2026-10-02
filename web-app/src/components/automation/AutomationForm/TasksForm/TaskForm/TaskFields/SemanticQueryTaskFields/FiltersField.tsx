@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/shadcn/select";
+import { toText } from "@/libs/utils/string";
 import type { SemanticQueryFilter } from "@/services/api/semantic";
 import { FILTER_OPERATORS } from "./constants";
 import type { FiltersFieldProps } from "./types";
@@ -180,7 +181,7 @@ const FilterRow: React.FC<FilterRowProps> = ({
             render={({ field }) =>
               isTimeDimension ? (
                 <DateValueInput
-                  value={field.value != null ? String(field.value) : undefined}
+                  value={field.value != null ? toText(field.value) : undefined}
                   onChange={(val) => field.onChange(val ?? "")}
                   placeholder={getPlaceholder(selectedFieldItem?.dataType)}
                 />
@@ -188,7 +189,7 @@ const FilterRow: React.FC<FilterRowProps> = ({
                 <Input
                   type={getInputType(selectedFieldItem?.dataType)}
                   placeholder={getPlaceholder(selectedFieldItem?.dataType)}
-                  value={field.value != null ? String(field.value) : ""}
+                  value={toText(field.value)}
                   onChange={(e) => {
                     const val = e.target.value;
                     field.onChange(

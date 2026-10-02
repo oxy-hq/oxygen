@@ -155,7 +155,9 @@ export function OxyProvider({
       }
     }
 
-    initializeSDK();
+    // Never rejects: its whole body is one try/catch that reports through
+    // `setError` / `onError`.
+    void initializeSDK();
 
     // Cleanup function
     return () => {

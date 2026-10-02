@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { useCopyTimeout } from "@/components/automation/output/useCopyTimeout";
 import { Button } from "@/components/ui/shadcn/button";
 import usePrismTheme from "@/hooks/usePrismTheme";
 import { cn } from "@/libs/shadcn/utils";
@@ -14,18 +14,16 @@ interface ContextItemDisplayProps {
 }
 
 export default function ContextItemDisplay({ item, metricName }: ContextItemDisplayProps) {
-  const [copied, setCopied] = useState(false);
+  const { copied, handleCopy } = useCopyTimeout();
   const prismTheme = usePrismTheme();
   const config = CONTEXT_TYPE_CONFIG[item.type] || CONTEXT_TYPE_CONFIG.question;
   const isSQL = item.type === "sql" || item.type === "SQL";
   const isSemantic = item.type === "semantic";
   const content = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
 
-  const copyToClipboard = async () => {
-    await navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // `handleCopy` catches a refused clipboard write itself and only flips to the check
+  // on success.
+  const copyToClipboard = () => void handleCopy(content);
 
   if (isSemantic) {
     const semanticContent = Array.isArray(item.content)

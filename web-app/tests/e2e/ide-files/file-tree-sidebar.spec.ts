@@ -126,8 +126,8 @@ test.describe("IDE Files - File Tree Sidebar", () => {
 
   test("1.7 - should show error message and retry option on API error", async ({ page }) => {
     // Intercept file tree API and return 500
-    await page.route("**/api/v1/**/files/tree**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/files/tree**", async (route) => {
+      await route.fulfill({
         status: 500,
         body: JSON.stringify({ error: "Internal Server Error" })
       });
@@ -144,8 +144,8 @@ test.describe("IDE Files - File Tree Sidebar", () => {
 
   test("1.8 - should show empty state when no files", async ({ page }) => {
     // Intercept file tree API and return empty
-    await page.route("**/api/v1/**/files/tree**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/files/tree**", async (route) => {
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify([])
@@ -162,8 +162,8 @@ test.describe("IDE Files - File Tree Sidebar", () => {
   });
 
   test("1.9 - should handle malformed JSON gracefully", async ({ page }) => {
-    await page.route("**/api/v1/**/files/tree**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/files/tree**", async (route) => {
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: "{ invalid json"

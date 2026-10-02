@@ -19,9 +19,15 @@ export function AttributeCard({ name, value }: AttributeCardProps) {
   const prismTheme = usePrismTheme();
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Show the check only once the write lands: the browser rejects it when
+    // clipboard access is denied or the page is not focused.
+    navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch((err) => console.error("Failed to copy attribute value:", err));
   };
 
   // Try to parse JSON for pretty display, resolving nested JSON strings

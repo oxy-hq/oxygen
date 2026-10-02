@@ -89,7 +89,11 @@ const TopicExplorerProviderInner = ({
       viewsWithData,
       topicLoading,
       loadingTopicError: loadingTopicError?.message,
-      refetchTopicDetails
+      // TanStack's `refetch` resolves with the error rather than rejecting; a failed
+      // reload surfaces as `loadingTopicError`.
+      refetchTopicDetails: () => {
+        void refetchTopicDetails();
+      }
     }),
     [topicData, viewsWithData, topicLoading, loadingTopicError, refetchTopicDetails]
   );

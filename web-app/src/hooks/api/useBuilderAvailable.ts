@@ -12,7 +12,7 @@ export default function useBuilderAvailable() {
   const { project } = useCurrentProjectBranch();
   const projectId = project?.id ?? "";
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: queryKeys.builder.availability(projectId),
     queryFn: () => BuilderService.checkBuilderAvailability(projectId),
     // Availability is stable for the lifetime of a project session.
@@ -24,5 +24,5 @@ export default function useBuilderAvailable() {
   const isBuiltin = data?.builtin ?? false;
   const builderModel = data?.model;
 
-  return { isAvailable, isLoading, builderPath, isBuiltin, builderModel };
+  return { isAvailable, isLoading, isError, builderPath, isBuiltin, builderModel };
 }

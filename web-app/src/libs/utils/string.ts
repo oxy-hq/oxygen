@@ -31,3 +31,37 @@ export const handleDownloadFile = (blob: Blob | MediaSource, fileName: string) =
   document.body.removeChild(a);
   window.URL.revokeObjectURL(url);
 };
+
+/**
+ * Text for a value whose shape is not known: a table cell, a filter value, a
+ * field out of an API payload. Strings pass through, numbers and booleans
+ * print as themselves, null and undefined are empty, and anything structured
+ * is its JSON — never the "[object Object]" that `String()` gives it.
+ *
+ * It is called while rendering, so it never throws: a bigint inside an object
+ * prints as its digits, and a value JSON cannot express (a cycle, an invalid
+ * Date) falls back to its type tag.
+ */
+export const toText = (value: unknown): string => {
+  switch (typeof value) {
+    case "string":
+      return value;
+    case "number":
+    case "boolean":
+    case "bigint":
+      return String(value);
+    case "object":
+      if (value === null) return "";
+      try {
+        if (value instanceof Date) return value.toISOString();
+        return (
+          JSON.stringify(value, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v)) ??
+          ""
+        );
+      } catch {
+        return Object.prototype.toString.call(value);
+      }
+    default:
+      return "";
+  }
+};

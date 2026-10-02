@@ -5,10 +5,12 @@
 // way TypeScript compiles and is then wrong at runtime. `pnpm lint:bugs` runs
 // it; CI's `lint-bugs` job is the gate.
 //
-// The violations that existed when a rule was turned on are recorded in
-// `oxlint-suppressions.json`, per file and rule. That file may only shrink —
-// see scripts/ci/verify-lint-baseline.mjs. To silence a rule where the code is
-// right: `// oxlint-disable-next-line typescript/<rule> -- <why>`.
+// `oxlint-suppressions.json` is the baseline: violations that predate a rule,
+// per file and rule. It is empty — the backlog these rules started with has
+// been fixed — and CI fails if it grows (scripts/ci/verify-lint-baseline.mjs).
+// It exists so the next rule with a backlog can be turned on the same way.
+// To silence a rule where the code is right:
+// `// oxlint-disable-next-line typescript/<rule> -- <why>`.
 //
 // Measured and left OFF, so nobody re-derives it (2026-10-02, whole tree):
 //   no-unsafe-* (4,127 hits)        any-flow; most are untyped test doubles and .mjs

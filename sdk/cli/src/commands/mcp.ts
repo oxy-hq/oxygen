@@ -709,7 +709,7 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
         paths?: Record<string, Record<string, unknown>>;
         components?: unknown;
       };
-      const wanted = String(args.path ?? "");
+      const wanted = typeof args.path === "string" ? args.path : "";
       const method = args.method as string | undefined;
       // `comparablePath` is imported from `discover.ts` rather than copied:
       // a second reduction of the same two spellings is a second thing to keep
@@ -743,8 +743,9 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
 
     case "oxy_request": {
       requireArgs("oxy_request", args, ["path"]);
-      const raw = String(args.path ?? "");
-      const method = String(args.method ?? "").toUpperCase() || undefined;
+      const raw = typeof args.path === "string" ? args.path : "";
+      const method =
+        (typeof args.method === "string" ? args.method.toUpperCase() : "") || undefined;
       const fields = parseFields([], fieldPairs(args.fields as Record<string, unknown>));
       const verb = method ?? (fields.present ? "POST" : "GET");
       const carriesBody = !["GET", "HEAD", "DELETE"].includes(verb);

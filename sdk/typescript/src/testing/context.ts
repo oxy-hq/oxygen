@@ -644,7 +644,8 @@ export function createTestContext(
     return {
       getUploadUrl: (opts) =>
         storageOp("getUploadUrl", { ...opts }, (a) => {
-          const pathname = String(a.pathname ?? `uploads/${String(a.filename ?? "upload")}`);
+          const filename = typeof a.filename === "string" ? a.filename : "upload";
+          const pathname = typeof a.pathname === "string" ? a.pathname : `uploads/${filename}`;
           const key = `${pathname.replace(/(\.[^.]*)?$/, `-${randomSuffix()}$1`)}`;
           return { url: `https://storage.example.test/put/${key}`, key, expiresAt: now() };
         }) as ReturnType<OxyFunctionContext["storage"]["getUploadUrl"]>,
@@ -698,7 +699,7 @@ export function createTestContext(
         }) as ReturnType<OxyFunctionContext["storage"]["head"]>,
       list: (opts) =>
         storageOp("list", { ...opts }, (a) => {
-          const prefix = String(a.prefix ?? "");
+          const prefix = typeof a.prefix === "string" ? a.prefix : "";
           const limit = Number(a.limit ?? 1000);
           const offset = a.cursor ? Number(a.cursor) : 0;
           const keys = [...state.storage.keys()].filter((k) => k.startsWith(prefix)).sort();

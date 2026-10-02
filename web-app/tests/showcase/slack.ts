@@ -42,9 +42,10 @@ async function slackCall(
 // `missing_scope` arrives with the scope Slack wanted and the ones the token
 // holds — the whole fix, so both go in the message.
 function describeFailure(body: Record<string, unknown>, status: number): string {
-  const error = String(body.error ?? status);
+  const error = typeof body.error === "string" ? body.error : String(status);
   if (typeof body.needed !== "string") return error;
-  return `${error} (needs ${body.needed}; the token has ${String(body.provided ?? "none")})`;
+  const provided = typeof body.provided === "string" ? body.provided : "none";
+  return `${error} (needs ${body.needed}; the token has ${provided})`;
 }
 
 export async function uploadToThread(req: UploadRequest, f: Fetch = fetch): Promise<void> {

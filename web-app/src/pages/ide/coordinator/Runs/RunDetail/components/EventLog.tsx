@@ -1,4 +1,11 @@
-import { CheckCircle2, Loader2, ShieldCheck, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleMinus,
+  CircleSlash,
+  Loader2,
+  ShieldCheck,
+  XCircle
+} from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import type { RunEventEntry } from "@/services/api/coordinator";
@@ -39,25 +46,37 @@ const FailedRollupRow: React.FC<{ label: string; error?: string }> = ({ label, e
 };
 
 /**
+ * `view` and `rollup` are strings on every pre-aggregation event that carries them
+ * (the backend's `PreaggEvent`); the payload type is an open record, so anything else
+ * reads as absent.
+ */
+const payloadText = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/**
  * Streamed event log for a run node — pre-aggregation rollup progress. Drives
  * the ELT debugging unit (freshness + rollup health).
  */
 export const EventLog: React.FC<{ events: RunEventEntry[] }> = ({ events }) => {
   if (events.length === 0) return null;
 
+  // The three ways a started rebuild ends. A retraction is one of them — the rebuild ran
+  // and removed an empty rollup — so its `started` row must stop spinning too.
   const settled = new Set(
     events
       .filter(
-        (e) => e.event_type === "preagg_rollup_done" || e.event_type === "preagg_rollup_failed"
+        (e) =>
+          e.event_type === "preagg_rollup_done" ||
+          e.event_type === "preagg_rollup_retracted" ||
+          e.event_type === "preagg_rollup_failed"
       )
-      .map((e) => `${e.payload.view}.${e.payload.rollup}`)
+      .map((e) => `${payloadText(e.payload.view)}.${payloadText(e.payload.rollup)}`)
   );
 
   return (
     <div className='space-y-0.5'>
       {events.map((ev) => {
-        const view = String(ev.payload.view ?? "");
-        const rollup = String(ev.payload.rollup ?? "");
+        const view = payloadText(ev.payload.view);
+        const rollup = payloadText(ev.payload.rollup);
         const error = ev.payload.error as string | undefined;
         const label = view && rollup ? `${view}.${rollup}` : ev.event_type;
 
@@ -87,10 +106,54 @@ export const EventLog: React.FC<{ events: RunEventEntry[] }> = ({ events }) => {
             </div>
           );
         }
+        if (ev.event_type === "preagg_rollup_retracted") {
+          // Not a failure: the rebuild ran, found no rows, and removed the rollup rather
+          // than leave it serving the previous build.
+          return (
+            <div key={ev.seq} className='flex items-center gap-1.5 text-muted-foreground text-xs'>
+              <CircleMinus className='h-3 w-3 shrink-0' />
+              <span>{label}</span>
+              <span className='opacity-60'>— no rows, rollup removed</span>
+            </div>
+          );
+        }
         if (ev.event_type === "preagg_rollup_skipped_no_refresh_key") {
           return null;
         }
-        return <FailedRollupRow key={ev.seq} label={label} error={error} />;
+        if (ev.event_type === "preagg_rollup_skipped_no_datasource") {
+          const database = payloadText(ev.payload.database);
+          return (
+            <div key={ev.seq} className='flex items-center gap-1.5 text-muted-foreground text-xs'>
+              <CircleSlash className='h-3 w-3 shrink-0' />
+              <span>{label}</span>
+              <span className='opacity-60'>
+                — skipped, datasource {database ? `"${database}" ` : ""}not configured
+              </span>
+            </div>
+          );
+        }
+        if (ev.event_type === "preagg_rollup_failed") {
+          return <FailedRollupRow key={ev.seq} label={label} error={error} />;
+        }
+        if (ev.event_type === "preagg_refresh_key_error") {
+          // Carries a rollup hash rather than a view and rollup name.
+          const hash = payloadText(ev.payload.rollup_hash);
+          return (
+            <FailedRollupRow
+              key={ev.seq}
+              label={hash ? `refresh key check failed (${hash})` : "refresh key check failed"}
+              error={error}
+            />
+          );
+        }
+        // An event type this component does not know yet. Shown neutrally: defaulting to
+        // the failed row is how a retraction came to render as a failure.
+        return (
+          <div key={ev.seq} className='flex items-center gap-1.5 text-muted-foreground text-xs'>
+            <span>{label}</span>
+            {label !== ev.event_type && <span className='opacity-60'>— {ev.event_type}</span>}
+          </div>
+        );
       })}
     </div>
   );

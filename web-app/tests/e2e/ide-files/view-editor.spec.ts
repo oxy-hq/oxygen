@@ -300,8 +300,8 @@ test.describe("IDE Files - View Editor - Loading Errors", () => {
 
   // 9.31-9.33 Error handling
   test("9.31 - should show error for invalid datasource", async ({ page }) => {
-    await page.route("**/api/v1/**/views/**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/views/**", async (route) => {
+      await route.fulfill({
         status: 500,
         body: JSON.stringify({ error: "Datasource not found" })
       });

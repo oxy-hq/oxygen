@@ -365,7 +365,17 @@ function PromotionBody({
           <div className='flex flex-col gap-1'>
             {allForwardedMeasures.map(({ measure: m, induced }) => (
               <MeasureRow
-                key={induced ? `${m.name}:${"promoted_from" in m ? m.promoted_from : ""}` : m.name}
+                key={
+                  induced
+                    ? `${m.name}:${
+                        // The array's element type collapses to the base measure, so `in`
+                        // alone leaves this `unknown`; an induced measure's is a string.
+                        "promoted_from" in m && typeof m.promoted_from === "string"
+                          ? m.promoted_from
+                          : ""
+                      }`
+                    : m.name
+                }
                 measure={m}
                 induced={induced}
                 onSelect={() =>
@@ -878,7 +888,7 @@ function InstanceBody({
     measure: string | null
   ) => void;
 }) {
-  const { data, isLoading } = useWmInstanceDetail(entityId, keyValue);
+  const { data, isLoading, error } = useWmInstanceDetail(entityId, keyValue);
 
   const entity = model.entities.find((e) => e.id === entityId);
 
@@ -886,7 +896,9 @@ function InstanceBody({
   //   - data hasn't arrived yet (waiting for first init event), OR
   //   - streaming is still in progress and this section's array is still empty
   // A section is "done-empty" (hide) when !isLoading and its array is empty.
-  const pending = (arr: unknown[] | undefined) => !data || (isLoading && (arr ?? []).length === 0);
+  // After a failed stream nothing more arrives, so no section is pending.
+  const pending = (arr: unknown[] | undefined) =>
+    !error && (!data || (isLoading && (arr ?? []).length === 0));
 
   return (
     <div className='flex flex-col gap-3 p-3'>
@@ -902,6 +914,12 @@ function InstanceBody({
 
       {/* Jump to entity */}
       {entity && <EntityLink entity={entity} onSelect={onSelect} />}
+
+      {error && (
+        <p className='border-border border-t pt-3 font-mono text-destructive text-xs'>
+          Failed to load this instance's details.
+        </p>
+      )}
 
       {/* Attribute values */}
       {(pending(data?.attributes) || (data?.attributes.length ?? 0) > 0) && (

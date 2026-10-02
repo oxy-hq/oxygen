@@ -95,10 +95,12 @@ const buildConditionalNodes = (
     result.nodes.push(...nodes);
     result.edges.push(...edges);
 
+    // Each branch follows the one before it: the previous *condition*, which is
+    // not the task's own place in its list (`index`).
     if (condIndex > 0) {
       result.edges.push({
-        id: `${task.id}-condition-${index - 1}-${task.id}-condition-${condIndex}`,
-        source: `${task.id}-condition-${index - 1}`,
+        id: `${task.id}-condition-${condIndex - 1}-${task.id}-condition-${condIndex}`,
+        source: `${task.id}-condition-${condIndex - 1}`,
         target: ifNode.id
       });
     }

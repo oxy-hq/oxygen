@@ -1,5 +1,5 @@
 import type { FitViewOptions } from "@xyflow/react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useAutomation, {
   type TaskConfig,
   type TaskConfigWithId,
@@ -69,6 +69,7 @@ export const useAutomationLayout = (automationId: string, tasks: TaskConfig[], r
   const nodes = useAutomation((state) => state.nodes);
   const setNodes = useAutomation((state) => state.setNodes);
   const initFromTasks = useAutomation((state) => state.initFromTasks);
+  const [layoutFailed, setLayoutFailed] = useState(false);
   const tasksWithId = useMemo(() => {
     return addTaskId(automationId, tasks, runId);
   }, [automationId, tasks, runId]);
@@ -86,17 +87,31 @@ export const useAutomationLayout = (automationId: string, tasks: TaskConfig[], r
   }, [tasksWithId, initFromTasks]);
 
   useEffect(() => {
+    // A layout still running for an earlier graph belongs to tasks that are
+    // gone: neither its nodes nor its failure may land on this one.
+    let cancelled = false;
     const updateLayout = async () => {
       const nodesWithSize = calculateNodesSize(baseNodes);
       const newNodes = await getLayoutedElements(nodesWithSize, edges);
+      if (cancelled) return;
       setNodes(newNodes);
+      setLayoutFailed(false);
     };
-    updateLayout();
+    // ELK rejects a graph it cannot lay out, such as an edge naming a node that
+    // is not in it. Say so, rather than leave the layout it last had on screen.
+    updateLayout().catch((error: unknown) => {
+      console.error("Failed to lay out the automation diagram:", error);
+      if (!cancelled) setLayoutFailed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [baseNodes, edges, setNodes]);
 
   return {
     fitViewOptions,
     nodes,
-    edges
+    edges,
+    layoutFailed
   };
 };

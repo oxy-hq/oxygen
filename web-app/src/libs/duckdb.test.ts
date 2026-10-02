@@ -138,7 +138,9 @@ describe("getDuckDB – CDN init path", () => {
     // ── Step 3: fire p2 — the concurrent call that would race ─────────────
     const p2 = getDuckDB();
     let p2Settled = false;
-    p2.then(() => {
+    // Deliberately not awaited: p2 must still be pending at step 4, so awaiting
+    // here would hang the test. A rejection surfaces at the `Promise.all` in step 5.
+    void p2.then(() => {
       p2Settled = true;
     });
 

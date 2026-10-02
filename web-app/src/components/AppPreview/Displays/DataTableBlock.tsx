@@ -17,6 +17,7 @@ import {
   getArrowValueWithType,
   getData,
   inferCurrencyFormat,
+  isNumericType,
   registerFromTableData
 } from "./utils";
 
@@ -50,7 +51,8 @@ export const DataTableBlock = ({
 
   useEffect(() => {
     setIsLoading(true);
-    (async () => {
+    // Cannot reject: the only await is inside the try/catch below.
+    void (async () => {
       if (!dataAvailable) {
         setTable(null);
         setIsLoading(false);
@@ -108,15 +110,18 @@ export const DataTableBlock = ({
                 // Explicit per-column format from the app.yml wins; otherwise
                 // infer `currency` from column names like `*_sales` /
                 // `*_revenue` so existing dashboards get the right formatting
-                // without regeneration.
+                // without regeneration. Only a numeric column is inferred:
+                // `payment_date` is a date, not an amount of money.
                 const columnFormat =
-                  display.formats?.[field.name] ?? inferCurrencyFormat(field.name);
+                  display.formats?.[field.name] ??
+                  (isNumericType(fieldType) ? inferCurrencyFormat(field.name) : undefined);
                 // When a format is in play, always route through the
                 // currency/percent/number formatter — it handles bigints and
-                // stringified numerics uniformly. Otherwise fall back to the
-                // Arrow-aware value formatter (dates, decimals, …).
+                // stringified numerics uniformly, and decimals given the
+                // column type, which is where their scale is. Otherwise fall
+                // back to the Arrow-aware value formatter (dates, decimals, …).
                 const formattedValue = columnFormat
-                  ? formatValue(value, columnFormat)
+                  ? formatValue(value, columnFormat, { type: fieldType })
                   : fieldType
                     ? getArrowValueWithType(value, fieldType)
                     : value;

@@ -1,10 +1,29 @@
+import { isAxiosError } from "axios";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import useFile from "@/hooks/api/files/useFile";
 import useFileGit from "@/hooks/api/files/useFileGit";
 import useSaveFile from "@/hooks/api/files/useSaveFile";
+import { apiErrorMessage } from "@/libs/apiError";
+import { readDetachedHeadBody } from "@/libs/utils/detachedHead";
+import { readPreviewReadOnlyBody } from "@/libs/utils/preview";
 import { decodeFilePath } from "@/utils/fileTypes";
 import { FileEditorContext } from "./useFileEditorContext";
+
+// The HTTP client already toasts these refusals in the server's own words
+// (services/api/axios.ts): a 403, a write refused in a workspace preview, a git
+// action on a detached HEAD. A second "Failed to save" would only repeat it.
+const reportedByHttpClient = (error: unknown): boolean => {
+  if (!isAxiosError(error)) return false;
+  const status = error.response?.status;
+  const body: unknown = error.response?.data;
+  return (
+    status === 403 ||
+    readPreviewReadOnlyBody(status, body) !== null ||
+    readDetachedHeadBody(status, body) !== null
+  );
+};
 
 interface EditorProviderProps {
   children: React.ReactNode;
@@ -43,6 +62,17 @@ export function FileEditorProvider({
     }
   }, [fileContent, isSuccess]);
 
+  // A failed save has to say so. From the "save and navigate" dialog, which has already
+  // closed by then, a silent return to "modified" reads as the button doing nothing.
+  const reportSaveFailed = (error: unknown) => {
+    setFileState("modified");
+    console.error("Failed to save file:", error);
+    if (reportedByHttpClient(error)) return;
+    toast.error(`Failed to save ${fileName.split("/").pop() || "file"}`, {
+      description: apiErrorMessage(error, "") || undefined
+    });
+  };
+
   const actions = {
     setContent: (newContent: string) => {
       setContent(newContent);
@@ -64,8 +94,8 @@ export function FileEditorProvider({
             onSaved?.(content);
             onSuccess?.();
           });
-        } catch {
-          setFileState("modified");
+        } catch (error) {
+          reportSaveFailed(error);
         }
         return;
       }
@@ -77,7 +107,7 @@ export function FileEditorProvider({
             onSaved?.(content);
             onSuccess?.();
           },
-          onError: () => setFileState("modified")
+          onError: reportSaveFailed
         }
       );
     }

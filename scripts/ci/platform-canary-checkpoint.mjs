@@ -835,8 +835,10 @@ async function main() {
     if (second.code !== 0) fail(`run 2: oxyc checks run exited ${second.code}`);
     // Exactly the configured steps, no more and no fewer: the canary runs what
     // `CANARY_STEPS` names, and its answer is the record of what that was.
-    const ran = [...(second.ran.canary ?? [])].sort().join(",");
-    const want = [...expected].sort().join(",");
+    /** @type {(names: Iterable<string>) => string} */
+    const sorted = (names) => [...names].sort().join(",");
+    const ran = sorted(second.ran.canary ?? []);
+    const want = sorted(expected);
     if (ran !== want) fail(`run 2 ran [${ran}] but CANARY_STEPS asked for [${want}]`);
 
     if (opts.sandboxLoop) {

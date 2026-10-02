@@ -9,6 +9,9 @@ import { apiBaseURL } from "../env";
 import { apiClient } from "./axios";
 import fetchSSE from "./fetchSSE";
 
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
 // Every method threads the IDE's selected branch through as `?branch=` so the
 // backend's workspace middleware resolves the branch worktree instead of the
 // workspace root (see effective_workspace_path). Empty/undefined falls back to
@@ -80,12 +83,17 @@ export class WorldModelService {
     keyValue: string,
     onEvent: (event: WmFilterCountEvent) => void,
     onClose: () => void,
+    onError: (error: Error) => void,
     signal: AbortSignal,
     branch?: string
   ): void {
     // Branch rides the query string — the workspace middleware only reads it
     // from there, the POST body is the handler's own payload.
     const qs = branch ? `?${new URLSearchParams({ branch })}` : "";
+    // `fetchSSE` reports a failure twice: it calls its `onError`, then rejects (after
+    // logging). The rejection is the one forwarded — it also covers a throw before the
+    // request starts — so `fetchSSE`'s own `onError` is left unwired. A failed stream
+    // reaches the caller's `onError` and never `onClose`; an aborted one reaches neither.
     fetchSSE<WmFilterCountEvent>(
       `${apiBaseURL}/${projectId}/semantic/world-model/filter-counts${qs}`,
       {
@@ -93,10 +101,9 @@ export class WorldModelService {
         body: { entity_id: entityId, key_value: keyValue },
         onMessage: onEvent,
         onClose,
-        onError: onClose,
         signal
       }
-    );
+    ).catch((error: unknown) => onError(toError(error)));
   }
 
   static streamInstanceDetail(
@@ -105,15 +112,17 @@ export class WorldModelService {
     keyValue: string,
     onEvent: (event: WmInstanceDetailEvent) => void,
     onClose: () => void,
+    onError: (error: Error) => void,
     signal: AbortSignal,
     branch?: string
   ): void {
     const params = new URLSearchParams({ entity: entityId, key: keyValue });
     if (branch) params.set("branch", branch);
+    // A failed stream is reported through the rejection — see `streamFilterCounts`.
     fetchSSE<WmInstanceDetailEvent>(
       `${apiBaseURL}/${projectId}/semantic/world-model/instance-detail?${params}`,
-      { method: "GET", onMessage: onEvent, onClose, onError: onClose, signal }
-    );
+      { method: "GET", onMessage: onEvent, onClose, signal }
+    ).catch((error: unknown) => onError(toError(error)));
   }
 
   static streamMeasureBreakdown(
@@ -123,14 +132,16 @@ export class WorldModelService {
     measure: string,
     onEvent: (event: WmMeasureBreakdownEvent) => void,
     onClose: () => void,
+    onError: (error: Error) => void,
     signal: AbortSignal,
     branch?: string
   ): void {
     const params = new URLSearchParams({ entity: entityId, key: keyValue, measure });
     if (branch) params.set("branch", branch);
+    // A failed stream is reported through the rejection — see `streamFilterCounts`.
     fetchSSE<WmMeasureBreakdownEvent>(
       `${apiBaseURL}/${projectId}/semantic/world-model/measure-breakdown?${params}`,
-      { method: "GET", onMessage: onEvent, onClose, onError: onClose, signal }
-    );
+      { method: "GET", onMessage: onEvent, onClose, signal }
+    ).catch((error: unknown) => onError(toError(error)));
   }
 }

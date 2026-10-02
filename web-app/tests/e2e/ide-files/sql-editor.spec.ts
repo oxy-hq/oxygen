@@ -115,8 +115,8 @@ test.describe("IDE Files - SQL Editor", () => {
 
   // 11.6 No databases available
   test("11.6 - should handle empty database dropdown", async ({ page }) => {
-    await page.route("**/api/v1/**/databases**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/databases**", async (route) => {
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify([])
@@ -145,8 +145,8 @@ test.describe("IDE Files - SQL Editor", () => {
   });
 
   test("11.7 - should show error and retry for database load failure", async ({ page }) => {
-    await page.route("**/api/v1/**/databases**", (route) => {
-      route.fulfill({
+    await page.route("**/api/v1/**/databases**", async (route) => {
+      await route.fulfill({
         status: 500,
         body: JSON.stringify({ error: "Failed to load databases" })
       });

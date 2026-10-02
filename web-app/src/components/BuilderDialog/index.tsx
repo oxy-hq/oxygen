@@ -14,7 +14,6 @@ import { flattenFiles, getActiveMention, getCleanObjectName } from "@/libs/utils
 import ROUTES from "@/libs/utils/routes";
 import { getShortTitle } from "@/libs/utils/string";
 import { getFileTypeIcon } from "@/pages/ide/Files/FilesSidebar/utils";
-import { AnalyticsService } from "@/services/api";
 import useBuilderDialog from "@/stores/useBuilderDialog";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import type { FileTreeModel } from "@/types/file";
@@ -71,7 +70,6 @@ export function BuilderDialog() {
     isAvailable,
     isLoading: isCheckingBuilder,
     isBuiltin,
-    builderModel,
     builderPath
   } = useBuilderAvailable();
 
@@ -234,19 +232,10 @@ export function BuilderDialog() {
   };
 
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
-    switch (data.source_type) {
-      case "analytics":
-        AnalyticsService.createRun(projectId, {
-          agent_id: data.source,
-          question: data.input,
-          thread_id: data.id,
-          ...(data.source === "__builder__" && {
-            domain: "builder",
-            model: builderModel
-          })
-        });
-        break;
-    }
+    // No run is created here. AnalyticsThread auto-starts one on the first visit
+    // to the thread, with the builder domain and model. The server does not
+    // dedupe runs per thread, so a create from here raced that auto-start and
+    // left two builder runs on one thread — the same rule ChatPanel follows.
     setIsOpen(false);
     setMessage("");
     const threadUri = ROUTES.ORG(orgSlug).WORKSPACE(projectId).THREAD(data.id);

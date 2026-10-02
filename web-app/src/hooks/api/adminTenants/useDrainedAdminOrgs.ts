@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { AdminOrgMeta } from "@/services/api/adminTenants";
 import { useAllAdminOrgs } from "./useAdminOrgs";
 
@@ -53,6 +53,14 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
     if (enabled && hasNextPage && !isFetchingNextPage && !error) fetchNextPage();
   }, [enabled, hasNextPage, isFetchingNextPage, fetchNextPage, error]);
 
+  // React Query's `refetch` resolves with the query result and never rejects (no
+  // `throwOnError`); a failure lands in `error` above. Wrapped so the promise is not
+  // handed to a caller typed to get nothing back, and memoized to stay as stable as
+  // the `refetch` it wraps.
+  const retry = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
   const orgs = useMemo(() => data?.pages.flat() ?? [], [data]);
   // Two states, not one. Collapsing them into `isLoading` meant a large deployment saw
   // a skeleton until the LAST page landed, where before the first 50 painted at once —
@@ -71,6 +79,6 @@ export function useDrainedAdminOrgs({ enabled = true }: { enabled?: boolean } = 
     isDraining: hasNextPage === true && !error,
     isIncomplete: Boolean(error),
     error,
-    refetch
+    refetch: retry
   };
 }

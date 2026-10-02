@@ -108,8 +108,10 @@ export default function SaveQueryDialog({ open, onOpenChange, tab }: SaveQueryDi
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && fileName.trim()) {
-                  handleSave();
+                // Gated like the Save button, so a second Enter does not save twice.
+                if (e.key === "Enter" && fileName.trim() && !isSaving) {
+                  // `handleSave` catches a failed save and shows it in the alert above.
+                  void handleSave();
                 }
               }}
               placeholder='my_query.sql'

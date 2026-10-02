@@ -1,7 +1,6 @@
 import { ChevronRight, Code2 } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 import { CreateSecretDialog } from "@/components/settings/secrets/CreateSecretDialog";
 import { DeleteSecretDialog } from "@/components/settings/secrets/SecretTable/Row/DeleteSecretDialog";
 import { EditSecretDialog } from "@/components/settings/secrets/SecretTable/Row/EditSecretDialog";
@@ -124,15 +123,19 @@ export const UnifiedSecretsTable: React.FC = () => {
   const error = secretsError || envError;
   const rows = buildRows(secrets, envSecrets, appNames);
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deleteSecret) return;
-    await deleteSecretMutation.mutateAsync(deleteSecret.id);
-    setDeleteSecret(null);
+    // `mutate`, not `mutateAsync`: nothing awaits this handler, so a rejection
+    // would go unhandled. The mutation toasts its own failure, and the dialog
+    // stays open to try again.
+    deleteSecretMutation.mutate(deleteSecret.id, { onSuccess: () => setDeleteSecret(null) });
   };
 
   const handleRefetch = () => {
-    refetchSecrets();
-    refetchEnv();
+    // TanStack refetch settles into the query's error state (shown by the table
+    // through `error`); it does not reject.
+    void refetchSecrets();
+    void refetchEnv();
   };
 
   const openDetail = (row: UnifiedRow) => setDetailRow(row);
@@ -243,10 +246,8 @@ export const UnifiedSecretsTable: React.FC = () => {
         open={createDialogName !== undefined}
         onOpenChange={(open) => !open && setCreateDialogName(undefined)}
         initialName={createDialogName}
-        onSecretCreated={() => {
-          toast.success("Secret created successfully");
-          setCreateDialogName(undefined);
-        }}
+        // No toast here, nor for an update below: the mutation hooks say so already.
+        onSecretCreated={() => setCreateDialogName(undefined)}
       />
 
       {editSecret && (
@@ -254,10 +255,7 @@ export const UnifiedSecretsTable: React.FC = () => {
           open
           onOpenChange={(open) => !open && setEditSecret(null)}
           secret={editSecret}
-          onSecretUpdated={() => {
-            toast.success("Secret updated successfully");
-            setEditSecret(null);
-          }}
+          onSecretUpdated={() => setEditSecret(null)}
         />
       )}
 

@@ -116,6 +116,7 @@ function scriptsTheJobRuns() {
   // failure this derivation exists to prevent, in the derivation.
   const joined = workflow.replace(/\\\n\s*/g, " ");
 
+  /** @type {Set<string>} */
   const scripts = new Set();
   let matched = 0;
   for (const line of joined.split("\n")) {
