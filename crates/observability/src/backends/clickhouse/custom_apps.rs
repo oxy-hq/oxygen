@@ -20,12 +20,52 @@ use crate::types::{
     CustomAppLogRecord, FunctionLogRow,
 };
 
-/// ANSI single-quote doubling — the only escape ClickHouse accepts
-/// unconditionally. Backslash escapes depend on
-/// `allow_backslash_escaping_in_strings`, which is off by default in
-/// ClickHouse >= 22.4 and would silently produce malformed literals.
+/// A value as the body of a ClickHouse single-quoted literal.
+///
+/// ClickHouse reads backslash escapes inside a string literal, so doubling the
+/// quote alone is not an escape: `\'` would arrive as `\''`, which is an
+/// escaped quote followed by the literal's terminator, and whatever follows is
+/// SQL. The backslash is doubled **first**, so the quote's own escape cannot be
+/// claimed by one the caller typed.
+///
+/// Only for values this process derived (an id it loaded, a parsed name). A
+/// value a caller typed is bound instead — see [`BindParams`].
 fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
+    s.replace('\\', "\\\\").replace('\'', "''")
+}
+
+/// A `column = {column:String}` conjunct: the placeholder of a server-side
+/// query parameter, never the value. ClickHouse substitutes the value after
+/// parsing, so nothing a caller types is ever read as SQL.
+fn bound_equals(column: &'static str) -> String {
+    format!(" AND {column} = {{{column}:String}}")
+}
+
+/// Binds a query's server-side parameters, one per [`bound_equals`] it carries.
+trait BindParams {
+    fn params(self, params: &[(&'static str, &str)]) -> Self;
+}
+
+impl BindParams for clickhouse::query::Query {
+    fn params(self, params: &[(&'static str, &str)]) -> Self {
+        params
+            .iter()
+            .fold(self, |query, (name, value)| query.param(name, value))
+    }
+}
+
+/// The values behind the placeholders `function_logs_sql` wrote: one per
+/// filter the caller narrowed by, and none for a filter left empty — the
+/// query carries no placeholder for it, and an unbound one is an error.
+/// Both arrive from a query string, which is why they are bound, not escaped.
+fn function_log_params<'a>(
+    invocation_id: &'a str,
+    request_id: &'a str,
+) -> Vec<(&'static str, &'a str)> {
+    [("invocation_id", invocation_id), ("request_id", request_id)]
+        .into_iter()
+        .filter(|(_, value)| !value.is_empty())
+        .collect()
 }
 
 #[derive(Debug, Serialize, Row)]
@@ -98,7 +138,7 @@ struct ClientErrorGroupRow {
     error_name: String,
     message: String,
     stack: String,
-    build_id: String,
+    latest_build_id: String,
     path: String,
     kind: String,
     occurrences: u64,
@@ -109,7 +149,7 @@ struct ClientErrorGroupRow {
 
 #[derive(Debug, Deserialize, Row)]
 struct FunctionLogQueryRow {
-    timestamp: String,
+    timestamp_iso: String,
     build_id: String,
     invocation_id: String,
     request_id: String,
@@ -320,7 +360,7 @@ fn client_errors_sql(org_id: &str, app_id: &str, hours: u32, limit: u32, build_i
          argMax(error_name, timestamp) AS error_name, \
          argMax(message, timestamp) AS message, \
          argMax(stack, timestamp) AS stack, \
-         argMax(build_id, timestamp) AS build_id, \
+         argMax(build_id, timestamp) AS latest_build_id, \
          argMax(path, timestamp) AS path, \
          argMax(kind, timestamp) AS kind, \
          count() AS occurrences, \
@@ -371,7 +411,7 @@ pub(super) async fn get_client_errors(
             error_name: r.error_name,
             message: r.message,
             stack: r.stack,
-            build_id: r.build_id,
+            build_id: r.latest_build_id,
             path: r.path,
             kind: r.kind,
             occurrences: r.occurrences,
@@ -399,18 +439,15 @@ fn function_logs_sql(
     let invocation_clause = if invocation_id.is_empty() {
         String::new()
     } else {
-        format!(
-            " AND invocation_id = '{}'",
-            escape_sql_literal(invocation_id)
-        )
+        bound_equals("invocation_id")
     };
     let request_clause = if request_id.is_empty() {
         String::new()
     } else {
-        format!(" AND request_id = '{}'", escape_sql_literal(request_id))
+        bound_equals("request_id")
     };
     format!(
-        "SELECT {ts} AS timestamp, \
+        "SELECT {ts} AS timestamp_iso, \
          build_id, invocation_id, request_id, function_name, mode, log_level, seq, message, \
          trace_id \
          FROM custom_app_logs \
@@ -439,6 +476,7 @@ pub(super) async fn get_function_logs(
     let rows = storage
         .read_client()
         .query(&sql)
+        .params(&function_log_params(invocation_id, request_id))
         .fetch_all::<FunctionLogQueryRow>()
         .await
         .map_err(|e| {
@@ -447,7 +485,7 @@ pub(super) async fn get_function_logs(
     Ok(rows
         .into_iter()
         .map(|r| FunctionLogRow {
-            timestamp: r.timestamp,
+            timestamp: r.timestamp_iso,
             build_id: r.build_id,
             invocation_id: r.invocation_id,
             request_id: r.request_id,
@@ -707,6 +745,113 @@ mod tests {
     fn quotes_in_an_id_cannot_break_out_of_the_literal() {
         let sql = availability_sql("o'; DROP TABLE custom_app_events; --", "a", 60);
         assert!(sql.contains("''; DROP"), "quote must be doubled: {sql}");
+    }
+
+    /// What a caller types to end a literal early. A doubled quote alone stops
+    /// only the last two: ClickHouse reads `\'` as an escaped quote, so a
+    /// backslash in front of a doubled quote turns its second half into the
+    /// terminator.
+    const BREAKOUTS: &[&str] = &[
+        r"\",
+        r"\' OR 1=1 -- ",
+        r"x\' OR 1=1 -- ",
+        r"\\' OR 1=1 -- ",
+        r"\\",
+        "' OR '1'='1",
+        "it's",
+    ];
+
+    /// Reads one single-quoted literal off the front of `sql` the way
+    /// ClickHouse's lexer does — a backslash takes the next character with it,
+    /// a doubled quote is a quote, a lone quote ends the literal — and returns
+    /// the value it holds and the SQL that follows it.
+    fn read_literal(sql: &str) -> Option<(String, &str)> {
+        let body = sql.strip_prefix('\'')?;
+        let mut chars = body.char_indices().peekable();
+        let mut value = String::new();
+        while let Some((at, c)) = chars.next() {
+            match c {
+                '\\' => value.push(chars.next()?.1),
+                '\'' if matches!(chars.peek(), Some((_, '\''))) => {
+                    chars.next();
+                    value.push('\'');
+                }
+                '\'' => return Some((value, &body[at + 1..])),
+                c => value.push(c),
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_backslash_or_a_quote_cannot_end_a_literal_early() {
+        for payload in BREAKOUTS {
+            let sql = format!("'{}' AND tail", escape_sql_literal(payload));
+            let (value, rest) = read_literal(&sql)
+                .unwrap_or_else(|| panic!("{payload:?} left the literal open: {sql}"));
+            assert_eq!(&value, payload, "the literal must hold the value: {sql}");
+            assert_eq!(rest, " AND tail", "{payload:?} ended the literal: {sql}");
+        }
+    }
+
+    /// `/errors?build_id=` reaches this query from a query string.
+    #[test]
+    fn a_build_id_cannot_break_out_of_the_client_error_query() {
+        for payload in BREAKOUTS {
+            let sql = client_errors_sql("o", "a", 24, 50, payload);
+            let (_, after) = sql.split_once(" AND build_id = ").expect("a build clause");
+            let (value, rest) = read_literal(after)
+                .unwrap_or_else(|| panic!("{payload:?} left the literal open: {sql}"));
+            assert_eq!(&value, payload, "{sql}");
+            assert!(
+                rest.starts_with(" GROUP BY stack_hash"),
+                "{payload:?} reached the SQL after its literal: {sql}"
+            );
+        }
+    }
+
+    /// ClickHouse resolves a name in `WHERE` to a `SELECT` alias before the
+    /// column, so `argMax(build_id, ..) AS build_id` turned the build filter
+    /// into an aggregate inside `WHERE` and every filtered read failed
+    /// (`ILLEGAL_AGGREGATION`). The alias has its own name; the filter reads
+    /// the column.
+    #[test]
+    fn the_build_filter_reads_the_column_not_a_select_alias() {
+        let sql = client_errors_sql("o", "a", 24, 50, "b1");
+        assert!(
+            sql.contains("argMax(build_id, timestamp) AS latest_build_id,"),
+            "{sql}"
+        );
+        assert!(!sql.contains(" AS build_id"), "{sql}");
+        assert!(sql.contains(" AND build_id = 'b1' GROUP BY"), "{sql}");
+    }
+
+    /// `/logs?invocation_id=&request_id=` arrive from a query string too, and
+    /// are bound: the query text carries a placeholder and the value travels
+    /// beside it, so there is no literal for either to break out of.
+    #[test]
+    fn function_log_filters_are_bound_not_written_into_the_query() {
+        assert_eq!(
+            bound_equals("invocation_id"),
+            " AND invocation_id = {invocation_id:String}"
+        );
+        assert_eq!(
+            bound_equals("request_id"),
+            " AND request_id = {request_id:String}"
+        );
+        for payload in BREAKOUTS {
+            assert_eq!(
+                function_log_params(payload, payload),
+                vec![("invocation_id", *payload), ("request_id", *payload)],
+                "a bound value is passed as typed, unescaped"
+            );
+        }
+        assert_eq!(function_log_params("", "r"), vec![("request_id", "r")]);
+        assert_eq!(
+            function_log_params("", ""),
+            vec![],
+            "an empty filter has no placeholder, so it binds nothing"
+        );
     }
 
     #[test]

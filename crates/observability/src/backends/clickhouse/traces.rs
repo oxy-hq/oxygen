@@ -103,21 +103,22 @@ fn duration_interval(dur: Option<&str>) -> Option<&'static str> {
 
 /// Escape a string for inclusion as a ClickHouse SQL string literal.
 ///
-/// Uses ANSI-style single-quote doubling (`'` → `''`). This is the only
-/// escape ClickHouse accepts unconditionally — backslash escapes depend on
-/// the `allow_backslash_escaping_in_strings` setting, which defaults to `off`
-/// in ClickHouse ≥ 22.4 and would silently produce malformed literals.
+/// ClickHouse reads backslash escapes inside a string literal, so doubling
+/// the quote alone is not an escape: `\'` would arrive as `\''`, which is an
+/// escaped quote followed by the literal's terminator, and whatever follows
+/// is SQL. The backslash is doubled **first**, so the quote's own escape
+/// cannot be claimed by one the caller typed.
 fn escape_sql_literal(s: &str) -> String {
-    s.replace('\'', "''")
+    s.replace('\\', "\\\\").replace('\'', "''")
 }
 
 /// Escape LIKE/ILIKE wildcard metacharacters (`\`, `%`, `_`) so free-text
 /// search matches literally instead of as a pattern — a query like `50%` or
 /// `user_id` must not turn `%`/`_` into wildcards. `\` is ClickHouse's default
-/// LIKE escape character; the doubled `\\` survives the surrounding string
-/// literal because `allow_backslash_escaping_in_strings` is off (see
-/// [`escape_sql_literal`]). The result must still be passed through
-/// [`escape_sql_literal`] for the SQL string literal it's interpolated into.
+/// LIKE escape character. The result must still be passed through
+/// [`escape_sql_literal`] for the SQL string literal it's interpolated into —
+/// which doubles each backslash written here, so the literal ClickHouse
+/// decodes is exactly this pattern.
 fn escape_like_pattern(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -545,6 +546,51 @@ mod tests {
         assert_eq!(escape_sql_literal("plain"), "plain");
     }
 
+    /// Whether `body`, written between two quotes, is one whole literal to
+    /// ClickHouse's lexer: a backslash takes the next character with it, a
+    /// doubled quote is a quote, and a lone quote would end the literal.
+    fn stays_inside_its_literal(body: &str) -> bool {
+        let mut chars = body.chars();
+        while let Some(c) = chars.next() {
+            let paired = match c {
+                '\\' => chars.next().is_some(),
+                '\'' => chars.next() == Some('\''),
+                _ => true,
+            };
+            if !paired {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// A doubled quote alone does not hold a value in: a backslash in front
+    /// of it makes the first half an escaped quote and the second the
+    /// terminator. The trace search box, the agent and status filters, a
+    /// trace id and an enrichment's ids all reach a literal this way.
+    #[test]
+    fn a_backslash_cannot_end_the_literal_early() {
+        assert_eq!(escape_sql_literal("\\"), "\\\\");
+        assert_eq!(escape_sql_literal("x\\' OR 1=1 -- "), "x\\\\'' OR 1=1 -- ");
+        for typed in [
+            "\\",
+            "\\' OR 1=1 -- ",
+            "x\\' OR 1=1 -- ",
+            "\\\\' OR 1=1 -- ",
+            "' OR '1'='1",
+        ] {
+            assert!(
+                stays_inside_its_literal(&escape_sql_literal(typed)),
+                "{typed:?} ends its literal: {}",
+                escape_sql_literal(typed)
+            );
+            assert!(
+                stays_inside_its_literal(&escape_sql_literal(&escape_like_pattern(typed))),
+                "{typed:?} ends its LIKE literal"
+            );
+        }
+    }
+
     #[test]
     fn like_pattern_escapes_wildcards() {
         assert_eq!(escape_like_pattern("50%"), "50\\%");
@@ -556,10 +602,11 @@ mod tests {
     #[test]
     fn like_pattern_composes_with_sql_literal() {
         // A prompt containing both a quote and a wildcard: metacharacters get a
-        // backslash, then the quote is doubled for the surrounding literal.
+        // backslash, then the surrounding literal doubles that backslash and
+        // the quote — ClickHouse decodes it back to the pattern `it's 50\%`.
         assert_eq!(
             escape_sql_literal(&escape_like_pattern("it's 50%")),
-            "it''s 50\\%"
+            "it''s 50\\\\%"
         );
     }
 }

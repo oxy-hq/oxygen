@@ -107,6 +107,8 @@ pub struct ClientErrorResponse {
     pub last_seen: String,
 }
 
+mod filters;
+
 fn clamp(hours: Option<u32>, limit: Option<u32>) -> (u32, u32) {
     (
         hours.unwrap_or(24).clamp(1, MAX_HOURS),
@@ -138,6 +140,12 @@ pub async fn get_logs(
     let outcome = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
         Ok(o) => o,
         Err(status) => return error_response(status, "not permitted"),
+    };
+    // Syntax only, so it says nothing about the app to a caller the next gate
+    // would turn away — and nothing that is not an id reaches the store.
+    let q = match q.with_valid_ids() {
+        Ok(q) => q,
+        Err(invalid) => return invalid.into_response(),
     };
     if let Err(status) = require_app_admin(&outcome).await {
         return error_response(status, "app-admin required");
@@ -192,6 +200,12 @@ pub async fn get_errors(
     let outcome = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
         Ok(o) => o,
         Err(status) => return error_response(status, "not permitted"),
+    };
+    // Syntax only, so it says nothing about the app to a caller the next gate
+    // would turn away — and nothing that is not an id reaches the store.
+    let q = match q.with_valid_ids() {
+        Ok(q) => q,
+        Err(invalid) => return invalid.into_response(),
     };
     if let Err(status) = require_app_admin(&outcome).await {
         return error_response(status, "app-admin required");
