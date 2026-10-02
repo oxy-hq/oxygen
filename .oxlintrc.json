@@ -1,0 +1,118 @@
+// Oxlint has one job here: the rules that need the TYPE CHECKER.
+//
+// Biome owns formatting and syntactic lint (biome.json), so every Oxlint
+// category is off and nothing below is about how code looks. Each rule names a
+// way TypeScript compiles and is then wrong at runtime. `pnpm lint:bugs` runs
+// it; CI's `lint-bugs` job is the gate.
+//
+// The violations that existed when a rule was turned on are recorded in
+// `oxlint-suppressions.json`, per file and rule. That file may only shrink —
+// see scripts/ci/verify-lint-baseline.mjs. To silence a rule where the code is
+// right: `// oxlint-disable-next-line typescript/<rule> -- <why>`.
+//
+// Measured and left OFF, so nobody re-derives it (2026-10-02, whole tree):
+//   no-unsafe-* (4,127 hits)        any-flow; most are untyped test doubles and .mjs
+//   no-confusing-void-expression (1,745), strict-void-return (565),
+//   no-unnecessary-condition (767), no-unnecessary-type-assertion (161),
+//   require-await (124)             cosmetic or over-defensive, not wrong
+//   unbound-method (21)             service methods passed as `mutationFn`, DOM methods
+//                                   saved for patching: house style, flagged every time
+//   no-unsafe-enum-comparison (10), only-throw-error (1),
+//   prefer-promise-reject-errors (4)  type hygiene; none was a bug
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "options": {
+    "typeAware": true
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "**/styled-system/**",
+    "sdk/cli/template/**",
+    "sdk/cli/skills/**",
+    "web-app/.agents/**"
+  ],
+  "rules": {
+    // A promise nobody awaits or catches: its rejection is reported nowhere.
+    //
+    // The three exemptions are calls that are fire-and-forget BY DESIGN and
+    // were 382 of the 474 raw hits: react-router's `navigate()`, TanStack
+    // Query's invalidate/refetch family (they resolve, never reject, unless
+    // `throwOnError` is set), and `node:test`'s `test()`.
+    "typescript/no-floating-promises": [
+      "error",
+      {
+        "allowForKnownSafeCalls": [
+          {
+            "from": "package",
+            "name": "NavigateFunction",
+            "package": "react-router"
+          },
+          {
+            "from": "package",
+            "name": ["invalidateQueries", "refetchQueries", "refetch", "fetchNextPage"],
+            "package": "@tanstack/query-core"
+          },
+          {
+            "from": "package",
+            "name": ["test", "it", "describe"],
+            "package": "node:test"
+          }
+        ]
+      }
+    ],
+    // A promise where a boolean or a void callback was expected: `if (save())`
+    // is always true, `forEach(async …)` finishes before its work does.
+    // `attributes: false` because `onClick={async () => …}` is how React
+    // handlers are written (265 hits) and React ignores the returned promise.
+    "typescript/no-misused-promises": [
+      "error",
+      {
+        "checksVoidReturn": {
+          "attributes": false
+        }
+      }
+    ],
+    // `await` on something that is not a promise: the function it calls was
+    // probably meant to be async, or was once.
+    "typescript/await-thenable": "error",
+    // Only where it changes behaviour: `return promise` inside `try` skips the
+    // `catch` it sits in.
+    "typescript/return-await": ["error", "error-handling-correctness-only"],
+    // `for…in` over an array yields index strings; `delete arr[i]` leaves a hole.
+    "typescript/no-for-in-array": "error",
+    "typescript/no-array-delete": "error",
+    // A string handed to `setTimeout` / `new Function` is `eval`.
+    "typescript/no-implied-eval": "error",
+    // Spreading a promise, a Map or a class instance copies nothing useful.
+    "typescript/no-misused-spread": "error",
+    // An object or `undefined` reaching a string: this is how `[object Object]`
+    // and `undefined` end up on screen and in URLs.
+    "typescript/no-base-to-string": "error",
+    "typescript/restrict-template-expressions": "error",
+    "typescript/restrict-plus-operands": "error",
+    // `-x` where `x` may be undefined is NaN.
+    "typescript/no-unsafe-unary-minus": "error",
+    // `[10, 9, 1].sort()` is `[1, 10, 9]`. String arrays are exempt by default.
+    "typescript/require-array-sort-compare": "error",
+    // A `switch` over a union with no `default` must name every member — so
+    // adding a variant fails here instead of falling through at runtime. A
+    // `default` counts as handling the rest: without that option the rule also
+    // flags the 53 switches that have one.
+    "typescript/switch-exhaustiveness-check": [
+      "error",
+      {
+        "considerDefaultExhaustiveForUnions": true
+      }
+    ]
+  }
+}

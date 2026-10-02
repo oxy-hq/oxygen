@@ -61,13 +61,13 @@
         "useAltText": "warn"
       },
       "correctness": {
-        "useExhaustiveDependencies": "warn",
+        "useExhaustiveDependencies": "error",
         "useHookAtTopLevel": "error"
       },
       "suspicious": {
         "noExplicitAny": "warn",
         "noArrayIndexKey": "warn",
-        "noImplicitAnyLet": "warn",
+        "noImplicitAnyLet": "error",
         "useIterableCallbackReturn": "warn",
         "noAssignInExpressions": "warn",
         "noShadowRestrictedNames": "warn",
@@ -76,17 +76,18 @@
       },
       "style": {
         "noNonNullAssertion": "warn",
-        "useImportType": "warn"
+        "useImportType": "warn",
+        "useTemplate": "off"
       },
       "complexity": {
-        "noStaticOnlyClass": "warn",
-        "noUselessFragments": "warn"
+        "noStaticOnlyClass": "off",
+        "noUselessFragments": "off"
       },
       "performance": {
         "noAccumulatingSpread": "warn"
       },
       "security": {
-        "noDangerouslySetInnerHtml": "warn"
+        "noDangerouslySetInnerHtml": "error"
       },
       "nursery": {
         "useSortedClasses": {
@@ -113,6 +114,7 @@
       "!sdk/cli/template",
       "!sdk/cli/skills",
       "!sdk/typescript/src/testing/shape-zoo.json",
+      "!oxlint-suppressions.json",
       "!**/dist",
       "!**/node_modules",
       "!**/styled-system",

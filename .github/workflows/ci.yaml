@@ -633,6 +633,79 @@ jobs:
       - name: deploy-metrics.ts self-test
         run: node .github/scripts/deploy-metrics.ts --self-test
 
+  # Lints that catch bugs, and only those. Formatting is `fmt-web`'s business
+  # and is applied on commit; this job never asks how code looks.
+  #
+  # Two linters, one question each:
+  #   * Biome — syntactic rules. `fmt-web` already runs it, but through
+  #     `lint-staged --diff` with `--write --unsafe`, on changed files, in a
+  #     tree the job throws away: a fixable error is "fixed" there and exits 0.
+  #     This is the run that does not write, over the whole tree, so an
+  #     error-level rule is actually a gate. Warnings are not printed: nothing
+  #     reads them, and the rules worth reading are at `error`.
+  #   * Oxlint with `--type-aware` — rules that need the type checker: a
+  #     promise nobody awaits, an object printed as `[object Object]`, a
+  #     `switch` that stopped being exhaustive when a variant was added. Biome
+  #     cannot see these (its type-aware rules are still nursery), and
+  #     typescript-eslint cannot run on TypeScript 7. See `.oxlintrc.json`.
+  #
+  # The violations that existed when each Oxlint rule was turned on are in
+  # `oxlint-suppressions.json`. Oxlint holds the line both ways — one more than
+  # recorded fails, one fewer fails until the file is pruned — and the last
+  # step holds the file itself: it may only shrink.
+  lint-bugs:
+    name: Lint for bugs (Biome + type-aware Oxlint)
+    needs: [changesets]
+    concurrency:
+      group: lint-bugs-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    if: |
+      inputs.agentic_only != true &&
+      (needs.changesets.outputs.web-app == 'true' ||
+       needs.changesets.outputs.sdk == 'true' ||
+       needs.changesets.outputs.ci-scripts == 'true' ||
+       needs.changesets.outputs.lint-bugs == 'true')
+    # Warp arm64 rather than `ubuntu-slim`: the type-aware half builds a full
+    # TypeScript program for web-app, which wants more than one core.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # Both linters finish in seconds; 15m covers a cold pnpm store.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The baseline check needs the merge base, not just the tip.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: "pnpm"
+      - name: Run pnpm install
+        run: pnpm install --frozen-lockfile --prefer-offline
+      - name: Lint (Biome errors, then type-aware Oxlint)
+        run: pnpm lint:bugs
+      - name: The baseline may only shrink
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A PR is measured against its base branch; a push against the commit
+          # it replaced. A push with no predecessor (a new branch) and a
+          # dispatch have neither, so they are measured against main.
+          base="origin/main"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="origin/$BASE_REF"
+          elif [[ "$EVENT_NAME" == "push" && -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            base="$BEFORE"
+          fi
+          node scripts/ci/verify-lint-baseline.mjs "$base"
+      - name: Baseline check self-test
+        run: node --test scripts/ci/verify-lint-baseline.test.mjs
+
   cargo-fmt:
     name: Format cargo (rustfmt --check)
     needs: [changesets]

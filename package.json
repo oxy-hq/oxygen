@@ -5,6 +5,8 @@
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
+    "lint:bugs": "biome lint --diagnostic-level=error . && oxlint web-app sdk .github/scripts scripts/ci",
+    "lint:bugs:prune": "oxlint --prune-suppressions web-app sdk .github/scripts scripts/ci",
     "format": "turbo format",
     "format:docs": "prettier --write \"docs/**/*.{md,mdx}\"",
     "format:docs:check": "prettier --check \"docs/**/*.{md,mdx}\"",
@@ -17,6 +19,8 @@
     "@types/node": "^26.6.3",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
     "prettier": "^3.9.9",
     "turbo": "^2.11.4",
     "typescript": "^7.0.2"

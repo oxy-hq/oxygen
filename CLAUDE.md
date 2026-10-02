@@ -179,6 +179,12 @@ moved** (`git log -1 --oneline`) rather than trusting the command's exit.
 (`pnpm exec biome check --write <file>`), not Prettier. Full conventions in
 `web-app/CLAUDE.md`.
 
+**`pnpm lint:bugs` must pass** (Biome errors + type-aware Oxlint, ~10s; rules in
+`.oxlintrc.json`). When it reports a new violation, fix it — **do not run the
+`oxlint --suppress-all` its error message suggests**: `oxlint-suppressions.json` is the
+backlog from the day each rule was turned on, and CI fails if it grows. After fixing an
+old one, `pnpm lint:bugs:prune` shrinks it.
+
 ## Database & Runtime
 
 - **DB**: there is no embedded Postgres — `oxy serve` refuses to boot without `OXY_DATABASE_URL`.

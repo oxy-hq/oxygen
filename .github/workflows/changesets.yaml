@@ -13,6 +13,8 @@ on:
         value: ${{ jobs.changesets.outputs.ci-scripts }}
       ci-counter:
         value: ${{ jobs.changesets.outputs.ci-counter }}
+      lint-bugs:
+        value: ${{ jobs.changesets.outputs.lint-bugs }}
       canary-zoo:
         value: ${{ jobs.changesets.outputs.canary-zoo }}
       custom-app-canary:
@@ -46,6 +48,7 @@ jobs:
       sdk: ${{ steps.changes.outputs.sdk }}
       ci-scripts: ${{ steps.changes.outputs.ci-scripts }}
       ci-counter: ${{ steps.changes.outputs.ci-counter }}
+      lint-bugs: ${{ steps.changes.outputs.lint-bugs }}
       canary-zoo: ${{ steps.changes.outputs.canary-zoo }}
       custom-app-canary: ${{ steps.changes.outputs.custom-app-canary }}
       agentic: ${{ steps.changes.outputs.agentic }}
@@ -190,6 +193,20 @@ jobs:
               # which jobs run, so it has to run them. Self-reference is the
               # fixed point, not a regress — once listed, editing it matches.
               - ".github/workflows/changesets.yaml"
+            # What the `lint-bugs` job reads that no other filter covers. Its
+            # source trees are `web-app`, `sdk` and `ci-scripts` (the job is
+            # gated on all three); these are its rule list, its baseline, the
+            # check on that baseline, and `scripts/ci/**`, which it lints and
+            # which only has a few files named in the filters above.
+            #
+            # Own filter rather than entries on `web-app`: a baseline-only
+            # change (a pass that fixed violations in files `sdk` already
+            # covers, say) should run a one-minute lint, not the ARM build and
+            # the agentic suite.
+            lint-bugs:
+              - ".oxlintrc.json"
+              - "oxlint-suppressions.json"
+              - "scripts/ci/**"
             # `canary-zoo` gates the drift check between the zoo fixture and
             # the canary's bundled copy of it. The copy exists because an Oxy
             # Function bundle cannot read outside itself, so the two files are
