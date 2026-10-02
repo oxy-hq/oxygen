@@ -94,7 +94,6 @@ pub mod secrets;
 pub mod semantic;
 pub mod semantic_scan;
 pub mod simulation;
-pub mod source_upload;
 pub mod test_file;
 pub mod test_project_run;
 pub mod test_run;

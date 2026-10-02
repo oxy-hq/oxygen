@@ -114,8 +114,12 @@ fn nothing_new_resolves_a_workspace_path_by_hand() {
     let mut offenders = Vec::new();
     // `oxy-api-documents` was extracted from `src/server/api/documents` and
     // still serves requests from this binary, so the guard follows it. Paths
-    // there read `../api-documents/src/…`.
-    let mut walk = vec![root.clone(), manifest.join("../api-documents/src")];
+    // there read `../api-documents/src/…`. `oxy-api-source-upload` likewise.
+    let mut walk = vec![
+        root.clone(),
+        manifest.join("../api-documents/src"),
+        manifest.join("../api-source-upload/src"),
+    ];
     while let Some(dir) = walk.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;

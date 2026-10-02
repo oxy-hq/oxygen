@@ -35,6 +35,7 @@ oxy-api-partner-console = { path = "../api-partner-console" }
 oxy-api-onboarding = { path = "../api-onboarding" }
 oxy-api-documents = { path = "../api-documents" }
 oxy-api-frontline = { path = "../api-frontline" }
+oxy-api-source-upload = { path = "../api-source-upload" }
 # Dev-dynamic-linking shim, pulled in only by the `dev-dynamic` feature above.
 oxy-app-dylib = { path = "../app-dylib", optional = true }
 oxy = { workspace = true }

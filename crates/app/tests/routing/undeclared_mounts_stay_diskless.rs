@@ -44,6 +44,14 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
         "api-partner-console/src/orgs.rs",
         "create_default_workspace",
     ),
+    // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
+    // definition through `ConfigManager`, which owns the compiled-vs-disk
+    // choice and pins the request's revision; `oxy_api_source_upload::
+    // route_roles()` declares the route FleetOk. Today the call is spelled as a
+    // field (`workspace.config_manager`), so nothing matches — this reserves the
+    // slot so naming the type later does not read as a new disk access. The
+    // working-copy needles still apply to the file.
+    ("api-source-upload/src/source_upload.rs", "ConfigManager"),
 ];
 
 fn rust_sources(dir: &Path) -> Vec<(String, String)> {
@@ -94,6 +102,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // gate that stopped one of these handlers taking a working copy, so
         // "stays diskless" is the check that is left.
         "../api-frontline/src",
+        // Extracted from `src/server/api/source_upload.rs`, merged inside the
+        // `/{workspace_id}` nest. Declared FleetOk in its `route_roles()`: it
+        // writes to S3 and reads the pipeline definition through
+        // `ConfigManager`, which owns the compiled-vs-disk choice — the handler
+        // itself never reaches for a working copy.
+        "../api-source-upload/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

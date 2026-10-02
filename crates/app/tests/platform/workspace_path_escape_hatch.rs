@@ -118,6 +118,8 @@ fn server_files() -> Vec<(String, String)> {
     // Extracted from `src/server/api/documents`; still a request path of this
     // server, so still in scope. Labelled `../api-documents/src/…`.
     walk(&manifest.join("../api-documents/src"), &mut out);
+    // Likewise `src/server/api/source_upload.rs`.
+    walk(&manifest.join("../api-source-upload/src"), &mut out);
     out
 }
 

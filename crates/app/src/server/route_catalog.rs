@@ -217,6 +217,8 @@ mod tests {
         "/api/{workspace_id}/integrations",
         "/api/{workspace_id}/repositories",
         "/api/{workspace_id}/onboarding",
+        // `oxy-api-source-upload`, on the workspace seam.
+        "/api/{workspace_id}/source-uploads",
         "/api/{workspace_id}/cameras",
         "/external/api/",
     ];

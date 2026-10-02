@@ -64,8 +64,8 @@ use axum::http::StatusCode;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::server::api::middlewares::role_guards::WorkspaceEditor;
-use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
+use oxy_app::server::api::middlewares::role_guards::WorkspaceEditor;
+use oxy_app::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
 
 /// Body ceiling for an upload.
 ///
@@ -102,7 +102,7 @@ pub struct UploadedReport {
 /// customer-supplied bucket name would be a confused deputy — the server
 /// writing customer bytes into a sibling service's bucket with its own
 /// credentials.
-const ZONE_VAR: &str = agentic_airway::upload_zone::ZONE_VAR;
+pub const ZONE_VAR: &str = agentic_airway::upload_zone::ZONE_VAR;
 
 /// The configured zone split into `(bucket, root_prefix)`.
 ///

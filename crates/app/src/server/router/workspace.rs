@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use axum::Router;
 use axum::routing::{delete, get, post, put};
 
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
@@ -141,15 +140,8 @@ pub(super) fn build_workspace_routes(
         )
         .route_fleet("/logo", get(workspace_logo::get_workspace_logo))
         .nest("/apps", build_app_routes(&app_state))
-        // NOT under `/agentic-airway`, which is an `IdeOnly` `{*rest}` wildcard
-        // for execution safety. This writes to S3 and reads nothing node-local,
-        // so pinning it to the singleton would cost HA for no reason.
-        .nest_all(
-            "/source-uploads",
-            RouteRole::FleetOk,
-            build_source_upload_routes(),
-            "report uploads write to the shared S3 landing zone, nothing node-local",
-        )
+        // `/source-uploads` moved to the `oxy-api-source-upload` sibling crate,
+        // merged inside this nest by `oxy-server` through the workspace seam.
         .nest(
             "/app-integrations",
             build_app_integration_routes(&app_state),
@@ -757,35 +749,6 @@ fn build_app_routes(app_state: &AppState) -> RoleRouter {
         .route_ide("/file/{pathb64}", get(app::get_data))
         .route_ide("/source/{pathb64}", get(app::get_source_file))
         .route_ide("/save-from-run/{run_id}", post(app::save_app_builder_run))
-}
-
-/// Report uploads for file-based sources, into the shared landing zone.
-///
-/// Deliberately its own nest rather than a child of `/agentic-airway`: that
-/// prefix is classified `IdeOnly` for every method so a live run stays on the
-/// instance holding the working copy, and this handler touches no working copy.
-fn build_source_upload_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/reports",
-            post(crate::server::api::source_upload::upload_report),
-        )
-        // Without this, axum 0.8's 2 MiB default governs and the handler's own
-        // ceiling is unreachable — a larger report fails inside `field.bytes()`
-        // as a 400, never the 413 the handler writes. At `Router` level rather
-        // than on the `MethodRouter` for the same reason `oxy-api-onboarding`
-        // gives: the latter can interact unexpectedly with outer CORS preflight
-        // handling on axum 0.8.
-        // `MAX_REPORT_BYTES` plus slack, because this bounds the whole
-        // multipart body while the constant bounds ONE FILE: boundaries, field
-        // names, `pipeline_ref`, `workflow_id` and the period all ride along.
-        // Set equal, a file a few hundred bytes under the ceiling passed the
-        // client-side check and the handler's own check and still died here —
-        // answered by this layer's terse 400, never the handler's 413 that
-        // names the size. The handler stays the authority on the file itself.
-        .layer(axum::extract::DefaultBodyLimit::max(
-            crate::server::api::source_upload::MAX_REPORT_BYTES + 64 * 1024,
-        ))
 }
 
 fn build_test_file_routes(app_state: &AppState) -> RoleRouter {

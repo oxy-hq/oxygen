@@ -98,6 +98,25 @@ fn raise_fd_limit() {
 #[cfg(not(unix))]
 fn raise_fd_limit() {}
 
+type SeamRouter = axum::Router<oxy_app::server::router::AppState>;
+
+/// The sibling crates merged at the protected-tree root. A function rather
+/// than inline in `main` so the test below builds the SAME composition boot
+/// does: axum rejects a colliding path eagerly on `.merge`, and each crate's
+/// own probe only merges against a stand-in, never against its siblings.
+fn api_seam_routes() -> SeamRouter {
+    oxy_api_github::routes()
+        .merge(oxy_api_partner_console::routes())
+        .merge(oxy_api_onboarding::routes())
+        .merge(oxy_api_documents::routes())
+        .merge(oxy_api_frontline::routes())
+}
+
+/// The sibling crates merged inside the `/{workspace_id}` nest.
+fn workspace_seam_routes() -> SeamRouter {
+    oxy_api_onboarding::workspace_routes().merge(oxy_api_source_upload::routes())
+}
+
 fn main() {
     dotenv().ok();
     let _sentry_guard = sentry_config::init_sentry(oxy_app::BUILD_SHA);
@@ -233,13 +252,12 @@ fn main() {
             // Each seam is named for which side of the auth stack it lands on
             // (see `SurfaceSeams`), so a route cannot change sides by argument
             // order: `public` is the only one outside auth.
+            //
+            // `oxy-api-source-upload` rides the workspace seam and declares its
+            // one route FleetOk: an S3 write that must not need the ide.
             let seams = SurfaceSeams {
                 api: SurfaceSeam {
-                    routes: oxy_api_github::routes()
-                        .merge(oxy_api_partner_console::routes())
-                        .merge(oxy_api_onboarding::routes())
-                        .merge(oxy_api_documents::routes())
-                        .merge(oxy_api_frontline::routes()),
+                    routes: api_seam_routes(),
                     decls: oxy_api_onboarding::route_roles()
                         .iter()
                         .chain(oxy_api_partner_console::route_roles())
@@ -249,8 +267,12 @@ fn main() {
                         .collect(),
                 },
                 workspace: SurfaceSeam {
-                    routes: oxy_api_onboarding::workspace_routes(),
-                    decls: oxy_api_onboarding::workspace_route_roles().to_vec(),
+                    routes: workspace_seam_routes(),
+                    decls: oxy_api_onboarding::workspace_route_roles()
+                        .iter()
+                        .chain(oxy_api_source_upload::route_roles())
+                        .copied()
+                        .collect(),
                 },
                 public: SurfaceSeam {
                     routes: oxy_api_frontline::public_routes(),
@@ -301,4 +323,17 @@ fn main() {
                 exit(exit_code);
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Composing the seams panics on a path collision between sibling crates,
+    /// which would otherwise surface only as a boot panic.
+    #[test]
+    fn the_seams_compose_without_conflict() {
+        let _ = api_seam_routes();
+        let _ = workspace_seam_routes();
+    }
 }

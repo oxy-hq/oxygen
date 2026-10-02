@@ -1643,24 +1643,6 @@ fn custom_app_health_is_fleet_ok() {
     );
 }
 
-#[test]
-fn source_upload_is_fleet_ok() {
-    let ws = "d9830be4-c6a4";
-    assert_eq!(
-        classify("POST", &format!("/api/{ws}/source-uploads/reports")),
-        RouteRole::FleetOk,
-        "an S3 write with no working-copy access must not need the ide"
-    );
-
-    // The neighbouring surface it deliberately does NOT live under.
-    assert_eq!(
-        classify("POST", &format!("/api/{ws}/agentic-airway/runs")),
-        RouteRole::IdeOnly,
-        "a live pipeline run still belongs on the ide — the carve-out is \
-         the upload, not the surface"
-    );
-}
-
 // ── Ported from origin/main's inline `mod tests` at the #2851 merge ──────
 // This branch moved that module to this file; these are the cases it had that
 // this file did not.

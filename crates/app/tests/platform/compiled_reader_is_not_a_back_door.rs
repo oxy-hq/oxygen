@@ -113,8 +113,9 @@ fn app_src() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// Every `.rs` under `src` — plus `oxy-api-documents`, extracted from
-/// `src/server/api/documents` and still served by this binary — as
+/// Every `.rs` under `src` — plus `oxy-api-documents` and
+/// `oxy-api-source-upload`, extracted from `src/server/api` and still served
+/// by this binary — as
 /// (crate-relative path, contents).
 fn source_files() -> Vec<(String, String)> {
     fn walk(dir: &Path, root: &Path, label: &str, out: &mut Vec<(String, String)>) {
@@ -142,6 +143,13 @@ fn source_files() -> Vec<(String, String)> {
     let mut out = Vec::new();
     walk(&root, &root, "src/", &mut out);
     walk(&documents, &documents, "../api-documents/src/", &mut out);
+    let source_upload = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../api-source-upload/src");
+    walk(
+        &source_upload,
+        &source_upload,
+        "../api-source-upload/src/",
+        &mut out,
+    );
     out
 }
 

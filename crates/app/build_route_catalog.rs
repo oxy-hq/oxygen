@@ -222,6 +222,12 @@ const SEEDS: &[Seed] = &[
         function: "workspace_routes",
     },
     Seed {
+        surface: "workspace",
+        prefix: "/api/{workspace_id}",
+        module: "oxy_api_source_upload",
+        function: "routes",
+    },
+    Seed {
         surface: "external",
         prefix: "/external/api/{workspace_id}",
         module: "workspace",
@@ -235,8 +241,9 @@ const SEEDS: &[Seed] = &[
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-partner-console/src`,
-/// `crates/api-onboarding/src`, `crates/api-documents/src` and
-/// `crates/api-frontline/src`, none of which `oxy-app` depends on
+/// `crates/api-onboarding/src`,
+/// `crates/api-documents/src`, `crates/api-frontline/src` and
+/// `crates/api-source-upload/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
 /// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
@@ -264,6 +271,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-onboarding/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
+    "crates/api-source-upload/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -291,6 +299,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-onboarding/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
+    "crates/api-source-upload/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the
