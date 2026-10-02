@@ -22,8 +22,9 @@ crates/
   server/                   # (oxy-server) the `oxy` BINARY — composition root (main.rs + router
                             #   assembly) that mounts the API surfaces. Default member.
   app/                      # (oxy-app) CLI + HTTP server LIBRARY (the bulk of the code; lib-only)
-  api-github/               # (oxy-api-github) GitHub OAuth + git-namespace HTTP surface — a sibling
-                            #   crate oxy-server mounts; oxy-app does NOT depend on it
+  api-<context>/            # (oxy-api-*) HTTP surface crates oxy-server mounts — one bounded context
+                            #   each; oxy-app does NOT depend on them. Placement rules S1–S7 and the
+                            #   per-crate review: internal-docs/domain-boundaries.md
   app-dylib/                # (oxy-app-dylib) dev-only dynamic-linking shim, EXCLUDED from the
                             #   workspace; built only by `--features dev-dynamic` (just dev-backend-dyn)
   app-core/                 # (oxy-app-core) Shared app-layer seam: audit, serve_mode,
@@ -35,7 +36,6 @@ crates/
   semantic/                 # (oxy-semantic) Semantic query layer (airlayer)
   shared/                   # (oxy-shared) Shared types, errors, infra
   project/                  # (oxy-project) Project/model config domain
-  thread/                   # (oxy-thread) Thread/conversation domain (thin)
   oxy-compile/              # (oxy-compile) Compile boundary: workspace FS → Postgres rows
   workspace-fs/             # (oxy-workspace-fs) Workspace filesystem helpers (thin)
   git/                      # (oxy-git) Git client / worktree ops
@@ -52,7 +52,7 @@ crates/
   agentic/
     core/ runtime/ pipeline/ analytics/ builder/ automation/ airway/
     connector/ http/ llm/ semantic/    # see crates/agentic/CLAUDE.md for layering
-  infrastructure/llm/{anthropic,gemini,ollama,openai,oxy-llm}
+  infrastructure/llm/oxy-llm
   infrastructure/semantic/  # (oxy-airlayer-compat) airlayer compatibility shim
   integration/{looker,unifi,omni}
 web-app/                    # Frontend (see web-app/CLAUDE.md)
