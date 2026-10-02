@@ -236,7 +236,7 @@ pub async fn create_org(
     // Post-commit: email the Owner invitation for an unknown owner. The row +
     // token are already committed, so a send failure never fails the request.
     if let Some((to_email, token)) = pending_invite {
-        let base_url = oxy_app::server::api::auth::extract_base_url_from_headers(&headers);
+        let base_url = oxy_app::surface::session::extract_base_url_from_headers(&headers);
         let inviter_name = actor.name.clone();
         let inviter_email = actor.email.clone();
         let org_name = name.clone();

@@ -15,8 +15,8 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::middleware::from_fn;
 use axum::routing::{get, post};
-use oxy_app::server::api::middlewares::org_context::org_middleware;
-use oxy_app::server::api::middlewares::subscription_guard::subscription_guard_middleware;
+use oxy_app::surface::org_middleware;
+use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 

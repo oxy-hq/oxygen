@@ -55,9 +55,9 @@ use super::frontline_devices::{
     BoundDevice, DeviceError, bound_device, json_error, no_store, revoke,
 };
 use super::frontline_kiosk_cookie::clear_kiosk_cookies_on;
-use oxy_app::server::api::auth::is_request_secure;
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
-use oxy_app::server::router::is_allowed_origin;
+use oxy_app::surface::is_allowed_origin;
+use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_app::surface::session::is_request_secure;
 
 /// What leaving kiosk mode did.
 #[derive(Debug)]
@@ -254,7 +254,7 @@ mod tests {
     /// own process.
     #[test]
     fn the_kiosk_admin_destination_passes_the_return_to_allowlist_in_production_shape() {
-        use oxy_app::server::api::auth::validate_return_to_url;
+        use oxy_app::surface::session::validate_return_to_url;
         // SAFETY: nextest isolates each test in its own process, and nothing
         // else in this one reads the environment concurrently.
         unsafe {

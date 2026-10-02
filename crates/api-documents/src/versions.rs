@@ -34,7 +34,7 @@ use super::dto::*;
 use super::handlers::db_err;
 use super::manage::owned_document;
 use super::storage;
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::surface::role_guards::OrgAdmin;
 
 /// Ceiling on an authored chapter.
 ///

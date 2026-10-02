@@ -12,7 +12,8 @@ use uuid::Uuid;
 
 use super::{db, internal};
 use crate::partner_context::PartnerActor;
-use oxy_app::server::api::admin::{WorkspaceHealthRow, health_rollup};
+use oxy_app::server::api::admin::WorkspaceHealthRow;
+use oxy_app::server::api::admin::health_rollup;
 use oxy_server_authz::partner_authz::PartnerCapability;
 
 /// `GET /partners/{id}/health` — health across the partner's managed clients'

@@ -23,9 +23,7 @@ pub fn route_roles() -> &'static [RouteRoleDecl] {
 #[cfg(test)]
 mod tests {
     use super::route_roles;
-    use oxy_app::server::role_manifest::{
-        RouteRole, classify, install_route_declarations_for_tests_with,
-    };
+    use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
 
     const PARTNER: &str = "33333333-3333-3333-3333-333333333333";
 

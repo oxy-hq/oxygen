@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use super::handlers::{db_err, readable};
 use super::manage::owned_document;
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::surface::role_guards::OrgAdmin;
 
 /// `POST /api/documents/{id}/favorite`
 ///

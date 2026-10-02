@@ -27,7 +27,7 @@ use entity::org_members::OrgRole;
 use entity::{org_kiosk_devices, org_members, organizations, users};
 use oxy_api_frontline::frontline_devices::{DeviceError, revoke_device};
 use oxy_api_frontline::frontline_kiosk_mode::{leave, leave_kiosk};
-use oxy_app::server::api::middlewares::org_context::OrgContext;
+use oxy_app::surface::OrgContext;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseConnection, EntityTrait};
 use tower::ServiceExt;
@@ -103,7 +103,7 @@ async fn admin_of_new_org(db: &DatabaseConnection) -> (Uuid, Router, String) {
     let email = format!("maya-{}@acme.test", Uuid::new_v4().simple());
     let admin = seed_user(db, Some(email)).await;
     let membership = seed_admin_membership(db, org_id, admin.id).await;
-    let jwt = oxy_app::server::api::auth::create_auth_token(admin.clone())
+    let jwt = oxy_app::surface::session::create_auth_token(admin.clone())
         .await
         .expect("mint a session");
     let ctx = OrgContext {

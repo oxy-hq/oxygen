@@ -172,7 +172,7 @@ async fn enrol_page(token: &str, headers: HeaderMap) -> (StatusCode, String) {
 }
 
 pub(crate) async fn session_for(user: users::Model) -> HeaderMap {
-    let jwt = oxy_app::server::api::auth::create_auth_token(user)
+    let jwt = oxy_app::surface::session::create_auth_token(user)
         .await
         .expect("mint a session");
     cookies(&format!("oxy_session={jwt}"))

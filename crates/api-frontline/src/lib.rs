@@ -37,8 +37,8 @@ use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{get, patch, post, put};
 use oxy_app::server::api::frontline_admin;
-use oxy_app::server::api::middlewares::org_context::org_middleware;
-use oxy_app::server::api::middlewares::subscription_guard::subscription_guard_middleware;
+use oxy_app::surface::org_middleware;
+use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
@@ -277,7 +277,7 @@ mod tests {
         use axum::http::{Method, Request, StatusCode};
         use tower::ServiceExt;
 
-        let state = oxy_app::server::router::bare_app_state();
+        let state = oxy_app::surface::bare_app_state();
         let public = public_routes().with_state(state.clone());
         let org = Router::new()
             .nest(org_prefix(), org_frontline_routes())

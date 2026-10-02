@@ -30,6 +30,7 @@ pub mod integrations;
 pub mod observability_boot;
 pub mod observability_setup;
 pub mod server;
+pub mod surface;
 
 // Re-export commonly used items
 pub use server::{api, service};

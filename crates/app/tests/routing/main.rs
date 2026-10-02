@@ -31,4 +31,5 @@ mod paginated_links_keep_the_api_prefix;
 mod route_role_derivation;
 mod route_trailing_slash;
 mod router_mount_collisions;
+mod surface_contract;
 mod undeclared_mounts_stay_diskless;

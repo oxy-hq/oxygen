@@ -29,7 +29,7 @@ use axum::routing::{patch, post};
 use entity::org_members::OrgRole;
 use oxy_api_frontline::frontline_devices::update_device;
 use oxy_api_frontline::frontline_kiosk_mode::leave_kiosk;
-use oxy_app::server::api::middlewares::org_context::OrgContext;
+use oxy_app::surface::OrgContext;
 use tower::ServiceExt;
 use uuid::Uuid;
 

@@ -58,10 +58,10 @@ use super::frontline_kiosk_cookie::{
     append_set_cookies, carries_kiosk_hint, clear_kiosk_cookies_on, kiosk_cookie_parts,
     kiosk_cookies, kiosk_hint_cookie, set_cookie_values,
 };
-use oxy_app::server::api::auth::{
+use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_app::surface::session::{
     extract_base_url_from_headers, is_request_secure, validate_return_to_url,
 };
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
 
 /// An enrol link is good for a day. Long enough to walk the tablet to the
 /// counter; short enough that a link left in a chat thread is dead by the time
@@ -758,7 +758,7 @@ async fn bound_status(
     };
     // Whose session the tablet's cookie carries, read and never renewed. The
     // web app on a kiosk compares it with the account it holds a token for.
-    let session_user_id = oxy_app::server::api::auth::session_cookie_user_id(headers);
+    let session_user_id = oxy_app::surface::session::session_cookie_user_id(headers);
     Ok(Some(bound_status_json(
         &device,
         &org,

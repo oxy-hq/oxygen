@@ -16,10 +16,8 @@ use oxy_shared::errors::OxyError;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
-use oxy_app::server::api::middlewares::workspace_context::{
-    WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
-};
+use oxy_app::surface::role_guards::OrgAdmin;
+use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath};
 use oxy_app_core::AppState;
 
 use super::dto::*;
@@ -332,11 +330,7 @@ pub async fn setup_github(
         if is_ready {
             match oxy::database::client::establish_connection().await {
                 Ok(db) => {
-                    oxy_app::server::api::middlewares::workspace_context::enqueue_lazy_compile(
-                        &db,
-                        workspace_id,
-                    )
-                    .await;
+                    oxy_app::surface::enqueue_lazy_compile(&db, workspace_id).await;
                 }
                 Err(e) => tracing::warn!(
                     ?e, %workspace_id,
@@ -548,11 +542,12 @@ pub async fn reset_onboarding(
     // Defense in depth: the reset removes databases and models from
     // `config.yml`. If this route is ever misclassified `FleetOk` and lands
     // on a stateless replica, fail loudly rather than half-reset a workspace.
-    oxy_app::server::role_manifest::ensure_fs_writable("reset onboarding (rewrites config.yml)")
-        .map_err(|e| {
+    oxy_app::surface::roles::ensure_fs_writable("reset onboarding (rewrites config.yml)").map_err(
+        |e| {
             tracing::error!(error = %e, "onboarding reset refused");
             StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        },
+    )?;
 
     // A half-reset workspace is worse than a refused one, so an absent working
     // copy is an error here rather than a no-op that reports success. The

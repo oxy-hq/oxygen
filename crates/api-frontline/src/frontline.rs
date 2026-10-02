@@ -34,9 +34,9 @@ use axum::response::IntoResponse;
 use axum::{Json, http::header};
 use entity::{org_frontline_members, org_role_members, organizations, user_credentials, users};
 use oxy::database::client::establish_connection;
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
 use oxy_app::server::api::operating_graph::assignments;
 use oxy_app::server::api::operating_graph::dto::AssignmentSpec;
+use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy, PinVerdict};
@@ -633,9 +633,9 @@ fn shift_session_headers(token: &str, req_headers: &HeaderMap) -> HeaderMap {
     // enforced by the JWT `exp`, so the browser kept a dead cookie for the rest
     // of that window — the morning after a shift the kiosk looked signed in and
     // 401'd on every call instead of showing the name picker.
-    let secure = oxy_app::server::api::auth::is_request_secure(req_headers);
+    let secure = oxy_app::surface::session::is_request_secure(req_headers);
     if let Ok(v) = header::HeaderValue::from_str(
-        &oxy_app::server::api::auth::build_session_cookie_with_max_age(
+        &oxy_app::surface::session::build_session_cookie_with_max_age(
             token,
             secure,
             SHIFT_HOURS * 3600,
@@ -760,7 +760,7 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
     };
     let name = user.name.clone();
 
-    let token = match oxy_app::server::api::auth::create_auth_token_with_ttl(
+    let token = match oxy_app::surface::session::create_auth_token_with_ttl(
         user,
         chrono::Duration::hours(SHIFT_HOURS),
     )
@@ -807,7 +807,7 @@ mod tests {
     /// kiosk looks signed in and 401s on every call.
     #[test]
     fn the_session_cookie_expires_with_the_shift() {
-        let cookie = oxy_app::server::api::auth::build_session_cookie_with_max_age(
+        let cookie = oxy_app::surface::session::build_session_cookie_with_max_age(
             "tok",
             true,
             SHIFT_HOURS * 3600,
@@ -826,7 +826,7 @@ mod tests {
     #[test]
     fn an_insecure_request_gets_a_cookie_the_browser_will_keep() {
         let cookie =
-            oxy_app::server::api::auth::build_session_cookie_with_max_age("tok", false, 3600);
+            oxy_app::surface::session::build_session_cookie_with_max_age("tok", false, 3600);
         assert!(
             !cookie.contains("Secure"),
             "a plain-http kiosk would discard this: {cookie}"

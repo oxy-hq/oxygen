@@ -33,7 +33,7 @@ use super::dto::{DocumentSummary, ReviewDecision};
 use super::handlers::db_err;
 use super::hydrate;
 use super::manage::owned_document;
-use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::surface::role_guards::OrgAdmin;
 
 /// Undecided, or decided. The only place that mapping is written down.
 fn is_decision(status: &str) -> Option<bool> {

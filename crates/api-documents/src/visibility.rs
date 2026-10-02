@@ -32,7 +32,7 @@
 
 use entity::{documents, folders, org_frontline_members, org_members, org_role_members, users};
 
-use oxy_app::server::api::admin::assume;
+use oxy_app::surface::assume;
 use sea_orm::{ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 

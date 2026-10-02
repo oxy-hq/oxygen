@@ -155,7 +155,7 @@ pub async fn invite_member(
         .map_err(internal("load org"))?
         .map(|o| o.name)
         .unwrap_or_else(|| "your organization".to_string());
-    let base_url = oxy_app::server::api::auth::extract_base_url_from_headers(&headers);
+    let base_url = oxy_app::surface::session::extract_base_url_from_headers(&headers);
     let (to_email, token_clone) = (invitation.email.clone(), token.clone());
     let (inviter_name, inviter_email) = (actor.name.clone(), actor.email.clone());
     tokio::spawn(async move {
