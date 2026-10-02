@@ -415,8 +415,14 @@ impl AnalyticsSolver {
             let query_request = semantic_query.to_query_request();
             match self.catalog.engine().compile_query(&query_request) {
                 Ok(result) => {
-                    let sql =
-                        crate::airlayer_compat::substitute_params(&result.sql, &result.params);
+                    let sql = crate::airlayer_compat::substitute_params(
+                        &crate::airlayer_compat::request_dialect(
+                            self.catalog.engine(),
+                            &query_request,
+                        ),
+                        &result.sql,
+                        &result.params,
+                    );
 
                     emit_domain(
                         &self.event_tx,

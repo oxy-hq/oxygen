@@ -549,6 +549,10 @@ pub(super) fn build_solving_handler()
                         match solver.catalog.engine().compile_query(qr) {
                             Ok(result) => {
                                 let sql = crate::airlayer_compat::substitute_params(
+                                    &crate::airlayer_compat::request_dialect(
+                                        solver.catalog.engine(),
+                                        qr,
+                                    ),
                                     &result.sql,
                                     &result.params,
                                 );

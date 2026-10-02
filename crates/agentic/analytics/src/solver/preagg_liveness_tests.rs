@@ -229,7 +229,11 @@ fn payload_for(manifest_yaml: &str, schema_yaml: &str) -> SolutionPayload {
         .engine()
         .compile_query(&request)
         .expect("fixture query compiles");
-    let sql = crate::airlayer_compat::substitute_params(&sql.sql, &sql.params);
+    let sql = crate::airlayer_compat::substitute_params(
+        &crate::airlayer_compat::request_dialect(catalog.engine(), &request),
+        &sql.sql,
+        &sql.params,
+    );
 
     let solver = AnalyticsSolver::new(LlmClient::new("dummy"), catalog, Box::new(StubConnector))
         .with_preagg(Some(preagg_ctx(&workspace)));

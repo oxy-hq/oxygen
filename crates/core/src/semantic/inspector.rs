@@ -358,6 +358,34 @@ where
     })
 }
 
+/// Whether `db`'s engine reads a backslash as an escape inside a `'…'`
+/// literal. On one that does, a value is written with its backslashes doubled
+/// first, so a trailing `\\` cannot swallow the closing quote and a `\\'` cannot
+/// end the literal early. DuckDB (so MotherDuck/Airhouse) and Postgres
+/// (`standard_conforming_strings`) do not; Redshift shares Postgres's wire but,
+/// like ClickHouse / Snowflake / MySQL / Domo, does.
+fn literal_reads_backslash(db: &DatabaseType) -> bool {
+    matches!(
+        db,
+        DatabaseType::ClickHouse(_)
+            | DatabaseType::Snowflake(_)
+            | DatabaseType::Mysql(_)
+            | DatabaseType::Redshift(_)
+            | DatabaseType::DOMO(_)
+    )
+}
+
+/// `value` as a single-quoted SQL literal for `db`'s engine. A value with no
+/// quote and no backslash is spelled the same for every engine.
+fn sql_string_literal(db: &DatabaseType, value: &str) -> String {
+    let escaped = if literal_reads_backslash(db) {
+        value.replace('\\', "\\\\").replace('\'', "''")
+    } else {
+        value.replace('\'', "''")
+    };
+    format!("'{escaped}'")
+}
+
 /// One query per database returning `(schema, table_count)` rows. Cheaper
 /// than `build_inspect_queries` because it scans `INFORMATION_SCHEMA.TABLES`
 /// (small) instead of `COLUMNS` (wide).
@@ -371,7 +399,7 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("TABLE_SCHEMA IN ({in_list})")
@@ -402,7 +430,7 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("database IN ({in_list})")
@@ -422,7 +450,7 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("schema_name IN ({in_list})")
@@ -459,12 +487,12 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
 
 /// One query returning `(table_name, column_count)` rows for a single schema.
 fn build_schema_tables_query(database: &Database, schema: &str) -> Result<String, OxyError> {
-    let escaped = schema.replace('\'', "''");
+    let lit = sql_string_literal(&database.database_type, schema);
     match &database.database_type {
         DatabaseType::Snowflake(_) => Ok(format!(
             "SELECT TABLE_NAME, COUNT(*) AS COLUMN_COUNT
              FROM INFORMATION_SCHEMA.COLUMNS
-             WHERE TABLE_SCHEMA = '{escaped}'
+             WHERE TABLE_SCHEMA = {lit}
              GROUP BY TABLE_NAME"
         )),
         DatabaseType::Bigquery(_) => Ok(format!(
@@ -475,13 +503,13 @@ fn build_schema_tables_query(database: &Database, schema: &str) -> Result<String
         DatabaseType::ClickHouse(_) => Ok(format!(
             "SELECT table AS table_name, count() AS column_count
              FROM system.columns
-             WHERE database = '{escaped}'
+             WHERE database = {lit}
              GROUP BY table"
         )),
         DatabaseType::DuckDB(_) | DatabaseType::MotherDuck(_) => Ok(format!(
             "SELECT table_name, COUNT(*) AS column_count
              FROM duckdb_columns
-             WHERE schema_name = '{escaped}'
+             WHERE schema_name = {lit}
              GROUP BY table_name"
         )),
         DatabaseType::Postgres(_)
@@ -490,7 +518,7 @@ fn build_schema_tables_query(database: &Database, schema: &str) -> Result<String
         | DatabaseType::Mysql(_) => Ok(format!(
             "SELECT table_name, COUNT(*) AS column_count
                  FROM information_schema.columns
-                 WHERE table_schema = '{escaped}'
+                 WHERE table_schema = {lit}
                  GROUP BY table_name"
         )),
         _ => Err(OxyError::ConfigurationError(format!(
@@ -514,7 +542,7 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("TABLE_SCHEMA IN ({in_list})")
@@ -551,7 +579,7 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("database IN ({in_list})")
@@ -571,7 +599,7 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
             } else {
                 let in_list = configured
                     .iter()
-                    .map(|s| format!("'{}'", s.replace('\'', "''")))
+                    .map(|s| sql_string_literal(&database.database_type, s))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("schema_name IN ({in_list})")
@@ -620,5 +648,80 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
             "Schema inspection not yet supported for database type: {:?}",
             database.database_type
         ))),
+    }
+}
+
+#[cfg(test)]
+mod literal_tests {
+    use super::{build_schema_tables_query, literal_reads_backslash, sql_string_literal};
+    use crate::config::model::{ClickHouse, Database, DatabaseType, Mysql, Postgres, Redshift};
+
+    fn clickhouse() -> DatabaseType {
+        DatabaseType::ClickHouse(ClickHouse::default())
+    }
+
+    fn postgres() -> DatabaseType {
+        DatabaseType::Postgres(Postgres::default())
+    }
+
+    fn tables_query(database_type: DatabaseType, schema: &str) -> String {
+        let database = Database {
+            name: "w".to_string(),
+            database_type,
+        };
+        build_schema_tables_query(&database, schema).expect("a supported engine")
+    }
+
+    #[test]
+    fn backslash_engines_are_classified() {
+        assert!(literal_reads_backslash(&clickhouse()));
+        assert!(literal_reads_backslash(&DatabaseType::Mysql(
+            Mysql::default()
+        )));
+        // Redshift shares Postgres's wire but reads a backslash.
+        assert!(literal_reads_backslash(&DatabaseType::Redshift(
+            Redshift::default()
+        )));
+        assert!(!literal_reads_backslash(&postgres()));
+    }
+
+    /// A backslash, a quote, the two together, and a trailing backslash. With
+    /// the quote alone doubled, the last two ended a ClickHouse literal early.
+    #[test]
+    fn a_schema_name_cannot_break_out_of_its_literal() {
+        let written = |db: &DatabaseType| {
+            ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"].map(|v| sql_string_literal(db, v))
+        };
+        assert_eq!(
+            written(&clickhouse()),
+            ["'a\\\\b'", "'it''s'", "'x\\\\'' OR 1=1 -- '", "'C:\\\\'"]
+        );
+        // Postgres reads a backslash as itself, so only the quote is doubled.
+        assert_eq!(
+            written(&postgres()),
+            ["'a\\b'", "'it''s'", "'x\\'' OR 1=1 -- '", "'C:\\'"]
+        );
+        // A value with neither is the same bytes on both.
+        assert_eq!(sql_string_literal(&clickhouse(), "sales"), "'sales'");
+        assert_eq!(sql_string_literal(&postgres(), "sales"), "'sales'");
+    }
+
+    #[test]
+    fn the_schema_param_is_escaped_per_engine_in_the_tables_query() {
+        let schema = "x\\' OR 1=1 -- ";
+        let ch = tables_query(clickhouse(), schema);
+        assert!(
+            ch.contains("WHERE database = 'x\\\\'' OR 1=1 -- '\n"),
+            "{ch}"
+        );
+        let pg = tables_query(postgres(), schema);
+        assert!(
+            pg.contains("WHERE table_schema = 'x\\'' OR 1=1 -- '\n"),
+            "{pg}"
+        );
+        assert!(
+            tables_query(clickhouse(), "sales").contains("WHERE database = 'sales'\n"),
+            "a plain schema is spelled as before"
+        );
     }
 }

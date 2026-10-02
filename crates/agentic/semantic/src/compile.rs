@@ -18,7 +18,7 @@ use oxy_airlayer_compat::engine::query::{
 use oxy_airlayer_compat::schema::models::TopicFilterType;
 use serde_json::Value as JsonValue;
 
-use oxy_shared::substitute_params;
+use oxy_airlayer_compat::{request_dialect, substitute_params};
 
 use crate::config::{SemanticFilterType, SemanticQueryConfig, TimeGranularity};
 use crate::error::SemanticError;
@@ -290,7 +290,11 @@ fn compile_against(
         .compile_query(&request)
         .map_err(|e| SemanticError::Runtime(format!("query compilation error: {e}")))?;
 
-    let sql = substitute_params(&result.sql, &result.params);
+    let sql = substitute_params(
+        &request_dialect(engine, &request),
+        &result.sql,
+        &result.params,
+    );
 
     // Check local Parquet cache with freshness validation (Layer 1).
     let live: Vec<&oxy_airlayer_compat::View> = semantic_layer.views.iter().collect();
@@ -332,7 +336,11 @@ pub fn compile_with_engine(
     let result = engine
         .compile_query(&request)
         .map_err(|e| SemanticError::Runtime(format!("query compilation error: {e}")))?;
-    Ok(substitute_params(&result.sql, &result.params))
+    Ok(substitute_params(
+        &request_dialect(engine, &request),
+        &result.sql,
+        &result.params,
+    ))
 }
 
 /// Resolve a query against this workspace's rollups: local Parquet first, the

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use agentic_connector::DatabaseConnector;
+use agentic_connector::{DatabaseConnector, StringLiteral};
 use agentic_core::result::CellValue;
 use agentic_core::tools::ToolError;
 use serde_json::{Value, json};
@@ -371,15 +371,12 @@ async fn sample_single_column(
         ),
     };
 
-    let sample_sql = if let Some(term) = search_term {
-        // Escape single quotes in the search term to prevent SQL injection.
-        let escaped = term.replace('\'', "''");
-        format!(
-            "SELECT DISTINCT {col_sql} FROM {table_sql} WHERE {col_sql} IS NOT NULL AND CAST({col_sql} AS TEXT) LIKE '%{escaped}%' LIMIT 20"
-        )
-    } else {
-        format!("SELECT DISTINCT {col_sql} FROM {table_sql} WHERE {col_sql} IS NOT NULL LIMIT 20")
-    };
+    let sample_sql = sample_values_sql(
+        &col_sql,
+        &table_sql,
+        search_term,
+        connector.string_literal(),
+    );
     let count_sql = format!("SELECT COUNT(*) FROM {table_sql}");
 
     let sample_res = connector
@@ -516,6 +513,33 @@ async fn sample_single_column(
     Ok(r)
 }
 
+/// The `sample_columns` read: up to 20 distinct values of `col_sql`, narrowed
+/// to those containing `search_term` when one is given.
+///
+/// The term is the model's, written from what the user asked, so it is quoted
+/// as the connector's engine reads a literal — a backslash in it must not end
+/// the pattern early on an engine that reads one.
+fn sample_values_sql(
+    col_sql: &str,
+    table_sql: &str,
+    search_term: Option<&str>,
+    strings: StringLiteral,
+) -> String {
+    match search_term {
+        Some(term) => {
+            let pattern = strings.quote(&format!("%{term}%"));
+            format!(
+                "SELECT DISTINCT {col_sql} FROM {table_sql} WHERE {col_sql} IS NOT NULL AND CAST({col_sql} AS TEXT) LIKE {pattern} LIMIT 20"
+            )
+        }
+        None => {
+            format!(
+                "SELECT DISTINCT {col_sql} FROM {table_sql} WHERE {col_sql} IS NOT NULL LIMIT 20"
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod freshness_tests {
     use super::staleness_days;
@@ -548,5 +572,70 @@ mod freshness_tests {
         assert_eq!(staleness_days(&json!("not a date")), None);
         assert_eq!(staleness_days(&json!(42)), None);
         assert_eq!(staleness_days(&serde_json::Value::Null), None);
+    }
+}
+
+#[cfg(test)]
+mod sample_sql_tests {
+    use super::sample_values_sql;
+    use agentic_connector::StringLiteral;
+
+    fn pattern(term: &str, rule: StringLiteral) -> String {
+        let sql = sample_values_sql("\"c\"", "\"t\"", Some(term), rule);
+        let (_, after) = sql.split_once(" LIKE ").expect("a LIKE clause");
+        after
+            .strip_suffix(" LIMIT 20")
+            .expect("the pattern is the last thing before LIMIT")
+            .to_string()
+    }
+
+    /// A term with no quote and no backslash is spelled as it always was.
+    #[test]
+    fn a_plain_term_is_unchanged_on_every_engine() {
+        for rule in [
+            StringLiteral::Standard,
+            StringLiteral::Backslash,
+            StringLiteral::BackslashOnly,
+        ] {
+            assert_eq!(
+                sample_values_sql("\"c\"", "\"t\"", Some("east"), rule),
+                "SELECT DISTINCT \"c\" FROM \"t\" WHERE \"c\" IS NOT NULL AND CAST(\"c\" AS TEXT) LIKE '%east%' LIMIT 20",
+                "{rule:?}"
+            );
+        }
+        assert_eq!(
+            sample_values_sql("\"c\"", "\"t\"", None, StringLiteral::Backslash),
+            "SELECT DISTINCT \"c\" FROM \"t\" WHERE \"c\" IS NOT NULL LIMIT 20"
+        );
+    }
+
+    /// Quote-only escaping left the third term outside its literal on every
+    /// engine that reads a backslash, and let the fourth swallow the quote.
+    #[test]
+    fn a_term_is_quoted_as_its_engine_reads_a_literal() {
+        let terms = ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"];
+        let on = |rule| terms.map(|t| pattern(t, rule));
+        assert_eq!(
+            on(StringLiteral::Standard),
+            ["'%a\\b%'", "'%it''s%'", "'%x\\'' OR 1=1 -- %'", "'%C:\\%'"]
+        );
+        assert_eq!(
+            on(StringLiteral::Backslash),
+            [
+                "'%a\\\\b%'",
+                "'%it''s%'",
+                "'%x\\\\'' OR 1=1 -- %'",
+                "'%C:\\\\%'"
+            ]
+        );
+        assert_eq!(
+            on(StringLiteral::BackslashOnly),
+            [
+                "'%a\\\\b%'",
+                "'%it\\'s%'",
+                "'%x\\\\\\' OR 1=1 -- %'",
+                "'%C:\\\\%'"
+            ]
+        );
     }
 }

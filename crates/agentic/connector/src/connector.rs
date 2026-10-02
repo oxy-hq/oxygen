@@ -17,6 +17,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::string_literal::StringLiteral;
 use agentic_core::result::{
     BoxedRowStream, CellValue, QueryResult, TypedRowError, TypedRowStream, TypedValue,
 };
@@ -873,6 +874,16 @@ pub trait DatabaseConnector: Send + Sync {
     /// prompts.  Every implementation must return a stable value — the solver
     /// reads it once at query time and does not cache it separately.
     fn dialect(&self) -> SqlDialect;
+
+    /// How this connector's engine reads a `'…'` literal — what a caller
+    /// writing a value into SQL text must escape.
+    ///
+    /// Defaults to the dialect's rule. A connector whose engine reads a
+    /// literal differently from its dialect overrides it (Redshift, behind
+    /// the Postgres connector), and a wrapper forwards its inner connector's.
+    fn string_literal(&self) -> StringLiteral {
+        self.dialect().string_literal()
+    }
 
     /// Execute `sql`, return bounded rows + summary stats.
     ///

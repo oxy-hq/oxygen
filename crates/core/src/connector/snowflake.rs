@@ -110,11 +110,8 @@ impl Snowflake {
             // Serialize the value to a session variable string
             let var_value = FilterProcessor::to_session_value(value);
 
-            // Escape single quotes in the value for SQL
-            let escaped_value = var_value.replace('\'', "''");
-
             // Build the SET statement
-            let statement = format!("SET {} = '{}'", var_name, escaped_value);
+            let statement = format!("SET {} = {}", var_name, session_var_literal(&var_value));
 
             // Track size (the value size is what counts toward the limit)
             total_size += var_value.len();
@@ -541,4 +538,32 @@ fn convert_to_json_objects(json: &snowflake_api::JsonResult) -> serde_json::Valu
         }
     }
     serde_json::Value::Array(rs)
+}
+
+/// A session-variable value as a single-quoted SQL literal for Snowflake.
+///
+/// Snowflake reads a backslash as an escape inside a `'…'` literal, so the
+/// backslash is doubled first — a quote-only escape let a value ending in `\\`,
+/// or carrying `\\'`, break out of the literal. A value with neither a quote
+/// nor a backslash is spelled exactly as before.
+fn session_var_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+}
+
+#[cfg(test)]
+mod session_var_tests {
+    use super::session_var_literal;
+
+    #[test]
+    fn a_value_cannot_break_out_of_a_snowflake_session_literal() {
+        assert_eq!(session_var_literal("east"), "'east'");
+        assert_eq!(session_var_literal("it's"), "'it''s'");
+        assert_eq!(session_var_literal("a\\b"), "'a\\\\b'");
+        // The breakout: a backslash before the quote, and a trailing backslash.
+        assert_eq!(
+            session_var_literal("x\\' OR 1=1 -- "),
+            "'x\\\\'' OR 1=1 -- '"
+        );
+        assert_eq!(session_var_literal("C:\\"), "'C:\\\\'");
+    }
 }

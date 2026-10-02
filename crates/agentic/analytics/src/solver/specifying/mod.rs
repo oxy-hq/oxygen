@@ -813,8 +813,14 @@ impl AnalyticsSolver {
             let compile_start = std::time::Instant::now();
             match self.catalog.engine().compile_query(&query_request) {
                 Ok(result) => {
-                    let sql =
-                        crate::airlayer_compat::substitute_params(&result.sql, &result.params);
+                    let sql = crate::airlayer_compat::substitute_params(
+                        &crate::airlayer_compat::request_dialect(
+                            self.catalog.engine(),
+                            &query_request,
+                        ),
+                        &result.sql,
+                        &result.params,
+                    );
                     let compile_duration_ms = compile_start.elapsed().as_millis() as u64;
                     emit_core(
                         &self.event_tx,
@@ -1114,8 +1120,11 @@ impl AnalyticsSolver {
             // Try re-compile once more (may succeed now).
             match self.catalog.engine().compile_query(qr) {
                 Ok(result) => {
-                    let sql =
-                        crate::airlayer_compat::substitute_params(&result.sql, &result.params);
+                    let sql = crate::airlayer_compat::substitute_params(
+                        &crate::airlayer_compat::request_dialect(self.catalog.engine(), qr),
+                        &result.sql,
+                        &result.params,
+                    );
                     tracing::info!(
                         "[spec_to_executing] re-compile SUCCESS: {}",
                         &sql[..sql.len().min(200)]

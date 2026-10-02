@@ -324,8 +324,13 @@ fn drop_local_parquets(workspace: &ScratchWorkspace) {
 }
 
 fn warehouse_sql(request: &QueryRequest) -> String {
-    let compiled = engine().compile_query(request).expect("warehouse compile");
-    oxy_shared::substitute_params(&compiled.sql, &compiled.params)
+    let eng = engine();
+    let compiled = eng.compile_query(request).expect("warehouse compile");
+    oxy_airlayer_compat::substitute_params(
+        &oxy_airlayer_compat::request_dialect(&eng, request),
+        &compiled.sql,
+        &compiled.params,
+    )
 }
 
 /// Assert both paths answer `request` identically, and that the rollup path

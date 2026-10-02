@@ -321,7 +321,11 @@ impl Catalog for SemanticCatalog {
             CatalogError::TooComplex(format!("airlayer compile error: {e}"))
         })?;
 
-        let sql = crate::airlayer_compat::substitute_params(&result.sql, &result.params);
+        let sql = crate::airlayer_compat::substitute_params(
+            &crate::airlayer_compat::request_dialect(&self.engine, &request),
+            &result.sql,
+            &result.params,
+        );
 
         Ok(sql)
     }

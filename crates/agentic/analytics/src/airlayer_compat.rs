@@ -97,4 +97,4 @@ pub fn build_dialect_map(
 
 // ── Parameter substitution ───────────────────────────────────────────────────
 
-pub use oxy_shared::substitute_params;
+pub use oxy_airlayer_compat::{request_dialect, substitute_params};

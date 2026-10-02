@@ -59,7 +59,7 @@ use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, SchemaInfo, SqlDialect,
-    SqlTransaction,
+    SqlTransaction, StringLiteral,
 };
 use agentic_core::result::TypedRowStream;
 use airhouse::preview_sql::{PreviewNamespace, Refused, RewriteOptions, ShadowMap};
@@ -166,6 +166,10 @@ fn refused(ns: &PreviewNamespace, why: &Refused) -> ConnectorError {
 impl DatabaseConnector for PreviewAirhouseConnector {
     fn dialect(&self) -> SqlDialect {
         SqlDialect::DuckDb
+    }
+
+    fn string_literal(&self) -> StringLiteral {
+        self.dialect().string_literal()
     }
 
     async fn execute_query(

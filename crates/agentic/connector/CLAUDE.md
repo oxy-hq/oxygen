@@ -41,3 +41,4 @@ pub enum ConnectorConfig {
 - This is an **infrastructure crate** — shared by analytics and builder domains.
 - Config construction (secret resolution, project path resolution) happens in `agentic-pipeline::platform`, NOT here. This crate only knows about `ConnectorConfig` values, never credentials or secret managers.
 - `build_connector()` / `build_named_connectors()` are the entry points for creating connector instances from configs.
+- **A value written into SQL text goes through `connector.string_literal().quote(value)`** (`string_literal.rs`), never a hand-rolled `replace('\'', "''")`. Doubling the quote is only enough on DuckDB and Postgres: ClickHouse, MySQL, Snowflake, Redshift and Domo also read a backslash, and BigQuery reads `\'` but not `''`. Ask the *connector*, not the dialect — Redshift reports the Postgres dialect. A wrapper connector must forward `string_literal()` from its inner one. Bind parameters where the backend supports it (`SqlTransaction`).

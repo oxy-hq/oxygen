@@ -686,6 +686,19 @@ impl DatabaseConnector for ClickHouseConnector {
 
 // ── Schema pre-fetch ──────────────────────────────────────────────────────────
 
+/// The `system.columns` read for `database`, which is written as a literal:
+/// the name comes from config and may hold a quote or a backslash, and
+/// ClickHouse reads both inside one.
+fn schema_columns_sql(database: &str) -> String {
+    format!(
+        "SELECT table, name, type \
+         FROM system.columns \
+         WHERE database = {} \
+         ORDER BY table, position",
+        SqlDialect::CLICKHOUSE.string_literal().quote(database)
+    )
+}
+
 /// Query `system.columns` and build a [`SchemaInfo`].
 async fn fetch_schema(
     client: &reqwest::Client,
@@ -694,14 +707,7 @@ async fn fetch_schema(
     password: &str,
     database: &str,
 ) -> Result<SchemaInfo, ConnectorError> {
-    // Escape single quotes in the database name.
-    let db_escaped = database.replace('\'', "\\'");
-    let schema_sql = format!(
-        "SELECT table, name, type \
-         FROM system.columns \
-         WHERE database = '{db_escaped}' \
-         ORDER BY table, position"
-    );
+    let schema_sql = schema_columns_sql(database);
 
     // Schema introspection is small; the default ceiling is plenty.
     let resp: ChResponse = http_query(
@@ -776,6 +782,29 @@ fn detect_join_keys(tables: &[SchemaTableInfo]) -> Vec<(String, String, String)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A database name is config, not caller input, but it is still written
+    /// into a literal ClickHouse reads backslashes in.
+    #[test]
+    fn a_database_name_stays_inside_its_literal() {
+        assert_eq!(
+            schema_columns_sql("analytics"),
+            "SELECT table, name, type FROM system.columns \
+             WHERE database = 'analytics' ORDER BY table, position"
+        );
+        for (name, literal) in [
+            ("a\\b", "'a\\\\b'"),
+            ("it's", "'it''s'"),
+            ("x\\' OR 1=1 -- ", "'x\\\\'' OR 1=1 -- '"),
+            ("db\\", "'db\\\\'"),
+        ] {
+            let sql = schema_columns_sql(name);
+            assert!(
+                sql.contains(&format!("WHERE database = {literal} ORDER BY")),
+                "{name:?}: {sql}"
+            );
+        }
+    }
 
     /// The tag travels beside the statement and the statement goes as written,
     /// checked at the wire so it needs no server. `clickhouse_tagged_tests`

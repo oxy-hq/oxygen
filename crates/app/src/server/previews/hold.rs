@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, QueryFailedDetails,
-    SchemaInfo, SqlDialect, SqlTransaction,
+    SchemaInfo, SqlDialect, SqlTransaction, StringLiteral,
 };
 use agentic_core::result::TypedRowStream;
 use async_trait::async_trait;
@@ -111,6 +111,10 @@ fn held_message(database: &str, kinds: &[StatementKind]) -> String {
 impl DatabaseConnector for HoldingConnector {
     fn dialect(&self) -> SqlDialect {
         self.inner.dialect()
+    }
+
+    fn string_literal(&self) -> StringLiteral {
+        self.inner.string_literal()
     }
 
     async fn execute_query(

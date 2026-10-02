@@ -38,6 +38,7 @@ use crate::postgres_typed::{decode_row, pg_typname_to_typed, select_expr_for_pg_
 // `format!("ctx.tx: {e}")`, which rendered every server error as the literal
 // string "db error" — see that module's docs.
 use crate::pg_error::{pg_error_message, pg_query_failed};
+use crate::string_literal::StringLiteral;
 
 // ── Value helpers ─────────────────────────────────────────────────────────────
 
@@ -78,6 +79,9 @@ pub struct PostgresConnector {
     schema_error: std::sync::RwLock<Option<String>>,
     /// In-pod memory backstop for `execute_query_full` (see [`ResultCap`]).
     result_cap: ResultCap,
+    /// How the server reads a `'…'` literal. Postgres's own rule unless the
+    /// server is one that shares the wire but not the grammar.
+    string_literal: StringLiteral,
 }
 
 impl PostgresConnector {
@@ -132,6 +136,7 @@ impl PostgresConnector {
             cached_schema: std::sync::RwLock::new(SchemaInfo::default()),
             schema_error: std::sync::RwLock::new(None),
             result_cap: ResultCap::default(),
+            string_literal: StringLiteral::Standard,
         }
     }
 
@@ -171,7 +176,19 @@ impl PostgresConnector {
             cached_schema: std::sync::RwLock::new(SchemaInfo::default()),
             schema_error: std::sync::RwLock::new(None),
             result_cap: ResultCap::default(),
+            string_literal: StringLiteral::Standard,
         })
+    }
+
+    /// Mark the server as Amazon Redshift.
+    ///
+    /// Redshift speaks this wire and this dialect, but reads a backslash
+    /// inside a `'…'` literal as an escape (its `LIKE` default escape is
+    /// documented as `'\\\\'`), which Postgres has not done by default since
+    /// 9.1. A value written with Postgres's rule could end its literal early.
+    pub fn redshift(mut self) -> Self {
+        self.string_literal = StringLiteral::Backslash;
+        self
     }
 
     /// Override the [`ResultCap`] memory backstop. Primarily for tests that need
@@ -347,6 +364,10 @@ async fn ensure_client_connected(
 impl DatabaseConnector for PostgresConnector {
     fn dialect(&self) -> SqlDialect {
         SqlDialect::Postgres
+    }
+
+    fn string_literal(&self) -> StringLiteral {
+        self.string_literal
     }
 
     /// Opens its **own** connection rather than borrowing `self.client` — see

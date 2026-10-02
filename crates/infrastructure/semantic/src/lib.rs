@@ -552,6 +552,113 @@ fn build_layer_with_override(
     Ok(airlayer::SemanticLayer::new(views, topic_opt))
 }
 
+/// Inline airlayer's `$1`/`@p0`/`?` placeholders as string literals.
+///
+/// airlayer compiles parameterised SQL and a separate params vector; a
+/// connector that takes a raw string needs them inlined. Each value is written
+/// by [`param_literal`], as the engine behind `dialect` reads a literal — a
+/// quote-only escape left a backslash able to end one early.
+///
+/// One pass over the SQL as compiled: text already written is never scanned
+/// again, so a value that itself contains `?` or `$1` stays a value instead of
+/// receiving the next parameter inside its own literal.
+pub fn substitute_params(dialect: &Dialect, sql: &str, params: &[String]) -> String {
+    if params.is_empty() {
+        return sql.to_string();
+    }
+    let positional = (0..params.len())
+        .any(|i| sql.contains(&format!("${}", i + 1)) || sql.contains(&format!("@p{i}")));
+    let mut out = String::with_capacity(sql.len());
+    let mut next = 0;
+    let mut rest = sql;
+    while let Some(c) = rest.chars().next() {
+        match placeholder(rest, positional, next).filter(|(index, _)| *index < params.len()) {
+            Some((index, len)) => {
+                out.push_str(&param_literal(dialect, &params[index]));
+                next += 1;
+                rest = &rest[len..];
+            }
+            None => {
+                out.push(c);
+                rest = &rest[c.len_utf8()..];
+            }
+        }
+    }
+    out
+}
+
+/// `value` as SQL that evaluates to it on the engine behind `dialect`.
+///
+/// airlayer's `escape_string_literal` decides it, with two exceptions:
+///
+/// - **Postgres.** Oxy compiles Redshift with this dialect too (core's
+///   `Database::dialect()` and the Postgres connector both report it), and
+///   the two engines disagree: Redshift reads a backslash inside a literal,
+///   Postgres does not. Nothing here can tell them apart, so a value holding
+///   a backslash is written with none inside a literal —
+///   `('a' || CHR(92) || 'b')` — which both read the same way.
+/// - **BigQuery** lists `\'` as its quote escape and does not list `''`, so
+///   the quote is written with a backslash.
+///
+/// A value with no quote and no backslash is `'value'` on every dialect.
+fn param_literal(dialect: &Dialect, value: &str) -> String {
+    match dialect {
+        Dialect::Postgres if value.contains('\\') => {
+            let pieces: Vec<String> = value
+                .split('\\')
+                .map(|piece| format!("'{}'", piece.replace('\'', "''")))
+                .collect();
+            format!("({})", pieces.join(" || CHR(92) || "))
+        }
+        Dialect::BigQuery => format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'")),
+        _ => format!("'{}'", dialect.escape_string_literal(value)),
+    }
+}
+
+/// The placeholder `rest` starts with, as `(param index, bytes it spans)`.
+///
+/// Positional SQL names its parameter (`$1` is the first, `@p0` is the first);
+/// otherwise each `?` takes the `next` one in order.
+fn placeholder(rest: &str, positional: bool, next: usize) -> Option<(usize, usize)> {
+    if !positional {
+        return rest.starts_with('?').then_some((next, 1));
+    }
+    let (prefix, first) = if rest.starts_with("@p") {
+        (2, 0)
+    } else if rest.starts_with('$') {
+        (1, 1)
+    } else {
+        return None;
+    };
+    let digits = rest[prefix..]
+        .bytes()
+        .take_while(u8::is_ascii_digit)
+        .count();
+    let number: usize = rest[prefix..prefix + digits].parse().ok()?;
+    Some((number.checked_sub(first)?, prefix + digits))
+}
+
+/// The dialect the engine resolves for `request`, so its inlined params are
+/// escaped the way the engine that runs the SQL reads a literal.
+///
+/// Mirrors the engine's primary resolution — the first referenced view's
+/// `datasource:` through the dialect map — then the map default, then
+/// Postgres. The two fallbacks only decide the escaping of a value that holds
+/// a quote or a backslash, and only in a workspace with no resolvable
+/// datasource, which has nothing to run the SQL against anyway.
+pub fn request_dialect(
+    engine: &SemanticEngine,
+    request: &airlayer::engine::query::QueryRequest,
+) -> Dialect {
+    request
+        .referenced_views()
+        .iter()
+        .find_map(|v| engine.view(v).and_then(|view| view.datasource.clone()))
+        .and_then(|ds| engine.dialects().resolve(Some(&ds)).ok().cloned())
+        .or_else(|| engine.dialects().resolve(None).ok().cloned())
+        .unwrap_or(Dialect::Postgres)
+}
+
 /// Pre-write gate for `.view.yml` / `.topic.yml`.
 ///
 /// Returns `Err(reason)` when the write must be refused:
@@ -623,6 +730,228 @@ pub fn gate_semantic_write(root: &Path, target_abs: &Path, proposed: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A compiled filter value carrying a backslash, a quote, the two
+    /// together, and a trailing backslash: before this, a quote-only escape
+    /// let the backslash forms end the literal on every engine that reads one.
+    const PARAMS: [&str; 4] = ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"];
+
+    #[test]
+    fn positional_params_escape_per_dialect() {
+        let sql = "WHERE a = $1 AND b = $2 AND c = $3 AND d = $4";
+        let std = substitute_params(&Dialect::DuckDB, sql, &PARAMS.map(String::from));
+        assert_eq!(
+            std, "WHERE a = 'a\\b' AND b = 'it''s' AND c = 'x\\'' OR 1=1 -- ' AND d = 'C:\\'",
+            "DuckDB/Postgres: backslash is an ordinary character"
+        );
+        let ch = substitute_params(&Dialect::ClickHouse, sql, &PARAMS.map(String::from));
+        assert_eq!(
+            ch, "WHERE a = 'a\\\\b' AND b = 'it''s' AND c = 'x\\\\'' OR 1=1 -- ' AND d = 'C:\\\\'",
+            "ClickHouse: the backslash is doubled, so none ends the literal"
+        );
+    }
+
+    #[test]
+    fn question_mark_params_escape_per_dialect() {
+        let sql = "WHERE a = ? AND b = ?";
+        assert_eq!(
+            substitute_params(&Dialect::MySQL, sql, &["C:\\".into(), "it's".into()]),
+            "WHERE a = 'C:\\\\' AND b = 'it''s'"
+        );
+        assert_eq!(
+            substitute_params(&Dialect::DuckDB, sql, &["C:\\".into(), "it's".into()]),
+            "WHERE a = 'C:\\' AND b = 'it''s'"
+        );
+    }
+
+    #[test]
+    fn a_param_with_no_quote_or_backslash_is_dialect_independent() {
+        let sql = "WHERE region = $1";
+        for d in [Dialect::DuckDB, Dialect::ClickHouse, Dialect::BigQuery] {
+            assert_eq!(
+                substitute_params(&d, sql, &["east".to_string()]),
+                "WHERE region = 'east'",
+                "{d}"
+            );
+        }
+    }
+
+    /// A value is data even when it looks like a placeholder: substituting
+    /// into text already written put the next parameter inside this one's
+    /// literal, on every engine, with no quote or backslash involved.
+    #[test]
+    fn a_value_that_looks_like_a_placeholder_is_not_substituted_again() {
+        let two = |a: &str, b: &str| [a.to_string(), b.to_string()];
+        assert_eq!(
+            substitute_params(&Dialect::MySQL, "a = ? AND b = ?", &two("x?y", "z")),
+            "a = 'x?y' AND b = 'z'"
+        );
+        assert_eq!(
+            substitute_params(&Dialect::DuckDB, "a = $1 AND b = $2", &two("z", "$1")),
+            "a = 'z' AND b = '$1'"
+        );
+        assert_eq!(
+            substitute_params(&Dialect::BigQuery, "a = @p0 AND b = @p1", &two("z", "@p0")),
+            "a = 'z' AND b = '@p0'"
+        );
+    }
+
+    #[test]
+    fn positional_placeholders_are_read_whole() {
+        let params: Vec<String> = (1..=10).map(|n| format!("v{n}")).collect();
+        assert_eq!(
+            substitute_params(&Dialect::Postgres, "$1 $10 $2", &params),
+            "'v1' 'v10' 'v2'"
+        );
+        // A repeated placeholder takes the same value each time.
+        assert_eq!(
+            substitute_params(&Dialect::Postgres, "$1 OR $1", &params[..1]),
+            "'v1' OR 'v1'"
+        );
+        // More `?` than params: the extra ones are left as compiled.
+        assert_eq!(
+            substitute_params(&Dialect::MySQL, "? ? ?", &params[..2]),
+            "'v1' 'v2' ?"
+        );
+    }
+
+    /// What the pinned airlayer makes of each engine name, and whether its
+    /// escaper doubles a backslash there. `param_literal` leans on this for
+    /// every dialect it does not spell itself.
+    #[test]
+    fn airlayer_classifies_the_backslash_engines() {
+        for (name, dialect) in [
+            ("redshift", Dialect::Redshift),
+            ("mysql", Dialect::MySQL),
+            ("snowflake", Dialect::Snowflake),
+            ("bigquery", Dialect::BigQuery),
+            ("clickhouse", Dialect::ClickHouse),
+            ("domo", Dialect::Domo),
+        ] {
+            assert_eq!(Dialect::from_str(name), Some(dialect.clone()), "{name}");
+            assert_eq!(dialect.escape_string_literal("C:\\"), "C:\\\\", "{name}");
+        }
+        for (name, dialect) in [("postgres", Dialect::Postgres), ("duckdb", Dialect::DuckDB)] {
+            assert_eq!(Dialect::from_str(name), Some(dialect.clone()), "{name}");
+            assert_eq!(dialect.escape_string_literal("C:\\"), "C:\\", "{name}");
+        }
+    }
+
+    /// Redshift reaches airlayer as `postgres`, so the Postgres dialect has to
+    /// be safe on an engine that reads a backslash and exact on one that does
+    /// not: no backslash is left inside a literal.
+    #[test]
+    fn the_postgres_dialect_writes_no_backslash_inside_a_literal() {
+        let written = |value: &str| param_literal(&Dialect::Postgres, value);
+        assert_eq!(written("a\\b"), "('a' || CHR(92) || 'b')");
+        assert_eq!(written("C:\\"), "('C:' || CHR(92) || '')");
+        assert_eq!(
+            written("x\\' OR 1=1 -- "),
+            "('x' || CHR(92) || ''' OR 1=1 -- ')"
+        );
+        assert_eq!(written("\\\\"), "('' || CHR(92) || '' || CHR(92) || '')");
+        // Without a backslash it is the literal it always was.
+        assert_eq!(written("it's"), "'it''s'");
+        assert_eq!(written("east"), "'east'");
+        assert_eq!(
+            substitute_params(&Dialect::Postgres, "p LIKE $1", &["%a\\b%".to_string()]),
+            "p LIKE ('%a' || CHR(92) || 'b%')"
+        );
+    }
+
+    /// The same four values where airlayer is handed the engine's own name.
+    #[test]
+    fn each_backslash_dialect_keeps_a_value_inside_its_literal() {
+        let values = ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"];
+        for dialect in [
+            Dialect::Redshift,
+            Dialect::MySQL,
+            Dialect::Snowflake,
+            Dialect::ClickHouse,
+        ] {
+            assert_eq!(
+                values.map(|v| param_literal(&dialect, v)),
+                ["'a\\\\b'", "'it''s'", "'x\\\\'' OR 1=1 -- '", "'C:\\\\'"],
+                "{dialect}"
+            );
+        }
+        // BigQuery's quote escape is `\'`; it does not list `''`.
+        assert_eq!(
+            values.map(|v| param_literal(&Dialect::BigQuery, v)),
+            ["'a\\\\b'", "'it\\'s'", "'x\\\\\\' OR 1=1 -- '", "'C:\\\\'"]
+        );
+    }
+
+    #[test]
+    fn no_params_is_the_sql_unchanged() {
+        assert_eq!(
+            substitute_params(&Dialect::ClickHouse, "SELECT 1", &[]),
+            "SELECT 1"
+        );
+    }
+
+    #[test]
+    fn request_dialect_follows_the_view_datasource() {
+        let views = vec![
+            parse_view_yaml(
+                "name: orders
+datasource: ch
+table: orders
+",
+            )
+            .unwrap(),
+        ];
+        let layer = SemanticLayer::new(views, None);
+        let engine = build_engine(
+            layer,
+            &[
+                database_config("ch", "clickhouse"),
+                database_config("d", "duckdb"),
+            ],
+        )
+        .unwrap();
+        let request = request_for("orders.status");
+        assert_eq!(request_dialect(&engine, &request), Dialect::ClickHouse);
+    }
+
+    /// Core's `Database::dialect()` reports `postgres` for a Redshift
+    /// database, so that is the dialect a Redshift view resolves to here.
+    #[test]
+    fn request_dialect_is_whatever_name_the_datasource_was_registered_under() {
+        let dialect_of = |db_type: &str| {
+            let views =
+                vec![parse_view_yaml("name: orders\ndatasource: w\ntable: orders\n").unwrap()];
+            let engine = build_engine(
+                SemanticLayer::new(views, None),
+                &[database_config("w", db_type)],
+            )
+            .unwrap();
+            request_dialect(&engine, &request_for("orders.status"))
+        };
+        assert_eq!(dialect_of("postgres"), Dialect::Postgres);
+        assert_eq!(dialect_of("redshift"), Dialect::Redshift);
+        assert_eq!(dialect_of("mysql"), Dialect::MySQL);
+        assert_eq!(dialect_of("snowflake"), Dialect::Snowflake);
+        assert_eq!(dialect_of("bigquery"), Dialect::BigQuery);
+    }
+
+    fn request_for(dimension: &str) -> airlayer::engine::query::QueryRequest {
+        airlayer::engine::query::QueryRequest {
+            measures: vec![],
+            dimensions: vec![dimension.to_string()],
+            filters: vec![],
+            segments: vec![],
+            time_dimensions: vec![],
+            order: vec![],
+            limit: None,
+            offset: None,
+            timezone: None,
+            ungrouped: false,
+            through: vec![],
+            motif: None,
+            motif_params: Default::default(),
+        }
+    }
 
     #[test]
     fn view_accepts_data_source_alias_and_defaults() {

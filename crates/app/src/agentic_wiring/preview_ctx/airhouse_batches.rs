@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use agentic_connector::{
     AsArrowConnector, ConnectorError, DatabaseConnector, ExecutionResult, SchemaInfo, SqlDialect,
-    SqlTransaction,
+    SqlTransaction, StringLiteral,
 };
 use agentic_core::result::TypedRowStream;
 use async_trait::async_trait;
@@ -84,6 +84,10 @@ impl Batches {
 impl DatabaseConnector for Batches {
     fn dialect(&self) -> SqlDialect {
         self.inner.dialect()
+    }
+
+    fn string_literal(&self) -> StringLiteral {
+        self.inner.string_literal()
     }
 
     async fn execute_query(

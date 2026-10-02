@@ -175,7 +175,11 @@ impl FitProbe {
         let dataset_dir = self.dataset_dir.clone();
         Box::new(move |request| {
             let compiled = engine.compile_query(request)?;
-            let sql = oxy_shared::substitute_params(&compiled.sql, &compiled.params);
+            let sql = oxy_airlayer_compat::substitute_params(
+                &oxy_airlayer_compat::request_dialect(&engine, request),
+                &compiled.sql,
+                &compiled.params,
+            );
             run_local_duckdb(&dataset_dir, &sql).map_err(|e| {
                 oxy_airlayer_compat::engine::EngineError::QueryError(format!(
                     "simulation warehouse: {e}"

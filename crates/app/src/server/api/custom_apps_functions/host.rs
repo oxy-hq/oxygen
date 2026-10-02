@@ -25,8 +25,8 @@ use super::host_call_attrs::db_query_summary;
 use super::runtime::{FUNCTION_MAX_ROWS, FUNCTION_STREAM_MAX_ROWS, FunctionHost};
 use super::seam::{FunctionProjectContext, FunctionQueryExecutor};
 use super::upsert_support;
-use agentic_connector::SqlDialect;
 use agentic_connector::SqlTransaction;
+use agentic_connector::{SqlDialect, StringLiteral};
 
 mod airhouse_ops;
 mod destinations;
@@ -974,28 +974,29 @@ impl FunctionHost for ProjectFunctionHost {
             .await?;
         let database = database.as_str();
 
-        let build = |dialect| match host_op {
+        let build = |dialect, strings| match host_op {
             HostOp::WarehouseExec => payload
                 .get("sql")
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .ok_or_else(|| "warehouse.exec: `sql` is required".to_string()),
-            HostOp::WarehouseInsert => build_insert_sql(&payload, false, dialect),
-            HostOp::WarehouseUpsert => build_insert_sql(&payload, true, dialect),
+            HostOp::WarehouseInsert => build_insert_sql(&payload, false, dialect, strings),
+            HostOp::WarehouseUpsert => build_insert_sql(&payload, true, dialect, strings),
             _ => Err(format!("unknown op '{op}'")),
         };
-        // Built, and so checked, before any connection. Outside production it
-        // is built again in the engine's own identifier quoting where that
-        // differs; production's SQL stays exactly what it always was.
-        let sql = build(SqlDialect::Postgres)?;
+        // Built, and so checked, before any connection. Once the engine is
+        // known it is built again wherever the engine reads the text
+        // differently — see `engine_spelling`.
+        let sql = build(SqlDialect::Postgres, StringLiteral::Standard)?;
 
         let summary = db_query_summary(&sql);
         data_audit::record_db_span(&summary, Some(database), payload_table);
         let connector = self.connect(database).await?;
-        let sql = if !self.policy.is_production() && backquotes_identifiers(connector.dialect()) {
-            build(connector.dialect())?
-        } else {
+        let (idents, strings) = engine_spelling(self.policy.is_production(), connector.as_ref());
+        let sql = if (idents, strings) == (SqlDialect::Postgres, StringLiteral::Standard) {
             sql
+        } else {
+            build(idents, strings)?
         };
         if let Some(mapped) = &mapped {
             let fence = mapped.fence(connector.dialect());
@@ -1631,17 +1632,22 @@ async fn query_with_truncation(
 /// col = EXCLUDED.col` for every non-key column — the Postgres/DuckDB
 /// upsert syntax, which covers the destinations this is scoped to (§11.3).
 /// [`upsert_support::check`] refuses the others by name before this is sent.
+///
+/// `dialect` decides how identifiers are quoted and `strings` how values are
+/// escaped; [`engine_spelling`] picks both for the connector the statement is
+/// sent to.
 fn build_insert_sql(
     payload: &serde_json::Value,
     upsert: bool,
     dialect: SqlDialect,
+    strings: StringLiteral,
 ) -> Result<String, String> {
     let table = payload
         .get("table")
         .and_then(|v| v.as_str())
         .ok_or_else(|| "`table` is required".to_string())?;
     let quote_ident = identifier_quoter(dialect);
-    let (columns, values) = columns_and_values_with(payload, quote_ident)?;
+    let (columns, values) = columns_and_values_with(payload, quote_ident, strings)?;
     let mut sql = format!("INSERT INTO {} {values}", quote_ident(table));
 
     if upsert {
@@ -1685,14 +1691,19 @@ fn build_insert_sql(
 /// `(col, …) VALUES (…), (…)` from `payload.rows`, a non-empty array of objects
 /// that all carry the first row's columns. Returns the column names too, for
 /// callers that build more around them (`upsert`'s conflict clause).
+///
+/// For Airhouse, which is DuckDB: double-quoted identifiers, and a literal in
+/// which `''` is the only escape.
 fn columns_and_values(payload: &serde_json::Value) -> Result<(Vec<String>, String), String> {
-    columns_and_values_with(payload, quote_ident)
+    columns_and_values_with(payload, quote_ident, StringLiteral::Standard)
 }
 
-/// [`columns_and_values`], quoting columns with `quote_ident`.
+/// [`columns_and_values`], quoting columns with `quote_ident` and writing
+/// values as `strings` says the destination reads them.
 fn columns_and_values_with(
     payload: &serde_json::Value,
     quote_ident: fn(&str) -> String,
+    strings: StringLiteral,
 ) -> Result<(Vec<String>, String), String> {
     let rows = payload
         .get("rows")
@@ -1714,7 +1725,7 @@ fn columns_and_values_with(
             let value = obj
                 .get(col)
                 .ok_or_else(|| format!("row missing column '{col}'"))?;
-            literals.push(json_value_to_sql_literal(value));
+            literals.push(json_value_to_sql_literal(value, strings));
         }
         values_sql.push(format!("({})", literals.join(", ")));
     }
@@ -1768,17 +1779,38 @@ fn identifier_quoter(dialect: SqlDialect) -> fn(&str) -> String {
     }
 }
 
-/// Render a JSON value as a SQL literal. Strings are single-quote escaped;
-/// objects/arrays are serialized to a JSON string literal (for `jsonb`-typed
-/// columns).
-fn json_value_to_sql_literal(value: &serde_json::Value) -> String {
+/// How the statement the host builds must be spelled for `connector`.
+///
+/// Identifiers keep the double quotes production has always sent, and follow
+/// the engine only outside it. Values always follow the engine: a row is
+/// whatever the function was handed, often by an end user, and an engine that
+/// reads a backslash inside a literal would otherwise let one value end its
+/// literal and be read as the rest of the row.
+fn engine_spelling(
+    is_production: bool,
+    connector: &dyn DatabaseConnector,
+) -> (SqlDialect, StringLiteral) {
+    let dialect = connector.dialect();
+    let idents = if !is_production && backquotes_identifiers(dialect) {
+        dialect
+    } else {
+        SqlDialect::Postgres
+    };
+    (idents, connector.string_literal())
+}
+
+/// Render a JSON value as a SQL literal. Strings are escaped as `strings` says
+/// the destination reads them; objects/arrays are serialized to a JSON string
+/// literal (for `jsonb`-typed columns) and escaped the same way, so the engine
+/// reads back the JSON text that was serialized.
+fn json_value_to_sql_literal(value: &serde_json::Value, strings: StringLiteral) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+        serde_json::Value::String(s) => strings.quote(s),
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-            format!("'{}'", value.to_string().replace('\'', "''"))
+            strings.quote(&value.to_string())
         }
     }
 }
@@ -2072,12 +2104,18 @@ mod tests {
         let payload = json!({ "table": "orders", "rows": [{ "id": 1 }] });
         for dialect in [SqlDialect::BigQuery, SqlDialect::MYSQL] {
             assert_eq!(
-                build_insert_sql(&payload, false, dialect).unwrap(),
+                build_insert_sql(&payload, false, dialect, StringLiteral::Standard).unwrap(),
                 "INSERT INTO `orders` (`id`) VALUES (1)"
             );
         }
         assert_eq!(
-            build_insert_sql(&payload, false, SqlDialect::CLICKHOUSE).unwrap(),
+            build_insert_sql(
+                &payload,
+                false,
+                SqlDialect::CLICKHOUSE,
+                StringLiteral::Standard
+            )
+            .unwrap(),
             r#"INSERT INTO "orders" ("id") VALUES (1)"#
         );
         assert_eq!(backquote_ident("we`ird"), "`we``ird`");
@@ -2123,17 +2161,161 @@ mod tests {
 
     #[test]
     fn json_value_to_sql_literal_covers_all_variants() {
-        assert_eq!(json_value_to_sql_literal(&json!(null)), "NULL");
-        assert_eq!(json_value_to_sql_literal(&json!(true)), "true");
-        assert_eq!(json_value_to_sql_literal(&json!(42)), "42");
-        assert_eq!(json_value_to_sql_literal(&json!(4.5)), "4.5");
-        assert_eq!(json_value_to_sql_literal(&json!("plain")), "'plain'");
-        assert_eq!(json_value_to_sql_literal(&json!("it's")), "'it''s'");
+        assert_eq!(
+            json_value_to_sql_literal(&json!(null), StringLiteral::Standard),
+            "NULL"
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&json!(true), StringLiteral::Standard),
+            "true"
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&json!(42), StringLiteral::Standard),
+            "42"
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&json!(4.5), StringLiteral::Standard),
+            "4.5"
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&json!("plain"), StringLiteral::Standard),
+            "'plain'"
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&json!("it's"), StringLiteral::Standard),
+            "'it''s'"
+        );
         // Arrays/objects round-trip through JSON with single quotes escaped.
         assert_eq!(
-            json_value_to_sql_literal(&json!({"a": "b's"})),
+            json_value_to_sql_literal(&json!({"a": "b's"}), StringLiteral::Standard),
             "'{\"a\":\"b''s\"}'"
         );
+    }
+
+    /// The four values that separate the rules: a backslash, a quote, the two
+    /// together, and a backslash at the very end of the value.
+    const ESCAPES: &[&str] = &["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"];
+
+    /// A string is written the way the destination's engine reads a literal.
+    /// With quote-only escaping, the third value ended its literal on every
+    /// engine that reads a backslash and the fourth swallowed the closing
+    /// quote, so the rest of the row was read as part of the value.
+    #[test]
+    fn a_string_is_escaped_as_its_engine_reads_a_literal() {
+        let written = |rule: StringLiteral| -> Vec<String> {
+            ESCAPES
+                .iter()
+                .map(|v| json_value_to_sql_literal(&json!(v), rule))
+                .collect()
+        };
+        assert_eq!(
+            written(StringLiteral::Standard),
+            ["'a\\b'", "'it''s'", "'x\\'' OR 1=1 -- '", "'C:\\'"],
+            "on DuckDB and Postgres a backslash is an ordinary character"
+        );
+        assert_eq!(
+            written(StringLiteral::Backslash),
+            ["'a\\\\b'", "'it''s'", "'x\\\\'' OR 1=1 -- '", "'C:\\\\'"],
+            "on ClickHouse, MySQL, Snowflake and Redshift the backslash is doubled"
+        );
+        assert_eq!(
+            written(StringLiteral::BackslashOnly),
+            ["'a\\\\b'", "'it\\'s'", "'x\\\\\\' OR 1=1 -- '", "'C:\\\\'"],
+            "on BigQuery the backslash is doubled and the quote is written with one"
+        );
+    }
+
+    /// JSON escapes with backslashes of its own, so an object written for an
+    /// engine that reads them has to double them or the engine stores
+    /// different JSON from what was serialized.
+    #[test]
+    fn a_json_object_keeps_its_own_escapes_on_a_backslash_engine() {
+        let value = json!({ "note": "say \"hi\"", "path": "C:\\" });
+        assert_eq!(
+            json_value_to_sql_literal(&value, StringLiteral::Standard),
+            r#"'{"note":"say \"hi\"","path":"C:\\"}'"#
+        );
+        assert_eq!(
+            json_value_to_sql_literal(&value, StringLiteral::Backslash),
+            r#"'{"note":"say \\"hi\\"","path":"C:\\\\"}'"#
+        );
+    }
+
+    /// The whole statement, for the engine it is sent to: every value stays in
+    /// its own literal, and nothing follows the row list (ClickHouse reads
+    /// anything after `VALUES` as row data).
+    #[test]
+    fn an_insert_keeps_each_value_in_its_own_column() {
+        let payload = json!({
+            "table": "notes",
+            "rows": [{ "a": "x\\' OR 1=1 -- ", "b": "C:\\" }],
+        });
+        assert_eq!(
+            build_insert_sql(
+                &payload,
+                false,
+                SqlDialect::Postgres,
+                StringLiteral::Standard
+            )
+            .unwrap(),
+            "INSERT INTO \"notes\" (\"a\", \"b\") VALUES ('x\\'' OR 1=1 -- ', 'C:\\')"
+        );
+        assert_eq!(
+            build_insert_sql(
+                &payload,
+                false,
+                SqlDialect::Postgres,
+                StringLiteral::Backslash
+            )
+            .unwrap(),
+            "INSERT INTO \"notes\" (\"a\", \"b\") VALUES ('x\\\\'' OR 1=1 -- ', 'C:\\\\')"
+        );
+        assert_eq!(
+            build_insert_sql(
+                &payload,
+                false,
+                SqlDialect::BigQuery,
+                StringLiteral::BackslashOnly
+            )
+            .unwrap(),
+            "INSERT INTO `notes` (`a`, `b`) VALUES ('x\\\\\\' OR 1=1 -- ', 'C:\\\\')"
+        );
+    }
+
+    /// Production keeps its identifier quoting, but the values follow the
+    /// engine there too: Redshift answers as Postgres and reads backslashes.
+    #[test]
+    fn values_follow_the_engine_in_production_and_identifiers_do_not() {
+        let postgres = PostgresConnector::new("h", 5432, "u", "p", "d");
+        let redshift = PostgresConnector::new("h", 5432, "u", "p", "d").redshift();
+        for is_production in [true, false] {
+            assert_eq!(
+                engine_spelling(is_production, &postgres),
+                (SqlDialect::Postgres, StringLiteral::Standard)
+            );
+            assert_eq!(
+                engine_spelling(is_production, &redshift),
+                (SqlDialect::Postgres, StringLiteral::Backslash)
+            );
+        }
+    }
+
+    /// A row with no quote and no backslash is the same bytes on every engine,
+    /// so nothing a working app sends today changes.
+    #[test]
+    fn a_plain_row_is_written_the_same_for_every_engine() {
+        let payload = json!({ "table": "orders", "rows": [{ "id": 1, "name": "ada" }] });
+        for rule in [
+            StringLiteral::Standard,
+            StringLiteral::Backslash,
+            StringLiteral::BackslashOnly,
+        ] {
+            assert_eq!(
+                build_insert_sql(&payload, false, SqlDialect::Postgres, rule).unwrap(),
+                r#"INSERT INTO "orders" ("id", "name") VALUES (1, 'ada')"#,
+                "{rule:?}"
+            );
+        }
     }
 
     #[test]
@@ -2144,7 +2326,13 @@ mod tests {
                 { "day": "2026-06-13", "store_id": 12, "total": 4821.5 },
             ],
         });
-        let sql = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap();
+        let sql = build_insert_sql(
+            &payload,
+            false,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "daily_rollup" ("day", "store_id", "total") VALUES ('2026-06-13', 12, 4821.5)"#
@@ -2160,7 +2348,13 @@ mod tests {
                 { "a": 2, "b": "y" },
             ],
         });
-        let sql = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap();
+        let sql = build_insert_sql(
+            &payload,
+            false,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "t" ("a", "b") VALUES (1, 'x'), (2, 'y')"#
@@ -2170,14 +2364,26 @@ mod tests {
     #[test]
     fn build_insert_sql_requires_table() {
         let payload = json!({ "rows": [{ "a": 1 }] });
-        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
+        let err = build_insert_sql(
+            &payload,
+            false,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap_err();
         assert!(err.contains("`table`"));
     }
 
     #[test]
     fn build_insert_sql_requires_non_empty_rows() {
         let payload = json!({ "table": "t", "rows": [] });
-        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
+        let err = build_insert_sql(
+            &payload,
+            false,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap_err();
         assert!(err.contains("`rows`"));
     }
 
@@ -2190,7 +2396,13 @@ mod tests {
                 { "a": 1 },
             ],
         });
-        let err = build_insert_sql(&payload, false, SqlDialect::Postgres).unwrap_err();
+        let err = build_insert_sql(
+            &payload,
+            false,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap_err();
         assert!(err.contains("missing column 'b'"));
     }
 
@@ -2201,7 +2413,13 @@ mod tests {
             "rows": [{ "day": "2026-06-13", "store_id": 12, "total": 4821.5 }],
             "conflictColumns": ["day", "store_id"],
         });
-        let sql = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap();
+        let sql = build_insert_sql(
+            &payload,
+            true,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap();
         assert_eq!(
             sql,
             r#"INSERT INTO "daily_rollup" ("day", "store_id", "total") VALUES ('2026-06-13', 12, 4821.5) ON CONFLICT ("day", "store_id") DO UPDATE SET "total" = EXCLUDED."total""#
@@ -2215,7 +2433,13 @@ mod tests {
             "rows": [{ "a": 1, "b": 2 }],
             "conflictColumns": ["a", "b"],
         });
-        let sql = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap();
+        let sql = build_insert_sql(
+            &payload,
+            true,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap();
         assert!(sql.ends_with("DO NOTHING"));
     }
 
@@ -2225,7 +2449,13 @@ mod tests {
             "table": "t",
             "rows": [{ "a": 1 }],
         });
-        let err = build_insert_sql(&payload, true, SqlDialect::Postgres).unwrap_err();
+        let err = build_insert_sql(
+            &payload,
+            true,
+            SqlDialect::Postgres,
+            StringLiteral::Standard,
+        )
+        .unwrap_err();
         assert!(err.contains("conflictColumns"));
     }
 

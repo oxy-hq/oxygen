@@ -14,6 +14,7 @@ use agentic_core::hub_task::spawn_blocking_with_hub;
 
 pub mod config;
 pub mod connector;
+pub mod string_literal;
 pub mod telemetry;
 #[cfg(feature = "transactions")]
 pub mod transaction;
@@ -82,6 +83,8 @@ pub use connector::{
     estimate_row_bytes, guard_row_stream, is_returning_statement, is_wrappable_select,
     normalize_sql, plan_sql_script, split_sql_statements, with_trailing_comment,
 };
+
+pub use string_literal::StringLiteral;
 
 #[cfg(feature = "transactions")]
 pub use transaction::{SqlTransaction, TxParams};
@@ -199,6 +202,19 @@ pub fn build_connector(cfg: ConnectorConfig) -> Result<Box<dyn DatabaseConnector
     }
 }
 
+/// The lazily-connecting connector both Postgres-wire configs build.
+#[cfg(feature = "postgres")]
+fn postgres_connector(c: &PostgresConfig) -> PostgresConnector {
+    PostgresConnector::with_sslmode(
+        &c.host,
+        c.port,
+        &c.user,
+        &c.password,
+        &c.database,
+        c.sslmode.as_deref(),
+    )
+}
+
 /// Construct a `Box<dyn DatabaseConnector>` from any config, including those
 /// that require async connection setup (Postgres, ClickHouse, Snowflake, BigQuery).
 pub async fn build_connector_async(
@@ -220,17 +236,11 @@ pub async fn build_connector_async(
         }
 
         #[cfg(feature = "postgres")]
-        ConnectorConfig::Postgres(c) | ConnectorConfig::Redshift(c) => {
-            let conn = PostgresConnector::with_sslmode(
-                &c.host,
-                c.port,
-                &c.user,
-                &c.password,
-                &c.database,
-                c.sslmode.as_deref(),
-            );
-            Ok(Box::new(conn))
-        }
+        ConnectorConfig::Postgres(c) => Ok(Box::new(postgres_connector(&c))),
+        // The same wire and the same dialect, but Redshift reads a backslash
+        // inside a string literal where Postgres does not.
+        #[cfg(feature = "postgres")]
+        ConnectorConfig::Redshift(c) => Ok(Box::new(postgres_connector(&c).redshift())),
 
         #[cfg(feature = "mysql")]
         ConnectorConfig::Mysql(c) => {

@@ -984,7 +984,11 @@ pub fn build_query_executor(
         // airlayer emits parameterized SQL ($1, $2, …) + a separate params
         // vector. The agentic-connector executor takes a raw SQL string, so
         // inline the params the same way `resolve_and_compile` does.
-        let sql = oxy_shared::substitute_params(&compiled.sql, &compiled.params);
+        let sql = oxy_airlayer_compat::substitute_params(
+            &oxy_airlayer_compat::request_dialect(&engine, request),
+            &compiled.sql,
+            &compiled.params,
+        );
         let database = resolve_database(&engine, request, &databases)?;
         let seq = query_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let total_start = std::time::Instant::now();
@@ -1185,7 +1189,11 @@ pub fn build_drill_query_executor(
         // airlayer emits parameterized SQL ($1, $2, …) + a separate params
         // vector. The agentic-connector executor takes a raw SQL string, so
         // inline the params the same way `resolve_and_compile` does.
-        let sql = oxy_shared::substitute_params(&compiled.sql, &compiled.params);
+        let sql = oxy_airlayer_compat::substitute_params(
+            &oxy_airlayer_compat::request_dialect(&engine, request),
+            &compiled.sql,
+            &compiled.params,
+        );
         let database = resolve_database(&engine, request, &databases)?;
         let seq = query_seq.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let total_start = std::time::Instant::now();

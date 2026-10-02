@@ -3,5 +3,4 @@
 pub mod custom_app_url;
 pub mod request_id;
 pub mod slug;
-pub mod sql;
 pub use slug::slugify;
