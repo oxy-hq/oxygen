@@ -28,10 +28,7 @@ async fn local_router_returns_404_for_organization_routes() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        axum::Router::new(),
-        Vec::new(),
-        axum::Router::new(),
-        Vec::new(),
+        oxy_app::server::router::SurfaceSeams::empty(),
     )
     .await
     .expect("build router");
@@ -69,10 +66,7 @@ async fn local_router_returns_404_for_github_namespace_routes() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        axum::Router::new(),
-        Vec::new(),
-        axum::Router::new(),
-        Vec::new(),
+        oxy_app::server::router::SurfaceSeams::empty(),
     )
     .await
     .expect("build router");
@@ -107,10 +101,7 @@ async fn local_router_has_public_liveness_route() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        axum::Router::new(),
-        Vec::new(),
-        axum::Router::new(),
-        Vec::new(),
+        oxy_app::server::router::SurfaceSeams::empty(),
     )
     .await
     .expect("build router");

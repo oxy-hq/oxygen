@@ -6,6 +6,7 @@
 //! - [`secrets`] — secret routes gated behind an admin-only middleware
 //! - [`protected`] — cloud/local composition of protected routes + middleware
 //! - [`entry`] — [`api_router`] / [`internal_api_router`] public entry points
+//! - [`seams`] — [`SurfaceSeams`], the named seams extracted surface crates mount through
 //! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
 
 mod entry;
@@ -15,6 +16,7 @@ mod protected;
 mod public;
 pub(crate) mod recovery;
 pub(crate) mod role_router;
+mod seams;
 mod secrets;
 mod workspace;
 pub(crate) mod workspace_cache;
@@ -30,6 +32,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{api_router, internal_api_router};
 pub use openapi::{build_openapi_doc, openapi_router};
+pub use seams::{SurfaceSeam, SurfaceSeams};
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
 // can hold it without depending on `oxy-app`. Re-exported here so every existing
@@ -429,7 +432,10 @@ fn is_loopback_host(host: &str) -> bool {
 ///
 /// If only `Referer` is present, its scheme+host is extracted and used as
 /// the candidate origin.
-pub(crate) fn is_allowed_origin(headers: &HeaderMap) -> bool {
+///
+/// `pub`: the extracted `oxy-api-frontline` surface gates "leave kiosk mode"
+/// on it.
+pub fn is_allowed_origin(headers: &HeaderMap) -> bool {
     let candidate = headers
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
@@ -519,10 +525,7 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            SurfaceSeams::empty(),
         )
         .await
         .expect("router built");
@@ -547,10 +550,7 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            SurfaceSeams::empty(),
         )
         .await
         .expect("router built");
@@ -574,10 +574,7 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            SurfaceSeams::empty(),
         )
         .await
         .expect("router built");
@@ -605,10 +602,7 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            SurfaceSeams::empty(),
         )
         .await
         .expect("router built");
@@ -683,10 +677,7 @@ mod router_split_tests {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            SurfaceSeams::empty(),
         )
         .await
         .expect("router built");

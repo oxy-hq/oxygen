@@ -88,6 +88,12 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // an agent config out of the working copy (through the project context,
         // not a needle below) and is declared IdeOnly in its `route_roles()`.
         "../api-documents/src",
+        // Extracted from `src/server/api/frontline*.rs`. Its routes ARE declared
+        // (`route_roles` / `public_route_roles`), but every declaration is a
+        // hand-written FleetOk: leaving `RoleRouter::route_fleet` lost the type
+        // gate that stopped one of these handlers taking a working copy, so
+        // "stays diskless" is the check that is left.
+        "../api-frontline/src",
         "src/server/api/billing",
     ] {
         let sources = rust_sources(Path::new(crate_dir));

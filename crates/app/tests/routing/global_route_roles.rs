@@ -91,47 +91,9 @@ fn a_custom_app_function_runs_on_the_ide_and_its_bundle_does_not() {
 // set this helper installs does not contain `/documents/ask` and `classify` would
 // answer with the FleetOk default.
 
-/// Every kiosk route answers from any replica, the new PATCH included.
-///
-/// A store fixes a counter tablet's sign-out during service. Classifying that
-/// write `IdeOnly` would put it behind the singleton — a self-routing proxy hop
-/// on a good day, a 421 while the ide restarts on a bad one — for a statement
-/// that touches one Postgres row and no working copy at all.
-///
-/// Asserted here rather than left to the mount for the reason this whole file
-/// exists: `route_role_derivation` reads `router/workspace.rs` only, and the
-/// type-level gate cannot see a handler that takes no working copy, so
-/// `route_ide(.., patch(update_device))` would compile and no test would care.
-/// The siblings are listed beside it so a future mount that drags the tree onto
-/// the ide fails on all six rather than on whichever one someone remembered —
-/// "Leave kiosk mode" among them, which a manager uses to free a stuck phone
-/// and which must not wait on the singleton either.
-#[test]
-fn changing_a_kiosk_stays_on_the_fleet_like_the_rest_of_them() {
-    install_route_declarations_for_tests();
-
-    const DEVICE: &str = "33333333-3333-3333-3333-333333333333";
-    for (method, path) in [
-        (
-            "PATCH",
-            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}"),
-        ),
-        (
-            "DELETE",
-            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}"),
-        ),
-        ("GET", format!("/api/orgs/{ORG}/frontline/devices")),
-        ("POST", format!("/api/orgs/{ORG}/frontline/devices")),
-        (
-            "POST",
-            format!("/api/orgs/{ORG}/frontline/devices/{DEVICE}/enrol-link"),
-        ),
-        ("POST", format!("/api/orgs/{ORG}/frontline/device/leave")),
-    ] {
-        assert_eq!(
-            classify(method, &path),
-            RouteRole::FleetOk,
-            "{method} {path} reads and writes one Postgres row",
-        );
-    }
-}
+// The kiosk and worker routes (`/orgs/{org_id}/frontline/*`) and the frontline
+// sign-in moved to the `oxy-api-frontline` sibling crate, and their FleetOk guard
+// moved with them (`crates/api-frontline/tests/integration/route_roles.rs`). Not
+// assertable here for the reason given above for onboarding: the declaration set
+// this harness installs no longer contains them, so `classify` would answer with
+// the FleetOk default and pass for the wrong reason.

@@ -22,6 +22,7 @@ use oxy::sentry_config;
 use oxy::theme::StyledText;
 use oxy_app::cli::commands::cli;
 use oxy_app::observability_boot;
+use oxy_app::server::router::{SurfaceSeam, SurfaceSeams};
 use oxy_telemetry::otel::OtelConfig;
 use std::env;
 
@@ -223,22 +224,40 @@ fn main() {
             // `oxy-api-documents` is Postgres + presigned S3 everywhere but
             // `POST /documents/ask`, which resolves an agent config out of the
             // working copy, so it declares that one route.
-            let exit_code = match cli(
-                oxy_api_github::routes()
-                    .merge(oxy_api_partner_console::routes())
-                    .merge(oxy_api_onboarding::routes())
-                    .merge(oxy_api_documents::routes()),
-                oxy_api_onboarding::route_roles()
-                    .iter()
-                    .chain(oxy_api_partner_console::route_roles())
-                    .chain(oxy_api_documents::route_roles())
-                    .copied()
-                    .collect(),
-                oxy_api_onboarding::workspace_routes(),
-                oxy_api_onboarding::workspace_route_roles().to_vec(),
-            )
-            .await
-            {
+            //
+            // `oxy-api-frontline` is Postgres-only too, but it declares its
+            // FleetOk explicitly: its routes left `route_fleet`, whose type gate
+            // stated that, and it is the one surface on the PUBLIC seam — PIN
+            // sign-in and the kiosk binding sit outside the auth stack by design.
+            //
+            // Each seam is named for which side of the auth stack it lands on
+            // (see `SurfaceSeams`), so a route cannot change sides by argument
+            // order: `public` is the only one outside auth.
+            let seams = SurfaceSeams {
+                api: SurfaceSeam {
+                    routes: oxy_api_github::routes()
+                        .merge(oxy_api_partner_console::routes())
+                        .merge(oxy_api_onboarding::routes())
+                        .merge(oxy_api_documents::routes())
+                        .merge(oxy_api_frontline::routes()),
+                    decls: oxy_api_onboarding::route_roles()
+                        .iter()
+                        .chain(oxy_api_partner_console::route_roles())
+                        .chain(oxy_api_documents::route_roles())
+                        .chain(oxy_api_frontline::route_roles())
+                        .copied()
+                        .collect(),
+                },
+                workspace: SurfaceSeam {
+                    routes: oxy_api_onboarding::workspace_routes(),
+                    decls: oxy_api_onboarding::workspace_route_roles().to_vec(),
+                },
+                public: SurfaceSeam {
+                    routes: oxy_api_frontline::public_routes(),
+                    decls: oxy_api_frontline::public_route_roles().to_vec(),
+                },
+            };
+            let exit_code = match cli(seams).await {
                 Ok(_) => 0,
                 Err(e) => {
                     tracing::error!(error = %e, "Application error");

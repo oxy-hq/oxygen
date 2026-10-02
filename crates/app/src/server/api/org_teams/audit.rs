@@ -29,7 +29,7 @@ use oxy_app_core::audit::{self, ActorType, AuditEntry};
 /// own console uses. Without the split, the org's log would attribute Oxy's writes
 /// to the org's own admins — and the reader cannot tell them apart by cross-
 /// referencing `org_members`, because staff never appear there.
-pub(crate) struct AccessAction {
+pub struct AccessAction {
     tenant: &'static str,
     staff: &'static str,
 }
@@ -37,7 +37,7 @@ pub(crate) struct AccessAction {
 /// Deliberately the same name `/admin/apps/{id}/access` already records: one event,
 /// two doors. A reader filtering the log for "who changed who can see this app"
 /// must not have to know which route the operator happened to use.
-pub(crate) const APP_ACCESS_CHANGED: AccessAction = AccessAction {
+pub const APP_ACCESS_CHANGED: AccessAction = AccessAction {
     tenant: "app.access_changed",
     staff: "admin.app.access_changed",
 };
@@ -70,14 +70,14 @@ pub(super) const TEAM_MEMBER_REMOVED: AccessAction = AccessAction {
 };
 
 /// What the row points at: `("app" | "team", id, human label)`.
-pub(crate) type Target = (&'static str, Uuid, String);
+pub type Target = (&'static str, Uuid, String);
 
 /// Record one access change into the org's append-only log.
 ///
 /// Best-effort, matching both siblings: an audit write that fails must not fail the
 /// request that already succeeded, or a transient log problem becomes an outage on
 /// the control plane.
-pub(crate) async fn record(
+pub async fn record(
     db: &DatabaseConnection,
     ctx: &OrgContext,
     actor: &AuthenticatedUser,

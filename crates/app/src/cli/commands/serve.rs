@@ -42,10 +42,7 @@ const ASSETS_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 pub async fn start_server_and_web_app(
     args: ServeArgs,
-    extra_api_routes: Router<crate::server::router::AppState>,
-    extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    extra_workspace_routes: Router<crate::server::router::AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    seams: crate::server::router::SurfaceSeams,
 ) -> Result<(), OxyError> {
     // OXY_ROLE → ide | serve | worker | all (default). Read once so the
     // routing middleware can enforce the FS-routing boundary.
@@ -334,10 +331,7 @@ pub async fn start_server_and_web_app(
     // the main app — internal callers and the agentic browser tests drive it — so it
     // must mount the SAME extracted surface crates. Clone the seams before the main
     // app consumes them below; axum `Router` clones are cheap.
-    let internal_extra_api = extra_api_routes.clone();
-    let internal_extra_api_decls = extra_api_decls.clone();
-    let internal_extra_workspace = extra_workspace_routes.clone();
-    let internal_extra_workspace_decls = extra_workspace_decls.clone();
+    let internal_seams = seams.clone();
 
     let app = create_web_application(
         mode,
@@ -346,10 +340,7 @@ pub async fn start_server_and_web_app(
         startup_cwd.clone(),
         shutdown_token.clone(),
         disable_inprocess_workers,
-        extra_api_routes,
-        extra_api_decls,
-        extra_workspace_routes,
-        extra_workspace_decls,
+        seams,
     )
     .await?;
 
@@ -359,10 +350,7 @@ pub async fn start_server_and_web_app(
                 args.enterprise,
                 observability,
                 shutdown_token.clone(),
-                internal_extra_api,
-                internal_extra_api_decls,
-                internal_extra_workspace,
-                internal_extra_workspace_decls,
+                internal_seams,
             )
             .await?,
         )
@@ -603,10 +591,7 @@ async fn create_web_application(
     startup_cwd: std::path::PathBuf,
     shutdown_token: CancellationToken,
     disable_inprocess_workers: bool,
-    extra_api_routes: Router<crate::server::router::AppState>,
-    extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    extra_workspace_routes: Router<crate::server::router::AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    seams: crate::server::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
     let (api_router, external_api_router, preagg_ctx) = crate::server::router::api_router(
         mode,
@@ -615,10 +600,7 @@ async fn create_web_application(
         startup_cwd,
         shutdown_token,
         disable_inprocess_workers,
-        extra_api_routes,
-        extra_api_decls,
-        extra_workspace_routes,
-        extra_workspace_decls,
+        seams,
     )
     .await
     .map_err(|e| OxyError::RuntimeError(format!("Failed to create API router: {}", e)))?;
@@ -799,19 +781,13 @@ async fn create_internal_application(
     enterprise: bool,
     observability: Option<std::sync::Arc<dyn oxy_observability::ObservabilityStore>>,
     shutdown_token: CancellationToken,
-    extra_api_routes: Router<crate::server::router::AppState>,
-    extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    extra_workspace_routes: Router<crate::server::router::AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    seams: crate::server::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
     let internal_router = crate::server::router::internal_api_router(
         enterprise,
         observability,
         shutdown_token,
-        extra_api_routes,
-        extra_api_decls,
-        extra_workspace_routes,
-        extra_workspace_decls,
+        seams,
     )
     .await
     .map_err(|e| OxyError::RuntimeError(format!("Failed to create internal API router: {}", e)))?;

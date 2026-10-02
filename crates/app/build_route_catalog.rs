@@ -121,11 +121,12 @@ struct Seed {
 /// `build_public_routes` / `build_global_routes` / `build_protected_routes` are
 /// merged into one router that `cli/commands/serve.rs` nests under `/api`;
 /// `build_external_api_router` mounts the curated API-key surface under
-/// `/external/api`. The sibling API crates arrive through two seams the
-/// `oxy-server` composition root fills: `extra_api_routes`, merged beside the
-/// org tree at `/api`, and `extra_workspace_routes`, merged *inside* the
-/// `/{workspace_id}` tree. A crate can use both — `oxy-api-onboarding` does,
-/// which is why it has two seeds.
+/// `/external/api`. The sibling API crates arrive through three seams the
+/// `oxy-server` composition root fills: `SurfaceSeams::api`, merged beside the
+/// org tree at `/api`, `SurfaceSeams::workspace`, merged *inside* the
+/// `/{workspace_id}` tree, and `SurfaceSeams::public`, merged beside the public
+/// tree. A crate can use more than one — `oxy-api-onboarding` and
+/// `oxy-api-frontline` do, which is why each has two seeds.
 const SEEDS: &[Seed] = &[
     Seed {
         surface: "public",
@@ -195,7 +196,23 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_documents::router",
         function: "routes",
     },
-    // The same crate also fills the `extra_workspace_routes` seam, which lands
+    // `oxy-api-frontline` fills two seams: its org-admin routes ride
+    // `SurfaceSeams::api` like the crates above, and its PIN sign-in + kiosk
+    // binding ride `SurfaceSeams::public`, merged beside `build_public_routes`
+    // outside the auth stack.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_frontline",
+        function: "routes",
+    },
+    Seed {
+        surface: "public",
+        prefix: "/api",
+        module: "oxy_api_frontline",
+        function: "public_routes",
+    },
+    // `oxy-api-onboarding` also fills the `SurfaceSeams::workspace` seam, which lands
     // inside the `/{workspace_id}` tree rather than beside it — two mount
     // points, so two seeds.
     Seed {
@@ -218,13 +235,15 @@ const SEEDS: &[Seed] = &[
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
 /// Both lists watch `crates/api-github/src`, `crates/api-partner-console/src`,
-/// `crates/api-onboarding/src` and `crates/api-documents/src`, none of which
-/// `oxy-app` depends on (`oxy-server` mounts them as siblings; they depend on
-/// `oxy-app`, not the reverse). Editing any of them therefore re-runs this build script and
+/// `crates/api-onboarding/src`, `crates/api-documents/src` and
+/// `crates/api-frontline/src`, none of which `oxy-app` depends on
+/// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
+/// reverse). Editing any of them therefore re-runs this build script and
 /// recompiles `oxy-app` — the workspace's largest crate — before the small
 /// crate you actually edited.
 ///
-/// Decoupling their dev loop was the payoff of extracting them (#2978, #2996, and the documents split),
+/// Decoupling their dev loop was the payoff of extracting them (#2978, #2996,
+/// and the documents and frontline splits),
 /// and this watch reverses it for anyone working inside them — each of them
 /// now carries a comment above its `description` saying so and pointing
 /// back here. It is the price of listing their routes at all: not watching them
@@ -244,6 +263,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/api-partner-console/src",
     "crates/api-onboarding/src",
     "crates/api-documents/src",
+    "crates/api-frontline/src",
     // `crates/oltp/src/api`, not the whole crate: every handler the OLTP routes
     // name (`handlers::get_connection`, `erd::get_erd`) lives under `api/`, so
     // the wider path would only pull ~15 unrelated modules (`provisioner`,
@@ -270,6 +290,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/api-partner-console/src",
     "crates/api-onboarding/src",
     "crates/api-documents/src",
+    "crates/api-frontline/src",
     // Mounts `/oltp/me/connection` and `/oltp/me/erd`, merged into the served
     // app as `oxy_oltp::api::router` — `role_manifest.rs` asserts that merge.
     // Missing here since #2851, so both routes were live and absent from the
@@ -338,7 +359,7 @@ pub fn collect(repo_root: &Path) -> Vec<Route> {
     // A dependency-only skeleton (`cargo chef cook`) would land here too, if
     // the build script runs there at all — unconfirmed, and not the case worth
     // wording the message around. Gate on the index rather than on the
-    // directories existing either way: three SOURCE_DIRS entries ARE crate
+    // directories existing either way: several SOURCE_DIRS entries ARE crate
     // `src/` roots, so anything that recreates a member's `src/` defeats a
     // directory check.
     //

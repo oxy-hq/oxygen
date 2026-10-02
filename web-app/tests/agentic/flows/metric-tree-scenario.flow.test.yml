@@ -167,14 +167,27 @@ cases:
           whatever baseline value was pre-filled — to set a +20% lever
           value.
       - wait_for: network_idle
+      # `network_idle` alone races the propagation: `useDebouncedPredict` fires
+      # the predict request 300ms AFTER the last keystroke, and Playwright's
+      # `networkidle` resolves at once on a page that is already loaded, so a
+      # fast replay (every act step from cache, ~6s for the whole case)
+      # screenshotted DOWNSTREAM before its impact landed and read
+      # "<baseline> unchanged". An impact row renders from the same predict
+      # response as the canvas node, so waiting for one waits for the move.
+      # This fixture's chosen edge carries a declared `coefficient:`
+      # (`total_sales` <- `average_fuel_price` in demo_project), so a row is
+      # always produced. That makes a sized edge a precondition of this case:
+      # an edge the regression declines to size produces no row and times out
+      # here, which is why the judge below has no "unchanged" exception.
+      - wait_for: "selector:[data-testid^=scenario-impact-row-];timeout_ms=15000"
 
     expect:
       - assert: selector [data-testid=scenario-lever-list] is visible
-      # Both arms read the model's own claims (DIRECTION, HAS_COEF) rather
-      # than hardcoding this fixture's, so the flow survives an edge that
-      # pushes the other way or loses its illustrative coefficient. A DRIVER
-      # edge the baseline could not size emits NO impact, so its node renders
-      # "<baseline> unchanged" — that is the exception below.
+      # The judge reads the model's own DIRECTION rather than hardcoding this
+      # fixture's sign, so the flow survives an edge that pushes the other way.
+      # It does NOT survive an edge nothing can size: the wait above needs an
+      # impact row, so the case requires the declared `coefficient:` (or a
+      # fit that clears the gate) — step 3 prefers a row showing "coef".
       #
       # There is deliberately NO arm for the multiplicative-COMPONENT
       # "can't size" mark. Only a MULTIPLICATIVE component may render it; an
@@ -235,13 +248,7 @@ cases:
           agreeing with DIRECTION: "negative" means the simulated value is
           LOWER than the baseline, "positive" means HIGHER, "unknown" means
           no directional claim so either way passes. A move against a stated
-          direction is a failure.
-
-          One exception, which still requires the UPSTREAM assertion above:
-          when HAS_COEF is "no" the magnitude comes from a regression that may
-          decline to size the edge, so DOWNSTREAM correctly reads
-          "<baseline> unchanged" with no arrow. Accept that. When HAS_COEF is
-          "yes" an unchanged DOWNSTREAM is a failure.
+          direction is a failure. An unchanged DOWNSTREAM is a failure.
 
   - name: pinning a measure and one downstream of it shows the conflict banner naming both
     tags: [ide, metric-tree, scenario, regression]

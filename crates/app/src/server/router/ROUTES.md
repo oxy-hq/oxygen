@@ -35,7 +35,7 @@ The protected-route inner stack differs by mode:
 
 The `/orgs/{org_id}/github/*` and `/user/github/*` subtrees below are no longer
 defined here: they live in the sibling `oxy-api-github` crate and are injected by
-the composition root (`oxy-server`) through `api_router`'s `extra_api_routes` seam,
+the composition root (`oxy-server`) through `api_router`'s `SurfaceSeams::api` seam,
 merged into the protected tree before `apply_middleware` (cloud mode only). They
 re-apply their own `org_middleware` + `subscription_guard`; oxy-app no longer
 depends on them.

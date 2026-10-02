@@ -7,6 +7,7 @@ members = [
   "crates/api-partner-console",
   "crates/api-onboarding",
   "crates/api-documents",
+  "crates/api-frontline",
   "crates/app-core",
   "crates/auth",
   "crates/authz",

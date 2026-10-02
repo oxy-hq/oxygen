@@ -15,10 +15,6 @@ use crate::api::middlewares::{
 };
 use crate::api::{admin, org_logo, org_teams, organizations, user, workspaces};
 use crate::server::api::chat;
-use crate::server::api::frontline;
-use crate::server::api::frontline_admin;
-use crate::server::api::frontline_devices;
-use crate::server::api::frontline_kiosk_mode;
 use crate::server::api::notifications;
 use crate::server::api::work;
 
@@ -456,68 +452,14 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             "/logo",
             put(org_logo::upload_org_logo).delete(org_logo::delete_org_logo),
         )
-        // Enrol a frontline worker. `route_fleet` for the same reason the login
-        // and roster routes are: it reads and writes only Postgres, and a
-        // deploy of the singleton must not stop a manager adding staff.
-        //
-        // Nested here rather than beside `/frontline/login` in the PUBLIC
-        // router, because those two are public by necessity — a worker has
-        // nothing to authenticate with until they have signed in — and this one
-        // is the opposite: it is an org admin adding a person to their org, and
-        // it belongs with the rest of member management.
-        .route_fleet(
-            "/frontline/workers",
-            get(frontline_admin::list_workers).post(frontline::enrol),
-        )
-        // What a manager does after enrolment: which apps a worker opens, and
-        // a forgotten PIN re-issued at the counter. Same door as `workers`.
-        .route_fleet(
-            "/frontline/workers/{user_id}/apps",
-            put(frontline_admin::set_worker_apps),
-        )
-        .route_fleet(
-            "/frontline/workers/{user_id}/pin",
-            post(frontline_admin::reset_worker_pin),
-        )
-        // The kiosks a PIN may be entered on. An org admin creates one and
-        // hands the tablet its enrol link; revoking is how a lost tablet is
-        // switched off. Same door and same reasons as `workers` above.
-        .route_fleet(
-            "/frontline/devices",
-            get(frontline_devices::list_devices).post(frontline_devices::create_device),
-        )
-        // PATCH is how a kiosk's sign-out is tuned after the first shift
-        // without walking a new enrol link out to the counter; DELETE revokes.
-        // `route_fleet` like the rest: it reads and writes one Postgres row and
-        // touches no working copy, so any replica may answer it — and an admin
-        // fixing a tablet mid-service must not need the singleton to be up.
-        .route_fleet(
-            "/frontline/devices/{id}",
-            axum::routing::delete(frontline_devices::revoke_device)
-                .patch(frontline_devices::update_device),
-        )
-        // A lost or expired link for a tablet that never bound. Unbound only:
-        // moving a bound kiosk is revoke-and-enrol, not a quiet re-point.
-        .route_fleet(
-            "/frontline/devices/{id}/enrol-link",
-            post(frontline_devices::reissue_enrol_link),
-        )
-        // "Leave kiosk mode", from the tablet itself: revokes the kiosk the
-        // request's own `oxy_kiosk` cookie names and clears that cookie. No
-        // `{id}` in the path — the cookie is what says which kiosk, so an admin
-        // can only ever switch off the browser they are holding. `route_fleet`
-        // like its siblings: one Postgres row, no working copy, and a manager
-        // freeing a stuck phone must not need the singleton to be up.
-        .route_fleet(
-            "/frontline/device/leave",
-            post(frontline_kiosk_mode::leave_kiosk),
-        )
-        // The other half of enrolment. PATCH because nothing is deleted — a
-        // worker who leaves keeps their row so their work stays attributed.
-        .route_fleet(
-            "/frontline/workers/{user_id}",
-            axum::routing::patch(frontline::set_standing),
-        )
+        // The org-scoped frontline routes (`/frontline/workers*`,
+        // `/frontline/devices*`, `/frontline/device/leave`) moved to the
+        // `oxy-api-frontline` sibling crate, which re-applies this tree's
+        // `org_middleware` + subscription guard and declares them FleetOk.
+        // `/frontline/workers` pairs a handler still here
+        // (`frontline_admin::list_workers`) with one that moved (`enrol`), and
+        // `RoleRouter` cannot split one path's verbs across two routers, so the
+        // whole `/frontline/*` namespace mounts there.
         .route_fleet(
             "/partner-publish-consent",
             get(crate::server::api::partner_publish_consent::get_consent)

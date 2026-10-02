@@ -109,10 +109,9 @@ AREAS = [
     ("web-app/src/pages/billing",                         "Billing (UI)"),
     ("crates/app/src/server/api/organizations",           "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/secrets.rs",              "Secrets"),
-    # Frontline & crew ops (new 2026-09) — one area, five prefixes.
-    ("crates/app/src/server/api/frontline.rs",            "Frontline & crew ops"),
+    # Frontline & crew ops (new 2026-09) — one area, four prefixes.
+    ("crates/api-frontline",                              "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_admin.rs",      "Frontline & crew ops"),
-    ("crates/app/src/server/api/frontline_devices.rs",    "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_grants.rs",     "Frontline & crew ops"),
     ("web-app/src/components/settings/SettingsDialog/sections/organization/Crew",
                                                           "Frontline & crew ops"),

@@ -36,7 +36,7 @@ pub use ops::MAX_UPLOAD_BODY_BYTES;
 /// as outermost, so `.layer(subscription_guard).layer(org_middleware)` yields
 /// request order `org_middleware → subscription_guard → handler` — the same order
 /// as `build_org_routes`. Merged at the protected-tree root by `oxy-server` via
-/// the `extra_api_routes` seam.
+/// the `SurfaceSeams::api` seam.
 ///
 /// These clone repos and scaffold `config.yml` onto node-local disk, so
 /// `role_manifest.rs` pins `POST /api/orgs/{org_id}/onboarding/{demo,new,github}`
@@ -178,12 +178,12 @@ mod tests {
         use axum::routing::get;
         async fn h() {}
 
-        // extra_api_routes seam: the protected-tree root, which nests /orgs/{org_id}.
+        // SurfaceSeams::api seam: the protected-tree root, which nests /orgs/{org_id}.
         let root: Router<AppState> = Router::new()
             .nest("/orgs/{org_id}", Router::new().route("/members", get(h)))
             .merge(routes());
 
-        // extra_workspace_routes seam: inside the /{workspace_id} nest.
+        // SurfaceSeams::workspace seam: inside the /{workspace_id} nest.
         let workspace: Router<AppState> = Router::new()
             .route("/details", get(h))
             .merge(workspace_routes());

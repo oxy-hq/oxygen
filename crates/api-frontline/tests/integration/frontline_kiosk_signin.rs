@@ -16,14 +16,14 @@
 //! could never match would pass for the wrong reason.
 //!
 //! Run with:
-//! `cargo nextest run -p oxy-app --test platform -E 'test(frontline_kiosk_signin)'`
+//! `cargo nextest run -p oxy-api-frontline --test integration -E 'test(frontline_kiosk_signin)'`
 
 use axum::Json;
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use entity::{org_frontline_members, org_role_members, org_roles, user_credentials, users};
-use oxy_app::server::api::frontline::{LoginRequest, login};
+use oxy_api_frontline::frontline::{LoginRequest, login};
 use oxy_auth::frontline::{KIND_PIN, PinPolicy, hash_pin};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,

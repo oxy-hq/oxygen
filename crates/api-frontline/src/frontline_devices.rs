@@ -58,10 +58,10 @@ use super::frontline_kiosk_cookie::{
     append_set_cookies, carries_kiosk_hint, clear_kiosk_cookies_on, kiosk_cookie_parts,
     kiosk_cookies, kiosk_hint_cookie, set_cookie_values,
 };
-use crate::server::api::auth::{
+use oxy_app::server::api::auth::{
     extract_base_url_from_headers, is_request_secure, validate_return_to_url,
 };
-use crate::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
 
 /// An enrol link is good for a day. Long enough to walk the tablet to the
 /// counter; short enough that a link left in a chat thread is dead by the time
@@ -758,7 +758,7 @@ async fn bound_status(
     };
     // Whose session the tablet's cookie carries, read and never renewed. The
     // web app on a kiosk compares it with the account it holds a token for.
-    let session_user_id = super::auth::session_cookie_user_id(headers);
+    let session_user_id = oxy_app::server::api::auth::session_cookie_user_id(headers);
     Ok(Some(bound_status_json(
         &device,
         &org,
@@ -1175,7 +1175,10 @@ pub struct UpdateDeviceRequest {
     /// A plain `Option` would fold `null` into absent, and then "put this
     /// tablet back on the default" would be a request nobody could make —
     /// which is the hole that made changing a kiosk mean re-enrolling it.
-    #[serde(default, deserialize_with = "super::operating_graph::dto::patch")]
+    #[serde(
+        default,
+        deserialize_with = "oxy_app::server::api::operating_graph::dto::patch"
+    )]
     pub idle_timeout_seconds: Option<Option<u32>>,
 }
 

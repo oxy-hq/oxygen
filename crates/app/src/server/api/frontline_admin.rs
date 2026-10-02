@@ -1,9 +1,11 @@
 //! What a manager does with the crew after enrolment: see them, decide which
 //! apps each one opens, re-issue a forgotten PIN.
 //!
-//! Enrolment, standing and kiosks live in `frontline` and `frontline_devices`;
-//! this is the read-and-adjust surface the org settings' Crew section is built
-//! on. Every route is org-scoped under `OrgAdmin`; deciding an app's audience
+//! Enrolment, standing and kiosks live in the `oxy-api-frontline` sibling crate
+//! (`frontline` and `frontline_devices`), which also MOUNTS these handlers — one
+//! path pairs `list_workers` with its `enrol`. This is the read-and-adjust
+//! surface the org settings' Crew section is built on. Every route is
+//! org-scoped under `OrgAdmin`; deciding an app's audience
 //! is additionally `AppAccessManage` (`frontline_grants::may_grant_apps`), the
 //! same ring the access settings enforce, so this door is not a way around
 //! that one.

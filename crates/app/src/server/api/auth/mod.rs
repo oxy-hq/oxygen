@@ -28,10 +28,11 @@ pub(crate) use dev_login::{
 };
 pub use handlers::*;
 pub(crate) use ops::clear_session_cookie;
-pub(crate) use ops::validate_return_to_url;
+pub use ops::validate_return_to_url;
 // `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
 pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};
 
 // The kiosk probe (`frontline_devices::device_status`) reports whose session
-// a request's cookie carries, decoded without re-minting it.
-pub(crate) use cookie_session::session_cookie_user_id;
+// a request's cookie carries, decoded without re-minting it. `pub`: that probe
+// lives in the extracted `oxy-api-frontline` surface.
+pub use cookie_session::session_cookie_user_id;

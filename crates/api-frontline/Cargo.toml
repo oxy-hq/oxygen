@@ -1,0 +1,62 @@
+[package]
+name = "oxy-api-frontline"
+version.workspace = true
+authors.workspace = true
+# NOTE: oxy-app does not depend on this crate, but its route-catalog build
+# script watches this tree, so editing it still triggers an oxy-app rebuild.
+# See crates/app/build_route_catalog.rs (DOC_DIRS / SOURCE_DIRS).
+description = "Frontline HTTP surface (PIN sign-in, kiosk binding, worker enrolment) — a sibling crate mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# What this surface still reaches into oxy-app for: the OrgAdmin role guard and
+# the org middlewares, the session-cookie + token helpers in `api::auth`, the
+# operating-graph assignment helpers, the app-grant rules in `frontline_grants`
+# (shared with `frontline_admin`, which stays in oxy-app), the org_teams access
+# audit, and the custom-app access-cache invalidator. oxy-app never depends back
+# on this crate. default-features off so a `--no-default-features` build of
+# oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }  # AppState (router state) + the audit writer
+oxy = { workspace = true }           # database client
+oxy-auth = { workspace = true }      # AuthenticatedUserExtractor + the PIN primitives
+oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl
+entity = { workspace = true }
+
+axum = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_urlencoded = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+urlencoding = { workspace = true }
+uuid = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+futures = { workspace = true }
+# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# from crates/app/tests/common), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply.
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+agentic-runtime = { workspace = true }
+agentic-pipeline = { workspace = true }
+oxy-cameras = { workspace = true }
+tempfile = { workspace = true }
+url = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }

@@ -22,10 +22,8 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
 use uuid::Uuid;
 
 use crate::common::test_db;
-use oxy_app::server::api::frontline::{RosterQuery, roster};
-use oxy_app::server::api::frontline_devices::{
-    KIOSK_COOKIE_NAME, NewDevice, bind_with_token, create,
-};
+use oxy_api_frontline::frontline::{RosterQuery, roster};
+use oxy_api_frontline::frontline_devices::{KIOSK_COOKIE_NAME, NewDevice, bind_with_token, create};
 
 /// The picker's own cap, and the reason the fixture is 205 names wide.
 const ROSTER_LIMIT: usize = 200;

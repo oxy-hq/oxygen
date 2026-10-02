@@ -1,5 +1,5 @@
 //! Getting a browser out of kiosk mode, and warning before one goes in —
-//! `server::api::frontline_kiosk_mode`, against a real database.
+//! `oxy_api_frontline::frontline_kiosk_mode`, against a real database.
 //!
 //! Two promises. **Leaving** revokes exactly the kiosk the request's own cookie
 //! names, and only when that kiosk is the org the route is for: no cookie,
@@ -21,11 +21,11 @@ use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait, Mo
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
-use oxy_app::server::api::frontline_devices::{
+use oxy_api_frontline::frontline_devices::{
     BindQuery, DeviceError, KIOSK_COOKIE_NAME, NewDevice, bind_page, bind_with_token, bound_device,
     create, peek_token,
 };
-use oxy_app::server::api::frontline_kiosk_mode::leave;
+use oxy_api_frontline::frontline_kiosk_mode::leave;
 
 pub(crate) async fn seed_org(db: &DatabaseConnection) -> Uuid {
     let org = Uuid::new_v4();

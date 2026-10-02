@@ -17,7 +17,7 @@
 use axum::body::to_bytes;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use oxy_app::server::api::frontline_devices::{NewDevice, bind_submit, create, device_status};
+use oxy_api_frontline::frontline_devices::{NewDevice, bind_submit, create, device_status};
 
 use crate::frontline_kiosk_leave_route::break_kiosk_lookups;
 use crate::frontline_kiosk_mode::{bound_kiosk, cookies, kiosk_cookie, seed_org, wired_db};

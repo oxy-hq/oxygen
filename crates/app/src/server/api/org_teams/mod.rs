@@ -24,7 +24,9 @@
 //! `admin::apps::access` and `partner_console::app_access`.
 
 pub mod app_access;
-pub(crate) mod audit;
+// `pub` for the extracted `oxy-api-frontline` crate: enrolling a worker with
+// app grants records the same `app.access_changed` event these routes do.
+pub mod audit;
 pub mod dto;
 pub mod handlers;
 pub mod service;

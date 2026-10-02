@@ -86,10 +86,7 @@ async fn no_simulation_route_fails_on_its_own_extractors() {
             std::path::PathBuf::new(),
             tokio_util::sync::CancellationToken::new(),
             false,
-            axum::Router::new(),
-            Vec::new(),
-            axum::Router::new(),
-            Vec::new(),
+            oxy_app::server::router::SurfaceSeams::empty(),
         )
         .await
         .expect("build router");

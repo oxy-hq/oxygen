@@ -1,0 +1,73 @@
+//! The seams through which the composition root (`oxy-server`) hands extracted
+//! surface crates to [`api_router`](super::api_router) and
+//! [`internal_api_router`](super::internal_api_router).
+//!
+//! Each seam is a router plus what its routes declare about pod placement. They
+//! are carried by NAME rather than as positional `(Router, Vec<RouteRoleDecl>)`
+//! pairs because the three pairs share one type: swapping two of them compiled,
+//! and would have put PIN sign-in behind auth or mounted org-admin routes
+//! outside it. Which side of the auth stack a route lands on is the field it is
+//! assigned to, so that decision is spelled out at every construction site.
+
+use axum::Router;
+use oxy_shared::fleet_role::RouteRoleDecl;
+
+use super::AppState;
+
+/// One surface seam: routes and their placement declarations, which travel
+/// together. A route without a declaration takes the FleetOk default.
+#[derive(Clone)]
+pub struct SurfaceSeam {
+    /// The surface's routes, relative to the tree the seam merges into.
+    pub routes: Router<AppState>,
+    /// Pod-placement declarations for `routes`, relative to the same tree (the
+    /// router adds the `/api` prefix). Most surfaces are Postgres-only and the
+    /// FleetOk default is the truth; a route that touches node-local disk must
+    /// declare it here or it is served on the stateless fleet.
+    pub decls: Vec<RouteRoleDecl>,
+}
+
+impl SurfaceSeam {
+    /// A seam that mounts nothing: what every non-`serve` command, and every
+    /// test that builds a router without extracted surfaces, passes.
+    pub fn empty() -> Self {
+        Self {
+            routes: Router::new(),
+            decls: Vec::new(),
+        }
+    }
+}
+
+impl Default for SurfaceSeam {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Every surface seam, by where it sits relative to the auth stack.
+#[derive(Clone, Default)]
+pub struct SurfaceSeams {
+    /// AUTHENTICATED. Merged into the protected tree before `apply_middleware`
+    /// (cloud mode), so these routes inherit the standard auth stack (auth /
+    /// api-key / timeout / publish-token-scope); on the internal port they sit
+    /// behind internal auth. A surface still re-applies its own inner
+    /// middleware (e.g. org_middleware + subscription_guard). Cloud-only:
+    /// local mode never mounts the org/global tree and drops this seam.
+    pub api: SurfaceSeam,
+    /// AUTHENTICATED, workspace-scoped. Merged INSIDE the `/{workspace_id}`
+    /// nest, so these routes inherit the auth stack plus the workspace
+    /// middleware.
+    pub workspace: SurfaceSeam,
+    /// UNAUTHENTICATED. Merged beside `build_public_routes`, outside the auth
+    /// stack, in every serve mode and on the internal port. Only routes that
+    /// must be reachable without a session belong here — frontline PIN sign-in
+    /// is how a worker gets a session at all.
+    pub public: SurfaceSeam,
+}
+
+impl SurfaceSeams {
+    /// No extracted surfaces at all.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+}

@@ -28,15 +28,15 @@
 //! **signing in has to survive the ide restarting**. Pinning login to the
 //! singleton would mean a deploy locks every store out of its own checklists.
 
-use crate::server::api::middlewares::role_guards::OrgAdmin;
-use crate::server::api::operating_graph::assignments;
-use crate::server::api::operating_graph::dto::AssignmentSpec;
 use axum::extract::{Path, Query};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Json, http::header};
 use entity::{org_frontline_members, org_role_members, organizations, user_credentials, users};
 use oxy::database::client::establish_connection;
+use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::server::api::operating_graph::assignments;
+use oxy_app::server::api::operating_graph::dto::AssignmentSpec;
 use oxy_app_core::audit;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy, PinVerdict};
@@ -633,12 +633,14 @@ fn shift_session_headers(token: &str, req_headers: &HeaderMap) -> HeaderMap {
     // enforced by the JWT `exp`, so the browser kept a dead cookie for the rest
     // of that window — the morning after a shift the kiosk looked signed in and
     // 401'd on every call instead of showing the name picker.
-    let secure = super::auth::is_request_secure(req_headers);
-    if let Ok(v) = header::HeaderValue::from_str(&super::auth::build_session_cookie_with_max_age(
-        token,
-        secure,
-        SHIFT_HOURS * 3600,
-    )) {
+    let secure = oxy_app::server::api::auth::is_request_secure(req_headers);
+    if let Ok(v) = header::HeaderValue::from_str(
+        &oxy_app::server::api::auth::build_session_cookie_with_max_age(
+            token,
+            secure,
+            SHIFT_HOURS * 3600,
+        ),
+    ) {
         out.insert(header::SET_COOKIE, v);
     }
     out
@@ -758,13 +760,15 @@ pub async fn login(req_headers: HeaderMap, body: Json<LoginRequest>) -> impl Int
     };
     let name = user.name.clone();
 
-    let token =
-        match super::auth::create_auth_token_with_ttl(user, chrono::Duration::hours(SHIFT_HOURS))
-            .await
-        {
-            Ok(t) => t,
-            Err(status) => return refuse(status),
-        };
+    let token = match oxy_app::server::api::auth::create_auth_token_with_ttl(
+        user,
+        chrono::Duration::hours(SHIFT_HOURS),
+    )
+    .await
+    {
+        Ok(t) => t,
+        Err(status) => return refuse(status),
+    };
 
     info!(%user_id, org_id = %org.id, device = %device.id, "frontline session opened");
     super::frontline_devices::touch(&db, device.id).await;
@@ -803,8 +807,11 @@ mod tests {
     /// kiosk looks signed in and 401s on every call.
     #[test]
     fn the_session_cookie_expires_with_the_shift() {
-        let cookie =
-            super::super::auth::build_session_cookie_with_max_age("tok", true, SHIFT_HOURS * 3600);
+        let cookie = oxy_app::server::api::auth::build_session_cookie_with_max_age(
+            "tok",
+            true,
+            SHIFT_HOURS * 3600,
+        );
         assert!(
             cookie.contains(&format!("Max-Age={}", SHIFT_HOURS * 3600)),
             "cookie outlives the token: {cookie}"
@@ -818,7 +825,8 @@ mod tests {
     /// browser silently dropped the cookie.
     #[test]
     fn an_insecure_request_gets_a_cookie_the_browser_will_keep() {
-        let cookie = super::super::auth::build_session_cookie_with_max_age("tok", false, 3600);
+        let cookie =
+            oxy_app::server::api::auth::build_session_cookie_with_max_age("tok", false, 3600);
         assert!(
             !cookie.contains("Secure"),
             "a plain-http kiosk would discard this: {cookie}"
@@ -1212,9 +1220,9 @@ pub async fn enrol(
     // enforce — and `OrgAdmin` is not that ring, so a request that grants is
     // held to it here; then an id that is not this org's refuses the whole
     // request.
-    let apps = super::frontline_grants::normalize_app_ids(req.apps);
+    let apps = oxy_app::server::api::frontline_grants::normalize_app_ids(req.apps);
     if !apps.is_empty()
-        && !super::frontline_grants::may_grant_apps(
+        && !oxy_app::server::api::frontline_grants::may_grant_apps(
             &db,
             actor.id,
             actor.email.as_deref().unwrap_or(""),
@@ -1230,14 +1238,16 @@ pub async fn enrol(
         )
             .into_response();
     }
-    if let Err(e) = super::frontline_grants::validate_apps_in_org(&db, org_id, &apps).await {
+    if let Err(e) =
+        oxy_app::server::api::frontline_grants::validate_apps_in_org(&db, org_id, &apps).await
+    {
         return match e {
-            super::frontline_grants::GrantError::NotThisOrg(_) => (
+            oxy_app::server::api::frontline_grants::GrantError::NotThisOrg(_) => (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({ "error": e.to_string() })),
             )
                 .into_response(),
-            super::frontline_grants::GrantError::Db(err) => {
+            oxy_app::server::api::frontline_grants::GrantError::Db(err) => {
                 error!(%org_id, "frontline enrolment: app lookup failed: {err}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -1277,7 +1287,7 @@ pub async fn enrol(
             // above, so the only way this fails is the database — and then the
             // worker exists without their apps, which the response must say
             // rather than report a clean 201.
-            let granted = match super::frontline_grants::grant_apps_to_worker(
+            let granted = match oxy_app::server::api::frontline_grants::grant_apps_to_worker(
                 &db,
                 org_id,
                 user_id,
@@ -1304,11 +1314,11 @@ pub async fn enrol(
             // access settings file, one per app, so this door is not the one
             // way to reach an app that leaves no trail.
             for app in &granted {
-                super::org_teams::audit::record(
+                oxy_app::server::api::org_teams::audit::record(
                     &db,
                     &ctx,
                     &actor,
-                    super::org_teams::audit::APP_ACCESS_CHANGED,
+                    oxy_app::server::api::org_teams::audit::APP_ACCESS_CHANGED,
                     (
                         "app",
                         app.id,
@@ -1461,7 +1471,7 @@ pub async fn set_standing(
                 // the app shell and every function invoke; a suspension that
                 // left that entry warm would keep the kiosk working until it
                 // expired. Same call every grant-changing route makes.
-                crate::server::api::custom_apps_auth::invalidate_access_cache();
+                oxy_app::server::api::custom_apps_auth::invalidate_access_cache();
                 let action = if req.active {
                     "frontline.worker.reinstated"
                 } else {

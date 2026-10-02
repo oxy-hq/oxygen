@@ -88,6 +88,7 @@ web-app/src/pages/login/                           @luong-komorebi @NTtanh
 # seam. Mars backs up: org membership/invites and cross-pod live delivery
 # (#2823) are the adjacent surfaces.
 crates/app/src/server/api/frontline*.rs            @luong-komorebi @NTtanh
+crates/api-frontline/                              @luong-komorebi @NTtanh
 crates/app/src/server/api/work/                    @luong-komorebi @NTtanh
 crates/app/src/server/api/chat/                    @luong-komorebi @NTtanh
 crates/app/src/server/api/notifications/           @luong-komorebi @NTtanh

@@ -17,7 +17,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::common::{Schema, fresh_db};
-use oxy_app::server::api::frontline_devices::{
+use oxy_api_frontline::frontline_devices::{
     DEFAULT_IDLE_TIMEOUT_SECONDS, DeviceError, DeviceUpdate, KIOSK_COOKIE_NAME, NewDevice,
     bind_with_token, bound_device, create, reissue_link, revoke, update,
 };

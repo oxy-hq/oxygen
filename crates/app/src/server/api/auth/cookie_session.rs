@@ -21,7 +21,7 @@ use super::dto::Claims;
 /// The cookie alone. An `Authorization` header is ignored on purpose: the web
 /// app attaches its stored bearer token to every call, and the question this
 /// answers is whether the *cookie* still backs that token.
-pub(crate) fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
+pub fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
     let jwt = oxy_auth::built_in::extract_session_cookie(headers)?;
     decode::<Claims>(
         &jwt,

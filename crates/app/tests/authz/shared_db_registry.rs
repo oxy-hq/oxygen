@@ -19,12 +19,20 @@
 //! laptop run stays green and only CI — which does set it — would ever surface
 //! the race, as a flake, somewhere unrelated. That is worth a build gate.
 //!
+//! The scan also reaches past `oxy-app`. An extracted surface crate
+//! (`oxy-api-frontline` first, `oxy-api-documents` next) keeps using this crate's
+//! DB harness by `#[path]`-including `app/tests/common` into its one
+//! `tests/integration` group, and its DB-backed modules carry exactly the race
+//! described above. So every crate whose integration group includes the harness
+//! is scanned too, and is held to the same rule against its own package's
+//! `serial-db` override.
+//!
 //! Checked in both directions on purpose. A module that starts using the shared
 //! connection has to be added (or ported to `common::fresh_db`); a module that
 //! stops using it has to be removed, so the list can't quietly accrete names and
 //! serialize tests that no longer need it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 /// Repo root — `CARGO_MANIFEST_DIR` is `crates/app`.
@@ -34,6 +42,23 @@ fn repo_root() -> PathBuf {
         .canonicalize()
         .expect("resolve repo root")
 }
+
+/// The `crates/` root — `CARGO_MANIFEST_DIR` is `crates/app`, the same anchor
+/// `authz_boundaries` resolves its workspace-wide scan from.
+fn crates_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates/app has a parent")
+        .to_path_buf()
+}
+
+/// `oxy-app`'s package name — the key its own binaries are filed under.
+const APP_PACKAGE: &str = "oxy-app";
+
+/// What a sibling's integration group names to `#[path]`-include this crate's
+/// harness. A crate that includes it shares the harness's databases, so it is
+/// scanned; a crate with its own harness is not this registry's business.
+const SHARED_HARNESS: &str = "app/tests/common";
 
 /// **Every** `oxy-app` *grouped* integration binary. Not a curated subset.
 ///
@@ -77,39 +102,137 @@ const MIXED_BINARIES: &[&str] = &[
 /// re-exported path.
 const DB_ENTRY_POINTS: &[&str] = &["establish_connection", "api_router("];
 
-/// Modules that reach the *shared* database, discovered from source.
+/// Every directory the registry scans, keyed by the package whose nextest
+/// overrides must pin what it finds: `oxy-app`'s grouped binaries, plus each
+/// sibling crate's `tests/integration` group that includes [`SHARED_HARNESS`].
+fn scanned_dirs() -> BTreeMap<String, Vec<PathBuf>> {
+    let tests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut dirs = BTreeMap::new();
+    dirs.insert(
+        APP_PACKAGE.to_string(),
+        MIXED_BINARIES.iter().map(|b| tests_dir.join(b)).collect(),
+    );
+    for (package, dir) in harness_sharing_siblings() {
+        dirs.entry(package).or_insert_with(Vec::new).push(dir);
+    }
+    dirs
+}
+
+/// `(package, tests/integration dir)` for every crate under `crates/` — nested
+/// ones like `crates/agentic/*` included — whose integration group includes
+/// [`SHARED_HARNESS`]. Generic on purpose: no crate is named here, so the next
+/// extraction that reuses the harness is covered the day it lands.
+fn harness_sharing_siblings() -> Vec<(String, PathBuf)> {
+    let mut crate_dirs = Vec::new();
+    find_crate_dirs(&crates_root(), 0, &mut crate_dirs);
+    let app_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    crate_dirs
+        .into_iter()
+        .filter(|dir| dir.canonicalize().ok() != app_dir.canonicalize().ok())
+        .filter_map(|dir| {
+            let group = dir.join("tests").join("integration");
+            includes_shared_harness(&group).then(|| (package_name(&dir), group))
+        })
+        .collect()
+}
+
+/// Directories holding a `Cargo.toml`, at most three levels below `crates/`.
+fn find_crate_dirs(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if dir.join("Cargo.toml").is_file() {
+        out.push(dir.to_path_buf());
+    }
+    if depth == 3 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for path in entries.filter_map(Result::ok).map(|e| e.path()) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let skipped =
+            name.starts_with('.') || matches!(name, "target" | "node_modules" | "src" | "tests");
+        if path.is_dir() && !skipped {
+            find_crate_dirs(&path, depth + 1, out);
+        }
+    }
+}
+
+/// True when any source file directly in `group` names [`SHARED_HARNESS`].
+fn includes_shared_harness(group: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(group) else {
+        return false;
+    };
+    entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+        .any(|p| {
+            std::fs::read_to_string(&p)
+                .map(|src| src.contains(SHARED_HARNESS))
+                .unwrap_or(false)
+        })
+}
+
+/// The `[package] name` of the crate at `dir`.
+fn package_name(dir: &Path) -> String {
+    let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("read Cargo.toml");
+    manifest
+        .split("[package]")
+        .nth(1)
+        .and_then(|section| {
+            section
+                .lines()
+                .take_while(|line| !line.trim_start().starts_with('['))
+                .find_map(|line| {
+                    let (key, value) = line.split_once('=')?;
+                    (key.trim() == "name").then(|| value.trim().trim_matches('"').to_string())
+                })
+        })
+        .unwrap_or_else(|| panic!("no [package] name in {}", dir.display()))
+}
+
+/// Modules that reach the *shared* database, discovered from source, keyed by
+/// package. Every scanned package gets an entry, even an empty one, so the
+/// comparison below runs for each.
 ///
 /// Skips lines that are entirely a comment: `org_invitations.rs` documents
 /// `establish_connection`'s memoization in a doc comment, and a gate that counts
 /// prose is a gate that passes for the wrong reason.
-fn modules_using_shared_db() -> BTreeSet<String> {
-    let tests_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests");
-    let mut found = BTreeSet::new();
+fn modules_using_shared_db() -> BTreeMap<String, BTreeSet<String>> {
+    scanned_dirs()
+        .into_iter()
+        .map(|(package, dirs)| {
+            let mut found = BTreeSet::new();
+            for dir in dirs {
+                scan_group(&dir, &mut found);
+            }
+            (package, found)
+        })
+        .collect()
+}
 
-    for binary in MIXED_BINARIES {
-        let dir = tests_dir.join(binary);
-        for entry in std::fs::read_dir(&dir).expect("read test group dir") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                continue;
-            }
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .expect("file stem")
-                .to_string();
-            // This file names the function it looks for, in the scanning code
-            // and in its own failure messages, so it matches itself. It opens no
-            // database. (Found the honest way: the gate failed on first run.)
-            if stem == "main" || stem == "shared_db_registry" {
-                continue;
-            }
-            if uses_shared_db(&path) {
-                found.insert(stem);
-            }
+/// Adds every module in one test group that reaches the shared database.
+fn scan_group(dir: &Path, found: &mut BTreeSet<String>) {
+    for entry in std::fs::read_dir(dir).expect("read test group dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .expect("file stem")
+            .to_string();
+        // This file names the function it looks for, in the scanning code
+        // and in its own failure messages, so it matches itself. It opens no
+        // database. (Found the honest way: the gate failed on first run.)
+        if stem == "main" || stem == "shared_db_registry" {
+            continue;
+        }
+        if uses_shared_db(&path) {
+            found.insert(stem);
         }
     }
-    found
 }
 
 /// True when a module reaches a database from real code.
@@ -152,8 +275,12 @@ fn positive_alternation(block: &str) -> Option<&str> {
     })
 }
 
-/// Modules pinned into `serial-db` by the oxy-app override in nextest's config.
-fn modules_pinned_serial() -> BTreeSet<String> {
+/// Modules pinned into `serial-db` by `package`'s override in nextest's config.
+///
+/// `oxy-app` must have one — its absence means the serialization was dropped.
+/// A sibling crate starts with none, which is correct while none of its modules
+/// reach the shared database; the first that does has to add one.
+fn modules_pinned_serial(package: &str) -> BTreeSet<String> {
     let config = repo_root().join(".config/nextest.toml");
     let src = std::fs::read_to_string(&config).expect("read .config/nextest.toml");
 
@@ -166,10 +293,14 @@ fn modules_pinned_serial() -> BTreeSet<String> {
     // whole-file `find` then picked the *first* alternation — which is the
     // `db-per-test` override's NEGATED exclusion list, a different set entirely.
     // Splitting on the block header gets both properties without either bug.
+    let package_filter = format!("package(={package})");
     let block = src
         .split("[[profile.default.overrides]]")
-        .find(|b| b.contains("package(=oxy-app)") && positive_alternation(b).is_some())
-        .unwrap_or_else(|| {
+        .find(|b| b.contains(&package_filter) && positive_alternation(b).is_some());
+    let block = match block {
+        Some(block) => block,
+        None if package != APP_PACKAGE => return BTreeSet::new(),
+        None => {
             panic!(
                 "no oxy-app module-list override found in {}. If the shared-DB \
                  tests were ported to `common::fresh_db`, delete this test with \
@@ -177,7 +308,8 @@ fn modules_pinned_serial() -> BTreeSet<String> {
                  back.",
                 config.display()
             )
-        });
+        }
+    };
 
     let alternation = positive_alternation(block).expect("checked above");
     alternation
@@ -189,14 +321,18 @@ fn modules_pinned_serial() -> BTreeSet<String> {
 
 #[test]
 fn shared_db_tests_are_pinned_to_the_serial_group() {
-    let using = modules_using_shared_db();
-    let pinned = modules_pinned_serial();
+    for (package, using) in modules_using_shared_db() {
+        assert_pinned_both_ways(&package, &using, &modules_pinned_serial(&package));
+    }
+}
 
-    let unpinned: Vec<_> = using.difference(&pinned).cloned().collect();
+/// The two-direction comparison for one package.
+fn assert_pinned_both_ways(package: &str, using: &BTreeSet<String>, pinned: &BTreeSet<String>) {
+    let unpinned: Vec<_> = using.difference(pinned).cloned().collect();
     assert!(
         unpinned.is_empty(),
-        "these modules reach the shared database (via establish_connection or \
-         api_router) but are NOT in the serial-db override in \
+        "[{package}] these modules reach the shared database (via establish_connection or \
+         api_router) but are NOT in {package}'s serial-db override in \
          .config/nextest.toml: {unpinned:?}\n\
          They will run in parallel against the same `public` schema that the \
          serial-db packages migrate — the CREATE TABLE / pg_type_typname_nsp_index \
@@ -204,10 +340,10 @@ fn shared_db_tests_are_pinned_to_the_serial_group() {
          them onto `common::fresh_db()` so they get their own database."
     );
 
-    let stale: Vec<_> = pinned.difference(&using).cloned().collect();
+    let stale: Vec<_> = pinned.difference(using).cloned().collect();
     assert!(
         stale.is_empty(),
-        "these modules are pinned into serial-db in .config/nextest.toml but no \
+        "[{package}] these modules are pinned into serial-db in .config/nextest.toml but no \
          longer reach the shared database (no establish_connection, no \
          api_router): {stale:?}\n\
          Drop them from the override — serializing tests that don't need it is \
@@ -219,11 +355,9 @@ fn shared_db_tests_are_pinned_to_the_serial_group() {
 /// binaries. An empty scan would make it pass vacuously forever.
 #[test]
 fn the_scan_is_not_vacuous() {
-    for binary in MIXED_BINARIES {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join(binary);
-        let count = std::fs::read_dir(&dir)
+    let dirs = scanned_dirs();
+    for dir in dirs.values().flatten() {
+        let count = std::fs::read_dir(dir)
             .expect("read test group dir")
             .filter_map(Result::ok)
             .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("rs"))
@@ -234,8 +368,22 @@ fn the_scan_is_not_vacuous() {
             dir.display()
         );
     }
+
+    // The sibling discovery is the part that can silently find nothing: a
+    // renamed harness path or a broken walk would drop every extracted crate
+    // and still pass. `oxy-api-frontline` includes the harness today, so its
+    // group must be among what was scanned.
+    let frontline = crates_root().join("api-frontline/tests/integration");
     assert!(
-        !modules_using_shared_db().is_empty(),
+        dirs.get("oxy-api-frontline")
+            .is_some_and(|scanned| scanned.contains(&frontline)),
+        "{} includes {SHARED_HARNESS} but was not scanned; sibling discovery \
+         broke. Scanned: {dirs:?}",
+        frontline.display()
+    );
+
+    assert!(
+        dirs.contains_key(APP_PACKAGE) && !modules_using_shared_db()[APP_PACKAGE].is_empty(),
         "found no modules reaching the shared database at all; the detection \
          probably broke rather than the problem disappearing"
     );

@@ -126,6 +126,18 @@ filter = "kind(test) & package(=oxy-api-documents)"
 test-group = "db-per-test"
 retries = 2
 
+# The frontline tests that moved out of oxy-app's `platform` binary with the
+# `oxy-api-frontline` extraction. They `#[path]`-include the same
+# `tests/common/mod.rs` harness (own database per test, cloned from the per-run
+# template), so they keep the group they had. `route_roles` and
+# `frontline_device_guards` open no database (route classification and the
+# role guards, in-process), so they are carved out the way the `platform`
+# override above carves out its modules: run at full parallelism, no retries.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-frontline) & !test(/^(route_roles|frontline_device_guards)::/)"
+test-group = "db-per-test"
+retries = 2
+
 # The `authz`, `slack` and `platform` binaries are mixed, and the difference is
 # not cosmetic: these eleven modules do NOT use `tests/common/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read

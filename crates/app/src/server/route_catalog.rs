@@ -181,6 +181,10 @@ mod tests {
         // and the writes under the org, which `/api/orgs` above also cannot see.
         "/api/documents",
         "/api/orgs/{org_id}/documents",
+        // Both seams of `oxy-api-frontline`: the org-admin routes, and the
+        // PIN sign-in on the public seam.
+        "/api/orgs/{org_id}/frontline",
+        "/api/frontline/",
         "/api/customer-apps",
         "/api/assume",
         "/api/airhouse/",

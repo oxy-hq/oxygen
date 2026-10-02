@@ -51,13 +51,13 @@ use sea_orm::DatabaseConnection;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use super::auth::is_request_secure;
 use super::frontline_devices::{
     BoundDevice, DeviceError, bound_device, json_error, no_store, revoke,
 };
 use super::frontline_kiosk_cookie::clear_kiosk_cookies_on;
-use crate::server::api::middlewares::role_guards::OrgAdmin;
-use crate::server::router::is_allowed_origin;
+use oxy_app::server::api::auth::is_request_secure;
+use oxy_app::server::api::middlewares::role_guards::OrgAdmin;
+use oxy_app::server::router::is_allowed_origin;
 
 /// What leaving kiosk mode did.
 #[derive(Debug)]
@@ -254,7 +254,7 @@ mod tests {
     /// own process.
     #[test]
     fn the_kiosk_admin_destination_passes_the_return_to_allowlist_in_production_shape() {
-        use crate::server::api::auth::validate_return_to_url;
+        use oxy_app::server::api::auth::validate_return_to_url;
         // SAFETY: nextest isolates each test in its own process, and nothing
         // else in this one reads the environment concurrently.
         unsafe {
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn leaving_answers_204_and_clears_both_cookies_it_was_bound_with() {
-        use crate::server::api::frontline_kiosk_cookie::clear_kiosk_cookies;
+        use crate::frontline_kiosk_cookie::clear_kiosk_cookies;
         for secure in [true, false] {
             let resp = left_response(secure);
             assert_eq!(resp.status(), StatusCode::NO_CONTENT);

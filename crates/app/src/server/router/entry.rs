@@ -32,6 +32,7 @@ use super::protected::{
 };
 use super::public::build_public_routes;
 use super::recovery::{StartupPass, spawn_recovery, spawn_shutdown_hook};
+use super::seams::{SurfaceSeam, SurfaceSeams};
 use super::{AppState, build_cors_layer};
 
 /// Builds the main API router (mounted under `/api`) and, alongside it, the
@@ -45,27 +46,31 @@ pub async fn api_router(
     startup_cwd: std::path::PathBuf,
     shutdown_token: CancellationToken,
     disable_inprocess_workers: bool,
-    // Surface routes composed by the caller (the top `oxy-server` crate) and merged
-    // into the protected tree below (cloud mode) BEFORE `apply_middleware`, so each
-    // surface inherits the standard auth stack instead of oxy-app depending on the
-    // surface crate to mount it. A surface still re-applies its own inner middleware
-    // (e.g. github's org routes carry org_middleware + subscription_guard).
-    //
-    // NOTE: these are merged ONLY in the `ServeMode::Cloud` arm — local mode never
-    // mounts the org/global tree, so it drops `extra_api_routes` entirely. Correct
-    // for github (cloud-only); a future local-mode surface needs its own local seam.
-    extra_api_routes: Router<AppState>,
-    // What those surfaces declare about themselves. Most mount Postgres-only
-    // routes and the FleetOk default is the truth; `oxy-api-onboarding` clones a
-    // checkout onto node-local disk, and it is the exception that makes this
-    // parameter necessary.
-    extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    // Workspace-scoped surface routes, merged INSIDE the `/{workspace_id}` nest
-    // (see `build_protected_routes`) so they inherit the workspace middleware.
-    // Same cloud-only caveat as `extra_api_routes`.
-    extra_workspace_routes: Router<AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    // Surface routes composed by the caller (the top `oxy-server` crate), by
+    // which side of the auth stack each lands on — see [`SurfaceSeams`]. The
+    // api seam joins the protected tree BEFORE `apply_middleware` (cloud mode
+    // only: local mode never mounts the org/global tree and drops it); the
+    // workspace seam goes INSIDE the `/{workspace_id}` nest; the public seam
+    // merges beside `build_public_routes` in BOTH modes, with no auth layer.
+    seams: SurfaceSeams,
 ) -> Result<(Router, Router, PreaggCacheCtx), OxyError> {
+    let SurfaceSeams {
+        api:
+            SurfaceSeam {
+                routes: extra_api_routes,
+                decls: extra_api_decls,
+            },
+        workspace:
+            SurfaceSeam {
+                routes: extra_workspace_routes,
+                decls: extra_workspace_decls,
+            },
+        public:
+            SurfaceSeam {
+                routes: extra_public_routes,
+                decls: extra_public_decls,
+            },
+    } = seams;
     let agentic_state = new_agentic_state(shutdown_token, true).await?;
 
     // Layer-1 (per-query) preagg refresh-key cache, shared with every request
@@ -289,8 +294,14 @@ pub async fn api_router(
     // sets a OnceLock: there is exactly one install, and a declaration that
     // misses it is decorative. The public tree's own routes have to be in the
     // vector that install receives.
-    let (public_router, public_decls, _) = build_public_routes(&app_state).into_parts();
+    let (public_router, mut public_decls, _) = build_public_routes(&app_state).into_parts();
+    public_decls.extend(
+        extra_public_decls
+            .iter()
+            .map(|d| (d.method, d.path.to_string(), d.role)),
+    );
     let public_decls = crate::server::role_manifest::api_prefixed(public_decls);
+    let public_router = public_router.merge(extra_public_routes);
 
     let protected_routes = match mode {
         ServeMode::Cloud => {
@@ -413,15 +424,29 @@ pub async fn internal_api_router(
     observability: Option<std::sync::Arc<dyn oxy_observability::ObservabilityStore>>,
     shutdown_token: CancellationToken,
     // The internal API mirrors the main app (see below), so it takes the same
-    // surface seams `api_router` does.
-    extra_api_routes: Router<AppState>,
-    // Taken for signature parity with `api_router` and deliberately unused: the
-    // primary router owns the declaration registry, and installing a second one
-    // from here would race it.
-    _extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    extra_workspace_routes: Router<AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    // surface seams `api_router` does. Their declarations are deliberately
+    // unused except the workspace seam's (which `build_protected_routes`
+    // consumes and this build discards): the primary router owns the
+    // declaration registry, and installing a second one from here would race it.
+    seams: SurfaceSeams,
 ) -> Result<Router, OxyError> {
+    let SurfaceSeams {
+        api:
+            SurfaceSeam {
+                routes: extra_api_routes,
+                decls: _extra_api_decls,
+            },
+        workspace:
+            SurfaceSeam {
+                routes: extra_workspace_routes,
+                decls: extra_workspace_decls,
+            },
+        public:
+            SurfaceSeam {
+                routes: extra_public_routes,
+                decls: _extra_public_decls,
+            },
+    } = seams;
     let app_state = AppState {
         enterprise,
         internal: true,
@@ -464,6 +489,7 @@ pub async fn internal_api_router(
 
     let app_routes = build_public_routes(&app_state)
         .into_router()
+        .merge(extra_public_routes)
         .merge(protected_routes);
 
     Ok(finalize_router(app_routes, app_state))

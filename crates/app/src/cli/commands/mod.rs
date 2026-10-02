@@ -648,17 +648,10 @@ mod panic_hook_tests {
 }
 
 pub async fn cli(
-    // Surface API routes composed by the top `oxy-server` crate and forwarded to
-    // `serve` (the only subcommand that mounts them). Empty for every other command.
-    extra_api_routes: axum::Router<crate::server::router::AppState>,
-    // What those surfaces declare about their own pod placement. A surface that
-    // only reads Postgres declares nothing and takes the FleetOk default;
-    // `oxy-api-onboarding` clones a checkout on disk and must say so.
-    extra_api_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
-    // Workspace-scoped surface routes (merged inside the `/{workspace_id}` nest).
-    // Same forwarding + empty-for-non-serve rule as `extra_api_routes`.
-    extra_workspace_routes: axum::Router<crate::server::router::AppState>,
-    extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    // Surface routes composed by the top `oxy-server` crate, named by where each
+    // seam sits relative to the auth stack, and forwarded to `serve`/`start` (the
+    // only subcommands that mount them). Empty for every other command.
+    seams: crate::server::router::SurfaceSeams,
 ) -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     install_panic_hook();
@@ -938,15 +931,7 @@ pub async fn cli(
             }
         }
         Some(SubCommand::Start(start_args)) => {
-            if let Err(e) = start::start_database_and_server(
-                start_args,
-                extra_api_routes,
-                extra_api_decls,
-                extra_workspace_routes,
-                extra_workspace_decls,
-            )
-            .await
-            {
+            if let Err(e) = start::start_database_and_server(start_args, seams).await {
                 // Returned rather than `exit(1)`-ed: `main` prints the same
                 // message, records it to Sentry, and — the reason this changed —
                 // flushes the platform-telemetry exporters, so the failure that
@@ -955,15 +940,7 @@ pub async fn cli(
             }
         }
         Some(SubCommand::Serve(serve_args)) => {
-            if let Err(e) = start_server_and_web_app(
-                serve_args,
-                extra_api_routes,
-                extra_api_decls,
-                extra_workspace_routes,
-                extra_workspace_decls,
-            )
-            .await
-            {
+            if let Err(e) = start_server_and_web_app(serve_args, seams).await {
                 // Returned rather than `exit(1)`-ed: `main` prints the same
                 // message, records it to Sentry, and — the reason this changed —
                 // flushes the platform-telemetry exporters, so the failure that

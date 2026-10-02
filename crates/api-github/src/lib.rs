@@ -2,7 +2,7 @@
 //!
 //! Extracted from `oxy-app` as a sibling crate so editing it recompiles only
 //! this crate + relinks `oxy-server`, never oxy-app's library. The composition
-//! root (`oxy-server`) mounts [`routes`] through the `extra_api_routes` seam,
+//! root (`oxy-server`) mounts [`routes`] through the `SurfaceSeams::api` seam,
 //! which injects into the protected tree BEFORE `apply_middleware` — so these
 //! routes inherit the standard auth stack (auth / api-key / timeout /
 //! publish-token-scope). Only the org-scoped inner middleware
@@ -57,7 +57,7 @@ fn user_github_routes() -> Router<AppState> {
 }
 
 /// The full GitHub surface, for the composition root to mount via the
-/// `extra_api_routes` seam.
+/// `SurfaceSeams::api` seam.
 ///
 /// `org_middleware` must run before `subscription_guard` (the guard reads the
 /// `OrgContext` the middleware inserts). axum applies the last-declared `.layer`

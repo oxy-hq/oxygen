@@ -43,10 +43,7 @@ async fn missing_cookie_returns_401() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        axum::Router::new(),
-        Vec::new(),
-        axum::Router::new(),
-        Vec::new(),
+        oxy_app::server::router::SurfaceSeams::empty(),
     )
     .await
     .expect("router built");
@@ -80,10 +77,7 @@ async fn empty_body_with_no_cookie_returns_401() {
         std::path::PathBuf::new(),
         tokio_util::sync::CancellationToken::new(),
         false,
-        axum::Router::new(),
-        Vec::new(),
-        axum::Router::new(),
-        Vec::new(),
+        oxy_app::server::router::SurfaceSeams::empty(),
     )
     .await
     .expect("router built");

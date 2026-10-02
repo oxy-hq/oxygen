@@ -27,7 +27,7 @@ use axum::routing::{get, post};
 
 use crate::api::{auth, billing, healthcheck, user, webhooks};
 use crate::server::api::admin::apps::handlers::{get_build_config, get_org_for_project};
-use crate::server::api::{custom_apps_debug, frontline, frontline_devices, projects};
+use crate::server::api::{custom_apps_debug, projects};
 
 use super::AppState;
 use super::role_router::RoleRouter;
@@ -53,24 +53,11 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet("/auth/github", post(auth::github_auth))
         .route_fleet("/auth/okta", post(auth::okta_auth))
         .route_fleet("/auth/magic-link/request", post(auth::request_magic_link))
-        // Frontline sign-in. Public because a worker has nothing to
-        // authenticate with until they have signed in; `route_fleet` because
-        // both handlers read and write only Postgres — and because signing in
-        // has to survive the ide restarting. Pinning login to the singleton
-        // would mean a deploy locks every store out of its own checklists.
-        .route_fleet("/frontline/roster", get(frontline::roster))
-        .route_fleet("/frontline/login", post(frontline::login))
-        // The kiosk binding both of those require. `device` tells the login
-        // page whether it is on an enrolled kiosk; `devices/bind` is the
-        // one-time enrol link an admin opens on the tablet — GET shows a
-        // confirm page, POST binds, because the link travels through things
-        // that unfurl URLs. Public for the same reason as login: the tablet
-        // has nothing else to present.
-        .route_fleet("/frontline/device", get(frontline_devices::device_status))
-        .route_fleet(
-            "/frontline/devices/bind",
-            get(frontline_devices::bind_page).post(frontline_devices::bind_submit),
-        )
+        // Frontline sign-in and the kiosk binding (`/frontline/{roster,login,
+        // device,devices/bind}`) moved to the `oxy-api-frontline` sibling crate.
+        // `oxy-server` merges them beside this tree through the public seam
+        // (`SurfaceSeams::public`), outside the auth stack exactly as they were
+        // here, and declares them FleetOk in `oxy_api_frontline::public_route_roles`.
         .route_fleet("/auth/magic-link/verify", post(auth::verify_magic_link))
         .route_fleet("/auth/return-to/validate", get(auth::validate_return_to))
         // Dev-only sign-in bypass. Public by necessity (it IS the login), but
