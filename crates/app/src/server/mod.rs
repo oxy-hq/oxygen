@@ -36,6 +36,7 @@ pub mod runtime_artifact;
 pub mod serve_safety;
 pub mod service;
 pub mod simulation;
+pub(crate) mod task_router_listener;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod worker_health;

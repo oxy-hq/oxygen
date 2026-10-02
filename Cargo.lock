@@ -9906,7 +9906,6 @@ name = "oxy-platform"
 version = "0.5.154"
 dependencies = [
  "aes-gcm",
- "agentic-runtime",
  "aws-config",
  "aws-credential-types",
  "aws-sigv4",

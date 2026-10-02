@@ -515,13 +515,14 @@ async fn new_agentic_state(
     // factory closure; no separate refresh loop needed (the listener
     // holds one connection at a time and Postgres doesn't re-auth
     // mid-stream).
-    let factory = oxy::database::client::listener_factory_from_env()
+    let factory = crate::server::task_router_listener::listener_factory_from_env()
         .map_err(|e| OxyError::RuntimeError(format!("listener factory: {e}")))?;
     // Match the connection pool's TLS strictness (OXY_DATABASE_SSL_MODE) so
     // the listener's handshake succeeds where the pool's does — RDS and
     // CloudNativePG CAs aren't in the Mozilla bundle.
-    let tls_verification = oxy::database::client::listener_tls_verification_from_env()
-        .map_err(|e| OxyError::RuntimeError(format!("listener tls mode: {e}")))?;
+    let tls_verification =
+        crate::server::task_router_listener::listener_tls_verification_from_env()
+            .map_err(|e| OxyError::RuntimeError(format!("listener tls mode: {e}")))?;
     // Chat's cross-replica delivery listener rides the SAME factory and TLS
     // posture. Two people in one channel are routinely on different replicas,
     // so an in-process bus would deliver a message to whoever happened to hit

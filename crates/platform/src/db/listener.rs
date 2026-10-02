@@ -1,5 +1,5 @@
-//! `ListenerConfigFactory` for the agentic task router's dedicated
-//! LISTEN connection.
+//! Connection factory for the agentic task router's dedicated LISTEN
+//! connection.
 //!
 //! Two implementations, selected by the same `OXY_DATABASE_AUTH_MODE`
 //! that drives the connection pool in [`super::client`]:
@@ -18,6 +18,13 @@
 //! mint. Putting these factories here keeps `agentic-runtime` free of
 //! AWS deps.
 //!
+//! And why it names no `agentic-runtime` type: platform must never import
+//! agentic (`internal-docs/domain-boundaries.md` L2). [`ListenerConnectFactory`]
+//! is structurally the router's `ListenerConfigFactory` — the same `Arc<dyn Fn>`
+//! — so it passes straight in; the TLS posture is returned as this crate's
+//! [`SslMode`] and mapped onto the router's enum by `oxy-app`, the layer that
+//! wires the two together.
+//!
 //! ## What this file does NOT do
 //!
 //! - **No background token refresh.** Unlike the pool (which keeps
@@ -30,44 +37,51 @@
 //!   to the router's reconnect-with-backoff path, which already retries
 //!   200ms → 5s. Re-implementing that here would just busy-loop faster.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
-use agentic_runtime::router::{ListenerConfigFactory, PostgresTaskRouter, TlsVerification};
 use oxy_shared::errors::OxyError;
 use tokio_postgres::config::SslMode as PgSslMode;
 
 use super::auth_mode::{DatabaseAuthMode, IamConfig, SslMode};
 use super::iam::generate_auth_token;
 
-/// Build a [`ListenerConfigFactory`] using the same `OXY_DATABASE_AUTH_MODE`
+/// Mints a fresh `tokio_postgres::Config` per (re)connect. Spelled out rather
+/// than imported so this crate stays agentic-free; it is the same type as
+/// `agentic_runtime::router::ListenerConfigFactory`.
+pub type ListenerConnectFactory = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<tokio_postgres::Config, String>> + Send>>
+        + Send
+        + Sync
+        + 'static,
+>;
+
+/// Build a [`ListenerConnectFactory`] using the same `OXY_DATABASE_AUTH_MODE`
 /// selection that [`super::establish_connection`] honours.
 ///
 /// Returned closure is `Arc`-shared; cheap to clone into the router.
-pub fn listener_factory_from_env() -> Result<ListenerConfigFactory, OxyError> {
+pub fn listener_factory_from_env() -> Result<ListenerConnectFactory, OxyError> {
     match DatabaseAuthMode::from_env()? {
         DatabaseAuthMode::Password => password_factory_from_env(),
         DatabaseAuthMode::Iam => Ok(iam_factory(IamConfig::from_env()?)),
     }
 }
 
-/// Resolve the listener's TLS certificate-verification posture from
-/// `OXY_DATABASE_SSL_MODE`, mapping it onto the router's
-/// [`TlsVerification`].
+/// Resolve the listener's TLS posture from `OXY_DATABASE_SSL_MODE`.
 ///
 /// This is the companion to [`listener_factory_from_env`]: it reads the
 /// *same* env var (and default, `require`) the connection pool uses, so
 /// the router's dedicated LISTEN connection is exactly as strict as the
-/// pool. `require` → [`TlsVerification::RequireNoVerify`] (encrypt, don't
-/// validate the cert — our RDS and CloudNativePG CAs aren't in the
-/// Mozilla bundle); `verify-full` → [`TlsVerification::VerifyFull`].
-pub fn listener_tls_verification_from_env() -> Result<TlsVerification, OxyError> {
-    Ok(match SslMode::from_env()? {
-        SslMode::Require => TlsVerification::RequireNoVerify,
-        SslMode::VerifyFull => TlsVerification::VerifyFull,
-    })
+/// pool. `oxy-app` maps it onto the router's `TlsVerification`:
+/// `require` → encrypt without validating the cert (our RDS and
+/// CloudNativePG CAs aren't in the Mozilla bundle); `verify-full` → full
+/// chain + hostname verification.
+pub fn listener_ssl_mode_from_env() -> Result<SslMode, OxyError> {
+    SslMode::from_env()
 }
 
-fn password_factory_from_env() -> Result<ListenerConfigFactory, OxyError> {
+fn password_factory_from_env() -> Result<ListenerConnectFactory, OxyError> {
     let url = std::env::var("OXY_DATABASE_URL").map_err(|_| {
         OxyError::Database(
             "OXY_DATABASE_URL is required for the task router's listener \
@@ -75,8 +89,13 @@ fn password_factory_from_env() -> Result<ListenerConfigFactory, OxyError> {
                 .to_string(),
         )
     })?;
-    PostgresTaskRouter::password_factory_from_url(&url)
-        .map_err(|e| OxyError::Database(format!("listener factory: {e}")))
+    let config: tokio_postgres::Config = url.parse().map_err(|e: tokio_postgres::Error| {
+        OxyError::Database(format!("listener factory: invalid database url: {e}"))
+    })?;
+    Ok(Arc::new(move || {
+        let config = config.clone();
+        Box::pin(async move { Ok(config) })
+    }))
 }
 
 /// IAM-mode factory.
@@ -91,10 +110,10 @@ fn password_factory_from_env() -> Result<ListenerConfigFactory, OxyError> {
 /// `tokio_postgres::SslMode::Require` at the tokio-postgres layer
 /// (tokio-postgres only decides *whether* to do TLS, not how strictly to
 /// verify). The verification *strictness* is decided separately by the
-/// router's rustls connector via [`listener_tls_verification_from_env`]:
+/// router's rustls connector via [`listener_ssl_mode_from_env`]:
 /// `require` skips certificate validation (matching the pool), and
 /// `verify-full` enforces full chain + SAN/hostname verification.
-fn iam_factory(config: IamConfig) -> ListenerConfigFactory {
+fn iam_factory(config: IamConfig) -> ListenerConnectFactory {
     Arc::new(move || {
         let config = config.clone();
         Box::pin(async move {
@@ -160,24 +179,24 @@ mod tests {
 
     #[test]
     #[serial]
-    fn tls_verification_maps_require_to_no_verify_by_default() {
+    fn ssl_mode_defaults_to_require() {
         clear_env();
-        // Unset OXY_DATABASE_SSL_MODE defaults to `require`, which must
-        // map to the no-verify posture so the listener matches the pool.
-        match listener_tls_verification_from_env() {
-            Ok(v) => assert_eq!(v, TlsVerification::RequireNoVerify),
-            Err(e) => panic!("expected RequireNoVerify, got error: {e}"),
+        // Unset OXY_DATABASE_SSL_MODE defaults to `require`, which oxy-app
+        // maps to the no-verify posture so the listener matches the pool.
+        match listener_ssl_mode_from_env() {
+            Ok(v) => assert_eq!(v, SslMode::Require),
+            Err(e) => panic!("expected Require, got error: {e}"),
         }
         clear_env();
     }
 
     #[test]
     #[serial]
-    fn tls_verification_maps_verify_full() {
+    fn ssl_mode_reads_verify_full() {
         clear_env();
         unsafe { std::env::set_var("OXY_DATABASE_SSL_MODE", "verify-full") };
-        match listener_tls_verification_from_env() {
-            Ok(v) => assert_eq!(v, TlsVerification::VerifyFull),
+        match listener_ssl_mode_from_env() {
+            Ok(v) => assert_eq!(v, SslMode::VerifyFull),
             Err(e) => panic!("expected VerifyFull, got error: {e}"),
         }
         clear_env();
@@ -214,7 +233,7 @@ mod tests {
                 "postgresql://u:p@db.example.com:5432/oxy",
             );
         }
-        // No `.expect(...)` — ListenerConfigFactory has no Debug impl.
+        // No `.expect(...)` — ListenerConnectFactory has no Debug impl.
         let factory = match listener_factory_from_env() {
             Ok(f) => f,
             Err(e) => panic!("expected password factory, got error: {e}"),
@@ -234,7 +253,7 @@ mod tests {
     async fn dispatch_errors_when_password_url_missing() {
         clear_env();
         unsafe { std::env::set_var("OXY_DATABASE_AUTH_MODE", "password") };
-        // ListenerConfigFactory is `Arc<dyn Fn(...) -> _>` which has
+        // ListenerConnectFactory is `Arc<dyn Fn(...) -> _>` which has
         // no Debug impl, so `expect_err` won't work — match on the
         // result manually.
         match listener_factory_from_env() {

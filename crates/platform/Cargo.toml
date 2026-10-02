@@ -20,12 +20,10 @@ oxy-telemetry = { workspace = true }
 # Database
 sea-orm = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres"] }
-# agentic-runtime contributes the ListenerConfigFactory type used by the
-# task-router's dedicated LISTEN connection. The platform crate owns the
-# factory implementations (password + IAM) because it already owns the
-# IAM token mint + the env-var contract — keeping these here avoids
-# inverting the dependency direction.
-agentic-runtime = { workspace = true }
+# The task-router's LISTEN connection factory (password + IAM) lives here
+# because this crate owns the IAM token mint + the env-var contract. It is
+# typed without agentic-runtime: platform never imports agentic
+# (internal-docs/domain-boundaries.md L2).
 tokio-postgres = { workspace = true }
 
 # Encryption

@@ -212,7 +212,7 @@ pub struct PostgresTaskRouterOptions {
     pub keepalive_interval: Duration,
     /// TLS verification posture for the dedicated listener connection.
     /// Production callers derive this from `OXY_DATABASE_SSL_MODE` (see
-    /// `listener_tls_verification_from_env` in the platform crate) so the
+    /// `listener_ssl_mode_from_env` in the platform crate, mapped in `oxy-app`) so the
     /// listener matches the pool. Defaults to [`TlsVerification::VerifyFull`].
     pub tls_verification: TlsVerification,
 }

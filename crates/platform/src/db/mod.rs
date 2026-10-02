@@ -16,7 +16,7 @@ pub(crate) mod iam;
 mod listener;
 mod pool_probe;
 
-pub use auth_mode::{DatabaseAuthMode, IamConfig};
+pub use auth_mode::{DatabaseAuthMode, IamConfig, SslMode};
 pub use client::establish_connection;
 pub use failure::DbFailure;
-pub use listener::{listener_factory_from_env, listener_tls_verification_from_env};
+pub use listener::{ListenerConnectFactory, listener_factory_from_env, listener_ssl_mode_from_env};

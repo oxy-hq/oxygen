@@ -18,13 +18,14 @@
 
 use std::sync::Arc;
 
+use crate::server::task_router_listener::{
+    listener_factory_from_env, listener_tls_verification_from_env,
+};
 use agentic_runtime::background;
 use agentic_runtime::router::{
     DEFAULT_LISTENER_KEEPALIVE_INTERVAL, PostgresTaskRouter, PostgresTaskRouterOptions, TaskRouter,
 };
-use oxy::database::client::{
-    establish_connection, listener_factory_from_env, listener_tls_verification_from_env,
-};
+use oxy::database::client::establish_connection;
 use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 use tokio_util::sync::CancellationToken;
