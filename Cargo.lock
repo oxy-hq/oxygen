@@ -9960,6 +9960,7 @@ version = "0.5.154"
 dependencies = [
  "minijinja",
  "oxy-airlayer-compat",
+ "oxy-shared",
  "regex",
  "schemars 0.8.22",
  "serde",
@@ -10035,7 +10036,6 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "once_cell",
- "oxy-semantic",
  "reqwest 0.13.4",
  "schemars 0.8.22",
  "secrecy",

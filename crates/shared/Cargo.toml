@@ -47,7 +47,6 @@ secrecy = { workspace = true }
 serde_arrow = { workspace = true, features = ["arrow-58"] }
 
 # Semantic model
-oxy-semantic = { workspace = true }
 
 # Docker support
 futures = { workspace = true }
