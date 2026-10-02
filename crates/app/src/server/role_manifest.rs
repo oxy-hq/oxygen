@@ -191,7 +191,7 @@ pub(crate) fn specificity(decl_method: &str, pattern: &str) -> u32 {
         | u32::from(decl_method != "*")
 }
 
-pub(crate) fn pattern_matches(pattern: &str, path: &str) -> bool {
+pub fn pattern_matches(pattern: &str, path: &str) -> bool {
     let mut pat = pattern.trim_start_matches('/').split('/');
     let mut req = path.trim_start_matches('/').split('/');
     loop {

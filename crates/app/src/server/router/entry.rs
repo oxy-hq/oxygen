@@ -70,6 +70,7 @@ pub async fn api_router(
                 routes: extra_public_routes,
                 decls: extra_public_decls,
             },
+        catalog,
     } = seams;
     let agentic_state = new_agentic_state(shutdown_token, true).await?;
 
@@ -329,6 +330,7 @@ pub async fn api_router(
                 agentic_state.clone(),
                 extra_workspace_routes,
                 extra_workspace_decls,
+                catalog,
             );
             // `build_protected_routes` already returned these `/api`-prefixed;
             // a seam's declarations are relative to the same tree, so they need
@@ -350,6 +352,7 @@ pub async fn api_router(
                 agentic_state.clone(),
                 extra_workspace_routes,
                 extra_workspace_decls,
+                catalog,
             );
             decls.extend(public_decls.clone());
             apply_local_middleware(routes, decls)?
@@ -446,6 +449,7 @@ pub async fn internal_api_router(
                 routes: extra_public_routes,
                 decls: _extra_public_decls,
             },
+        catalog,
     } = seams;
     let app_state = AppState {
         enterprise,
@@ -481,6 +485,7 @@ pub async fn internal_api_router(
         agentic_state,
         extra_workspace_routes,
         extra_workspace_decls,
+        catalog,
     );
     let protected_routes = protected_routes
         .merge(extra_api_routes)

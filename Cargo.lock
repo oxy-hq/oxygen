@@ -9955,6 +9955,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-route-catalog"
+version = "0.5.154"
+dependencies = [
+ "axum",
+ "oxy-app",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
 name = "oxy-semantic"
 version = "0.5.154"
 dependencies = [
@@ -9991,6 +10001,7 @@ dependencies = [
  "oxy-app",
  "oxy-app-dylib",
  "oxy-observability",
+ "oxy-route-catalog",
  "oxy-telemetry",
  "rustls 0.23.43",
  "sentry",

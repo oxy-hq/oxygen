@@ -120,12 +120,14 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
         agentic_state.clone(),
         Router::new(),
         Vec::new(),
+        Default::default(),
     );
     let (_, local) = protected::build_local_protected_routes(
         app_state.clone(),
         agentic_state,
         Router::new(),
         Vec::new(),
+        Default::default(),
     );
     // The public tree is served in BOTH modes and now declares its own routes,
     // so the guards have to see it too — otherwise `classify` answers correctly

@@ -89,6 +89,7 @@ web-app/src/pages/login/                           @luong-komorebi @NTtanh
 # (#2823) are the adjacent surfaces.
 crates/app/src/server/api/frontline*.rs            @luong-komorebi @NTtanh
 crates/api-frontline/                              @luong-komorebi @NTtanh
+crates/route-catalog/                              @luong-komorebi @NTtanh
 crates/app/src/server/api/work/                    @luong-komorebi @NTtanh
 crates/app/src/server/api/chat/                    @luong-komorebi @NTtanh
 crates/app/src/server/api/notifications/           @luong-komorebi @NTtanh

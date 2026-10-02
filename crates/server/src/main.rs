@@ -278,6 +278,10 @@ fn main() {
                     routes: oxy_api_frontline::public_routes(),
                     decls: oxy_api_frontline::public_route_roles().to_vec(),
                 },
+                // The route table `/api/_catalog` serves, generated above
+                // oxy-app (see `oxy-route-catalog`). Passed, not global: a
+                // composition that dropped it would serve an empty catalog.
+                catalog: oxy_route_catalog::catalog(),
             };
             let exit_code = match cli(seams).await {
                 Ok(_) => 0,
@@ -335,5 +339,19 @@ mod tests {
     fn the_seams_compose_without_conflict() {
         let _ = api_seam_routes();
         let _ = workspace_seam_routes();
+    }
+
+    /// `oxy-app` serves whatever table it is handed and an empty one is valid
+    /// to it, so the composition root is where "the binary ships the real
+    /// table" is checked.
+    #[test]
+    fn the_binary_ships_the_generated_route_table() {
+        let catalog = oxy_route_catalog::catalog();
+        assert!(
+            catalog.routes.len() > 400,
+            "{} routes",
+            catalog.routes.len()
+        );
+        assert!(catalog.routes.iter().any(|r| r.path == "/api/_catalog"));
     }
 }

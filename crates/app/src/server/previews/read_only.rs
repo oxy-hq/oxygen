@@ -48,7 +48,7 @@ use crate::server::role_manifest::pattern_matches;
 /// route cannot promise that — but because what they execute runs with its
 /// writes held (`super::request_hold`), so serving them shows the branch
 /// without changing anything.
-pub(crate) const ALLOWED: &[(&str, &str)] = &[
+pub const ALLOWED: &[(&str, &str)] = &[
     // Chat. Starting a run is inspected: a Builder Agent run edits files and
     // onboarding writes the workspace (see `analytics_run_refusal`). An
     // analytics run is served on a held platform: its connectors refuse writes
@@ -103,7 +103,7 @@ const SECRETS: &str = "Changing secrets";
 
 /// Mutating routes a preview refuses, with what the refusal says. `"*"` means
 /// any mutating method; reads never reach this table.
-pub(crate) const REFUSED: &[(&str, &str, &str)] = &[
+pub const REFUSED: &[(&str, &str, &str)] = &[
     // Runs.
     ("*", "/agentic-automations/{*rest}", "Running an automation"),
     ("*", "/agentic-workflows/{*rest}", "Running an automation"),

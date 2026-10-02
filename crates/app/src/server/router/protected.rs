@@ -31,6 +31,7 @@ use super::role_router::{Decl, RoleRouter};
 use super::workspace::{
     build_external_workspace_routes, build_workspace_preview_routes, build_workspace_routes,
 };
+use crate::server::route_catalog::RouteCatalog;
 
 pub(super) fn build_protected_routes(
     app_state: AppState,
@@ -47,9 +48,10 @@ pub(super) fn build_protected_routes(
     // replica clone into a workspace it does not own.
     extra_workspace_routes: Router<AppState>,
     extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    catalog: RouteCatalog,
 ) -> (Router<AppState>, Vec<Decl>) {
     let root = RoleRouter::new(app_state.clone())
-        .merge(build_catalog_routes(&app_state))
+        .merge(build_catalog_routes(&app_state, catalog))
         .merge(build_global_routes(&app_state));
     // Beside the workspace tree, not in it: see `build_workspace_preview_routes`.
     let previews = build_workspace_preview_routes(&app_state)
@@ -82,15 +84,18 @@ pub(super) fn build_protected_routes(
 
 /// Route discovery for the `oxyc` CLI: `GET /api/_catalog`.
 ///
-/// ITS OWN BUILDER, and that is not stylistic. `crates/app/build_route_catalog.rs`
+/// ITS OWN BUILDER, and that is not stylistic. `crates/route-catalog/build_route_catalog.rs`
 /// walks a fixed list of SEED functions to generate the route table, and
 /// `build_protected_routes` is not one of them (it composes the global and
 /// workspace trees, which are seeded individually — seeding it too would
 /// double-count every route). A route written inline there is therefore
 /// invisible to the very catalog it serves, so `/api/_catalog` would be the one
 /// endpoint missing from the endpoint list. A named builder can be seeded on
-/// its own, and `catalog::tests::the_catalog_lists_itself` fails if it ever
-/// stops being.
+/// its own, and `oxy-route-catalog`'s `the_catalog_lists_itself` fails if it
+/// ever stops being.
+///
+/// `catalog` is the generated table, handed down from `oxy-server` through
+/// [`SurfaceSeams`](super::SurfaceSeams) and bound into the handler here.
 ///
 /// Merged into BOTH the cloud and local protected routers, because local mode
 /// omits the global tree.
@@ -99,10 +104,10 @@ pub(super) fn build_protected_routes(
 /// the binary — no workspace working copy, no `.git`, no state dir — so any
 /// replica may answer it, and pinning it to the singleton would make the CLI's
 /// discovery depend on the one instance that can be down.
-pub(super) fn build_catalog_routes(app_state: &AppState) -> RoleRouter {
+pub(super) fn build_catalog_routes(app_state: &AppState, catalog: RouteCatalog) -> RoleRouter {
     RoleRouter::new(app_state.clone()).route_fleet(
         "/_catalog",
-        axum::routing::get(crate::api::catalog::get_catalog),
+        axum::routing::get(move |query| crate::api::catalog::get_catalog(catalog, query)),
     )
 }
 
@@ -152,11 +157,12 @@ pub(super) fn build_local_protected_routes(
     // branches — so merge before the local-context layer, exactly as cloud does.
     extra_workspace_routes: Router<AppState>,
     extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
+    catalog: RouteCatalog,
 ) -> (Router<AppState>, Vec<Decl>) {
     // Same discovery surface as cloud. Local mode omits the global tree, so it
     // is merged separately rather than inherited — a CLI that can enumerate
     // production but not a developer's own box is the wrong way round.
-    let root = RoleRouter::new(app_state.clone()).merge(build_catalog_routes(&app_state));
+    let root = RoleRouter::new(app_state.clone()).merge(build_catalog_routes(&app_state, catalog));
     let workspace = build_workspace_routes(app_state.clone(), agentic_state, false, true)
         .merge_declared(extra_workspace_routes, &extra_workspace_decls)
         .map_router(|r| {
@@ -292,6 +298,7 @@ mod tests {
             super::super::test_agentic_state(),
             Router::new(),
             Vec::new(),
+            Default::default(),
         );
 
         let mut ambiguous = Vec::new();
@@ -378,6 +385,7 @@ mod tests {
             super::super::test_agentic_state(),
             Router::new(),
             Vec::new(),
+            Default::default(),
         );
         assert!(decls.len() > 150, "only {} declarations", decls.len());
 

@@ -2,9 +2,9 @@
 name = "oxy-api-partner-console"
 version.workspace = true
 authors.workspace = true
-# NOTE: oxy-app does not depend on this crate, but its route-catalog build
-# script watches this tree, so editing it still triggers an oxy-app rebuild.
-# See crates/app/build_route_catalog.rs (DOC_DIRS / SOURCE_DIRS).
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog was moved above it for exactly that reason.
 description = "Partner self-service HTTP surface (/api/partners) — a sibling crate mounted by oxy-server"
 documentation.workspace = true
 publish.workspace = true

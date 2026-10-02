@@ -1,0 +1,22 @@
+[package]
+name = "oxy-route-catalog"
+version.workspace = true
+authors.workspace = true
+description = "The generated HTTP route table `GET /api/_catalog` serves. Sits above oxy-app and every surface crate, so editing a surface re-runs this build script instead of oxy-app's (internal-docs/domain-boundaries.md S7)"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# The `GeneratedRoute` / `RouteCatalog` types and the handler live in oxy-app;
+# this crate only owns the generated data and the tests that read it.
+oxy-app = { path = "../app", default-features = false }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+axum = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
