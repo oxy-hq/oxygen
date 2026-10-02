@@ -865,20 +865,57 @@ pub(super) fn is_valid_email_format(email: &str) -> bool {
 }
 
 fn is_email_allowed(email: &str, config: &MagicLinkAuth) -> bool {
-    // email is already lowercased at ingestion; normalize config values too so
-    // operators can write "Gmail.com" or "gmail.com" interchangeably.
-    for domain in &config.blocked_domains {
-        if email.ends_with(&format!("@{}", domain.to_lowercase())) {
-            return false;
-        }
-    }
-    if !config.allowed_emails.is_empty() {
-        return config
+    // No domain is refused: an empty allowlist admits every address. email is
+    // already lowercased at ingestion; compare case-insensitively so operators
+    // can list "Crew@Gmail.com" or "crew@gmail.com" interchangeably.
+    config.allowed_emails.is_empty()
+        || config
             .allowed_emails
             .iter()
-            .any(|e| e.eq_ignore_ascii_case(email));
+            .any(|e| e.eq_ignore_ascii_case(email))
+}
+
+#[cfg(test)]
+mod magic_link_eligibility_tests {
+    use super::is_email_allowed;
+    use oxy::config::auth::{Authentication, MagicLinkAuth};
+
+    /// Builds the config the way the server does, from the environment. nextest
+    /// runs each test in its own process, so these writes don't leak.
+    fn config_from_env(vars: &[(&str, &str)]) -> MagicLinkAuth {
+        unsafe {
+            std::env::set_var("MAGIC_LINK_LOCAL_TEST", "true");
+            std::env::remove_var("MAGIC_LINK_BLOCKED_DOMAINS");
+            std::env::remove_var("MAGIC_LINK_ALLOWED_EMAILS");
+            for (key, value) in vars {
+                std::env::set_var(key, value);
+            }
+        }
+        Authentication::from_env()
+            .expect("auth config loads")
+            .magic_link
+            .expect("magic link is configured")
     }
-    true
+
+    #[test]
+    fn a_personal_mailbox_is_eligible_by_default() {
+        let config = config_from_env(&[]);
+        assert!(is_email_allowed("store.manager@gmail.com", &config));
+    }
+
+    #[test]
+    fn a_leftover_domain_block_list_no_longer_refuses_anyone() {
+        let config = config_from_env(&[("MAGIC_LINK_BLOCKED_DOMAINS", "gmail.com, Yahoo.com")]);
+        assert!(is_email_allowed("store.manager@gmail.com", &config));
+        assert!(is_email_allowed("store.manager@yahoo.com", &config));
+    }
+
+    #[test]
+    fn an_allowlist_still_admits_only_the_listed_addresses() {
+        let config = config_from_env(&[("MAGIC_LINK_ALLOWED_EMAILS", "Crew@Gmail.com")]);
+        assert!(is_email_allowed("crew@gmail.com", &config));
+        assert!(!is_email_allowed("someone.else@gmail.com", &config));
+    }
 }
 
 pub(super) async fn request_magic_link_inner(

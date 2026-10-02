@@ -22,10 +22,6 @@ pub struct MagicLinkAuth {
     /// AWS region for SES (defaults to AWS_REGION env var)
     #[garde(skip)]
     pub aws_region: Option<String>,
-    /// Block all emails ending with these domains (e.g. ["gmail.com"])
-    #[garde(skip)]
-    #[serde(default)]
-    pub blocked_domains: Vec<String>,
     /// Allow specific individual emails (for closed beta)
     #[garde(skip)]
     #[serde(default)]
@@ -48,6 +44,19 @@ pub struct OktaAuth {
     pub client_secret: String,
     #[garde(length(min = 1))]
     pub domain: String,
+}
+
+/// `MAGIC_LINK_BLOCKED_DOMAINS` used to refuse whole mailbox providers
+/// (gmail.com and the like). Sign-in no longer filters by domain, so a
+/// deployment still carrying the variable is told it does nothing rather than
+/// left believing the block is in force.
+fn warn_if_domain_block_list_is_set() {
+    if env::var("MAGIC_LINK_BLOCKED_DOMAINS").is_ok_and(|v| !v.trim().is_empty()) {
+        tracing::warn!(
+            "MAGIC_LINK_BLOCKED_DOMAINS is set but no longer honored — magic-link sign-in \
+             does not filter by email domain. Remove it from this deployment's environment."
+        );
+    }
 }
 
 impl Authentication {
@@ -77,17 +86,11 @@ impl Authentication {
         let magic_link_local_test = env::var("MAGIC_LINK_LOCAL_TEST").is_ok();
         let magic_link_from_email = env::var("MAGIC_LINK_FROM_EMAIL").ok();
         let magic_link = if magic_link_local_test || magic_link_from_email.is_some() {
+            warn_if_domain_block_list_is_set();
             Some(MagicLinkAuth {
                 from_email: magic_link_from_email
                     .unwrap_or_else(|| "noreply@localhost".to_string()),
                 aws_region: env::var("MAGIC_LINK_AWS_REGION").ok(),
-                blocked_domains: env::var("MAGIC_LINK_BLOCKED_DOMAINS")
-                    .unwrap_or_default()
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(String::from)
-                    .collect(),
                 allowed_emails: env::var("MAGIC_LINK_ALLOWED_EMAILS")
                     .unwrap_or_default()
                     .split(',')
