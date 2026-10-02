@@ -133,7 +133,7 @@ tools persist into the action cache.
 | `browser_snapshot` | no | Default; LLM calls without prompting. `region: "main"` or `region: "<css>"` for noisy pages. |
 | `browser_click` | yes | Default for clicks; LLM picks without prompting. |
 | `browser_type` | yes | For `<input>` / `<textarea>` with a stable selector. NOT for Monaco. |
-| `browser_press_key` | yes | Single key or chord — `Enter`, `Meta+s`, `Control+Enter`. |
+| `browser_press_key` | yes | Single key or chord — `Enter`, `ControlOrMeta+s`, `Control+Enter`. For a Ctrl/Cmd app keybinding, use `ControlOrMeta+<key>`, not a literal `Meta+<key>` — Linux CI doesn't bind Meta. |
 | `browser_keyboard_type` | yes | Required for Monaco — click `.monaco-editor` to focus, then `browser_keyboard_type`. |
 | `browser_file_upload` | yes | `<input type="file">` (DuckDB onboarding wizard). Paths repo-relative; `..` and absolute paths refused. |
 | `browser_navigate` | yes | Direct URL changes (vs clicking through). |

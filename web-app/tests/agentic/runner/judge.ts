@@ -150,15 +150,23 @@ async function runAssert(
     }
   }
 
-  const saveButtonHidden = /^save button is not visible$/i.test(claim);
-  if (saveButtonHidden) {
-    // Save commit is async; give the React state ~5s to flush after Meta+s.
+  // Save commit is async (network round trip, then a React state flush), and
+  // a cold/loaded CI runner has been observed taking well over 5s — this is
+  // the condition ("file state settled to saved"), not a fixed duration, that
+  // the assert waits on. Optional `;timeout_ms=<n>` suffix mirrors the
+  // `wait_for: selector_hidden:` override syntax for the same reason: a
+  // legitimately-long wait shouldn't need a magic number baked into the regex.
+  const saveButtonHiddenMatch = claim.match(/^save button is not visible(?:;timeout_ms=(\d+))?$/i);
+  if (saveButtonHiddenMatch) {
+    const timeout = saveButtonHiddenMatch[1]
+      ? Number.parseInt(saveButtonHiddenMatch[1], 10)
+      : 20_000;
     const hidden = await page
       .getByTestId("ide-save-button")
-      .waitFor({ state: "hidden", timeout: 5_000 })
+      .waitFor({ state: "hidden", timeout })
       .then(() => true)
       .catch(() => false);
-    return { passed: hidden, evidence: `save button hidden within 5s = ${hidden}` };
+    return { passed: hidden, evidence: `save button hidden within ${timeout}ms = ${hidden}` };
   }
 
   throw new Error(

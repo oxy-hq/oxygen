@@ -182,7 +182,7 @@ Defined in `runner/tool-registry.ts`. Available to the LLM in every step:
 | `browser_snapshot` | Compact a11y-tree text. Always call this first. ≤12kB. Optional `region: "main"` or `region: "<css selector>"` to scope. |
 | `browser_click` | Click by Playwright selector (text=, role=, [data-testid=…]). 5s timeout — wrong selectors fail fast. |
 | `browser_type` | Fill or append into an input/textarea. 5s timeout. |
-| `browser_press_key` | Single key or chord (Enter, Meta+s, …). |
+| `browser_press_key` | Single key or chord (Enter, ControlOrMeta+s, …). For an app keybinding bound to Ctrl/Cmd, use `ControlOrMeta+<key>` (resolves to Control on Linux/Windows CI, Meta on macOS) — a literal `Meta+<key>` sends the physical Meta/Super key and won't match a Monaco `KeyMod.CtrlCmd` binding on Linux. |
 | `browser_keyboard_type` | Type via raw keyboard into the focused element. Use for Monaco. |
 | `browser_file_upload` | Attach files to an `<input type="file">` via Playwright's `setInputFiles`. Built for the workspace setup wizard's DuckDB upload step (no committed flow uses it since `onboarding-blank-workspace` was deleted). Paths are repo-relative; absolute paths and `..` traversal are refused. |
 | `browser_navigate` | Go to a URL. |
@@ -205,7 +205,10 @@ Only the six state-changing tools (`click`, `type`, `press_key`, `keyboard_type`
     is no longer showing its placeholder.
   - `text "<text>" is visible`
   - `<description> is enabled` (for follow-up input, etc.)
-  - `save button is not visible` (waits up to 5s for the IDE save button to hide)
+  - `save button is not visible[;timeout_ms=<n>]` (waits for the IDE save
+    button to hide; default 20s — a cold/loaded CI runner has been observed
+    taking well over 5s for the save round trip to flush, same
+    `;timeout_ms=<n>` override syntax as `wait_for: selector_hidden:`)
 - `judge: <claim>` — LLM-as-judge against current screenshot + DOM text. Cheap with `claude-haiku-4-5-20251001`.
 
 Asserts cost $0; judge calls cost ~$0.002 each. Use asserts wherever the claim is structural; reserve judge for soft semantic claims ("the response is coherent and not an error").
@@ -400,7 +403,7 @@ Common failure modes and fixes:
 | Step burns 30s on a `browser_click` | Wrong selector — model is waiting on Playwright's old default. The runtime now uses 5s; if you still see 30s, you're on an outdated branch. |
 | Step takes 12+ iterations | Vague `act:` prompt — add explicit selectors or numbered sub-steps. |
 | `assert: "selector ... is visible"` flakes | The page renders the element late. Insert a `wait_for: selector:<sel>` step before the assertion, or use `judge:` (which captures a screenshot at evaluation time). |
-| Save button assertion races (IDE flow) | `save button is not visible` already does a 5s waitFor — extend if your flow takes longer to flush. |
+| Save button assertion races (IDE flow) | `save button is not visible` already does a 20s waitFor by default — pass `;timeout_ms=<n>` if your flow genuinely needs longer. If the button never hides even given 20s, that's not a timing issue: check whether a save request left the browser at all (the Playwright trace's network tab), then check which key the recorded `act:` step actually pressed — a literal `Meta+<key>` sends the physical Meta/Super key and won't match a Monaco `KeyMod.CtrlCmd` binding on Linux CI; use `ControlOrMeta+<key>` instead (see `ide-save.flow.test.yml`'s save-step comment, 2026-10-02). |
 | Monaco appears empty after typing | Use `browser_keyboard_type`, not `browser_type`. Click `.monaco-editor` first to focus. The 25ms keystroke delay is built in. |
 | `model: claude-sonnet-4-7` returns 404 | Not yet GA on the account. Use `claude-sonnet-4-6` until 4-7 ships (see `runner/yaml-loader.ts:DEFAULT_SETTINGS.model`). |
 

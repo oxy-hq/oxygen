@@ -308,7 +308,7 @@
   # Local-mode, isolated instance (NOT the docker-compose fleet — see the
   # flow header). One act to switch the `.view.yml` editor out of its
   # structured Explorer mode, one act to break the file (select-all +
-  # collapse + type — see header for why), one act for the Meta+s save,
+  # collapse + type — see header for why), one act for the ControlOrMeta+s save,
   # one navigate + one chat submit. No LLM tokens spent on the run itself —
   # it 400s before any model call. Measured cold during authoring: $0.02–
   # $0.10 depending on how many iterations the selector-picking steps took;

@@ -56,7 +56,26 @@ cases:
       # from passing vacuously against a file that was never edited.
       - wait_for: "selector:[data-testid=ide-save-button]"
 
-      - act: "browser_press_key 'Meta+s'. Wait for [data-testid=ide-save-button] to disappear."
+      # 2026-10-02 investigation: CI runs headless Chromium on Linux. Monaco's
+      # save keybinding is `KeyMod.CtrlCmd | KeyCode.KeyS`, which Monaco
+      # resolves to physical Ctrl on Linux/Windows and physical Cmd on
+      # macOS — but a literal `Meta+s` here sends the physical Meta/Super
+      # key, which matches no binding on Linux and does nothing. Checked:
+      # every failing run's trace showed `Meta+s` as the key actually
+      # pressed, zero save requests ever left the browser afterward, and the
+      # CI runner's own trace reports `platform: linux`. The one sampled
+      # passing run ALSO pressed `Meta+s` first with zero effect — it only
+      # passed because the model, noticing the button was still visible,
+      # fell back to clicking it directly; runs where the model didn't try
+      # that fallback failed. `browser_press_key "ControlOrMeta+s"` is
+      # Playwright's platform-neutral modifier (resolves to Control on
+      # Linux/Windows, Meta on macOS — see `resolveSmartModifierString` in
+      # playwright-core), so it exercises the real keybinding Monaco
+      # registers on whatever OS the test runs on, same as a real user's
+      # Ctrl/Cmd+S.
+      - act: |
+          Use browser_press_key with key "ControlOrMeta+s" to save. Wait for
+          [data-testid=ide-save-button] to disappear.
     expect:
       - assert: "save button is not visible"
       - judge: "the editor content includes the line '-- agentic test edit'"

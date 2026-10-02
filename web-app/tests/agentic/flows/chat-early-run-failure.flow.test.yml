@@ -191,7 +191,12 @@ cases:
       # to save, same reasoning ide-save.flow.test.yml documents.
       - wait_for: "selector:[data-testid=ide-save-button]"
 
-      - act: "browser_press_key 'Meta+s'. Wait for [data-testid=ide-save-button] to disappear."
+      # `ControlOrMeta+s`, not a literal `Meta+s`: CI runs headless Chromium
+      # on Linux, where Monaco's save keybinding (`KeyMod.CtrlCmd`) resolves
+      # to physical Ctrl — a literal Meta/Super key press matches nothing.
+      # Same 2026-10-02 finding as `ide-save.flow.test.yml`; see that flow's
+      # comment for the evidence.
+      - act: "Use browser_press_key with key 'ControlOrMeta+s' to save. Wait for [data-testid=ide-save-button] to disappear."
 
       # Hard gate the save landed before navigating away — don't just trust
       # the act's own internal wait.

@@ -134,7 +134,7 @@ cases:
           2. browser_press_key "Meta+End" then "Enter".
           3. browser_keyboard_type (NOT browser_type — Monaco's hidden
              textarea breaks selector-based focus) text "-- agentic test edit".
-      - act: "browser_press_key 'Meta+s'. Wait for [data-testid=ide-save-button] to disappear."
+      - act: "Use browser_press_key with key 'ControlOrMeta+s' to save. Wait for [data-testid=ide-save-button] to disappear."
     expect:
       - assert: "save button is not visible"
       - judge: "the editor content includes the line '-- agentic test edit'"
@@ -149,9 +149,9 @@ cases:
   paid-for bug where Monaco's `aria-hidden` textarea makes a
   selector-based fill silently no-op.
 - The `assert: "save button is not visible"` form is the IDE-specific
-  helper — `runner/judge.ts` does a 5s `waitFor({state:"hidden"})` rather
-  than an immediate `isVisible()`, which races on the Meta+s → React
-  state flush.
+  helper — `runner/judge.ts` does a `waitFor({state:"hidden"})` (20s
+  default, `;timeout_ms=<n>` override) rather than an immediate
+  `isVisible()`, which races on the save's React state flush.
 - `.monaco-editor` is one of the two intentionally-ignored lint findings
   (text-only-selector).
 

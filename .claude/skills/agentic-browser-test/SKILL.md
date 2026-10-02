@@ -71,7 +71,7 @@ The runtime is the **bespoke** runtime (`@anthropic-ai/sdk` + a custom tool regi
 | `browser_snapshot` | no | Compact a11y-tree text (≤12kB). Optional `region: "main"` or `region: "<css>"`. |
 | `browser_click` | yes | 5s timeout. |
 | `browser_type` | yes | Fills (or appends with `append: true`). |
-| `browser_press_key` | yes | Single key or chord (`Enter`, `Meta+s`, `Control+Enter`). |
+| `browser_press_key` | yes | Single key or chord (`Enter`, `ControlOrMeta+s`, `Control+Enter`). A Ctrl/Cmd app keybinding needs `ControlOrMeta+<key>` — a literal `Meta+<key>` sends the physical Meta/Super key, which Linux CI doesn't bind. |
 | `browser_keyboard_type` | yes | Raw keyboard into the focused element. **Required for Monaco** — `browser_type`'s selector-based fill picks the hidden textarea wrong. |
 | `browser_file_upload` | yes | Playwright `setInputFiles`. Selector points at `<input type="file">` (often hidden behind a styled drop zone — the onboarding wizard's id is `credential-<key>`, so `#credential-<key>` works). Paths array is repo-relative; absolute paths and `..` traversal refused by `runner/files.ts:resolveRepoFile()`. |
 | `browser_navigate` | yes | Absolute URL or relative path. |

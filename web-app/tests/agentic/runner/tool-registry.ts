@@ -86,7 +86,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "browser_press_key",
     description:
-      "Press a single key or chord on the focused element. Examples: 'Enter', 'Tab', 'Meta+s', 'Control+Enter'.",
+      "Press a single key or chord on the focused element. Examples: 'Enter', 'Tab', 'ControlOrMeta+s', 'Control+Enter'. For an app keybinding bound to Ctrl/Cmd (Monaco's save, etc.), use 'ControlOrMeta+<key>' rather than a literal 'Meta+<key>' — Playwright resolves it to the platform's actual modifier (Control on Linux/Windows CI, Meta on macOS), whereas a literal 'Meta' sends the physical Meta/Super key, which a Monaco `KeyMod.CtrlCmd` keybinding doesn't match on Linux.",
     inputSchema: {
       type: "object",
       properties: {
@@ -115,8 +115,8 @@ const TOOLS: ToolDefinition[] = [
       // With delay=0 (Playwright's default) HEADED Chromium drops chars,
       // and even headless can lose them if the editor is busy formatting.
       await page.keyboard.type(String(args.text), { delay: 25 });
-      // Tiny pause so the next step (e.g. Meta+s) doesn't race the final
-      // input event into Monaco's debounced state update.
+      // Tiny pause so the next step (e.g. ControlOrMeta+s) doesn't race the
+      // final input event into Monaco's debounced state update.
       await page.waitForTimeout(100);
       return { ok: true };
     }
