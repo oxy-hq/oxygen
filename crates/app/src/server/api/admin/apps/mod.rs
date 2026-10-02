@@ -11,9 +11,16 @@
 
 pub mod access;
 mod dto;
+/// The `?environment=` parameter and who may name a non-production one.
+pub mod environment_scope;
 pub mod fleet_health;
+mod function_run;
 pub mod functions;
 pub mod handlers;
+/// The held-write read-back of one non-production invocation.
+pub mod held_writes;
+/// The invocation query, its DTO, and the app-wide listing.
+pub mod invocations;
 mod ops;
 /// Slug validation, re-exported so the (non-admin) `/publish` route can reject a
 /// slug before it becomes a schema name / path — see `custom_apps_publish`.
@@ -54,6 +61,19 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/apps/{id}/function-runs/{run_id}",
             get(functions::get_function_run),
+        )
+        // Read-back, on this surface only (a publish token never reaches
+        // `/admin`): every function's invocations for the app, filtered by
+        // environment and build, and what one non-production invocation's
+        // policy held instead of performing. DB reads — FleetOk by
+        // `admin::router_roles`' wildcard.
+        .route(
+            "/apps/{id}/invocations",
+            get(invocations::list_app_invocations),
+        )
+        .route(
+            "/apps/{id}/invocations/{invocation_id}/held",
+            get(held_writes::get_held_writes),
         )
         // Manually trigger a one-off background run of one of the app's Oxy
         // Functions as a job (the "run now" that isn't tied to a cron schedule).

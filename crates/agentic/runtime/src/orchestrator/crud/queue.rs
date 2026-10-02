@@ -1182,11 +1182,21 @@ pub struct QueueStats {
 /// `agentic_runs.workspace_id`. The queue table itself doesn't carry a
 /// `workspace_id` column today; the JOIN keeps the dashboard
 /// tenant-correct without a schema change.
+///
+/// **The customer's own work only.** This is what a workspace's members read
+/// of the queue, so the join also applies the run feed's rule
+/// (`visibility::customer_run_sql`): a task of a workspace preview's dry run,
+/// or of a custom-app check run staff queued outside production, is neither
+/// counted nor listed. A dead sandbox check is not the tenant's dead job, and
+/// listing it would hand out the run id every other route hides.
 pub async fn get_queue_stats(
     db: &DatabaseConnection,
     workspace_id: uuid::Uuid,
 ) -> Result<QueueStats, DbErr> {
     use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
+
+    // One predicate for all three statements, over the `r` they all join.
+    let customers_own = crate::lifecycle::crud::visibility::customer_run_sql("r.");
 
     // Count by status in a single query.
     #[derive(Debug, FromQueryResult)]
@@ -1197,11 +1207,13 @@ pub async fn get_queue_stats(
 
     let rows = StatusCount::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT q.queue_status, COUNT(*) as cnt \
-         FROM agentic_task_queue q \
-         INNER JOIN agentic_runs r ON r.id = q.run_id \
-         WHERE r.workspace_id = $1 \
-         GROUP BY q.queue_status",
+        format!(
+            "SELECT q.queue_status, COUNT(*) as cnt \
+             FROM agentic_task_queue q \
+             INNER JOIN agentic_runs r ON r.id = q.run_id \
+             WHERE r.workspace_id = $1 AND {customers_own} \
+             GROUP BY q.queue_status"
+        ),
         [workspace_id.into()],
     ))
     .all(db)
@@ -1234,13 +1246,15 @@ pub async fn get_queue_stats(
     // Fetch stale tasks (claimed but heartbeat expired).
     stats.stale_tasks = task_queue::Model::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT q.* FROM agentic_task_queue q \
-         INNER JOIN agentic_runs r ON r.id = q.run_id \
-         WHERE r.workspace_id = $1 \
-           AND q.queue_status = 'claimed' \
-           AND q.last_heartbeat < now() - (q.visibility_timeout_secs || ' seconds')::interval \
-         ORDER BY q.last_heartbeat \
-         LIMIT 50",
+        format!(
+            "SELECT q.* FROM agentic_task_queue q \
+             INNER JOIN agentic_runs r ON r.id = q.run_id \
+             WHERE r.workspace_id = $1 AND {customers_own} \
+               AND q.queue_status = 'claimed' \
+               AND q.last_heartbeat < now() - (q.visibility_timeout_secs || ' seconds')::interval \
+             ORDER BY q.last_heartbeat \
+             LIMIT 50"
+        ),
         [workspace_id.into()],
     ))
     .all(db)
@@ -1252,10 +1266,12 @@ pub async fn get_queue_stats(
     // Fetch dead-lettered tasks (most recent first).
     stats.dead_tasks = task_queue::Model::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT q.* FROM agentic_task_queue q \
-         INNER JOIN agentic_runs r ON r.id = q.run_id \
-         WHERE r.workspace_id = $1 AND q.queue_status = 'dead' \
-         ORDER BY q.updated_at DESC",
+        format!(
+            "SELECT q.* FROM agentic_task_queue q \
+             INNER JOIN agentic_runs r ON r.id = q.run_id \
+             WHERE r.workspace_id = $1 AND {customers_own} AND q.queue_status = 'dead' \
+             ORDER BY q.updated_at DESC"
+        ),
         [workspace_id.into()],
     ))
     .all(db)

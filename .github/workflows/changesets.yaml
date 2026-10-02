@@ -241,7 +241,11 @@ jobs:
             # Airhouse, per-org OLTP), everything under sdk/ (the SDK the canary
             # compiles against, the Vite plugin that builds it, the `oxyc` that
             # publishes and checks it), the canary and the zoo fixture it
-            # bundles, the script, and the two workflow files, as above.
+            # bundles, the script, and the two workflow files, as above. The
+            # staff read-back routes (`admin/apps/**`) and the sandbox loop the
+            # job drives through them are listed for the same reason: the loop
+            # is the only thing that runs `oxyc env`/`fn call`/`invocations`
+            # against a server.
             #
             # The job takes the binary `cargo-check-and-test` uploads when the
             # `oxy` filter fired, and builds `oxy-server` itself when it did not
@@ -250,6 +254,7 @@ jobs:
             custom-app-canary:
               - "crates/app/src/server/api/custom_apps*"
               - "crates/app/src/server/api/custom_apps*/**"
+              - "crates/app/src/server/api/admin/apps/**"
               - "crates/app/src/server/router/**"
               - "crates/app-core/**"
               - "crates/auth/**"
@@ -261,6 +266,8 @@ jobs:
               - "fixtures/data-shapes/**"
               - "scripts/ci/platform-canary-checkpoint.mjs"
               - "scripts/ci/platform-canary-checkpoint.test.mjs"
+              - "scripts/ci/platform-canary-sandbox-loop.mjs"
+              - "scripts/ci/platform-canary-sandbox-loop.test.mjs"
               - ".github/workflows/ci.yaml"
               - ".github/workflows/changesets.yaml"
             # `agentic` gates the BINARY the agentic browser matrix runs

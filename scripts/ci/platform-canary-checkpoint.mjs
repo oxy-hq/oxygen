@@ -50,6 +50,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseOmit, runSandboxLoop } from "./platform-canary-sandbox-loop.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CANARY_DIR = join(REPO, "customer-apps", "examples", "platform-canary");
@@ -138,6 +139,13 @@ const USAGE = `usage: node scripts/ci/platform-canary-checkpoint.mjs --target <u
   --keep                         leave the staged app and tarballs on disk
   --journey                      also run the browser check (needs Playwright's Chromium in web-app)
   --check-timeout <seconds>      per-check timeout passed to oxyc (default 240)
+  --sandbox-loop                 after the second green checks run, also drive
+                                  scripts/ci/platform-canary-sandbox-loop.mjs (plan §5.1):
+                                  create two dev-<handle> sandboxes, publish, check, call,
+                                  read back and delete through oxyc
+  --sandbox-loop-omit <csv>      steps the loop's first sandbox does not run here
+                                  (env CANARY_SANDBOX_LOOP_OMIT); CI passes storage_roundtrip,
+                                  for the reason OMITTED_IN_CI gives
 `;
 
 /** An environment variable, trimmed; blank counts as absent. */
@@ -159,7 +167,9 @@ function parseArgs(argv) {
     build: true,
     keep: false,
     journey: false,
-    checkTimeout: 240
+    checkTimeout: 240,
+    sandboxLoop: false,
+    sandboxLoopOmit: parseOmit(env("CANARY_SANDBOX_LOOP_OMIT"))
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -181,6 +191,8 @@ function parseArgs(argv) {
     else if (a === "--keep") opts.keep = true;
     else if (a === "--journey") opts.journey = true;
     else if (a === "--check-timeout") opts.checkTimeout = Number(next());
+    else if (a === "--sandbox-loop") opts.sandboxLoop = true;
+    else if (a === "--sandbox-loop-omit") opts.sandboxLoopOmit = parseOmit(next());
     else if (a === "-h" || a === "--help") {
       process.stdout.write(USAGE);
       process.exit(0);
@@ -826,6 +838,24 @@ async function main() {
     const ran = [...(second.ran.canary ?? [])].sort().join(",");
     const want = [...expected].sort().join(",");
     if (ran !== want) fail(`run 2 ran [${ran}] but CANARY_STEPS asked for [${want}]`);
+
+    if (opts.sandboxLoop) {
+      step("sandbox loop (plan §5.1: env/publish/fn/checks/held/delete through oxyc)");
+      await runSandboxLoop({
+        target: opts.target,
+        app: `${opts.orgSlug}/${APP_SLUG}`,
+        appId,
+        appDir: app,
+        oxyc: OXYC,
+        org: opts.orgSlug,
+        project: workspaceId,
+        token: staff.token,
+        credentialsPath: join(work, "no-credentials.json"),
+        checkTimeoutSeconds: opts.checkTimeout,
+        productionSteps: expected,
+        omitSteps: opts.sandboxLoopOmit
+      });
+    }
 
     if (opts.journey) runJourney(opts, apiKey);
 

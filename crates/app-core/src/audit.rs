@@ -630,7 +630,7 @@ pub async fn events_for_org(
 }
 
 /// Partner-subtree read scope: events for the partner itself OR any org it
-/// manages. `org_ids` is the partner's managed-org set.
+/// manages, in production. `org_ids` is the partner's managed-org set.
 pub async fn events_for_partner(
     db: &DatabaseConnection,
     partner_id: Uuid,
@@ -660,6 +660,12 @@ pub async fn events_for_partner(
         );
 
     AuditEvents::find()
+        // Production's rows only. A partner has no reach into an app's
+        // non-production environments, and the rows written there — a staging
+        // invocation's held writes, carrying the Oxy staff actor's email and
+        // the write's target — are staff's. In the query, before the offset
+        // walk, so a page is `limit` rows the partner may read.
+        .filter(audit_events::Column::Environment.eq(PRODUCTION))
         .filter(
             Condition::any()
                 .add(audit_events::Column::PartnerId.eq(partner_id))

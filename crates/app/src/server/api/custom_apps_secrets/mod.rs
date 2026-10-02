@@ -43,11 +43,15 @@
 //!
 //! Every route takes an optional environment — `environment` in the POST body,
 //! `?environment=` on the others — and acts on that environment's path
-//! (`scope`): production's `apps/<app_id>/<KEY>` by default, staging's
-//! `apps/<app_id>/staging/<KEY>` for staff only ([`environment::authorize`],
-//! oxy-authz `AppNonProduction`). A view lists that environment's keys alone,
-//! reconciled against the build that environment serves; in staging a `shared`
-//! key with no staging value reads as inherited from production, not missing.
+//! (`scope`): production's `apps/<app_id>/<KEY>` by default; staging's
+//! `apps/<app_id>/staging/<KEY>` or a sandbox's `apps/<app_id>/dev-<handle>/<KEY>`
+//! for staff only ([`environment::authorize`], oxy-authz `AppNonProduction`),
+//! and a sandbox must exist (404 otherwise). A view lists that environment's
+//! keys alone, reconciled against the build that environment serves. Outside
+//! production an unset key says what a run would read instead: in a sandbox,
+//! staging's value when staging holds one (`inherits_staging`); otherwise
+//! production's for a `shared` key (`inherits_production`). Neither is missing.
+//! A sandbox's teardown removes its whole path ([`delete_environment_secrets`]).
 
 pub(crate) mod declared;
 pub mod environment;
@@ -55,21 +59,25 @@ mod ops;
 pub(crate) mod scope;
 pub(crate) mod shared_env;
 
-use axum::Json;
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
+use axum::{Extension, Json};
 use entity::{app_builds, app_functions, apps};
 use oxy::database::client::establish_connection;
 use oxy::service::secret_manager::SecretManagerService;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AppPublishTokenAuth;
 use oxy_server_authz::role_guards::WorkspaceAdmin;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use declared::{AppSecretEntry, StoredSecret};
-use environment::EnvironmentQuery;
+use environment::{Caller, EnvironmentQuery};
+pub(crate) use ops::delete_environment_secrets;
+#[doc(hidden)]
+pub use ops::delete_named_secrets;
 
 /// Storage-name prefix for one app's secrets in `environment`. The single
 /// definition (`scope`) — every read strips it and every write is built from
@@ -85,7 +93,8 @@ pub struct AppSecretsResponse {
     pub app_id: Uuid,
     pub app_slug: String,
     pub app_name: String,
-    /// The environment whose secrets these are (`production` / `staging`).
+    /// The environment whose secrets these are (`production`, `staging`, or
+    /// a sandbox's `dev-<handle>`).
     pub environment: String,
     /// Declared ∪ stored, action-first. See [`declared::reconcile`].
     pub entries: Vec<AppSecretEntry>,
@@ -111,8 +120,8 @@ pub struct SetSecretRequest {
     /// inside its own namespace.
     pub key: String,
     pub value: String,
-    /// `production` (the default) or `staging` — staff only
-    /// ([`environment::authorize`]).
+    /// `production` (the default), `staging`, or a sandbox's `dev-<handle>`
+    /// — anything but production is staff only ([`environment::authorize`]).
     #[serde(default)]
     pub environment: Option<String>,
 }
@@ -368,26 +377,36 @@ async fn view(
 }
 
 // ── Staff-surface handlers (`/admin/apps/{id}`, `/customer-apps/{id}`) ───────
+//
+// Every handler takes the publish-token marker and hands it to
+// `environment::resolve`, which refuses it outside production. A token's
+// scope (`middlewares::app_publish_token_scope`) admits every `GET` under
+// `/customer-apps/`, and a token is its minter — so without this a token
+// minted by staff listed and revealed staging's, and a sandbox's, secrets.
 
 pub async fn admin_list(
     Path(app_id): Path<Uuid>,
     Query(q): Query<EnvironmentQuery>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
 ) -> Result<Json<AppSecretsResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    let caller = Caller::of(&user, &marker);
+    let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
     Ok(Json(view(&db, app, &environment).await?))
 }
 
 pub async fn admin_set(
     Path(app_id): Path<Uuid>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
     Json(body): Json<SetSecretRequest>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let environment = environment::resolve(&db, &app, &user, body.environment.as_deref()).await?;
+    let caller = Caller::of(&user, &marker);
+    let environment = environment::resolve(&db, &app, caller, body.environment.as_deref()).await?;
     ops::set(&db, &app, &environment, body, &user).await
 }
 
@@ -395,10 +414,12 @@ pub async fn admin_delete(
     Path((app_id, key)): Path<(Uuid, String)>,
     Query(q): Query<EnvironmentQuery>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    let caller = Caller::of(&user, &marker);
+    let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
     ops::delete(&db, &app, &environment, &key, &user).await
 }
 
@@ -406,10 +427,12 @@ pub async fn admin_reveal(
     Path((app_id, key)): Path<(Uuid, String)>,
     Query(q): Query<EnvironmentQuery>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
 ) -> Result<Json<RevealResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let environment = environment::resolve(&db, &app, &user, q.environment.as_deref()).await?;
+    let caller = Caller::of(&user, &marker);
+    let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
     ops::reveal(&db, &app, &environment, &key, &user).await
 }
 
@@ -429,12 +452,14 @@ pub async fn workspace_set(
     _: WorkspaceAdmin,
     Path((workspace_id, app_id)): Path<(Uuid, Uuid)>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    marker: Option<Extension<AppPublishTokenAuth>>,
     Json(body): Json<SetSecretRequest>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = scoped_to_workspace(load_app(&db, app_id).await?, workspace_id)?;
     // Staging here too is staff-only: a workspace admin is refused.
-    let environment = environment::resolve(&db, &app, &user, body.environment.as_deref()).await?;
+    let caller = Caller::of(&user, &marker);
+    let environment = environment::resolve(&db, &app, caller, body.environment.as_deref()).await?;
     ops::set(&db, &app, &environment, body, &user).await
 }
 

@@ -159,6 +159,7 @@ struct FunctionLogQueryRow {
     seq: u32,
     message: String,
     trace_id: String,
+    environment: String,
 }
 
 #[derive(Debug, Deserialize, Row)]
@@ -422,6 +423,18 @@ pub(super) async fn get_client_errors(
         .collect())
 }
 
+/// Which environment's rows a read returns: one named environment's and no
+/// other's. Empty, or `production` by name, is [`PRODUCTION_ONLY`] — the read
+/// every caller had before the argument, which also takes the `''` rows
+/// written before the column existed. The name is a literal here whatever the
+/// caller checked: it arrives from a query string.
+fn environment_predicate(environment: &str) -> String {
+    match environment {
+        "" | "production" => PRODUCTION_ONLY.to_string(),
+        name => format!("environment = '{}'", escape_sql_literal(name)),
+    }
+}
+
 /// Function log lines over a window, newest first.
 ///
 /// `seq DESC` after `timestamp DESC` so the lines of one invocation stay in the
@@ -435,7 +448,9 @@ fn function_logs_sql(
     limit: u32,
     invocation_id: &str,
     request_id: &str,
+    environment: &str,
 ) -> String {
+    let environment_clause = environment_predicate(environment);
     let invocation_clause = if invocation_id.is_empty() {
         String::new()
     } else {
@@ -449,10 +464,10 @@ fn function_logs_sql(
     format!(
         "SELECT {ts} AS timestamp_iso, \
          build_id, invocation_id, request_id, function_name, mode, log_level, seq, message, \
-         trace_id \
+         trace_id, environment \
          FROM custom_app_logs \
          WHERE org_id = '{org}' AND app_id = '{app}' \
-         AND {PRODUCTION_ONLY} \
+         AND {environment_clause} \
          AND timestamp >= now() - INTERVAL {hours} HOUR{invocation_clause}{request_clause} \
          ORDER BY timestamp DESC, seq DESC \
          LIMIT {limit}",
@@ -471,8 +486,17 @@ pub(super) async fn get_function_logs(
     limit: u32,
     invocation_id: &str,
     request_id: &str,
+    environment: &str,
 ) -> Result<Vec<FunctionLogRow>, OxyError> {
-    let sql = function_logs_sql(org_id, app_id, hours, limit, invocation_id, request_id);
+    let sql = function_logs_sql(
+        org_id,
+        app_id,
+        hours,
+        limit,
+        invocation_id,
+        request_id,
+        environment,
+    );
     let rows = storage
         .read_client()
         .query(&sql)
@@ -495,8 +519,19 @@ pub(super) async fn get_function_logs(
             seq: r.seq,
             message: r.message,
             trace_id: r.trace_id,
+            environment: production_when_blank(r.environment),
         })
         .collect())
+}
+
+/// The environment a stored log line reports. `''` is a line written before
+/// the column existed, which was production ([`PRODUCTION_ONLY`] reads it so).
+fn production_when_blank(environment: String) -> String {
+    if environment.is_empty() {
+        "production".to_string()
+    } else {
+        environment
+    }
 }
 
 /// The surfaces that count toward availability, as a SQL fragment.
@@ -700,6 +735,9 @@ pub(super) async fn get_fleet_heartbeat_baseline(
         })?;
     Ok(rows.into_iter().map(|r| (r.app_id, r.total)).collect())
 }
+
+#[cfg(test)]
+mod literal_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1000,13 +1038,96 @@ mod tests {
             ("fleet availability", fleet_availability_sql(&fleet, 60)),
             ("fleet baseline", fleet_baseline_sql(&fleet, 60, 7)),
             ("client errors", client_errors_sql("o", "a", 24, 50, "")),
-            ("function logs", function_logs_sql("o", "a", 24, 50, "", "")),
+            (
+                "function logs",
+                function_logs_sql("o", "a", 24, 50, "", "", ""),
+            ),
         ] {
             assert!(
                 sql.contains("environment IN ('production', '')"),
                 "{name} must read production only: {sql}"
             );
         }
+    }
+
+    /// Naming an environment reads that environment's lines and no other's:
+    /// the production default is replaced, not widened, so a sandbox read
+    /// never returns production's lines and one sandbox never returns
+    /// another's.
+    #[test]
+    fn function_logs_for_a_named_environment_read_only_that_environment() {
+        for name in ["staging", "dev-a1"] {
+            let sql = function_logs_sql("o", "a", 24, 50, "", "", name);
+            assert!(
+                sql.contains(&format!("AND environment = '{name}' ")),
+                "{name}: {sql}"
+            );
+            assert!(
+                !sql.contains("environment IN ('production', '')"),
+                "{name} must not also read production: {sql}"
+            );
+        }
+    }
+
+    /// `""` is production only, exactly the default every read had before the
+    /// argument — and so is naming production, which must keep reading the
+    /// `''` rows from before the column.
+    #[test]
+    fn function_logs_without_an_environment_stay_production_only() {
+        let before = function_logs_sql("o", "a", 24, 50, "inv", "req", "");
+        assert!(
+            before.contains("AND environment IN ('production', '') "),
+            "{before}"
+        );
+        assert!(!before.contains("environment = "), "{before}");
+        assert_eq!(
+            function_logs_sql("o", "a", 24, 50, "inv", "req", "production"),
+            before,
+            "naming production is the default read"
+        );
+    }
+
+    /// The window and the row cap are in every shape of the query: an
+    /// environment filter must not cost the bounds that keep one read from
+    /// scanning the table.
+    #[test]
+    fn function_logs_keep_their_time_and_row_bounds_in_every_environment() {
+        for environment in ["", "production", "staging", "dev-a1"] {
+            let sql = function_logs_sql("o", "a", 24, 50, "", "", environment);
+            assert!(
+                sql.contains("timestamp >= now() - INTERVAL 24 HOUR"),
+                "{environment:?}: {sql}"
+            );
+            assert!(sql.ends_with("LIMIT 50"), "{environment:?}: {sql}");
+            assert!(
+                sql.contains("WHERE org_id = 'o' AND app_id = 'a' "),
+                "{environment:?} must stay scoped to the org and app: {sql}"
+            );
+        }
+    }
+
+    /// The row type is read positionally, so the column the reader gained has
+    /// to be selected last, where its field is, and as an ISO-8601 UTC
+    /// timestamp like every other serving query.
+    #[test]
+    fn function_logs_select_the_environment_last_and_an_iso_utc_timestamp() {
+        let sql = function_logs_sql("o", "a", 24, 50, "", "", "staging");
+        assert!(
+            sql.contains("message, trace_id, environment FROM custom_app_logs"),
+            "{sql}"
+        );
+        assert!(
+            sql.starts_with(
+                "SELECT formatDateTime(timestamp, '%Y-%m-%dT%H:%i:%S.%fZ', 'UTC') AS timestamp"
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn function_logs_report_a_blank_environment_as_production() {
+        assert_eq!(production_when_blank(String::new()), "production");
+        assert_eq!(production_when_blank("staging".into()), "staging");
     }
 
     #[test]

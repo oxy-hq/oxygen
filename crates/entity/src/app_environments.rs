@@ -2,13 +2,13 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// One named environment of a custom app: `production`, `staging`, or a
-/// `dev-<handle>` slot. `build_id` names the build that environment serves. For a
-/// dev slot it is the base build its function overlays sit on.
+/// `dev-<handle>` sandbox. `build_id` names the build that environment serves.
 ///
-/// Phase 1a: production and staging rows mirror `apps.published_build_id` and
+/// Production and staging rows mirror `apps.published_build_id` and
 /// `apps.draft_build_id`, written in the same transaction by
-/// `custom_apps_environments::record_move`. Naming rules:
-/// `oxy_app_core::custom_app_environment`.
+/// `custom_apps_environments::record_move`. A sandbox's row is created and
+/// deleted by `custom_apps_sandboxes`; `record_move` only moves its pointer.
+/// Naming rules: `oxy_app_core::custom_app_environment`.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 #[sea_orm(table_name = "app_environments")]
@@ -25,6 +25,10 @@ pub struct Model {
     pub updated_by: Option<Uuid>,
     pub updated_at: DateTimeWithTimeZone,
     pub created_at: DateTimeWithTimeZone,
+    /// Set while a sandbox is being torn down: it serves nothing and its name
+    /// stays taken until the teardown task removes the row. Always `None` for
+    /// `production` and `staging`.
+    pub deleting_at: Option<DateTimeWithTimeZone>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

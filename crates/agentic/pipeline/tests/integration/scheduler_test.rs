@@ -1625,6 +1625,153 @@ async fn app_function_job_seeds_manual_run_with_policy() {
     );
 }
 
+/// A job queued for a named app environment carries the name twice: on the
+/// task payload, which is what the worker runs it in
+/// (`AppFunctionTask::environment`), and on the run's metadata, which is what
+/// the run detail reports. The old entry point writes neither, so every task
+/// it queues is byte-for-byte what it queued before environments and a worker
+/// that predates the field reads it as production.
+#[tokio::test]
+async fn app_function_job_in_an_environment_carries_it_on_the_task_and_the_run() {
+    use agentic_pipeline::scheduler::{enqueue_app_function_job, enqueue_app_function_job_in};
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+    let app_id = uuid::Uuid::new_v4().to_string();
+
+    let staging = enqueue_app_function_job_in(
+        &db,
+        &app_id,
+        "smoke",
+        ws,
+        None,
+        "manual",
+        None,
+        None,
+        Some("staging"),
+    )
+    .await
+    .expect("enqueue in staging succeeds");
+    let plain = enqueue_app_function_job(&db, &app_id, "smoke", ws, None, "manual", None, None)
+        .await
+        .expect("enqueue succeeds");
+
+    #[derive(FromQueryResult)]
+    struct Row {
+        payload_environment: Option<String>,
+        payload_has_environment: bool,
+        run_environment: Option<String>,
+        run_has_environment: bool,
+        trigger: Option<String>,
+    }
+    let read = |run_id: String| {
+        let db = db.clone();
+        async move {
+            Row::find_by_statement(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "SELECT q.spec->'payload'->>'environment' AS payload_environment,                         (q.spec->'payload') ? 'environment' AS payload_has_environment,                         r.metadata->>'environment' AS run_environment,                         r.metadata ? 'environment' AS run_has_environment,                         r.metadata->>'trigger' AS trigger                  FROM agentic_task_queue q JOIN agentic_runs r ON r.id = q.run_id                  WHERE q.task_id = $1",
+                [run_id.into()],
+            ))
+            .one(&db)
+            .await
+            .unwrap()
+            .expect("the job's run and task rows exist")
+        }
+    };
+
+    let row = read(staging).await;
+    assert_eq!(
+        row.payload_environment.as_deref(),
+        Some("staging"),
+        "the worker reads the environment from the task payload"
+    );
+    assert_eq!(
+        row.run_environment.as_deref(),
+        Some("staging"),
+        "the run detail reads the environment from the run's metadata"
+    );
+    assert_eq!(
+        row.trigger.as_deref(),
+        Some("manual"),
+        "the trigger label is what a production check run records"
+    );
+
+    let row = read(plain).await;
+    assert!(
+        !row.payload_has_environment && row.payload_environment.is_none(),
+        "the old entry point writes no environment on the task"
+    );
+    assert!(
+        !row.run_has_environment && row.run_environment.is_none(),
+        "nor on the run"
+    );
+}
+
+/// A check run queued outside production is staff's, read back through the
+/// app's staff routes. To the workspace's own members it does not exist: the
+/// scoped by-id read finds nothing, and the dashboard retry answers
+/// `NotFound` — not "retry not supported", which would confirm the id. The
+/// production run queued beside it is found by both, exactly as before.
+#[tokio::test]
+async fn app_function_job_outside_production_is_not_the_workspaces_to_read() {
+    use agentic_pipeline::retry::{RetryError, retry_run};
+    use agentic_pipeline::scheduler::{enqueue_app_function_job, enqueue_app_function_job_in};
+    use agentic_runtime::crud::{get_run, get_run_in_workspace};
+    let Some(db) = test_db().await else { return };
+    let ws = uuid::Uuid::new_v4();
+    let app_id = uuid::Uuid::new_v4().to_string();
+
+    let mut checks = Vec::new();
+    for environment in ["staging", "dev-a1"] {
+        let run_id = enqueue_app_function_job_in(
+            &db,
+            &app_id,
+            "smoke",
+            ws,
+            None,
+            "manual",
+            None,
+            None,
+            Some(environment),
+        )
+        .await
+        .expect("enqueue in an environment succeeds");
+        checks.push(run_id);
+    }
+    let plain = enqueue_app_function_job(&db, &app_id, "smoke", ws, None, "manual", None, None)
+        .await
+        .expect("enqueue succeeds");
+    // Retry looks at failed runs only, so fail all three.
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "UPDATE agentic_runs SET task_status = 'failed' WHERE workspace_id = $1",
+        [ws.into()],
+    ))
+    .await
+    .expect("fail the runs");
+
+    for check in &checks {
+        let scoped = get_run_in_workspace(&db, ws, check).await.unwrap();
+        assert!(scoped.is_none(), "a member read a check run: {scoped:?}");
+        assert!(
+            get_run(&db, check).await.unwrap().is_some(),
+            "the staff read still finds it"
+        );
+        let retried = retry_run(&db, ws, &FakeWorkspace, check).await;
+        assert!(
+            matches!(retried, Err(RetryError::NotFound)),
+            "retrying a check run must not confirm it exists: {retried:?}"
+        );
+    }
+
+    let scoped = get_run_in_workspace(&db, ws, &plain).await.unwrap();
+    assert_eq!(scoped.map(|r| r.id), Some(plain.clone()));
+    let retried = retry_run(&db, ws, &FakeWorkspace, &plain).await;
+    assert!(
+        matches!(&retried, Err(RetryError::NotRetryable(why)) if why.contains("app_function")),
+        "a production run is found, and retry answers as it always did: {retried:?}"
+    );
+}
+
 // monitor_scan schedules
 //
 // `tick_monitor_schedules` is a second, near-duplicate copy of the fire path

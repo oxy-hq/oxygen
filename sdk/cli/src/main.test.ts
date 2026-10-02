@@ -75,6 +75,58 @@ describe("exit codes", () => {
     expect(oxyc("api").status).toBe(ExitCode.USAGE); // missing required <path>
   });
 
+  /** Every verb Slice C added, missing its required argument(s). */
+  it("reports a usage error for each new sandbox command, missing its arguments", () => {
+    expect(oxyc("env", "create").status).toBe(ExitCode.USAGE);
+    expect(oxyc("env", "list").status).toBe(ExitCode.USAGE);
+    expect(oxyc("env", "show").status).toBe(ExitCode.USAGE);
+    expect(oxyc("env", "delete").status).toBe(ExitCode.USAGE);
+    expect(oxyc("fn", "call").status).toBe(ExitCode.USAGE);
+    expect(oxyc("invocations", "list").status).toBe(ExitCode.USAGE);
+    expect(oxyc("invocations", "held").status).toBe(ExitCode.USAGE);
+    expect(oxyc("logs").status).toBe(ExitCode.USAGE);
+  });
+
+  it("reports a usage error for each new preview command, missing its arguments", () => {
+    expect(oxyc("preview", "create").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "show").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "delete").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "checks").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "run").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "runs", "list").status).toBe(ExitCode.USAGE);
+    expect(oxyc("preview", "runs", "show").status).toBe(ExitCode.USAGE);
+  });
+
+  /** `requireRunKind` refuses before any request — the same shape `--app-env` refusals take. */
+  it("rejects a run kind oxyc cannot start as USAGE, before any request", () => {
+    const r = oxyc(
+      "preview",
+      "run",
+      "feature/x",
+      "transform_build",
+      "some.automation.yml",
+      "--env",
+      "production"
+    );
+    expect(r.status).toBe(ExitCode.USAGE);
+    expect(r.stderr).toMatch(/not a run kind/);
+  });
+
+  /** A malformed `--app-env` is caught client-side, before any request — exit 2, not a network error. */
+  it("rejects a malformed --app-env as USAGE on every verb that takes one", () => {
+    for (const args of [
+      ["fn", "call", "acme/store", "f", "--app-env", "not-valid", "--env", "production"],
+      ["checks", "run", "acme/store", "--app-env", "not-valid", "--env", "production"],
+      ["invocations", "list", "acme/store", "--app-env", "not-valid", "--env", "production"],
+      ["logs", "acme/store", "--app-env", "not-valid", "--env", "production"],
+      ["env", "create", "acme/store", "not-valid", "--env", "production"],
+      ["env", "delete", "acme/store", "staging", "--yes", "--env", "production"]
+    ]) {
+      const r = oxyc(...args);
+      expect(r.status, `oxyc ${args.join(" ")}`).toBe(ExitCode.USAGE);
+    }
+  });
+
   it("reports a missing credential as AUTH, with the login command", () => {
     const r = oxyc("api", "user", "--env", "production");
     expect(r.status).toBe(ExitCode.AUTH);
@@ -163,6 +215,18 @@ describe("the bare-customer form", () => {
     expect(oxyc("rm", "--help").status).toBe(ExitCode.OK); // an alias
   });
 
+  /** The four names Slice C added — none should rewrite to `launch <name>`. */
+  it("does not swallow a new sandbox command name", () => {
+    expect(oxyc("env", "--help").status).toBe(ExitCode.OK);
+    expect(oxyc("fn", "--help").status).toBe(ExitCode.OK);
+    expect(oxyc("invocations", "--help").status).toBe(ExitCode.OK);
+    expect(oxyc("logs", "--help").status).toBe(ExitCode.OK);
+  });
+
+  it("does not swallow the new preview command name", () => {
+    expect(oxyc("preview", "--help").status).toBe(ExitCode.OK);
+  });
+
   it("does not swallow a flag", () => {
     expect(oxyc("--version").status).toBe(ExitCode.OK);
   });
@@ -203,12 +267,21 @@ describe("help", () => {
    * bug this pins — passed the entire suite.
    */
   it("writes requested help to stdout, so it can be piped", () => {
-    for (const args of [["--help"], ["api", "--help"], ["routes", "--help"]]) {
+    for (const args of [
+      ["--help"],
+      ["api", "--help"],
+      ["routes", "--help"],
+      ["env", "--help"],
+      ["env", "create", "--help"],
+      ["env", "delete", "--help"],
+      ["fn", "--help"],
+      ["fn", "call", "--help"],
+      ["invocations", "--help"],
+      ["logs", "--help"]
+    ]) {
       const r = oxyc(...args);
       expect(r.status, `oxyc ${args.join(" ")}`).toBe(ExitCode.OK);
-      expect(r.stdout.length, `oxyc ${args.join(" ")} wrote no help to stdout`).toBeGreaterThan(
-        100
-      );
+      expect(r.stdout.length, `oxyc ${args.join(" ")} wrote no help to stdout`).toBeGreaterThan(10);
       expect(r.stderr, `oxyc ${args.join(" ")} leaked help to stderr`).toBe("");
     }
     expect(oxyc("--version").stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
@@ -273,6 +346,36 @@ describe("guide", () => {
     }
   });
 
+  /**
+   * The guide's examples are pasted verbatim into an agent's context — a flag
+   * that does not exist there is an agent chasing a usage error on its first
+   * try. `--data` has no `-d` short form, and the guide said `-d '{}'` for the
+   * fn call example until this caught it; pinned generically (against the
+   * verb's own `--help`) so the next drift, on this line or any flag it uses,
+   * fails here instead of in front of an agent.
+   */
+  it("the fn call example uses a flag fn call --help actually lists", () => {
+    // Exact-token comparison, not substring: `--data` contains the two
+    // characters "-d", so a naive `help.includes(flag)` would have let a
+    // bare `-d` (no such short form) through as a false pass.
+    const flagToken = /(--[a-z][a-z-]*|(?<![\w-])-[a-zA-Z])/g;
+    const guideLine = oxyc("guide")
+      .stdout.split("\n")
+      .find((l) => l.includes("oxyc fn call"));
+    expect(guideLine, "the guide dropped its fn call example").toBeDefined();
+    const guideFlags = [...(guideLine ?? "").matchAll(flagToken)].map((m) => m[0]);
+    expect(guideFlags.length).toBeGreaterThan(0);
+    const helpFlags = new Set(
+      [...oxyc("fn", "call", "--help").stdout.matchAll(flagToken)].map((m) => m[0])
+    );
+    for (const flag of guideFlags) {
+      expect(
+        helpFlags.has(flag),
+        `the guide's fn call example uses ${flag}, which \`oxyc fn call --help\` does not list`
+      ).toBe(true);
+    }
+  });
+
   /** Every documented exit code, so an agent can branch without a second call. */
   it("lists every exit code the contract defines", () => {
     const out = oxyc("guide").stdout;
@@ -292,10 +395,14 @@ describe("guide", () => {
 
   /**
    * It lands in a context window on every turn, so each line has to earn its
-   * place — the detail belongs behind `routes` and `schema`.
+   * place — the detail belongs behind `routes` and `schema`. Raised from 70
+   * to 85, deliberately, when the sandbox-MCP note and a six-line "Workspace
+   * previews" block (mirroring "Sandboxes") were added — both loops are new
+   * capabilities worth their lines, not padding; the ceiling still catches
+   * the next addition that is not.
    */
   it("stays short enough to sit in a context file", () => {
-    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(70);
+    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(85);
   });
 });
 

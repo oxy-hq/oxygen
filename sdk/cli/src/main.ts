@@ -25,11 +25,23 @@ import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
 import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
+import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./commands/env.js";
+import { runFnCall } from "./commands/fn.js";
 import { runGuide } from "./commands/guide.js";
 import { runInitCi } from "./commands/init-ci.js";
+import { runInvocationsHeld, runInvocationsList } from "./commands/invocations.js";
 import { runLaunch } from "./commands/launch.js";
+import { runLogs } from "./commands/logs.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
+import {
+  runPreviewChecks,
+  runPreviewCreate,
+  runPreviewDelete,
+  runPreviewList,
+  runPreviewShow
+} from "./commands/preview.js";
+import { runPreviewRun, runPreviewRunShow, runPreviewRunsList } from "./commands/preview-runs.js";
 import { runProxy } from "./commands/proxy.js";
 import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
@@ -401,10 +413,234 @@ function buildProgram(): Command {
       .description("run every check of <org>/<app> (or an app id) and wait for results")
       .option("--json", "emit results as JSON")
       .option("--timeout <seconds>", "per-check timeout", "300")
+      .option("--app-env <environment>", "run against this environment instead of production")
   ).action(async (app: string, opts: Record<string, unknown>) => {
     await runChecks(createContext(globals(opts)), app, {
       json: Boolean(opts.json),
+      timeoutSeconds: Number(opts.timeout),
+      appEnv: opts.appEnv as string | undefined
+    });
+  });
+
+  const env = program
+    .command("env")
+    .description("a custom app's environments — production, staging, and dev-<handle> sandboxes");
+  withGlobals(
+    env
+      .command("create <app> <name>")
+      .description("create a sandbox (dev-<handle>) — starts with no build")
+      .option("--json", "emit the Environment as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvCreate(createContext(globals(opts)), app, name, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    env
+      .command("list <app>")
+      .description("list an app's environments — production, staging, every sandbox")
+      .option("--json", "emit {environments} as JSON")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runEnvList(createContext(globals(opts)), app, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    env
+      .command("show <app> <name>")
+      .description("one environment's detail — production, staging or dev-<handle>")
+      .option("--json", "emit the Environment as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvShow(createContext(globals(opts)), app, name, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    env
+      .command("delete <app> <name>")
+      .description("delete a sandbox — tears down its storage, secrets and Airhouse sibling")
+      .option("--yes", "delete without asking")
+      .option("--wait [seconds]", "poll until the teardown finishes (default 120s)")
+      .option("--json", "emit the result as JSON")
+  ).action(async (app: string, name: string, opts: Record<string, unknown>) => {
+    await runEnvDelete(createContext(globals(opts)), app, name, {
+      yes: opts.yes as boolean | undefined,
+      waitSeconds:
+        opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
+    });
+  });
+
+  const fn = program.command("fn").description("call a custom app's Oxy Function directly");
+  withGlobals(
+    fn
+      .command("call <app> <function>")
+      .description("POST .../fn/<function> (SSE) and print its result")
+      .option("--app-env <environment>", "call it in this environment instead of production")
+      .option("--data <json|@file|->", 'the request body (default "{}")')
+      .option("--timeout <seconds>", "client-side timeout", "60")
+      .option("--json", "emit the result as JSON")
+  ).action(async (app: string, fnName: string, opts: Record<string, unknown>) => {
+    await runFnCall(createContext(globals(opts)), app, fnName, {
+      appEnv: opts.appEnv as string | undefined,
+      data: opts.data as string | undefined,
+      json: Boolean(opts.json),
       timeoutSeconds: Number(opts.timeout)
+    });
+  });
+
+  const invocations = program
+    .command("invocations")
+    .description("what ran in an app's environment, and what a sandbox held");
+  withGlobals(
+    invocations
+      .command("list <app>")
+      .description("every function's invocations, newest first")
+      .option("--app-env <environment>", "narrow to one environment")
+      .option("--build <id>", "narrow to one build (its id, or the build UUID)")
+      .option("--function <name>", "narrow to one function")
+      .option("--limit <n>", "max rows (default 50)")
+      .option("--json", "emit {invocations} as JSON")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runInvocationsList(createContext(globals(opts)), app, {
+      appEnv: opts.appEnv as string | undefined,
+      build: opts.build as string | undefined,
+      fn: opts.function as string | undefined,
+      limit: opts.limit === undefined ? undefined : Number(opts.limit),
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    invocations
+      .command("held <app> <invocation-id>")
+      .description("the writes the non-production policy held, instead of performing them")
+      .option("--json", "emit the held list as JSON")
+  ).action(async (app: string, invocationId: string, opts: Record<string, unknown>) => {
+    await runInvocationsHeld(createContext(globals(opts)), app, invocationId, {
+      json: Boolean(opts.json)
+    });
+  });
+
+  withGlobals(
+    program
+      .command("logs <app>")
+      .description("an app's persisted ctx.log() / console.* output")
+      .option("--app-env <environment>", "narrow to one environment (default: production only)")
+      .option("--invocation <id>", "narrow to one invocation")
+      .option("--request <id>", "narrow to one request")
+      .option("--hours <n>", "window size in hours (default 24, max 168)")
+      .option("--limit <n>", "max rows (default 100, max 500)")
+      .option("--json", "emit {logs} as JSON")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runLogs(createContext(globals(opts)), app, {
+      appEnv: opts.appEnv as string | undefined,
+      invocation: opts.invocation as string | undefined,
+      request: opts.request as string | undefined,
+      hours: opts.hours === undefined ? undefined : Number(opts.hours),
+      limit: opts.limit === undefined ? undefined : Number(opts.limit),
+      json: Boolean(opts.json)
+    });
+  });
+
+  const preview = program
+    .command("preview")
+    .description(
+      "preview a workspace branch on real data without it being live (staff only; --workspace)"
+    );
+  withGlobals(
+    preview
+      .command("create <branch>")
+      .description("compile a branch's head into a staging revision and start serving it")
+      .option("--wait [seconds]", "block until the compile is ready or failed (default 120s)")
+      .option("--json", "emit the PreviewItem as JSON")
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runPreviewCreate(createContext(globals(opts)), branch, {
+      waitSeconds:
+        opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    preview
+      .command("list")
+      .description("every branch staff are previewing in this workspace")
+      .option("--json", "emit {items} as JSON")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runPreviewList(createContext(globals(opts)), { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    preview
+      .command("show <branch>")
+      .description("one branch's preview — status and checks summary")
+      .option("--json", "emit the PreviewItem as JSON")
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runPreviewShow(createContext(globals(opts)), branch, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    preview
+      .command("delete <branch>")
+      .description("stop previewing a branch — cancels its queued runs, releases its revision")
+      .option("--yes", "delete without asking")
+      .option("--json", "emit the result as JSON")
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runPreviewDelete(createContext(globals(opts)), branch, {
+      yes: opts.yes as boolean | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    preview
+      .command("checks <branch>")
+      .description("the Airway change check of the preview's current revision")
+      .option("--json", "emit the ChecksResponse as JSON")
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runPreviewChecks(createContext(globals(opts)), branch, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    preview
+      .command("run <branch> <kind> <ref>")
+      .description("start a held dry run — kind is procedure or airway_sample")
+      .option("--variables <json|@file|->", "procedure: the automation's variables")
+      .option("--read-live-only", "procedure: read live tables even where the preview holds a copy")
+      .option("--window-from <iso>", "airway_sample: window start, RFC 3339")
+      .option("--window-to <iso>", "airway_sample: window end, RFC 3339")
+      .option("--resource <name>", "airway_sample: a resource to read (repeatable)", collect, [])
+      .option("--wait [seconds]", "block until the run finishes (default 120s)")
+      .option("--json", "emit the result as JSON")
+      .addHelpText(
+        "after",
+        "\ntransform_build and compare runs are queued automatically by the server's change\n" +
+          "check, not started here — read them back with `oxyc preview runs show <run-id>`.\n"
+      )
+  ).action(async (branch: string, kind: string, ref: string, opts: Record<string, unknown>) => {
+    await runPreviewRun(createContext(globals(opts)), branch, kind, ref, {
+      variables: opts.variables as string | undefined,
+      readLiveOnly: opts.readLiveOnly as boolean | undefined,
+      windowFrom: opts.windowFrom as string | undefined,
+      windowTo: opts.windowTo as string | undefined,
+      resource: opts.resource as string[],
+      waitSeconds:
+        opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
+    });
+  });
+
+  const previewRuns = preview.command("runs").description("a previewed branch's held runs");
+  withGlobals(
+    previewRuns
+      .command("list <branch>")
+      .description(
+        "a branch's runs, newest first — procedure, transform_build, compare, airway_sample"
+      )
+      .option("--json", "emit {runs} as JSON")
+  ).action(async (branch: string, opts: Record<string, unknown>) => {
+    await runPreviewRunsList(createContext(globals(opts)), branch, { json: Boolean(opts.json) });
+  });
+  withGlobals(
+    previewRuns
+      .command("show <run-id>")
+      .description("one run's detail — steps, holds, redirects, and its compare or sample")
+      .option("--wait [seconds]", "block until the run finishes (default 120s)")
+      .option("--json", "emit the RunDetail as JSON")
+  ).action(async (runId: string, opts: Record<string, unknown>) => {
+    await runPreviewRunShow(createContext(globals(opts)), runId, {
+      waitSeconds:
+        opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
     });
   });
 
@@ -627,6 +863,10 @@ function buildProgram(): Command {
         "--allow-function-lint",
         "publish past an Oxy Function lint finding; each prints as a warning naming its rule"
       )
+      .option(
+        "--app-env <dev-handle>",
+        "publish to this sandbox instead of the draft/live channel — never --promote"
+      )
       .addHelpText(
         "after",
         "\n--org takes a slug or a UUID (default: OXY_ORG, then oxy-app.json orgSlug, then\n" +
@@ -640,7 +880,9 @@ function buildProgram(): Command {
           "`destinations`; before the upload, with the target's database list, an `upsert`\n" +
           "or `ctx.tx` on an engine that refuses it and a customer-warehouse write with no\n" +
           "`customerWarehouseWrites` reason. `--allow-function-lint` is the way past a\n" +
-          "false positive — please open an issue naming the rule.\n"
+          "false positive — please open an issue naming the rule.\n" +
+          "\n--app-env dev-<handle> moves only that sandbox's build pointer — a staff\n" +
+          "credential only, never a publish token, and never combined with --promote.\n"
       )
   ).action(async (opts: Record<string, unknown>) => {
     await runPublish(createContext(globals(opts)), {
@@ -656,7 +898,8 @@ function buildProgram(): Command {
       prebuilt: opts.prebuilt as boolean | undefined,
       json: opts.json as boolean | undefined,
       semanticBranch: opts.semanticBranch as string | undefined,
-      allowFunctionLint: opts.allowFunctionLint as boolean | undefined
+      allowFunctionLint: opts.allowFunctionLint as boolean | undefined,
+      appEnv: opts.appEnv as string | undefined
     });
   });
 

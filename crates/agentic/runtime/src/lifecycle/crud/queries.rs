@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::lifecycle::entity::{run, run_event};
 
 use super::user_facing_status;
+use super::visibility::{in_customer_feed, in_production, in_production_sql};
 
 /// Run source_types that are background daemons rather than user-scheduled
 /// work. The coordinator dashboard hides them from the main feed by
@@ -35,6 +36,10 @@ use super::user_facing_status;
 /// the preview's own schemas (`server::previews::sample`).
 /// `custom_app_staging_migrations` is a custom app's staging migrations, queued
 /// by every publish (`server::api::custom_apps_nonproduction::staging_task`).
+/// `custom_app_sandbox_migrations` and `custom_app_sandbox_teardown` are a
+/// custom-app sandbox's Airhouse migrations (queued by a publish to it) and
+/// its teardown (queued by a delete or an expiry) —
+/// `server::api::custom_apps_sandboxes`: staff work on a staff surface.
 pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preagg_cycle",
     "preview_analyze",
@@ -42,19 +47,9 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preview_compare",
     "preview_airway_sample",
     "custom_app_staging_migrations",
+    "custom_app_sandbox_migrations",
+    "custom_app_sandbox_teardown",
 ];
-
-/// Keeps a workspace preview's dry run out of the customer's run feed.
-///
-/// A held preview procedure run is an ordinary `workflow` run (other code keys
-/// on that `source_type`), so it is told apart by `metadata.trigger =
-/// 'preview'` — the same predicate `oxy-app`'s workspace health uses. It is a
-/// staffer running an unmerged branch, so unlike [`SYSTEM_SOURCE_TYPES`] it is
-/// hidden even with `include_system`: that toggle is the customer's own.
-/// `IS DISTINCT FROM` keeps runs with no metadata (a bare `<>` would drop them).
-fn not_a_preview_run() -> sea_orm::sea_query::SimpleExpr {
-    sea_orm::sea_query::Expr::cust("metadata->>'trigger' IS DISTINCT FROM 'preview'")
-}
 
 pub struct ToolExchangeRow {
     pub name: String,
@@ -99,6 +94,8 @@ pub async fn get_runs_by_thread(
 /// `workspace_id`. Used by the live SSE poll to filter the in-memory
 /// status snapshot — the in-memory map is global and doesn't know about
 /// workspaces, but each run id resolves to exactly one workspace via DB.
+/// A check run queued outside production is staff's, not the workspace's
+/// members', and is left out (see `visibility`).
 pub async fn runs_in_workspace(
     db: &DatabaseConnection,
     workspace_id: Uuid,
@@ -113,7 +110,10 @@ pub async fn runs_in_workspace(
     }
     let rows = RunId::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "SELECT id FROM agentic_runs WHERE id = ANY($1) AND workspace_id = $2",
+        format!(
+            "SELECT id FROM agentic_runs WHERE id = ANY($1) AND workspace_id = $2 AND {}",
+            in_production_sql()
+        ),
         [run_ids.to_vec().into(), workspace_id.into()],
     ))
     .all(db)
@@ -121,7 +121,8 @@ pub async fn runs_in_workspace(
     Ok(rows.into_iter().map(|r| r.id).collect())
 }
 
-/// List recent runs across all threads, ordered newest-first.
+/// List recent runs across all threads, ordered newest-first. A check run
+/// queued outside production is never listed (see `visibility`).
 pub async fn list_recent_runs(
     db: &DatabaseConnection,
     workspace_id: Uuid,
@@ -130,6 +131,7 @@ pub async fn list_recent_runs(
     use sea_orm::QuerySelect;
     run::Entity::find()
         .filter(run::Column::WorkspaceId.eq(workspace_id))
+        .filter(in_production())
         .order_by_desc(run::Column::CreatedAt)
         .limit(limit)
         .all(db)
@@ -145,7 +147,8 @@ pub async fn list_recent_runs(
 /// hits the `(schedule_id, created_at desc)` index for cheap per-job history.
 /// `include_system` lets background-daemon runs (preagg_cycle, etc.) into
 /// the result — default `false` keeps the operator's feed clean. A preview
-/// dry run is never listed (see [`not_a_preview_run`]).
+/// dry run and a check run queued outside production are never listed (see
+/// `visibility::in_customer_feed`).
 #[allow(clippy::too_many_arguments)]
 pub async fn list_runs_filtered(
     db: &DatabaseConnection,
@@ -162,7 +165,7 @@ pub async fn list_runs_filtered(
     let mut query = run::Entity::find()
         .filter(run::Column::WorkspaceId.eq(workspace_id))
         .filter(run::Column::ParentRunId.is_null())
-        .filter(not_a_preview_run());
+        .filter(in_customer_feed());
 
     if let Some(statuses) = status_filter {
         // Map user-facing statuses to internal task_status values.
@@ -529,8 +532,9 @@ pub async fn airway_table_summary_for_run(
 /// Used by the coordinator dashboard to show in-flight pipelines.
 /// **Workspace-scoped** so the live feed never crosses tenants.
 /// `include_system` lets background-daemon runs through; default-off so
-/// the live feed stays focused on user work. A preview dry run is never
-/// listed (see [`not_a_preview_run`]).
+/// the live feed stays focused on user work. A preview dry run and a check
+/// run queued outside production are never listed (see
+/// `visibility::in_customer_feed`).
 pub async fn list_active_runs(
     db: &DatabaseConnection,
     workspace_id: Uuid,
@@ -539,7 +543,7 @@ pub async fn list_active_runs(
     let mut query = run::Entity::find()
         .filter(run::Column::WorkspaceId.eq(workspace_id))
         .filter(run::Column::ParentRunId.is_null())
-        .filter(not_a_preview_run())
+        .filter(in_customer_feed())
         .filter(
             Condition::any()
                 .add(run::Column::TaskStatus.eq("running"))

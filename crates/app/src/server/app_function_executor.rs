@@ -37,9 +37,10 @@ struct JobRequest {
 /// would run a staging task on production's build and secrets
 /// (`internal-docs/2026-09-10-custom-app-environments-design.md` §3.4). An
 /// unknown name is refused here; a known one rides to
-/// `run_scheduled_function`, which resolves that environment's build and puts
-/// it through `environment_gate` — the same gate a route call takes, so
-/// anything outside production is refused there, in one place.
+/// `run_scheduled_function`, which resolves that environment's build and
+/// admits the run through `check_run::admit_queued` — outside production only
+/// a function that build marks `check: true` runs, under that environment's
+/// policy; everything else is refused there, in one place.
 fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
     let TaskSpec::Custom { kind, payload } = spec else {
         return Err(format!(
@@ -301,8 +302,9 @@ mod tests {
 
     /// The collision this reader prevents: a worker that ignored the field
     /// would resolve the production build and run a staging task against it.
-    /// The environment rides to the runner, where `environment_gate` refuses
-    /// it (`custom_apps::app_environments_phase_1b` drives that end to end).
+    /// The environment rides to the runner, which refuses it unless the
+    /// function is a check there (`custom_apps::app_environments_phase_1b` and
+    /// `custom_app_functions_manual_run::environment_checks` drive both ends).
     #[test]
     fn a_task_for_a_non_production_environment_keeps_its_environment() {
         let job = read_task(&spec(json!({

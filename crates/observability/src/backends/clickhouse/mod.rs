@@ -861,6 +861,7 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         limit: u32,
         invocation_id: &str,
         request_id: &str,
+        environment: &str,
     ) -> Result<Vec<FunctionLogRow>, OxyError> {
         with_query_timeout(
             "get_function_logs",
@@ -872,6 +873,7 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
                 limit,
                 invocation_id,
                 request_id,
+                environment,
             ),
         )
         .await

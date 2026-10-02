@@ -399,9 +399,55 @@ pub async fn enqueue_app_function_job(
     // request but is not part of its latency. `None` from a cron tick.
     traceparent: Option<String>,
 ) -> Result<String, ScheduleError> {
+    enqueue_app_function_job_in(
+        db,
+        app_id,
+        function_name,
+        workspace_id,
+        policy,
+        trigger,
+        input,
+        traceparent,
+        None,
+    )
+    .await
+}
+
+/// [`enqueue_app_function_job`] for a run in a named app environment
+/// (`app_environments.name`: `staging`, `dev-<handle>`). `None` is production
+/// and writes exactly what the entry point above always wrote.
+///
+/// The name is carried twice. On the task payload
+/// ([`AppFunctionTask::environment`](crate::app_function_task::AppFunctionTask))
+/// it is what the worker runs the function in, and a worker never drops it:
+/// the host refuses a task whose environment it cannot run rather than run it
+/// on production. On the run's metadata
+/// (`agentic_runtime::crud::RUN_ENVIRONMENT_KEY`) it is what the staff run
+/// detail reports while the run is still queued — and what keeps the run out
+/// of the workspace's own run feed and by-id reads, which are the customer's.
+///
+/// Entity/oxy-free like its sibling: the host has already decided that the
+/// caller may run in that environment and that the function is one it runs
+/// there; nothing here checks either.
+#[allow(clippy::too_many_arguments)]
+pub async fn enqueue_app_function_job_in(
+    db: &DatabaseConnection,
+    app_id: &str,
+    function_name: &str,
+    workspace_id: uuid::Uuid,
+    policy: Option<agentic_core::delegation::TaskPolicy>,
+    trigger: &str,
+    input: Option<serde_json::Value>,
+    traceparent: Option<String>,
+    environment: Option<&str>,
+) -> Result<String, ScheduleError> {
     let run_id = uuid::Uuid::new_v4().to_string();
     let mut metadata = serde_json::json!({});
     stamp_trigger_metadata(&mut metadata, &Some(trigger.to_string()), &None, &None);
+    if let Some(name) = environment {
+        metadata[agentic_runtime::crud::RUN_ENVIRONMENT_KEY] =
+            serde_json::Value::String(name.to_string());
+    }
     agentic_runtime::crud::insert_run(
         db,
         &run_id,
@@ -416,13 +462,12 @@ pub async fn enqueue_app_function_job(
     // Carry the trigger so the executor records the invocation `mode` to match
     // (`manual` here) — the invocation history then agrees with the run's
     // stamped `metadata.trigger` — and the input params (if any) so the worker
-    // replays them as the function's request body. No `environment`: every
-    // task is production until the reader that refuses others has shipped
-    // (see `app_function_task`).
+    // replays them as the function's request body.
     let mut task = crate::app_function_task::AppFunctionTask::new(app_id, function_name);
     task.trigger = Some(trigger.to_string());
     task.input = input.filter(|v| !v.is_null());
     task.traceparent = traceparent;
+    task.environment = environment.map(str::to_string);
     let spec = agentic_core::delegation::TaskSpec::Custom {
         kind: crate::app_function_task::APP_FUNCTION_KIND.into(),
         payload: task.to_payload(),

@@ -9,6 +9,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,17 +28,29 @@ interface Frame {
  *
  * Points every credential and cache lookup at a path that does not exist, so
  * nothing here can read a developer's real token or reach a real deployment —
- * the tool calls under test are the ones that fail before any network I/O.
+ * the tool calls under test are the ones that fail before any network I/O,
+ * UNLESS `net` names a real (local) target and token, for the handful of
+ * tests that need the tool to actually complete a request — a spawned
+ * subprocess talking to `fetch` has no stub to intercept, so those tests spin
+ * up a real `node:http` server instead (see `fakeServer` below).
  */
-async function rpc(requests: object[], timeoutMs = 20_000, cacheDir?: string): Promise<Frame[]> {
+async function rpc(
+  requests: object[],
+  timeoutMs = 20_000,
+  cacheDir?: string,
+  net: { target?: string; token?: string; workspace?: string } = {}
+): Promise<Frame[]> {
   if (!existsSync(BIN)) throw new Error(`${BIN} missing — run \`pnpm build\``);
 
-  const child = spawn(process.execPath, [BIN, "mcp", "--env", "production"], {
+  const args = ["mcp", "--env", "production"];
+  if (net.target) args.push("--target", net.target);
+  if (net.workspace) args.push("--workspace", net.workspace);
+  const child = spawn(process.execPath, [BIN, ...args], {
     env: {
       ...process.env,
       OXY_CREDENTIALS_PATH: join(BIN, "..", "__no_creds__.json"),
       OXYC_CACHE_DIR: cacheDir ?? join(BIN, "..", "__no_cache__"),
-      OXY_TOKEN: "",
+      OXY_TOKEN: net.token ?? "",
       NO_COLOR: "1"
     }
   });
@@ -63,6 +76,41 @@ async function rpc(requests: object[], timeoutMs = 20_000, cacheDir?: string): P
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Frame);
+}
+
+/**
+ * A real local HTTP server for the handful of tests that need an MCP tool to
+ * actually complete a request — a spawned subprocess's own `fetch` cannot be
+ * stubbed the way `preview.test.ts` stubs `globalThis.fetch` in-process.
+ * `routes` matches `"<METHOD> <path>"` (path including its query string,
+ * exactly as the client sends it) to a JSON body; an unmatched request 404s
+ * loudly rather than hanging, so a routing mistake fails fast.
+ */
+function fakeServer(
+  routes: Record<string, unknown>
+): Promise<{ url: string; close: () => Promise<void> }> {
+  return new Promise((resolveServer) => {
+    const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const key = `${(req.method ?? "GET").toUpperCase()} ${req.url}`;
+      const body = routes[key];
+      res.setHeader("content-type", "application/json");
+      if (body === undefined) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ code: "not_stubbed", message: `no stub for ${key}` }));
+        return;
+      }
+      res.writeHead(200);
+      res.end(JSON.stringify(body));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      const port = typeof addr === "object" && addr ? addr.port : 0;
+      resolveServer({
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((r) => server.close(() => r()))
+      });
+    });
+  });
 }
 
 /**
@@ -132,10 +180,37 @@ describe("the MCP handshake", () => {
 });
 
 describe("the tool list", () => {
-  it("exposes exactly the four tools", async () => {
+  /**
+   * FOUR GENERIC TOOLS, PLUS TWO NAMED EXCEPTIONS — pinned by name so a fifth
+   * generic tool or a stray addition to either loop is a decision, not a
+   * drift. `SANDBOX_TOOLS` (10) and `PREVIEW_TOOLS` (8) exist because the
+   * sandbox and workspace-previews loops are meant to run unsupervised, which
+   * needs per-operation validation (the dev-<handle> grammar, a confirm gate
+   * before a delete, a hard refusal of a non-sandbox publish) that the four
+   * generic tools cannot carry — see the module doc in `mcp.ts`.
+   */
+  it("exposes the four generic tools plus the sandbox and preview loops", async () => {
     const frames = await rpc([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
     const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as { name: string }[];
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "oxy_checks_run",
+      "oxy_env_create",
+      "oxy_env_delete",
+      "oxy_env_list",
+      "oxy_env_show",
+      "oxy_fn_call",
+      "oxy_invocations_held",
+      "oxy_invocations_list",
+      "oxy_logs",
+      "oxy_preview_checks",
+      "oxy_preview_create",
+      "oxy_preview_delete",
+      "oxy_preview_list",
+      "oxy_preview_run",
+      "oxy_preview_run_show",
+      "oxy_preview_runs_list",
+      "oxy_preview_show",
+      "oxy_publish_sandbox",
       "oxy_request",
       "oxy_routes",
       "oxy_schema",
@@ -144,20 +219,30 @@ describe("the tool list", () => {
   });
 
   /**
-   * THE DESIGN DECISION, PINNED. One tool per endpoint would mean ~670 tool
-   * schemas, and an agent runtime ships every one of them in EVERY request —
-   * tens of kilobytes of context spent per turn before a question is asked.
-   * Four tools cost a couple of KB and reach every endpoint, including ones
-   * added after this package shipped.
+   * THE DESIGN DECISION, PINNED, RAISED DELIBERATELY. One tool per endpoint
+   * would mean ~670 tool schemas, and an agent runtime ships every one of
+   * them in EVERY request — tens of kilobytes of context spent per turn
+   * before a question is asked. Four generic tools cost a couple of KB and
+   * still reach every endpoint, including ones added after this package
+   * shipped — that principle is intact for the ~660 routes NOT in the
+   * sandbox or previews loop.
    *
-   * The budget is what stops that erosion: adding a fifth tool is fine, adding
-   * fifty is the thing this number exists to catch.
+   * The 22-tool list above costs ~14.7 KB, not a couple — raised from the
+   * original 8 KB on purpose, because the sandbox/previews tools trade
+   * minimalism for validation an agent needs to drive either loop
+   * unsupervised (see the tool-list test above and `mcp.ts`'s module doc).
+   * Ceiling set to 17 KB, not a round 20 KB: close enough to the ~14.7 KB
+   * actual that a tool added without trimming anything still trips it, but
+   * with enough headroom that a wording tweak to an existing description
+   * does not. The ceiling still catches erosion: it is not "whatever the
+   * count happens to be today" but a number a couple of named exceptions
+   * can clear without much room to spare.
    */
-  it("keeps the per-turn schema cost small — the reason there are four", async () => {
+  it("keeps the per-turn schema cost bounded — raised for the two named loops", async () => {
     const frames = await rpc([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
     const tools = frames.find((f) => f.id === 2)?.result?.tools;
     const bytes = JSON.stringify(tools).length;
-    expect(bytes).toBeLessThan(8_000);
+    expect(bytes).toBeLessThan(17_000);
   });
 
   it("tells the model to discover before it guesses", async () => {
@@ -207,6 +292,12 @@ describe("tool failures", () => {
     const body = ((result?.content ?? []) as { text: string }[])[0]?.text ?? "";
     expect(body).toMatch(/not authenticated/i);
     expect(body).toMatch(/oxyc login/);
+    // THE EXIT-CODE CLASS, APPENDED — every CliError now carries one, so an
+    // agent can branch on `[exit 4 AUTH]` the way it would on `oxyc`'s own
+    // exit code, by name rather than a bare digit. Checked here, on the
+    // generic catch-all's own test, rather than repeated on every new
+    // sandbox/preview tool's failure case below.
+    expect(body).toMatch(/\[exit 4 AUTH\]/);
   });
 
   /** An unresolved placeholder is caught before any request is attempted. */
@@ -397,5 +488,341 @@ describe("required arguments", () => {
     expect(result?.isError).toBe(true);
     const body = ((result?.content ?? []) as { text: string }[])[0]?.text ?? "";
     expect(body).toMatch(/oxy_schema needs path/);
+  });
+});
+
+/** One `tools/call`, with the result's `isError` and text body extracted. */
+async function callTool(
+  name: string,
+  args: Record<string, unknown> = {}
+): Promise<{ isError: boolean; body: string }> {
+  const frames = await rpc([
+    INIT,
+    { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }
+  ]);
+  const result = frames.find((f) => f.id === 2)?.result;
+  const body = ((result?.content ?? []) as { text: string }[])[0]?.text ?? "";
+  return { isError: Boolean(result?.isError), body };
+}
+
+/** `callTool`, but against a real (local) server — see `fakeServer`. */
+async function callToolAt(
+  net: { target: string; token: string; workspace: string },
+  name: string,
+  args: Record<string, unknown> = {}
+): Promise<{ isError: boolean; document: unknown }> {
+  const frames = await rpc(
+    [INIT, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }],
+    20_000,
+    undefined,
+    net
+  );
+  const result = frames.find((f) => f.id === 2)?.result;
+  const body = ((result?.content ?? []) as { text: string }[])[0]?.text ?? "";
+  // `jsonResult` appends "\n\n[exit N NAME]" on failure — the document is
+  // everything before that first blank line.
+  const jsonText = body.split("\n\n")[0] ?? body;
+  return { isError: Boolean(result?.isError), document: JSON.parse(jsonText) };
+}
+
+describe("sandbox tools — client-side validation before any request", () => {
+  /**
+   * The same grammar `oxyc env create` validates, caught before any request —
+   * `envCreate` checks `requireSandboxName` before `staffCreds` ever reaches
+   * for a token, so this needs no credential to exercise.
+   */
+  it("oxy_env_create refuses a malformed sandbox name", async () => {
+    const { isError, body } = await callTool("oxy_env_create", {
+      app: "acme/store",
+      name: "not valid!"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/not a valid environment/);
+    expect(body).toMatch(/\[exit 2 USAGE\]/);
+  });
+
+  /** There is no terminal inside an MCP server to confirm on — confirm=true is mandatory. */
+  it("oxy_env_delete refuses without confirm=true", async () => {
+    const { isError, body } = await callTool("oxy_env_delete", {
+      app: "acme/store",
+      name: "dev-a1"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/needs confirm=true/);
+  });
+
+  /**
+   * THE HARD REFUSAL. This tool exists so an agent can iterate in a sandbox
+   * unsupervised; it must never be able to reach the promote/production path,
+   * and that refusal happens before any build or request, reusing the exact
+   * grammar `oxyc publish --app-env` validates.
+   */
+  it("oxy_publish_sandbox refuses production client-side", async () => {
+    const { isError, body } = await callTool("oxy_publish_sandbox", { appEnv: "production" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/is not a sandbox/);
+  });
+
+  it("oxy_publish_sandbox refuses staging client-side", async () => {
+    const { isError, body } = await callTool("oxy_publish_sandbox", { appEnv: "staging" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/is not a sandbox/);
+  });
+
+  it("oxy_fn_call refuses a malformed appEnv before any request", async () => {
+    const { isError, body } = await callTool("oxy_fn_call", {
+      app: "acme/store",
+      function: "f",
+      appEnv: "not-a-real-env!"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/not a valid environment/);
+  });
+
+  it("oxy_checks_run names the missing argument", async () => {
+    const { isError, body } = await callTool("oxy_checks_run", {});
+    expect(isError).toBe(true);
+    expect(body).toMatch(/oxy_checks_run needs app/);
+  });
+
+  it("oxy_invocations_held names the missing argument", async () => {
+    const { isError, body } = await callTool("oxy_invocations_held", { app: "acme/store" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/oxy_invocations_held needs invocationId/);
+  });
+
+  it("oxy_logs surfaces the missing credential", async () => {
+    const { isError, body } = await callTool("oxy_logs", { app: "acme/store" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/not authenticated/i);
+  });
+});
+
+describe("preview tools — client-side validation and workspace resolution", () => {
+  /**
+   * `oxy_preview_run` checks the kind grammar before touching `ctx` at all,
+   * so this needs neither a credential nor `--workspace`. The message also
+   * has to say where the two un-startable kinds ARE reachable, since an
+   * agent reading only the refusal has to find the next step on its own.
+   */
+  it("oxy_preview_run refuses a kind the server cannot start", async () => {
+    const { isError, body } = await callTool("oxy_preview_run", {
+      branch: "feature/x",
+      kind: "transform_build",
+      ref: "some/automation.automation.yml"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/not a run kind/);
+    expect(body).toMatch(/oxy_preview_runs_list|runs show/);
+  });
+
+  it("oxy_preview_run refuses an unsupported compare kind too", async () => {
+    const { isError, body } = await callTool("oxy_preview_run", {
+      branch: "feature/x",
+      kind: "compare",
+      ref: "x"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/not a run kind/);
+  });
+
+  /**
+   * `variables` must go through `preview-runs.ts`'s OWN `parseVariables` — the
+   * same validator `oxyc preview run --variables` uses — not the generic
+   * `parseJson`, which silently returns `undefined` on bad JSON and would
+   * submit a real held run with its variables quietly dropped. Reaching the
+   * USAGE error here (rather than the `{workspace}` placeholder error
+   * `oxy_preview_run` would hit next, since no `--workspace` is passed
+   * anywhere in this suite) proves `previewSubmitRun` — and so any request —
+   * was never reached.
+   */
+  it("oxy_preview_run refuses malformed JSON in variables, before any request", async () => {
+    const { isError, body } = await callTool("oxy_preview_run", {
+      branch: "feature/x",
+      kind: "procedure",
+      ref: "a.automation.yml",
+      variables: "{not valid json"
+    });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/--variables is not valid JSON/);
+    expect(body).not.toMatch(/\{workspace\}/);
+  });
+
+  /** No terminal to confirm on, same rule as `oxy_env_delete`. */
+  it("oxy_preview_delete refuses without confirm=true", async () => {
+    const { isError, body } = await callTool("oxy_preview_delete", { branch: "feature/x" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/needs confirm=true/);
+  });
+
+  /**
+   * Every other preview tool needs `{workspace}` to build its request path —
+   * resolved the same way `oxyc api {workspace}/...` resolves it, through
+   * `ctx.placeholders()`. No `--workspace` is passed anywhere in this suite,
+   * so this is the same placeholder error `oxy_request` gives, naming the
+   * same flag — proof there is no second workspace resolver here.
+   */
+  it("oxy_preview_list names --workspace when it is not resolved", async () => {
+    const { isError, body } = await callTool("oxy_preview_list");
+    expect(isError).toBe(true);
+    expect(body).toMatch(/could not resolve \{workspace\}/);
+    expect(body).toMatch(/--workspace/);
+  });
+
+  it("oxy_preview_show names --workspace when it is not resolved", async () => {
+    const { isError, body } = await callTool("oxy_preview_show", { branch: "feature/x" });
+    expect(isError).toBe(true);
+    expect(body).toMatch(/--workspace/);
+  });
+
+  it("oxy_preview_create names the missing argument", async () => {
+    const { isError, body } = await callTool("oxy_preview_create", {});
+    expect(isError).toBe(true);
+    expect(body).toMatch(/oxy_preview_create needs branch/);
+  });
+
+  it("oxy_preview_run_show names the missing argument", async () => {
+    const { isError, body } = await callTool("oxy_preview_run_show", {});
+    expect(isError).toBe(true);
+    expect(body).toMatch(/oxy_preview_run_show needs runId/);
+  });
+});
+
+/**
+ * `isError` on a terminal preview/run outcome — needs a real request to
+ * complete, so these run against a real local `fakeServer` rather than the
+ * credential-free paths every other case in this file stops short of.
+ * Mirrors `preview.test.ts`'s "exits 1 on a waited-for failed compile" /
+ * `preview-runs.test.ts`'s "--wait exits 1 on a failed/cancelled run" —
+ * same underlying data, the MCP-side half of the same contract.
+ */
+describe("preview tools — isError on a terminal non-success outcome", () => {
+  const WORKSPACE = "11111111-2222-3333-4444-555555555555";
+
+  const RUN_DETAIL_BASE = {
+    run_id: "run-1",
+    branch: "feature/x",
+    kind: "procedure",
+    target_ref: "a.automation.yml",
+    parent_run_id: null,
+    revision_id: "rev-1",
+    state: "finished",
+    held_count: 0,
+    requested_by: "u-1",
+    created_at: "2026-10-01T09:00:00.000Z",
+    started_at: "2026-10-01T09:00:01.000Z",
+    finished_at: "2026-10-01T09:00:05.000Z",
+    agentic_run_id: "ar-1",
+    steps: [],
+    compare: null,
+    sample: null
+  };
+
+  it("oxy_preview_run_show sets isError on a failed outcome, with the document in the result", async () => {
+    const { url, close } = await fakeServer({
+      [`GET /api/${WORKSPACE}/previews/runs/run-1`]: {
+        ...RUN_DETAIL_BASE,
+        outcome: "failed",
+        error: "boom"
+      }
+    });
+    try {
+      const { isError, document } = await callToolAt(
+        { target: url, token: "tok", workspace: WORKSPACE },
+        "oxy_preview_run_show",
+        { runId: "run-1" }
+      );
+      expect(isError).toBe(true);
+      expect(document).toMatchObject({ run_id: "run-1", outcome: "failed", error: "boom" });
+    } finally {
+      await close();
+    }
+  });
+
+  /** `cancelled` must set `isError` too — the gap finding 3 calls out by name. */
+  it("oxy_preview_run_show sets isError on a cancelled outcome", async () => {
+    const { url, close } = await fakeServer({
+      [`GET /api/${WORKSPACE}/previews/runs/run-1`]: { ...RUN_DETAIL_BASE, outcome: "cancelled" }
+    });
+    try {
+      const { isError, document } = await callToolAt(
+        { target: url, token: "tok", workspace: WORKSPACE },
+        "oxy_preview_run_show",
+        { runId: "run-1" }
+      );
+      expect(isError).toBe(true);
+      expect(document).toMatchObject({ outcome: "cancelled" });
+    } finally {
+      await close();
+    }
+  });
+
+  it("oxy_preview_run_show does NOT set isError on a succeeded outcome", async () => {
+    const { url, close } = await fakeServer({
+      [`GET /api/${WORKSPACE}/previews/runs/run-1`]: { ...RUN_DETAIL_BASE, outcome: "succeeded" }
+    });
+    try {
+      const { isError, document } = await callToolAt(
+        { target: url, token: "tok", workspace: WORKSPACE },
+        "oxy_preview_run_show",
+        { runId: "run-1" }
+      );
+      expect(isError).toBe(false);
+      expect(document).toMatchObject({ outcome: "succeeded" });
+    } finally {
+      await close();
+    }
+  });
+
+  it("oxy_preview_run sets isError on a waited-for failed outcome", async () => {
+    const { url, close } = await fakeServer({
+      [`POST /api/${WORKSPACE}/previews/runs`]: { run_id: "run-1", state: "queued" },
+      [`GET /api/${WORKSPACE}/previews/runs/run-1`]: {
+        ...RUN_DETAIL_BASE,
+        outcome: "failed",
+        error: "boom"
+      }
+    });
+    try {
+      const { isError, document } = await callToolAt(
+        { target: url, token: "tok", workspace: WORKSPACE },
+        "oxy_preview_run",
+        { branch: "feature/x", kind: "procedure", ref: "a.automation.yml", waitSeconds: 5 }
+      );
+      expect(isError).toBe(true);
+      expect(document).toMatchObject({ outcome: "failed" });
+    } finally {
+      await close();
+    }
+  });
+
+  it("oxy_preview_create sets isError on a waited-for failed compile", async () => {
+    const compiling = {
+      branch: "feature/x",
+      revision_id: null,
+      sha: "abc123",
+      status: "compiling",
+      error: null,
+      created_by: null,
+      updated_at: "2026-10-01T09:00:00.000Z",
+      compiled_at: null,
+      checks: null
+    };
+    const failed = { ...compiling, status: "failed", error: "syntax error" };
+    const { url, close } = await fakeServer({
+      [`POST /api/${WORKSPACE}/previews`]: { item: compiling },
+      [`GET /api/${WORKSPACE}/previews`]: { items: [failed] }
+    });
+    try {
+      const { isError, document } = await callToolAt(
+        { target: url, token: "tok", workspace: WORKSPACE },
+        "oxy_preview_create",
+        { branch: "feature/x", waitSeconds: 5 }
+      );
+      expect(isError).toBe(true);
+      expect(document).toMatchObject({ status: "failed" });
+    } finally {
+      await close();
+    }
   });
 });

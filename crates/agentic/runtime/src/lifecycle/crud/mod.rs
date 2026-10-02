@@ -15,6 +15,7 @@ pub mod events;
 pub mod queries;
 pub mod runs;
 pub mod suspension;
+pub mod visibility;
 
 pub use events::{
     EventRow, batch_insert_events, delete_events_from_seq, get_all_events, get_all_events_for_runs,
@@ -35,6 +36,7 @@ pub use runs::{
     update_run_suspended, update_run_terminal_from_events, update_task_status,
 };
 pub use suspension::{get_suspension, get_suspension_with_start, upsert_suspension};
+pub use visibility::{RUN_ENVIRONMENT_KEY, customer_run_sql, get_run_in_workspace};
 
 pub fn now() -> chrono::DateTime<chrono::FixedOffset> {
     chrono::Utc::now().fixed_offset()

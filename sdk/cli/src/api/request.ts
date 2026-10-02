@@ -157,6 +157,23 @@ export async function request(opts: RequestOptions): Promise<ApiResponse> {
 }
 
 /**
+ * The previews and sandbox surfaces answer a refusal as `{"code":…,
+ * "message":…}`. Picked out here, once, so every caller of `errorForResponse`
+ * gets it on the `CliError` rather than having to re-parse `detail` itself.
+ */
+function parseServerError(body: string): { code?: string; message?: string } {
+  try {
+    const parsed = JSON.parse(body) as { code?: unknown; message?: unknown };
+    return {
+      code: typeof parsed.code === "string" ? parsed.code : undefined,
+      message: typeof parsed.message === "string" ? parsed.message : undefined
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Turn a non-2xx response into the error it deserves.
  *
  * The body goes into `detail` rather than the message because it is the part
@@ -172,10 +189,13 @@ export function errorForResponse(response: ApiResponse): CliError {
       : code === ExitCode.NOT_FOUND
         ? "check the path with `oxyc routes <filter>` — and note an admin 404 can be a scope boundary, not a missing row"
         : undefined;
+  const server = parseServerError(response.body);
   return new CliError(`${response.status} ${response.statusText} — ${response.url}`, {
     code,
     hint,
-    detail: response.body.trim() || undefined
+    detail: response.body.trim() || undefined,
+    serverCode: server.code,
+    serverMessage: server.message
   });
 }
 

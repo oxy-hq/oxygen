@@ -19,6 +19,9 @@
 /// Whose call this is — the scope every per-call key (result cache,
 /// idempotency record, rate-limit bucket) is built from, environment included.
 mod call_scope;
+/// A queued run in a named app environment: how one is triggered, and the
+/// rule that admits it outside production only for a `check: true` function.
+pub(crate) mod check_run;
 /// Drift guard: `oxyc`'s copy of the capability gates
 /// (`sdk/cli/src/publish/capabilities.ts`) names exactly the fields of
 /// `FunctionCapabilities`. Text scans of `host.rs` and the TypeScript, so it
@@ -58,6 +61,9 @@ pub mod preflight;
 /// The rate-limit bucket per (user, app, environment, function).
 mod rate_limit;
 mod result_cache;
+/// The one place a run's `EnvPolicy` is assembled, for a route call and a
+/// queued run alike.
+mod run_policy;
 #[cfg(feature = "custom-app-functions")]
 pub mod runtime;
 /// Drift guard: `@oxy-hq/sdk/testing`'s copy of the host's words, gates, op
@@ -107,8 +113,6 @@ use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_shared::utils::request_id::from_headers as request_id_from_headers;
 
 use super::custom_apps_env_resolve::resolve_function_environment;
-#[cfg(feature = "custom-app-functions")]
-use super::custom_apps_secrets::shared_env::effective_shared_env;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use sentry::SentryFutureExt;
 use serde::Deserialize;
@@ -518,47 +522,37 @@ pub(crate) async fn trigger_function_job(
     // `schedule`, so add one there in the same change.
     trigger: FunctionJobTrigger,
 ) -> Result<String, String> {
-    let app = entity::apps::Entity::find_by_id(app_id)
-        .one(db)
-        .await
-        .map_err(|e| format!("app lookup failed: {e}"))?
-        .ok_or_else(|| format!("app {app_id} not found"))?;
     // A job runs in production: the admin console's Run now and a provider
-    // webhook both address the live app, and the task carries no environment.
-    let build_id = super::custom_apps_env_resolve::resolve_function_environment(
+    // webhook both address the live app, and the task names no environment.
+    trigger_function_job_in(
         db,
-        &app,
+        app_id,
+        function_name,
+        input,
+        trigger,
         &AppEnvironment::Production,
     )
     .await
-    .map_err(|e| format!("environment lookup failed: {e}"))?
-    .build_id
-    .ok_or_else(|| "app has no build".to_string())?;
-    // Validate the function exists in the active build before enqueuing, so a
-    // typo produces a 400 now rather than a failed run later.
-    let func_row = AppFunctions::find()
-        .filter(app_functions::Column::BuildId.eq(build_id))
-        .filter(app_functions::Column::Name.eq(function_name))
-        .one(db)
-        .await
-        .map_err(|e| format!("app_functions lookup failed: {e}"))?
-        .ok_or_else(|| format!("function '{function_name}' not found in the app's active build"))?;
-    let policy = func_row
-        .manifest_json
-        .as_ref()
-        .and_then(function_task_policy);
-    agentic_pipeline::scheduler::enqueue_app_function_job(
-        db,
-        &app_id.to_string(),
-        function_name,
-        app.project_id,
-        policy,
-        trigger.as_str(),
-        input,
-        oxy_telemetry::propagation::current_traceparent(),
-    )
-    .await
-    .map_err(|e| format!("failed to enqueue function job: {e:?}"))
+    .map_err(|e| e.to_string())
+}
+
+/// [`trigger_function_job`] in a named app environment: the run resolves that
+/// environment's build and executes under its policy, on the same queue, as
+/// the same system identity, polled the same way.
+///
+/// **Outside production only a function its build marks `"check": true` is
+/// queued** (`check_run`); every other function is `NotACheck`. This does not
+/// decide who may ask: the caller has already been through
+/// `admin::apps::environment_scope::resolve`.
+pub(crate) async fn trigger_function_job_in(
+    db: &sea_orm::DatabaseConnection,
+    app_id: Uuid,
+    function_name: &str,
+    input: Option<serde_json::Value>,
+    trigger: FunctionJobTrigger,
+    environment: &AppEnvironment,
+) -> Result<String, check_run::TriggerError> {
+    check_run::trigger(db, app_id, function_name, input, trigger, environment).await
 }
 
 /// Per-mode default `timeoutSeconds` (design doc §11.11). Route invocations
@@ -644,6 +638,36 @@ fn sse_response(body: String) -> Response {
         .body(Body::from(body))
         .unwrap()
         .into_response()
+}
+
+/// The response header naming the `app_function_invocations` row a `/fn`
+/// call wrote.
+const INVOCATION_ID_HEADER: &str = "x-oxy-invocation-id";
+
+/// `response`, naming the invocation that produced it.
+fn with_invocation_id(mut response: Response, invocation_id: Uuid) -> Response {
+    if let Ok(value) = axum::http::HeaderValue::from_str(&invocation_id.to_string()) {
+        response.headers_mut().insert(INVOCATION_ID_HEADER, value);
+    }
+    response
+}
+
+/// The answer for an environment that serves no build. Production keeps the
+/// error it has always given; any other environment says which one is empty,
+/// since "publish first" there means publishing *to that environment*.
+fn no_build_response(environment: &AppEnvironment) -> Response {
+    if *environment == AppEnvironment::Production {
+        return json_error(
+            StatusCode::NOT_FOUND,
+            "AppNotPublished",
+            "this app has no published or draft build; run `oxyc publish` first",
+        );
+    }
+    json_error(
+        StatusCode::NOT_FOUND,
+        "EnvironmentHasNoBuild",
+        &format!("the {environment} environment of this app has no build; publish to it first"),
+    )
 }
 
 /// Frame a successful function result body as the terminal `data` + `done` SSE
@@ -896,10 +920,18 @@ async fn resolve_keyed_row(
         // `None` is a row written before the column existed. Read as 200, which
         // is what those rows were already being reported as; stamping them in a
         // backfill would assert something nobody recorded.
-        ("success", Some(body)) => Acquire::Return(Box::new(sse_response(success_sse_body(
-            &body,
-            row.result_status.unwrap_or(200) as u16,
-        )))),
+        //
+        // It names the row it replays (`x-oxy-invocation-id`), as the call
+        // that wrote it did: the replay answers for that invocation, and a
+        // caller in a sandbox reads its held writes by that id. Only a
+        // result-cache hit, which answers for no row, names none.
+        ("success", Some(body)) => Acquire::Return(Box::new(with_invocation_id(
+            sse_response(success_sse_body(
+                &body,
+                row.result_status.unwrap_or(200) as u16,
+            )),
+            row.id,
+        ))),
         // Genuinely in flight → duplicate in progress.
         ("running", _) if !stale => Acquire::Return(Box::new(json_error(
             StatusCode::CONFLICT,
@@ -1032,25 +1064,8 @@ pub async fn handle_function_request(
         Ok(admission) => admission,
         Err(refused) => return refused.into_response(),
     };
-    // Where a staging run's `ctx.oltp` lands: the org's staging branch, or
-    // production held read-only. Decided once, for the whole invocation.
-    let admission = match environment_gate::with_oltp_home(&db, admission, app.org_id).await {
-        Ok(admission) => admission,
-        Err(e) => {
-            error!("OLTP staging branch lookup failed: {e}");
-            return json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "EnvironmentLookupFailed",
-                "could not read the org's OLTP staging branch; retry shortly",
-            );
-        }
-    };
     let Some(build_id) = resolved.build_id else {
-        return json_error(
-            StatusCode::NOT_FOUND,
-            "AppNotPublished",
-            "this app has no published or draft build; run `oxyc publish` first",
-        );
+        return no_build_response(&resolved.environment);
     };
 
     let Some(func_row) = (match AppFunctions::find()
@@ -1177,6 +1192,23 @@ pub async fn handle_function_request(
         );
     };
 
+    // What the run may do in its environment (`run_policy`), decided once for
+    // the whole invocation: outside production, where `ctx.oltp` lands, the
+    // semantic model the build pins, the `env` keys it shares with production
+    // and where its warehouse writes are mapped. Production asks nothing.
+    // Before the invocation row is written, so a failed lookup leaves none.
+    let policy = match run_policy::build(&db, admission, &app, &build).await {
+        Ok(policy) => policy,
+        Err(e) => {
+            error!("OLTP staging branch lookup failed: {e}");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EnvironmentLookupFailed",
+                "could not read the org's OLTP staging branch; retry shortly",
+            );
+        }
+    };
+
     let artifact_rel = format!("functions/{function_name}.js");
     let artifact =
         match custom_apps_build_store::get_object(app.id, &build.build_id, &artifact_rel).await {
@@ -1235,31 +1267,9 @@ pub async fn handle_function_request(
     // between deciding to run and tenant code running, thread spawn included.
     let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
-    // A staging build may pin the semantic model compiled from a branch
-    // (`custom_apps_staging_pin`, #3370), and the `env` keys it may read from
-    // production are those both it and production's build mark `shared`.
-    // Production never looks: it always reads the promoted revision and its
-    // own secrets.
-    #[cfg(feature = "custom-app-functions")]
-    let shared = effective_shared_env(
-        &db,
-        &app,
-        admission.policy.environment(),
-        build.manifest_json.as_ref(),
-    )
-    .await;
-    #[cfg(feature = "custom-app-functions")]
-    let policy = environment_gate::with_build_pin(&db, admission.policy, build_id)
-        .await
-        .with_shared_env(shared)
-        // Where a non-production write to a customer warehouse lands, from
-        // the manifest that shipped with this build. Production ignores it.
-        .with_destinations(
-            super::custom_apps_nonproduction::destinations_from_build_manifest(
-                build.manifest_json.as_ref(),
-                app.id,
-            ),
-        );
+    // A non-production build may pin the semantic model compiled from a
+    // branch (`custom_apps_staging_pin`, #3370); the run reads inside that pin.
+    // Production carries none and always reads the promoted revision.
     #[cfg(feature = "custom-app-functions")]
     let (status_str, error_msg, body_text, http_status, host_call) =
         super::custom_apps_staging_pin::with_staging_pin(
@@ -1302,7 +1312,7 @@ pub async fn handle_function_request(
 
     #[cfg(not(feature = "custom-app-functions"))]
     let (status_str, error_msg, body_text, http_status, host_call) = {
-        let _ = (&artifact_js, &body, timeout, &query_exec, &admission);
+        let _ = (&artifact_js, &body, timeout, &query_exec, &policy);
         (
             "error",
             Some("custom-app-functions feature not enabled".to_string()),
@@ -1424,7 +1434,9 @@ pub async fn handle_function_request(
         ),
         None => success_sse_body(&body_text, http_status),
     });
-    sse_response(sse_body)
+    // The row this call wrote, so the caller can read it back: its held
+    // writes, its log lines. A result-cache hit ran nothing and names none.
+    with_invocation_id(sse_response(sse_body), invocation_id)
 }
 
 /// Outcome shared by both feature arms:
@@ -1483,10 +1495,12 @@ pub(crate) type RunEventSink = tokio::sync::mpsc::Sender<(String, serde_json::Va
 /// is set — drains the isolate's log buffer into `function_log` events so the
 /// run's output is persisted and observable. Returns the response body on success.
 ///
-/// `environment` is the one the task named (production for every task queued
-/// today). It is resolved and put through the same [`environment_gate`] a route
-/// call takes, so a non-production task is refused here rather than run on
-/// production's build and secrets.
+/// `environment` is the one the task named — production for every schedule,
+/// webhook and Run now. It is resolved, and admitted by `check_run::admit_queued`:
+/// outside production only a function the resolved build marks `check: true`
+/// runs, and it runs that environment's build under that environment's policy
+/// (`run_policy`), the one a route call there gets. Every other non-production
+/// task is refused here rather than run on production's build and secrets.
 #[cfg(feature = "custom-app-functions")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_scheduled_function(
@@ -1514,13 +1528,13 @@ pub(crate) async fn run_scheduled_function(
     let resolved = resolve_function_environment(db, &app, environment)
         .await
         .map_err(|e| format!("environment lookup failed: {e}"))?;
-    // A queued run has no viewer, so staging is refused here: schedules,
-    // webhooks and Run now stay production-only (`environment_gate`).
-    let admission = environment_gate::admit(&resolved, environment_gate::Entrance::Queued)
-        .map_err(|refused| refused.message())?;
-    let build_id = resolved
-        .build_id
-        .ok_or_else(|| "app has no build".to_string())?;
+    let build_id = resolved.build_id.ok_or_else(|| {
+        if resolved.is_production() {
+            "app has no build".to_string()
+        } else {
+            format!("the {environment} environment of this app has no build")
+        }
+    })?;
 
     let func_row = AppFunctions::find()
         .filter(app_functions::Column::BuildId.eq(build_id))
@@ -1529,6 +1543,14 @@ pub(crate) async fn run_scheduled_function(
         .await
         .map_err(|e| format!("app_functions lookup failed: {e}"))?
         .ok_or_else(|| format!("function '{function_name}' not found in build"))?;
+
+    // A queued run has no viewer. Production runs as it always has; outside
+    // production only a check does (`check_run`) — the flag is read from the
+    // build resolved here, not trusted from whoever queued the task — and
+    // schedules, webhooks and Run now stay production-only.
+    let is_check = check_run::manifest_marks_check(func_row.manifest_json.as_ref());
+    let admission =
+        check_run::admit_queued(&resolved, is_check).map_err(|refused| refused.message())?;
 
     let manifest: FunctionManifestEntry = func_row
         .manifest_json
@@ -1559,6 +1581,14 @@ pub(crate) async fn run_scheduled_function(
         .await
         .map_err(|e| format!("org owner lookup failed: {e}"))?
         .ok_or_else(|| format!("no owner for org {}", app.org_id))?;
+
+    // The same policy a route call in this environment runs under: production
+    // asks nothing; a check outside production gets the OLTP home, the build's
+    // pin, its shared `env` keys and its mapped destinations. Before the
+    // invocation row, so a failed lookup refuses the run and leaves no row.
+    let policy = run_policy::build(db, admission, &app, &build)
+        .await
+        .map_err(|e| format!("environment policy lookup failed: {e}"))?;
 
     let invocation_id = Uuid::new_v4();
     if let Err(e) = (app_function_invocations::ActiveModel {
@@ -1591,7 +1621,8 @@ pub(crate) async fn run_scheduled_function(
     let logs: std::sync::Arc<Mutex<Vec<LogLine>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
     let meters = super::custom_apps_telemetry::InvocationMeters::start();
 
-    let (status_str, error_msg, body_text, http_status, host_call) = run_with_runtime(RunArgs {
+    let semantic_pin = policy.semantic_pin();
+    let run = run_with_runtime(RunArgs {
         db,
         query_exec,
         app: &app,
@@ -1626,17 +1657,12 @@ pub(crate) async fn run_scheduled_function(
         meters: meters.clone(),
         cancel,
         preagg,
-        policy: admission.policy.clone().with_shared_env(
-            effective_shared_env(
-                db,
-                &app,
-                admission.policy.environment(),
-                build.manifest_json.as_ref(),
-            )
-            .await,
-        ),
-    })
-    .await;
+        policy,
+    });
+    // Inside the build's semantic pin, as a route call runs: a check outside
+    // production reads the model its build pins. Production carries no pin.
+    let (status_str, error_msg, body_text, http_status, host_call) =
+        super::custom_apps_staging_pin::with_staging_pin(semantic_pin, run).await;
 
     let duration_ms = started.elapsed().as_millis() as i64;
     let mut update = app_function_invocations::ActiveModel {
@@ -1757,6 +1783,10 @@ pub(crate) async fn run_scheduled_function(
                     "status": status_str,
                     "duration_ms": duration_ms,
                     "log_lines": total,
+                    // What the run detail reports (`get_function_run`): the
+                    // invocation row this run wrote, and where it ran.
+                    "invocation_id": invocation_id,
+                    "environment": resolved.environment.name(),
                 }),
             ))
             .await;

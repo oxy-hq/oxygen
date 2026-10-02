@@ -179,6 +179,14 @@ pub async fn api_router(
         crate::server::previews::maintenance::MaintenanceConfig::from_env(),
     );
 
+    // Custom-app sandboxes: expire the ones idle past their TTL and queue
+    // again the teardowns that did not finish (the worker fleet tears down).
+    // Only writes rows; runs regardless of --no-workers, and two replicas
+    // sweeping at once is harmless — the teardown is idempotent.
+    crate::server::api::custom_apps_sandboxes::maintenance::spawn(
+        crate::server::api::custom_apps_sandboxes::maintenance::MaintenanceConfig::from_env(),
+    );
+
     // Keep `origin/*` tracking refs warm so every surface that reports remote
     // state (compile freshness badge, ahead/behind counts) answers from a
     // recent fetch instead of whenever the user last happened to fetch by hand.

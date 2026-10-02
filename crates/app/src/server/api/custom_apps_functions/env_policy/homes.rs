@@ -62,13 +62,13 @@ impl EnvPolicy {
     }
 
     /// The sibling a non-production write to `app_schema` lands in,
-    /// `app_<writer>__<env>`. `None` in production, and for a schema or an
-    /// environment that cannot name one (`airhouse::app_schema`).
+    /// `app_<writer>__<label>` — the label is the environment's
+    /// `schema_label`, so a sandbox `dev-a1` writes `app_<writer>__dev_a1`.
+    /// `None` in production (it has no label), and for a schema that cannot
+    /// name one (`airhouse::app_schema`).
     pub fn sibling_schema(&self, app_schema: &str) -> Option<String> {
-        if self.is_production() {
-            return None;
-        }
-        airhouse::app_schema::environment_schema(app_schema, &self.environment.name())
+        let label = self.environment.schema_label()?;
+        airhouse::app_schema::environment_schema(app_schema, &label)
     }
 
     /// [`Self::decide`] for a write naming `database`: a row isolated to a

@@ -38,6 +38,20 @@ export const ExitCode = {
 
 export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
 
+/** The reverse of `ExitCode`, for a caller that needs the name rather than the number. */
+const EXIT_CODE_NAMES: Record<number, string> = Object.fromEntries(
+  Object.entries(ExitCode).map(([name, value]) => [value, name])
+);
+
+/**
+ * `5` → `"NOT_FOUND"`. For `oxyc mcp`, which reports a failure's exit-code
+ * CLASS alongside its number — a model branches on a name it can reread far
+ * more reliably than on a bare digit it has to remember the table for.
+ */
+export function exitCodeName(code: ExitCodeValue): string {
+  return EXIT_CODE_NAMES[code] ?? "UNKNOWN";
+}
+
 /**
  * An error that already knows how it should end the process.
  *
@@ -90,9 +104,27 @@ export class CliError extends Error {
    */
   readonly remedy?: string;
 
+  /**
+   * The server's OWN error code, when the response body carried one (every
+   * refusal on the previews and sandbox surfaces answers `{"code":…,
+   * "message":…}`). Distinct from `code` above, which is OUR exit code — this
+   * is the string an `oxyc mcp` tool result surfaces so an agent can branch on
+   * `preview_runs_disabled` or `sandbox_required` by name, not just by status.
+   */
+  readonly serverCode?: string;
+  /** The server's own `message` field, when the body carried one and it adds to `message`. */
+  readonly serverMessage?: string;
+
   constructor(
     message: string,
-    opts: { code?: ExitCodeValue; hint?: string; detail?: string; remedy?: string } = {}
+    opts: {
+      code?: ExitCodeValue;
+      hint?: string;
+      detail?: string;
+      remedy?: string;
+      serverCode?: string;
+      serverMessage?: string;
+    } = {}
   ) {
     super(message);
     this.name = "CliError";
@@ -100,6 +132,8 @@ export class CliError extends Error {
     this.hint = opts.hint;
     this.detail = opts.detail;
     this.remedy = opts.remedy;
+    this.serverCode = opts.serverCode;
+    this.serverMessage = opts.serverMessage;
   }
 }
 

@@ -3,9 +3,11 @@
 //!
 //! Production runs them in the app's own schema, `app_<writer>`, under target
 //! `production`. A non-production environment runs the **same files** in its
-//! sibling, `app_<writer>__<env>` (`airhouse::app_schema`), under target
-//! `schema:app_<writer>__<env>` — so a file applied to staging is never read as
-//! applied to production, and promote still plans production's DDL.
+//! sibling, `app_<writer>__<label>` (`airhouse::app_schema`; the label is
+//! `AppEnvironment::schema_label`, so staging's is `…__staging` and a sandbox
+//! `dev-a1`'s is `…__dev_a1`), under target `schema:<sibling>` — so a file
+//! applied to one environment is never read as applied to another, and promote
+//! still plans production's DDL.
 //!
 //! The files name `app_<writer>`, as the author wrote them. For the sibling
 //! each file is checked against the app's schema first (the rules production
@@ -14,7 +16,10 @@
 //! second check is the fence: a statement the move missed still names the app
 //! schema, and is refused there.
 
+use entity::apps;
 use oxy_app_core::custom_app_environment::AppEnvironment;
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QuerySelect};
+use uuid::Uuid;
 
 use airhouse::sql_retarget::check_retargeted;
 use airhouse::sql_rules::{self, Access};
@@ -49,13 +54,12 @@ impl AirhouseHome {
         app_slug: &str,
         environment: &AppEnvironment,
     ) -> Result<Option<Self>, MigrationError> {
-        if *environment == AppEnvironment::Production {
+        // Production has no label: it writes the app's own schema.
+        let Some(label) = environment.schema_label() else {
             return Ok(None);
-        }
+        };
         let app_schema = airhouse_schema_for(app_slug)?;
-        let Some(sibling) =
-            airhouse::app_schema::environment_schema(&app_schema, &environment.name())
-        else {
+        let Some(sibling) = airhouse::app_schema::environment_schema(&app_schema, &label) else {
             return Ok(None);
         };
         Ok(Some(Self {
@@ -88,6 +92,37 @@ impl AirhouseHome {
             }
         })
     }
+}
+
+/// The slug of **another** app of the workspace whose own schema is `schema`,
+/// when there is one.
+///
+/// A sibling's name is read back from its shape (`app_<writer>__<label>`,
+/// `airhouse::app_schema::is_environment_schema`), and the shape alone cannot
+/// tell app `a`'s sandbox `dev-b` from the production schema of an app whose
+/// slug is `a--dev-b`: both are `app_a__dev_b`. No slug `is_valid_slug` admits
+/// today holds `--`, but rows written before that rule may. So before a
+/// sandbox is given a sibling — created, migrated or dropped — the workspace
+/// is asked whether that name is already an app's own. Only a slug holding
+/// `--` can derive one, so only those rows are read.
+pub(crate) async fn schema_owner<C: ConnectionTrait>(
+    db: &C,
+    workspace_id: Uuid,
+    app_id: Uuid,
+    schema: &str,
+) -> Result<Option<String>, DbErr> {
+    let slugs: Vec<String> = apps::Entity::find()
+        .select_only()
+        .column(apps::Column::Slug)
+        .filter(apps::Column::ProjectId.eq(workspace_id))
+        .filter(apps::Column::Id.ne(app_id))
+        .filter(apps::Column::Slug.contains("--"))
+        .into_tuple()
+        .all(db)
+        .await?;
+    Ok(slugs
+        .into_iter()
+        .find(|slug| airhouse_schema_for(slug).is_ok_and(|own| own == schema)))
 }
 
 /// `app_<writer>` for this slug — the same derivation `ctx.airhouse` uses.
@@ -188,6 +223,49 @@ mod tests {
         assert_eq!(
             AirhouseHome::for_environment("store-ops", &AppEnvironment::Production).unwrap(),
             None
+        );
+    }
+
+    /// A sandbox runs the files in a sibling of its own, recorded under that
+    /// sibling's target — never staging's, never production's.
+    #[test]
+    fn a_sandbox_runs_the_file_in_its_own_sibling_under_its_own_target() {
+        let sandbox = AppEnvironment::Dev {
+            handle: "a1-b2".into(),
+        };
+        let home = AirhouseHome::for_environment("store-ops", &sandbox)
+            .unwrap()
+            .expect("a sandbox has a sibling");
+        assert_eq!(home.schema(), "app_store_ops__dev_a1_b2");
+        assert_eq!(home.target().as_key(), "schema:app_store_ops__dev_a1_b2");
+        let statements = home
+            .statements(&file(
+                "CREATE TABLE app_store_ops.visits (visit_id VARCHAR NOT NULL);",
+            ))
+            .expect("moves");
+        assert!(
+            statements[0].contains("app_store_ops__dev_a1_b2"),
+            "{statements:?}"
+        );
+    }
+
+    /// A slug whose writer leaves no room for the sandbox's label names no
+    /// sibling: nothing runs, rather than a truncated name meeting another.
+    #[test]
+    fn a_slug_too_long_for_the_label_has_no_sandbox_sibling() {
+        let slug = format!("a{}", "b".repeat(41));
+        let sandbox = AppEnvironment::Dev {
+            handle: "abcdefghijkl".into(),
+        };
+        assert_eq!(
+            AirhouseHome::for_environment(&slug, &sandbox).unwrap(),
+            None
+        );
+        assert!(
+            AirhouseHome::for_environment(&slug, &AppEnvironment::Staging)
+                .unwrap()
+                .is_some(),
+            "control: staging's shorter label still fits"
         );
     }
 

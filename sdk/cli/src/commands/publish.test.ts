@@ -112,6 +112,7 @@ beforeAll(async () => {
         return reply(403, { error: "not an app admin" });
       }
       if (uploadStatus !== 200) return reply(uploadStatus, { error: "nope" });
+      const environment = record.fields.environment;
       return reply(200, {
         app_id: "app-1",
         build_id: record.fields.build_id,
@@ -119,7 +120,13 @@ beforeAll(async () => {
         channel: record.fields.channel,
         org_slug: "acme",
         is_new_app: false,
-        warnings: ["schedule for fn refresh did not register"]
+        warnings: ["schedule for fn refresh did not register"],
+        ...(environment
+          ? {
+              environment,
+              environment_url: `https://${environment}--acme--sales.customer-apps-dev.oxygen-hq.com/`
+            }
+          : {})
       });
     }
     reply(404, { error: `unexpected ${path}` });
@@ -252,6 +259,47 @@ describe("oxyc publish", () => {
     );
     expect(result.status).toBe(ExitCode.USAGE);
     expect(result.stderr).toContain("staging-only");
+    expect(received).toHaveLength(0);
+  });
+
+  it("--app-env sends the environment field, and prints environment_url", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--app-env", "dev-a1", "--json"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const [upload] = uploads();
+    expect(upload?.fields.environment).toBe("dev-a1");
+    const parsed = JSON.parse(result.stdout) as { environment: string; environment_url: string };
+    expect(parsed.environment).toBe("dev-a1");
+    expect(parsed.environment_url).toContain("dev-a1");
+  });
+
+  it("rejects a malformed --app-env before any request", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--app-env", "not-a-sandbox"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status).toBe(ExitCode.USAGE);
+    expect(received).toHaveLength(0);
+  });
+
+  it("refuses --promote combined with --app-env, before calling the server", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--app-env", "dev-a1", "--promote"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status).toBe(ExitCode.USAGE);
+    expect(result.stderr).toContain("--app-env");
+    expect(received).toHaveLength(0);
+  });
+
+  it("refuses a publish token with --app-env, before calling the server", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "oxypublish_stored"
+    });
+    expect(result.status).toBe(ExitCode.USAGE);
     expect(received).toHaveLength(0);
   });
 

@@ -83,6 +83,10 @@ export interface PublishResult {
   org_slug?: string;
   is_new_app?: boolean;
   warnings?: string[];
+  /** Set when the publish carried `environment` — `staging`, `production` or a sandbox. */
+  environment?: string;
+  /** The environment's own host, when one is configured; null otherwise. */
+  environment_url?: string | null;
 }
 
 export interface UploadRequest {

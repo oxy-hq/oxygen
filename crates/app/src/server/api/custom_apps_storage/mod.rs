@@ -63,6 +63,8 @@
 //! so without a bucket those two calls return a clear error; point
 //! `AWS_ENDPOINT_URL` at a local MinIO to exercise them.
 
+#[cfg(test)]
+mod environment_delete_tests;
 pub mod environment_limits;
 mod environments;
 mod local;
@@ -85,7 +87,8 @@ use serde::Serialize;
 use uuid::Uuid;
 
 pub use ops::{
-    copy, delete, delete_app_assets, get, get_download_url, get_upload_url, head, list, put,
+    copy, delete, delete_app_assets, delete_environment_assets, get, get_download_url,
+    get_upload_url, head, list, put,
 };
 pub use retention::{RetentionPolicy, RetentionRule};
 pub use silo::Silo;

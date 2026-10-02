@@ -1,4 +1,5 @@
-//! Is a browser data-plane request a **staging** request, and for which app?
+//! Is a browser data-plane request a **non-production** request — staging's or
+//! a sandbox's — and for which app?
 //!
 //! The SDK's data endpoints (`/api/projects/{project_id}/query`,
 //! `/semantic-query`, the `semantic/*` analyses) are keyed by workspace, not
@@ -12,13 +13,15 @@
 //! 3. the `Host` of a custom-app subdomain (`<org>--<slug>.customer-apps.…`).
 //!
 //! Then the gates, all required: the app was published from THIS workspace,
-//! the request is a staging request, and the caller may open staging. A
-//! staging request is one addressed to the app's **staging host** (the caller
-//! must pass `may_open_non_production`, the rule that serves them staging
-//! HTML) or one carrying the **preview cookie** (the caller must have platform
-//! `DevelopApps` reach for the app's org — the decision `custom_apps_serve`
-//! makes to serve the draft bundle). Any miss is "no pin": the request reads
-//! the promoted revision, as it did before staging existed.
+//! the request is a non-production request, and the caller may open
+//! non-production. Such a request is one addressed to a **non-production
+//! environment** of the app — its staging host, a sandbox's host, or either
+//! named by `X-Oxy-App-Env` on a bearer request (the caller must pass
+//! `may_open_non_production`, the rule that serves them that environment's
+//! HTML) — or one carrying the **preview cookie** (the caller must have
+//! platform `DevelopApps` reach for the app's org — the decision
+//! `custom_apps_serve` makes to serve the draft bundle). Any miss is "no pin":
+//! the request reads the promoted revision, as it did before staging existed.
 //!
 //! **A spoofed header is not an authz hole.** It can only choose among apps of
 //! the request's own workspace that the caller can already develop — whose
@@ -49,18 +52,22 @@ pub(crate) enum AppRef {
     },
 }
 
-/// The pin a staging data-plane request should read, or `None` for every
-/// other request. Cheap for a production request with no preview cookie (no DB
-/// work).
+/// The pin a non-production data-plane request should read, or `None` for
+/// every other request. Cheap for a production request with no preview cookie
+/// (no DB work).
 ///
 /// Two entrances, each with its own reach rule and its own build:
 ///
-/// - **the staging host** (`staging--<org>--<slug>.…`, environments design
-///   §3.2): the viewer must be allowed to open non-production
-///   (`may_open_non_production`, the rule that serves them staging HTML), and
-///   the pin is read from the build the **staging environment** serves;
-/// - **the preview cookie** on any other host: `DevelopApps` reach, and the
-///   app's draft build — which the staging row mirrors, so the same build.
+/// - **a non-production environment** — the staging host
+///   (`staging--<org>--<slug>.…`, environments design §3.2), a sandbox's host
+///   (`dev-<handle>--<org>--<slug>.…`), or either named by `X-Oxy-App-Env` on
+///   a bearer or API-key request: the viewer must be allowed to open
+///   non-production (`may_open_non_production`, the rule that serves them that
+///   environment's HTML), and the pin is read from the build **that
+///   environment** serves. A sandbox whose build pins nothing reads the
+///   promoted model; it never borrows staging's pin;
+/// - **the preview cookie** on a production request: `DevelopApps` reach, and
+///   the app's draft build — which the staging row mirrors, so the same build.
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
@@ -68,31 +75,33 @@ pub async fn staging_pin_for_data_request(
     user_email: &str,
     project_id: Uuid,
 ) -> Option<Uuid> {
-    let staging_host = matches!(
-        oxy_app_core::custom_app_env_request::request_environment(headers),
-        Ok(AppEnvironment::Staging)
-    );
-    if !staging_host && !crate::server::api::custom_apps_preview::wants_draft_preview(headers) {
+    let non_production = oxy_app_core::custom_app_env_request::request_environment(headers)
+        .ok()
+        .filter(|environment| *environment != AppEnvironment::Production);
+    if non_production.is_none()
+        && !crate::server::api::custom_apps_preview::wants_draft_preview(headers)
+    {
         return None;
     }
     let app = find_app(db, &app_ref(headers)?).await?;
     if app.project_id != project_id {
         return None;
     }
-    let build_id = if staging_host {
-        staging_environment_build(db, user_id, user_email, &app).await?
-    } else {
-        draft_preview_build(db, user_email, &app).await?
+    let build_id = match non_production {
+        Some(environment) => environment_build(db, user_id, user_email, &app, &environment).await?,
+        None => draft_preview_build(db, user_email, &app).await?,
     };
     super::pinned_revision_for(db, build_id).await
 }
 
-/// The staging environment's build, for a viewer who may open it.
-async fn staging_environment_build(
+/// The build `environment` — staging or a sandbox — serves, for a viewer who
+/// may open the app's non-production environments.
+async fn environment_build(
     db: &DatabaseConnection,
     user_id: Uuid,
     user_email: &str,
     app: &entity::apps::Model,
+    environment: &AppEnvironment,
 ) -> Option<Uuid> {
     use crate::server::api::custom_apps_env_resolve::{
         may_open_non_production, resolve_environment,
@@ -100,7 +109,7 @@ async fn staging_environment_build(
     if !may_open_non_production(db, user_id, user_email, app).await {
         return None;
     }
-    resolve_environment(db, app, &AppEnvironment::Staging)
+    resolve_environment(db, app, environment)
         .await
         .ok()?
         .build_id

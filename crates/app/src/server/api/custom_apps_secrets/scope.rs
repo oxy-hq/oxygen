@@ -13,9 +13,14 @@
 //!   `"shared": true` in `oxy-app.json`'s `env` block; an unshared key with no
 //!   environment value reads as unset. So staging never holds a production
 //!   credential it was not explicitly given.
+//! - **A sandbox reads staging's path next** (`dev-<handle>`,
+//!   `internal-docs/custom-app-sandboxes.md`): its own value, then staging's
+//!   for any key staging holds, then production's for a `shared` key. Staging
+//!   itself never reads a sandbox's, and no sandbox reads another's.
 //! - **`ctx.secrets.set` writes the environment's path**, and is refused for a
-//!   key the run read through the fallback (`EnvPolicy::read_through_fallback`)
-//!   — a rotation would fork production's grant.
+//!   key the run read through a fallback (`EnvPolicy::read_through_fallback`)
+//!   — a rotation would fork the grant of the environment it was read from: a
+//!   sandbox rotating a token it read from staging voids staging's.
 
 use std::collections::BTreeSet;
 
@@ -53,7 +58,8 @@ pub(crate) fn is_non_production_app_secret(name: &str) -> bool {
 }
 
 /// One key `ctx.env` resolves: its bare name, the stored name the value is
-/// read from, and whether that is production's through the shared fallback.
+/// read from, and whether that is another environment's — staging's, for a
+/// sandbox, or production's through the shared fallback.
 /// (Read by the functions runtime only, hence the feature-gated allow.)
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +72,17 @@ pub(crate) struct EnvEntry {
 /// Which stored secrets `ctx.env` resolves for a run in `environment`, given
 /// every stored name of the project and the build's `shared` keys. Pure, so
 /// the overlay rules are testable without a database.
+///
+/// The layers, nearest first; a key is taken from the first that holds it:
+///
+/// 1. the environment's own path;
+/// 2. **for a sandbox only**, staging's path — every key staging holds,
+///    `shared` or not: a staging value is already a non-production credential,
+///    so a sandbox starts with the ones its app was given for testing;
+/// 3. outside production, production's path, for a `shared` key only.
+///
+/// Everything from layers 2 and 3 is `through_fallback`: the run did not store
+/// it, and `ctx.secrets.set` refuses to write it.
 #[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
 pub(crate) fn plan_env(
     app_id: Uuid,
@@ -73,30 +90,31 @@ pub(crate) fn plan_env(
     shared: &BTreeSet<String>,
     stored_names: &[String],
 ) -> Vec<EnvEntry> {
-    let own = keys_under(&secret_prefix(app_id, environment), stored_names);
-    let mut plan: Vec<EnvEntry> = own
-        .iter()
-        .map(|(key, stored_name)| EnvEntry {
-            key: key.clone(),
-            stored_name: stored_name.clone(),
-            through_fallback: false,
-        })
-        .collect();
-    if environment_segment(environment).is_some() {
-        let production = keys_under(
-            &secret_prefix(app_id, &AppEnvironment::Production),
-            stored_names,
-        );
-        let own_keys: BTreeSet<&String> = own.iter().map(|(key, _)| key).collect();
-        plan.extend(
-            production
-                .into_iter()
-                .filter(|(key, _)| shared.contains(key) && !own_keys.contains(key))
-                .map(|(key, stored_name)| EnvEntry {
+    let layer = |of: &AppEnvironment| keys_under(&secret_prefix(app_id, of), stored_names);
+    let mut plan: Vec<EnvEntry> = Vec::new();
+    let mut take = |keys: Vec<(String, String)>, through_fallback: bool| {
+        for (key, stored_name) in keys {
+            if !plan.iter().any(|taken| taken.key == key) {
+                plan.push(EnvEntry {
                     key,
                     stored_name,
-                    through_fallback: true,
-                }),
+                    through_fallback,
+                });
+            }
+        }
+    };
+    take(layer(environment), false);
+    if matches!(environment, AppEnvironment::Dev { .. }) {
+        take(layer(&AppEnvironment::Staging), true);
+    }
+    if environment_segment(environment).is_some() {
+        let production = layer(&AppEnvironment::Production);
+        take(
+            production
+                .into_iter()
+                .filter(|(key, _)| shared.contains(key))
+                .collect(),
+            true,
         );
     }
     plan.sort_by(|a, b| a.key.cmp(&b.key));
@@ -184,6 +202,113 @@ mod tests {
             plan[0].stored_name,
             format!("apps/{}/staging/API_KEY", app())
         );
+    }
+
+    fn sandbox(handle: &str) -> AppEnvironment {
+        AppEnvironment::Dev {
+            handle: handle.into(),
+        }
+    }
+
+    fn sources(plan: &[EnvEntry]) -> Vec<(&str, &str, bool)> {
+        plan.iter()
+            .map(|e| {
+                let stored = e
+                    .stored_name
+                    .strip_prefix(&format!("apps/{}/", app()))
+                    .expect("this app's");
+                (e.key.as_str(), stored, e.through_fallback)
+            })
+            .collect()
+    }
+
+    /// A sandbox reads its own value, then staging's, then production's for a
+    /// `shared` key — and everything it did not store itself is read through
+    /// a fallback, which is what `ctx.secrets.set` refuses.
+    #[test]
+    fn a_sandbox_reads_its_own_then_stagings_then_shared_production() {
+        let plan = plan_env(
+            app(),
+            &sandbox("a1"),
+            &shared(&["SHARED", "SHARED_STG", "SHARED_OWN"]),
+            &names(&[
+                // In all three: the sandbox's own wins.
+                "OWN",
+                "staging/OWN",
+                "dev-a1/OWN",
+                // Staging and production: staging's wins, shared or not.
+                "STG",
+                "staging/STG",
+                "SHARED_STG",
+                "staging/SHARED_STG",
+                // Shared, own value held: the sandbox's.
+                "SHARED_OWN",
+                "dev-a1/SHARED_OWN",
+                // Production only: read only when shared.
+                "SHARED",
+                "UNSHARED",
+                // Staging only: staging's keys need no `shared` mark.
+                "staging/STG_ONLY",
+                // Another sandbox's: never this one's.
+                "dev-b2/OTHER",
+                "dev-a1-b/PREFIXED",
+            ]),
+        );
+        assert_eq!(
+            sources(&plan),
+            vec![
+                ("OWN", "dev-a1/OWN", false),
+                ("SHARED", "SHARED", true),
+                ("SHARED_OWN", "dev-a1/SHARED_OWN", false),
+                ("SHARED_STG", "staging/SHARED_STG", true),
+                ("STG", "staging/STG", true),
+                ("STG_ONLY", "staging/STG_ONLY", true),
+            ]
+        );
+    }
+
+    /// Staging does not read a sandbox's values, and one sandbox does not
+    /// read another's: the staging layer is a sandbox's alone.
+    #[test]
+    fn staging_and_another_sandbox_never_read_a_sandboxs_value() {
+        let stored = names(&["dev-a1/TOKEN", "API_KEY"]);
+        let staging = plan_env(
+            app(),
+            &AppEnvironment::Staging,
+            &shared(&["TOKEN"]),
+            &stored,
+        );
+        assert!(sources(&staging).is_empty(), "{staging:?}");
+        let other = plan_env(app(), &sandbox("b2"), &shared(&["TOKEN"]), &stored);
+        assert!(sources(&other).is_empty(), "{other:?}");
+        let production = plan_env(
+            app(),
+            &AppEnvironment::Production,
+            &BTreeSet::new(),
+            &stored,
+        );
+        assert_eq!(sources(&production), vec![("API_KEY", "API_KEY", false)]);
+    }
+
+    /// A sandbox's own secrets sit under a prefix no other sandbox's name
+    /// starts with, so removing one's never removes another's.
+    #[test]
+    fn a_sandboxs_prefix_is_its_own() {
+        let a = secret_prefix(app(), &sandbox("a1"));
+        assert_eq!(a, format!("apps/{}/dev-a1/", app()));
+        for other in [
+            secret_name(app(), &sandbox("a1-b"), "K"),
+            secret_name(app(), &AppEnvironment::Staging, "K"),
+            secret_name(app(), &AppEnvironment::Production, "K"),
+            secret_name(Uuid::from_u128(8), &sandbox("a1"), "K"),
+        ] {
+            assert!(!other.starts_with(&a), "{other}");
+        }
+        assert!(is_non_production_app_secret(&secret_name(
+            app(),
+            &sandbox("a1"),
+            "K"
+        )));
     }
 
     #[test]

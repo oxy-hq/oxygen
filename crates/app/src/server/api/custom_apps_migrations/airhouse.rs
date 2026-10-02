@@ -35,7 +35,7 @@ use tokio::time::Instant;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use super::airhouse_home::AirhouseHome;
+use super::airhouse_home::{AirhouseHome, schema_owner};
 use super::apply::{app_lock_key, pg_detail, read_ledger};
 use super::plan::plan;
 use super::types::{Applied, DeclaredMigration, MigrationError, MigrationTarget, STORE_AIRHOUSE};
@@ -110,7 +110,9 @@ pub(crate) struct AirhouseRun<'a> {
 /// Apply this bundle's Airhouse migrations to `environment`'s sibling of the
 /// app's schema, creating the sibling on the first apply. Recorded under the
 /// sibling's own target, so production's ledger — and so promote's plan — is
-/// untouched. Nothing runs for production, or for a slug that names no sibling.
+/// untouched. Nothing runs for production, or for a slug that names no
+/// sibling. A sibling whose name is another app's own schema
+/// ([`schema_owner`]) is an **error** naming both, never a quiet skip.
 #[instrument(skip(db, declared), fields(app_id = %run.app_id, app_slug = %run.app_slug, %environment))]
 pub(crate) async fn apply_airhouse_to_environment(
     db: &DatabaseConnection,
@@ -125,6 +127,20 @@ pub(crate) async fn apply_airhouse_to_environment(
         warn!(%environment, "no sibling Airhouse schema can be named; its migrations are skipped");
         return Ok(Applied::default());
     };
+    let owner = schema_owner(db, run.workspace_id, run.app_id, home.schema())
+        .await
+        .map_err(|e| MigrationError::Db(e.to_string()))?;
+    if let Some(owner) = owner {
+        // An error, not "nothing to apply": the files did not run, and a run
+        // that ends as done would say they had. Staging's sibling as much as
+        // a sandbox's.
+        return Err(MigrationError::BadManifest(format!(
+            "{environment}'s Airhouse schema would be {schema}, which is the app {owner}'s own \
+             schema (a legacy slug holding `--`): nothing was applied, and nothing can be \
+             until one of the two is renamed",
+            schema = home.schema()
+        )));
+    }
     apply_airhouse(db, run, declared, &home).await
 }
 
@@ -271,8 +287,10 @@ async fn run_file(
 }
 
 /// A client on the app's own Airhouse credential: a scoped Writer when
-/// Airhouse supports it, otherwise an Admin for the same app subject.
-async fn connect_as_app(
+/// Airhouse supports it, otherwise an Admin for the same app subject. Shared
+/// with the sibling drop (`airhouse_drop`), which connects scoped to the
+/// sibling it removes.
+pub(super) async fn connect_as_app(
     workspace_id: Uuid,
     app_slug: &str,
     schema: &str,

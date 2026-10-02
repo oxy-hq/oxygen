@@ -344,18 +344,17 @@ pub async fn load_task_tree(
 ///
 /// Returns an empty Vec if the root run doesn't belong to
 /// `workspace_id`, so a foreign run id can't probe another tenant's
-/// tree by id-guessing. Children inherit the parent's workspace_id at
-/// insert so the BFS doesn't need an additional filter — the root
-/// gate prevents traversal from escaping the workspace.
+/// tree by id-guessing — and likewise if it is a check run queued outside
+/// production, which is staff's to read (`visibility::get_run_in_workspace`).
+/// Children inherit the parent's workspace_id at insert so the BFS doesn't
+/// need an additional filter — the root gate prevents traversal from
+/// escaping the workspace.
 pub async fn load_task_tree_in_workspace(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     root_run_id: &str,
 ) -> Result<Vec<run::Model>, DbErr> {
-    let root = run::Entity::find_by_id(root_run_id.to_string())
-        .filter(run::Column::WorkspaceId.eq(workspace_id))
-        .one(db)
-        .await?;
+    let root = super::visibility::get_run_in_workspace(db, workspace_id, root_run_id).await?;
     let Some(root) = root else {
         return Ok(vec![]);
     };

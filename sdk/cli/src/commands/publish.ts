@@ -22,6 +22,8 @@
 import { spawnSync } from "node:child_process";
 import { join, resolve, sep } from "node:path";
 
+import { APP_ENV_HEADER, requireSandboxName } from "../apps/environment.js";
+import { PUBLISH_TOKEN_PREFIX, UUID_RE } from "../apps/resolve.js";
 import type { Context } from "../context/resolve.js";
 import { loadDotenv } from "../publish/dotenv.js";
 import {
@@ -91,6 +93,8 @@ export interface PublishFlags {
   semanticBranch?: string;
   /** Publish past a function lint finding, printing each as a warning that names its rule. */
   allowFunctionLint?: boolean;
+  /** A `dev-<handle>` sandbox to publish to instead of the draft/live channel. */
+  appEnv?: string;
 }
 
 function envValue(name: string): string | undefined {
@@ -104,8 +108,6 @@ export function inferOrgApp(cwd: string): { org?: string; app?: string } {
   if (index < 0) return {};
   return { org: parts[index + 1], app: parts[index + 2] };
 }
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** How this publish will authenticate, decided before anything is built. */
 type Credential = { kind: "token"; token: string } | { kind: "oidc" };
@@ -269,7 +271,7 @@ async function uploadToken(
   identity: Identity
 ): Promise<string> {
   if (credential.kind === "token") return credential.token;
-  if (!identity.org || UUID.test(identity.org)) {
+  if (!identity.org || UUID_RE.test(identity.org)) {
     throw usageError(
       "trusted publishing needs the org SLUG",
       "set oxy-app.json `orgSlug` or pass --org <slug> — the exchange is registered by slug"
@@ -313,13 +315,35 @@ function printResult(
   const headline = result.is_new_app
     ? `Registered new app ${org}/${identity.app} (id ${result.app_id})`
     : `Published new version of ${org}/${identity.app} (id ${result.app_id})`;
+  process.stdout.write(`${out.green(headline)}\n`);
+  if (result.environment) {
+    const where = result.environment_url
+      ? result.environment_url
+      : `${target}${result.url}  (no zone configured — send header ${APP_ENV_HEADER}: ${result.environment})`;
+    process.stdout.write(`  build ${result.build_id} → ${result.environment} — ${where}\n`);
+    return;
+  }
   process.stdout.write(
-    `${out.green(headline)}\n` +
-      `  build ${result.build_id} → ${result.channel} channel · ${target}${result.url}\n`
+    `  build ${result.build_id} → ${result.channel} channel · ${target}${result.url}\n`
   );
 }
 
-export async function runPublish(ctx: Context, flags: PublishFlags): Promise<void> {
+/** What one publish produced — a built-but-unsent bundle, or an uploaded one. */
+export interface PublishOutcome {
+  target: string;
+  identity: Identity;
+  /** Set at `--build-only` or with no credential: nothing was uploaded. */
+  bundleDir?: string;
+  /** Set once a bundle was uploaded. */
+  result?: PublishResult;
+}
+
+/**
+ * Build (unless `--dir`), lint, and publish — no printing. `runPublish` below
+ * prints the human/`--json` report; the `oxyc mcp` sandbox-publish tool reads
+ * `result` directly, so neither is a second implementation of this request.
+ */
+export async function publish(ctx: Context, flags: PublishFlags): Promise<PublishOutcome> {
   if (flags.prebuilt && !flags.dir) {
     throw usageError("--prebuilt needs --dir", "it names a bundle that was built elsewhere");
   }
@@ -335,6 +359,17 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
   if (flags.semanticBranch !== undefined && !flags.semanticBranch.trim()) {
     throw usageError("--semantic-branch needs a branch name");
   }
+  if (flags.appEnv !== undefined) {
+    // Normalized (and validated) once, here — every later read of
+    // `flags.appEnv` can trust it is exactly a `dev-<handle>` name.
+    flags.appEnv = requireSandboxName(flags.appEnv);
+    if (flags.promote) {
+      throw usageError(
+        "--app-env cannot be combined with --promote",
+        "a sandbox build is never promoted — publish the same tree to staging, then promote that"
+      );
+    }
+  }
 
   for (const path of loadDotenv(ctx.cwd)) log.info(`loaded ${path}`);
   const manifest = loadPublishManifest(ctx.cwd);
@@ -344,6 +379,23 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
   // Decided before the build, so a missing login fails in a second rather
   // than after a two-minute install.
   const credential = flags.buildOnly ? undefined : resolveCredential(ctx);
+  if (flags.appEnv !== undefined && credential) {
+    // Every non-production operation refuses a publish token or an OIDC
+    // exchange (D22) — a sandbox publish needs a staff credential, same as
+    // `env create` and `fn call` outside production.
+    if (credential.kind === "oidc") {
+      throw usageError(
+        "--app-env needs a staff credential, not trusted publishing",
+        "oxyc login, or OXY_TOKEN set to a user token"
+      );
+    }
+    if (credential.token.startsWith(PUBLISH_TOKEN_PREFIX)) {
+      throw usageError(
+        "--app-env needs a staff credential, not a publish token",
+        "oxyc login, or OXY_TOKEN set to a user token"
+      );
+    }
+  }
   if (!identity.org && projectPin) {
     identity.org = await fetchOrgForProject(ctx.target(), projectPin);
   }
@@ -364,9 +416,7 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
           "writes) needs the server — the publishing job runs it before the upload"
       );
     }
-    if (flags.json) process.stdout.write(`${JSON.stringify({ bundle_dir: bundleDir }, null, 2)}\n`);
-    else process.stdout.write(`${out.green("built")} ${bundleDir}\n`);
-    return;
+    return { target: ctx.target(), identity, bundleDir };
   }
 
   const target = ctx.target();
@@ -414,7 +464,8 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
         ["source_repo", provenance.repo],
         ["commit_sha", provenance.commit],
         ["branch", provenance.branch],
-        ["semantic_revision_id", semanticRevision]
+        ["semantic_revision_id", semanticRevision],
+        ["environment", flags.appEnv]
       ]
     });
   } catch (cause) {
@@ -427,5 +478,18 @@ export async function runPublish(ctx: Context, flags: PublishFlags): Promise<voi
     }
     throw cause;
   }
-  printResult(target, identity, result, Boolean(flags.json));
+  return { target, identity, result };
+}
+
+export async function runPublish(ctx: Context, flags: PublishFlags): Promise<void> {
+  const outcome = await publish(ctx, flags);
+  if (outcome.result) {
+    printResult(outcome.target, outcome.identity, outcome.result, Boolean(flags.json));
+    return;
+  }
+  if (flags.json) {
+    process.stdout.write(`${JSON.stringify({ bundle_dir: outcome.bundleDir }, null, 2)}\n`);
+  } else {
+    process.stdout.write(`${out.green("built")} ${outcome.bundleDir}\n`);
+  }
 }

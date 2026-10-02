@@ -953,14 +953,23 @@ pub async fn unpublish_app(
 /// fleet and returns its `run_id`; the caller watches it in the orchestrator
 /// dashboard. Thin transport: parse input → enqueue → serialize (the work is in
 /// `custom_apps_functions::trigger_function_job`).
+///
+/// `?environment=<name>` queues the run in that app environment instead
+/// (`environment_scope::run_in_environment`): it resolves that environment's
+/// build and, outside production, runs only a function that build marks
+/// `"check": true`. Without the parameter nothing changes, the bare `400`
+/// included.
 pub async fn run_function_job(
-    oxy_auth::extractor::AuthenticatedUserExtractor(_user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
     // Present iff authenticated via an app publish token. Such a token may run
-    // an app's **checks** and nothing else — see `machine_may_run` below.
+    // an app's **checks** and nothing else — see `machine_may_run` below — and
+    // only in production: `environment_scope` refuses it anywhere else.
     marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     Path((id, name)): Path<(Uuid, String)>,
+    Query(q): Query<super::environment_scope::EnvironmentQuery>,
     body: axum::body::Bytes,
-) -> Result<Json<RunFunctionJobResponse>, StatusCode> {
+) -> Result<Json<RunFunctionJobResponse>, super::environment_scope::RouteError> {
+    use super::environment_scope;
     // Empty body → no params; a non-empty body must be valid JSON.
     let input = if body.is_empty() {
         None
@@ -974,13 +983,41 @@ pub async fn run_function_job(
         tracing::error!("run_function_job DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    if let Some(axum::Extension(marker)) = marker {
-        machine_may_run(&db, &marker, id, &name).await?;
+    let marker = marker.as_ref().map(|axum::Extension(marker)| marker);
+    let Some(raw) = q.environment.as_deref() else {
+        if let Some(marker) = marker {
+            machine_may_run(&db, marker, id, &name).await?;
+        }
+        return Ok(Json(run_in_production(&db, id, &name, input).await?));
+    };
+    // A token scoped to another app gets one answer whether or not this id
+    // exists (the scope middleware already refused it; this holds if that
+    // layer is ever reordered). Then the environment is resolved BEFORE the
+    // function is looked at, so a token naming a non-production one is refused
+    // as such; a token that named production still faces `machine_may_run`.
+    if marker.is_some_and(|marker| !token_names_app(marker, id)) {
+        return Err(StatusCode::FORBIDDEN.into());
     }
+    let (app, environment) = environment_scope::admit(&db, id, &user, marker, raw).await?;
+    if let Some(marker) = marker {
+        machine_may_run(&db, marker, id, &name).await?;
+    }
+    let queued = environment_scope::run_in_environment(&db, &app, &environment, &name, input);
+    Ok(Json(queued.await?))
+}
+
+/// Run now as it has always been: production, by the trigger that names no
+/// environment, answering a bare `400` for anything it cannot queue.
+async fn run_in_production(
+    db: &sea_orm::DatabaseConnection,
+    id: Uuid,
+    name: &str,
+    input: Option<serde_json::Value>,
+) -> Result<RunFunctionJobResponse, StatusCode> {
     let run_id = crate::server::api::custom_apps_functions::trigger_function_job(
-        &db,
+        db,
         id,
-        &name,
+        name,
         input,
         crate::server::api::custom_apps_functions::FunctionJobTrigger::Manual,
     )
@@ -989,7 +1026,10 @@ pub async fn run_function_job(
         tracing::warn!("run_function_job failed for {id}/{name}: {e}");
         StatusCode::BAD_REQUEST
     })?;
-    Ok(Json(RunFunctionJobResponse { run_id }))
+    Ok(RunFunctionJobResponse {
+        run_id,
+        environment: oxy_app_core::custom_app_environment::AppEnvironment::Production.name(),
+    })
 }
 
 /// Whether an app-scoped publish token names the app being asked for.
@@ -1002,17 +1042,6 @@ pub async fn run_function_job(
 /// beside it. A token with no `app_id` is not app-scoped at all and passes.
 fn token_names_app(marker: &oxy_auth::types::AppPublishTokenAuth, id: Uuid) -> bool {
     marker.app_id.is_none_or(|scoped| scoped == id)
-}
-
-/// Whether the manifest marks this function as a check. Absent, non-boolean and
-/// `false` all mean no: the grant is to run what the app DECLARED as a check,
-/// so anything the manifest does not say yes to is a no. A manifest that is
-/// missing entirely is the same answer for the same reason.
-fn manifest_marks_check(manifest: Option<&serde_json::Value>) -> bool {
-    manifest
-        .and_then(|m| m.get("check"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
 }
 
 /// Whether an app-publish-token request may run `name` on app `id`.
@@ -1063,7 +1092,11 @@ async fn machine_may_run(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    if !manifest_marks_check(row.manifest_json.as_ref()) {
+    // The one reader of the flag (`check_run`), shared with the rule that
+    // admits a check run outside production.
+    if !crate::server::api::custom_apps_functions::check_run::manifest_marks_check(
+        row.manifest_json.as_ref(),
+    ) {
         tracing::warn!(
             app = %id,
             function = %name,
@@ -1411,29 +1444,6 @@ mod tests {
         // A staff token carries no app id; nothing here narrows it, and the
         // scope middleware is what keeps it to publish + checks.
         assert!(token_names_app(&marker(None), Uuid::new_v4()));
-    }
-
-    #[test]
-    fn only_a_function_the_manifest_declares_a_check_may_be_run() {
-        assert!(manifest_marks_check(Some(
-            &serde_json::json!({ "check": true })
-        )));
-
-        // Everything else is a no, and each of these is a shape a real manifest
-        // produces: a handler with no `check` key, one that opted out, one
-        // whose value is a truthy non-boolean, and a row with no manifest.
-        assert!(!manifest_marks_check(Some(&serde_json::json!({}))));
-        assert!(!manifest_marks_check(Some(
-            &serde_json::json!({ "check": false })
-        )));
-        assert!(!manifest_marks_check(Some(
-            &serde_json::json!({ "check": "yes" })
-        )));
-        assert!(!manifest_marks_check(Some(
-            &serde_json::json!({ "check": 1 })
-        )));
-        assert!(!manifest_marks_check(Some(&serde_json::json!(null))));
-        assert!(!manifest_marks_check(None));
     }
 
     #[test]

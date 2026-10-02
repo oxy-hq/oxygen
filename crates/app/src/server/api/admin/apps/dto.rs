@@ -339,6 +339,9 @@ pub struct UpdateAppRequest {
 #[derive(Debug, Serialize)]
 pub struct RunFunctionJobResponse {
     pub run_id: String,
+    /// The app environment the run was queued in: `production` unless the
+    /// request named another with `?environment=`.
+    pub environment: String,
 }
 
 /// One row of an app's build history (newest first), with flags marking

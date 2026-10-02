@@ -530,4 +530,7 @@ pub struct FunctionLogRow {
     pub seq: u32,
     pub message: String,
     pub trace_id: String,
+    /// The app environment the line was written in: `production`, `staging`
+    /// or `dev-<handle>`.
+    pub environment: String,
 }

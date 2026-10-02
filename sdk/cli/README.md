@@ -7,6 +7,8 @@ manages customer workspace repos.
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`
 - **Checks** — `checks run`
+- **Sandboxes** — `env`, `fn call`, `invocations`, `logs`
+- **Workspace previews** — `preview`
 - **Development** — `validate`, `mcp`, `guide`, `skills`
 
 ## Install
@@ -236,7 +238,7 @@ the current directory while granting access to the customer's repo.
 ## Custom apps
 
 ```bash
-oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint]
+oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint] [--app-env <dev-handle>]
 oxyc init-ci [--app <org>/<app>] [--environment <name>] [--force]
 oxyc proxy [--port <n>] [--allow-writes] [--allow-events] [--yes]
 ```
@@ -287,6 +289,12 @@ environment-gated `publish` job whose only work is `publish --prebuilt` with
 OIDC. `--promote` makes that publish go live and adds a `checks run` step after
 it, when the manifest declares a check. It prints the `oxyc api …/publishers`
 call that registers the workflow.
+
+**`--app-env <dev-handle>`** moves one sandbox's build pointer instead of the
+draft/live channel — see [Sandboxes](#sandboxes). It needs a staff credential
+(never a publish token or OIDC) and is refused together with `--promote`: a
+sandbox build is never promoted, so the loop is publish to the sandbox,
+iterate, then publish the same tree to staging and promote that.
 
 ## Checks
 
@@ -342,7 +350,12 @@ it admitted any function.
 the execution alike. So `checks run` after a plain `oxyc publish` verifies the
 *previously promoted* code, not the draft just uploaded. `oxyc init-ci` writes
 the step only with `--promote`, where the build just published is the one the
-check runs, and only when the manifest declares a check.
+check runs, and only when the manifest declares a check. **With `--app-env`**
+it runs against that environment's own build instead — a sandbox's own
+publish, or staging's — and the report gains `environment` and each check's
+`invocationId`; the publish-token and OIDC paths are unchanged and work only
+against production, since every non-production operation needs a staff
+credential (see [Sandboxes](#sandboxes)).
 
 With a publish token, `<app>` must be the **UUID** — resolving a slug means
 listing every app, which such a token may not do. The OIDC path needs no id at
@@ -356,6 +369,110 @@ expired 90-day API key reads this way, not as a missing one); `2` a bad
 `--timeout`, or a slug where the credential needs a UUID; `7` (`UNAVAILABLE`)
 the deployment answered the OIDC exchange without an `app_id`, meaning it
 predates trusted checks.
+
+## Sandboxes
+
+```bash
+oxyc env create <app> <name>                 # name is dev-<handle>, 1-12 chars a-z0-9-
+oxyc env list <app>
+oxyc env show <app> <name>
+oxyc env delete <app> <name> [--yes] [--wait [seconds]]
+
+oxyc publish --app-env <name> [--env <e>]    # see "Custom apps" above
+oxyc fn call <app> <function> [--app-env <name>] [--data <json|@file|->]
+oxyc checks run <app> --app-env <name>       # see "Checks" above
+
+oxyc invocations list <app> [--app-env] [--build] [--function] [--limit]
+oxyc invocations held <app> <invocation-id>
+oxyc logs <app> [--app-env] [--invocation] [--request] [--hours] [--limit]
+```
+
+A **sandbox** is a named, short-lived `dev-<handle>` environment of one custom
+app: its own build pointer, storage silo, secrets and Airhouse sibling, with
+reads hitting production and most writes either isolated or *held* (recorded,
+not performed — see `invocations held`). It starts with no build, is deleted
+explicitly or after 7 idle days, and an app has at most 20. Full contract,
+including what is **not** isolated (`ctx.oltp`, `ctx.warehouse`) and the other
+gaps: `internal-docs/custom-app-sandboxes.md`.
+
+The loop: `env create` → `publish --app-env` → `fn call` / `checks run
+--app-env` → `invocations list` / `held` to read back what ran → iterate from
+`publish` → `env delete --yes --wait` when done. `oxyc guide` has the same six
+lines, meant to sit in an agent's context.
+
+**`--app-env <environment>`** (`production`, `staging` or `dev-<handle>`,
+validated client-side — exit `2` on a malformed name) is a *different axis*
+from `--env`, which is the deployment: both can appear on the same command
+(`oxyc fn call acme/store f --env dev --app-env dev-a1`). It is not a global
+flag — only `publish`, `fn call`, `checks run`, `invocations list` and `logs`
+take it. A publish-token credential is refused before any request for
+`--app-env` other than `production` (exit `2`); `env`, `invocations` and
+`logs` refuse one outright, for any environment, because sandbox management
+is a staff console surface.
+
+**`env delete`** without `--yes` asks on a terminal and exits `8` (refused)
+off one, same as `oltp reset`. `--wait [seconds]` (default 120) polls until
+the teardown finishes and prints `{"name","status":"deleted"}`; past the
+deadline it exits `7` (retryable) rather than hanging.
+
+**`fn call`** POSTs directly to `{target}/customer-apps/{org}/{app}/fn/{name}`
+(no `/api`) — the response is Server-Sent Events, not JSON, so `oxyc` parses
+the `log` / `data` / `done` / `error` frames itself. It exits `0` only when
+the stream ends `done` with a 2xx status; a function that threw, or answered a
+non-2xx, is a function-level failure (exit `1`, `ok: false` in the JSON), kept
+distinct from a non-2xx on the POST itself (exit per the usual status mapping
+— e.g. `EnvironmentHasNoBuild` before the stream starts). The
+`x-oxy-invocation-id` response header becomes `invocationId` in the result.
+
+**`invocations held`** is what the non-production write policy did *not* do —
+production's would-be effect, recorded rather than performed. It is `[]` for a
+production invocation, since nothing is held there.
+
+## Workspace previews
+
+```bash
+oxyc preview create <branch> [--wait [seconds]] [--json]
+oxyc preview list [--json]
+oxyc preview show <branch> [--json]
+oxyc preview delete <branch> [--yes] [--json]
+oxyc preview checks <branch> [--json]
+
+oxyc preview run <branch> <kind> <ref> [--variables <json|@file|->] [--read-live-only]
+                  [--window-from <iso>] [--window-to <iso>] [--resource <name>...]
+                  [--wait [seconds]] [--json]
+oxyc preview runs list <branch> [--json]
+oxyc preview runs show <run-id> [--wait [seconds]] [--json]
+```
+
+A **preview** opens a workspace branch on the real product, against real data,
+without the branch being live — staff only. `create` compiles the branch's
+head into a staging revision (or reuses a ready one for that commit) and is
+idempotent; `--wait [seconds]` (default 120) blocks until the compile is
+`ready` or `failed` instead of returning the `compiling` item the request
+itself answers with, and exits `7` (retryable) past the deadline. There is no
+single-preview route: `show` fetches `list` and filters it client-side, so its
+`5` (not found) is synthesized here, not a literal 404.
+
+The loop: `preview create --wait` → `preview checks` → `preview run` →
+`preview runs show --wait` → iterate → `preview delete --yes` when done.
+
+**`<kind>`** is `procedure` or `airway_sample` — the only two `POST
+/previews/runs` accepts (exit `2` client-side on anything else, naming the
+read-back verb). `transform_build` and `compare` runs are queued by the
+server's own Airway change check, never started here; `preview runs list`
+surfaces them alongside the kinds you *can* start, and `preview runs show
+<run-id> --wait` reads any of the four back — a procedure's held steps, a
+transform build's or compare's outcome, or a sample's ask and result.
+`--variables` / `--read-live-only` are `procedure`-only; `--window-from` /
+`--window-to` / `--resource` (repeatable) are `airway_sample`-only.
+
+Every verb needs `{workspace}` resolved — `--workspace <id>`, exactly the way
+`oxyc api {workspace}/...` resolves it; there is no second workspace
+resolver. A deployment with `OXY_PREVIEW_RUNS` off answers every runs route
+`404 preview_runs_disabled`, surfaced the same way any other server refusal
+is: the server's own `code` rides along on the thrown error, and the exit
+class follows the usual HTTP-status mapping (`400`/`409` → `6`, `404` → `5`).
+Full contract: `internal-docs/workspace-previews.md`.
 
 ## Development commands
 
@@ -435,9 +552,22 @@ production target (any host under `oxygen-hq.com`) is refused without `--yes`.
 Each Oxy Function call carries a W3C trace — the SDK's, or one minted here — and
 prints `↳ <status> fn <name>  request_id=…  trace_id=…`.
 
-**`mcp`** serves the API over stdio as four tools — `oxy_routes`, `oxy_schema`,
-`oxy_request`, `oxy_whoami` — rather than one per endpoint, so the tool schemas
-cost ~2 KB per turn and reach endpoints added after this package shipped.
+**`mcp`** serves the API over stdio as four generic tools — `oxy_routes`,
+`oxy_schema`, `oxy_request`, `oxy_whoami` — rather than one per endpoint, so
+those schemas cost ~2 KB per turn and reach endpoints added after this
+package shipped. Two named exceptions trade that minimalism for validation an
+agent needs to drive a loop unsupervised: the **sandbox loop**
+(`oxy_env_create`/`list`/`show`/`delete`, `oxy_publish_sandbox`,
+`oxy_fn_call`, `oxy_checks_run`, `oxy_invocations_list`/`held`, `oxy_logs`)
+and **workspace previews** (`oxy_preview_create`/`list`/`show`/`delete`/
+`checks`/`run`/`runs_list`/`run_show`). Each tool calls its CLI verb's own
+request-building function, so a tool's result is the same JSON document that
+verb's `--json` prints, and a failure carries the server's own error code
+plus the exit-code class (`[exit 5 NOT_FOUND]`) the way `oxyc`'s exit code
+would. `oxy_env_delete` / `oxy_preview_delete` need `confirm: true` (there is
+no terminal to ask on inside an MCP server), and `oxy_publish_sandbox`
+requires a `dev-<handle>` `appEnv` and refuses production, staging or a
+promote client-side — it can never reach the live channel.
 
 ```bash
 claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --env production

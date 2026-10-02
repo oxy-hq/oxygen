@@ -13,7 +13,7 @@
 //! | `custom_apps_publish_function_artifacts` | a bundle declaring functions it lacks is refused |
 //! | `custom_apps_publish_machine` | a trusted (OIDC) publish records its build with no user, attributed to its workflow |
 //! | `function_failure_alerts` | the pager's SQL over invocation rows inserted by hand |
-//! | `app_environments_phase_1b` | staging hosts serve staging HTML to staff only; staging `/fn` runs for staff only and a dev slot's never; a cookie header and a cross-environment origin are refused; a staging task is refused by the runner |
+//! | `app_environments_phase_1b` | staging hosts serve staging HTML to staff only; staging `/fn` runs for staff only; a sandbox host and a sandbox's `/fn` serve the sandbox's own build to staff only, read per request, and a name nobody created runs nothing; a cookie header and a cross-environment origin are refused; a staging task is refused by the runner |
 //! | `environment_scoped_keys` | an idempotency key, a cached result or a ledger row from a non-production environment never stands in for production's |
 //! | `staging_functions` | a staging host runs the staging build as `ctx.channel = "staging"` for staff; the held row is written on throw and timeout; a GET carrying a body is held |
 //! | `staging_write_probe` | every write `HostOp`, from a table checked against the policy, is held (Airway refused) and listed in one `app.staging.held` row, unless the policy gives it a home — an unmapped warehouse write stays held; storage, secrets and email land in their isolated staging homes |
@@ -37,13 +37,33 @@
 //! | `custom_app_functions_e2e` | publish, route call, isolate, invocation row; success and throw |
 //! | `custom_app_functions_host_failures` | a caught paging host-call failure writes its fingerprint; a caught `not_found` does not |
 //! | `custom_app_functions_clickhouse` | `ctx.warehouse.insert` from the isolate onto real ClickHouse |
-//! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status |
+//! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status; its children: a check run in a named environment and every refusal around one, the invocation listings and who may read which rows (a build only staging or a sandbox serves included), the held-write and run read-backs, the logs filter |
 //! | `custom_app_functions_manual_run_guards` | source scans: the executor registration and admin stack that test copies still match production |
 //! | `custom_app_functions_shape_zoo` | every ClickHouse, Postgres and DuckDB zoo case, read one column at a time through `ctx.warehouse.query` in a published function, against `expect.warehouse` |
 //! | `custom_app_functions_shape_zoo_oltp` | the Postgres zoo cases through `ctx.oltp` in the app's own provisioned schema, against `expect.oltp` |
 //! | `shape_zoo` | `fixtures/data-shapes/zoo.json` is well formed, and the SQL built from it matches the shared vector the canary also tests |
 //! | `shape_zoo_coverage` | source scans: every native type `ch_type_to_typed`, `strip_type_wrappers`, `pg_typname_to_typed`, `is_decodable` and `describe_type_to_typed` name has a zoo case, or a reasoned exemption |
 //! | `canary_coverage` | source scans: every host op in `HOST_OPS` is declared by a platform-canary step (`STEP_OPS` in the canary's `steps.ts`), or exempted with a reason; a declared op the host lacks is refused |
+//! | `sandbox_environments` | a sandbox resolves its own build from its row, uncached, and never another environment's; an absent or deleting one resolves to nothing; a sandbox page's data reads take the pin of its own build |
+//! | `sandbox_isolation` | two sandboxes of one app, through the real serve route after a real publish: each runs its own build in its own storage silo; each reads its own secrets, then staging's, then production's `shared` ones, and cannot rotate a key it read from staging |
+//! | `sandbox_isolation_airhouse` | two sandboxes' `ctx.airhouse` appends land in two distinct siblings, each on a connection scoped to its own |
+//! | `sandbox_loop` | the whole loop on one app, in order: two sandboxes created by route, a build each, a call in each by `X-Oxy-App-Env`, a check through the queue and the production executor, its invocation and held list by route, a delete and its teardown — each sandbox on its own build, policy, secrets and silo, invisible to the other, to staging and to production, whose pointers never move; the freed name inherits nothing |
+//! | `sandbox_publish` | a publish with `environment` moves that sandbox's pointer and leaves the app row, staging, production and the schedules byte-identical; a semantic pin rides the sandbox's build |
+//! | `sandbox_publish_migrations` | a sandbox publish queues its Airhouse migrations under their own kind and applies no OLTP file; the task applies nothing for a sandbox that is locked, deleted or serving another build; sandbox builds are pruned in a window of their own |
+//! | `sandbox_publish_refusals` | what a sandbox publish refuses, each leaving no build row or bytes: `promote`, no reach, an unknown app or sandbox, a deleting one; a machine or app-scoped token, refused by the sandbox itself past `authorize_publish`; a sandbox deleted after admission — `409`, the stored build rolled back |
+//! | `sandbox_publish_route` | the `environment` multipart field through the real publish handler: the sandbox, the two new response fields on every publish, the plain-text refusals, a publish token refused |
+//! | `sandbox_routes` | create / list / show / delete through the staff console's guards: the Environment object; a duplicate, a name still tearing down, `staging` and a malformed name refused with their codes; a second `DELETE` answers the run on its way |
+//! | `sandbox_routes_guards` | every handler refuses a caller without non-production reach and a publish token; the console's layers refuse a non-staff caller and answer an operator scoped to another org `404`; production mounts the routes inside those layers |
+//! | `sandbox_routes_limit` | the 21st sandbox is refused and one being torn down counts; every create waits for the app row's lock, so racing creates cannot pass the limit |
+//! | `sandbox_schema_collision` | a legacy `--` slug's own schema is never another app's sibling: a sandbox of that name is not created or dropped, and an apply into it — staging's or a sandbox's — fails naming the collision instead of ending "nothing to apply" |
+//! | `sandbox_secrets_publish_token` | a publish token, whoever minted it, cannot list, reveal, set or delete staging's or a sandbox's secrets (the reads behind the token's own scope middleware); production's are answered as before |
+//! | `sandbox_sweep` | the sweep expires a sandbox idle past its TTL (exactly what `expires_at` says) and spares one invoked since; a second replica queues nothing; a teardown stuck six hours is queued again, one still on its way is not |
+//! | `sandbox_sweep_races` | the sweep looks again under the row lock: a publish that lands between its selection and its delete saves the sandbox; a retry never deletes a sandbox created again under the name |
+//! | `sandbox_task_kinds` | both sandbox task kinds are registered with the worker fleet and filed as platform daemons in the run feed's lists (backend and frontend) and workspace health's |
+//! | `sandbox_teardown` | dropping a sandbox's Airhouse sibling and ledger rows alone, never a fixed environment's; a fixed environment's is refused with everything still in it |
+//! | `sandbox_teardown_failures` | a teardown whose Airhouse step cannot finish leaves the sandbox deleting: Airhouse unreachable, and a worker with no Airhouse at all while the ledger says a sibling exists; a sandbox that never had one is still torn down there |
+//! | `sandbox_teardown_races` | a late teardown run removes nothing once an earlier run finished, nor anything of a sandbox created again; a run that cannot take the sandbox's lock removes nothing; a deleted app's sandbox is still torn down; a secret already gone is not a failure |
+//! | `sandbox_teardown_task` | the queued teardown, through its executor, removes one sandbox's silo, secrets and row and keeps invocations, events and audit rows; a failing step leaves it deleting; a payload naming staging removes nothing |
 //!
 //! `custom_app_staging_pin` proves the staging semantic pin: a staging request
 //! reads the draft build's pinned revision while live and every other request
@@ -91,6 +111,26 @@ mod custom_apps_publish_workspace;
 mod environment_scoped_keys;
 mod example_app_serving;
 mod function_failure_alerts;
+mod sandbox_environments;
+mod sandbox_isolation;
+mod sandbox_isolation_airhouse;
+mod sandbox_loop;
+mod sandbox_publish;
+mod sandbox_publish_migrations;
+mod sandbox_publish_refusals;
+mod sandbox_publish_route;
+mod sandbox_routes;
+mod sandbox_routes_guards;
+mod sandbox_routes_limit;
+mod sandbox_schema_collision;
+mod sandbox_secrets_publish_token;
+mod sandbox_sweep;
+mod sandbox_sweep_races;
+mod sandbox_task_kinds;
+mod sandbox_teardown;
+mod sandbox_teardown_failures;
+mod sandbox_teardown_races;
+mod sandbox_teardown_task;
 mod seed_example_app;
 mod shape_zoo;
 mod shape_zoo_coverage;

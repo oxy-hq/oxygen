@@ -37,7 +37,9 @@ use super::evaluator::{HealthThresholds, WorkspaceSignals};
 /// `preview_compare` a preview build's compare with live, `preview_airway_sample`
 /// staff sampling a branch's pipeline: no such failure says anything about the
 /// workspace production serves. Nor does `custom_app_staging_migrations`, a
-/// custom app's staging homes migrated after a publish.
+/// custom app's staging homes migrated after a publish, nor a sandbox's
+/// (`custom_app_sandbox_migrations`) or its teardown
+/// (`custom_app_sandbox_teardown`): staff trying a build, not the tenant's work.
 const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "health_eval_workspace",
     "preagg_cycle",
@@ -46,6 +48,8 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "preview_compare",
     "preview_airway_sample",
     "custom_app_staging_migrations",
+    "custom_app_sandbox_migrations",
+    "custom_app_sandbox_teardown",
 ];
 
 /// SQL predicate excluding [`NON_WORKSPACE_RUN_SOURCES`], for a table aliased
@@ -55,18 +59,23 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
 /// to NULL for them, which the WHERE clause treats as false and would silently
 /// drop legacy runs out of the denominator.
 ///
-/// A held preview procedure run is an ordinary `workflow` run, so it is told
-/// apart by `metadata.trigger = 'preview'` instead: a staffer's dry run of a
-/// branch failing says nothing about the workspace production serves.
-/// `IS DISTINCT FROM` keeps runs with no metadata.
+/// Two kinds of staff run cannot be told apart by `source_type` — a held
+/// preview procedure run is an ordinary `workflow` run, and a custom-app check
+/// run queued in `staging` or a sandbox an ordinary `app_function` run — so
+/// they are told apart by what their seeder stamped on `metadata`. A staffer's
+/// dry run of a branch, or check of an unpromoted build, failing says nothing
+/// about the workspace production serves. That rule is not restated here: it
+/// is `agentic_runtime`'s `customer_run_sql`, the predicate the coordinator
+/// run feed hides the same runs with, so the two cannot drift. A production
+/// `app_function` run carries no environment and is counted as before.
 ///
 /// `agentic_runs` has no supporting index at all for the `created_at` window
 /// every caller here filters on (PR #3381 review nit 3), so every one of
 /// these queries is already an unbounded scan *before* this predicate — a
 /// pre-existing condition, out of this predicate's scope to fix. Against
-/// that baseline, `metadata->>'trigger' IS DISTINCT FROM 'preview'` is a
-/// cheap residual: one more per-row JSONB comparison on a scan that was
-/// already reading every row in the window. It stops being cheap the day
+/// that baseline, the `metadata` predicate is a cheap residual: two more
+/// per-row JSONB reads on a scan that was already reading every row in the
+/// window. It stops being cheap the day
 /// `agentic_runs` gets a `created_at` index and this predicate is the thing
 /// keeping it non-sargable — see the follow-up in
 /// `internal-docs/workspace-previews.md`.
@@ -78,8 +87,8 @@ fn exclude_daemon_runs(alias: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        " AND ({col} IS NULL OR {col} NOT IN ({list})) \
-         AND ({alias}metadata->>'trigger' IS DISTINCT FROM 'preview')"
+        " AND ({col} IS NULL OR {col} NOT IN ({list})) AND {}",
+        agentic_runtime::crud::customer_run_sql(alias)
     )
 }
 
@@ -331,6 +340,10 @@ fn blank_signals(workspace_id: Uuid) -> WorkspaceSignals {
 }
 
 #[cfg(test)]
+#[path = "queries_staff_run_tests.rs"]
+mod staff_run_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::server::test_support::{SKIP_MSG, test_db};
@@ -396,6 +409,31 @@ mod tests {
             mine.failed_runs, 1,
             "health-eval runs must be excluded from the numerator"
         );
+    }
+
+    /// A sandbox's teardown and its migrations are staff trying a build, filed
+    /// in the app's workspace: failing, they say nothing about the workspace
+    /// production serves, and must not move its failure rate.
+    #[tokio::test]
+    async fn sandbox_task_runs_are_not_counted_as_workspace_runs() {
+        let Some(db) = test_db().await else {
+            eprintln!("{SKIP_MSG}");
+            return;
+        };
+        let ws = Uuid::new_v4();
+        for kind in [
+            "custom_app_sandbox_teardown",
+            "custom_app_sandbox_migrations",
+        ] {
+            insert_run(&db, ws, "failed", Some(kind)).await;
+        }
+        insert_run(&db, ws, "failed", Some("analytics")).await;
+
+        let signals = gather_signals(&db, &HealthThresholds::default(), Some(ws))
+            .await
+            .unwrap();
+        let mine = signals.iter().find(|s| s.workspace_id == ws).unwrap();
+        assert_eq!((mine.total_runs, mine.failed_runs), (1, 1));
     }
 
     /// A NULL `source_type` is workspace work of unknown provenance, not a

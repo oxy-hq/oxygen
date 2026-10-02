@@ -12,8 +12,11 @@
 //! - the production host, for the same viewer, serves exactly what it did;
 //! - `/fn` on staging runs the staging build for staff (Phase 3 of the previews
 //!   plan — its writes are held, see `staging_functions`) and is refused to
-//!   everyone else; a dev slot is refused even to staff; production's `/fn`
-//!   still runs;
+//!   everyone else; production's `/fn` still runs;
+//! - a sandbox (`dev-<handle>`, `internal-docs/custom-app-sandboxes.md`) takes
+//!   the same arm: its host serves its own build to staff, read per request;
+//!   `/fn` runs that build for staff and is refused to everyone else; a name
+//!   nobody created runs nothing;
 //! - an `X-Oxy-App-Env` header on a cookie request is a 400, never a silent
 //!   production call;
 //! - a cookie request from a staging page cannot run a production function,
@@ -29,10 +32,12 @@ use agentic_runtime::worker::TaskExecutor;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use entity::app_builds;
+use oxy_app::server::api::custom_apps_environments::{self, EnvAction};
 use oxy_app::server::api::custom_apps_publish::{OrgRef, PublishInput, publish};
 use oxy_app::server::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
+use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
 use serde_json::json;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -206,28 +211,13 @@ async fn fn_in_staging_is_refused_to_a_viewer_who_is_not_staff() {
 }
 
 /// Phase 3: staff run the staging build's functions — by host and by a
-/// bearer-named environment (`oxyc dev`) — while a dev slot is still refused
-/// rather than downgraded to production. Production is unchanged.
+/// bearer-named environment (`oxyc fn call --app-env`). Production is
+/// unchanged.
 #[tokio::test]
-async fn fn_runs_in_staging_for_staff_and_never_in_a_dev_slot() {
+async fn fn_runs_in_staging_for_staff() {
     let t = seeded_tenant().await;
     let (app_id, production_build, staging_build) = two_environments(&t).await;
     make_guest_staff();
-
-    let dev = call_function_with(
-        ORG_SLUG,
-        APP,
-        "stamp",
-        json!({}),
-        &[
-            ("authorization", "Bearer t"),
-            ("x-oxy-app-env", "dev-luong"),
-        ],
-    )
-    .await;
-    assert_eq!(dev.status, StatusCode::FORBIDDEN, "{}", dev.raw);
-    assert!(dev.raw.contains("EnvironmentRefused"), "{}", dev.raw);
-    assert!(invocations(&t.db, app_id, "stamp").await.is_empty());
 
     let staging = call_function_with(
         ORG_SLUG,
@@ -269,6 +259,191 @@ async fn fn_runs_in_staging_for_staff_and_never_in_a_dev_slot() {
             ("production", production_build, "success"),
         ]
     );
+}
+
+const SANDBOX: &str = "dev-luong";
+
+fn sandbox_host() -> String {
+    format!("{SANDBOX}--{ORG_SLUG}--{APP}.customer-apps.oxygen-hq.com")
+}
+
+fn sandbox() -> AppEnvironment {
+    AppEnvironment::parse(SANDBOX).expect("a sandbox name")
+}
+
+/// A sandbox of the app, pointed at `build`.
+async fn sandbox_serving(t: &Tenant, app_id: Uuid, build: Uuid) {
+    crate::app_environments::seed_sandbox(&t.db, app_id, SANDBOX, t.guest_id).await;
+    custom_apps_environments::record_move(
+        &t.db,
+        app_id,
+        &sandbox(),
+        Some(build),
+        EnvAction::Publish,
+        Some(t.guest_id),
+    )
+    .await
+    .expect("point the sandbox");
+}
+
+/// A sandbox runs its own build's functions for staff — by host and by a
+/// bearer-named environment — recorded under the sandbox's name. It is no
+/// longer refused outright: it takes the arm staging does.
+#[tokio::test]
+async fn fn_runs_in_a_sandbox_for_staff_on_the_sandboxs_own_build() {
+    let t = seeded_tenant().await;
+    let (app_id, production_build, staging_build) = two_environments(&t).await;
+    // The sandbox serves production's build, so "its own" is distinguishable
+    // from staging's — the environment a sandbox must never borrow from.
+    sandbox_serving(&t, app_id, production_build).await;
+    make_guest_staff();
+
+    let by_host = call_function_with(
+        ORG_SLUG,
+        APP,
+        "stamp",
+        json!({}),
+        &[("host", &sandbox_host())],
+    )
+    .await;
+    assert_eq!(by_host.status, StatusCode::OK, "{}", by_host.raw);
+    assert_eq!(by_host.frame("data"), Some(&json!({ "ran": true })));
+    let by_header = call_function_with(
+        ORG_SLUG,
+        APP,
+        "stamp",
+        json!({}),
+        &[("authorization", "Bearer t"), ("x-oxy-app-env", SANDBOX)],
+    )
+    .await;
+    assert_eq!(by_header.status, StatusCode::OK, "{}", by_header.raw);
+
+    let rows = invocations(&t.db, app_id, "stamp").await;
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.environment.as_str(), r.build_id, r.status.as_str()))
+            .collect::<Vec<_>>(),
+        vec![
+            (SANDBOX, production_build, "success"),
+            (SANDBOX, production_build, "success"),
+        ],
+        "never staging's build ({staging_build})"
+    );
+}
+
+/// A sandbox is staff's, like staging: an org Owner who runs production's
+/// functions is refused, and nothing runs.
+#[tokio::test]
+async fn fn_in_a_sandbox_is_refused_to_a_viewer_who_is_not_staff() {
+    let t = seeded_tenant().await;
+    let (app_id, production_build, _) = two_environments(&t).await;
+    sandbox_serving(&t, app_id, production_build).await;
+
+    let viewer = call_function_with(
+        ORG_SLUG,
+        APP,
+        "stamp",
+        json!({}),
+        &[("host", &sandbox_host())],
+    )
+    .await;
+    assert_eq!(viewer.status, StatusCode::FORBIDDEN, "{}", viewer.raw);
+    assert!(viewer.raw.contains("EnvironmentRefused"), "{}", viewer.raw);
+    assert!(invocations(&t.db, app_id, "stamp").await.is_empty());
+}
+
+/// A name nobody created runs nothing, even for staff — it is never
+/// downgraded to production's build or to staging's.
+#[tokio::test]
+async fn a_sandbox_nobody_created_runs_nothing_even_for_staff() {
+    let t = seeded_tenant().await;
+    let (app_id, ..) = two_environments(&t).await;
+    make_guest_staff();
+
+    let unknown = call_function_with(
+        ORG_SLUG,
+        APP,
+        "stamp",
+        json!({}),
+        &[
+            ("authorization", "Bearer t"),
+            ("x-oxy-app-env", "dev-nobody"),
+        ],
+    )
+    .await;
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{}", unknown.raw);
+    assert!(
+        invocations(&t.db, app_id, "stamp").await.is_empty(),
+        "nothing ran"
+    );
+}
+
+/// A sandbox host serves the sandbox's own build to staff, naming the
+/// environment; the moment the sandbox is marked deleting it serves nothing —
+/// its build is read per request, not from the app-resolution cache.
+#[tokio::test]
+async fn a_sandbox_host_serves_its_own_build_to_staff_until_it_is_deleted() {
+    let t = seeded_tenant().await;
+    let (app_id, production_build, staging_build) = two_environments(&t).await;
+    sandbox_serving(&t, app_id, production_build).await;
+    make_guest_staff();
+
+    let (status, html) = get_html(&sandbox_host()).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(&format!("\"buildId\":\"{production_build}\"")),
+        "the sandbox host serves the sandbox's build: {html}"
+    );
+    assert!(
+        html.contains(&format!("\"environment\":\"{SANDBOX}\"")),
+        "{html}"
+    );
+
+    // Move the pointer: the very next request serves the new build.
+    custom_apps_environments::record_move(
+        &t.db,
+        app_id,
+        &sandbox(),
+        Some(staging_build),
+        EnvAction::Publish,
+        None,
+    )
+    .await
+    .expect("republish");
+    let (status, html) = get_html(&sandbox_host()).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(
+        html.contains(&format!("\"buildId\":\"{staging_build}\"")),
+        "a publish to a sandbox shows at once: {html}"
+    );
+
+    t.db.execute_unprepared(
+        "UPDATE app_environments SET deleting_at = now() WHERE name = 'dev-luong'",
+    )
+    .await
+    .expect("mark deleting");
+    let (status, _) = get_html(&sandbox_host()).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "a deleting sandbox serves nothing"
+    );
+
+    // Control: staging and production are untouched by any of it.
+    let (status, html) = get_html(&staging_host()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(&format!("\"buildId\":\"{staging_build}\"")));
+}
+
+/// A viewer who is not staff never opens a sandbox host.
+#[tokio::test]
+async fn a_sandbox_host_refuses_a_viewer_who_is_not_staff() {
+    let t = seeded_tenant().await;
+    let (app_id, production_build, _) = two_environments(&t).await;
+    sandbox_serving(&t, app_id, production_build).await;
+
+    let (status, _) = get_html(&sandbox_host()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 /// Never downgraded: a header the server cannot honour is a 400.

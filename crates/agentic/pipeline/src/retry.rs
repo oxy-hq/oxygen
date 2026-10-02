@@ -16,7 +16,7 @@
 
 use sea_orm::{DatabaseConnection, DbErr};
 
-use agentic_runtime::crud::{TaskScope, get_run};
+use agentic_runtime::crud::{TaskScope, get_run_in_workspace};
 use agentic_runtime::entity::run;
 
 use crate::airway_run::{StartAirwayRequest, start_airway_run};
@@ -65,7 +65,8 @@ impl From<DbErr> for RetryError {
 /// **Workspace-scoped**: a foreign run id is reported as `NotFound`
 /// rather than `NotRetryable`, so the surface mirrors `get_schedule`'s
 /// cross-workspace handling — the existence of a run in another tenant
-/// isn't probeable.
+/// isn't probeable. A check run staff queued in a non-production app
+/// environment is `NotFound` the same way (`get_run_in_workspace`).
 ///
 /// `workspace` is needed for the airway path (it resolves the pipeline file
 /// off the workspace filesystem); automation retries don't actually read it
@@ -76,10 +77,9 @@ pub async fn retry_run(
     workspace: &dyn crate::WorkflowWorkspaceContext,
     run_id: &str,
 ) -> Result<String, RetryError> {
-    let original = get_run(db, run_id).await?.ok_or(RetryError::NotFound)?;
-    if original.workspace_id != workspace_id {
-        return Err(RetryError::NotFound);
-    }
+    let original = get_run_in_workspace(db, workspace_id, run_id)
+        .await?
+        .ok_or(RetryError::NotFound)?;
 
     if !is_terminal_failed(&original) {
         return Err(RetryError::NotRetryable(format!(

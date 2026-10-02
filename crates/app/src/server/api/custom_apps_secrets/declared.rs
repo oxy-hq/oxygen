@@ -120,12 +120,17 @@ pub struct AppSecretEntry {
     /// `shared`, so a run reads production's value. Not missing.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub inherits_production: bool,
+    /// In a sandbox view: nothing is stored here and staging holds a value,
+    /// so a run reads staging's (`scope::plan_env`). Not missing. Takes
+    /// precedence over `inherits_production`, as the read does.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub inherits_staging: bool,
 }
 
 impl AppSecretEntry {
     /// Needs attention: declared, required, and nothing a run would read.
     pub fn is_missing_required(&self) -> bool {
-        self.required && !self.is_set && !self.inherits_production
+        self.required && !self.is_set && !self.inherits_production && !self.inherits_staging
     }
 }
 
@@ -261,6 +266,7 @@ pub(crate) fn reconcile(
                 updated_by_email: row.and_then(|r| r.updated_by_email),
                 shared: d.shared,
                 inherits_production: false,
+                inherits_staging: false,
             }
         })
         .collect();
@@ -278,6 +284,7 @@ pub(crate) fn reconcile(
         updated_by_email: row.updated_by_email,
         shared: false,
         inherits_production: false,
+        inherits_staging: false,
     }));
 
     entries.sort_by(|a, b| {

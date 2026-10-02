@@ -264,6 +264,10 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
 
     /// Persisted Oxy Function log lines over a window, newest first.
     /// `invocation_id` / `request_id` empty mean "any"; both set means both.
+    /// `environment` empty means production only, which is what every read
+    /// was before the argument; a name means that app environment's lines and
+    /// no other's.
+    #[allow(clippy::too_many_arguments)]
     async fn get_function_logs(
         &self,
         _org_id: &str,
@@ -272,6 +276,7 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         _limit: u32,
         _invocation_id: &str,
         _request_id: &str,
+        _environment: &str,
     ) -> Result<Vec<FunctionLogRow>, OxyError> {
         Ok(Vec::new())
     }

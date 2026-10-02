@@ -188,6 +188,8 @@ mod m20260928_000004_workspace_previews;
 mod m20260929_000001_custom_app_activity_environment;
 mod m20260929_000002_workspace_preview_runs;
 mod m20260929_000003_workspace_preview_registry;
+mod m20261001_000001_app_environment_deleting_at;
+mod m20261001_000002_function_invocation_environment_index;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 
@@ -387,6 +389,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260929_000001_custom_app_activity_environment::Migration),
             Box::new(m20260929_000002_workspace_preview_runs::Migration),
             Box::new(m20260929_000003_workspace_preview_registry::Migration),
+            Box::new(m20261001_000001_app_environment_deleting_at::Migration),
+            Box::new(m20261001_000002_function_invocation_environment_index::Migration),
         ]
     }
 

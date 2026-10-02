@@ -69,8 +69,11 @@ and apps, or reproduce a reported bug against live data.
 
     ${selfInvocation()} <command>
 
-If your runtime speaks MCP, \`oxyc mcp\` serves the same surface as four tools
-(\`oxy_routes\`, \`oxy_schema\`, \`oxy_request\`, \`oxy_whoami\`).
+If your runtime speaks MCP, \`oxyc mcp\` serves the whole API as four tools
+(\`oxy_routes\`/\`oxy_schema\`/\`oxy_request\`/\`oxy_whoami\`), plus purpose-built tools for
+the sandbox loop (\`oxy_env_*\`, \`oxy_publish_sandbox\`, \`oxy_fn_call\`, \`oxy_checks_run\`,
+\`oxy_invocations_*\`, \`oxy_logs\`) and workspace previews (\`oxy_preview_*\`) below — the
+same two loops, as tool calls an agent can run unsupervised.
 
 ### Never guess a path
 
@@ -85,9 +88,8 @@ If your runtime speaks MCP, \`oxyc mcp\` serves the same surface as four tools
     oxyc api {workspace}/databases --jq '.[].name'      # connection names
     oxyc api {workspace}/sql/query -f 'sql=select 1' -f database=<name> --md
 
-\`{org}\` \`{workspace}\` \`{project}\` \`{customer}\` \`{me}\` fill themselves from the
-customer repo you are in, or from \`--org\` / \`--workspace\` / \`--project\`. An
-unresolved one errors and names the flag that would fill it.
+\`{org}\` \`{workspace}\` \`{project}\` \`{customer}\` \`{me}\` fill themselves from the customer
+repo you are in, or from \`--org\`/\`--workspace\`/\`--project\`; unresolved errors, naming the flag.
 
 ### Flags worth knowing
 
@@ -96,8 +98,7 @@ unresolved one errors and names the flag that would fill it.
     --paginate        walk every page              --cache 5m      reuse a recent GET
     --env local|dev|staging|production, or paste a URL
 
-Prefer \`--jq\` and \`--md\` before reading a large response: \`--md\` is far fewer
-tokens than the same rows as JSON, which repeats every field name per row.
+Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far fewer tokens than JSON, which repeats every field name per row.
 
 ### Branch on the exit code
 
@@ -105,29 +106,39 @@ tokens than the same rows as JSON, which repeats every field name per row.
     4 log in (\`oxyc login --env <env>\`) · 5 not found · 6 malformed request
     7 retryable (5xx/timeout) · 8 refused · 9 a check failed (\`oxyc checks run\`)
 
+### Sandboxes — try a custom-app change on real data, untouched by others
+
+    oxyc env create <app> dev-x                      # starts with no build
+    oxyc publish --env dev --app-env dev-x           # build + publish to it
+    oxyc fn call <app> <fn> --app-env dev-x --data '{}'  # call a function in it
+    oxyc checks run <app> --app-env dev-x            # run its checks
+    oxyc invocations held <app> <invocation-id>      # what it held, not wrote
+    oxyc env delete <app> dev-x --yes --wait         # done; tears its homes down
+
+### Workspace previews — open a branch on real data without it being live (staff)
+
+    oxyc preview create <branch> --wait              # compile it, wait for the revision
+    oxyc preview checks <branch>                     # Airway change check of that revision
+    oxyc preview run <branch> procedure <automation.yml> --wait   # held dry run
+    oxyc preview runs list <branch>                  # includes transform_build/compare too
+    oxyc preview delete <branch> --yes                # done
+
 ### Beyond the API
 
     oxyc validate                  # check the workspace YAML — no network, no token
     oxyc proxy --env dev           # local app dev against cloud data
-    oxyc publish --env dev         # build + publish a custom app (draft; --promote for live)
     oxyc <customer>                # a session scoped to one customer
-    oxyc doctor <customer>         # what the tool knows, changing nothing
-    oxyc assume status             # a staff 403 usually means no session, not a role
-    oxyc assume start --org <o> -r "why"   # 60 min, not renewable
+    oxyc assume start --org <o> -r "why"   # staff/partner session, 60 min, not renewable
 
-\`oxyc validate\` is the only one that works entirely offline. It is STRUCTURAL —
-\`oxy validate\` also resolves \`databases:\` and \`llm.ref\` and wins where they differ.
+\`oxyc validate\` is the only one offline; \`oxy validate\` (Rust) also resolves \`databases:\`/\`llm.ref\`.
 
 ### Traps
 
-- \`200\` with a body of \`null\` can mean an EXPIRED SESSION, not "no such
-  thing" — \`/api/user\` does exactly that. \`oxyc whoami\` tells them apart.
-- \`/sql/query\` returns arrays of strings, HEADER ROW FIRST —
-  \`[["id","name"],["1","ada"]]\` — not an object. \`--md\` renders it.
-- \`oxyc schema\` covers the data plane only. Blank means undocumented, not
-  nonexistent; \`oxyc routes <path>\` confirms the endpoint is real.
+- \`200\` with a body of \`null\` can mean an EXPIRED SESSION — \`oxyc whoami\` tells it from "no such thing".
+- \`/sql/query\` returns arrays of strings, HEADER ROW FIRST, not an object — \`--md\` renders it.
+- \`oxyc schema\` covers the data plane only; blank means undocumented — \`oxyc routes <path>\` confirms it's real.
 - A listed route can still 404 if it is \`ide-only\`; \`oxyc routes --all\` shows those.
-- Read freely. Ask before running a mutating request against production.
+- Read freely. Ask before a mutating request against production, or \`--app-env\` other than your own sandbox.
 `;
 
 /**

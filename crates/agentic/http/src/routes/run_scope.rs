@@ -7,7 +7,9 @@
 //! member of one workspace reads another's run events, answers its suspended
 //! run, or cancels it, given only the id. A run from another workspace answers
 //! 404, exactly like a run that does not exist: its existence is not ours to
-//! confirm.
+//! confirm. A check run a staffer queued in a non-production app environment
+//! answers the same 404: it is read back through the app's staff routes, and
+//! `agentic_runtime::crud::get_run_in_workspace` states that rule once.
 //!
 //! `PlatformContext::workspace_id()` is the id the run was stamped with at
 //! submit (the nil UUID in local mode), so the check holds in every serve mode.
@@ -25,9 +27,9 @@ pub(super) async fn run_in_workspace(
     run_id: &str,
     workspace_id: Uuid,
 ) -> Result<agentic_runtime::entity::run::Model, Response> {
-    match agentic_runtime::crud::get_run(db, run_id).await {
-        Ok(Some(run)) if run.workspace_id == workspace_id => Ok(run),
-        Ok(_) => Err((StatusCode::NOT_FOUND, "run not found").into_response()),
+    match agentic_runtime::crud::get_run_in_workspace(db, workspace_id, run_id).await {
+        Ok(Some(run)) => Ok(run),
+        Ok(None) => Err((StatusCode::NOT_FOUND, "run not found").into_response()),
         Err(e) => {
             Err((StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response())
         }

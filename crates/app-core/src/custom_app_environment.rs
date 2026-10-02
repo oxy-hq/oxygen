@@ -1,5 +1,5 @@
-//! The named environments of a custom app: `production`, `staging`, and one
-//! `dev-<handle>` slot per engineer.
+//! The named environments of a custom app: `production`, `staging`, and any
+//! number of `dev-<handle>` sandboxes (`internal-docs/custom-app-sandboxes.md`).
 //!
 //! Pure naming rules, shared by host parsing (`custom_apps_host_dispatch`) and the
 //! `app_environments` writes in `oxy-app`. The database carries the same rules as a
@@ -59,6 +59,19 @@ impl AppEnvironment {
             Self::Production => "production".to_string(),
             Self::Staging => "staging".to_string(),
             Self::Dev { handle } => format!("dev-{handle}"),
+        }
+    }
+
+    /// The label of this environment's sibling Airhouse schema
+    /// (`airhouse::app_schema::environment_schema`): `None` for production,
+    /// which writes the app's own schema, `staging`, or `dev_<handle>` with
+    /// each `-` as `_`. A handle holds no underscore, so two sandboxes never
+    /// share a label.
+    pub fn schema_label(&self) -> Option<String> {
+        match self {
+            Self::Production => None,
+            Self::Staging => Some("staging".to_string()),
+            Self::Dev { handle } => Some(format!("dev_{}", handle.replace('-', "_"))),
         }
     }
 
@@ -159,6 +172,55 @@ mod tests {
         ] {
             assert_eq!(AppEnvironment::parse(&env.name()), Some(env.clone()));
         }
+    }
+
+    /// The label of an environment's sibling Airhouse schema: production has
+    /// none, staging's is its name, and a sandbox's is its name with every
+    /// hyphen as an underscore (a schema name cannot hold a hyphen unquoted).
+    #[test]
+    fn schema_label_for_each_kind() {
+        assert_eq!(AppEnvironment::Production.schema_label(), None);
+        assert_eq!(
+            AppEnvironment::Staging.schema_label().as_deref(),
+            Some("staging")
+        );
+        assert_eq!(
+            AppEnvironment::Dev {
+                handle: "luong".into()
+            }
+            .schema_label()
+            .as_deref(),
+            Some("dev_luong")
+        );
+    }
+
+    #[test]
+    fn schema_label_maps_each_hyphen_of_a_handle_to_one_underscore() {
+        assert_eq!(
+            AppEnvironment::Dev {
+                handle: "a1-b2-c3".into()
+            }
+            .schema_label()
+            .as_deref(),
+            Some("dev_a1_b2_c3")
+        );
+    }
+
+    /// Two different sandboxes never share a label: a handle holds no
+    /// underscore, so the hyphen-to-underscore map loses nothing.
+    #[test]
+    fn schema_labels_of_distinct_handles_are_distinct() {
+        let labels: std::collections::HashSet<String> = ["a-b", "ab", "a", "b", "a-b-c", "a-bc"]
+            .iter()
+            .map(|h| {
+                AppEnvironment::Dev {
+                    handle: (*h).to_string(),
+                }
+                .schema_label()
+                .expect("a sandbox has a label")
+            })
+            .collect();
+        assert_eq!(labels.len(), 6);
     }
 
     #[test]

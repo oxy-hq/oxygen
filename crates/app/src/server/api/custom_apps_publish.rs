@@ -37,6 +37,7 @@ use uuid::Uuid;
 
 use super::custom_apps_nonproduction::publish as staging;
 use super::custom_apps_nonproduction::staging_task;
+use super::custom_apps_sandboxes::{publish as sandbox_publish, retention};
 use super::{
     custom_apps_asset_manifest as asset_manifest, custom_apps_auth,
     custom_apps_build_store as store, custom_apps_bundle_cache as cache,
@@ -182,7 +183,14 @@ pub struct PublishResult {
     pub app_id: Uuid,
     pub build_id: String,
     pub url: String,
+    /// `draft`, `published`, or `sandbox` when the publish named one.
     pub channel: String,
+    /// The environment this publish moved: `staging`, `production` (with
+    /// `promote`), or the sandbox it named.
+    pub environment: String,
+    /// That environment's own host; `null` when it has none (no custom-apps
+    /// zone on this deployment, or a host label over 63 bytes).
+    pub environment_url: Option<String>,
     /// Canonical org slug the app row landed on, after the server
     /// resolved whatever `OrgRef` the publisher sent. Echoing the
     /// server's view lets the CLI render `Registered new app
@@ -285,10 +293,91 @@ pub enum PublishError {
     /// 409 to retry once the workspace has a compiled config to check it by.
     #[error("{0}")]
     DestinationMapping(crate::server::api::custom_apps_nonproduction::MappingRefusal),
+    /// The `environment` field names something that is not a sandbox.
+    /// Production and staging are reached by leaving the field out.
+    #[error(
+        "environment {0:?} is not a sandbox name: use dev-<handle>, where the handle is 1 to 12 characters of a-z, 0-9 and single hyphens. Leave the field out to publish to staging."
+    )]
+    InvalidEnvironment(String),
+    /// A sandbox publish moves one sandbox's pointer; it cannot also promote.
+    #[error(
+        "a publish to a sandbox cannot promote: drop --promote (or channel=published), or drop the environment to publish to staging and production"
+    )]
+    SandboxWithPromote,
+    /// The publisher may not use the app's sandboxes: not staff with reach
+    /// over its org, or authenticated by a publish token.
+    #[error(
+        "publishing to a sandbox is for Oxy staff who may open this app's non-production environments, signed in with a login token or an API key — a publish token cannot"
+    )]
+    SandboxRefused,
+    /// No such sandbox — or no such app: a sandbox publish never creates one.
+    #[error(
+        "no sandbox {name} to publish to: the app does not exist, or it has no sandbox of that name. Create it first (`oxyc env create <app> {name}`)."
+    )]
+    UnknownEnvironment { name: String },
+    /// The sandbox is being torn down.
+    #[error("sandbox {name} is being deleted; its name is free once the teardown finishes")]
+    EnvironmentDeleting { name: String },
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
     S3(String),
+}
+
+/// Where a publish moves a pointer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublishTarget {
+    /// Today's publish: staging's pointer, and production's with `promote`.
+    Channels,
+    /// One sandbox's pointer and nothing else. Always an `AppEnvironment::Dev`.
+    Sandbox(AppEnvironment),
+}
+
+impl PublishTarget {
+    /// The environment a publish to this target moves, and the `channel` the
+    /// response reports for it.
+    fn moved(&self, promote: bool) -> (AppEnvironment, &'static str) {
+        match self {
+            PublishTarget::Sandbox(environment) => (environment.clone(), "sandbox"),
+            PublishTarget::Channels if promote => (AppEnvironment::Production, "published"),
+            PublishTarget::Channels => (AppEnvironment::Staging, "draft"),
+        }
+    }
+
+    /// A sandbox publish moves one sandbox's pointer; it cannot also promote.
+    fn refuse_promote(&self, input: &PublishInput) -> Result<(), PublishError> {
+        match self {
+            PublishTarget::Sandbox(_) if input.promote => Err(PublishError::SandboxWithPromote),
+            _ => Ok(()),
+        }
+    }
+
+    /// What a finished publish to this target answers: the build, the channel
+    /// and environment it moved, and that environment's own host.
+    fn result(
+        &self,
+        org_slug: &str,
+        input: PublishInput,
+        (app_id, is_new_app): (Uuid, bool),
+        warnings: Vec<String>,
+    ) -> PublishResult {
+        let (environment, channel) = self.moved(input.promote);
+        PublishResult {
+            app_id,
+            url: format!("/customer-apps/{org_slug}/{}/", input.app_slug),
+            channel: channel.to_string(),
+            environment_url: oxy_app_core::custom_apps_host_dispatch::environment_url_for(
+                &environment,
+                org_slug,
+                &input.app_slug,
+            ),
+            environment: environment.name(),
+            build_id: input.build_id,
+            org_slug: org_slug.to_string(),
+            is_new_app,
+            warnings,
+        }
+    }
 }
 
 impl From<migrations::MigrationError> for PublishError {
@@ -304,7 +393,8 @@ impl From<store::BuildStoreError> for PublishError {
 }
 
 impl PublishError {
-    fn status(&self) -> StatusCode {
+    /// The status the publish route answers this refusal with.
+    pub fn status(&self) -> StatusCode {
         match self {
             PublishError::UnknownOrg(_) | PublishError::UnknownProject(..) => {
                 StatusCode::UNPROCESSABLE_ENTITY
@@ -344,6 +434,12 @@ impl PublishError {
                     MappingRefusal::Unchecked(_) => StatusCode::CONFLICT,
                 }
             }
+            PublishError::InvalidEnvironment(_) | PublishError::SandboxWithPromote => {
+                StatusCode::BAD_REQUEST
+            }
+            PublishError::SandboxRefused => StatusCode::FORBIDDEN,
+            PublishError::UnknownEnvironment { .. } => StatusCode::NOT_FOUND,
+            PublishError::EnvironmentDeleting { .. } => StatusCode::CONFLICT,
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -710,11 +806,15 @@ enum AppMutationRollback {
         name: String,
         last_synced_at: Option<chrono::DateTime<chrono::FixedOffset>>,
     },
+    /// A sandbox publish, which never writes the app row: nothing to undo,
+    /// and no cached row to drop.
+    Untouched,
 }
 
 impl AppMutationRollback {
     async fn apply(self, db: &DatabaseConnection, app_id: Uuid) {
         match self {
+            AppMutationRollback::Untouched => return,
             AppMutationRollback::Created => {
                 if let Err(e) = apps::Entity::delete_by_id(app_id).exec(db).await {
                     tracing::warn!(
@@ -815,7 +915,7 @@ impl AppMutationRollback {
 /// (`validate_project` when the publisher named an org, `org_for_project`
 /// derives the org from the workspace when it did not), and `existing` was
 /// found by `find_app` under that same `org.id`.
-async fn ensure_same_workspace(
+pub(super) async fn ensure_same_workspace(
     db: &DatabaseConnection,
     existing: &apps::Model,
     input: &PublishInput,
@@ -1293,57 +1393,18 @@ async fn gate_promotion(db: &DatabaseConnection, build_pk: Uuid) -> Result<(), P
     Ok(())
 }
 
-/// Delete builds beyond `KEEP_BUILDS`, never touching a build a channel pointer or
-/// an `app_environments` row references. Row before bytes; best-effort on the S3 side.
+/// Delete builds beyond retention — the newest `KEEP_BUILDS` builds only a
+/// sandbox ever served, and the newest `KEEP_BUILDS` of the rest
+/// (`custom_apps_sandboxes::retention`) — never touching a build a channel pointer
+/// or an `app_environments` row references. Row before bytes; best-effort on the S3 side.
 async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
-    // Always protect the builds the live channels point at, regardless of what
-    // the caller passed. GC that reaps the currently-served build is a silent
-    // outage: the app 404s (`custom_apps_serve/sources.rs`) with no publish
-    // having touched the live channel. Read the pointers here so the guarantee
-    // can't be lost by a caller forgetting to thread them through.
-    let mut protect: Vec<Uuid> = protect.to_vec();
-    match apps::Entity::find_by_id(app_id).one(db).await {
-        Ok(Some(app)) => {
-            protect.extend(app.published_build_id);
-            protect.extend(app.draft_build_id);
-        }
-        Ok(None) => {
-            tracing::warn!(
-                "gc_builds: app {app_id} not found; skipping GC so a live build can't be reaped"
-            );
-            return;
-        }
-        Err(e) => {
-            tracing::warn!(
-                "gc_builds: could not load channel pointers for app {app_id} ({e}); skipping GC"
-            );
-            return;
-        }
-    }
-    // Environment rows name builds too (and, from Phase 4, dev-slot base builds the
-    // pointer columns never see). Same fail-safe as above: unknown means skip GC.
-    match super::custom_apps_environments::protected_build_ids(db, app_id).await {
-        Ok(ids) => protect.extend(ids),
-        Err(e) => {
-            tracing::warn!(
-                "gc_builds: could not load environment builds for app {app_id} ({e}); skipping GC"
-            );
-            return;
-        }
-    }
-    let builds = match app_builds::Entity::find()
-        .filter(app_builds::Column::AppId.eq(app_id))
-        .order_by_desc(app_builds::Column::CreatedAt)
-        .all(db)
-        .await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::warn!("gc_builds list failed for app {app_id}: {e}");
-            return;
-        }
+    let Some(protect) = gc_protected(db, app_id, protect).await else {
+        return;
     };
-    for build in builds.into_iter().skip(KEEP_BUILDS) {
+    let Some(beyond) = gc_beyond_retention(db, app_id).await else {
+        return;
+    };
+    for build in beyond {
         if protect.contains(&build.id) {
             continue;
         }
@@ -1364,7 +1425,109 @@ async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
     }
 }
 
-pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishError> {
+/// Every build GC must leave alone: the caller's, the builds the live channels
+/// point at, and the builds environment rows name. `None` — skip GC — when
+/// any of them cannot be read: unknown is never taken for unprotected.
+async fn gc_protected(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+    protect: &[Uuid],
+) -> Option<Vec<Uuid>> {
+    // Always protect the builds the live channels point at, regardless of what
+    // the caller passed. GC that reaps the currently-served build is a silent
+    // outage: the app 404s (`custom_apps_serve/sources.rs`) with no publish
+    // having touched the live channel. Read the pointers here so the guarantee
+    // can't be lost by a caller forgetting to thread them through.
+    let mut protect: Vec<Uuid> = protect.to_vec();
+    match apps::Entity::find_by_id(app_id).one(db).await {
+        Ok(Some(app)) => {
+            protect.extend(app.published_build_id);
+            protect.extend(app.draft_build_id);
+        }
+        Ok(None) => {
+            tracing::warn!(
+                "gc_builds: app {app_id} not found; skipping GC so a live build can't be reaped"
+            );
+            return None;
+        }
+        Err(e) => {
+            tracing::warn!(
+                "gc_builds: could not load channel pointers for app {app_id} ({e}); skipping GC"
+            );
+            return None;
+        }
+    }
+    // Environment rows name builds too — staging's, production's and every
+    // sandbox's. Same fail-safe as above: unknown means skip GC.
+    match super::custom_apps_environments::protected_build_ids(db, app_id).await {
+        Ok(ids) => protect.extend(ids),
+        Err(e) => {
+            tracing::warn!(
+                "gc_builds: could not load environment builds for app {app_id} ({e}); skipping GC"
+            );
+            return None;
+        }
+    }
+    Some(protect)
+}
+
+/// The app's builds beyond retention, newest first. Builds only a sandbox
+/// ever served are kept in a window of their own, so an afternoon of sandbox
+/// publishes never pushes out the build production would roll back to.
+/// `None` — skip GC — when the builds or their events cannot be read.
+async fn gc_beyond_retention(
+    db: &DatabaseConnection,
+    app_id: Uuid,
+) -> Option<Vec<app_builds::Model>> {
+    let builds = match app_builds::Entity::find()
+        .filter(app_builds::Column::AppId.eq(app_id))
+        .order_by_desc(app_builds::Column::CreatedAt)
+        .all(db)
+        .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("gc_builds list failed for app {app_id}: {e}");
+            return None;
+        }
+    };
+    let sandbox_only = match retention::sandbox_only_builds(db, app_id).await {
+        Ok(ids) => ids,
+        Err(e) => {
+            tracing::warn!(
+                "gc_builds: could not tell sandbox builds apart for app {app_id} ({e}); skipping GC"
+            );
+            return None;
+        }
+    };
+    let newest_first: Vec<Uuid> = builds.iter().map(|build| build.id).collect();
+    let beyond = retention::beyond_retention(&newest_first, &sandbox_only, KEEP_BUILDS);
+    Some(
+        builds
+            .into_iter()
+            .filter(|build| beyond.contains(&build.id))
+            .collect(),
+    )
+}
+
+/// Today's publish: [`publish_to`] the app's channels — staging, and
+/// production with `promote`.
+pub async fn publish(input: PublishInput) -> Result<PublishResult, PublishError> {
+    publish_to(input, PublishTarget::Channels).await
+}
+
+/// Store `input`'s bundle as a build and point `target` at it.
+///
+/// A [`PublishTarget::Sandbox`] publish stores and records the build exactly
+/// as any other, and differs only where `custom_apps_sandboxes::publish` says:
+/// it is admitted as staging is opened, never writes the app row or another
+/// environment's pointer, registers no schedule, applies no OLTP migration,
+/// and queues the sandbox's own Airhouse migrations instead of staging's.
+pub async fn publish_to(
+    mut input: PublishInput,
+    target: PublishTarget,
+) -> Result<PublishResult, PublishError> {
+    target.refuse_promote(&input)?;
     let db = oxy::database::client::establish_connection()
         .await
         .map_err(|e| PublishError::Db(e.to_string()))?;
@@ -1420,6 +1583,8 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
         return Err(PublishError::InvalidSlug(input.app_slug.clone()));
     }
     let existing_app = find_app(&db, org.id, &input.app_slug).await?;
+    let sandbox_app =
+        sandbox_publish::admit_target(&db, &input, existing_app.as_ref(), &target).await?;
     if let Some(app) = &existing_app {
         // Same fast-path reasoning for a publish that names another workspace:
         // refuse it before inflating the bundle. `upsert_app` re-checks, and is
@@ -1581,7 +1746,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     .await
     .map_err(|e| PublishError::BadTarball(format!("bundle pre-compression task failed: {e}")))?;
 
-    let (app_id, is_new_app, rollback) = upsert_app(&db, &org, &input).await?;
+    let (app_id, is_new_app, rollback) = app_row_for(&db, &org, &input, sandbox_app).await?;
     // A build id must be unique per app. Everything downstream treats a build's
     // stored bytes as immutable and addressable by id:
     //
@@ -1715,7 +1880,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
             }
         }
     }
-    if let Err(e) = set_pointers(&db, app_id, build_pk, input.promote, input.published_by).await {
+    if let Err(e) = move_pointers(&db, &target, app_id, build_pk, &input).await {
         rollback_stored_build(&db, app_id, &input.build_id, build_pk, rollback).await;
         return Err(e);
     }
@@ -1743,7 +1908,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // Per-process, like every other cache here: on a multi-replica fleet only
     // the replica that took the publish drops it, and the others age out
     // within `CACHE_TTL`.
-    super::custom_apps_cache::invalidate_app_resolution_cache();
+    drop_resolution_cache(&target);
 
     // Warm the bundle LRU for everything on the critical path — the shell, the
     // asset manifest the serve path reads to build preload hints, and the entry
@@ -1772,7 +1937,7 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
     // moved and the caches are dropped, and not waited for: an apply can run
     // for minutes, and a failure is recorded on its run — never a failed
     // publish (`custom_apps_nonproduction::staging_task`).
-    let staging_build = staging_task::StagingBuild {
+    let built = staging_task::StagingBuild {
         app_id,
         app_slug: &input.app_slug,
         workspace_id: input.project_id,
@@ -1780,24 +1945,92 @@ pub async fn publish(mut input: PublishInput) -> Result<PublishResult, PublishEr
         build_pk,
     };
     warnings.extend(
-        staging_task::queue_staging_migrations(
+        queue_migrations_for(
             &db,
-            staging_build,
+            &target,
+            built,
             &declared_migrations,
             &declared_airhouse_migrations,
         )
         .await,
     );
 
-    Ok(PublishResult {
-        app_id,
-        build_id: input.build_id,
-        url: format!("/customer-apps/{}/{}/", org.slug, input.app_slug),
-        channel: if input.promote { "published" } else { "draft" }.to_string(),
-        org_slug: org.slug.clone(),
-        is_new_app,
-        warnings,
-    })
+    Ok(target.result(&org.slug, input, (app_id, is_new_app), warnings))
+}
+
+/// The app row a publish works on: `(id, created by this publish, how to undo
+/// the write)`. The channels' publish upserts it. A sandbox's (`sandbox_app`
+/// is its admitted app) never writes it: `upsert_app` rewrites the row's
+/// `branch` and `name`, and two sandboxes would fight over production's.
+async fn app_row_for(
+    db: &DatabaseConnection,
+    org: &organizations::Model,
+    input: &PublishInput,
+    sandbox_app: Option<Uuid>,
+) -> Result<(Uuid, bool, AppMutationRollback), PublishError> {
+    match sandbox_app {
+        Some(app_id) => Ok((app_id, false, AppMutationRollback::Untouched)),
+        None => upsert_app(db, org, input).await,
+    }
+}
+
+/// The pointer move of a publish to `target`. A sandbox's is its own row
+/// alone; one deleted since it was admitted has no row to move, and the
+/// caller rolls the stored build back.
+async fn move_pointers(
+    db: &DatabaseConnection,
+    target: &PublishTarget,
+    app_id: Uuid,
+    build_pk: Uuid,
+    input: &PublishInput,
+) -> Result<(), PublishError> {
+    match target {
+        PublishTarget::Channels => {
+            set_pointers(db, app_id, build_pk, input.promote, input.published_by).await
+        }
+        PublishTarget::Sandbox(environment) => {
+            sandbox_publish::move_pointer(db, app_id, environment, build_pk, input.published_by)
+                .await
+        }
+    }
+}
+
+/// Drop the app-resolution cache after a publish that moved a pointer it
+/// caches. A sandbox publish moved none — a sandbox's build is read from its
+/// row on every request — so it drops nothing.
+fn drop_resolution_cache(target: &PublishTarget) {
+    if matches!(target, PublishTarget::Channels) {
+        super::custom_apps_cache::invalidate_app_resolution_cache();
+    }
+}
+
+/// Queue the migrations of the homes `target`'s pointer move reaches; the
+/// warnings are the publish's. The channels' publish moved staging's pointer:
+/// staging's Airhouse sibling and the org's OLTP staging branch. A sandbox's
+/// moved the sandbox's: its own Airhouse sibling, under a task kind of its
+/// own, and nothing for the OLTP branch the org's environments share.
+async fn queue_migrations_for(
+    db: &DatabaseConnection,
+    target: &PublishTarget,
+    built: staging_task::StagingBuild<'_>,
+    oltp: &[migrations::DeclaredMigration],
+    airhouse: &[migrations::DeclaredMigration],
+) -> Vec<String> {
+    match target {
+        PublishTarget::Channels => {
+            staging_task::queue_staging_migrations(db, built, oltp, airhouse).await
+        }
+        PublishTarget::Sandbox(environment) => {
+            let sandbox_build = sandbox_publish::SandboxBuild {
+                app_id: built.app_id,
+                app_slug: built.app_slug,
+                workspace_id: built.workspace_id,
+                build_pk: built.build_pk,
+                environment,
+            };
+            sandbox_publish::queue_migrations(db, sandbox_build, oltp, airhouse).await
+        }
+    }
 }
 
 /// `POST /api/customer-apps/publish` — thin multipart shim over [`publish`].
@@ -1833,6 +2066,9 @@ pub async fn publish_handler(
     let mut commit_sha = None;
     let mut semantic_revision_id: Option<Uuid> = None;
     let mut semantic_revision_invalid: Option<String> = None;
+    // A sandbox to publish to (`dev-<handle>`); absent or empty is the
+    // publish this route always made.
+    let mut environment: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -1904,6 +2140,7 @@ pub async fn publish_handler(
                     "name" => name = Some(val).filter(|s| !s.is_empty()),
                     "source_repo" => source_repo = Some(val).filter(|s| !s.is_empty()),
                     "commit_sha" => commit_sha = Some(val).filter(|s| !s.is_empty()),
+                    "environment" => environment = Some(val),
                     "channel" => promote = val == "published",
                     "promote" => promote = val == "true" || val == "1",
                     // Staging pin (`--semantic-branch`). Not `branch`, which is
@@ -1970,7 +2207,9 @@ pub async fn publish_handler(
         semantic_revision_id,
     };
 
-    publish(input)
+    let target = sandbox_publish::target_of(environment.as_deref(), promote, marker.is_some())
+        .map_err(|e| (e.status(), e.to_string()))?;
+    publish_to(input, target)
         .await
         .map(Json)
         .map_err(|e| (e.status(), e.to_string()))

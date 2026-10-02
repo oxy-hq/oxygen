@@ -432,8 +432,14 @@ pub async fn cancel_ask(
         }
     };
 
-    let run = match agentic_runtime::crud::get_run(&agentic_state.db, &run_id).await {
-        Ok(Some(r)) => r,
+    // The run is resolved WITHIN the project the gates admitted the caller
+    // to: another project's run, and a check run staff queued in this one
+    // outside production, are the same not-found as an id that names nothing.
+    // A member holding an id can neither confirm that run nor cancel it.
+    let found =
+        agentic_runtime::crud::get_run_in_workspace(&agentic_state.db, project_id, &run_id).await;
+    match found {
+        Ok(Some(_)) => {}
         Ok(None) => {
             return err_with_code(
                 StatusCode::NOT_FOUND,
@@ -445,13 +451,6 @@ pub async fn cancel_ask(
             error!(run_id = %run_id, error = %e, "cancel: run lookup failed");
             return err(StatusCode::INTERNAL_SERVER_ERROR, "run lookup failed");
         }
-    };
-    if run.workspace_id != project_id {
-        return err_with_code(
-            StatusCode::FORBIDDEN,
-            "run does not belong to this project",
-            "thread_project_mismatch",
-        );
     }
 
     if let Err(e) = agentic_state

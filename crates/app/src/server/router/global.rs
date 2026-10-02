@@ -361,6 +361,24 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
                     "/{id}/secrets/{key}/value",
                     get(crate::server::api::custom_apps_secrets::admin_reveal),
                 )
+                // Sandbox environments (`dev-<handle>`): create, list, show and
+                // delete — see `custom_apps_sandboxes` and
+                // `internal-docs/custom-app-sandboxes.md` §5.1. Postgres only (the
+                // teardown is a queued task), so FleetOk like the rest of the nest.
+                // Registered above the four layers below so all of them cover it;
+                // each handler then also requires `Action::AppNonProduction` over
+                // the app and refuses a publish token. The app id is named `id`
+                // because `enforce_app_scope` reads it by that name.
+                .route(
+                    "/{id}/environments",
+                    get(crate::server::api::custom_apps_sandboxes::handlers::list)
+                        .post(crate::server::api::custom_apps_sandboxes::handlers::create),
+                )
+                .route(
+                    "/{id}/environments/{name}",
+                    get(crate::server::api::custom_apps_sandboxes::handlers::show)
+                        .delete(crate::server::api::custom_apps_sandboxes::handlers::delete),
+                )
                 // Trusted-publishing config: register / list / remove the GitHub
                 // workflows allowed to OIDC-publish this app. See
                 // `custom_apps_publish_oidc`.

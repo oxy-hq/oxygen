@@ -11,9 +11,11 @@
 //! (`internal-docs/2026-09-10-custom-app-environments-design.md` §3.4): a
 //! staging schedule or webhook enqueues a task for its environment, and a
 //! worker that dropped the field would run that staging task against
-//! production. So the reader that knows the field ships a release **before**
-//! any writer sets it: until then `environment` is always `None`
-//! (production), and the reader refuses any environment it cannot yet run.
+//! production. So the reader that knows the field shipped a release **before**
+//! any writer set it, and the reader refuses any environment it cannot run.
+//! One writer sets it now: `scheduler::enqueue_app_function_job_in`, for a
+//! check run a staff caller asked for in a named environment. Every other
+//! task — cron fires, Run now, webhooks — still carries `None` (production).
 //!
 //! Wire-compatible both ways. Absent optional fields are omitted rather than
 //! written as `null`, which readers of the untyped payload already treated the
@@ -41,8 +43,8 @@ pub struct AppFunctionTask {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traceparent: Option<String>,
     /// The app environment to run in, as an `app_environments.name`. `None`
-    /// means production, which every task queued so far is. No writer sets it
-    /// yet — see the module docs for why the reader comes first.
+    /// means production. Set only by `scheduler::enqueue_app_function_job_in`
+    /// — see the module docs for why the reader came first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
 }

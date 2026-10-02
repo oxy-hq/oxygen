@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode } from "../util/errors.js";
-import { runChecks } from "./checks.js";
+import { type ChecksReport, runChecks } from "./checks.js";
 
 const TARGET = "https://oxy.test";
 const APP_ID = "a1a1a1a1-2222-3333-4444-555555555555";
@@ -570,5 +570,220 @@ describe("runChecks", () => {
         }
       ]
     });
+  });
+});
+
+describe("runChecks --app-env", () => {
+  let calls: { method: string; url: string; headers: Record<string, string> }[];
+
+  beforeEach(() => {
+    calls = [];
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("appends ?environment= to all three routes and the report carries environment and invocationId", async () => {
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/admin/apps/${APP_ID}/functions?environment=dev-a1`]: () => ({
+          status: 200,
+          body: [{ name: "canary", check: true }]
+        }),
+        [`POST /api/admin/apps/${APP_ID}/functions/canary/runs?environment=dev-a1`]: () => ({
+          status: 200,
+          body: { run_id: "run-1" }
+        }),
+        [`GET /api/admin/apps/${APP_ID}/function-runs/run-1?environment=dev-a1`]: () => ({
+          status: 200,
+          body: {
+            run_id: "run-1",
+            status: "done",
+            answer: null,
+            error: null,
+            invocation_id: "inv-1"
+          }
+        })
+      },
+      calls
+    );
+
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+
+    await runChecks(fakeContext({ bearer: "tok" }), "oxy-canary/platform-canary", {
+      json: true,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "dev-a1"
+    });
+    write.mockRestore();
+
+    const parsed = JSON.parse(printed.trim()) as ChecksReport;
+    expect(parsed.environment).toBe("dev-a1");
+    expect(parsed.checks[0]?.invocationId).toBe("inv-1");
+  });
+
+  it("without --app-env, the requests and the report stay byte-identical to today's", async () => {
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/admin/apps/${APP_ID}/functions`]: () => ({
+          status: 200,
+          body: [{ name: "canary", check: true }]
+        }),
+        [`POST /api/admin/apps/${APP_ID}/functions/canary/runs`]: () => ({
+          status: 200,
+          body: { run_id: "run-1" }
+        }),
+        [`GET /api/admin/apps/${APP_ID}/function-runs/run-1`]: () => ({
+          status: 200,
+          body: { run_id: "run-1", status: "done", answer: null, error: null }
+        })
+      },
+      calls
+    );
+
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+
+    await runChecks(fakeContext({ bearer: "tok" }), "oxy-canary/platform-canary", {
+      json: true,
+      timeoutSeconds: 5,
+      pollMs: 0
+    });
+    write.mockRestore();
+
+    const parsed = JSON.parse(printed.trim()) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      app: "oxy-canary/platform-canary",
+      appId: APP_ID,
+      checks: [
+        {
+          name: "canary",
+          runId: "run-1",
+          status: "done",
+          passed: true,
+          durationMs: expect.any(Number)
+        }
+      ]
+    });
+    expect("environment" in parsed).toBe(false);
+    const checkCalls = calls.filter((c) => c.url.includes("/functions") || c.url.includes("/runs"));
+    expect(checkCalls.length).toBeGreaterThan(0);
+    expect(checkCalls.every((c) => !c.url.includes("environment="))).toBe(true);
+  });
+
+  it("refuses a publish-token credential with a non-production --app-env (exit 2), before any request", async () => {
+    stubFetch({}, calls);
+
+    const error = await runChecks(fakeContext({ bearer: "oxypublish_stored" }), APP_ID, {
+      json: false,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "dev-a1"
+    }).catch((e: unknown) => e as CliError);
+
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(ExitCode.USAGE);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects a malformed --app-env with a usage error before any request", async () => {
+    stubFetch({}, calls);
+
+    const error = await runChecks(fakeContext({ bearer: "tok" }), APP_ID, {
+      json: false,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "not-a-real-env"
+    }).catch((e: unknown) => e as CliError);
+
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(ExitCode.USAGE);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses --app-env dev-a1 before the OIDC exchange, with no stored credential (exit 2, zero calls)", async () => {
+    // A CI job with `id-token: write` and nothing stored (no OXY_TOKEN, no
+    // login cache) is exactly the shape that minted a token and threw it
+    // away: the exchange always yields an `oxypublish_…` bearer, which
+    // --app-env dev-a1 was always going to refuse. The fix is to refuse
+    // BEFORE minting, so this asserts zero network calls — not just the
+    // right exit code, which a late refusal would also produce.
+    stubFetch(
+      {
+        "GET /__gh/token?audience=oxy-publish": () => ({ status: 200, body: { value: "gh-jwt" } }),
+        "POST /api/customer-apps/publish/oidc-exchange": () => ({
+          status: 200,
+          body: { token: "oxypublish_minted", expires_at: "later", app_id: APP_ID }
+        })
+      },
+      calls
+    );
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_URL", `${TARGET}/__gh/token`);
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "gh-request-token");
+
+    const error = await runChecks(fakeContext(), "oxy-canary/platform-canary", {
+      json: false,
+      timeoutSeconds: 5,
+      pollMs: 0,
+      appEnv: "dev-a1"
+    }).catch((e: unknown) => e as CliError);
+
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).code).toBe(ExitCode.USAGE);
+    // The real assertion: no GitHub token request, no exchange, nothing.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("without --app-env, the OIDC exchange still runs — unchanged from before this fix", async () => {
+    // Regression guard for the ordering fix above: production (no --app-env)
+    // must still exchange and succeed exactly as `runChecks`'s existing
+    // "mints a credential in CI" test (outside this describe block) already
+    // pins in full. This only re-confirms the exchange is still REACHED.
+    let runs = 0;
+    stubFetch(
+      {
+        "GET /__gh/token?audience=oxy-publish": () => ({ status: 200, body: { value: "gh-jwt" } }),
+        "POST /api/customer-apps/publish/oidc-exchange": () => ({
+          status: 200,
+          body: { token: "oxypublish_minted", expires_at: "later", app_id: APP_ID }
+        }),
+        [`GET /api/customer-apps/${APP_ID}/functions`]: () => ({
+          status: 200,
+          body: [{ name: "canary", check: true }]
+        }),
+        [`POST /api/customer-apps/${APP_ID}/functions/canary/runs`]: () => {
+          runs += 1;
+          return { status: 200, body: { run_id: "run-1" } };
+        },
+        [`GET /api/customer-apps/${APP_ID}/function-runs/run-1`]: () => ({
+          status: 200,
+          body: { run_id: "run-1", status: "done", answer: null, error: null }
+        })
+      },
+      calls
+    );
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_URL", `${TARGET}/__gh/token`);
+    vi.stubEnv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "gh-request-token");
+
+    await runChecks(fakeContext(), "oxy-canary/platform-canary", {
+      json: false,
+      timeoutSeconds: 5,
+      pollMs: 0
+    });
+
+    expect(runs).toBe(1);
+    expect(calls.some((c) => c.url.includes("/oidc-exchange"))).toBe(true);
   });
 });

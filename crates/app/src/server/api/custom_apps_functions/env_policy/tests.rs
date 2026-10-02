@@ -164,14 +164,72 @@ fn staging_isolates_holds_or_refuses_every_write_and_reads_production() {
     }
 }
 
-#[test]
-fn a_dev_slot_is_refused_everything() {
-    let dev = EnvPolicy::for_environment(AppEnvironment::Dev {
+fn sandbox() -> EnvPolicy {
+    EnvPolicy::for_environment(AppEnvironment::Dev {
         handle: "luong".into(),
-    });
-    for op in HostOp::ALL {
-        assert!(matches!(dev.decide(*op), Decision::Refuse { .. }), "{op:?}");
+    })
+}
+
+/// A sandbox has no table of its own: it decides **exactly as staging** for
+/// every op (`internal-docs/custom-app-sandboxes.md` §3) — the same row of
+/// [`ROWS`], with or without the org's OLTP staging branch, on a handle, and
+/// when a branch read is found. What differs is where an isolated write
+/// lands, which `differential.rs` checks.
+#[test]
+fn a_sandbox_decides_exactly_as_staging_for_every_op() {
+    let branch = OltpHome::StagingBranch("br-staging".into());
+    for row in ROWS {
+        let op = row.op;
+        assert_eq!(sandbox().decide(op), row.staging, "{op:?}");
+        assert_eq!(sandbox().decide(op), staging().decide(op), "{op:?}");
+        assert_eq!(
+            sandbox().with_oltp_home(branch.clone()).decide(op),
+            staging().with_oltp_home(branch.clone()).decide(op),
+            "{op:?} with the org's OLTP staging branch"
+        );
+        assert_eq!(
+            sandbox().decide_on_branch(op),
+            staging().decide_on_branch(op),
+            "{op:?} reading a branch"
+        );
+        for opened_into in [
+            None,
+            Some(Target::MappedDestination),
+            Some(Target::OltpBranch),
+        ] {
+            assert_eq!(
+                sandbox().decide_on_handle(op, opened_into),
+                staging().decide_on_handle(op, opened_into),
+                "{op:?} on a handle opened into {opened_into:?}"
+            );
+        }
     }
+    assert_eq!(
+        sandbox().branch_reason(),
+        None,
+        "a sandbox's own pin is not a branch read"
+    );
+    let pin = Some(uuid::Uuid::from_u128(7));
+    assert_eq!(sandbox().with_semantic_pin(pin).semantic_pin(), pin);
+}
+
+/// A held or refused op names the sandbox it ran in, not staging.
+#[test]
+fn held_and_refused_messages_name_the_sandbox() {
+    let environment = AppEnvironment::Dev {
+        handle: "luong".into(),
+    };
+    let held = held_message(HostOp::OltpExec, &environment);
+    assert!(held.contains("dev-luong environment"), "{held}");
+    let Decision::Refuse { fix } = sandbox().decide(HostOp::AirwayRun) else {
+        panic!("ctx.airway.run is refused in a sandbox");
+    };
+    let refused = refused_message(HostOp::AirwayRun, &environment, fix);
+    assert!(
+        refused.contains("refused in the dev-luong environment"),
+        "{refused}"
+    );
+    assert!(!refused.contains("dev slots"), "{refused}");
 }
 
 #[test]

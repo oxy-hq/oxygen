@@ -31,7 +31,10 @@
 //! `tests/authz/app_scope_boundary.rs` documents).
 
 use crate::common::read_repo_file;
-use crate::custom_app_functions_manual_run::{RUN_DETAIL_ROUTE, RUNS_ROUTE};
+use crate::custom_app_functions_manual_run::{
+    ERRORS_ROUTE, FUNCTION_INVOCATIONS_ROUTE, FUNCTIONS_ROUTE, HELD_ROUTE, INVOCATIONS_ROUTE,
+    LOGS_ROUTE, RUN_DETAIL_ROUTE, RUNS_ROUTE, TOKEN_INVOCATIONS_ROUTE, TOKEN_RUN_DETAIL_ROUTE,
+};
 
 /// `rel` (from the repo root) with whole-line comments dropped, every whitespace
 /// character removed, and `,)` folded to `)`.
@@ -126,6 +129,10 @@ fn the_admin_stack_the_manual_run_test_copies_still_matches_production() {
     for route in [
         format!(".route(\"{RUNS_ROUTE}\",post(handlers::run_function_job))"),
         format!(".route(\"{RUN_DETAIL_ROUTE}\",get(functions::get_function_run))"),
+        format!(".route(\"{FUNCTIONS_ROUTE}\",get(functions::list_functions))"),
+        format!(".route(\"{FUNCTION_INVOCATIONS_ROUTE}\",get(functions::list_invocations))"),
+        format!(".route(\"{INVOCATIONS_ROUTE}\",get(invocations::list_app_invocations))"),
+        format!(".route(\"{HELD_ROUTE}\",get(held_writes::get_held_writes))"),
     ] {
         assert!(
             apps.contains(&route),
@@ -142,6 +149,47 @@ fn the_admin_stack_the_manual_run_test_copies_still_matches_production() {
             ".nest(\"/api/admin\",apps.layer(middleware::from_fn(oxy_owner_or_app_admin_guard_middleware)))"
         ),
         "the manual-run test's admin stack no longer matches the production shape asserted above"
+    );
+}
+
+/// `publish_token_router` drives the two reads a publish token may `GET` on
+/// the `/customer-apps/{id}/…` nest. Production must still mount those
+/// handlers there, behind the same guards, or the test exercises a surface
+/// no token reaches.
+#[test]
+fn the_customer_apps_reads_the_token_test_copies_still_match_production() {
+    let global = code("crates/app/src/server/router/global.rs");
+    for route in [
+        format!(
+            ".route(\"{TOKEN_INVOCATIONS_ROUTE}\",get(admin::apps::functions::list_invocations))"
+        ),
+        format!(
+            ".route(\"{TOKEN_RUN_DETAIL_ROUTE}\",get(admin::apps::functions::get_function_run))"
+        ),
+    ] {
+        assert!(
+            global.contains(&route),
+            "the `/customer-apps` nest in `router/global.rs` no longer mounts `{route}`"
+        );
+    }
+    assert!(
+        global.contains(
+            ".layer(middleware::from_fn(admin::assume::block_admin_while_acting))"
+        ) && global.contains(".layer(middleware::from_fn(app_scope_guard::enforce_app_scope))")
+            && global.contains(
+                ".layer(middleware::from_fn(platform_cap_guard::require(crate::server::authz::Action::PlatformApps)))"
+            )
+            && global.contains(
+                ".layer(middleware::from_fn(oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware))"
+            ),
+        "the `/customer-apps` nest no longer layers the four guards the token test copies"
+    );
+    let copy = code("crates/app/tests/custom_apps/custom_app_functions_manual_run.rs");
+    assert!(
+        fn_body(&copy, "customer_apps_router").contains(
+            ".layer(middleware::from_fn(block_admin_while_acting)).layer(middleware::from_fn(app_scope_guard::enforce_app_scope)).layer(middleware::from_fn(platform_cap_guard::require(Action::PlatformApps))).layer(middleware::from_fn(oxy_owner_or_app_admin_guard_middleware));"
+        ),
+        "the token test's `/customer-apps` stack no longer matches the production shape above"
     );
 }
 
@@ -169,5 +217,34 @@ fn the_serve_mount_the_functions_fixture_copies_still_matches_production() {
         "the functions fixture's `serve_router` no longer mounts `serve_dispatch` on \
          `/customer-apps/{{*path}}` with the `DataPlaneQueryExecutor` extension production \
          carries; every function it calls would 500 for a reason production does not have"
+    );
+}
+
+/// `log_reads` mounts the log and client-error handlers on a router of its
+/// own, because the production mounts are inside `public::router`. The routes
+/// do their own authentication, so the copy needs no layer — only the same
+/// handlers on the same paths.
+#[test]
+fn the_log_route_the_readback_test_copies_still_matches_production() {
+    let public = code("crates/app/src/server/router/public.rs");
+    assert!(
+        public.contains(&format!(
+            ".route_fleet(\"{LOGS_ROUTE}\",get(crate::server::api::custom_apps_logs::get_logs))"
+        )),
+        "`router/public.rs` no longer mounts `custom_apps_logs::get_logs` on `{LOGS_ROUTE}`; \
+         the read-back test exercises a path production does not serve"
+    );
+    assert!(
+        public.contains(&format!(
+            ".route_fleet(\"{ERRORS_ROUTE}\",get(crate::server::api::custom_apps_logs::get_errors))"
+        )),
+        "`router/public.rs` no longer mounts `custom_apps_logs::get_errors` on `{ERRORS_ROUTE}`; \
+         the read-back test exercises a path production does not serve"
+    );
+    let copy = code("crates/app/tests/custom_apps/custom_app_functions_manual_run/log_reads.rs");
+    assert!(
+        copy.contains(".route(LOGS_ROUTE,get(custom_apps_logs::get_logs))")
+            && copy.contains(".route(ERRORS_ROUTE,get(custom_apps_logs::get_errors))"),
+        "the read-back test no longer mounts the production log and client-error handlers"
     );
 }

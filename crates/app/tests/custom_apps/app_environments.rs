@@ -1,4 +1,4 @@
-//! `app_environments`: the model behind staging, production and dev slots
+//! `app_environments`: the model behind staging, production and sandboxes
 //! (`internal-docs/2026-09-10-custom-app-environments-design.md` §3).
 //!
 //! Database-backed: each test gets its own database cloned from the migrated
@@ -402,8 +402,30 @@ async fn record_move_can_clear_an_environment() {
     );
 }
 
+/// Insert a sandbox row the way `custom_apps_sandboxes::ops::create` does:
+/// `kind = 'dev'`, an owner, no build.
+pub(crate) async fn seed_sandbox(conn: &DatabaseConnection, app: Uuid, name: &str, owner: Uuid) {
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO app_environments (app_id, name, kind, owner_user_id, updated_by) \
+         VALUES ($1, $2, 'dev', $3, $3)",
+        [app.into(), name.into(), owner.into()],
+    ))
+    .await
+    .expect("seed sandbox");
+}
+
+fn sandbox(handle: &str) -> AppEnvironment {
+    AppEnvironment::Dev {
+        handle: handle.into(),
+    }
+}
+
+/// A sandbox's row needs an owner and is created by the sandbox API, never as
+/// a side effect of a pointer move: with no row, the move is `RecordNotFound`
+/// and writes nothing — no row, no event.
 #[tokio::test]
-async fn record_move_refuses_dev_slots() {
+async fn record_move_never_creates_a_sandbox() {
     let conn = test_db().await;
     let app = seed_app(&conn).await;
     let build = seed_build(&conn, app, "b").await;
@@ -411,9 +433,7 @@ async fn record_move_refuses_dev_slots() {
     let result = envs::record_move(
         &conn,
         app,
-        &AppEnvironment::Dev {
-            handle: "luong".into(),
-        },
+        &sandbox("luong"),
         Some(build),
         EnvAction::Publish,
         None,
@@ -421,10 +441,115 @@ async fn record_move_refuses_dev_slots() {
     .await;
 
     assert!(
-        result.is_err(),
-        "dev slots are created by the dev-slot API, not record_move"
+        matches!(result, Err(sea_orm::DbErr::RecordNotFound(_))),
+        "{result:?}"
     );
     assert!(env_rows(&conn, app).await.is_empty());
+    assert!(event_rows(&conn, app).await.is_empty());
+}
+
+/// An existing sandbox's pointer moves, with its event; the row keeps its
+/// owner and kind, and no other environment's row is touched.
+#[tokio::test]
+async fn record_move_moves_an_existing_sandbox_and_nothing_else() {
+    let conn = test_db().await;
+    let app = seed_app(&conn).await;
+    let owner = seed_user(&conn).await;
+    let actor = seed_user(&conn).await;
+    let staging = seed_build(&conn, app, "staging").await;
+    let build = seed_build(&conn, app, "sandbox").await;
+    envs::record_move(
+        &conn,
+        app,
+        &AppEnvironment::Staging,
+        Some(staging),
+        EnvAction::Publish,
+        None,
+    )
+    .await
+    .expect("staging");
+    seed_sandbox(&conn, app, "dev-a1", owner).await;
+    seed_sandbox(&conn, app, "dev-b2", owner).await;
+
+    envs::record_move(
+        &conn,
+        app,
+        &sandbox("a1"),
+        Some(build),
+        EnvAction::Publish,
+        Some(actor),
+    )
+    .await
+    .expect("the sandbox exists");
+
+    assert_eq!(
+        env_rows(&conn, app).await,
+        vec![
+            ("dev-a1".into(), Some(build)),
+            ("dev-b2".into(), None),
+            ("staging".into(), Some(staging)),
+        ]
+    );
+    assert_eq!(
+        event_rows(&conn, app).await,
+        vec![
+            ("staging".into(), Some(staging), "publish".into()),
+            ("dev-a1".into(), Some(build), "publish".into()),
+        ]
+    );
+    let row = conn
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT kind, owner_user_id, updated_by FROM app_environments \
+             WHERE app_id = $1 AND name = 'dev-a1'",
+            [app.into()],
+        ))
+        .await
+        .expect("read")
+        .expect("row");
+    assert_eq!(row.try_get::<String>("", "kind").unwrap(), "dev");
+    assert_eq!(
+        row.try_get::<Option<Uuid>>("", "owner_user_id").unwrap(),
+        Some(owner),
+        "a move never changes the owner"
+    );
+    assert_eq!(
+        row.try_get::<Option<Uuid>>("", "updated_by").unwrap(),
+        Some(actor)
+    );
+}
+
+/// A sandbox being torn down takes no pointer move: a publish that raced the
+/// delete must not put a build back behind a name that is going away.
+#[tokio::test]
+async fn record_move_refuses_a_sandbox_being_deleted() {
+    let conn = test_db().await;
+    let app = seed_app(&conn).await;
+    let owner = seed_user(&conn).await;
+    let build = seed_build(&conn, app, "b").await;
+    seed_sandbox(&conn, app, "dev-a1", owner).await;
+    conn.execute_unprepared(
+        "UPDATE app_environments SET deleting_at = now() WHERE name = 'dev-a1'",
+    )
+    .await
+    .expect("mark deleting");
+
+    let result = envs::record_move(
+        &conn,
+        app,
+        &sandbox("a1"),
+        Some(build),
+        EnvAction::Publish,
+        None,
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(sea_orm::DbErr::RecordNotFound(_))),
+        "{result:?}"
+    );
+    assert_eq!(env_rows(&conn, app).await, vec![("dev-a1".into(), None)]);
+    assert!(event_rows(&conn, app).await.is_empty());
 }
 
 #[tokio::test]

@@ -27,6 +27,15 @@
 //!
 //! Both read ClickHouse and nothing else, so **FleetOk** — any replica answers.
 //!
+//! ## One environment per read
+//!
+//! `/logs` returns production's lines unless `?environment=<name>` asks for
+//! another app environment's, and then it returns that environment's alone.
+//! A non-production environment is a staff tool, so naming one needs the
+//! app-admin gate above **and** `may_open_non_production` (oxy-authz
+//! `Action::AppNonProduction`) — an app admin who is the tenant's own does not
+//! read what Oxy staff printed while testing in staging or a sandbox.
+//!
 //! ## Why resolution happens here rather than in the browser
 //!
 //! Because the maps are not shipped. `custom_apps_serve::sources::is_source_map`
@@ -42,6 +51,7 @@ use serde::{Deserialize, Serialize};
 
 use super::custom_apps_auth::{authenticate_and_authorize, require_app_admin};
 use super::custom_apps_sourcemap;
+use environment::log_environment;
 
 /// Widest window a single read may span, and the most rows it may return.
 /// Unbounded observability queries have taken the backend offline before (see
@@ -59,6 +69,9 @@ pub struct LogQuery {
     /// Narrow to one request (`x-oxy-request-id`), the id a support ticket
     /// quotes. Combines with `invocation_id`.
     request_id: Option<String>,
+    /// The app environment whose lines to read: `production` (the default),
+    /// `staging` or `dev-<handle>`. One environment per read, never a mix.
+    environment: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -84,6 +97,8 @@ pub struct LogLineResponse {
     /// The platform-trace id the line was written under, when the process
     /// had one — paste into HyperDX to see the invocation's spans.
     pub trace_id: String,
+    /// The app environment the line was written in.
+    pub environment: String,
 }
 
 #[derive(Serialize)]
@@ -107,6 +122,7 @@ pub struct ClientErrorResponse {
     pub last_seen: String,
 }
 
+mod environment;
 mod filters;
 
 fn clamp(hours: Option<u32>, limit: Option<u32>) -> (u32, u32) {
@@ -150,6 +166,12 @@ pub async fn get_logs(
     if let Err(status) = require_app_admin(&outcome).await {
         return error_response(status, "app-admin required");
     }
+    // Before the store: who may read an environment does not depend on
+    // whether this deployment captures logs at all.
+    let environment = match log_environment(&outcome, q.environment.as_deref()).await {
+        Ok(environment) => environment,
+        Err(refused) => return refused.into_response(),
+    };
     let store = match store_or_501() {
         Ok(s) => s,
         Err(r) => return r,
@@ -164,6 +186,7 @@ pub async fn get_logs(
             limit,
             q.invocation_id.as_deref().unwrap_or_default(),
             q.request_id.as_deref().unwrap_or_default(),
+            &environment,
         )
         .await
     {
@@ -187,6 +210,7 @@ pub async fn get_logs(
             seq: r.seq,
             message: r.message,
             trace_id: r.trace_id,
+            environment: r.environment,
         })
         .collect();
     (StatusCode::OK, Json(serde_json::json!({ "logs": logs }))).into_response()

@@ -188,6 +188,162 @@ fn every_isolated_write_touches_disjoint_resources_in_production_and_staging() {
     );
 }
 
+fn sandbox(handle: &str) -> EnvPolicy {
+    EnvPolicy::for_environment(AppEnvironment::Dev {
+        handle: handle.into(),
+    })
+    .with_destinations(BTreeMap::from([(
+        DATABASE.to_string(),
+        MAPPED_TO.to_string(),
+    )]))
+}
+
+/// The same rows for a sandbox (`internal-docs/custom-app-sandboxes.md` §3):
+/// every write the policy isolates lands away from production's resource, and
+/// — for the homes a sandbox has **of its own** (its Airhouse sibling, its
+/// storage silo, its secret path) — away from staging's and from another
+/// sandbox's. Two handles where one is a prefix of the other, so a home named
+/// by a prefix match would show here.
+///
+/// The two homes a sandbox **shares** are pinned as shared, so widening them
+/// is a deliberate change: the mapped warehouse destination is one map for
+/// every non-production environment, and email goes to the invoker alone.
+#[test]
+fn every_isolated_write_of_a_sandbox_is_disjoint_from_production_and_its_neighbours() {
+    let production = EnvPolicy::production();
+    let staging = staging();
+    let (a, b) = (sandbox("a1"), sandbox("a1-b"));
+    let mut own_homes = 0;
+    for (op, target) in isolated_writes() {
+        let prod = written(&production, op, target);
+        let stg = written(&staging, op, target);
+        let in_a = written(&a, op, target);
+        let in_b = written(&b, op, target);
+        assert!(!in_a.is_empty(), "{op:?}: the sandbox's home is named");
+        assert!(!in_b.is_empty(), "{op:?}: the sandbox's home is named");
+        for (who, wrote) in [("dev-a1", &in_a), ("dev-a1-b", &in_b)] {
+            let shared: Vec<_> = prod.intersection(wrote).collect();
+            assert!(
+                shared.is_empty(),
+                "{op:?}: {who} writes production's {shared:?}"
+            );
+        }
+        match target {
+            Target::SiblingSchema | Target::StorageSilo | Target::EnvSecrets => {
+                for (pair, left, right) in [
+                    ("the two sandboxes", &in_a, &in_b),
+                    ("dev-a1 and staging", &in_a, &stg),
+                    ("dev-a1-b and staging", &in_b, &stg),
+                ] {
+                    let shared: Vec<_> = left.intersection(right).collect();
+                    assert!(shared.is_empty(), "{op:?}: {pair} share {shared:?}");
+                }
+                own_homes += 1;
+            }
+            Target::MappedDestination => {
+                assert_eq!(in_a, stg, "{op:?}: one map for every non-production write");
+                assert_eq!(in_b, stg, "{op:?}");
+            }
+            Target::InvokerEmail => {
+                assert_eq!(in_a, BTreeSet::from([INVOKER.to_string()]), "{op:?}");
+            }
+            Target::OltpBranch => unreachable!("no row isolates to the branch without one"),
+        }
+    }
+    assert_eq!(
+        own_homes, 7,
+        "airhouse exec/append, storage ×4, secrets.set have a home per sandbox"
+    );
+}
+
+/// A sandbox's Airhouse statement names its own sibling and nothing of the
+/// app's schema or of staging's sibling.
+#[test]
+fn a_sandbox_airhouse_statement_writes_only_its_own_sibling() {
+    let policy = sandbox("a1-b");
+    for op in [HostOp::AirhouseExec, HostOp::AirhouseAppend] {
+        let Routed::Isolated(write) =
+            airhouse_write(&policy, op, airhouse_sql(op), APP_SCHEMA).expect("valid")
+        else {
+            panic!("{op:?} is isolated in a sandbox");
+        };
+        assert_eq!(write.schema, "app_store_ops__dev_a1_b");
+        assert!(
+            !write
+                .statement
+                .replace("app_store_ops__dev_a1_b", "")
+                .contains("app_store_ops"),
+            "{op:?}: {}",
+            write.statement
+        );
+        for other in [
+            APP_SCHEMA,
+            "app_store_ops__staging",
+            "app_store_ops__dev_a1",
+        ] {
+            assert!(
+                sql_rules::check(&write.statement, other, Access::Write).is_err(),
+                "{op:?}: {other}'s rules must refuse the moved statement"
+            );
+        }
+    }
+}
+
+/// A sandbox's storage writes stay in its own silo whatever key the call
+/// names — production's, staging's, or the other sandbox's. Stated name by
+/// name, so the test cannot pass by every name being refused:
+///
+/// - a **write** (`put`, `copy`'s destination, an upload URL) takes a
+///   pathname: its own key and production's are re-rooted to the same object
+///   of its silo, and any other silo's key is taken as a pathname and nested
+///   *inside* its silo — never resolved to the silo it names;
+/// - a **delete** takes a key: its own and production's (re-rooted, so
+///   production's object is never the one removed) resolve, and a bare
+///   pathname, staging's key and the other sandbox's are refused.
+#[test]
+fn sandbox_storage_writes_stay_in_its_silo_whatever_key_the_call_names() {
+    let policy = sandbox("a1");
+    let prefix = policy.storage_silo(APP).prefix();
+    assert_eq!(prefix, format!("customer-app-storage/{APP}~dev-a1/"));
+    let own = format!("{prefix}uploads/a.pdf");
+    let pathname = "uploads/a.pdf".to_string();
+    let productions = format!("customer-app-storage/{APP}/uploads/a.pdf");
+    let stagings = format!("customer-app-storage/{APP}~staging/uploads/a.pdf");
+    let neighbours = format!("customer-app-storage/{APP}~dev-a1-b/uploads/a.pdf");
+
+    for op in [
+        HostOp::StorageGetUploadUrl,
+        HostOp::StoragePut,
+        HostOp::StorageCopy,
+    ] {
+        let silo = policy.silo_for(op, APP).expect("isolated to the silo");
+        for name in [&pathname, &productions, &own] {
+            let key = normalize_in(&silo, name, false);
+            assert_eq!(key.as_deref().ok(), Some(own.as_str()), "{op:?} {name}");
+        }
+        for name in [&stagings, &neighbours] {
+            let key = normalize_in(&silo, name, false).expect("taken as a pathname");
+            assert!(key.starts_with(&prefix), "{op:?} {name} → {key}");
+            assert_ne!(&key, name, "{op:?} never resolves another silo's key");
+            assert_ne!(key, own, "{op:?} {name} is not this silo's object either");
+        }
+    }
+
+    let silo = policy
+        .silo_for(HostOp::StorageDelete, APP)
+        .expect("isolated to the silo");
+    for name in [&productions, &own] {
+        let key = validate_in(&silo, name);
+        assert_eq!(key.as_deref().ok(), Some(own.as_str()), "delete {name}");
+    }
+    for name in [&pathname, &stagings, &neighbours] {
+        assert!(
+            validate_in(&silo, name).is_err(),
+            "delete {name} must be refused, not re-rooted"
+        );
+    }
+}
+
 /// An unmapped database is held — it never becomes production's write.
 #[test]
 fn an_unmapped_warehouse_write_is_held_not_sent_to_production() {

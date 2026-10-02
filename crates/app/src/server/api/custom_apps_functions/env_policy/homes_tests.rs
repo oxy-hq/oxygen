@@ -122,6 +122,75 @@ fn airhouse_writes_are_isolated_to_the_sibling_or_held() {
     );
 }
 
+fn sandbox(handle: &str) -> EnvPolicy {
+    EnvPolicy::for_environment(AppEnvironment::Dev {
+        handle: handle.into(),
+    })
+}
+
+/// A sandbox has a sibling of its own, named from its schema label — the
+/// handle's hyphens as underscores — and distinct from staging's and from
+/// another sandbox's. A writer too long for the label names none.
+#[test]
+fn a_sandbox_writes_its_own_sibling() {
+    assert_eq!(
+        sandbox("a1-b2").sibling_schema("app_store_ops").as_deref(),
+        Some("app_store_ops__dev_a1_b2")
+    );
+    assert_eq!(
+        sandbox("a1").sibling_schema("app_store_ops").as_deref(),
+        Some("app_store_ops__dev_a1")
+    );
+    assert_ne!(
+        sandbox("a1").sibling_schema("app_store_ops"),
+        staging().sibling_schema("app_store_ops")
+    );
+    let long_writer = format!("app_{}", "a".repeat(42));
+    assert_eq!(
+        sandbox("abcdefghijkl").sibling_schema(&long_writer),
+        None,
+        "64 bytes: no sibling, so the write holds"
+    );
+}
+
+/// `airhouse::app_schema` recognises a sandbox's sibling by a handle rule of
+/// its own (that crate does not depend on `oxy-app-core`). The two rules must
+/// agree: a sibling this policy names for a valid handle is hidden from
+/// schema listings, and a name built on an invalid handle is not one.
+#[test]
+fn the_airhouse_handle_rule_matches_the_environment_grammar() {
+    for handle in [
+        "a",
+        "a1",
+        "a1-b2",
+        "abcdefghijkl",
+        "a-b-c-d-e-f",
+        "0",
+        "9-z",
+    ] {
+        let environment = AppEnvironment::parse(&format!("dev-{handle}")).expect(handle);
+        let sibling = EnvPolicy::for_environment(environment)
+            .sibling_schema("app_x")
+            .expect(handle);
+        assert!(
+            airhouse::app_schema::is_environment_schema(&sibling),
+            "{sibling}"
+        );
+    }
+    for handle in ["", "-a", "a-", "a--b", "abcdefghijklm", "a_b"] {
+        assert_eq!(AppEnvironment::parse(&format!("dev-{handle}")), None);
+        let lookalike = format!("app_x__dev_{}", handle.replace('-', "_"));
+        // `a_b` reads back as the valid handle `a-b`: the label is the
+        // sandbox `dev-a-b`'s, so that one IS a sibling.
+        let expected = handle == "a_b";
+        assert_eq!(
+            airhouse::app_schema::is_environment_schema(&lookalike),
+            expected,
+            "{lookalike}"
+        );
+    }
+}
+
 /// A statement on a handle opened into an isolated home runs there; one on a
 /// handle opened as asked is decided by its op — an OLTP statement holds.
 #[test]

@@ -18,6 +18,7 @@ use oxy::service::secret_manager::SecretManagerService;
 use oxy_app_core::audit;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
+use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 
 use super::{Failure, RevealResponse, SetSecretRequest, scope};
@@ -144,7 +145,7 @@ pub(super) async fn delete(
             // failure by variant; collapsing both to 404 would report an
             // outage as a missing key.
             let code = match e {
-                oxy_shared::errors::OxyError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+                OxyError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
                 _ => StatusCode::NOT_FOUND,
             };
             (code, e.to_string())
@@ -219,9 +220,108 @@ pub(super) async fn reveal(
     }))
 }
 
+/// Delete every secret of `environment` of the app — everything under
+/// `apps/<app_id>/<env>/` — and answer how many went. A sandbox's teardown
+/// calls it (`custom_apps_sandboxes::teardown`); idempotent, so a retry after
+/// a partial run removes the rest.
+///
+/// **Only a sandbox's secrets are removed here.** Production is refused,
+/// deleting nothing: its prefix is `apps/<app_id>/`, which every
+/// environment's secrets sit under, so "all of production's" would take the
+/// app's whole store. Staging is refused too: nothing tears staging down.
+/// The guard is this function's own, whatever its caller checked.
+pub(crate) async fn delete_environment_secrets(
+    db: &DatabaseConnection,
+    project_id: uuid::Uuid,
+    app_id: uuid::Uuid,
+    environment: &AppEnvironment,
+) -> Result<usize, OxyError> {
+    let Some(prefix) = environment_prefix(app_id, environment) else {
+        return Err(OxyError::SecretManager(format!(
+            "refusing to delete every secret of app {app_id}'s {environment} environment: only \
+             a sandbox's are removed together"
+        )));
+    };
+    let manager = SecretManagerService::new(project_id);
+    let names: Vec<String> = stored_names(&manager, db)
+        .await?
+        .into_iter()
+        .filter(|name| name.starts_with(&prefix))
+        .collect();
+    let deleted = delete_named_secrets(db, project_id, &names).await?;
+    tracing::info!(%app_id, %environment, deleted, "environment secrets deleted");
+    Ok(deleted)
+}
+
+async fn stored_names(
+    manager: &SecretManagerService,
+    db: &DatabaseConnection,
+) -> Result<Vec<String>, OxyError> {
+    Ok(manager
+        .list_secrets(db)
+        .await?
+        .into_iter()
+        .map(|secret| secret.name)
+        .collect())
+}
+
+/// Delete the stored secrets `names` of the project; how many this call
+/// removed. **A name that is not stored is already deleted**, not a failure:
+/// a concurrent or repeated teardown lists a name and then finds the other
+/// run removed it. Any other failure — and a name that failed to delete and
+/// is still stored — is the error.
+///
+/// Public so a test can hand it a name that is gone; the teardown reaches it
+/// only through [`delete_environment_secrets`], which names one sandbox's.
+pub async fn delete_named_secrets(
+    db: &DatabaseConnection,
+    project_id: uuid::Uuid,
+    names: &[String],
+) -> Result<usize, OxyError> {
+    let manager = SecretManagerService::new(project_id);
+    let mut deleted = 0;
+    for name in names {
+        match manager.delete_secret(db, name).await {
+            Ok(()) => deleted += 1,
+            Err(e) => {
+                if stored_names(&manager, db).await?.contains(name) {
+                    return Err(e);
+                }
+            }
+        }
+    }
+    Ok(deleted)
+}
+
+/// The prefix [`delete_environment_secrets`] removes under: a sandbox's.
+/// `None` for production, whose prefix holds every other environment's, and
+/// for staging, which is never torn down.
+fn environment_prefix(app_id: uuid::Uuid, environment: &AppEnvironment) -> Option<String> {
+    matches!(environment, AppEnvironment::Dev { .. })
+        .then(|| scope::secret_prefix(app_id, environment))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only a sandbox has a prefix to delete under. Production has none — its
+    /// `apps/<id>/` is the parent of every environment's — and neither has
+    /// staging, which nothing tears down. A sandbox's ends in a slash, so it
+    /// never matches a longer handle's.
+    #[test]
+    fn only_a_sandbox_has_a_prefix_to_delete_under() {
+        let app = uuid::Uuid::from_u128(7);
+        assert_eq!(environment_prefix(app, &AppEnvironment::Production), None);
+        assert_eq!(environment_prefix(app, &AppEnvironment::Staging), None);
+        let sandbox = AppEnvironment::Dev {
+            handle: "a1".into(),
+        };
+        let prefix = environment_prefix(app, &sandbox).expect("a sandbox");
+        assert_eq!(prefix, format!("apps/{app}/dev-a1/"));
+        assert!(!format!("apps/{app}/dev-a1-b/K").starts_with(&prefix));
+        assert!(!format!("apps/{app}/K").starts_with(&prefix));
+    }
 
     /// Regression: `sanitize_secret_value` tests emptiness BEFORE trimming and
     /// then stores the trimmed string, so a whitespace-only value cleared a bare

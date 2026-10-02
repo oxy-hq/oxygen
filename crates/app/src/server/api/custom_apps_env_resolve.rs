@@ -30,6 +30,14 @@
 //! production; removing it is a production behaviour change that belongs to the
 //! promote path (Phase 3), not to this switch.
 //!
+//! **A sandbox resolves from its own row, uncached, with no fallback.** A
+//! `dev-<handle>` environment (`internal-docs/custom-app-sandboxes.md`) is one
+//! `app_environments` row of `kind = 'dev'`. [`resolve_environment`] and
+//! [`resolve_function_environment`] read it directly ([`sandbox_row`]) rather
+//! than through [`EnvironmentBuilds`], which stays the two fixed environments:
+//! a sandbox with no build, no row, or a row being torn down serves nothing —
+//! never staging's or production's build.
+//!
 //! **The semantic pin rides the build, unchanged.** A staging build may pin a
 //! compiled semantic revision (`app_builds.semantic_revision_id`, the staging
 //! semantic-model work in `internal-docs/customer-apps-staging.md`). Nothing here
@@ -39,8 +47,8 @@
 //! reads it — the staging row mirrors `draft_build_id`, so it is the same build.
 
 use entity::{app_environments, apps};
-use oxy_app_core::custom_app_environment::AppEnvironment;
-use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter};
+use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
+use sea_orm::{ColumnTrait, ConnectionTrait, DbErr, EntityTrait, QueryFilter, QueryOrder};
 use uuid::Uuid;
 
 /// One app environment and the build it serves right now.
@@ -57,9 +65,10 @@ impl ResolvedEnvironment {
     }
 }
 
-/// The builds an app's fixed environments serve, read once per app. Dev slots
-/// have no rows until the dev-slot API exists (Phase 4), so they resolve to
-/// nothing.
+/// The builds an app's **fixed** environments serve, read once per app and
+/// cached with the app's resolution. A sandbox is not in here: it resolves by
+/// its own uncached row read ([`sandbox_row`]), so [`Self::resolve`] answers
+/// nothing for one — ask [`resolve_environment`] instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EnvironmentBuilds {
     pub production: Option<Uuid>,
@@ -89,6 +98,25 @@ impl EnvironmentBuilds {
             resolved.build_id = self.staging;
         }
         resolved
+    }
+
+    /// The non-production environment that serves `build` while production
+    /// does not — for a reader deciding whether naming a build names a
+    /// non-production environment. Both halves are
+    /// [`Self::resolve_for_functions`]' answers, the ones the function runtime
+    /// acts on, so the build a never-promoted app runs on the production path
+    /// is production's. `None` when production serves `build`, or when no
+    /// environment does (a retained build nothing points at any more).
+    ///
+    /// A sandbox is not in here (see the type docs), so this answers for
+    /// staging alone: [`non_production_environment_serving`] is the whole
+    /// rule, sandboxes included, and what a reader should ask.
+    pub fn serves_only_outside_production(&self, build: Uuid) -> Option<AppEnvironment> {
+        let serves = |environment: &AppEnvironment| {
+            self.resolve_for_functions(environment).build_id == Some(build)
+        };
+        (!serves(&AppEnvironment::Production) && serves(&AppEnvironment::Staging))
+            .then_some(AppEnvironment::Staging)
     }
 }
 
@@ -202,6 +230,9 @@ pub async fn resolve_environment<C: ConnectionTrait>(
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<ResolvedEnvironment, DbErr> {
+    if matches!(environment, AppEnvironment::Dev { .. }) {
+        return resolve_sandbox(db, app.id, environment).await;
+    }
     Ok(builds_for(db, app, environment).await?.resolve(environment))
 }
 
@@ -212,9 +243,95 @@ pub async fn resolve_function_environment<C: ConnectionTrait>(
     app: &apps::Model,
     environment: &AppEnvironment,
 ) -> Result<ResolvedEnvironment, DbErr> {
+    if matches!(environment, AppEnvironment::Dev { .. }) {
+        // No fallback: a sandbox with no build runs nothing, never staging's
+        // or production's functions.
+        return resolve_sandbox(db, app.id, environment).await;
+    }
     Ok(builds_for(db, app, environment)
         .await?
         .resolve_for_functions(environment))
+}
+
+/// The row of the sandbox `environment` of `app_id`: `None` when there is no
+/// such sandbox, when it is being torn down (`deleting_at` set — it serves
+/// nothing from that moment), and for an environment that is not a sandbox.
+///
+/// One primary-key read, **uncached** on purpose
+/// (`internal-docs/custom-app-sandboxes.md`): a publish to a sandbox and a
+/// delete of one take effect at once on every replica, where the fixed
+/// environments' builds ride the 60 s app-resolution cache. Only a request
+/// that names a sandbox pays it; production and staging never reach here.
+pub async fn sandbox_row<C: ConnectionTrait>(
+    db: &C,
+    app_id: Uuid,
+    environment: &AppEnvironment,
+) -> Result<Option<app_environments::Model>, DbErr> {
+    if !matches!(environment, AppEnvironment::Dev { .. }) {
+        return Ok(None);
+    }
+    serving_sandboxes(app_id)
+        .filter(app_environments::Column::Name.eq(environment.name()))
+        .one(db)
+        .await
+}
+
+/// `app_id`'s sandboxes that can serve: rows of `kind = 'dev'` not being torn
+/// down. The one statement of it — [`sandbox_row`] narrows it to a name (the
+/// primary key), [`non_production_environment_serving`] to builds.
+fn serving_sandboxes(app_id: Uuid) -> sea_orm::Select<app_environments::Entity> {
+    app_environments::Entity::find()
+        .filter(app_environments::Column::AppId.eq(app_id))
+        .filter(app_environments::Column::Kind.eq(AppEnvironmentKind::Dev.as_str()))
+        .filter(app_environments::Column::DeletingAt.is_null())
+}
+
+/// The non-production environment that serves one of `builds` while
+/// production does not — for a reader deciding whether naming a build names
+/// a non-production environment. Staging's answer is
+/// [`EnvironmentBuilds::serves_only_outside_production`]; a sandbox's is its
+/// own row, the one [`sandbox_row`] resolves it from, read for every sandbox
+/// of the app in **one** query. `None` when production serves every named
+/// build, or when no environment serves one (a retained build nothing points
+/// at any more, a torn-down sandbox's included).
+pub async fn non_production_environment_serving<C: ConnectionTrait>(
+    db: &C,
+    app: &apps::Model,
+    builds: &[Uuid],
+) -> Result<Option<AppEnvironment>, DbErr> {
+    if builds.is_empty() {
+        return Ok(None);
+    }
+    let fixed = load_environment_builds(db, app).await?;
+    let staging = builds
+        .iter()
+        .find_map(|build| fixed.serves_only_outside_production(*build));
+    if staging.is_some() {
+        return Ok(staging);
+    }
+    let production = fixed
+        .resolve_for_functions(&AppEnvironment::Production)
+        .build_id;
+    let outside = builds.iter().copied().filter(|b| Some(*b) != production);
+    let sandbox = serving_sandboxes(app.id)
+        .filter(app_environments::Column::BuildId.is_in(outside))
+        .order_by_asc(app_environments::Column::Name)
+        .one(db)
+        .await?;
+    Ok(sandbox.and_then(|row| AppEnvironment::parse(&row.name)))
+}
+
+/// A sandbox's own build, or nothing — never another environment's.
+async fn resolve_sandbox<C: ConnectionTrait>(
+    db: &C,
+    app_id: Uuid,
+    environment: &AppEnvironment,
+) -> Result<ResolvedEnvironment, DbErr> {
+    let row = sandbox_row(db, app_id, environment).await?;
+    Ok(ResolvedEnvironment {
+        environment: environment.clone(),
+        build_id: row.and_then(|row| row.build_id),
+    })
 }
 
 /// Decisions of [`may_open_non_production`], per `(user_id, app_id)`, for the

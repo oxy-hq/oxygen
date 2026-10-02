@@ -27,7 +27,33 @@
 //! `noop_router()`), the per-role `excluded_source_types`, the per-workspace
 //! cloud tick (`tick_cloud`), a separate `oxy worker` fleet, or the scheduler.
 //!
+//! **Children.** `environment_checks` (a check run in a named app environment)
+//! and `environment_refusals` (every refusal around one); `readback` (`/fn`'s
+//! invocation id, and the fixture the read-backs share), `invocation_listings`,
+//! `invocation_reach`, `sandbox_build_reach`, `held_readback`, `run_readback`
+//! and `log_reads`;
+//! `publish_token_router` (a real token through real authentication),
+//! `run_stream_scope` (a custom app's own run stream and cancel) and
+//! `partner_audit` (what a partner reads of the audit trail). They hang here
+//! rather than in `main.rs`: they drive the same router and driver.
+//!
 //! **Needs** Postgres only.
+
+mod callers;
+mod environment_checks;
+mod environment_refusals;
+mod held_readback;
+mod invocation_listings;
+mod invocation_reach;
+mod log_reads;
+mod partner_audit;
+mod publish_token_router;
+mod readback;
+mod run_readback;
+mod run_stream_scope;
+mod sandbox_build_reach;
+
+pub(crate) use log_reads::{ERRORS_ROUTE, LOGS_ROUTE};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -45,13 +71,17 @@ use axum::routing::{get, post};
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::config::OnMissing;
 use oxy_app::agentic_wiring::OxyProjectContext;
-use oxy_app::server::api::admin::apps::{functions as admin_functions, handlers};
+use oxy_app::server::api::admin::apps::{
+    functions as admin_functions, handlers, held_writes, invocations as admin_invocations,
+};
 use oxy_app::server::api::admin::assume::block_admin_while_acting;
+use oxy_app::server::api::middlewares::app_publish_token_scope::app_publish_token_scope_middleware;
 use oxy_app::server::api::middlewares::oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware;
 use oxy_app::server::api::middlewares::{app_scope_guard, platform_cap_guard};
 use oxy_app::server::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
 use oxy_app::server::authz::Action;
 use oxy_auth::middleware::{AuthState, auth_middleware};
+use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -85,33 +115,117 @@ fn functions() -> Vec<FunctionSpec> {
     }]
 }
 
-/// The two paths as `admin::apps::router()` mounts them, below `/api/admin`.
+/// The paths as `admin::apps::router()` mounts them, below `/api/admin`.
 /// `custom_app_functions_manual_run_guards` checks production still does.
 pub(crate) const RUNS_ROUTE: &str = "/apps/{id}/functions/{name}/runs";
 pub(crate) const RUN_DETAIL_ROUTE: &str = "/apps/{id}/function-runs/{run_id}";
+pub(crate) const FUNCTIONS_ROUTE: &str = "/apps/{id}/functions";
+pub(crate) const FUNCTION_INVOCATIONS_ROUTE: &str = "/apps/{id}/functions/{name}/invocations";
+pub(crate) const INVOCATIONS_ROUTE: &str = "/apps/{id}/invocations";
+pub(crate) const HELD_ROUTE: &str = "/apps/{id}/invocations/{invocation_id}/held";
 
 fn admin_router() -> Router {
+    guarded_admin().layer(middleware::from_fn_with_state(
+        AuthState::built_in(),
+        auth_middleware,
+    ))
+}
+
+/// The two reads `router/global.rs` also mounts on the `/customer-apps/{id}/…`
+/// surface — the one a publish token may `GET` — relative to that nest.
+/// `custom_app_functions_manual_run_guards` checks production still does.
+pub(crate) const TOKEN_INVOCATIONS_ROUTE: &str = "/{id}/functions/{name}/invocations";
+pub(crate) const TOKEN_RUN_DETAIL_ROUTE: &str = "/{id}/function-runs/{run_id}";
+
+/// That surface as a request reaches it: real authentication, the publish
+/// token's own scope middleware, then the nest's guards in production order.
+fn customer_apps_router() -> Router {
+    let apps = Router::new()
+        .route(
+            TOKEN_INVOCATIONS_ROUTE,
+            get(admin_functions::list_invocations),
+        )
+        .route(
+            TOKEN_RUN_DETAIL_ROUTE,
+            get(admin_functions::get_function_run),
+        )
+        .layer(middleware::from_fn(block_admin_while_acting))
+        .layer(middleware::from_fn(app_scope_guard::enforce_app_scope))
+        .layer(middleware::from_fn(platform_cap_guard::require(
+            Action::PlatformApps,
+        )))
+        .layer(middleware::from_fn(oxy_owner_or_app_admin_guard_middleware));
+    let api = Router::new()
+        .nest("/customer-apps", apps)
+        .layer(middleware::from_fn(app_publish_token_scope_middleware))
+        .layer(middleware::from_fn_with_state(
+            AuthState::built_in(),
+            auth_middleware,
+        ));
+    Router::new().nest("/api", api)
+}
+
+/// `GET /api/customer-apps<path>`, as the guest — or, with `token`, as
+/// whoever that publish token authenticates.
+async fn get_customer_apps(path: &str, token: Option<&str>) -> (StatusCode, Value) {
+    let mut request = Request::get(format!("/api/customer-apps{path}"));
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let request = request.body(Body::empty()).unwrap();
+    answer(
+        customer_apps_router()
+            .oneshot(request)
+            .await
+            .expect("oneshot"),
+    )
+    .await
+}
+
+/// The admin stack below authentication: every guard, and no decision yet
+/// about who is asking.
+fn guarded_admin() -> Router {
     let apps = Router::new()
         .route(RUNS_ROUTE, post(handlers::run_function_job))
         .route(RUN_DETAIL_ROUTE, get(admin_functions::get_function_run))
+        .route(FUNCTIONS_ROUTE, get(admin_functions::list_functions))
+        .route(
+            FUNCTION_INVOCATIONS_ROUTE,
+            get(admin_functions::list_invocations),
+        )
+        .route(
+            INVOCATIONS_ROUTE,
+            get(admin_invocations::list_app_invocations),
+        )
+        .route(HELD_ROUTE, get(held_writes::get_held_writes))
         .route_layer(middleware::from_fn(app_scope_guard::enforce_app_scope))
         .route_layer(middleware::from_fn(platform_cap_guard::require(
             Action::PlatformApps,
         )))
         .route_layer(middleware::from_fn(block_admin_while_acting));
-    Router::new()
-        .nest(
-            "/api/admin",
-            apps.layer(middleware::from_fn(oxy_owner_or_app_admin_guard_middleware)),
-        )
-        .layer(middleware::from_fn_with_state(
-            AuthState::built_in(),
-            auth_middleware,
-        ))
+    Router::new().nest(
+        "/api/admin",
+        apps.layer(middleware::from_fn(oxy_owner_or_app_admin_guard_middleware)),
+    )
+}
+
+/// `GET /api/admin<path>` through the same guards as `caller`, whom
+/// authentication is taken to have resolved — for a caller the built-in guest
+/// cannot be (a staff grant scoped to one org).
+async fn get_admin_as(caller: &AuthenticatedUser, path: &str) -> (StatusCode, Value) {
+    let request = Request::get(format!("/api/admin{path}"))
+        .body(Body::empty())
+        .unwrap();
+    let router = guarded_admin().layer(axum::Extension(caller.clone()));
+    answer(router.oneshot(request).await.expect("oneshot")).await
 }
 
 async fn send(request: Request<Body>) -> (StatusCode, Value) {
-    let response = admin_router().oneshot(request).await.expect("oneshot");
+    answer(admin_router().oneshot(request).await.expect("oneshot")).await
+}
+
+/// A response's status and JSON body (`Null` for an empty or non-JSON one).
+async fn answer(response: axum::response::Response) -> (StatusCode, Value) {
     let status = response.status();
     let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
         .await
@@ -122,10 +236,30 @@ async fn send(request: Request<Body>) -> (StatusCode, Value) {
     )
 }
 
+/// `GET /api/admin<path>` through the admin stack, as the guest.
+pub(crate) async fn get_admin(path: &str) -> (StatusCode, Value) {
+    send(
+        Request::get(format!("/api/admin{path}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+}
+
+/// `POST /api/admin<path>` with no body through the admin stack, as the guest.
+pub(crate) async fn post_admin(path: &str) -> (StatusCode, Value) {
+    send(
+        Request::post(format!("/api/admin{path}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+}
+
 /// The driver's `PlatformContext`, over an empty workspace. The `app_function`
 /// kind never reads it — its executor builds each invocation's context from the
 /// app's own workspace — but the driver's signature requires one.
-async fn platform() -> (Arc<dyn PlatformContext>, tempfile::TempDir) {
+pub(crate) async fn platform() -> (Arc<dyn PlatformContext>, tempfile::TempDir) {
     let root = tempfile::tempdir().expect("platform dir");
     std::fs::write(
         root.path().join("config.yml"),
@@ -143,7 +277,10 @@ async fn platform() -> (Arc<dyn PlatformContext>, tempfile::TempDir) {
 }
 
 /// Polls the queue for the demo workspace's Global runs, as the latency worker does.
-fn spawn_driver(db: DatabaseConnection, platform: Arc<dyn PlatformContext>) -> JoinHandle<()> {
+pub(crate) fn spawn_driver(
+    db: DatabaseConnection,
+    platform: Arc<dyn PlatformContext>,
+) -> JoinHandle<()> {
     let mut registry = CustomTaskRegistry::new();
     registry.register(
         APP_FUNCTION_KIND,
@@ -178,7 +315,7 @@ fn spawn_driver(db: DatabaseConnection, platform: Arc<dyn PlatformContext>) -> J
 }
 
 /// The run's detail once it leaves `queued`/`running`; panics at the deadline.
-async fn wait_for_run(app_id: Uuid, run_id: &str) -> Value {
+pub(crate) async fn wait_for_run(app_id: Uuid, run_id: &str) -> Value {
     let uri = format!("/api/admin/apps/{app_id}/function-runs/{run_id}");
     let deadline = Instant::now() + RUN_DEADLINE;
     let mut last = Value::Null;

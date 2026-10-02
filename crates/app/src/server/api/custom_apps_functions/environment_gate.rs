@@ -8,25 +8,30 @@
 //! [`EnvPolicy`], which the runtime hands to `ProjectFunctionHost` at
 //! construction, and every host op asks that policy.
 //!
-//! **Phase 3: production, and staging for Oxy staff.** Production is admitted
-//! for every caller, with a policy that allows every op — byte-identical to
-//! before environments. Staging is admitted only for a **route** call from a
-//! viewer who may open non-production (`AppNonProduction`, the rule the staging
-//! host uses to serve staging HTML), and its policy holds every write
-//! (`env_policy`): nothing a staging function does reaches production, which is
-//! invariant 2 held by the host rather than by refusing the run. A staging run
-//! reads production data, runs the staging build, and sees
-//! `ctx.channel == "staging"`.
+//! **Production, and every non-production environment for Oxy staff.**
+//! Production is admitted for every caller, with a policy that allows every op
+//! — byte-identical to before environments. Staging and a sandbox
+//! (`dev-<handle>`, `internal-docs/custom-app-sandboxes.md`) share one rule:
+//! admitted only for a **route** call from a viewer who may open
+//! non-production (`AppNonProduction`, the rule the staging host uses to serve
+//! staging HTML), with that environment's policy, which isolates a write to
+//! the environment's own home or holds it (`env_policy`): nothing a
+//! non-production function does reaches production, which is invariant 2 held
+//! by the host rather than by refusing the run. Such a run reads production
+//! data, runs the environment's build, and sees `ctx.channel` as the
+//! environment's name.
 //!
-//! Still refused: staging from a queued path (schedules, webhooks and Run now
-//! stay production-only — their identities carry no environment yet, design
-//! §4.2), and every dev slot (Phase 4 of the environments design).
+//! Still refused: a non-production environment from a queued path (schedules,
+//! webhooks and Run now stay production-only — their identities carry no
+//! environment yet, design §4.2). A caller that has already decided the reach
+//! for a queued run — a check run requested by staff — passes
+//! `Entrance::Route { non_production_reach: true }` and carries that decision
+//! with the task; this gate adds no entrance for it.
 //!
-//! Phases 4 and 5 of the previews plan change what staging's policy *does*
-//! (`Hold` → `Isolate`), not who is admitted, so they land in `env_policy`,
-//! not here. The one fact they need from the database is decided here, once
-//! per admitted run: whether the org has an OLTP staging branch
-//! ([`with_oltp_home`], P4b).
+//! What an environment's policy *does* lands in `env_policy`, not here. The
+//! one fact it needs from the database is decided here, once per admitted
+//! run: whether the org has an OLTP staging branch ([`with_oltp_home`], P4b)
+//! — one branch, shared by staging and every sandbox of every app in the org.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -56,12 +61,10 @@ pub(crate) struct Admission {
 /// Why a run was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RefusedReason {
-    /// Staging is Oxy staff's; this viewer is not.
+    /// Staging and sandboxes are Oxy staff's; this viewer is not.
     NotStaff,
-    /// Staging runs only on a staff route call.
+    /// A non-production environment runs only on a staff route call.
     QueuedOutsideProduction,
-    /// Dev slots do not run functions yet.
-    DevSlot,
 }
 
 /// A function run refused because of the environment it would run in.
@@ -82,10 +85,6 @@ impl EnvironmentRefused {
             RefusedReason::QueuedOutsideProduction => format!(
                 "only a route call runs a function in the {env} environment; schedules, \
                  webhooks and manual runs are production-only"
-            ),
-            RefusedReason::DevSlot => format!(
-                "functions do not run in the {env} environment yet: its writes are not \
-                 isolated from production. Call the function in staging or production"
             ),
         }
     }
@@ -113,10 +112,11 @@ pub(crate) fn admit(
         environment: resolved.environment.clone(),
         reason,
     };
+    use AppEnvironment::{Dev, Production, Staging};
     match (&resolved.environment, entrance) {
-        (AppEnvironment::Production, _)
+        (Production, _)
         | (
-            AppEnvironment::Staging,
+            Staging | Dev { .. },
             Entrance::Route {
                 non_production_reach: true,
             },
@@ -124,11 +124,10 @@ pub(crate) fn admit(
             environment: resolved.clone(),
             policy: EnvPolicy::for_environment(resolved.environment.clone()),
         }),
-        (AppEnvironment::Staging, Entrance::Route { .. }) => Err(refused(RefusedReason::NotStaff)),
-        (AppEnvironment::Staging, Entrance::Queued) => {
+        (Staging | Dev { .. }, Entrance::Route { .. }) => Err(refused(RefusedReason::NotStaff)),
+        (Staging | Dev { .. }, Entrance::Queued) => {
             Err(refused(RefusedReason::QueuedOutsideProduction))
         }
-        (AppEnvironment::Dev { .. }, _) => Err(refused(RefusedReason::DevSlot)),
     }
 }
 
@@ -284,17 +283,50 @@ mod tests {
         assert_eq!(oltp_home_for(None), OltpHome::Production);
     }
 
-    /// A dev slot's writes have nowhere isolated to go and it has no hold
-    /// policy of its own, so it does not run at all — even for staff.
-    #[test]
-    fn a_dev_slot_is_refused_even_to_staff() {
-        let dev = AppEnvironment::Dev {
+    fn sandbox() -> AppEnvironment {
+        AppEnvironment::Dev {
             handle: "luong".into(),
-        };
-        for entrance in [STAFF, VIEWER, Entrance::Queued] {
-            let refused = admit(&resolved(dev.clone()), entrance).expect_err("dev slot");
-            assert_eq!(refused.environment, dev);
-            assert_eq!(refused.reason, RefusedReason::DevSlot);
         }
+    }
+
+    /// A sandbox is admitted on the arm staging is: a route call from staff,
+    /// with the non-production policy of **that** environment — the host then
+    /// isolates its writes to the sandbox's own homes or holds them.
+    #[test]
+    fn a_sandbox_runs_for_staff_with_the_non_production_policy() {
+        let admission = admit(&resolved(sandbox()), STAFF).expect("staff");
+        assert_eq!(admission.environment.environment, sandbox());
+        assert_eq!(admission.policy.environment(), &sandbox());
+        assert!(!admission.policy.is_production());
+        assert_eq!(
+            admission.policy.decide(HostOp::OltpExec),
+            Decision::Hold,
+            "a sandbox write with no isolated home is held"
+        );
+        assert_eq!(admission.policy.decide(HostOp::Query), Decision::Allow);
+        let staging = admit(&resolved(AppEnvironment::Staging), STAFF).expect("staff");
+        for op in HostOp::ALL {
+            assert_eq!(
+                admission.policy.decide(*op),
+                staging.policy.decide(*op),
+                "{op:?}: a sandbox decides as staging"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sandbox_is_refused_to_a_viewer_who_is_not_staff_and_to_the_queue() {
+        let env = resolved(sandbox());
+        let refused = admit(&env, VIEWER).expect_err("not staff");
+        assert_eq!(refused.environment, sandbox());
+        assert_eq!(refused.reason, RefusedReason::NotStaff);
+        let refused = admit(&env, Entrance::Queued).expect_err("queued");
+        assert_eq!(refused.reason, RefusedReason::QueuedOutsideProduction);
+        assert!(
+            refused.message().contains("dev-luong"),
+            "{}",
+            refused.message()
+        );
+        assert_eq!(refused.into_response().status(), StatusCode::FORBIDDEN);
     }
 }

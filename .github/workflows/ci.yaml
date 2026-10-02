@@ -1565,17 +1565,31 @@ jobs:
           tail -n 80 "$OXY_LOG_DIR/oxy-server.log"
           exit 1
 
-      # The script's own tests: the CI step list is a partition of the canary's
-      # `ALL_STEPS` (every omission is a real step, nothing is in neither list).
+      # The scripts' own tests: the CI step list is a partition of the canary's
+      # `ALL_STEPS` (every omission is a real step, nothing is in neither list),
+      # and the sandbox loop's step lists, held op and row keys match the
+      # canary and the server they are read from.
       - name: Script self-test
-        run: node --test scripts/ci/platform-canary-checkpoint.test.mjs
+        run: >-
+          node --test
+          scripts/ci/platform-canary-checkpoint.test.mjs
+          scripts/ci/platform-canary-sandbox-loop.test.mjs
 
+      # `--sandbox-loop`: after the second green run, the nine-step sandbox
+      # loop through `oxyc` against this server
+      # (scripts/ci/platform-canary-sandbox-loop.mjs;
+      # internal-docs/custom-app-sandboxes.md). `--sandbox-loop-omit` drops
+      # `storage_roundtrip` from the loop's first sandbox for the reason
+      # `OMITTED_IN_CI` drops it from production's list; the self-test above
+      # holds the two together.
       - name: Publish the canary and run its checks
         run: |
           node scripts/ci/platform-canary-checkpoint.mjs \
             --target http://127.0.0.1:3000 \
             --clickhouse-url http://localhost:18123 \
             --clickhouse-password clickhouse \
+            --sandbox-loop \
+            --sandbox-loop-omit storage_roundtrip \
             --journey
 
       # The server's own log, and only that: the script prints check verdicts

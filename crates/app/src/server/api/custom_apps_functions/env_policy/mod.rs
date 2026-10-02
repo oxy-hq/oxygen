@@ -14,6 +14,14 @@
 //! where its host was built makes every op decide so; `ctx.airway.run` also
 //! looks up whether the context it would run from is at a `staging` revision.
 //!
+//! **A sandbox decides as staging does.** A `dev-<handle>` environment
+//! (`internal-docs/custom-app-sandboxes.md`) has no table of its own: every
+//! "staging" below reads "any non-production environment". What differs per
+//! environment is where an isolated write lands — each has its own storage
+//! silo, secret path and Airhouse sibling — while the OLTP staging branch and
+//! the `nonProduction.destinations` map are one per org and per build, shared
+//! by staging and every sandbox.
+//!
 //! **Staging holds every write that has no isolated home.** Reads of
 //! production data are allowed (§4.2: staging reads the same warehouse,
 //! Airhouse and OLTP data, no copy step). A write with no isolated home is
@@ -250,10 +258,6 @@ const AIRWAY_FIX: &str = "an Airway run belongs to the project, not to an app en
 const BRANCH_AIRWAY_FIX: &str = "an Airway run starts production ELT — production's lease, \
      cursor and destination — whatever revision the invocation reads";
 
-/// `Refuse` fix for every op in a dev slot, which `environment_gate` never
-/// admits; stated so the match stays total.
-const DEV_SLOT_FIX: &str = "dev slots do not run functions yet; call the function in staging";
-
 /// `Refuse` fix for an op the policy isolates that reached a path with no
 /// isolated home for it — a host bug, refused rather than run on production.
 pub const MISROUTED_FIX: &str = "this op has an isolated home outside production, but the call \
@@ -329,8 +333,7 @@ impl EnvPolicy {
         match &self.environment {
             AppEnvironment::Production if self.semantic_pin.is_some() => production_on_branch(op),
             AppEnvironment::Production => Decision::Allow,
-            AppEnvironment::Staging => staging(op, &self.oltp),
-            AppEnvironment::Dev { .. } => Decision::Refuse { fix: DEV_SLOT_FIX },
+            AppEnvironment::Staging | AppEnvironment::Dev { .. } => non_production(op, &self.oltp),
         }
     }
 
@@ -364,18 +367,21 @@ fn production_on_branch(op: HostOp) -> Decision {
             fix: BRANCH_AIRWAY_FIX,
         },
         StorageGetDownloadUrl | StorageGet | StorageHead | StorageList => Decision::Allow,
-        _ => match staging(op, &OltpHome::Production) {
+        _ => match non_production(op, &OltpHome::Production) {
             Decision::Isolate(_) => Decision::Hold,
             decided => decided,
         },
     }
 }
 
-/// Staging: production data read, a write with an isolated home performed
+/// Staging and every sandbox — one table for every non-production
+/// environment: production data read, a write with an isolated home performed
 /// there (the app's OLTP store on the org's staging branch when it has one),
-/// every other write held, Airway refused. A new
-/// [`HostOp`] fails to compile here until it is placed.
-fn staging(op: HostOp, oltp: &OltpHome) -> Decision {
+/// every other write held, Airway refused. The table names *which kind* of
+/// home; *whose* is the environment's (`homes`: its own silo, secret path and
+/// Airhouse sibling). A new [`HostOp`] fails to compile here until it is
+/// placed.
+fn non_production(op: HostOp, oltp: &OltpHome) -> Decision {
     use HostOp::*;
     match op {
         // Reads of production data (§4.2). `tx.rollback` writes nothing.

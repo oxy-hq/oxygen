@@ -1330,6 +1330,26 @@ fn build_custom_task_registry(
             Arc::new(staging_task_executor::StagingMigrationsExecutor { db: db.clone() }),
         );
     }
+    // A custom app's sandbox (`dev-<handle>`) torn down after a delete or an
+    // expiry: its storage silo, secrets and Airhouse sibling, then its row.
+    {
+        use crate::server::api::custom_apps_sandboxes::teardown;
+        reg.register(
+            teardown::SANDBOX_TEARDOWN_KIND,
+            Arc::new(teardown::SandboxTeardownExecutor { db: db.clone() }),
+        );
+    }
+    // A sandbox build's Airhouse migrations, queued by a publish that names
+    // the sandbox. Its own kind rather than a field on the staging task: a
+    // worker that does not know it fails the task instead of applying a
+    // sandbox's files to staging's sibling.
+    {
+        use crate::server::api::custom_apps_sandboxes::migrations_task;
+        reg.register(
+            migrations_task::SANDBOX_MIGRATIONS_KIND,
+            Arc::new(migrations_task::SandboxMigrationsExecutor { db: db.clone() }),
+        );
+    }
     Arc::new(reg)
 }
 

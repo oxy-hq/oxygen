@@ -69,7 +69,7 @@ use super::custom_apps_cache::{
     ResolvedApp, cached_app_resolution, cached_user, set_cached_app_resolution, set_cached_user,
 };
 use super::custom_apps_env_resolve::{
-    EnvironmentBuilds, load_environment_builds, may_open_non_production,
+    EnvironmentBuilds, load_environment_builds, may_open_non_production, resolve_environment,
 };
 use super::custom_apps_functions::seam::FunctionQueryExecutor;
 
@@ -779,7 +779,8 @@ pub(crate) async fn serve_pretty(
 ///
 /// **Any other environment** serves its own build, and nothing else: the
 /// preview cookie means nothing there, and a staging host never falls back to
-/// production's build.
+/// production's build. A sandbox's is read from its own row, uncached
+/// ([`sandbox_build`]).
 async fn build_to_serve(
     db: &DatabaseConnection,
     headers: &HeaderMap,
@@ -788,6 +789,12 @@ async fn build_to_serve(
     environment: &AppEnvironment,
     environments: &EnvironmentBuilds,
 ) -> (Option<Uuid>, String) {
+    if matches!(environment, AppEnvironment::Dev { .. }) {
+        return (
+            sandbox_build(db, app, environment).await,
+            format!("the {environment} environment"),
+        );
+    }
     if *environment != AppEnvironment::Production {
         return (
             environments.resolve(environment).build_id,
@@ -817,6 +824,27 @@ async fn build_to_serve(
         Channel::Published => environments.production,
     };
     (build, format!("the {channel:?} channel"))
+}
+
+/// The build a sandbox serves: its own row, read on every request rather than
+/// from the cached [`EnvironmentBuilds`], so a publish to it or a delete of it
+/// shows at once on every replica. A failed read serves nothing (the request
+/// answers 404) rather than another environment's build.
+async fn sandbox_build(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
+    environment: &AppEnvironment,
+) -> Option<Uuid> {
+    match resolve_environment(db, app, environment).await {
+        Ok(resolved) => resolved.build_id,
+        Err(e) => {
+            tracing::error!(
+                "Failed to read the {environment} environment of custom app {}: {e}",
+                app.id
+            );
+            None
+        }
+    }
 }
 
 /// Emit a serve event for a request that fails BEFORE reaching the normal

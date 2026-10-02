@@ -24,7 +24,7 @@ fn each_environment_resolves_to_its_own_build() {
         })
         .build_id,
         None,
-        "no dev slot exists before the dev-slot API"
+        "a sandbox is not one of the cached fixed environments"
     );
 }
 
@@ -57,6 +57,40 @@ fn functions_fall_back_to_staging_only_for_an_app_never_promoted() {
             .build_id,
         None,
         "the strict resolve does not fall back"
+    );
+}
+
+/// A build names a non-production environment only when that environment
+/// serves it and production does not — by the same answers the function
+/// runtime resolves, fallback included.
+#[test]
+fn a_build_is_non_productions_only_when_production_does_not_serve_it() {
+    let (one, two, three) = (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
+    let promoted = builds(Some(1), Some(2));
+    assert_eq!(
+        promoted.serves_only_outside_production(two),
+        Some(AppEnvironment::Staging),
+        "staging's build, which production does not serve"
+    );
+    assert_eq!(promoted.serves_only_outside_production(one), None);
+    assert_eq!(
+        promoted.serves_only_outside_production(three),
+        None,
+        "a retained build no environment serves names none"
+    );
+    assert_eq!(
+        builds(Some(1), Some(1)).serves_only_outside_production(one),
+        None,
+        "a build both serve is production's"
+    );
+    assert_eq!(
+        builds(None, Some(2)).serves_only_outside_production(two),
+        None,
+        "a never-promoted app runs staging's build on the production path"
+    );
+    assert_eq!(
+        builds(Some(1), None).serves_only_outside_production(one),
+        None
     );
 }
 
@@ -128,6 +162,32 @@ async fn production_resolves_from_the_app_row_without_a_query() {
     assert!(
         staging.is_err(),
         "control: staging queries, and the fake refuses it"
+    );
+}
+
+/// `sandbox_row` asks nothing for an environment that is not a sandbox (the
+/// connection here is disconnected, so any statement panics), and does query
+/// for one that is — the control.
+#[tokio::test]
+async fn sandbox_row_reads_only_for_a_sandbox() {
+    use futures::FutureExt;
+    let db = sea_orm::DatabaseConnection::default();
+    let app = app_row(Some(1), Some(2));
+    for fixed in [AppEnvironment::Production, AppEnvironment::Staging] {
+        assert_eq!(
+            sandbox_row(&db, app.id, &fixed).await.expect("no query"),
+            None
+        );
+    }
+    let sandbox = AppEnvironment::Dev {
+        handle: "a1".into(),
+    };
+    let read = std::panic::AssertUnwindSafe(sandbox_row(&db, app.id, &sandbox))
+        .catch_unwind()
+        .await;
+    assert!(
+        read.is_err(),
+        "control: a sandbox queries, and the fake refuses it"
     );
 }
 

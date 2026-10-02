@@ -346,3 +346,33 @@ pub async fn delete_app_assets(app_id: Uuid) -> Result<(), StorageError> {
     }
     Ok(())
 }
+
+/// Delete every asset of one **non-production** environment of an app — its
+/// sibling silo, `customer-app-storage/<app_id>~<env>/` — used when a sandbox
+/// is torn down (`custom_apps_sandboxes::teardown`). Idempotent: a silo that
+/// holds nothing, or never existed, is not an error.
+///
+/// The prefix ends in a slash, so removing `dev-a1`'s never reaches
+/// `dev-a1-b`'s. **Only a sandbox's silo is removed here**; production's and
+/// staging's are refused, deleting nothing: production's is the app's own,
+/// and both go only with the app ([`delete_app_assets`]). The guard is this
+/// function's own, whatever its caller checked.
+pub async fn delete_environment_assets(
+    app_id: Uuid,
+    environment: &oxy_app_core::custom_app_environment::AppEnvironment,
+) -> Result<(), StorageError> {
+    use oxy_app_core::custom_app_environment::AppEnvironment;
+    let silo = Silo::for_environment(app_id, environment);
+    if !matches!(environment, AppEnvironment::Dev { .. }) || silo.is_production() {
+        return Err(StorageError::Denied(format!(
+            "refusing to delete app {app_id}'s {environment} storage: only a sandbox's silo is \
+             removed on its own"
+        )));
+    }
+    let prefix = silo.prefix();
+    match bucket() {
+        Some(bucket) => s3::delete_prefix(&bucket, &prefix).await?,
+        None => local::delete_prefix(&prefix).await?,
+    }
+    Ok(())
+}

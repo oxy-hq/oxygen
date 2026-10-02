@@ -87,11 +87,14 @@
 //! * [`airhouse_home`] — which schema an Airhouse apply writes and which
 //!   target records it: production's `app_<writer>`, or a non-production
 //!   environment's sibling `app_<writer>__<env>` under `schema:<sibling>`.
+//! * [`airhouse_drop`] — dropping a non-production sibling and its ledger
+//!   rows, when the sandbox it belonged to is torn down.
 //! * [`branch`] — the same files on the org's OLTP staging branch, on every
 //!   publish, recorded under `branch:<provider id>`; a failure there warns and
 //!   never fails the publish (previews P4b).
 
 mod airhouse;
+mod airhouse_drop;
 mod airhouse_home;
 mod apply;
 mod branch;
@@ -100,7 +103,11 @@ mod types;
 
 pub(super) use airhouse::{AirhouseRun, apply_airhouse_on_promote, apply_airhouse_to_environment};
 pub use airhouse::{airhouse_lock_key, apply_airhouse_over, apply_airhouse_over_until};
+pub(crate) use airhouse_drop::drop_environment_schema;
+#[doc(hidden)]
+pub use airhouse_drop::{AirhouseDrop, DropOutcome, drop_environment_schema_over};
 pub use airhouse_home::AirhouseHome;
+pub(crate) use airhouse_home::schema_owner;
 pub(super) use apply::apply_on_promote;
 pub use apply::read_ledger;
 #[doc(hidden)]

@@ -749,6 +749,8 @@ fleet-assert *FLAGS:
 #   just custom-app-canary                       # against :3000, ClickHouse :8123
 #   just custom-app-canary --journey             # plus the browser check
 #   just custom-app-canary --org-slug oxy-canary-2 --clickhouse-url http://localhost:28123
+#   just custom-app-canary --sandbox-loop         # plus the sandbox loop (internal-docs/custom-app-sandboxes.md)
+#   just custom-app-canary --sandbox-loop --sandbox-loop-omit storage_roundtrip   # as CI runs it
 custom-app-canary *FLAGS:
     node scripts/ci/platform-canary-checkpoint.mjs \
       --target "${CANARY_TARGET:-http://127.0.0.1:3000}" \

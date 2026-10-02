@@ -23,7 +23,15 @@
  * rather than leaving the CLI to look one up.
  */
 
-import { errorForResponse, parseJson, request } from "../api/request.js";
+import { parseJson, request } from "../api/request.js";
+import { isProduction, parseAppEnv } from "../apps/environment.js";
+import {
+  type Creds as BaseCreds,
+  ensureOk,
+  PUBLISH_TOKEN_PREFIX,
+  resolveApp,
+  UUID_RE
+} from "../apps/resolve.js";
 import type { Context } from "../context/resolve.js";
 import { exchangeGithubOidc, githubOidcAvailable } from "../publish/server.js";
 import { err } from "../ui/tty.js";
@@ -34,6 +42,8 @@ export interface ChecksReport {
   app: string;
   appId: string;
   checks: CheckResult[];
+  /** Only present with `--app-env` — absent, the report is today's shape. */
+  environment?: string;
 }
 
 export interface CheckResult {
@@ -43,11 +53,8 @@ export interface CheckResult {
   passed: boolean;
   error?: string;
   durationMs: number;
-}
-
-interface AdminAppsPage {
-  items?: { id: string; slug: string; org_slug: string }[];
-  next_offset?: number | null;
+  /** From the run detail; only present once the run has started. */
+  invocationId?: string;
 }
 
 interface FunctionSummary {
@@ -62,18 +69,25 @@ interface RunDetail {
   status: RunStatus;
   answer?: string | null;
   error?: string | null;
+  /** New with sandboxes: null until the run starts. */
+  invocation_id?: string | null;
 }
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(["done", "failed", "cancelled", "timed_out"]);
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Hard stop on the admin-apps walk, mirroring `api/paginate.ts`'s `MAX_PAGES`. */
-const MAX_APP_PAGES = 100;
 
-export async function runChecks(
+/**
+ * Run every check and return the report — no printing, and no throw for a
+ * failed check: that decision (and the CLI's streaming `✓`/`✗` lines) belongs
+ * to the caller. `onResult`, called as each check lands, is how `runChecks`
+ * keeps its streaming feedback without a second loop; the `oxyc mcp` tool
+ * passes none and just reads the returned report.
+ */
+export async function runChecksCore(
   ctx: Context,
   app: string,
-  opts: { json: boolean; timeoutSeconds: number; pollMs?: number }
-): Promise<void> {
+  opts: { timeoutSeconds: number; pollMs?: number; appEnv?: string },
+  onResult?: (result: CheckResult) => void
+): Promise<ChecksReport> {
   // `main.ts` passes `Number(--timeout)`. A NaN deadline never passes, so the
   // poll would never end; zero or less times out every check before it runs.
   if (!Number.isFinite(opts.timeoutSeconds) || opts.timeoutSeconds <= 0) {
@@ -82,8 +96,11 @@ export async function runChecks(
       "e.g. --timeout 60 (the default is 300)"
     );
   }
+  // Usage, before any request: a malformed name, same grammar every verb uses.
+  const appEnv = opts.appEnv !== undefined ? parseAppEnv(opts.appEnv) : undefined;
+
   const target = ctx.target();
-  const machine = await resolveCredentials(ctx, target, app);
+  const machine = await resolveCredentials(ctx, target, app, appEnv);
   const creds: Creds = {
     target,
     bearer: machine.bearer,
@@ -103,8 +120,13 @@ export async function runChecks(
   }
   const { appId, label } = machine.appId
     ? { appId: machine.appId, label: app }
-    : await resolveApp(creds, app);
-  const checks = await listChecks(creds, appId);
+    : creds.surface === MACHINE_SURFACE && UUID_RE.test(app)
+      ? // Never touch `/api/admin/apps/{id}` with a publish token — it is
+        // refused there just as the listing is, and the id already names the
+        // app, so there is nothing left for `resolveApp` to add.
+        { appId: app, label: app }
+      : await resolveApp(creds, app);
+  const checks = await listChecks(creds, appId, appEnv);
   if (checks.length === 0) {
     throw new CliError(`${label} declares no checks (no function has "check": true)`, {
       code: ExitCode.FAILURE,
@@ -114,27 +136,34 @@ export async function runChecks(
 
   const results: CheckResult[] = [];
   for (const fn of checks) {
-    const result = await runOneCheck(creds, appId, fn.name, opts);
+    const result = await runOneCheck(creds, appId, fn.name, appEnv, opts);
     results.push(result);
-    if (!opts.json) printResultLine(result);
+    onResult?.(result);
   }
 
+  return { app: label, appId, checks: results, environment: appEnv };
+}
+
+export async function runChecks(
+  ctx: Context,
+  app: string,
+  opts: { json: boolean; timeoutSeconds: number; pollMs?: number; appEnv?: string }
+): Promise<void> {
+  const report = await runChecksCore(ctx, app, opts, opts.json ? undefined : printResultLine);
+
   if (opts.json) {
-    const report: ChecksReport = { app: label, appId, checks: results };
     process.stdout.write(`${JSON.stringify(report)}\n`);
   }
 
-  const failed = results.filter((r) => !r.passed);
+  const failed = report.checks.filter((r) => !r.passed);
   if (failed.length > 0) {
     throw new CliError(
-      `${failed.length} of ${results.length} check(s) failed: ${failed.map((r) => r.name).join(", ")}`,
+      `${failed.length} of ${report.checks.length} check(s) failed: ${failed.map((r) => r.name).join(", ")}`,
       { code: ExitCode.CHECK_FAILED }
     );
   }
 }
 
-/** The prefix `oxyc publish` mints and the exchange returns. */
-const PUBLISH_TOKEN_PREFIX = "oxypublish_";
 /** Where the three function routes live for each kind of credential. */
 const ADMIN_SURFACE = "/api/admin/apps";
 const MACHINE_SURFACE = "/api/customer-apps";
@@ -160,14 +189,32 @@ interface ResolvedCredentials {
  *
  * A publish token — minted here or handed in through `OXY_TOKEN` — reads the
  * machine surface, because the admin one refuses it.
+ *
+ * `appEnv` is read here, not just at the call site, so the non-production
+ * refusal can land BEFORE the OIDC exchange rather than after it. The
+ * exchange always mints a publish token, and D22 refuses one outside
+ * production — minting one just to throw it away would waste a real network
+ * call (and, if the deployment predates trusted checks or the request fails,
+ * report the wrong thing: `UNAVAILABLE` instead of the real `USAGE`). A
+ * stored `OXY_TOKEN` publish token is checked the same way, inline, so the
+ * two paths answer identically.
  */
 async function resolveCredentials(
   ctx: Context,
   target: string,
-  app: string
+  app: string,
+  appEnv: string | undefined
 ): Promise<ResolvedCredentials> {
+  const refuseNonProduction = (): never => {
+    throw usageError(
+      `a publish token cannot run checks in ${appEnv}`,
+      "sandboxes and staging need a staff credential — oxyc login, or OXY_TOKEN set to a user token"
+    );
+  };
+
   const bearer = ctx.maybeBearer();
   if (bearer) {
+    if (bearer.startsWith(PUBLISH_TOKEN_PREFIX) && !isProduction(appEnv)) refuseNonProduction();
     return {
       bearer,
       surface: bearer.startsWith(PUBLISH_TOKEN_PREFIX) ? MACHINE_SURFACE : ADMIN_SURFACE
@@ -177,6 +224,11 @@ async function resolveCredentials(
   if (apiKey) return { apiKey, surface: ADMIN_SURFACE };
 
   if (githubOidcAvailable()) {
+    // Every exchange yields an `oxypublish_…` bearer — refuse before
+    // minting one that a non-production `--app-env` was always going to
+    // refuse anyway, and before the network call that minting costs.
+    if (!isProduction(appEnv)) refuseNonProduction();
+
     const [orgSlug, ...rest] = app.split("/");
     const appSlug = rest.join("/");
     if (!orgSlug || !appSlug) {
@@ -203,58 +255,25 @@ async function resolveCredentials(
   return { surface: ADMIN_SURFACE };
 }
 
-interface Creds {
-  target: string;
-  bearer?: string;
-  headers?: Record<string, string>;
+interface Creds extends BaseCreds {
   /** `/api/admin/apps` for a human, `/api/customer-apps` for a publish token. */
   surface: string;
 }
 
-function ensureOk(response: Awaited<ReturnType<typeof request>>): void {
-  if (response.status < 200 || response.status >= 300) throw errorForResponse(response);
-}
-
-/**
- * Resolve `<org-slug>/<app-slug>` to an app id by paging
- * `GET /api/admin/apps` — skipped entirely when `app` is already a UUID.
- */
-async function resolveApp(creds: Creds, app: string): Promise<{ appId: string; label: string }> {
-  if (UUID_RE.test(app)) return { appId: app, label: app };
-
-  const [orgSlug, ...rest] = app.split("/");
-  const appSlug = rest.join("/");
-
-  let offset = 0;
-  for (let page = 0; page < MAX_APP_PAGES; page++) {
-    const response = await request({
-      target: creds.target,
-      path: `/api/admin/apps?limit=100&offset=${offset}`,
-      method: "GET",
-      bearer: creds.bearer,
-      headers: creds.headers
-    });
-    ensureOk(response);
-    const payload = parseJson(response.body) as AdminAppsPage | undefined;
-    const match = (payload?.items ?? []).find(
-      (item) => item.org_slug === orgSlug && item.slug === appSlug
-    );
-    if (match) return { appId: match.id, label: `${orgSlug}/${appSlug}` };
-    if (payload?.next_offset == null) break;
-    offset = payload.next_offset;
-  }
-
-  throw new CliError(`no app "${app}"`, {
-    code: ExitCode.NOT_FOUND,
-    hint: '<app> is "<org-slug>/<app-slug>" or an app UUID'
-  });
+/** `?environment=<name>`, or nothing — appended to all three check routes. */
+function environmentQuery(appEnv: string | undefined): string {
+  return appEnv === undefined ? "" : `?environment=${encodeURIComponent(appEnv)}`;
 }
 
 /** `GET .../functions`, filtered to `check: true` and sorted by name. */
-async function listChecks(creds: Creds, appId: string): Promise<FunctionSummary[]> {
+async function listChecks(
+  creds: Creds,
+  appId: string,
+  appEnv: string | undefined
+): Promise<FunctionSummary[]> {
   const response = await request({
     target: creds.target,
-    path: `${creds.surface}/${appId}/functions`,
+    path: `${creds.surface}/${appId}/functions${environmentQuery(appEnv)}`,
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers
@@ -269,24 +288,38 @@ async function runOneCheck(
   creds: Creds,
   appId: string,
   name: string,
+  appEnv: string | undefined,
   opts: { timeoutSeconds: number; pollMs?: number }
 ): Promise<CheckResult> {
   const start = Date.now();
-  const runId = await startRun(creds, appId, name);
-  const detail = await pollUntilTerminal(creds, appId, runId, opts);
+  const runId = await startRun(creds, appId, name, appEnv);
+  const detail = await pollUntilTerminal(creds, appId, runId, appEnv, opts);
   const durationMs = Date.now() - start;
 
   const answerFailed = parsesToOkFalse(detail.answer);
   const passed = detail.status === "done" && !answerFailed;
   const error = passed ? undefined : failureMessage(detail, answerFailed, opts.timeoutSeconds);
 
-  return { name, runId, status: detail.status, passed, error, durationMs };
+  return {
+    name,
+    runId,
+    status: detail.status,
+    passed,
+    error,
+    durationMs,
+    invocationId: detail.invocation_id ?? undefined
+  };
 }
 
-async function startRun(creds: Creds, appId: string, name: string): Promise<string> {
+async function startRun(
+  creds: Creds,
+  appId: string,
+  name: string,
+  appEnv: string | undefined
+): Promise<string> {
   const response = await request({
     target: creds.target,
-    path: `${creds.surface}/${appId}/functions/${encodeURIComponent(name)}/runs`,
+    path: `${creds.surface}/${appId}/functions/${encodeURIComponent(name)}/runs${environmentQuery(appEnv)}`,
     method: "POST",
     body: "{}",
     bearer: creds.bearer,
@@ -302,10 +335,15 @@ async function startRun(creds: Creds, appId: string, name: string): Promise<stri
   return payload.run_id;
 }
 
-async function getRunDetail(creds: Creds, appId: string, runId: string): Promise<RunDetail> {
+async function getRunDetail(
+  creds: Creds,
+  appId: string,
+  runId: string,
+  appEnv: string | undefined
+): Promise<RunDetail> {
   const response = await request({
     target: creds.target,
-    path: `${creds.surface}/${appId}/function-runs/${runId}`,
+    path: `${creds.surface}/${appId}/function-runs/${runId}${environmentQuery(appEnv)}`,
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers
@@ -319,11 +357,12 @@ async function pollUntilTerminal(
   creds: Creds,
   appId: string,
   runId: string,
+  appEnv: string | undefined,
   opts: { timeoutSeconds: number; pollMs?: number }
 ): Promise<RunDetail> {
   const deadline = Date.now() + opts.timeoutSeconds * 1000;
   for (;;) {
-    const detail = await getRunDetail(creds, appId, runId);
+    const detail = await getRunDetail(creds, appId, runId, appEnv);
     if (TERMINAL.has(detail.status)) return detail;
     if (Date.now() >= deadline) return { ...detail, status: "timed_out" };
     await sleep(opts.pollMs ?? 2000);

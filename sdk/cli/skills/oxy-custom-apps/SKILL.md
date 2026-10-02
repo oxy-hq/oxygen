@@ -364,6 +364,99 @@ oxyc publish --env production --promote # …straight to live
 
 Full hands-on guide: `oxy-hq/customer-apps: docs/local-development.md`.
 
+## Sandboxes — try a change on real data before shipping it
+
+A sandbox (`dev-<handle>`, 1-12 lowercase letters/digits/hyphens, no leading,
+trailing or double hyphen) is a named, short-lived environment of one app: its
+own build pointer, storage silo, secrets and Airhouse sibling schema. Reads
+hit production; most writes are isolated or *held* (recorded, not performed —
+`ctx.oltp`/`ctx.warehouse` stay shared — see
+`internal-docs/custom-app-sandboxes.md` if you have this repo checked out; if
+not, the per-call table is in this skill's "Where data goes" section above,
+and a held write's `note` field in `invocations held` names the manifest key
+that would make it land instead). It starts with no build, costs nothing
+idle, and is gone after 7 idle days or an explicit delete — safe to use for
+every iteration that would otherwise touch staging. Limit: 20 per app.
+
+```bash
+oxyc env create acme/store dev-x --env dev --json          # starts with no build
+oxyc publish --env dev --app-env dev-x --json               # build + publish to it
+oxyc fn call acme/store submit-order --app-env dev-x --env dev --data '{}' --json   # call it
+oxyc checks run acme/store --app-env dev-x --env dev --json # run its checks
+oxyc invocations list acme/store --app-env dev-x --env dev --json  # what ran; a row's id is `id`
+oxyc invocations held acme/store <invocation-id> --env dev --json  # what it held, not wrote
+oxyc env delete acme/store dev-x --env dev --yes --wait --json     # done; tears its homes down
+```
+
+(`--data` has no short form — don't write `-d`.)
+
+**Over MCP.** If your runtime speaks MCP, `oxyc mcp --env dev` serves the same
+loop as tools — `oxy_env_create` / `oxy_env_list` / `oxy_env_show` /
+`oxy_env_delete`, `oxy_publish_sandbox`, `oxy_fn_call`, `oxy_checks_run`,
+`oxy_invocations_list` / `oxy_invocations_held`, `oxy_logs`. Prefer them to
+shelling out: each calls its verb's own request-building code, so the result
+is the document that verb's `--json` prints, and the choice changes nothing
+on the server. There is no exit code over MCP: a failure is `isError: true`
+with the class at the end of its text (`[exit 5 NOT_FOUND]`, plus `server
+code: <code>` when the server sent one) — branch on that the way you would
+on the exit code. `oxy_fn_call` and `oxy_checks_run` set `isError` when the
+function or a check failed, with the full document still in the result.
+`oxy_env_delete` needs `confirm: true`. `oxy_publish_sandbox` takes only a
+`dev-<handle>` and cannot reach staging or production.
+
+Iterate from `publish` as the code changes — each publish is a new build, and
+the sandbox always serves the newest. A sandbox build is **never promoted**:
+ship by publishing the same tree to staging, then promoting from the console.
+Staff only (needs `develop_apps` + `manage_apps`); a publish token is refused
+on every sandbox operation, so CI cannot use one.
+
+**Driving this loop unattended (an agent, not a human at a keyboard):**
+
+- Name your sandbox `dev-<short-task-slug>` — one per agent/task, never reused
+  across unrelated tasks, so parallel agents don't collide. `env create`
+  answers exit `6` if the name is already taken.
+- Branch on exit codes and JSON fields only, never on stderr text: `0` ok,
+  `1` it ran and the thing itself failed, `2` you called it wrong, `4` not
+  authenticated (stop — don't try another credential), `5` not found
+  (environment/function/invocation — check the name, or publish first if
+  the environment has no build), `6` a conflict or bad name (pick another
+  name, wait out a teardown, or free up the 20-sandbox limit), `7` retryable
+  (network/5xx, or a `--wait` deadline), `8` refused (stop and report), `9`
+  a check failed — read `invocations held` for that check's invocation
+  before assuming the function is broken.
+- Hard rules: never pass `--promote` in this loop; never `publish` without
+  `--app-env` while iterating in a sandbox; never use `production` as
+  `--app-env` to "check" something — reads already hit production. Always
+  delete the sandbox you created, **even when an earlier step failed**. On
+  exit `4` or `8`, stop and report to a human rather than retrying with a
+  different credential or flag. A held write is information to report, not
+  an error to engineer around.
+- Report back: the sandbox name, the build id(s) published, each check's
+  `passed`, every held write (`op`/`plane`/`table`/`note`), and confirmation
+  the sandbox was deleted.
+
+**A sandbox isolates the app, not the workspace.** The semantic model,
+automations and Airway pipelines it reads are `main`'s. To try a workspace
+branch, open a **workspace preview** (staff only) — a separate loop:
+
+```bash
+oxyc preview create <branch> --wait --workspace <id> --json      # compile the branch; idempotent
+oxyc preview checks <branch> --workspace <id> --json             # Airway change check of that revision
+oxyc preview run <branch> procedure <file.automation.yml> --wait --workspace <id> --json  # held dry run
+oxyc preview runs list <branch> --workspace <id> --json          # every run, the server's own included
+oxyc preview runs show <run-id> --wait --workspace <id> --json   # one run: held steps, outcome
+oxyc preview delete <branch> --yes --workspace <id> --json       # done
+```
+
+`preview run`'s kind is `procedure` or `airway_sample`; never post a
+`transform_build` or `compare` run — the server queues those itself, and you
+read them with `preview runs list` / `runs show`. A `--wait` verb exits `1`
+when what it waited for ended `failed` or `cancelled`, `7` past its deadline.
+Over MCP the same verbs are `oxy_preview_create` / `_list` / `_show` /
+`_delete` (`confirm: true`) / `_checks` / `_run` / `_runs_list` / `_run_show`.
+To make a sandbox read the branch's semantic model, publish to it with
+`--semantic-branch <branch>`.
+
 ## Reading data while vibe-coding
 
 You don't need an `X-API-Key` to poke at the data API by hand — your

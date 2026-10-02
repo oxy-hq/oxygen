@@ -7,7 +7,8 @@
  * same surface `oxyc api` reaches, for an agent that would rather call a tool
  * than shell out. Different input, different audience, no overlap.
  *
- * FOUR TOOLS, NOT SIX HUNDRED — the design decision that makes this affordable.
+ * FOUR GENERIC TOOLS FOR THE WHOLE API — the design decision that makes most
+ * of it affordable.
  *
  * The obvious shape is one tool per endpoint, and it is the wrong one: the API
  * has ~670 routes, an agent runtime ships every tool's JSON schema in every
@@ -16,10 +17,21 @@
  * the tool list would be baked into this package rather than read from the
  * deployment.
  *
- * So discovery stays a QUESTION the agent asks (`routes`, `schema`) rather
- * than a payload it carries, exactly as the CLI does it. Four tools cost a few
- * hundred bytes per turn and reach every endpoint, including ones added after
- * this package was published.
+ * So discovery stays a QUESTION the agent asks (`oxy_routes`, `oxy_schema`)
+ * rather than a payload it carries, exactly as the CLI does it, for
+ * everything a generic request can do safely.
+ *
+ * TWO NAMED EXCEPTIONS: `SANDBOX_TOOLS` and `PREVIEW_TOOLS` below. The sandbox
+ * loop and the workspace-previews loop are meant to run UNSUPERVISED — create
+ * a sandbox, publish into it, call a function, tear it down — and that needs
+ * per-operation validation (the `dev-<handle>` grammar, a confirm gate before
+ * a delete, a hard refusal of `--app-env` outside `dev-<handle>` on the
+ * publish tool) that `oxy_request` has no way to carry. Each of those tools
+ * calls its CLI verb's own request-building function (`env.ts`, `fn.ts`,
+ * `checks.ts`, `preview.ts`, `preview-runs.ts`, …), so there is exactly one
+ * implementation of each request, and a tool's result is the same JSON
+ * document that verb's `--json` prints. `mcp.test.ts` pins the full tool list
+ * and a raised (and justified) per-turn schema budget.
  *
  * Auth, target resolution and placeholder substitution are the CLI's — the
  * same `Context`, so a token cached by `oxyc login` works
@@ -38,9 +50,38 @@ import { paramsToQuery, parseFields } from "../api/fields.js";
 import { runJq } from "../api/output.js";
 import { isExternalSurface, normalizePath, substitutePlaceholders } from "../api/paths.js";
 import { parseJson, request } from "../api/request.js";
-import type { Context } from "../context/resolve.js";
-import { CliError, ExitCode } from "../util/errors.js";
+import { requireSandboxName } from "../apps/environment.js";
+import { type Context, createContext } from "../context/resolve.js";
+import {
+  CliError,
+  ExitCode,
+  type ExitCodeValue,
+  exitCodeName,
+  usageError
+} from "../util/errors.js";
+import { runChecksCore } from "./checks.js";
 import { comparablePath } from "./discover.js";
+import { envCreate, envDelete, envList, envShow } from "./env.js";
+import { fnCall } from "./fn.js";
+import { invocationsHeld, invocationsList } from "./invocations.js";
+import { fetchLogs } from "./logs.js";
+import {
+  previewChecks,
+  previewCreate,
+  previewDelete,
+  previewFailed,
+  previewList,
+  previewShow
+} from "./preview.js";
+import {
+  parseVariables,
+  previewRunGet,
+  previewRunsList,
+  previewSubmitRun,
+  requireRunKind,
+  runFailed
+} from "./preview-runs.js";
+import { publish } from "./publish.js";
 
 /**
  * Package version, reported in the MCP handshake.
@@ -74,6 +115,20 @@ const VERSION: string = (() => {
  */
 function text(body: string, isError = false) {
   return { content: [{ type: "text" as const, text: body }], isError };
+}
+
+/**
+ * A tool result carrying one JSON document — the same shape the matching
+ * verb's `--json` prints, so a tool's result and the CLI's output never
+ * drift apart. On failure the exit-code class is appended, same spelling as
+ * the generic catch-all below (`[exit N NAME]`), so an agent branches on it
+ * the way it would on `oxyc`'s own exit code.
+ */
+function jsonResult(data: unknown, opts: { isError?: boolean; code?: ExitCodeValue } = {}) {
+  const body = JSON.stringify(data);
+  if (!opts.isError) return text(body);
+  const code = opts.code ?? ExitCode.FAILURE;
+  return text(`${body}\n\n[exit ${code} ${exitCodeName(code)}]`, true);
 }
 
 const TOOLS = [
@@ -157,6 +212,380 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} }
   }
 ];
+
+/**
+ * THE SANDBOX LOOP, AS TOOLS — the deliberate exception to "four, not one per
+ * endpoint" above. A generic `oxy_request` can call these same routes, but it
+ * cannot carry the per-operation validation that makes the loop safe for an
+ * agent to drive unsupervised: the dev-<handle> grammar, the confirm-before-
+ * delete gate, and the hard refusal of a sandbox publish outside dev-<handle>.
+ * Every one of these reuses its CLI verb's own request-building function —
+ * see `env.ts` / `fn.ts` / `checks.ts` / `invocations.ts` / `logs.ts` /
+ * `publish.ts` — so there is exactly one implementation of each request, and
+ * the tool result is the same JSON document that verb's `--json` prints.
+ *
+ * Each description says what it returns AND what to call next, so the loop
+ * reads off the tool list alone: env_create → publish_sandbox → fn_call /
+ * checks_run → invocations_list / invocations_held / logs → iterate from
+ * publish_sandbox → env_delete.
+ */
+const SANDBOX_TOOLS = [
+  {
+    name: "oxy_env_create",
+    description:
+      "Create a dev-<handle> SANDBOX of a custom app — its own build pointer, storage silo, " +
+      "secrets and Airhouse sibling, isolated from production and from every other sandbox. " +
+      "Starts with no build. Returns the Environment (status, build, url). Call " +
+      "oxy_publish_sandbox next to give it one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: {
+          type: "string",
+          description: "dev-<handle> — 1-12 lowercase letters, digits and single hyphens."
+        }
+      },
+      required: ["app", "name"]
+    }
+  },
+  {
+    name: "oxy_env_list",
+    description:
+      "List a custom app's environments — production, staging and every dev-<handle> sandbox " +
+      "— each with its status and build. Use it to find a sandbox's name before oxy_env_show, " +
+      "oxy_publish_sandbox or oxy_env_delete.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' }
+      },
+      required: ["app"]
+    }
+  },
+  {
+    name: "oxy_env_show",
+    description:
+      "One environment's detail — status, build, url. Call it after oxy_publish_sandbox to " +
+      "confirm a build landed, or before oxy_fn_call to confirm one exists.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: { type: "string", description: "production, staging, or dev-<handle>." }
+      },
+      required: ["app", "name"]
+    }
+  },
+  {
+    name: "oxy_env_delete",
+    description:
+      "DESTRUCTIVE — tears down a sandbox's storage silo, secrets and Airhouse sibling for " +
+      "good. Requires confirm=true: there is no terminal to ask on here, so the delete refuses " +
+      "without it, the same way `oxyc env delete` refuses without --yes off a TTY. Set " +
+      "waitSeconds to avoid polling oxy_env_show yourself.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        name: {
+          type: "string",
+          description: "dev-<handle> — production and staging can never be deleted."
+        },
+        confirm: { type: "boolean", description: "Must be true, or the call is refused." },
+        waitSeconds: {
+          type: "number",
+          description: "Block until torn down, or this many seconds pass (no wait by default)."
+        }
+      },
+      required: ["app", "name", "confirm"]
+    }
+  },
+  {
+    name: "oxy_publish_sandbox",
+    description:
+      "DESTRUCTIVE (to the sandbox's build, not production) — build the app in `dir` (default: " +
+      "the current directory) and publish it to a dev-<handle> sandbox's build pointer. " +
+      "REQUIRES a dev-<handle> appEnv and refuses production, staging, or any attempt to " +
+      "promote — a sandbox build is never promoted; publish the same tree to staging and " +
+      "promote that instead, outside this tool. Runs the app's own build command, so it " +
+      "executes whatever package scripts oxy-app.json declares. Returns the publish result " +
+      "(build id, url). Call oxy_fn_call or oxy_checks_run with the same appEnv next.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        appEnv: {
+          type: "string",
+          description: "dev-<handle> — anything else (production, staging) is refused."
+        },
+        dir: { type: "string", description: "App directory to publish (default: cwd)." },
+        app: {
+          type: "string",
+          description: "App slug (default: oxy-app.json's slug, or OXY_APP)."
+        },
+        org: {
+          type: "string",
+          description: "Org slug (default: oxy-app.json's orgSlug, or OXY_ORG)."
+        }
+      },
+      required: ["appEnv"]
+    }
+  },
+  {
+    name: "oxy_fn_call",
+    description:
+      "Call a custom app's Oxy Function directly (POST .../fn/<function>) and return its " +
+      "result: {ok, status, body, logs, invocationId, error}. isError is set when the " +
+      "FUNCTION failed (distinct from a transport failure, which throws). Needs a build in " +
+      "that environment — oxy_publish_sandbox or oxy_env_show confirms one exists. Call " +
+      "oxy_logs or oxy_invocations_held with the returned invocationId to see why it failed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        function: { type: "string", description: "The Oxy Function's name." },
+        appEnv: { type: "string", description: "production (default), staging, or dev-<handle>." },
+        data: { type: "string", description: 'JSON request body (default "{}").' },
+        timeoutSeconds: { type: "number", description: "Client-side timeout (default 60)." }
+      },
+      required: ["app", "function"]
+    }
+  },
+  {
+    name: "oxy_checks_run",
+    description:
+      'Run every function the app marked "check": true in one environment, and wait for each ' +
+      "to a terminal status. Returns {app, checks:[{name, status, passed, error, durationMs}]}; " +
+      "isError is set when any check failed or timed out. Run this right after " +
+      "oxy_publish_sandbox to verify a build.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        appEnv: { type: "string", description: "production (default), staging, or dev-<handle>." },
+        timeoutSeconds: { type: "number", description: "Per-check timeout (default 300)." }
+      },
+      required: ["app"]
+    }
+  },
+  {
+    name: "oxy_invocations_list",
+    description:
+      "List what ran in an app's environment — every function invocation, newest first, with " +
+      "its status. Use it to confirm oxy_fn_call or oxy_checks_run reached the sandbox, or to " +
+      "find an invocation id for oxy_invocations_held.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        appEnv: { type: "string", description: "Narrow to one environment." },
+        build: { type: "string", description: "Narrow to one build (its id, or the build UUID)." },
+        function: { type: "string", description: "Narrow to one function." },
+        limit: { type: "number", description: "Max rows (default 50)." }
+      },
+      required: ["app"]
+    }
+  },
+  {
+    name: "oxy_invocations_held",
+    description:
+      "What a non-production invocation's write policy HELD instead of performing — " +
+      "production's would-be effect, recorded rather than run. Empty for a production " +
+      "invocation, since nothing is held there. Call with an id from oxy_invocations_list or " +
+      "oxy_fn_call's invocationId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        invocationId: { type: "string", description: "From oxy_invocations_list or oxy_fn_call." }
+      },
+      required: ["app", "invocationId"]
+    }
+  },
+  {
+    name: "oxy_logs",
+    description:
+      "An app's persisted ctx.log() / console.* output, newest-relevant window first. Use it " +
+      "to debug a function that oxy_fn_call or oxy_checks_run reported as failed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: '"<org-slug>/<app-slug>" or the app UUID.' },
+        appEnv: {
+          type: "string",
+          description: "Narrow to one environment (default: production only)."
+        },
+        invocation: { type: "string", description: "Narrow to one invocation id." },
+        request: { type: "string", description: "Narrow to one request id." },
+        hours: { type: "number", description: "Window size in hours (default 24, max 168)." },
+        limit: { type: "number", description: "Max rows (default 100, max 500)." }
+      },
+      required: ["app"]
+    }
+  }
+];
+
+/**
+ * WORKSPACE PREVIEWS, AS TOOLS — the same exception as `SANDBOX_TOOLS` above,
+ * for the same reason: the run-kind grammar and the create/wait/timeout
+ * contract are per-operation validation a generic `oxy_request` cannot carry.
+ * Each reuses its `oxyc preview` verb's own request-building function (see
+ * `preview.ts` / `preview-runs.ts`), so there is one implementation of each
+ * request and the tool result matches that verb's `--json` output.
+ *
+ * The loop: preview_create (waits for the compile) → preview_checks → " +
+ * preview_run (procedure or airway_sample) → preview_run_show (waits for the " +
+ * run) → preview_runs_list to see transform_build/compare runs the server " +
+ * queued on its own → preview_delete when done.
+ */
+const PREVIEW_TOOLS = [
+  {
+    name: "oxy_preview_create",
+    description:
+      "Preview a workspace branch: compile its head into a staging revision (or reuse the " +
+      "ready one for that commit) and start serving it under x-oxy-preview-revision. Returns " +
+      "the PreviewItem ({branch, status, revision_id, checks, ...}) — idempotent, so calling it " +
+      "again on the same commit is free. Set waitSeconds to avoid polling oxy_preview_show " +
+      "yourself; isError is then set on a compile that failed. Call oxy_preview_checks next.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: { type: "string", description: "The branch to preview. Not the default branch." },
+        waitSeconds: {
+          type: "number",
+          description:
+            "Block until the compile is ready or failed, up to this many seconds (no wait by default)."
+        }
+      },
+      required: ["branch"]
+    }
+  },
+  {
+    name: "oxy_preview_list",
+    description:
+      "List every branch staff are previewing in this workspace, most recently touched first, " +
+      "each with its compile status and checks summary. Use it to find a branch name before " +
+      "the other preview tools.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  {
+    name: "oxy_preview_show",
+    description:
+      "One branch's preview — status and checks summary (PreviewItem). Not a server route: " +
+      "filters oxy_preview_list's result by branch, and fails NOT_FOUND when the branch has " +
+      "no preview.",
+    inputSchema: {
+      type: "object",
+      properties: { branch: { type: "string", description: "The previewed branch." } },
+      required: ["branch"]
+    }
+  },
+  {
+    name: "oxy_preview_delete",
+    description:
+      "DESTRUCTIVE — stop previewing a branch: cancels its queued runs and releases its " +
+      "staging revision. Requires confirm=true (there is no terminal to ask on here).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: { type: "string", description: "The previewed branch to stop previewing." },
+        confirm: { type: "boolean", description: "Must be true, or the call is refused." }
+      },
+      required: ["branch", "confirm"]
+    }
+  },
+  {
+    name: "oxy_preview_checks",
+    description:
+      "The Airway change check of a preview's current revision: each changed .airway.yml " +
+      "pipeline and whether merging it needs a Reset schema, and each changed automation " +
+      '("auto" transforms are built in the preview and compared with live; "manual" ones say ' +
+      'why not). "pending" with no pipelines until the check has run — call oxy_preview_show ' +
+      "or retry shortly.",
+    inputSchema: {
+      type: "object",
+      properties: { branch: { type: "string", description: "The previewed branch." } },
+      required: ["branch"]
+    }
+  },
+  {
+    name: "oxy_preview_run",
+    description:
+      "Start a held dry run of a previewed branch: a procedure (every write held or, on the " +
+      "managed Airhouse, redirected into the preview's own schemas) or an airway_sample (a " +
+      "bounded window of a pipeline into the preview's schemas). transform_build and compare " +
+      "runs are queued by the server's own change check and cannot be started here — read " +
+      "them back with oxy_preview_runs_list / oxy_preview_run_show instead. Returns " +
+      "{run_id, state}. Set waitSeconds to avoid polling oxy_preview_run_show yourself; isError " +
+      "is then set if the run failed or was cancelled. Needs OXY_PREVIEW_RUNS enabled on the " +
+      "deployment.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        branch: { type: "string", description: "The previewed branch to run against." },
+        kind: { type: "string", description: '"procedure" or "airway_sample".' },
+        ref: {
+          type: "string",
+          description: "The automation path (procedure) or .airway.yml path (airway_sample)."
+        },
+        variables: {
+          type: "string",
+          description: "procedure: JSON object of the automation's variables."
+        },
+        readLiveOnly: {
+          type: "boolean",
+          description: "procedure: read live tables even where the preview holds a copy."
+        },
+        windowFrom: { type: "string", description: "airway_sample: window start, RFC 3339." },
+        windowTo: { type: "string", description: "airway_sample: window end, RFC 3339." },
+        resources: {
+          type: "array",
+          items: { type: "string" },
+          description: "airway_sample: the resources to read, for a multi-resource source."
+        },
+        waitSeconds: {
+          type: "number",
+          description: "Block until the run finishes, up to this many seconds (no wait by default)."
+        }
+      },
+      required: ["branch", "kind", "ref"]
+    }
+  },
+  {
+    name: "oxy_preview_runs_list",
+    description:
+      "A branch's held runs, newest first — procedure, transform_build, compare and " +
+      "airway_sample alike, with each one's state and outcome. Use it to find a run_id for " +
+      "oxy_preview_run_show, including the transform_build/compare runs the server queues on " +
+      "its own that oxy_preview_run cannot start.",
+    inputSchema: {
+      type: "object",
+      properties: { branch: { type: "string", description: "The previewed branch." } },
+      required: ["branch"]
+    }
+  },
+  {
+    name: "oxy_preview_run_show",
+    description:
+      "One run's detail: its steps (with what each held or redirected), and — for " +
+      "transform_build/compare — the compare-with-live outcome, or — for airway_sample — the " +
+      "sample's ask and result. Set waitSeconds to avoid polling yourself; isError is then set " +
+      "if the run failed or was cancelled.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string", description: "From oxy_preview_run or oxy_preview_runs_list." },
+        waitSeconds: {
+          type: "number",
+          description: "Block until the run finishes, up to this many seconds (no wait by default)."
+        }
+      },
+      required: ["runId"]
+    }
+  }
+];
+
+const ALL_TOOLS = [...TOOLS, ...SANDBOX_TOOLS, ...PREVIEW_TOOLS];
 
 /**
  * Above this many matches, `oxy_routes` drops the descriptions.
@@ -379,6 +808,176 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
       return text(JSON.stringify({ target, user: payload }, null, 2));
     }
 
+    // ── sandbox loop ───────────────────────────────────────────────────────
+
+    case "oxy_env_create": {
+      requireArgs("oxy_env_create", args, ["app", "name"]);
+      return jsonResult(await envCreate(ctx, String(args.app), String(args.name)));
+    }
+
+    case "oxy_env_list": {
+      requireArgs("oxy_env_list", args, ["app"]);
+      return jsonResult({ environments: await envList(ctx, String(args.app)) });
+    }
+
+    case "oxy_env_show": {
+      requireArgs("oxy_env_show", args, ["app", "name"]);
+      return jsonResult(await envShow(ctx, String(args.app), String(args.name)));
+    }
+
+    case "oxy_env_delete": {
+      requireArgs("oxy_env_delete", args, ["app", "name"]);
+      if (args.confirm !== true) {
+        throw usageError(
+          "oxy_env_delete needs confirm=true",
+          "there is no terminal to ask on here — pass confirm=true once you mean it"
+        );
+      }
+      const result = await envDelete(ctx, String(args.app), String(args.name), {
+        yes: true,
+        waitSeconds: args.waitSeconds === undefined ? undefined : Number(args.waitSeconds)
+      });
+      return jsonResult(result);
+    }
+
+    case "oxy_publish_sandbox": {
+      requireArgs("oxy_publish_sandbox", args, ["appEnv"]);
+      // Client-side, before any build or request — the same grammar `oxyc
+      // publish --app-env` validates, and the same refusal of "production" /
+      // "staging": a sandbox publish tool that accepted either would be the
+      // promote path this tool exists to foreclose.
+      const appEnv = requireSandboxName(String(args.appEnv));
+      // `org` is a GLOBAL flag (`resolveIdentity` reads `ctx.flags.org`), not a
+      // `PublishFlags` field — a fresh context carries it the way `--org`
+      // would on the CLI, without mutating the one `runMcp` was given.
+      const org = args.org as string | undefined;
+      const publishCtx = org === undefined ? ctx : createContext({ ...ctx.flags, org }, ctx.cwd);
+      const outcome = await publish(publishCtx, {
+        appEnv,
+        dir: args.dir as string | undefined,
+        app: args.app as string | undefined
+      });
+      return jsonResult(outcome.result ?? { bundle_dir: outcome.bundleDir });
+    }
+
+    case "oxy_fn_call": {
+      requireArgs("oxy_fn_call", args, ["app", "function"]);
+      const result = await fnCall(ctx, String(args.app), String(args.function), {
+        appEnv: args.appEnv as string | undefined,
+        data: args.data as string | undefined,
+        timeoutSeconds: args.timeoutSeconds === undefined ? 60 : Number(args.timeoutSeconds)
+      });
+      return jsonResult(result, { isError: !result.ok, code: ExitCode.FAILURE });
+    }
+
+    case "oxy_checks_run": {
+      requireArgs("oxy_checks_run", args, ["app"]);
+      const report = await runChecksCore(ctx, String(args.app), {
+        timeoutSeconds: args.timeoutSeconds === undefined ? 300 : Number(args.timeoutSeconds),
+        appEnv: args.appEnv as string | undefined
+      });
+      const failed = report.checks.some((c) => !c.passed);
+      return jsonResult(report, { isError: failed, code: ExitCode.CHECK_FAILED });
+    }
+
+    case "oxy_invocations_list": {
+      requireArgs("oxy_invocations_list", args, ["app"]);
+      const invocations = await invocationsList(ctx, String(args.app), {
+        appEnv: args.appEnv as string | undefined,
+        build: args.build as string | undefined,
+        fn: args.function as string | undefined,
+        limit: args.limit === undefined ? undefined : Number(args.limit)
+      });
+      return jsonResult({ invocations });
+    }
+
+    case "oxy_invocations_held": {
+      requireArgs("oxy_invocations_held", args, ["app", "invocationId"]);
+      return jsonResult(await invocationsHeld(ctx, String(args.app), String(args.invocationId)));
+    }
+
+    case "oxy_logs": {
+      requireArgs("oxy_logs", args, ["app"]);
+      const logs = await fetchLogs(ctx, String(args.app), {
+        appEnv: args.appEnv as string | undefined,
+        invocation: args.invocation as string | undefined,
+        request: args.request as string | undefined,
+        hours: args.hours === undefined ? undefined : Number(args.hours),
+        limit: args.limit === undefined ? undefined : Number(args.limit)
+      });
+      return jsonResult({ logs });
+    }
+
+    // ── workspace previews ──────────────────────────────────────────────────
+
+    case "oxy_preview_create": {
+      requireArgs("oxy_preview_create", args, ["branch"]);
+      const item = await previewCreate(ctx, String(args.branch), {
+        waitSeconds: args.waitSeconds === undefined ? undefined : Number(args.waitSeconds)
+      });
+      return jsonResult(item, { isError: previewFailed(item), code: ExitCode.FAILURE });
+    }
+
+    case "oxy_preview_list":
+      return jsonResult({ items: await previewList(ctx) });
+
+    case "oxy_preview_show": {
+      requireArgs("oxy_preview_show", args, ["branch"]);
+      return jsonResult(await previewShow(ctx, String(args.branch)));
+    }
+
+    case "oxy_preview_delete": {
+      requireArgs("oxy_preview_delete", args, ["branch"]);
+      if (args.confirm !== true) {
+        throw usageError(
+          "oxy_preview_delete needs confirm=true",
+          "there is no terminal to ask on here — pass confirm=true once you mean it"
+        );
+      }
+      return jsonResult(await previewDelete(ctx, String(args.branch), { yes: true }));
+    }
+
+    case "oxy_preview_checks": {
+      requireArgs("oxy_preview_checks", args, ["branch"]);
+      return jsonResult(await previewChecks(ctx, String(args.branch)));
+    }
+
+    case "oxy_preview_run": {
+      requireArgs("oxy_preview_run", args, ["branch", "kind", "ref"]);
+      const kind = requireRunKind(String(args.kind));
+      const windowFrom = args.windowFrom as string | undefined;
+      const windowTo = args.windowTo as string | undefined;
+      const submitted = await previewSubmitRun(ctx, {
+        branch: String(args.branch),
+        kind,
+        ref: String(args.ref),
+        variables: parseVariables(args.variables as string | undefined),
+        readLiveOnly: args.readLiveOnly as boolean | undefined,
+        window:
+          windowFrom === undefined && windowTo === undefined
+            ? undefined
+            : { from: windowFrom, to: windowTo },
+        resources: (args.resources as string[] | undefined) ?? []
+      });
+      const waitSeconds = args.waitSeconds === undefined ? undefined : Number(args.waitSeconds);
+      if (waitSeconds === undefined) return jsonResult(submitted);
+      const detail = await previewRunGet(ctx, submitted.run_id, { waitSeconds });
+      return jsonResult(detail, { isError: runFailed(detail), code: ExitCode.FAILURE });
+    }
+
+    case "oxy_preview_runs_list": {
+      requireArgs("oxy_preview_runs_list", args, ["branch"]);
+      return jsonResult({ runs: await previewRunsList(ctx, String(args.branch)) });
+    }
+
+    case "oxy_preview_run_show": {
+      requireArgs("oxy_preview_run_show", args, ["runId"]);
+      const detail = await previewRunGet(ctx, String(args.runId), {
+        waitSeconds: args.waitSeconds === undefined ? undefined : Number(args.waitSeconds)
+      });
+      return jsonResult(detail, { isError: runFailed(detail), code: ExitCode.FAILURE });
+    }
+
     default:
       return text(`unknown tool: ${name}`, true);
   }
@@ -399,7 +998,7 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
 export async function runMcp(ctx: Context): Promise<void> {
   const server = new Server({ name: "oxyc", version: VERSION }, { capabilities: { tools: {} } });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ALL_TOOLS }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
@@ -423,7 +1022,21 @@ export async function runMcp(ctx: Context): Promise<void> {
       // because an empty string would open the block with a blank line —
       // `filter(Boolean)` covered that and cost the narrowing, so both.
       const extra = [hint, remedy].filter((line) => line !== undefined && line !== "").join("\n\n");
-      return text(extra ? `${message}\n\n${extra}` : message, true);
+      // THE EXIT-CODE CLASS, APPENDED — not substituted for the message, and
+      // not only on the sandbox/preview tools: every CliError carries a code,
+      // so every tool's failure now lets a caller branch the way it would on
+      // `oxyc`'s own exit code, by NAME rather than a digit it has to look up.
+      // The server's own `code` field (previews, sandboxes) rides along when
+      // the response carried one.
+      const codeLine =
+        cause instanceof CliError
+          ? `[exit ${cause.code} ${exitCodeName(cause.code)}]` +
+            (cause.serverCode ? ` server code: ${cause.serverCode}` : "")
+          : undefined;
+      const body = [message, extra, codeLine]
+        .filter((s) => s !== undefined && s !== "")
+        .join("\n\n");
+      return text(body, true);
     }
   });
 

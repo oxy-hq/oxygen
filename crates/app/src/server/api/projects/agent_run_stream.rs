@@ -92,20 +92,23 @@ pub async fn stream_agent_run(
     // Resolve the run's source_type. Customer-app bundles only
     // create analytics runs but the registry is keyed on source so
     // we look it up rather than hardcode.
-    let run = match agentic_runtime::crud::get_run(&agentic_state.db, &run_id).await {
-        Ok(Some(r)) => r,
-        Ok(None) => return err(StatusCode::NOT_FOUND, "run not found"),
-        Err(e) => {
-            error!(run_id = %run_id, error = %e, "stream: run lookup failed");
-            return err(StatusCode::INTERNAL_SERVER_ERROR, "run lookup failed");
-        }
-    };
-
-    // Defense-in-depth: don't stream events from a run that
-    // doesn't belong to the requesting project.
-    if run.workspace_id != project_id {
-        return err(StatusCode::FORBIDDEN, "run does not belong to this project");
-    }
+    //
+    // The run is resolved WITHIN the project the gates admitted the caller
+    // to. A run id is the caller's to type, so another project's run — and a
+    // check run staff queued in this one outside production — answers the
+    // same not-found as an id that names nothing: opening a stream must not
+    // confirm a run exists (`get_run_in_workspace`).
+    let run =
+        match agentic_runtime::crud::get_run_in_workspace(&agentic_state.db, project_id, &run_id)
+            .await
+        {
+            Ok(Some(r)) => r,
+            Ok(None) => return err(StatusCode::NOT_FOUND, "run not found"),
+            Err(e) => {
+                error!(run_id = %run_id, error = %e, "stream: run lookup failed");
+                return err(StatusCode::INTERNAL_SERVER_ERROR, "run lookup failed");
+            }
+        };
 
     let source_type = run
         .source_type

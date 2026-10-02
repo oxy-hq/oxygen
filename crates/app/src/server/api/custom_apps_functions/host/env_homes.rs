@@ -13,10 +13,13 @@ use super::*;
 use crate::emails::app_emailer::{AppEmailer, EmailSendInput};
 use crate::server::api::custom_apps_storage::Silo;
 
-/// `Refuse` fix for `ctx.secrets.set` on a key this run read from production.
-const FALLBACK_WRITE_FIX: &str = "this invocation read the key from production through its \
-     `shared` fallback, and writing it here would fork production's grant (a rotated token \
-     voids the one production holds). Set a staging value of the key instead";
+/// `Refuse` fix for `ctx.secrets.set` on a key this run read from another
+/// environment: production's through the `shared` fallback, or — in a sandbox
+/// — staging's.
+const FALLBACK_WRITE_FIX: &str = "this invocation read the key from another environment \
+     through a fallback (staging's value, or production's `shared` one), and writing it here \
+     would fork that environment's grant (a rotated token voids the one it holds). Set this \
+     environment's own value of the key instead";
 
 /// `Refuse` fix for an isolated email with nobody to deliver it to.
 const NO_INVOKER_FIX: &str = "mail outside production goes only to the invoking user, and \
@@ -140,7 +143,7 @@ impl ProjectFunctionHost {
 
     /// Write `key` for `ctx.secrets.set`: production's `apps/<id>/<KEY>`, or —
     /// isolated — the environment's `apps/<id>/<env>/<KEY>`. Refused for a key
-    /// this run read from production through the `shared` fallback.
+    /// this run read from another environment through a fallback.
     pub(super) async fn set_secret(
         &self,
         key: &str,
