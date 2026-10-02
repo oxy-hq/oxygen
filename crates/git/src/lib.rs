@@ -12,6 +12,9 @@ pub mod cli;
 pub mod client;
 pub mod types;
 
+pub use cli::head::{
+    DetachedHead, HeadState, detached_label_refusal, detached_label_sha, is_detached_label,
+};
 pub use cli::push_pull::PullOutcome;
 pub use client::GitClient;
 pub use types::{

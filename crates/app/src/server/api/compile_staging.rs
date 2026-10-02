@@ -185,11 +185,12 @@ pub(crate) async fn status_for_sha(
 /// The branch's head commit, after making sure its worktree exists on this
 /// (IDE) node so the compile worker can read it.
 ///
-/// Refuses, rather than guesses, in the three cases where the SHA would not
-/// describe what gets compiled: an unknown branch (`get_or_create_worktree`
-/// would otherwise CREATE it from main's HEAD), a workspace with no repository,
-/// and a worktree with uncommitted edits (the revision would carry the branch
-/// head's SHA but content that is on no commit).
+/// Refuses, rather than guesses, in the cases where the SHA would not describe
+/// what gets compiled: an unknown branch (`get_or_create_worktree` would
+/// otherwise CREATE it from main's HEAD), a workspace with no repository, a
+/// worktree with uncommitted edits (the revision would carry the branch head's
+/// SHA but content that is on no commit), and the detached-HEAD label, which
+/// names no branch at all.
 async fn resolve_branch_head(
     workspace: &entity::workspaces::Model,
     branch: &str,
@@ -205,6 +206,11 @@ async fn resolve_branch_head(
             )
         })?;
     let git = oxy::github::default_git_client();
+    // "Stage the current branch" from a detached workspace: there is no branch
+    // whose head could be staged, which is a state to fix, not a bad name.
+    if let Some(detached) = oxy_git::detached_label_refusal(branch) {
+        return Err((StatusCode::CONFLICT, detached.to_string()));
+    }
     git.validate_branch_name(branch)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid branch: {e}")))?;
     let (sha, _subject) = git.get_branch_commit(&root, branch).await;

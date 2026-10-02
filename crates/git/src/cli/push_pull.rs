@@ -3,15 +3,19 @@ use std::path::Path;
 use oxy_shared::errors::OxyError;
 use tracing::info;
 
-use crate::cli::{branch, run};
+use crate::cli::{branch, head, run};
 
 /// Push the current branch in `root` to its upstream remote.
 ///
 /// `push.autoSetupRemote=true` is passed transiently so the first push of a
 /// new branch creates the upstream tracking ref without permanently mutating
 /// `~/.gitconfig`.
+///
+/// A detached HEAD has no branch to push: it is refused with
+/// [`head::DetachedHead`]'s message rather than handing git the `HEAD@<sha>`
+/// label as a refspec (`src refspec HEAD@<sha> does not match any`).
 pub async fn push_to_remote(root: &Path, token: Option<&str>) -> Result<(), OxyError> {
-    let b = branch::get_current_branch(root).await?;
+    let b = head::head_state(root).await?.into_branch()?;
     info!("Pushing branch '{}' in {} to remote", b, root.display());
 
     run::run_with_token(
@@ -24,9 +28,10 @@ pub async fn push_to_remote(root: &Path, token: Option<&str>) -> Result<(), OxyE
     Ok(())
 }
 
-/// Force-pushes the current branch using `--force-with-lease`.
+/// Force-pushes the current branch using `--force-with-lease`. Refuses a
+/// detached HEAD the same way [`push_to_remote`] does.
 pub async fn force_push_to_remote(root: &Path, token: Option<&str>) -> Result<(), OxyError> {
-    let b = branch::get_current_branch(root).await?;
+    let b = head::head_state(root).await?.into_branch()?;
     info!(
         "Force-pushing branch '{}' in {} to remote",
         b,

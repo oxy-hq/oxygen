@@ -99,10 +99,10 @@ describe("ensureSession", () => {
 });
 
 // A CI `pull_request` checkout is a detached HEAD, and the Demo workspace lives
-// inside it. The server calls that branch `HEAD@<sha>`, the IDE sends it back as
-// `?branch=`, and every branch-aware request answers 400 — three buckets failed
-// on it, each reading like its own broken page. This is the sentence they should
-// have failed with.
+// inside it. The server calls that state `HEAD@<sha>`; it used to answer 400 to
+// every branch-aware request — three buckets failed on it, each reading like its
+// own broken page. The IDE reads and saves there now, but the flows still need a
+// branch for their git actions, so this is the sentence a run fails with.
 describe("assertOnBranch", () => {
   const fetchMock = vi.fn();
   const gitState = (name: string | null) =>

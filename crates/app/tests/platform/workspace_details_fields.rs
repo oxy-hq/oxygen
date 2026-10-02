@@ -106,6 +106,57 @@ async fn git_enabled_workspace_reports_local_mode() {
     assert_eq!(branch.name, "main");
 }
 
+/// A working copy on a detached HEAD (a CI `pull_request` checkout,
+/// `git checkout <sha>`) has no branch. The details still fill `active_branch`
+/// — with the `HEAD@<sha>` label the IDE sends back as `?branch=` — and say so
+/// in `detached_head`, so the frontend shows "Detached at <sha>" without
+/// parsing a label. On a branch the field is absent from the wire entirely.
+#[tokio::test]
+async fn a_detached_workspace_reports_the_label_and_its_sha() {
+    unsafe {
+        std::env::remove_var("GIT_REPOSITORY_URL");
+    }
+    let tmp = TempDir::new().expect("tempdir");
+    init_git_repo(tmp.path());
+    let details = |id: Uuid| {
+        build_workspace_details_response(
+            id,
+            "ws",
+            tmp.path(),
+            false,
+            true,
+            "owner".to_string(),
+            id.to_string(),
+        )
+    };
+
+    let on_branch = details(Uuid::new_v4()).await.expect("on a branch").0;
+    assert_eq!(on_branch.detached_head, None);
+    let wire = serde_json::to_value(&on_branch).expect("serialises");
+    assert!(wire.get("detached_head").is_none(), "{wire}");
+
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("failed to invoke git");
+        assert!(out.status.success(), "git {args:?} failed");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["checkout", "--detach"]);
+    let sha = git(&["rev-parse", "--short", "HEAD"]);
+
+    let detached = details(Uuid::new_v4()).await.expect("detached").0;
+    assert_eq!(detached.detached_head.as_deref(), Some(sha.as_str()));
+    assert_eq!(
+        detached.active_branch.expect("active_branch").name,
+        format!("HEAD@{sha}")
+    );
+    // Still a git workspace: the branch picker is the way out.
+    assert!(detached.capabilities.can_switch_branch);
+}
+
 /// CLOUD: a missing working copy is a READINESS state, not a failure — git is
 /// the source of truth, so the checkout is always re-clonable.
 ///

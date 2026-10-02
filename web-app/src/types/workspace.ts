@@ -22,6 +22,10 @@ export interface Workspace {
   name: string;
   workspace_id: string;
   active_branch: WorkspaceBranch | null;
+  /** Set only when the working copy is on a detached HEAD: the short sha.
+   * `active_branch.name` is then a `HEAD@<sha>` label, not a branch — see
+   * `libs/utils/detachedHead.ts`. */
+  detached_head?: string | null;
   created_at: string;
   updated_at: string;
 

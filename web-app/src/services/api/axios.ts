@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { getInjectedOrg } from "@/libs/orgSubdomain";
 import { reportAssumeRequired } from "@/libs/utils/assumeRequired";
 import { clearAuthScopedStorage } from "@/libs/utils/authStorage";
+import { readDetachedHeadBody } from "@/libs/utils/detachedHead";
 import { reportIdeReachable, reportIdeUnavailable } from "@/libs/utils/ideHealth";
 import {
   PREVIEW_HEADER,
@@ -109,6 +110,16 @@ const makeResponseErrorHandler = () => {
     if (previewReadOnly) {
       toast.error(previewReadOnly, { id: "preview-read-only" });
       error.message = previewReadOnly;
+    }
+
+    // A branch-only git action (commit/push, pull, fetch, restore, …) on a
+    // workspace whose working copy is on a detached HEAD. Same treatment, for
+    // the same reason: the server says what to do, the call sites say "Failed
+    // to …". One toast id, so a retried request doesn't stack them.
+    const detachedHead = readDetachedHeadBody(status, error.response?.data);
+    if (detachedHead) {
+      toast.error(detachedHead, { id: "detached-head" });
+      error.message = detachedHead;
     }
 
     if (status === 401 && !publicAPIPaths.includes(url)) {

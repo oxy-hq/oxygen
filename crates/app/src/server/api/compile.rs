@@ -179,13 +179,16 @@ pub async fn enqueue_compile(
     let (target_branch, git_sha) = match default_branch.as_deref() {
         Some(default) => {
             if q.branch != default {
-                return Err((
-                    StatusCode::CONFLICT,
-                    format!(
+                // A detached workspace has no branch to ship; say that rather
+                // than quote the `HEAD@<sha>` label back as a branch name.
+                let message = match oxy_git::detached_label_refusal(&q.branch) {
+                    Some(detached) => detached.to_string(),
+                    None => format!(
                         "compile is enabled only on the default branch ({default}); current branch is {}",
                         q.branch
                     ),
-                ));
+                };
+                return Err((StatusCode::CONFLICT, message));
             }
             let git_client = oxy::github::default_git_client();
             let (sha, _subject) = git_client

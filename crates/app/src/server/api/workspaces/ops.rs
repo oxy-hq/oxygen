@@ -155,17 +155,17 @@ pub(super) async fn git_revision_info(
     branch: &str,
 ) -> RevisionInfoResponse {
     let git = default_git_client();
-    let (sha, message) = git.get_branch_commit(worktree, branch).await;
+    // The remote URL needs nothing from the tip, so the two run together.
+    let (tip, remote_url) = tokio::join!(
+        super::detached::revision_tip(worktree, branch),
+        git.get_remote_url(worktree)
+    );
+    let (sha, message, tracking_sha) = (tip.sha, tip.message, tip.tracking_sha);
     let current_commit = if sha.is_empty() {
         String::new()
     } else {
         format!("{} - {}", &sha[..sha.len().min(7)], message)
     };
-
-    let (tracking_sha, remote_url) = tokio::join!(
-        git.get_tracking_ref_sha(worktree, branch),
-        git.get_remote_url(worktree)
-    );
 
     // `latest_sha`/`latest_commit` are display-only; empty string signals
     // "no upstream tracked yet" to the FE.
@@ -184,13 +184,19 @@ pub(super) async fn git_revision_info(
     };
 
     let is_in_conflict = git.is_in_conflict(worktree).await;
-    let (ahead_count, behind_count) = compute_ahead_behind(
-        worktree,
-        &sha,
-        tracking_sha.as_deref(),
-        remote_url.is_some(),
-    )
-    .await;
+    // Detached: no branch, so nothing to push or pull — not "everything since
+    // the default branch", which is what a never-pushed branch reports.
+    let (ahead_count, behind_count) = if tip.detached {
+        (0, 0)
+    } else {
+        compute_ahead_behind(
+            worktree,
+            &sha,
+            tracking_sha.as_deref(),
+            remote_url.is_some(),
+        )
+        .await
+    };
 
     let uncommitted_count = git
         .working_tree_status(worktree)
@@ -418,6 +424,7 @@ pub(super) fn no_git_response(
         created_at: now.clone(),
         updated_at: now,
         active_branch: None,
+        detached_head: None,
         workspace_error,
         git_mode: mode,
         capabilities: mode.into(),

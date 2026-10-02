@@ -4,12 +4,15 @@
 //!
 //! - [`dto`]: request/response serde types shared across handlers.
 //! - [`ops`]: internal git + filesystem helpers used by the handlers.
+//! - [`detached`]: what the surface does on a detached HEAD (no branch).
 //! - [`handlers`]: the HTTP handler functions themselves.
 
+pub(crate) mod detached;
 mod dto;
 mod handlers;
 mod ops;
 
+pub use detached::GitRefusal;
 pub use dto::*;
 pub use handlers::*;
 pub(crate) use ops::cleanup_workspace_schedules;

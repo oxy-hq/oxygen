@@ -122,6 +122,12 @@ pub struct WorkspaceDetailsResponse {
     pub name: String,
     pub workspace_id: Uuid,
     pub active_branch: Option<ProjectBranch>,
+    /// Set only when the working copy is on a detached HEAD: the short sha it
+    /// is checked out at. `active_branch.name` is then the `HEAD@<sha>` label,
+    /// which is not a branch — reads and saves address the working copy as it
+    /// is, and operations that need a branch answer `409 detached_head`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detached_head: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 
@@ -196,6 +202,9 @@ pub struct WorkspaceMetaResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceGitStateResponse {
     pub active_branch: Option<ProjectBranch>,
+    /// See [`WorkspaceDetailsResponse::detached_head`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detached_head: Option<String>,
     pub git_mode: GitMode,
     pub capabilities: GitCapabilities,
     pub default_branch: String,

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use oxy_shared::errors::OxyError;
 
-use crate::cli::{repo, run, worktree};
+use crate::cli::{head, repo, run, worktree};
 use crate::types::{BranchInfo, BranchOrigin, LocalRefOrigin};
 
 /// Validates that `branch` is a safe branch name for **creating a worktree**
@@ -92,16 +92,12 @@ fn collapse_dashes(s: &str) -> String {
     out
 }
 
-/// Returns the name of the currently checked-out branch in `workspace_root`.
-/// Returns `"HEAD@{sha}"` when detached.
+/// Returns the name of the currently checked-out branch in `workspace_root`,
+/// or the `HEAD@<short sha>` label when HEAD is detached. The label is owned by
+/// [`head`]: it is produced by [`head::HeadState::label`] and recognised by
+/// [`head::detached_label_sha`], and it is never a branch name.
 pub async fn get_current_branch(workspace_root: &Path) -> Result<String, OxyError> {
-    let out = run::run(workspace_root, &["branch", "--show-current"]).await?;
-    let b = out.trim().to_string();
-    if b.is_empty() {
-        let sha = run::run(workspace_root, &["rev-parse", "--short", "HEAD"]).await?;
-        return Ok(format!("HEAD@{}", sha.trim()));
-    }
-    Ok(b)
+    Ok(head::head_state(workspace_root).await?.label())
 }
 
 /// Returns `true` if `branch` exists as a local branch in `workspace_root`.

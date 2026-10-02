@@ -8,6 +8,9 @@ type BranchOrigin = "local_only" | "remote_only" | "both";
 
 export interface BranchRowData {
   name: string;
+  /** Shown instead of `name` when the row is not a branch — the workspace's
+   * detached working copy, whose `name` is a `HEAD@<sha>` label. */
+  label?: string;
   origin?: BranchOrigin;
   showActiveBadge?: boolean;
   canDelete?: boolean;
@@ -32,7 +35,7 @@ export function BranchRow({
 }: Props) {
   return (
     <CommandItem
-      value={row.name}
+      value={row.label ?? row.name}
       // Block all rows during a switch — a fast double-click would fire a
       // second (idempotent but churn-y) mutation.
       disabled={isSwitchingThis || isSwitchingOther}
@@ -48,8 +51,8 @@ export function BranchRow({
           isActive ? "bg-primary" : "bg-transparent group-aria-selected:bg-muted-foreground/25"
         )}
       />
-      <span className='min-w-0 flex-1 truncate' title={row.name}>
-        {row.name}
+      <span className='min-w-0 flex-1 truncate' title={row.label ?? row.name}>
+        {row.label ?? row.name}
       </span>
       {isSwitchingThis && (
         <Spinner className='size-3 shrink-0 text-muted-foreground' aria-label='Switching…' />

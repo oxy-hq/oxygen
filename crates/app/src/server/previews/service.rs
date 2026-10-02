@@ -92,6 +92,12 @@ impl PreviewRequest<'_> {
     /// Compile the branch head (or reuse its ready revision) and record the
     /// preview at that commit. IDE-only: the head and worktree live in `.git`.
     async fn stage(&self) -> Result<Model, PreviewRequestError> {
+        // Previewing "the current branch" of a detached workspace: no branch
+        // to preview, which is the compile's kind of refusal (409), not a
+        // malformed name (400).
+        if let Some(detached) = oxy_git::detached_label_refusal(self.branch) {
+            return Err(PreviewRequestError::CannotCompile(detached.to_string()));
+        }
         validate_branch_name(self.branch)?;
         if let Some(root) = self.workspace.path.as_deref() {
             let default = oxy::github::default_git_client()

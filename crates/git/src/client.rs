@@ -41,7 +41,16 @@ pub trait GitClient: Send + Sync {
 
     fn validate_branch_name(&self, branch: &str) -> Result<(), OxyError>;
 
+    /// The current branch name, or the `HEAD@<short sha>` label when HEAD is
+    /// detached. Callers that must tell the two apart use [`Self::head_state`].
     async fn get_current_branch(&self, workspace_root: &Path) -> Result<String, OxyError>;
+
+    /// What `HEAD` names in `workspace_root`: a branch, or a commit directly
+    /// (detached). See [`crate::cli::head`].
+    async fn head_state(
+        &self,
+        workspace_root: &Path,
+    ) -> Result<crate::cli::head::HeadState, OxyError>;
 
     async fn fetch_branch_ref(
         &self,

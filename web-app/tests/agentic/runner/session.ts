@@ -65,9 +65,9 @@ export async function ensureSession(mode: BackendMode): Promise<void> {
     // No detached-HEAD check on this path, deliberately: a caller that brought
     // its own session gets no request from the runner at all (pinned by "keeps
     // a caller's session and prefix"). So verify-all.sh's phases are NOT
-    // guarded — an IDE flow there, against a detached checkout, still fails
-    // the slow way. `assertOnBranch` covers the runs the runner signs in
-    // itself, which is every CI bucket.
+    // guarded — an IDE flow there, against a detached checkout, runs until
+    // its first git action is refused. `assertOnBranch` covers the runs the
+    // runner signs in itself, which is every CI bucket.
     console.log("[session] using the caller's OXY_SESSION_TOKEN");
     return;
   }
@@ -97,13 +97,17 @@ export async function ensureSession(mode: BackendMode): Promise<void> {
  *
  * The Demo workspace is `demo_project/` inside a git checkout, so the IDE sees
  * that checkout's git state. Detached — which is what a CI `pull_request`
- * checkout is — the server names the branch `HEAD@<sha>`, the IDE sends that
- * back as `?branch=` on every branch-aware request, and the server answers 400
- * because `@` is not a branch character. Nothing on screen reports it: the
- * editor opens empty and a save leaves the Save button up, the Metric Tree
- * shows an error instead of the graph, the Explorer lists no fields. Three CI
- * buckets were red on exactly that, each reading like its own broken page, and
- * one spent $11 looking for a graph that could not render.
+ * checkout is — the server names the state `HEAD@<sha>` and there is no
+ * branch. The product handles that now (the label resolves to the working copy
+ * as it is, so the IDE reads and saves), but the flows are authored for a named
+ * branch, and every git action one takes — commit, push, pull — is refused with
+ * a 409 on a detached HEAD.
+ *
+ * The guard predates that fix: the label used to answer 400 on every
+ * branch-aware request with nothing on screen to report it (editor empty,
+ * Metric Tree an error, Explorer listing no fields). Three CI buckets were red
+ * on exactly that, each reading like its own broken page, and one spent $11
+ * looking for a graph that could not render.
  *
  * Only a positive answer stops the run. A probe that cannot be made — a
  * deployment without the route, an identity it refuses — says nothing either
@@ -116,9 +120,9 @@ export async function assertOnBranch(base: string, token: string, prefix: string
   if (branch === undefined) return;
   if (branch.startsWith("HEAD@")) {
     throw new Error(
-      `[session] workspace ${workspaceId} is on a detached HEAD (${branch}). The IDE sends that ` +
-        "as ?branch= and the server answers 400 to every branch-aware request, so each IDE " +
-        "flow fails on a page that never loads. Put the checkout that holds the workspace on " +
+      `[session] workspace ${workspaceId} is on a detached HEAD (${branch}). There is no ` +
+        "branch, so every git action a flow takes (commit, push, pull) is refused, and the " +
+        "flows are authored for a named branch. Put the checkout that holds the workspace on " +
         "a branch first: `git switch -c <name>`."
     );
   }

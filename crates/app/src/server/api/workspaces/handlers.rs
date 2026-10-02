@@ -24,6 +24,7 @@ use oxy::github::default_git_client;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_git::{GitClient, ResetOutcome};
 
+use super::detached::{GitRefusal, active_head, require_attached_head, require_branch};
 use super::dto::*;
 use super::ops::*;
 use oxy::config::WorkingCopy;
@@ -54,9 +55,9 @@ pub async fn pull_changes(
     Extension(ws): Extension<entity::workspaces::Model>,
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
     Query(query): Query<BranchQuery>,
-) -> Result<ResponseJson<PullChangesResponse>, StatusCode> {
+) -> Result<ResponseJson<PullChangesResponse>, GitRefusal> {
     let worktree = wm.config_manager.workspace_path();
-    let branch = resolve_branch(query.branch, worktree).await;
+    let branch = require_branch(query.branch, worktree).await?;
     let git = default_git_client();
 
     // Probe on-disk state rather than stderr — `git pull --rebase` exits
@@ -138,9 +139,9 @@ pub async fn fetch_changes(
     Extension(ws): Extension<entity::workspaces::Model>,
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
     Query(query): Query<BranchQuery>,
-) -> Result<ResponseJson<ProjectResponse>, StatusCode> {
+) -> Result<ResponseJson<ProjectResponse>, GitRefusal> {
     let worktree = wm.config_manager.workspace_path();
-    let branch = resolve_branch(query.branch, worktree).await;
+    let branch = require_branch(query.branch, worktree).await?;
 
     match git_fetch(worktree, &branch, &ws, user.id).await {
         Ok(message) => Ok(ResponseJson(ProjectResponse {
@@ -236,8 +237,9 @@ pub async fn force_push_branch(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Extension(ws): Extension<entity::workspaces::Model>,
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
-) -> Result<ResponseJson<ProjectResponse>, StatusCode> {
+) -> Result<ResponseJson<ProjectResponse>, GitRefusal> {
     let worktree = wm.config_manager.workspace_path();
+    require_attached_head(worktree).await?;
     match git_force_push(worktree, &ws, user.id).await {
         Ok(message) => Ok(ResponseJson(ProjectResponse {
             success: true,
@@ -270,8 +272,11 @@ pub async fn reset_to_commit(
     Extension(ws): Extension<entity::workspaces::Model>,
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
     Query(query): Query<ResetToCommitQuery>,
-) -> Result<ResponseJson<ResetToCommitResponse>, StatusCode> {
+) -> Result<ResponseJson<ResetToCommitResponse>, GitRefusal> {
     let worktree = wm.config_manager.workspace_path();
+    // A restore records itself as a new commit, and on a detached HEAD no
+    // branch would hold it.
+    require_attached_head(worktree).await?;
     match default_git_client()
         .reset_to_commit(worktree, &query.commit, query.force)
         .await
@@ -394,8 +399,11 @@ pub async fn push_changes(
     Extension(ws): Extension<entity::workspaces::Model>,
     WorkspaceManagerWorkingCopy(wm): WorkspaceManagerWorkingCopy,
     Json(request): Json<PushChangesRequest>,
-) -> Result<ResponseJson<ProjectResponse>, StatusCode> {
+) -> Result<ResponseJson<ProjectResponse>, GitRefusal> {
     let worktree = wm.config_manager.workspace_path();
+    // Before the commit, not just before the push: a commit made on a detached
+    // HEAD is on no branch, with or without a remote to push it to.
+    require_attached_head(worktree).await?;
     // Empty message = "push existing commits only". Never synthesize an
     // "Auto-commit" — a dirty working tree would get silently pushed.
     let commit_message = request.commit_message.unwrap_or_default();
@@ -504,6 +512,7 @@ pub async fn get_workspace_git_state(
     let ResponseJson(d) = get_workspace(state, user, role, project, path).await?;
     Ok(ResponseJson(WorkspaceGitStateResponse {
         active_branch: d.active_branch,
+        detached_head: d.detached_head,
         git_mode: d.git_mode,
         capabilities: d.capabilities,
         default_branch: d.default_branch,
@@ -736,10 +745,7 @@ pub async fn build_workspace_details_response(
         "main".to_string()
     };
 
-    let current_branch = git
-        .get_current_branch(workspace_root)
-        .await
-        .unwrap_or_else(|_| default_branch.clone());
+    let (current_branch, detached_head) = active_head(workspace_root, &default_branch).await;
 
     // Fall back to [default_branch] on any error or when there's no local repo.
     let protected_branches: Vec<String> = if has_local_repo {
@@ -788,6 +794,7 @@ pub async fn build_workspace_details_response(
             created_at: now.clone(),
             updated_at: now,
         }),
+        detached_head,
         workspace_error: None,
         git_mode,
         capabilities: git_mode.into(),
@@ -863,14 +870,21 @@ pub async fn switch_workspace_branch(
     Extension(ws): Extension<entity::workspaces::Model>,
     root: WorkspaceRootWorkingCopy,
     Json(request): Json<SwitchBranchRequest>,
-) -> Result<ResponseJson<ProjectBranch>, StatusCode> {
+) -> Result<ResponseJson<ProjectBranch>, GitRefusal> {
     info!("Switching branch for workspace: {}", ws.id);
 
     let root = root.root_path().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    // The detached label is not a branch, so there is nothing to switch to.
+    // Switching to (or creating) a real branch from a detached workspace is
+    // the way out, and stays open: the new branch forks from the commit HEAD
+    // names, in its own worktree.
+    if let Some(detached) = oxy_git::detached_label_refusal(&request.branch) {
+        return Err(detached.into());
+    }
     // Validate branch name before it reaches the shell.
     if let Err(e) = default_git_client().validate_branch_name(&request.branch) {
         error!("Invalid branch name '{}': {}", request.branch, e);
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
 
     let branch = git_switch_branch(&root, &request.branch, Some(&ws), ws.id, Some(user.id))

@@ -4,6 +4,7 @@ pub mod clone;
 pub mod commit;
 pub mod config;
 pub mod diff;
+pub mod head;
 pub mod path;
 pub mod push_pull;
 pub mod rebase;
@@ -72,6 +73,10 @@ impl GitClient for CliGitClient {
 
     async fn get_current_branch(&self, workspace_root: &Path) -> Result<String, OxyError> {
         branch::get_current_branch(workspace_root).await
+    }
+
+    async fn head_state(&self, workspace_root: &Path) -> Result<head::HeadState, OxyError> {
+        head::head_state(workspace_root).await
     }
 
     async fn fetch_branch_ref(

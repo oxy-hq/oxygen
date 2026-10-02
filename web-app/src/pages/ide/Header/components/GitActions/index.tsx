@@ -2,6 +2,8 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { detachedHeadFor } from "@/libs/utils/detachedHead";
+import useCurrentWorkspace from "@/stores/useCurrentWorkspace";
 import { useIdeGit } from "../../context/IdeGitContext";
 import { BranchInfo } from "../BranchInfo";
 import { WorkspaceBranchSwitcher } from "../BranchPopover/WorkspaceBranchSwitcher";
@@ -12,6 +14,7 @@ import { ActionsRow } from "./ActionsRow";
 export function GitActions() {
   const { isLocalMode } = useAuth();
   const { workspaceId, branch, isOnMain, gitState, refresh } = useIdeGit();
+  const { workspace } = useCurrentWorkspace();
   const [isBranchPickerOpen, setIsBranchPickerOpen] = useState(false);
 
   if (isLocalMode) return null;
@@ -38,9 +41,10 @@ export function GitActions() {
       />
 
       {/* Only a branch that is not the default one has anything to preview:
-          the default branch IS what's live. Hides itself for non-staff. Keyed
-          by branch so a switch mid-wait can't open the new branch instead. */}
-      {workspaceId && branch && !isOnMain && (
+          the default branch IS what's live, and a detached HEAD is no branch
+          at all. Hides itself for non-staff. Keyed by branch so a switch
+          mid-wait can't open the new branch instead. */}
+      {workspaceId && branch && !isOnMain && !detachedHeadFor(workspace, branch) && (
         <OpenPreviewButton key={branch} workspaceId={workspaceId} branch={branch} />
       )}
 

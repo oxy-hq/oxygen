@@ -63,9 +63,15 @@ export interface ResetToCommitResponse {
  */
 const GIT_STATE_UNAVAILABLE: Pick<
   Workspace,
-  "active_branch" | "git_mode" | "capabilities" | "default_branch" | "protected_branches"
+  | "active_branch"
+  | "detached_head"
+  | "git_mode"
+  | "capabilities"
+  | "default_branch"
+  | "protected_branches"
 > = {
   active_branch: null,
+  detached_head: null,
   git_mode: "none",
   capabilities: {
     can_commit: false,

@@ -18,6 +18,7 @@ import {
   useSwitchWorkspaceBranch as useSwitchProjectBranch
 } from "@/hooks/api/workspaces/useWorkspaces";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { detachedHeadLabel } from "@/libs/utils/detachedHead";
 import ROUTES from "@/libs/utils/routes";
 import useCurrentOrg from "@/stores/useCurrentOrg";
 import useIdeBranch from "@/stores/useIdeBranch";
@@ -34,7 +35,7 @@ export function WorkspaceBranchSwitcher({ trigger, open, onOpenChange }: Props) 
   const { isLocalMode } = useAuth();
   const navigate = useNavigate();
   const { project, branchName: currentBranch } = useCurrentProjectBranch();
-  const { setCurrentBranch } = useIdeBranch();
+  const { setCurrentBranch, clearProjectBranch } = useIdeBranch();
   const orgSlug = useCurrentOrg((s) => s.org?.slug) ?? "";
 
   const projectId = project?.id || "";
@@ -48,16 +49,41 @@ export function WorkspaceBranchSwitcher({ trigger, open, onOpenChange }: Props) 
   if (isLocalMode) return null;
 
   const activeBranchName = project?.active_branch?.name;
-  const rows: BranchRowData[] = (branchResponse?.branches ?? []).map((b) => ({
+  // A detached working copy is on no branch, so the branch list has no row for
+  // it. Give it one — labelled as what it is — so it stays reachable after the
+  // IDE moves to a real branch.
+  const detachedRow: BranchRowData | null =
+    project?.detached_head && activeBranchName
+      ? {
+          name: activeBranchName,
+          label: detachedHeadLabel(project.detached_head),
+          showActiveBadge: activeBranchName !== currentBranch,
+          canDelete: false
+        }
+      : null;
+  const branchRows: BranchRowData[] = (branchResponse?.branches ?? []).map((b) => ({
     name: b.name,
     origin: b.origin,
     showActiveBadge: b.name === activeBranchName && b.name !== currentBranch,
     canDelete: b.name !== currentBranch && b.name !== activeBranchName
   }));
+  const rows = detachedRow ? [detachedRow, ...branchRows] : branchRows;
 
   const handleSelect = async (branchName: string) => {
     if (branchName === currentBranch) {
       onOpenChange?.(false);
+      return;
+    }
+
+    // Back to the detached working copy: nothing to switch on the server (it
+    // is not a branch, and the server refuses it as one). Drop the IDE's
+    // branch override so it follows the workspace's own HEAD again — never
+    // store the label, which goes stale the moment HEAD moves.
+    if (detachedRow && branchName === detachedRow.name) {
+      clearProjectBranch(projectId);
+      toast.success(`Switched to ${detachedRow.label}`);
+      onOpenChange?.(false);
+      navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.ROOT);
       return;
     }
 

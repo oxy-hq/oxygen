@@ -1562,6 +1562,9 @@ async fn try_attach_workspace_manager(
     // Branch name is validated inside `effective_workspace_path`. The helper
     // rejects ".." / leading "-" / non-allowed chars via OxyError::RuntimeError —
     // we map that to 400 before the string reaches any shell-out downstream.
+    // The one value that is not a branch name, the detached-HEAD label, is
+    // resolved there too (to the root working copy); a label the working copy
+    // no longer matches answers 409 rather than 400.
     let effective_path = effective_workspace_path(workspace_row, branch_name)
         .await
         .map_err(|e| {
@@ -1570,7 +1573,7 @@ async fn try_attach_workspace_manager(
                 workspace_id,
                 e
             );
-            StatusCode::BAD_REQUEST
+            crate::server::api::workspaces::detached::unresolved_branch_status(branch_name)
         })?;
 
     // Record worktree access for the lifecycle reaper (ide-local; see
