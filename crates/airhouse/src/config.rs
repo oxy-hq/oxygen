@@ -377,6 +377,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(
+        clippy::await_holding_lock,
+        reason = "the env this lock guards is what the awaited call reads, so it \
+                  has to span the await; `#[tokio::test]` gives this test its own \
+                  current-thread runtime, so no other task on it can want the lock"
+    )]
     async fn autodetect_noop_when_a_var_already_set() {
         let _g = ENV_LOCK.lock().unwrap();
         for k in REQUIRED_VARS {

@@ -209,7 +209,7 @@ async fn chat_in_a_preview_cannot_delegate_a_write() {
 async fn a_data_app_in_a_preview_reads_and_cannot_write() {
     let fx = setup().await;
     let egress = FakeEgress::start().await;
-    egress.route_https_egress_here();
+    let _proxy = egress.route_https_egress_here();
     let _worker = worker::start(&fx).await;
     let staging = staging(&fx).await;
     let run = |app: &str| format!("/{}/apps/{}/run", fx.ws, b64(app));

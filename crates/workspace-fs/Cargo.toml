@@ -12,3 +12,6 @@ rust-version.workspace = true
 async-trait = { workspace = true }
 oxy-shared = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

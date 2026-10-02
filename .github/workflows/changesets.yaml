@@ -59,6 +59,9 @@ jobs:
             oxy:
               - "crates/**"
               - "**/Cargo.toml"
+              # The lint-inheritance check the cargo `check` task runs; without
+              # this a change to the check does not run the job it lives in.
+              - "scripts/ci/verify-workspace-lints.py"
               - "**/Cargo.lock"
             # web-app and the roots it shares with everything else in the pnpm
             # workspace.

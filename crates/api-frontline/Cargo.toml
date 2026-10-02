@@ -60,3 +60,6 @@ testcontainers = { workspace = true, features = [
     "reusable-containers",
 ] }
 testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+
+[lints]
+workspace = true

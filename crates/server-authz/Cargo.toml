@@ -35,3 +35,6 @@ serial_test = { workspace = true }
 chrono = { workspace = true }
 # The role-guard extractor tests are `#[tokio::test]`s.
 tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

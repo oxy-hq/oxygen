@@ -41,3 +41,6 @@ tower = { workspace = true, features = ["util"] }
 # `sentry::test::with_captured_events` for the tests pinning that the shipped
 # Sentry tracing layer really carries the custom-app event filter.
 sentry = { workspace = true, features = ["test"] }
+
+[lints]
+workspace = true

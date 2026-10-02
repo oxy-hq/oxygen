@@ -199,3 +199,6 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
+
+[lints]
+workspace = true

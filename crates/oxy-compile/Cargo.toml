@@ -36,3 +36,6 @@ tempfile = { workspace = true }
 # rather than trusting the call by inspection.
 tracing-subscriber = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true

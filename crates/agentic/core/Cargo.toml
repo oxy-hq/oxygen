@@ -34,3 +34,6 @@ tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync
 # `sentry_core::test::with_captured_events` for the `hub_task` carry tests.
 sentry-core = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }
+
+[lints]
+workspace = true

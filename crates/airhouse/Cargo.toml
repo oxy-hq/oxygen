@@ -116,3 +116,6 @@ duckdb = { workspace = true }
 name = "integration"
 path = "tests/integration/main.rs"
 required-features = ["preview-sql"]
+
+[lints]
+workspace = true

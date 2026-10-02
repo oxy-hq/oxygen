@@ -2,7 +2,8 @@
 //!
 //! These tests call the handler function directly (no HTTP server needed)
 //! using axum's `HeaderMap` + `Bytes` types. A Mutex serialises the env-var
-//! manipulation required for `SlackConfig::from_env()`.
+//! manipulation required for `SlackConfig::from_env()` — tokio's, because every
+//! test holds it across the handler's `.await`.
 
 use axum::body::Bytes;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -11,13 +12,13 @@ use hmac::{Hmac, KeyInit, Mac};
 use oxy_app::api::middlewares::workspace_context::PreaggCacheCtx;
 use oxy_app::integrations::slack::webhooks::events::handle_events;
 use sha2::Sha256;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 
 // ── env-var plumbing ─────────────────────────────────────────────────────────
 
 const TEST_SIGNING_SECRET: &str = "test_signing_secret_e2e";
 
-static ENV_MUTEX: Mutex<()> = Mutex::new(());
+static ENV_MUTEX: Mutex<()> = Mutex::const_new(());
 
 fn set_slack_env(signing_secret: &str) {
     unsafe {
@@ -63,7 +64,7 @@ fn build_headers(ts: i64, sig: &str) -> HeaderMap {
 /// Slack sends a url_verification challenge; handler must echo it back.
 #[tokio::test]
 async fn url_verification_echoes_challenge() {
-    let _g = ENV_MUTEX.lock().unwrap();
+    let _g = ENV_MUTEX.lock().await;
     set_slack_env(TEST_SIGNING_SECRET);
 
     let body = br#"{"type":"url_verification","challenge":"abc123"}"#;
@@ -92,7 +93,7 @@ async fn url_verification_echoes_challenge() {
 /// An event_callback for an unknown team_id should be silently dropped (200).
 #[tokio::test]
 async fn unknown_team_id_drops_silently() {
-    let _g = ENV_MUTEX.lock().unwrap();
+    let _g = ENV_MUTEX.lock().await;
     set_slack_env(TEST_SIGNING_SECRET);
 
     let body = br#"{
@@ -127,7 +128,7 @@ async fn unknown_team_id_drops_silently() {
 /// A request with a bad signature must be rejected with 401.
 #[tokio::test]
 async fn bad_signature_rejected() {
-    let _g = ENV_MUTEX.lock().unwrap();
+    let _g = ENV_MUTEX.lock().await;
     set_slack_env(TEST_SIGNING_SECRET);
 
     let body = br#"{"type":"url_verification","challenge":"xyz"}"#;

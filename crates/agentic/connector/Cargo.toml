@@ -145,3 +145,6 @@ testcontainers-modules = { workspace = true, features = [
     "mysql",
 ] }
 wiremock = { workspace = true }
+
+[lints]
+workspace = true

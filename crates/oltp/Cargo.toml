@@ -47,3 +47,6 @@ agentic-connector = { workspace = true, features = ["postgres"] }
 [[test]]
 name = "integration"
 path = "tests/integration/main.rs"
+
+[lints]
+workspace = true

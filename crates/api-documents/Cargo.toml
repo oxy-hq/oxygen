@@ -55,3 +55,6 @@ testcontainers = { workspace = true, features = [
 ] }
 testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

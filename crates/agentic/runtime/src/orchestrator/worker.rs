@@ -610,7 +610,7 @@ mod tests {
 
         // Drop transport sender to shut down worker.
         drop(transport);
-        let _ = worker_handle;
+        drop(worker_handle);
     }
 
     /// Executor that logs from inside `execute` — the stand-in for every

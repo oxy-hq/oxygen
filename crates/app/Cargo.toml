@@ -277,3 +277,6 @@ testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse
 # attachment wire format is asserted against the real SDK serializer.
 aws-smithy-http-client = { workspace = true, features = ["test-util"] }
 aws-credential-types = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -51,3 +51,6 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 # `migrate_shared_test_db` — central-then-runtime migration ordering shared
 # with agentic-pipeline / agentic-airway fixtures. See oxy-test-utils::migration.
 oxy-test-utils = { workspace = true }
+
+[lints]
+workspace = true

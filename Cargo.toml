@@ -1088,6 +1088,45 @@ exclude = []
 publish = false
 rust-version = "1.97.1"
 
+# Lint policy: bug-shaped lints are errors, cosmetic ones are off.
+#
+# A crate gets this only if its own manifest says `[lints] workspace = true`;
+# `scripts/ci/verify-workspace-lints.py` fails CI for one that does not.
+#
+# Why two extremes and so little at `warn`: CI runs clippy without
+# `-D warnings`, so a warning fails nothing and is read by nobody. MEASURED
+# 2026-10-02 on main: about 515 distinct clippy warnings, of which five were
+# bug-shaped — a `MutexGuard` held across an `.await` in four tests and a
+# `JoinHandle` discarded with `let _ =` — and rustc's own `unused_must_use` was
+# pointing at a test whose env guard was dropped on the line that created it,
+# so its "nothing was sent" assertion could not fail. Under this policy the
+# same tree reports 26 clippy warnings, all `perf`.
+#
+# To make a lint a gate, name it here at `deny`. To silence one at a site,
+# `#[allow(clippy::<lint>, reason = "…")]` on the item, never a group here.
+[workspace.lints.rust]
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+# Off: how code reads, not whether it is right. rustfmt owns layout.
+style = { level = "allow", priority = -1 }
+complexity = { level = "allow", priority = -1 }
+# Off, by name: 162 hits that come from a handful of types — an axum `Response`
+# as a handler's `Err` (74), `ConnectorError` (44), the analytics
+# `(Error, BackTarget)` pair. The fix is boxing inside those types, not
+# anything at a call site, so per-site warnings only bury the other 26.
+result_large_err = "allow"
+# Errors: code that compiles and is probably wrong. `correctness` is already
+# `deny` by default; the rest of `perf` is left at its default `warn`.
+suspicious = { level = "deny", priority = -1 }
+# ...minus the three members of that group that are about comment layout.
+empty_line_after_doc_comments = "allow"
+empty_line_after_outer_attr = "allow"
+suspicious_doc_comments = "allow"
+# Leftovers from a debugging session or a half-written branch.
+dbg_macro = "deny"
+todo = "deny"
+
 # MEASURED 2026-08-10, do not re-add: `[profile.dev.build-override] debug = false`
 # is a no-op in this workspace. A clean A/B (two `cargo clean` + `cargo build -p
 # oxy-app` runs, 8-core darwin) produced byte-identical host-built artifacts — the

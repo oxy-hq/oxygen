@@ -62,3 +62,6 @@ oxy-airlayer-compat = { workspace = true }
 # Engine types (StateStore trait, PipelineState/Schema) for the run-scoped store
 # e2e — `AirwayRunScopedStateStore` implements `airway::StateStore`.
 airway = { workspace = true }
+
+[lints]
+workspace = true

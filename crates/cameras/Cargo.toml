@@ -108,3 +108,6 @@ testcontainers = { workspace = true, features = ["blocking", "reusable-container
 testcontainers-modules = { workspace = true, features = ["postgres"] }
 entity = { workspace = true }
 migration = { workspace = true }
+
+[lints]
+workspace = true

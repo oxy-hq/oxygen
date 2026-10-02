@@ -25,3 +25,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [lib]
 name = "migration"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

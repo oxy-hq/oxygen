@@ -1102,13 +1102,19 @@ jobs:
             # locally with `just hakari`.
             cargo hakari generate --diff
             cargo hakari manage-deps --dry-run
-            # Dropped `--fix`: in CI the rewrites are never committed, so it was
-            # pure wasted analysis+rewrite work. Matches the documented command
-            # in CLAUDE.md. Kept advisory (no `-- -D warnings`): the workspace
-            # tree is not yet warning-clean (pre-existing large_enum_variant /
-            # type_complexity / should_implement_trait lints), and `check` runs
-            # fail-fast, so enforcing now would block every PR. Flip to
-            # `-- -D warnings` in a dedicated PR after a warning-cleanup pass.
+            # The lint policy below reaches a crate only if its manifest says
+            # `[lints] workspace = true`, and Cargo cannot make that the
+            # default — a new crate without it lints clean with every rule off.
+            python3 scripts/ci/verify-workspace-lints.py
+            # What fails this step is decided in the root Cargo.toml, not here:
+            # `[workspace.lints]` names the bug-shaped lints that are errors
+            # and switches the cosmetic groups off, so `cargo clippy` on a
+            # laptop and this line agree. Everything left at `warn` stays
+            # advisory — no `-- -D warnings` — because a warning nobody is
+            # made to read is not a gate, and promoting one is a one-line
+            # edit to that list rather than a flag here.
+            #
+            # No `--fix`: the rewrites are never committed in CI.
             # `--all-targets`, so EXAMPLES and benches compile here.
             #
             # Without it neither this nor `cargo build` below builds an example,
