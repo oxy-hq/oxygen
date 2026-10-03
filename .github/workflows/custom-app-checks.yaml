@@ -10,7 +10,8 @@ name: Custom app checks
 #
 # Two entry points:
 #
-#   - `schedule`: both environments every 15 minutes. The schedule turns
+#   - `schedule`: both environments every 15 minutes (at :07/:22/:37/:52,
+#     off GitHub's busiest minutes; see the cron). The schedule turns
 #     itself on: a leg whose environment holds no OXY_API_KEY exits green at
 #     `Require secrets` with a notice, and starts checking on the first tick
 #     after the key appears. There is no switch to flip. On prod, only a run
@@ -124,7 +125,14 @@ name: Custom app checks
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Every 15 minutes, off the quarter-hour. GitHub drops and delays
+    # scheduled ticks under load, worst at :00/:15/:30/:45. On `*/15` the
+    # whole repo's schedules went silent from 12:20 to 13:49 UTC on
+    # 2026-10-03, past the prod monitor's 75 minutes (15 + 1h grace), with
+    # every app healthy. Off-peak minutes cut the drops; they cannot rule
+    # them out. Triage: internal-docs/deploy-pipeline.md, "When
+    # custom_app_checks_prod alerts".
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       environment:
