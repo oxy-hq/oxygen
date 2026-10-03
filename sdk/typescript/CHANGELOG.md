@@ -5,6 +5,30 @@ All notable changes to the Oxy TypeScript SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.17.0] - 2026-10-03
+
+### Changed
+
+- **`useQuery` sends its `params` to the server instead of writing them into
+  the SQL.** The hook used to substitute `{{ params.X | sqlquote }}` itself,
+  doubling `'` and nothing else. That is DuckDB's and Postgres's whole rule and
+  nobody else's: ClickHouse, MySQL, Snowflake and Redshift also read a
+  backslash as an escape, and BigQuery reads a backslash and does not read `''`
+  as a quote. So a value holding a backslash — `C:\`, or `x\'` — broke the
+  query on those engines, or changed what it asked. The browser cannot know
+  which engine a project's database is; the server can. The request now carries
+  the template untouched plus `params: { … }` for the names it uses, and the
+  server writes each string by the rule of the engine that will read it.
+  `{{ params.X }}` with no filter is still written unquoted, a number or
+  boolean as itself, and a missing or `null` param as `NULL` (a `NaN` or
+  infinite number is now `NULL` too, where it used to be written as the word).
+
+  **Needs a server that accepts `params` on `POST /api/projects/{id}/query`.**
+  An older one answers `400 invalid request body: unknown field "params"` to a
+  query that uses a placeholder; a query with no placeholder sends the same
+  request it always did. Not a security boundary before or after: that endpoint
+  runs any read-only SQL a signed-in member sends.
+
 ## [2.16.0] - 2026-09-23
 
 ### Added

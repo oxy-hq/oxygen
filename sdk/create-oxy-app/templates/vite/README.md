@@ -48,7 +48,8 @@ const { rows } = useSemanticQuery({
 Auth rides the session cookie — Oxy only serves this bundle after a membership
 check, so there is no token to manage in the frontend.
 
-Parameters interpolate through Jinja, quoted for you:
+Parameters are sent with the query and quoted by the server, for the database
+that runs it:
 
 ```tsx
 useQuery({ sql: "SELECT * FROM orders WHERE region = {{ params.region | sqlquote }}" },

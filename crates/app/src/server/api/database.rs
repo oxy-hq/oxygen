@@ -1157,6 +1157,12 @@ pub async fn inspect_schema_tables_handler(
 
     match inspect_schema_tables(&database, &params.schema, &config, &secrets_manager).await {
         Ok(result) => Ok(Json(result)),
+        // The `schema` parameter is not a name the engine's grammar allows
+        // (a BigQuery dataset ID): the caller's error, and no query was built.
+        Err(oxy_shared::errors::OxyError::ArgumentError(reason)) => {
+            tracing::warn!("Table discovery refused for {}: {}", database.name, reason);
+            Err(StatusCode::BAD_REQUEST)
+        }
         Err(e) => {
             tracing::error!(
                 "Table discovery failed for {}.{}: {}",

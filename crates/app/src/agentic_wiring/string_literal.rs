@@ -83,6 +83,22 @@ mod tests {
         ]
     }
 
+    /// `oxy` cannot import the connector's rule type, so the schema
+    /// inspector states the same three rules over the same engines itself.
+    /// This holds the two statements to each other.
+    #[test]
+    fn the_schema_inspector_writes_a_literal_by_the_same_rule() {
+        for (database, rule) in every_engine() {
+            for value in ["sales", "a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"] {
+                assert_eq!(
+                    oxy::semantic::inspector::sql_string_literal(&database, value),
+                    rule.quote(value),
+                    "{database}: {value:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn each_configured_engine_names_the_rule_it_reads() {
         for (database, want) in every_engine() {

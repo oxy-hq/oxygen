@@ -36,7 +36,6 @@ import {
   readFunctionSseStream
 } from "./function-sse";
 import { readInjectedAppConfig } from "./inject";
-import { interpolateSqlParams } from "./interpolate";
 import {
   type LoadManifestOptions,
   loadCustomAppManifest,
@@ -44,6 +43,7 @@ import {
 } from "./manifest";
 import { isSafeLinkHref, isTableStart, splitTableRow } from "./markdown";
 import { getCached, sharedQuery } from "./query-cache";
+import { paramsToSend, type QueryParam } from "./query-params";
 import { newTraceparent, withInvocationIds } from "./traceparent";
 
 // ── Context ─────────────────────────────────────────────────────────────────
@@ -330,7 +330,12 @@ export interface UseQueryInput {
 }
 
 export interface UseQueryOpts {
-  params?: Record<string, string | number | boolean | null | undefined>;
+  /**
+   * Values for the SQL's `{{ params.X | sqlquote }}` and `{{ params.X }}`
+   * placeholders. They are sent beside the SQL and substituted by the server,
+   * which quotes a string the way the query's database reads a literal.
+   */
+  params?: Record<string, QueryParam>;
   /** Set false to skip the request (e.g., waiting on user input). */
   enabled?: boolean;
 }
@@ -361,9 +366,10 @@ export function useQuery<Row = Record<string, unknown>>(
   // Serialise opts.params so `useMemo` fires only when the values
   // change, not on every render when callers pass a new object literal.
   const paramsKey = JSON.stringify(opts.params);
+  // The params the SQL names, to send beside it; the server substitutes them.
   // biome-ignore lint/correctness/useExhaustiveDependencies: paramsKey replaces opts.params as the dep
-  const sqlWithParams = React.useMemo(
-    () => interpolateSqlParams(input.sql, opts.params ?? {}),
+  const params = React.useMemo(
+    () => paramsToSend(input.sql, opts.params ?? {}),
     [input.sql, paramsKey]
   );
 
@@ -388,7 +394,7 @@ export function useQuery<Row = Record<string, unknown>>(
     let cancelled = false;
 
     // Serve from cache on initial mount; force-revalidate on refetch (nonce > 0).
-    const cached = getCached(projectId, sqlWithParams, input.database);
+    const cached = getCached(projectId, input.sql, input.database, params);
     if (cached && nonce === 0) {
       const { columns, rows } = cached;
       const objects = rows.map((r) => Object.fromEntries(columns.map((c, i) => [c, r[i]])) as Row);
@@ -397,7 +403,7 @@ export function useQuery<Row = Record<string, unknown>>(
     }
 
     setState((s) => ({ ...s, loading: true, error: null }));
-    sharedQuery(fetcher, projectId, sqlWithParams, input.database, { force: nonce > 0 })
+    sharedQuery(fetcher, projectId, input.sql, input.database, { force: nonce > 0, params })
       .then(({ columns, rows }) => {
         if (cancelled) return;
         const objects = rows.map(
@@ -413,7 +419,7 @@ export function useQuery<Row = Record<string, unknown>>(
     return () => {
       cancelled = true;
     };
-  }, [enabled, projectId, sqlWithParams, input.database, nonce, fetcher]);
+  }, [enabled, projectId, input.sql, params, input.database, nonce, fetcher]);
 
   return {
     rows: state.rows,

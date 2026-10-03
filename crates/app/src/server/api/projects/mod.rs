@@ -16,6 +16,7 @@ pub mod cohort;
 pub mod metric_tree;
 pub mod metric_tree_projection;
 pub mod query;
+mod query_params;
 pub mod result_cache;
 pub mod semantic_boundary;
 pub mod semantic_query;

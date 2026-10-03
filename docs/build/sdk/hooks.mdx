@@ -22,8 +22,17 @@ const { rows, columns, loading, error, refetch } = useQuery(
 );
 ```
 
-- **`params`** interpolate into the SQL with the `{{ params.X | sqlquote }}`
-  syntax — quoted safely on the client before the request is sent.
+- **`params`** fill the SQL's `{{ params.X | sqlquote }}` placeholders. They are
+  sent alongside the SQL and substituted by the server, which writes a string as
+  a literal the query's database reads as that value. The escaping differs by
+  engine — a backslash is an ordinary character to DuckDB and Postgres and an
+  escape to ClickHouse, MySQL, Snowflake, Redshift and BigQuery — and only the
+  server knows which engine the database is. A number or boolean is written as
+  itself, and a missing or `null` param as `NULL`.
+- `{{ params.X }}` with no filter is written as it is, unquoted. Use it for a
+  number, or an identifier you have validated yourself.
+- Quoting keeps a value a user typed from changing the query. It is not access
+  control: the endpoint runs any read-only SQL a signed-in member sends it.
 - **`enabled: false`** defers the request until required inputs (e.g. a
   user-picked filter) are available.
 - The query re-runs whenever `sql` or the enabled `params` change.

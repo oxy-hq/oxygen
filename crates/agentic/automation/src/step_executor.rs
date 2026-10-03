@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::config::{SemanticQueryConfig, TaskType};
 use crate::render::{
-    normalize_workspace_relative_ref, render_jinja_string, render_sql_string,
+    SqlRenderError, normalize_workspace_relative_ref, render_jinja_string, render_sql_checked,
     validate_workspace_relative_path,
 };
 use crate::review::{HttpReview, SqlReview};
@@ -92,18 +92,11 @@ async fn execute_sql(
     // to. Asked of the host by name rather than of the connector: the SQL is
     // rendered before it is reviewed, and a held statement has no connector.
     let literal = workspace.string_literal(database);
-    // A refused `sqlquote` blames the template; when the cause is a `database`
-    // the host has no engine for, say so.
-    let unnamed = match literal {
-        Some(_) => String::new(),
-        None => format!(" (the host names no engine for database `{database}`)"),
-    };
 
     // Render the per-task `variables` map (its own values may reference
     // `render_context`) and merge into the SQL render env. They feed this
     // task's SQL, so they are quoted by the same rule.
-    let sql_context = merge_sql_variables(render_context, cfg.get("variables"), literal)
-        .map_err(|e| format!("{e}{unnamed}"))?;
+    let sql_context = merge_sql_variables(render_context, cfg.get("variables"), literal, database)?;
 
     let raw_sql = if let Some(q) = cfg.get("sql_query").and_then(|v| v.as_str()) {
         q.to_string()
@@ -115,8 +108,8 @@ async fn execute_sql(
         return Err("execute_sql: need 'sql_query' or 'sql_file'".into());
     };
 
-    let sql = render_sql_string(&raw_sql, &sql_context, literal)
-        .map_err(|e| format!("render SQL body: {e}{unnamed}"))?;
+    let sql = render_sql_checked(&raw_sql, &sql_context, literal)
+        .map_err(|e| describe_render_failure("render SQL body", e, database))?;
 
     // Asked after rendering, so the host sees what would run, and before
     // `get_connector`, so a held statement never has a connection to reach.
@@ -243,6 +236,7 @@ fn merge_sql_variables(
     render_context: &Value,
     variables: Option<&Value>,
     literal: Option<agentic_connector::StringLiteral>,
+    database: &str,
 ) -> Result<Value, String> {
     let mut merged = render_context.clone();
     let Some(map) = variables.and_then(|v| v.as_object()) else {
@@ -253,15 +247,28 @@ fn merge_sql_variables(
         .ok_or("execute_sql: render_context must be a JSON object")?;
     for (k, v) in map {
         let resolved = match v.as_str() {
-            Some(s) => Value::String(
-                render_sql_string(s, render_context, literal)
-                    .map_err(|e| format!("render variable {k:?}: {e}"))?,
-            ),
+            Some(s) => {
+                Value::String(render_sql_checked(s, render_context, literal).map_err(|e| {
+                    describe_render_failure(&format!("render variable {k:?}"), e, database)
+                })?)
+            }
             None => v.clone(),
         };
         merged_map.insert(k.clone(), resolved);
     }
     Ok(merged)
+}
+
+/// Format a checked-render failure, naming `database` only when the failure
+/// was specifically `sqlquote` refusing a value because the host has no
+/// engine for it — not for a render error that merely happens while the
+/// engine is also unnamed (a bad template, an unknown filter).
+fn describe_render_failure(context: &str, error: SqlRenderError, database: &str) -> String {
+    if error.is_quote_refusal {
+        format!("{context}: {error} (the host names no engine for database `{database}`)")
+    } else {
+        format!("{context}: {error}")
+    }
 }
 
 /// Compile a semantic query via airlayer and execute the resulting SQL.

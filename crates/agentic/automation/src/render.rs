@@ -180,12 +180,45 @@ pub(crate) fn render_sql_string(
     context: &Value,
     literal: Option<StringLiteral>,
 ) -> Result<String, String> {
+    render_sql_checked(template, context, literal).map_err(|e| e.message)
+}
+
+/// A render failure, plus whether it was specifically `sqlquote` refusing a
+/// value because the engine is unnamed — as opposed to any other render
+/// failure (a bad template, an unknown filter) that happens to occur while
+/// the engine is *also* unnamed. Only the former is about the engine; a
+/// caller that blames the database for every failure on an unnamed engine
+/// would mislabel the latter.
+pub(crate) struct SqlRenderError {
+    message: String,
+    pub(crate) is_quote_refusal: bool,
+}
+
+impl std::fmt::Display for SqlRenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+/// [`render_sql_string`], reporting whether the failure was a `sqlquote`
+/// refusal rather than stringifying that distinction away.
+pub(crate) fn render_sql_checked(
+    template: &str,
+    context: &Value,
+    literal: Option<StringLiteral>,
+) -> Result<String, SqlRenderError> {
     let env = automation_env_for(literal);
     let tmpl = env
         .template_from_str(template)
-        .map_err(|e| format!("template parse error: {e}"))?;
+        .map_err(|e| SqlRenderError {
+            message: format!("template parse error: {e}"),
+            is_quote_refusal: false,
+        })?;
     let ctx = crate::step_orchestrator::build_minijinja_context(context);
-    tmpl.render(&ctx).map_err(|e| format!("render error: {e}"))
+    tmpl.render(&ctx).map_err(|e| SqlRenderError {
+        is_quote_refusal: sqlquote_refused(&e),
+        message: format!("render error: {e}"),
+    })
 }
 
 /// Resolve a workspace-relative path, rejecting traversal attempts.

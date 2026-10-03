@@ -26,6 +26,11 @@ use serde_arrow::from_record_batch;
 use tokio::sync::mpsc;
 use utoipa::ToSchema;
 
+mod quoting;
+
+pub use quoting::sql_string_literal;
+use quoting::{bigquery_configured_scope, bigquery_dataset};
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DiscoveredTable {
     pub name: String,
@@ -319,6 +324,9 @@ where
         "Schema inspection",
     )?;
     let start = Instant::now();
+    // Built before the connector: `schema_name` is a request parameter, and a
+    // name the engine's grammar refuses must not cost a connection.
+    let query = build_schema_tables_query(database, schema_name)?;
     let connector = Arc::new(
         Connector::from_database(
             &database.name,
@@ -334,7 +342,6 @@ where
         .await?,
     );
 
-    let query = build_schema_tables_query(database, schema_name)?;
     tracing::debug!("Running schema-tables query: {}", query);
     let (record_batches, _schema) = connector.run_query_with_limit(&query, None).await?;
 
@@ -356,34 +363,6 @@ where
         tables,
         elapsed_ms: start.elapsed().as_millis() as u64,
     })
-}
-
-/// Whether `db`'s engine reads a backslash as an escape inside a `'…'`
-/// literal. On one that does, a value is written with its backslashes doubled
-/// first, so a trailing `\\` cannot swallow the closing quote and a `\\'` cannot
-/// end the literal early. DuckDB (so MotherDuck/Airhouse) and Postgres
-/// (`standard_conforming_strings`) do not; Redshift shares Postgres's wire but,
-/// like ClickHouse / Snowflake / MySQL / Domo, does.
-fn literal_reads_backslash(db: &DatabaseType) -> bool {
-    matches!(
-        db,
-        DatabaseType::ClickHouse(_)
-            | DatabaseType::Snowflake(_)
-            | DatabaseType::Mysql(_)
-            | DatabaseType::Redshift(_)
-            | DatabaseType::DOMO(_)
-    )
-}
-
-/// `value` as a single-quoted SQL literal for `db`'s engine. A value with no
-/// quote and no backslash is spelled the same for every engine.
-fn sql_string_literal(db: &DatabaseType, value: &str) -> String {
-    let escaped = if literal_reads_backslash(db) {
-        value.replace('\\', "\\\\").replace('\'', "''")
-    } else {
-        value.replace('\'', "''")
-    };
-    format!("'{escaped}'")
 }
 
 /// One query per database returning `(schema, table_count)` rows. Cheaper
@@ -415,9 +394,10 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
             .datasets()
             .keys()
             .map(|dataset| {
+                let scope = bigquery_configured_scope(dataset)?;
                 Ok(format!(
                     "SELECT table_schema, COUNT(*) AS table_count
-                     FROM `{dataset}.INFORMATION_SCHEMA.TABLES`
+                     FROM `{scope}.INFORMATION_SCHEMA.TABLES`
                      GROUP BY table_schema"
                 ))
             })
@@ -486,6 +466,11 @@ fn build_schema_summary_queries(database: &Database) -> Result<Vec<String>, OxyE
 }
 
 /// One query returning `(table_name, column_count)` rows for a single schema.
+///
+/// `schema` is a request parameter. Every engine but BigQuery compares it as a
+/// string literal, escaped by that engine's rule. BigQuery's
+/// `INFORMATION_SCHEMA` is addressed through the dataset, so there the name is
+/// part of an identifier: it is a dataset ID or the request is refused.
 fn build_schema_tables_query(database: &Database, schema: &str) -> Result<String, OxyError> {
     let lit = sql_string_literal(&database.database_type, schema);
     match &database.database_type {
@@ -495,11 +480,14 @@ fn build_schema_tables_query(database: &Database, schema: &str) -> Result<String
              WHERE TABLE_SCHEMA = {lit}
              GROUP BY TABLE_NAME"
         )),
-        DatabaseType::Bigquery(_) => Ok(format!(
-            "SELECT table_name, COUNT(*) AS column_count
-             FROM `{schema}.INFORMATION_SCHEMA.COLUMNS`
+        DatabaseType::Bigquery(_) => {
+            let dataset = bigquery_dataset(schema)?;
+            Ok(format!(
+                "SELECT table_name, COUNT(*) AS column_count
+             FROM `{dataset}.INFORMATION_SCHEMA.COLUMNS`
              GROUP BY table_name"
-        )),
+            ))
+        }
         DatabaseType::ClickHouse(_) => Ok(format!(
             "SELECT table AS table_name, count() AS column_count
              FROM system.columns
@@ -563,9 +551,10 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
                 .datasets()
                 .keys()
                 .map(|dataset| {
+                    let scope = bigquery_configured_scope(dataset)?;
                     Ok(format!(
                         "SELECT table_schema, table_name, COUNT(*) AS column_count
-                         FROM `{dataset}.INFORMATION_SCHEMA.COLUMNS`
+                         FROM `{scope}.INFORMATION_SCHEMA.COLUMNS`
                          GROUP BY table_schema, table_name"
                     ))
                 })
@@ -652,76 +641,4 @@ fn build_inspect_queries(database: &Database) -> Result<Vec<String>, OxyError> {
 }
 
 #[cfg(test)]
-mod literal_tests {
-    use super::{build_schema_tables_query, literal_reads_backslash, sql_string_literal};
-    use crate::config::model::{ClickHouse, Database, DatabaseType, Mysql, Postgres, Redshift};
-
-    fn clickhouse() -> DatabaseType {
-        DatabaseType::ClickHouse(ClickHouse::default())
-    }
-
-    fn postgres() -> DatabaseType {
-        DatabaseType::Postgres(Postgres::default())
-    }
-
-    fn tables_query(database_type: DatabaseType, schema: &str) -> String {
-        let database = Database {
-            name: "w".to_string(),
-            database_type,
-        };
-        build_schema_tables_query(&database, schema).expect("a supported engine")
-    }
-
-    #[test]
-    fn backslash_engines_are_classified() {
-        assert!(literal_reads_backslash(&clickhouse()));
-        assert!(literal_reads_backslash(&DatabaseType::Mysql(
-            Mysql::default()
-        )));
-        // Redshift shares Postgres's wire but reads a backslash.
-        assert!(literal_reads_backslash(&DatabaseType::Redshift(
-            Redshift::default()
-        )));
-        assert!(!literal_reads_backslash(&postgres()));
-    }
-
-    /// A backslash, a quote, the two together, and a trailing backslash. With
-    /// the quote alone doubled, the last two ended a ClickHouse literal early.
-    #[test]
-    fn a_schema_name_cannot_break_out_of_its_literal() {
-        let written = |db: &DatabaseType| {
-            ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"].map(|v| sql_string_literal(db, v))
-        };
-        assert_eq!(
-            written(&clickhouse()),
-            ["'a\\\\b'", "'it''s'", "'x\\\\'' OR 1=1 -- '", "'C:\\\\'"]
-        );
-        // Postgres reads a backslash as itself, so only the quote is doubled.
-        assert_eq!(
-            written(&postgres()),
-            ["'a\\b'", "'it''s'", "'x\\'' OR 1=1 -- '", "'C:\\'"]
-        );
-        // A value with neither is the same bytes on both.
-        assert_eq!(sql_string_literal(&clickhouse(), "sales"), "'sales'");
-        assert_eq!(sql_string_literal(&postgres(), "sales"), "'sales'");
-    }
-
-    #[test]
-    fn the_schema_param_is_escaped_per_engine_in_the_tables_query() {
-        let schema = "x\\' OR 1=1 -- ";
-        let ch = tables_query(clickhouse(), schema);
-        assert!(
-            ch.contains("WHERE database = 'x\\\\'' OR 1=1 -- '\n"),
-            "{ch}"
-        );
-        let pg = tables_query(postgres(), schema);
-        assert!(
-            pg.contains("WHERE table_schema = 'x\\'' OR 1=1 -- '\n"),
-            "{pg}"
-        );
-        assert!(
-            tables_query(clickhouse(), "sales").contains("WHERE database = 'sales'\n"),
-            "a plain schema is spelled as before"
-        );
-    }
-}
+mod query_tests;

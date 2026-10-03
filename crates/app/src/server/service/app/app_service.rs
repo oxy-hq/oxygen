@@ -1,47 +1,17 @@
 use super::cache::AppCache;
+use super::controls::{control_values, declared_controls};
 use super::types::{AppResult, TASKS_KEY};
 use crate::agentic_wiring::OxyProjectContext;
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
 use oxy::adapters::workspace::manager::WorkspaceManager;
-use oxy::config::model::{AppConfig, ControlConfig, Display, Task};
+use oxy::config::model::{AppConfig, Task};
 use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile, WorkingCopy};
-use oxy::exec_runtime::renderer::Renderer;
 use oxy::exec_types::{Data, DataContainer, TableData};
 use oxy_shared::errors::OxyError;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-/// Render Jinja expressions inside a control field value (e.g. `default`).
-///
-/// Supports global functions such as `now()`:
-///
-/// ```yaml
-/// - type: control
-///   name: start_date
-///   control_type: date
-///   default: "{{ now(fmt='%Y-%m-%d') }}"
-/// ```
-///
-/// Non-string values and strings without Jinja tokens are returned unchanged.
-/// Rendering errors are logged as warnings and the original value is returned.
-pub fn render_control_default(val: JsonValue) -> JsonValue {
-    let JsonValue::String(ref s) = val else {
-        return val;
-    };
-    if !s.contains("{{") && !s.contains("{%") {
-        return val;
-    }
-    let renderer = Renderer::new(minijinja::Value::UNDEFINED);
-    match renderer.render_str(s) {
-        Ok(rendered) => JsonValue::String(rendered),
-        Err(e) => {
-            tracing::warn!("Failed to render Jinja in control default '{s}': {e}");
-            val
-        }
-    }
-}
 
 pub struct AppService<S = WorkingCopy> {
     workspace_manager: WorkspaceManager<S>,
@@ -165,38 +135,9 @@ impl AppService<WorkingCopy> {
 
         let config = self.get_config(app_path).await?;
 
-        // Collect all declared controls: top-level `controls:` plus any inline
-        // `- type: control` / `- type: controls` items from the `display:` list.
-        let mut all_controls: Vec<ControlConfig> = config.controls.clone();
-        for display in &config.display {
-            match display {
-                Display::Control(c) => all_controls.push(ControlConfig::from(c.clone())),
-                Display::Controls(cs) => all_controls.extend(cs.items.iter().cloned()),
-                _ => {}
-            }
-        }
-
-        // Build controls context: config defaults overridden by user-provided params.
-        // Empty-string param values are treated as absent so the configured default is used.
-        let controls: HashMap<String, JsonValue> = all_controls
-            .iter()
-            .map(|c| {
-                let param = params.get(&c.name).and_then(|v| {
-                    // Treat empty string as absent — avoids injecting '' into typed SQL columns.
-                    if v.as_str() == Some("") {
-                        None
-                    } else {
-                        Some(v.clone())
-                    }
-                });
-                let val = render_control_default(
-                    param
-                        .or_else(|| c.default.clone())
-                        .unwrap_or(JsonValue::Null),
-                );
-                (c.name.clone(), val)
-            })
-            .collect();
+        // The author's defaults, overridden by what the viewer sent. A viewer's
+        // value is data; only the author's `default:` is a template.
+        let controls = control_values(&declared_controls(&config), &params);
 
         // Reuse the already-parsed config instead of re-reading and re-parsing the YAML file.
         let tasks = config.tasks;
@@ -206,48 +147,6 @@ impl AppService<WorkingCopy> {
             self.cache.clean_up_data(app_path, &tasks).await?;
         }
 
-        // Data Apps run a free-form `Vec<oxy::Task>` (from `.app.yml`)
-        // synchronously and need the final results back to render charts /
-        // tables on the same request. We feed the tasks through
-        // `agentic_pipeline::automation_run::run_inline_automation`, which drives
-        // the automation decider in-process without the coordinator queue —
-        // round-trip the tasks through JSON to land on
-        // `agentic_automation::AutomationConfig`. Both `Task` types use
-        // `#[serde(tag = "type")]` so the shapes line up.
-        let automation_value = serde_json::json!({
-            "name": "app-tasks-inline",
-            "tasks": serde_json::to_value(&tasks).map_err(|e| {
-                OxyError::RuntimeError(format!("serialize app tasks: {e}"))
-            })?,
-        });
-        let automation_config: agentic_automation::AutomationConfig =
-            serde_json::from_value(automation_value).map_err(|e| {
-                OxyError::RuntimeError(format!("convert app tasks → AutomationConfig: {e}"))
-            })?;
-
-        // Seed the automation runner's render context with `controls.*` so
-        // task SQL templates like `{{ controls.store }}` resolve. The
-        // `variables` parameter lands in `state.variables` only — NOT
-        // in `state.render_context`, which is what `merge_sql_variables`
-        // and `render_jinja_string` actually read. Without the
-        // dedicated render-context entry point, Jinja substituted
-        // empty strings and produced invalid SQL like
-        // `WHERE Store = GROUP BY ...`. Surfaced while wiring the
-        // customer-apps data-products endpoint, where param-driven
-        // dashboards depend on controls hydrating from query-string
-        // params.
-        let render_context = if controls.is_empty() {
-            None
-        } else {
-            Some(serde_json::json!({ "controls": controls }))
-        };
-
-        // `OxyInlineAgentRunner` was removed on main; agent fan-out
-        // tasks inside a Data App automation now surface a clear error
-        // from the automation runner instead of executing inline. The
-        // common case (`execute_sql` tasks driven by Data App
-        // controls) doesn't depend on inline-agent execution, so
-        // `None` here is correct for current customer-apps usage.
         // Carry the caller's rollup short-circuit onto the context the
         // automation runs under. A Data App's tasks go through
         // `step_executor::execute_semantic_query`, which asks the workspace
@@ -265,15 +164,7 @@ impl AppService<WorkingCopy> {
         let workspace: Arc<dyn agentic_automation::WorkspaceContext> = Arc::new(
             OxyProjectContext::new(self.workspace_manager.clone()).with_preagg(&self.preagg),
         );
-        let results = agentic_pipeline::automation_run::run_inline_automation_with_render_context(
-            workspace.as_ref(),
-            automation_config,
-            None,
-            render_context,
-            None,
-        )
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("app inline automation: {e}")))?;
+        let results = run_tasks(workspace.as_ref(), &tasks, controls).await?;
 
         // Build the cache-layer `DataContainer` directly. The frontend
         // (`AppPreview` / `registerFromTableData` in
@@ -327,6 +218,70 @@ impl AppService<WorkingCopy> {
             .await?;
         Ok(data)
     }
+}
+
+/// Run an app's tasks, with `controls` as the `controls.*` values their
+/// templates read. Returns each task's result by task name.
+///
+/// The tasks are the templates and `controls` is their data: a control value
+/// is substituted into task SQL as the characters it holds and is never
+/// itself rendered.
+pub(super) async fn run_tasks(
+    workspace: &dyn agentic_automation::WorkspaceContext,
+    tasks: &[Task],
+    controls: HashMap<String, JsonValue>,
+) -> AppResult<HashMap<String, JsonValue>> {
+    // Data Apps run a free-form `Vec<oxy::Task>` (from `.app.yml`)
+    // synchronously and need the final results back to render charts /
+    // tables on the same request. We feed the tasks through
+    // `agentic_pipeline::automation_run::run_inline_automation`, which drives
+    // the automation decider in-process without the coordinator queue —
+    // round-trip the tasks through JSON to land on
+    // `agentic_automation::AutomationConfig`. Both `Task` types use
+    // `#[serde(tag = "type")]` so the shapes line up.
+    let automation_value = serde_json::json!({
+        "name": "app-tasks-inline",
+        "tasks": serde_json::to_value(tasks).map_err(|e| {
+            OxyError::RuntimeError(format!("serialize app tasks: {e}"))
+        })?,
+    });
+    let automation_config: agentic_automation::AutomationConfig =
+        serde_json::from_value(automation_value).map_err(|e| {
+            OxyError::RuntimeError(format!("convert app tasks → AutomationConfig: {e}"))
+        })?;
+
+    // Seed the automation runner's render context with `controls.*` so
+    // task SQL templates like `{{ controls.store }}` resolve. The
+    // `variables` parameter lands in `state.variables` only — NOT
+    // in `state.render_context`, which is what `merge_sql_variables`
+    // and `render_jinja_string` actually read. Without the
+    // dedicated render-context entry point, Jinja substituted
+    // empty strings and produced invalid SQL like
+    // `WHERE Store = GROUP BY ...`. Surfaced while wiring the
+    // customer-apps data-products endpoint, where param-driven
+    // dashboards depend on controls hydrating from query-string
+    // params.
+    let render_context = if controls.is_empty() {
+        None
+    } else {
+        Some(serde_json::json!({ "controls": controls }))
+    };
+
+    // `OxyInlineAgentRunner` was removed on main; agent fan-out
+    // tasks inside a Data App automation now surface a clear error
+    // from the automation runner instead of executing inline. The
+    // common case (`execute_sql` tasks driven by Data App
+    // controls) doesn't depend on inline-agent execution, so
+    // a `None` runner is correct for current customer-apps usage.
+    agentic_pipeline::automation_run::run_inline_automation_with_render_context(
+        workspace,
+        automation_config,
+        None,
+        render_context,
+        None,
+    )
+    .await
+    .map_err(|e| OxyError::RuntimeError(format!("app inline automation: {e}")))
 }
 
 pub async fn read_app_yaml_file<S: DiskSlot>(

@@ -306,3 +306,37 @@ async fn a_step_on_an_unnamed_engine_sends_nothing_it_cannot_quote() {
     );
     assert!(sent.lock().unwrap().is_empty(), "nothing was sent");
 }
+
+/// The "no engine named" hint is specific to a `sqlquote` refusal. A render
+/// error from any other cause, on that very same unnamed engine, must not
+/// carry it — the cause has nothing to do with quoting, so blaming the
+/// database is misleading.
+#[tokio::test]
+async fn the_unnamed_engine_hint_is_added_only_for_a_sqlquote_refusal() {
+    // A `sqlquote` refusal: the hint names the database.
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let step = json!({ "name": "s", "type": "execute_sql", "database": "mystery",
+                       "sql_query": STEP_SQL });
+    let refused = run_automation_step(&Host(sent.clone()), step, controls("C:\\"), json!({}))
+        .await
+        .expect_err("a backslash on an unnamed engine");
+    assert!(
+        refused.contains("names no engine for database `mystery`"),
+        "{refused}"
+    );
+
+    // An unrelated render error (an unknown filter) on the same unnamed
+    // engine must not get the hint.
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let step = json!({
+        "name": "s", "type": "execute_sql", "database": "mystery",
+        "sql_query": "SELECT 1 WHERE store = {{ controls.store | nosuchfilter }} AND tail",
+    });
+    let err = run_automation_step(&Host(sent), step, controls("Paris"), json!({}))
+        .await
+        .expect_err("an unknown filter fails to render");
+    assert!(
+        !err.contains("names no engine for database"),
+        "an unrelated render error must not claim this: {err}"
+    );
+}

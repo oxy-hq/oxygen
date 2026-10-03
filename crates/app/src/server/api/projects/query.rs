@@ -1,8 +1,12 @@
 //! `POST /api/projects/{project_id}/query` — SQL proxy for custom-app bundles.
 //!
-//! Accepts a JSON body `{ sql, database? }`. Cookie auth gates the
+//! Accepts a JSON body `{ sql, database?, params? }`. Cookie auth gates the
 //! request; the caller must be a member of the org that owns the
 //! workspace identified by `project_id`.
+//!
+//! `params` fill the `{{ params.X | sqlquote }}` / `{{ params.X }}`
+//! placeholders in `sql`, quoted by the rule of `database`'s engine — see
+//! [`super::query_params`]. Everything below applies to the SQL that results.
 //!
 //! Security gates applied before execution:
 //!   1. Origin check — `Origin` / `Referer` must match the request's own host
@@ -31,6 +35,7 @@ use serde_json::Value as JsonValue;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
+use crate::agentic_wiring::string_literal::string_literal_of;
 use crate::server::api::custom_apps_gates::{check_custom_app_gates, parse_versioned_body};
 use crate::server::api::typed_stream::typed_stream_to_json_objects;
 use utoipa::ToSchema;
@@ -79,6 +84,12 @@ pub struct QueryRequest {
     /// false (typed path) for every other caller.
     #[serde(default)]
     pub untyped: bool,
+    /// Values for the `{{ params.X | sqlquote }}` / `{{ params.X }}`
+    /// placeholders in `sql`: strings, numbers, booleans or null. Absent,
+    /// `sql` is run as sent and nothing in it is read as a placeholder.
+    #[serde(default)]
+    #[schema(value_type = Option<Object>)]
+    pub params: Option<serde_json::Map<String, JsonValue>>,
 }
 
 /// Response body — columnar table shape.
@@ -177,6 +188,37 @@ pub async fn run_query(
         }
     };
     let db_name = db_name.as_str();
+
+    // ── 4a. Write the caller's params into the SQL ────────────────────────
+    // By the rule of this database's engine, read from `config.yml`: no
+    // connector is built to quote a value, and the cache below is keyed by
+    // the SQL that will run. A database `config.yml` does not hold is
+    // answered as step 4 would answer it, not as an engine nobody named —
+    // every configured engine has a rule.
+    let sql = match &req.params {
+        Some(params) => {
+            let config = &proj_ctx.workspace_manager().config_manager;
+            let literal = match config.resolve_database(db_name) {
+                Ok(database) => string_literal_of(&database.database_type),
+                Err(OxyError::ConfigurationError(msg)) => {
+                    return err(StatusCode::BAD_REQUEST, msg);
+                }
+                Err(e) => {
+                    // Not the caller's to fix: the same class step 4 answers 500.
+                    error!("resolve database '{db_name}' to quote params: {e}");
+                    return err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("could not read database '{db_name}' from config.yml"),
+                    );
+                }
+            };
+            match super::query_params::bind_params(&req.sql, params, literal) {
+                Ok(bound) => bound,
+                Err(why) => return err(StatusCode::BAD_REQUEST, why),
+            }
+        }
+        None => req.sql,
+    };
     let refresh = uri
         .query()
         .map(|q| {
@@ -197,8 +239,7 @@ pub async fn run_query(
     // A pinned staging request may resolve a different `config.yml` (its
     // branch's databases), so it gets its own partition.
     let cache_db = format!("{db_name}{}", ctx.cache_scope());
-    if !refresh
-        && let Some(body) = super::result_cache::get(project_id, cache_ns, &cache_db, &req.sql)
+    if !refresh && let Some(body) = super::result_cache::get(project_id, cache_ns, &cache_db, &sql)
     {
         return (
             [(axum::http::header::CONTENT_TYPE, "application/json")],
@@ -229,7 +270,7 @@ pub async fn run_query(
     };
 
     // ── 5. Execute query ─────────────────────────────────────────────────
-    match run_sql_query(connector, &req.sql, req.untyped).await {
+    match run_sql_query(connector, &sql, req.untyped).await {
         Ok(response) => {
             let bytes = match serde_json::to_vec(&response) {
                 Ok(b) => b,
@@ -239,7 +280,7 @@ pub async fn run_query(
                 }
             };
             let arc = std::sync::Arc::new(bytes);
-            super::result_cache::put(project_id, cache_ns, &cache_db, &req.sql, arc.clone());
+            super::result_cache::put(project_id, cache_ns, &cache_db, &sql, arc.clone());
             (
                 [(axum::http::header::CONTENT_TYPE, "application/json")],
                 (*arc).clone(),
@@ -636,6 +677,19 @@ mod tests {
     fn json_objects_to_table_truncated_flag_propagated() {
         let table = json_objects_to_table(vec![json!({ "a": 1 })], true);
         assert!(table.truncated);
+    }
+
+    #[test]
+    fn query_request_takes_params_and_runs_without_them() {
+        let with: QueryRequest =
+            serde_json::from_str(r#"{"sql":"x","params":{"a":"v","n":1,"z":null}}"#).unwrap();
+        assert_eq!(
+            with.params.map(JsonValue::Object),
+            Some(json!({ "a": "v", "n": 1, "z": null }))
+        );
+        // What every SDK before `params` sends.
+        let without: QueryRequest = serde_json::from_str(r#"{"sql":"x"}"#).unwrap();
+        assert!(without.params.is_none());
     }
 
     #[test]
