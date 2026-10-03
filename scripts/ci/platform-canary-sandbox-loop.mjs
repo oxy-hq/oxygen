@@ -55,14 +55,15 @@ export const SANDBOX_B = "dev-loop-b";
  *                          presigned PUT sent through ctx.fetch
  *
  * `sql_read` and `org_read` are never held, so sandbox A's check passes with
- * nothing held. `storage_roundtrip` is in the default list by decision, and
- * is the step to omit (`--omit-steps`, below) where it cannot run: its
- * presigned PUT goes through `ctx.fetch`, which refuses a loopback host (the
- * reason the checkpoint's own `OMITTED_IN_CI` gives) and which the
- * non-production table holds for any mutating method (`Fetch => Hold`). The
- * second reason is read from the policy, not yet seen on a server: if it
- * holds, the step fails in every sandbox, on a dev box too, until the policy
- * lets a sandbox PUT to a URL its own `ctx.storage.getUploadUrl` minted.
+ * nothing held. Nor is `storage_roundtrip`'s upload: the non-production table
+ * holds a mutating `ctx.fetch` (`Fetch => Hold`), except a PUT to a URL the
+ * same invocation's `ctx.storage.getUploadUrl` minted into the sandbox's own
+ * silo (`EnvPolicy::decide_on_fetch`), which is what the step sends.
+ * `storage_roundtrip` is in the default list by decision, and is the step to
+ * omit (`--omit-steps`, below) where it cannot run: `ctx.fetch` sends only
+ * HTTPS to a public host, in every environment, so the PUT is refused where
+ * the object store is on loopback — a dev box's or the CI runner's MinIO (the
+ * reason the checkpoint's own `OMITTED_IN_CI` gives).
  *
  *   warehouse_insert    -> warehouse.exec, then warehouse.insert
  *
@@ -173,9 +174,9 @@ export function omitHint(call) {
   if (step !== "storage_roundtrip") return undefined;
   return (
     "dev-loop-a's check failed at storage_roundtrip: its presigned PUT goes through " +
-    "ctx.fetch, which refuses a loopback object store and holds a mutating request outside " +
-    "production. Re-run with --sandbox-loop-omit storage_roundtrip " +
-    "(or CANARY_SANDBOX_LOOP_OMIT=storage_roundtrip)"
+    "ctx.fetch, which sends only HTTPS to a public host, so it is refused where the object " +
+    "store is on loopback. Against such a store, re-run with --sandbox-loop-omit " +
+    "storage_roundtrip (or CANARY_SANDBOX_LOOP_OMIT=storage_roundtrip)"
   );
 }
 

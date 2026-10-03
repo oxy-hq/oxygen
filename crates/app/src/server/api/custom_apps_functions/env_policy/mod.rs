@@ -33,7 +33,7 @@
 //!
 //! How an op holds is the host's mechanism, not a second policy
 //! (`host/env_guard.rs`): a pure write is not sent; `ctx.fetch` still sends a
-//! read method and answers a mutating one 409, like `oxyc proxy`; `ctx.oltp`
+//! read method and answers a held mutating one 409, like `oxyc proxy`; `ctx.oltp`
 //! runs in a `READ ONLY` transaction on production, so Postgres itself refuses
 //! the write; a held `tx.commit` rolls back.
 //!
@@ -51,6 +51,14 @@
 //! `Hold`. A statement on a `ctx.tx` handle is decided by where its `begin`
 //! was isolated to ([`EnvPolicy::decide_on_handle`]). Each of these only ever
 //! turns `Isolate` into `Hold`, never into `Allow`.
+//!
+//! **One call goes the other way, into a home that already exists.** A
+//! mutating `ctx.fetch` is held by its op, except a `PUT` to an upload URL
+//! this invocation's own `ctx.storage.getUploadUrl` minted into the
+//! environment's silo: that is `Isolate(Target::StorageSilo)`
+//! ([`EnvPolicy::decide_on_fetch`], `upload`) — the object `ctx.storage.put`
+//! would have written, so a function that uploads through a presigned URL
+//! can be exercised outside production. It never becomes `Allow`.
 //!
 //! **Phase 5a** gives three homes (§4.2): `ctx.storage` works in the
 //! environment's own silo ([`Target::StorageSilo`]; its reads fall back to
@@ -80,6 +88,7 @@ mod oltp_home;
 mod oltp_sql;
 #[cfg(test)]
 mod tests;
+mod upload;
 
 pub use held::{
     HELD_LABEL, REFUSED_LABEL, branch_held_message, branch_refused_message, held_email_result,
@@ -91,6 +100,7 @@ pub use oltp_branch_sql::{
 };
 pub use oltp_home::{BRANCH_REFUSED_FIX, NO_BRANCH_NOTE, OltpHome};
 pub use oltp_sql::{HeldStatement, admit_oltp_statement};
+pub use upload::MintedUpload;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -398,7 +408,9 @@ fn non_production(op: HostOp, oltp: &OltpHome) -> Decision {
         // The environment's secret path; invoker-only email (P5a).
         SecretsSet => Decision::Isolate(Target::EnvSecrets),
         EmailSend => Decision::Isolate(Target::InvokerEmail),
-        // `fetch`: a read method is still sent; a mutating one is held.
+        // `fetch`: a read method is still sent; a mutating one is held —
+        // unless it is this invocation's own upload into the environment's
+        // silo, which `decide_on_fetch` isolates there (`upload`).
         Fetch => Decision::Hold,
         // A customer's warehouse: the database `nonProduction.destinations`
         // maps it to (P5b). Unmapped, it holds (`decide_on_database`).

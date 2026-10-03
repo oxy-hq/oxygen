@@ -916,7 +916,9 @@ export interface OxyFunctionContext {
    * `ctx.email.send` reaches the invoking user alone with the subject prefixed
    * `[staging]`, and `ctx.secrets.set` / `ctx.env` use the environment's own
    * secrets (production's only for keys both builds mark `"shared": true`). Every other
-   * write is **held** (`HeldInStaging`; a mutating `ctx.fetch` answers 409).
+   * write is **held** (`HeldInStaging`; a mutating `ctx.fetch` answers 409 —
+   * except a `PUT` to an upload URL the same invocation's
+   * `ctx.storage.getUploadUrl` minted, which lands in the environment's silo).
    * Read it to choose a third-party sandbox.
    */
   channel: string;

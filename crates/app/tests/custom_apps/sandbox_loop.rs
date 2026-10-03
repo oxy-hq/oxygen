@@ -10,6 +10,8 @@
 //!
 //! - each sandbox runs **its** build under **its** policy with **its**
 //!   secrets and storage silo;
+//! - an upload URL minted in one sandbox is sent from that sandbox and held
+//!   from the other and from staging;
 //! - nothing of one is visible from the other, from staging or from
 //!   production — builds, secrets, objects, invocation rows, held writes;
 //! - production's and staging's pointers never move;
@@ -19,6 +21,14 @@
 //! `scripts/ci/platform-canary-sandbox-loop.mjs` drives the same loop through
 //! `oxyc` against a running server; what it cannot see — one sandbox's
 //! object from the other — is asserted here.
+//!
+//! The upload step drives each environment's host from Rust
+//! (`nonprod_function_uploads::fixture`), not through the route: a function's
+//! `ctx.fetch` sends only HTTPS to a public host, so no in-process object
+//! store can answer it, and what is asserted is that the PUT **leaves the
+//! host** for the URL minted in the sandbox's silo — not that bytes landed.
+//! The byte round trip is the canary's `storage_roundtrip`, on a deployment
+//! whose object store is reached over HTTPS.
 //!
 //! **Needs** Postgres only.
 
@@ -38,6 +48,7 @@ use crate::custom_app_functions_fixture::{Tenant, seeded_tenant};
 use crate::custom_app_functions_manual_run::{
     get_admin, platform, post_admin, spawn_driver, wait_for_run,
 };
+use crate::nonprod_function_uploads::fixture::{Rig, assert_held, assert_sent, mint, put};
 use crate::sandbox_publish::{input, sandbox};
 use crate::sandbox_routes::send;
 use crate::sandbox_teardown_task::{objects, row, run_queued, secret, use_scratch_homes};
@@ -194,6 +205,60 @@ async fn read_backs_are_each_environments_own(t: &Tenant, app: &apps::Model) {
     assert_eq!(held, vec![A.to_string()], "one held write, dev-a1's");
 }
 
+/// Between the read-backs and the delete: an upload is its sandbox's own.
+/// `dev-a1` mints an upload URL into its silo and PUTs to it — sent, and not
+/// a held write; `dev-b2` and staging each send an upload of their own and,
+/// handed `dev-a1`'s URL, hold it, each in a held row of its own. `dev-a1`'s
+/// silo is left as it was.
+async fn an_upload_is_its_sandboxes_own(t: &Tenant, app: &apps::Model) {
+    use oxy_app_core::custom_app_environment::AppEnvironment;
+
+    let rig = Rig::of(t, app.id).await;
+    let a = rig.invocation(sandbox("a1"));
+    let upload = mint(&*a, "uploads/a.bin").await;
+    assert!(
+        upload.key.starts_with(&silo_key(app.id, A, "uploads/")),
+        "{}",
+        upload.key
+    );
+    assert_sent(&put(&*a, &upload.url).await, "dev-a1's own upload");
+    let listed = a
+        .storage("list".into(), json!({}))
+        .await
+        .expect("list dev-a1's silo");
+    let keys: Vec<&str> = listed["objects"]
+        .as_array()
+        .expect("objects")
+        .iter()
+        .filter_map(|o| o["key"].as_str())
+        .collect();
+    assert_eq!(
+        keys,
+        vec![silo_key(app.id, A, "notes/a.txt")],
+        "nothing landed, and the silo is as it was"
+    );
+    a.end_of_invocation().await;
+
+    for (environment, other) in [(B, sandbox("b2")), ("staging", AppEnvironment::Staging)] {
+        let host = rig.invocation(other);
+        let own = mint(&*host, "uploads/own.bin").await;
+        assert_sent(&put(&*host, &own.url).await, environment);
+        assert_held(&put(&*host, &upload.url).await, environment);
+        host.end_of_invocation().await;
+    }
+    let mut held: Vec<String> = held_rows(t)
+        .await
+        .into_iter()
+        .map(|r| r.environment)
+        .collect();
+    held.sort();
+    assert_eq!(
+        held,
+        vec![A.to_string(), B.to_string(), "staging".to_string()],
+        "dev-a1's row is still the check's one: its upload added none"
+    );
+}
+
 /// Step 6: `dev-a1` deleted by route and its teardown run. It stops serving
 /// at once; its silo, secrets and row go; its history stays; the name is
 /// free and the sandbox created under it inherits nothing; `dev-b2` is
@@ -275,6 +340,7 @@ async fn two_sandboxes_run_the_whole_loop_apart_from_each_other_staging_and_prod
     each_environment_runs_its_own(&t, &app).await;
     a_check_runs_in_its_sandbox(&t, &app).await;
     read_backs_are_each_environments_own(&t, &app).await;
+    an_upload_is_its_sandboxes_own(&t, &app).await;
     delete_and_tear_down(&t, &app).await;
 
     assert_eq!(

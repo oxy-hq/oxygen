@@ -38,6 +38,7 @@ mod oltp_home;
 mod oltp_ops;
 mod semantic_op;
 mod tx_ops;
+mod uploads;
 mod warehouse_home;
 
 use super::env_policy::HostOp;
@@ -158,6 +159,10 @@ pub struct ProjectFunctionHost {
     /// measured on the first write (`env_homes::storage_limit`). Unused in
     /// production, which answers to the org quota.
     environment_meter: crate::server::api::custom_apps_storage::environment_limits::SiloMeter,
+    /// The upload URLs this invocation's `ctx.storage.getUploadUrl` minted
+    /// into its environment's silo — what a `ctx.fetch` PUT outside
+    /// production is matched against (`uploads`). Empty in production.
+    minted_uploads: uploads::MintedUploads,
 }
 
 /// The audit state of one open transaction.
@@ -299,6 +304,7 @@ impl ProjectFunctionHost {
             ),
             on_branch: std::sync::atomic::AtomicBool::new(false),
             environment_meter: Default::default(),
+            minted_uploads: Default::default(),
             policy,
             identity,
             tx_writes: tokio::sync::Mutex::new(std::collections::HashMap::new()),
@@ -320,22 +326,7 @@ impl ProjectFunctionHost {
             oltp_conn: tokio::sync::Mutex::new(None),
             airhouse_conn: tokio::sync::Mutex::new(std::collections::HashMap::new()),
             host_call_failure: std::sync::Mutex::new(None),
-            // `ctx.fetch` is defended in two layers:
-            //  1. `is_safe_outbound` rejects the request URL up front (scheme,
-            //     literal private IPs, internal suffixes).
-            //  2. `PublicOnlyDnsResolver` validates every *resolved* IP at
-            //     connect time, closing the DNS-rebinding hole the URL string
-            //     check can't see (a public hostname whose A record points at
-            //     169.254.169.254 / 10.x / 127.x).
-            // Redirects are disabled so a 302 to an internal address can't
-            // launder past either layer on a later hop (reqwest gives no
-            // per-hop validation hook), and a total timeout bounds the call.
-            http: reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .dns_resolver(Arc::new(PublicOnlyDnsResolver))
-                .build()
-                .expect("failed to build ctx.fetch HTTP client"),
+            http: fetch_client(),
         }
     }
 
@@ -744,9 +735,10 @@ impl FunctionHost for ProjectFunctionHost {
             .unwrap_or("GET")
             .to_uppercase();
         // Outside production anything but a bodiless read method answers 409
-        // unsent; a read is sent as ever.
+        // unsent — except this invocation's own upload into its environment's
+        // silo (`env_guard`); a read is sent as ever.
         let has_body = !matches!(init.get("body"), None | Some(serde_json::Value::Null));
-        if let Some(held) = self.held_fetch(&method, parsed.host_str(), has_body).await {
+        if let Some(held) = self.held_fetch(&method, &parsed, has_body).await {
             return Ok(held);
         }
         let mut req = self
@@ -1272,6 +1264,9 @@ impl FunctionHost for ProjectFunctionHost {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+                // Kept for this invocation: the one mutating `ctx.fetch` an
+                // environment sends is a PUT to a URL minted here.
+                self.note_minted_upload(&silo, &out);
                 serde_json::to_value(out).map_err(|e| e.to_string())
             }
             HostOp::StorageGetDownloadUrl => {
@@ -1817,6 +1812,30 @@ fn json_value_to_sql_literal(value: &serde_json::Value, strings: StringLiteral) 
 
 pub fn into_arc(host: ProjectFunctionHost) -> Arc<dyn FunctionHost> {
     Arc::new(host)
+}
+
+/// The HTTP client every `ctx.fetch` of one invocation is sent with.
+///
+/// `ctx.fetch` is defended in two layers:
+///  1. `is_safe_outbound` rejects the request URL up front (scheme, literal
+///     private IPs, internal suffixes).
+///  2. `PublicOnlyDnsResolver` validates every *resolved* IP at connect time,
+///     closing the DNS-rebinding hole the URL string check can't see (a
+///     public hostname whose A record points at 169.254.169.254 / 10.x /
+///     127.x).
+///
+/// Redirects are disabled so a 302 to an internal address can't launder past
+/// either layer on a later hop (reqwest gives no per-hop validation hook) —
+/// and so an upload the environment policy sends to a minted URL
+/// (`env_policy::upload`) goes to that URL or nowhere. A total timeout bounds
+/// the call.
+fn fetch_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .dns_resolver(Arc::new(PublicOnlyDnsResolver))
+        .build()
+        .expect("failed to build ctx.fetch HTTP client")
 }
 
 /// First-layer SSRF check for `ctx.fetch` — rejects non-HTTPS, loopback,

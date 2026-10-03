@@ -25,6 +25,7 @@
 //! | `staging_destination_publish` | publish refuses a `nonProduction.destinations` mapping onto production's host and user (a heuristic), onto itself, onto the workspace's own Airhouse, or to an unconfigured database |
 //! | `staging_function_homes` | staging `ctx.storage` works in its own silo (production's read-only behind it; `delete`/`copy` never reach production; production's key exists for `allowOverwrite: false`), `ctx.email.send` reaches the invoker alone, replies included |
 //! | `staging_function_secrets` | staging `ctx.env` overlays production only for keys both the staging build and production's build mark `shared` (none for an app never promoted), `ctx.secrets.set` writes staging's path; a publish refuses `shared` on a key this build or production's writes or verifies webhooks with |
+//! | `nonprod_function_uploads` | a staging or sandbox function's `ctx.fetch` PUT to the upload URL its own invocation minted is sent, and is not in its held row; every other mutating fetch is still held — production's silo, another environment's, another app's, another host, a traversal, another bucket or query, another method, a URL an earlier invocation minted; production sends what it always sent. No V8: the real host, driven from Rust |
 //! | `staging_storage_limits` | a staging silo has its own cap, and its bytes never count toward the org quota that gates production's writes |
 //! | `staging_secrets_admin` | the staff secrets surface sets, lists and deletes `apps/<id>/staging/<KEY>` for staff only (oxy-authz `AppNonProduction`), audited with the environment; a key is one segment; the tenant project-secrets routes never list or reach a staging row |
 //! | `staging_functions_oltp` | a staging function reads production's OLTP rows; `COMMIT`/`SET TRANSACTION READ WRITE` escapes, `set_config` (by name, `U&"…"`-escaped, or inside `query_to_xml` text) and multi-statement strings are held unsent; `READ ONLY` refuses a write inside an app-defined function |
@@ -47,7 +48,7 @@
 //! | `sandbox_environments` | a sandbox resolves its own build from its row, uncached, and never another environment's; an absent or deleting one resolves to nothing; a sandbox page's data reads take the pin of its own build |
 //! | `sandbox_isolation` | two sandboxes of one app, through the real serve route after a real publish: each runs its own build in its own storage silo; each reads its own secrets, then staging's, then production's `shared` ones, and cannot rotate a key it read from staging |
 //! | `sandbox_isolation_airhouse` | two sandboxes' `ctx.airhouse` appends land in two distinct siblings, each on a connection scoped to its own |
-//! | `sandbox_loop` | the whole loop on one app, in order: two sandboxes created by route, a build each, a call in each by `X-Oxy-App-Env`, a check through the queue and the production executor, its invocation and held list by route, a delete and its teardown — each sandbox on its own build, policy, secrets and silo, invisible to the other, to staging and to production, whose pointers never move; the freed name inherits nothing |
+//! | `sandbox_loop` | the whole loop on one app, in order: two sandboxes created by route, a build each, a call in each by `X-Oxy-App-Env`, a check through the queue and the production executor, its invocation and held list by route, a delete and its teardown — each sandbox on its own build, policy, secrets and silo, invisible to the other, to staging and to production, whose pointers never move; an upload URL one sandbox minted is sent from it and held from the other and from staging; the freed name inherits nothing |
 //! | `sandbox_publish` | a publish with `environment` moves that sandbox's pointer and leaves the app row, staging, production and the schedules byte-identical; a semantic pin rides the sandbox's build |
 //! | `sandbox_publish_migrations` | a sandbox publish queues its Airhouse migrations under their own kind and applies no OLTP file; the task applies nothing for a sandbox that is locked, deleted or serving another build; sandbox builds are pruned in a window of their own |
 //! | `sandbox_publish_refusals` | what a sandbox publish refuses, each leaving no build row or bytes: `promote`, no reach, an unknown app or sandbox, a deleting one; a machine or app-scoped token, refused by the sandbox itself past `authorize_publish`; a sandbox deleted after admission — `409`, the stored build rolled back |
@@ -111,6 +112,7 @@ mod custom_apps_publish_workspace;
 mod environment_scoped_keys;
 mod example_app_serving;
 mod function_failure_alerts;
+mod nonprod_function_uploads;
 mod sandbox_environments;
 mod sandbox_isolation;
 mod sandbox_isolation_airhouse;

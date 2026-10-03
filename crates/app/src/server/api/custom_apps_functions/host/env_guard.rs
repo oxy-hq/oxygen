@@ -11,8 +11,9 @@
 //! How each kind of op holds:
 //!
 //! - a pure write is not sent ([`ProjectFunctionHost::admit_op`]);
-//! - `ctx.fetch` sends a read method with no body and answers anything else
-//!   409, like `oxyc proxy`;
+//! - `ctx.fetch` sends a read method with no body, and a PUT to an upload URL
+//!   this invocation minted into its environment's silo (`uploads`); it
+//!   answers anything else 409, like `oxyc proxy`;
 //! - `ctx.email.send` resolves `{ held: true }`;
 //! - an OLTP statement is sent only when it is one read calling no
 //!   side-effect function, on a read-only session inside a `READ ONLY`
@@ -179,19 +180,21 @@ impl ProjectFunctionHost {
         self.held.note(record, trace_id).await;
     }
 
-    /// A `ctx.fetch` outside production is sent only when it is a read method
-    /// carrying no body; anything else answers 409, like `oxyc proxy`.
-    /// `None`: send it.
+    /// A `ctx.fetch` outside production is sent when it is a read method
+    /// carrying no body, or this invocation's own upload into its
+    /// environment's storage silo (`EnvPolicy::decide_on_fetch`); anything
+    /// else answers 409, like `oxyc proxy`. `None`: send it.
     pub(super) async fn held_fetch(
         &self,
         method: &str,
-        host: Option<&str>,
+        url: &reqwest::Url,
         has_body: bool,
     ) -> Option<serde_json::Value> {
         let read = env_policy::is_read_method(method) && !has_body;
-        if read || !self.holds(HostOp::Fetch) {
+        if read || !holds(self.decide_fetch(method, url)) {
             return None;
         }
+        let host = url.host_str();
         self.note_held(
             HostOp::Fetch,
             ("fetch", host.unwrap_or_default(), method, ""),
