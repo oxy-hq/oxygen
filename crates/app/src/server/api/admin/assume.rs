@@ -472,9 +472,17 @@ pub async fn history(
     ) {
         return Err(StatusCode::FORBIDDEN);
     }
+    // The capability says the caller may read the log; the grant's SCOPE says whose.
+    // A session row names the org that was impersonated, so a bounded grant reads the
+    // sessions into its own orgs and no others — narrowed here, ahead of the paging.
+    let scope = crate::server::api::admin::scope::list_scope(&db, &actor).await?;
     let limit = history_page_size(q.limit);
     let offset = q.offset.unwrap_or(0);
-    let mut rows = AdminAssumeSessions::find()
+    let mut find = AdminAssumeSessions::find();
+    if let Some(orgs) = scope {
+        find = find.filter(admin_assume_sessions::Column::OrgId.is_in(orgs));
+    }
+    let mut rows = find
         .order_by_desc(admin_assume_sessions::Column::StartedAt)
         // `started_at` alone is not a total order — two sessions can share an
         // instant, and then a row can repeat on one page and vanish from the

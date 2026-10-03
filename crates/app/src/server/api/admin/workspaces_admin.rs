@@ -101,11 +101,19 @@ pub struct TransferOrgBody {
     pub new_org_id: Uuid,
 }
 
+/// `GET /admin/workspaces-meta` — the workspace directory.
+///
+/// **Narrowed by the caller's grant scope, in the query**, ahead of the paging: a
+/// bounded grant lists the workspaces of the orgs it names. A workspace with no org
+/// is platform-level — unbounded grants and the Global Owner only — which is the
+/// answer `get_workspace_detail` already gives for the same row.
 pub async fn list_workspaces(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     OriginalUri(uri): OriginalUri,
     Query(q): Query<ListWorkspacesQuery>,
 ) -> Result<Paged<AdminWorkspaceRow>, StatusCode> {
     let db = establish_connection().await.map_err(internal)?;
+    let reach = scope::list_scope(&db, &actor).await?;
     let page = q.page.unwrap_or(0);
     // CLAMPED AT BOTH ENDS. `?page_size=0` past a top-only clamp is an infinite
     // pagination loop, not an empty page: the offset stays 0 on every page while
@@ -114,6 +122,9 @@ pub async fn list_workspaces(
     let page_size = q.page_size.unwrap_or(50).clamp(1, 200);
 
     let mut query = workspaces::Entity::find().order_by_desc(workspaces::Column::CreatedAt);
+    if let Some(orgs) = reach {
+        query = query.filter(workspaces::Column::OrgId.is_in(orgs));
+    }
 
     if let Some(needle) = q.search.as_ref().filter(|s| !s.trim().is_empty()) {
         let like = format!("%{}%", needle.trim());

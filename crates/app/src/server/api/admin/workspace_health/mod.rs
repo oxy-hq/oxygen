@@ -19,13 +19,15 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 
 use crate::server::router::AppState;
 use evaluator::WorkspaceSignals;
 
-use super::internal_jobs::{connect, db_err};
+use super::internal_jobs::{connect, db_err, error_body};
+use super::scope;
 
 /// Raw per-workspace signal counts, surfaced so the per-workspace Health tab
 /// can show the underlying numbers behind each dimension's reason string.
@@ -98,8 +100,8 @@ pub struct WorkspaceHealthRow {
 }
 
 #[derive(Serialize)]
-struct WorkspaceHealthResponse {
-    workspaces: Vec<WorkspaceHealthRow>,
+pub struct WorkspaceHealthResponse {
+    pub workspaces: Vec<WorkspaceHealthRow>,
 }
 
 pub(crate) fn router() -> Router<AppState> {
@@ -115,10 +117,40 @@ pub(crate) fn router() -> Router<AppState> {
 /// rollup is computed by the periodic sweep and persisted; this endpoint returns
 /// the stored payload verbatim, joined with fresh display labels. No live signal
 /// gathering, no external calls.
-async fn list_workspace_health() -> Result<Json<WorkspaceHealthResponse>, Response> {
+///
+/// "Cross-tenant" is what an unbounded grant sees. A bounded grant gets the
+/// rollup of the workspaces in the orgs it names — the same `Some(ids)` narrowing
+/// the partner-scoped view already uses — and a workspace with no org is
+/// platform-level, so it is not among them.
+pub async fn list_workspace_health(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+) -> Result<Json<WorkspaceHealthResponse>, Response> {
     let db = connect().await?;
-    let workspaces = health_rollup(&db, None).await.map_err(db_err)?;
+    let reach = scope::list_scope(&db, &actor)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let in_reach = match reach {
+        None => None,
+        Some(orgs) => Some(workspaces_of(&db, orgs).await.map_err(db_err)?),
+    };
+    let workspaces = health_rollup(&db, in_reach.as_deref())
+        .await
+        .map_err(db_err)?;
     Ok(Json(WorkspaceHealthResponse { workspaces }))
+}
+
+/// The workspaces belonging to `orgs` — what a bounded grant's rollup is narrowed to.
+async fn workspaces_of(
+    db: &sea_orm::DatabaseConnection,
+    orgs: Vec<uuid::Uuid>,
+) -> Result<Vec<uuid::Uuid>, sea_orm::DbErr> {
+    entity::workspaces::Entity::find()
+        .select_only()
+        .column(entity::workspaces::Column::Id)
+        .filter(entity::workspaces::Column::OrgId.is_in(orgs))
+        .into_tuple()
+        .all(db)
+        .await
 }
 
 /// The rollup rows, worst-first, joined with display labels. `workspace_ids =
@@ -156,8 +188,8 @@ pub async fn health_rollup(
 /// the client can correlate/poll. The refreshed row is fetched separately once
 /// `checked_at` advances.
 #[derive(Serialize)]
-struct TriggerEvalResponse {
-    run_id: String,
+pub struct TriggerEvalResponse {
+    pub run_id: String,
 }
 
 /// `?smoke=true` runs the workspace's smoke probes on this pass even if their
@@ -169,9 +201,9 @@ struct TriggerEvalResponse {
 /// `smoke_test: { enabled: false }` runs no probes either way, so the button
 /// can't bill an opted-out workspace for warehouse queries and agent tokens.
 #[derive(Deserialize, Default)]
-struct TriggerEvalParams {
+pub struct TriggerEvalParams {
     #[serde(default)]
-    smoke: bool,
+    pub smoke: bool,
 }
 
 /// Enqueue an on-demand health eval for a single workspace and return its
@@ -188,11 +220,22 @@ struct TriggerEvalParams {
 /// drains the task — which lands on an FS-owning node on its own — so route
 /// classification does not need to pin the request to the ide. The query param
 /// does not change that: it rides in the task payload, not the request path.
-async fn trigger_workspace_health_eval(
+///
+/// Fenced on the workspace's org: a bounded grant cannot spend another tenant's
+/// warehouse queries and agent tokens on a smoke run, and a workspace outside the
+/// grant answers the same 404 a missing one does.
+pub async fn trigger_workspace_health_eval(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Path(workspace_id): Path<uuid::Uuid>,
     Query(params): Query<TriggerEvalParams>,
 ) -> Result<Response, Response> {
     let db = connect().await?;
+    scope::deny_out_of_scope_for_workspace(&db, &actor, workspace_id)
+        .await
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND => error_body(status, "workspace_not_found", None),
+            other => error_body(other, "scope_unreadable", None),
+        })?;
     let run_id = agentic_pipeline::scheduler::enqueue_health_eval(&db, workspace_id, params.smoke)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e).into_response())?;

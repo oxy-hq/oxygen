@@ -703,6 +703,15 @@ pub struct AuditFilter {
     pub org_id: Option<Uuid>,
     pub outcome: Option<String>,
     pub q: Option<String>,
+    /// The orgs the **caller** may read — `None` for an unbounded reader.
+    ///
+    /// Not a search term: `org_id` above is what the caller asked for, this is what
+    /// they are allowed, and the two are AND-ed, so asking for an org outside the
+    /// scope returns nothing rather than that org's trail. Applied in the query,
+    /// ahead of `limit`/`offset`, so a bounded reader's pages are full and an event
+    /// with no org (a platform-level action) is never among them — `IN (..)` does not
+    /// match `NULL`. An empty set matches nothing.
+    pub org_scope: Option<Vec<Uuid>>,
 }
 
 /// Platform-scoped search over the audit stream, most recent first, bounded by
@@ -722,6 +731,9 @@ pub async fn search_events(
     }
     if let Some(org_id) = filter.org_id {
         query = query.filter(audit_events::Column::OrgId.eq(org_id));
+    }
+    if let Some(orgs) = filter.org_scope.as_ref() {
+        query = query.filter(audit_events::Column::OrgId.is_in(orgs.iter().copied()));
     }
     if let Some(outcome) = filter.outcome.as_deref().filter(|s| !s.is_empty()) {
         query = query.filter(audit_events::Column::Outcome.eq(outcome));

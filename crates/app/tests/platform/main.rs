@@ -16,7 +16,7 @@
 //!
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
-//! * `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
+//! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `anomaly_bulk_status`, `simulation_routes`,
 //!   `simulation_lifecycle`, the two `workspace_previews_*` modules,
 //!   `preview_routes` and `preview_ttl` are database-backed
@@ -48,6 +48,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod admin_staff_scope;
 mod airway_compile_boundary;
 mod anomaly_bulk_status;
 mod artifact_naming_agrees;

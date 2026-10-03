@@ -618,12 +618,19 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
 /// Same defect as rounds 3, 4 and 7, in its fourth costume: a needle satisfiable by
 /// something other than the thing it names. Scoping to one function body is the
 /// instrument this file already uses elsewhere.
+///
+/// The 500 now lives in ONE place. The fences and `list_scope` used to read the grant
+/// two ways — the fences straight from `globals`, the listing through the loader and
+/// the model — which agreed only by coincidence of a shared cache. They now share
+/// `caller_scope`, so the fail-closed guarantee is pinned in two halves that must both
+/// hold: the reader turns an unreadable grant into a 500 (and into nothing else), and
+/// every caller hands that 500 on with `?` rather than absorbing it.
 #[test]
 fn the_admin_scope_fence_refuses_rather_than_allowing() {
     let src = read("crates/app/src/server/api/admin/scope.rs");
 
     let body_of = |name: &str| -> &str {
-        src.split(&format!("pub async fn {name}("))
+        src.split(&format!("async fn {name}("))
             .nth(1)
             .unwrap_or_else(|| panic!("`{name}` not found in admin::scope"))
             .split("\n}\n")
@@ -631,13 +638,58 @@ fn the_admin_scope_fence_refuses_rather_than_allowing() {
             .unwrap_or_default()
     };
 
+    // One reader. A second read of the grant is how the fence and the listing could
+    // drift apart again, each still passing its own needles below.
+    assert!(
+        !src.contains("platform_grant_checked"),
+        "admin::scope reads the grant table directly again. Every fence and the listing \
+         must take scope from `caller_scope` (the loader + `PrincipalFacts::platform_scope`), \
+         or a row by id and a row in a listing can be judged by two readings of one grant."
+    );
+    assert_eq!(
+        src.matches("load_platform_facts(").count(),
+        1,
+        "admin::scope should load platform facts in exactly one place, `caller_scope`"
+    );
+
+    // The reader: an unreadable grant is a 500, never an answer. `Scope::All` would
+    // read unknown as unbounded; `Ok(None)` would read it as "no standing", which a
+    // fence lets through.
+    let reader = body_of("caller_scope");
+    assert!(
+        reader.contains("StatusCode::INTERNAL_SERVER_ERROR"),
+        "`caller_scope` no longer refuses on an unreadable grant — one transient DbErr \
+         would hand out tenant Owner, or drop a tenant"
+    );
+    assert!(
+        !reader.contains("Scope::All") && !reader.contains("Ok(None)"),
+        "`caller_scope` invents an answer it did not read — an unreadable grant must be \
+         a 500, not unbounded and not \"no standing\""
+    );
+
+    // Every caller propagates the reader's refusal.
+    for name in ["deny_out_of_scope", "deny_out_of_scope_opt", "list_scope"] {
+        let calls: Vec<String> = body_of(name)
+            .split("caller_scope(")
+            .skip(1)
+            .map(|rest| {
+                rest.split(['{', ';'])
+                    .next()
+                    .unwrap_or_default()
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect()
+            })
+            .collect();
+        assert!(
+            !calls.is_empty() && calls.iter().all(|call| call.ends_with(".await?")),
+            "`{name}` no longer hands `caller_scope`'s refusal on with `.await?` — an \
+             unreadable grant there would be absorbed instead of refusing with 500"
+        );
+    }
+
     for name in ["deny_out_of_scope", "deny_out_of_scope_opt"] {
         let body = body_of(name);
-        assert!(
-            body.contains("StatusCode::INTERNAL_SERVER_ERROR"),
-            "`{name}` no longer refuses on an unreadable grant — one transient DbErr \
-             would hand out tenant Owner, or drop a tenant"
-        );
         assert!(
             body.contains("StatusCode::NOT_FOUND"),
             "`{name}` no longer answers out-of-scope with 404"

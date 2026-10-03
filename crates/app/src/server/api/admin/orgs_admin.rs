@@ -472,11 +472,21 @@ pub struct TransferOwnershipBody {
     pub new_owner_user_id: Uuid,
 }
 
+/// `GET /admin/orgs-meta` — the tenant directory.
+///
+/// **Narrowed by the caller's grant scope, in the query.** Every detail and write on
+/// this router already answers 404 for an org outside the grant, on the reasoning that
+/// a bounded operator must not learn an org exists by probing it — and this listing
+/// handed the same caller every org's name, slug, owner address and member count. A
+/// bounded grant now lists the orgs it names; the filter sits ahead of the paging, so
+/// pages are full and `rel="next"` is exact.
 pub async fn list_orgs_meta(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     OriginalUri(uri): OriginalUri,
     Query(q): Query<ListMetaQuery>,
 ) -> Result<Paged<AdminOrgMeta>, StatusCode> {
     let db = establish_connection().await.map_err(internal)?;
+    let reach = scope::list_scope(&db, &actor).await?;
     let page = q.page.unwrap_or(0);
     // CLAMPED AT BOTH ENDS. `?page_size=0` past a top-only clamp is an infinite
     // pagination loop, not an empty page: the offset stays 0 on every page while
@@ -485,6 +495,9 @@ pub async fn list_orgs_meta(
     let page_size = q.page_size.unwrap_or(50).clamp(1, 200);
 
     let mut query = organizations::Entity::find().order_by_asc(organizations::Column::Name);
+    if let Some(orgs) = reach {
+        query = query.filter(organizations::Column::Id.is_in(orgs));
+    }
 
     if let Some(needle) = q.search.as_ref().filter(|s| !s.trim().is_empty()) {
         let like = format!("%{}%", needle.trim());

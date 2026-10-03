@@ -9,20 +9,30 @@
 //!   - DB access is on-demand via
 //!     `oxy::database::client::establish_connection()` — no AppState
 //!     threading.
+//!   - **Grant scope is enforced in every handler.** The capability gate
+//!     (`Action::PlatformOperate`, layered on in `router/global.rs`) decides on
+//!     a resource with no org, so a grant bounded to one tenant passes it. A
+//!     revision belongs to a workspace and a workspace to an org: listings are
+//!     narrowed in the query, a revision or workspace named by id outside the
+//!     grant answers the same 404 a missing one does, and a batch reports it as
+//!     "not found" per item. See `admin::scope`.
 
-mod batch;
-mod crud;
-mod workspaces;
+pub mod backfill;
+pub mod batch;
+pub mod crud;
+pub mod workspaces;
 
 use axum::Json;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, Statement};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::server::api::admin::scope;
 use crate::server::router::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
@@ -31,7 +41,7 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/workspaces", get(workspaces::list_workspaces))
         .route("/{revision_id}", get(crud::get_compile))
         .route("/run", post(crud::run_compile_now))
-        .route("/backfill", post(crud::backfill_uncompiled))
+        .route("/backfill", post(backfill::backfill_uncompiled))
         .route("/batch/run", post(batch::batch_run_compile))
         .route("/batch/promote", post(batch::batch_promote))
         .route("/{revision_id}/promote", post(crud::promote_to_revision))
@@ -50,6 +60,18 @@ pub(super) async fn connect() -> Result<DatabaseConnection, Response> {
                 Some("Database connection failed".into()),
             )
         })
+}
+
+// Grant scope
+
+/// The caller's listing scope (`None` = unbounded), as this surface's error type.
+pub(super) async fn listing_scope(
+    db: &DatabaseConnection,
+    actor: &AuthenticatedUser,
+) -> Result<Option<Vec<Uuid>>, Response> {
+    scope::list_scope(db, actor)
+        .await
+        .map_err(|status| error_body(status, "scope_unreadable", None))
 }
 
 // Shared enqueue helper
@@ -106,8 +128,12 @@ pub(super) async fn insert_run_and_enqueue_compile(
 /// Outcome of a single promote, kept separate from HTTP concerns so the
 /// batch path can collect successes/failures without short-circuiting.
 pub(super) enum PromoteError {
+    /// No such revision — or one in a workspace the caller's grant does not reach,
+    /// which must be indistinguishable from it.
     NotFound,
     NotPromotable(String),
+    /// The caller's grant could not be read, so its reach is unknown. Refused.
+    ScopeUnreadable,
     Db(sea_orm::DbErr),
 }
 
@@ -117,6 +143,7 @@ impl PromoteError {
         match self {
             PromoteError::NotFound => format!("revision {revision_id} not found"),
             PromoteError::NotPromotable(m) => m.clone(),
+            PromoteError::ScopeUnreadable => "platform grant could not be read".to_string(),
             PromoteError::Db(e) => format!("{e}"),
         }
     }
@@ -126,8 +153,13 @@ impl PromoteError {
 /// `ready`/`main` revision after validating it is promotable. Shared by the
 /// single-revision and batch promote handlers. Returns the workspace whose
 /// pointer moved.
+///
+/// Fenced on the revision's workspace **before** the promotability check, so a
+/// revision outside the caller's grant reads as not found rather than leaking its
+/// status through a "not promotable" message — and is never repointed.
 pub(super) async fn promote_one(
     db: &DatabaseConnection,
+    actor: &AuthenticatedUser,
     revision_id: Uuid,
 ) -> Result<Uuid, PromoteError> {
     let rev = entity::revisions::Entity::find_by_id(revision_id)
@@ -137,6 +169,12 @@ pub(super) async fn promote_one(
     let Some(rev) = rev else {
         return Err(PromoteError::NotFound);
     };
+    scope::deny_out_of_scope_for_workspace(db, actor, rev.workspace_id)
+        .await
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND => PromoteError::NotFound,
+            _ => PromoteError::ScopeUnreadable,
+        })?;
     if rev.status != "ready" || rev.kind != "main" {
         return Err(PromoteError::NotPromotable(format!(
             "only a ready main revision can be promoted (got status={}, kind={})",

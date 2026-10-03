@@ -892,6 +892,11 @@ pub async fn revoke_user_invitation(
         .map_err(internal)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    // **Scope.** An invitation belongs to the org that issued it, and the path names
+    // only the invitee — so without this a grant bounded to one tenant could revoke
+    // another tenant's pending invitation by id. 404, like a missing one.
+    scope::deny_out_of_scope(&db, &actor, invitation.org_id).await?;
+
     // The path names a user, so refuse to act on an invitation belonging to a
     // different address — a mistyped id must 404, not revoke someone else's.
     // `user.email`, never a label: this is an ownership check, and a label

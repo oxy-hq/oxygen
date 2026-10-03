@@ -6,17 +6,20 @@ use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::response::Response;
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{
-    PromoteError, connect, db_err, error_body, insert_run_and_enqueue_compile, promote_one,
+    PromoteError, connect, db_err, error_body, insert_run_and_enqueue_compile, listing_scope,
+    promote_one,
 };
+use crate::server::api::admin::scope;
 
 // GET /admin/compiles
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct ListQuery {
     /// Cap on rows returned. Defaults to 50, clamped to 200.
     #[serde(default)]
@@ -59,21 +62,33 @@ pub struct ListResponse {
     pub total_returned: usize,
 }
 
-pub(super) async fn list_compiles(
+pub async fn list_compiles(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<ListResponse>, Response> {
     let db = connect().await?;
+    let reach = listing_scope(&db, &actor).await?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
 
     let mut find =
         entity::revisions::Entity::find().order_by_desc(entity::revisions::Column::StartedAt);
+    if let Some(orgs) = reach {
+        // The caller's grant scope, as the same subquery shape the `org_id`
+        // filter below uses — in the query, so `limit` applies to what the
+        // caller may see. A workspace with no org is in no bounded grant.
+        let reachable = entity::workspaces::Entity::find()
+            .select_only()
+            .column(entity::workspaces::Column::Id)
+            .filter(entity::workspaces::Column::OrgId.is_in(orgs))
+            .into_query();
+        find = find.filter(entity::revisions::Column::WorkspaceId.in_subquery(reachable));
+    }
     if let Some(ws) = query.workspace_id {
         find = find.filter(entity::revisions::Column::WorkspaceId.eq(ws));
     }
     if let Some(org) = query.org_id {
         // Scope to revisions whose workspace belongs to this org. A subquery
         // keeps it one round trip and lets `limit` apply to the joined set.
-        use sea_orm::QueryTrait;
         let org_workspaces = entity::workspaces::Entity::find()
             .select_only()
             .column(entity::workspaces::Column::Id)
@@ -173,20 +188,30 @@ pub struct CompileDetail {
     pub compiled_entities: Vec<CompiledEntity>,
 }
 
-pub(super) async fn get_compile(
+pub async fn get_compile(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Path(revision_id): Path<Uuid>,
 ) -> Result<Json<CompileDetail>, Response> {
     let db = connect().await?;
+    let not_found = || {
+        error_body(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            Some(format!("revision {revision_id} not found")),
+        )
+    };
     let row = entity::revisions::Entity::find_by_id(revision_id)
         .one(&db)
         .await
         .map_err(db_err)?
-        .ok_or_else(|| {
-            error_body(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                Some(format!("revision {revision_id} not found")),
-            )
+        .ok_or_else(not_found)?;
+    // A revision outside the caller's grant answers exactly what a missing one
+    // does — same status, same body — so ids cannot be probed.
+    scope::deny_out_of_scope_for_workspace(&db, &actor, row.workspace_id)
+        .await
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND => not_found(),
+            other => error_body(other, "scope_unreadable", None),
         })?;
 
     let workspace = entity::workspaces::Entity::find_by_id(row.workspace_id)
@@ -283,25 +308,26 @@ pub struct RunCompileResponse {
     pub promote: bool,
 }
 
-pub(super) async fn run_compile_now(
+pub async fn run_compile_now(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Json(req): Json<RunCompileRequest>,
 ) -> Result<Json<RunCompileResponse>, Response> {
     let db = connect().await?;
 
     // Make sure the workspace exists before we enqueue — otherwise
     // the worker will fail with a confusing FK violation when it
-    // tries to insert the revisions row.
-    let exists = entity::workspaces::Entity::find_by_id(req.workspace_id)
-        .one(&db)
+    // tries to insert the revisions row. The same read is the scope fence: a
+    // workspace outside the caller's grant answers the 404 a missing one does.
+    scope::deny_out_of_scope_for_workspace(&db, &actor, req.workspace_id)
         .await
-        .map_err(db_err)?;
-    if exists.is_none() {
-        return Err(error_body(
-            StatusCode::NOT_FOUND,
-            "workspace_not_found",
-            Some(format!("workspace {} not found", req.workspace_id)),
-        ));
-    }
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND => error_body(
+                status,
+                "workspace_not_found",
+                Some(format!("workspace {} not found", req.workspace_id)),
+            ),
+            other => error_body(other, "scope_unreadable", None),
+        })?;
 
     let task_id = insert_run_and_enqueue_compile(
         &db,
@@ -341,11 +367,12 @@ pub struct PromoteResponse {
 /// revision when a bad compile shipped. The target must already be compiled
 /// (`ready`/`main`); its rows are retained until the retention window, so any
 /// revision still in the timeline is promotable.
-pub(super) async fn promote_to_revision(
+pub async fn promote_to_revision(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Path(revision_id): Path<Uuid>,
 ) -> Result<Json<PromoteResponse>, Response> {
     let db = connect().await?;
-    match promote_one(&db, revision_id).await {
+    match promote_one(&db, &actor, revision_id).await {
         Ok(workspace_id) => Ok(Json(PromoteResponse {
             revision_id,
             workspace_id,
@@ -360,63 +387,11 @@ pub(super) async fn promote_to_revision(
             "not_promotable",
             Some(msg),
         )),
+        Err(PromoteError::ScopeUnreadable) => Err(error_body(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "scope_unreadable",
+            None,
+        )),
         Err(PromoteError::Db(e)) => Err(db_err(e)),
     }
-}
-
-// Backfill: compile every workspace that has never been compiled
-
-/// Max workspaces enqueued per backfill call. Bounds the in-memory load, the
-/// per-request wall-clock (sequential enqueues), and the resulting compile
-/// herd. The endpoint reports `remaining: true` when more uncompiled
-/// workspaces exist; the operator (or UI) re-invokes until it's false.
-const BACKFILL_BATCH: u64 = 500;
-
-#[derive(Serialize, Debug)]
-pub struct BackfillResponse {
-    pub enqueued: usize,
-    /// True when the batch cap was hit and more uncompiled workspaces remain —
-    /// call again to continue.
-    pub remaining: bool,
-    pub task_ids: Vec<String>,
-}
-
-/// Enqueue a promoting compile for up to `BACKFILL_BATCH` workspaces that have
-/// a configured path but no promoted revision (`current_revision_id IS NULL`)
-/// — the one-time backfill for projects that predate the compile boundary.
-/// Bounded + re-runnable: it only ever targets workspaces still uncompiled, so
-/// repeated calls drain the backlog a batch at a time without double-enqueuing
-/// (the rows it just promoted drop out of the next query).
-pub(super) async fn backfill_uncompiled() -> Result<Json<BackfillResponse>, Response> {
-    let db = connect().await?;
-
-    let uncompiled = entity::workspaces::Entity::find()
-        .filter(entity::workspaces::Column::Path.is_not_null())
-        .filter(entity::workspaces::Column::CurrentRevisionId.is_null())
-        .limit(BACKFILL_BATCH + 1)
-        .all(&db)
-        .await
-        .map_err(db_err)?;
-
-    // One extra row tells us whether a further batch remains without a second
-    // COUNT query.
-    let remaining = uncompiled.len() as u64 > BACKFILL_BATCH;
-
-    let mut task_ids = Vec::new();
-    for ws in uncompiled.into_iter().take(BACKFILL_BATCH as usize) {
-        match insert_run_and_enqueue_compile(&db, ws.id, None, None, true).await {
-            Ok(task_id) => task_ids.push(task_id),
-            // One bad workspace shouldn't abort the whole backfill — log and
-            // keep going so the rest still get queued.
-            Err(e) => {
-                tracing::error!(?e, workspace_id = %ws.id, "backfill: enqueue failed; skipping");
-            }
-        }
-    }
-
-    Ok(Json(BackfillResponse {
-        enqueued: task_ids.len(),
-        remaining,
-        task_ids,
-    }))
 }

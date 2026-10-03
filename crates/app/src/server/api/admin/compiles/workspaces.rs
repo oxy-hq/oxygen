@@ -6,13 +6,15 @@ use axum::Json;
 use axum::extract::Query;
 use axum::response::Response;
 use chrono::{DateTime, Utc};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{DatabaseBackend, FromQueryResult, Statement};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{connect, db_err};
+use super::{connect, db_err, listing_scope};
+use crate::server::api::admin::scope::org_scope_clause;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct WorkspacesQuery {
     /// Cap on rows returned. Defaults to 50, clamped to 1..=200.
     #[serde(default)]
@@ -111,17 +113,42 @@ impl From<WorkspaceAggRow> for WorkspaceRow {
 /// workspace_id) is joined to `workspaces` for name/path/current pointer, and
 /// LATERAL sub-selects pull the current revision's status/sha and the latest
 /// (and latest-ready) revision per workspace — no N+1 across workspaces.
-pub(super) async fn list_workspaces(
+///
+/// Narrowed to the caller's grant scope in the `WHERE`, ahead of `LIMIT`/`OFFSET`.
+pub async fn list_workspaces(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(query): Query<WorkspacesQuery>,
 ) -> Result<Json<WorkspacesResponse>, Response> {
     let db = connect().await?;
+    let reach = listing_scope(&db, &actor).await?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200) as i64;
     let offset = query.offset.unwrap_or(0) as i64;
 
+    let q_param: Option<String> = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let status_param: Option<String> = query
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+
     // All user input is bound ($1..$4) — never interpolated. `q` is wrapped in
-    // %..% inside SQL via concat so the bound value stays a plain string.
-    let sql = "\
-        SELECT \
+    // %..% inside SQL via concat so the bound value stays a plain string. The
+    // grant scope, when the caller is bounded, is bound after them.
+    let mut values: Vec<sea_orm::Value> = vec![
+        limit.into(),
+        offset.into(),
+        q_param.into(),
+        status_param.into(),
+    ];
+    let in_scope = org_scope_clause("w.org_id", reach.as_deref(), &mut values);
+    let sql = format!(
+        "SELECT \
             w.id AS workspace_id, \
             w.name AS workspace_name, \
             w.path AS workspace_path, \
@@ -159,32 +186,15 @@ pub(super) async fn list_workspaces(
         WHERE (w.path IS NOT NULL OR agg.revision_count IS NOT NULL) \
             AND ($3::text IS NULL OR w.id::text ILIKE '%' || $3 || '%' \
                  OR w.name ILIKE '%' || $3 || '%') \
-            AND ($4::text IS NULL OR cur.status = $4) \
+            AND ($4::text IS NULL OR cur.status = $4){in_scope} \
         ORDER BY latest.started_at DESC NULLS LAST \
-        LIMIT $1 OFFSET $2";
-
-    let q_param: Option<String> = query
-        .q
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    let status_param: Option<String> = query
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
+        LIMIT $1 OFFSET $2"
+    );
 
     let rows = WorkspaceAggRow::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
-        [
-            limit.into(),
-            offset.into(),
-            q_param.into(),
-            status_param.into(),
-        ],
+        values,
     ))
     .all(&db)
     .await

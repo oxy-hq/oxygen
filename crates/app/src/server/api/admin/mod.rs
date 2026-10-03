@@ -19,7 +19,13 @@ pub mod compiles;
 pub mod delegation;
 pub mod explorer;
 pub mod internal_jobs;
+mod internal_jobs_dead_letter;
+mod internal_jobs_fleet;
+mod internal_jobs_reach;
+mod internal_jobs_rows;
 pub mod metrics;
+mod metrics_pricing;
+mod metrics_rollup;
 pub mod oltp;
 pub mod org_subdomains;
 pub mod orgs_admin;
@@ -28,13 +34,18 @@ pub mod partners;
 pub mod routing;
 pub mod scope;
 pub mod users_admin;
-// `pub(crate)`: the module's handlers stay internal — only the two readers the
-// extracted `oxy-api-partner-console` surface needs are re-exported below, matching
-// the narrower `admin::apps` pattern (export the fns, not the whole module).
+// `pub(crate)`: the module stays internal and only what a caller outside this crate
+// needs is re-exported below, matching the narrower `admin::apps` pattern (export the
+// fns, not the whole module) — the two readers the extracted
+// `oxy-api-partner-console` surface uses, and the two handlers, which
+// `tests/platform/admin_staff_scope` drives as a bounded grant.
 pub(crate) mod workspace_health;
 pub mod workspaces_admin;
 
-pub use workspace_health::{WorkspaceHealthRow, health_rollup};
+pub use workspace_health::{
+    TriggerEvalParams, WorkspaceHealthResponse, WorkspaceHealthRow, health_rollup,
+    list_workspace_health, trigger_workspace_health_eval,
+};
 
 use axum::Router;
 use axum::middleware;

@@ -4,8 +4,17 @@
 //! so an operator can go from "this conversation looks broken" straight to the
 //! owning tenant.
 //!
-//! Mounted under the permissive `oxy_owner_or_app_admin` guard with the rest
-//! of `/admin/*`. Read-only — no mutations live here.
+//! Gated on `Action::PlatformExplorer` (`view_tenants`) by `admin::router`.
+//! Read-only — no mutations live here.
+//!
+//! **Narrowed by the caller's grant scope, in the query.** "Cross-tenant" is what an
+//! unbounded grant sees. `view_tenants` is held by every Global Admin whatever their
+//! bound and the capability gate cannot see scope, so both searches add
+//! `w.org_id = ANY(<the grant's orgs>)` for a bounded caller — ahead of `LIMIT` and
+//! inside the `COUNT(*) OVER()` window, so neither a page nor the total includes a
+//! row from an org the grant does not name. A thread or run whose workspace has no
+//! org (or that has no workspace) is platform-level: unbounded grants and the Global
+//! Owner only. See `admin::scope::list_scope`.
 //!
 //! Results are paginated (`page`, `page_size`, 1-indexed) and can be narrowed
 //! with `status` and `source_type` filters on top of the free-text `search`.
@@ -34,8 +43,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::internal_jobs::{connect, db_err};
+use super::scope::{list_scope, org_scope_clause};
 use crate::server::router::AppState;
 use axum::response::{IntoResponse, Response};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -43,15 +54,16 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/explorer/runs", get(search_runs))
 }
 
-#[derive(Deserialize)]
-struct SearchQuery {
-    search: Option<String>,
-    status: Option<String>,
-    source_type: Option<String>,
-    /// Scope results to one tenant's workspaces. Omitted/empty = all tenants.
-    org_id: Option<String>,
-    page: Option<u64>,
-    page_size: Option<u64>,
+#[derive(Deserialize, Default)]
+pub struct SearchQuery {
+    pub search: Option<String>,
+    pub status: Option<String>,
+    pub source_type: Option<String>,
+    /// Scope results to one tenant's workspaces. Omitted/empty = every tenant the
+    /// caller's grant reaches.
+    pub org_id: Option<String>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
 }
 
 /// Validate and normalize the optional `org_id` filter.
@@ -75,11 +87,11 @@ fn normalize_org_id(raw: Option<String>) -> Result<Option<Uuid>, StatusCode> {
 /// A page of rows plus enough metadata to render pagination controls without
 /// a separate `COUNT(*)` round trip.
 #[derive(Serialize, Debug)]
-struct PagedResponse<T> {
-    items: Vec<T>,
-    total: i64,
-    page: u64,
-    page_size: u64,
+pub struct PagedResponse<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub page: u64,
+    pub page_size: u64,
 }
 
 struct Pagination {
@@ -120,25 +132,35 @@ pub struct ThreadRow {
     pub total_count: i64,
 }
 
-async fn search_threads(
+pub async fn search_threads(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<PagedResponse<ThreadRow>>, Response> {
     let db = connect().await?;
-    let search = q.search.unwrap_or_default();
-    let like = format!("%{search}%");
-    let source_type = q.source_type.unwrap_or_default();
-    // Threads have no `status` column; the explorer's status filter maps onto
-    // `is_processing` ("live" = still running, "done" = finished).
-    let status = q.status.unwrap_or_default();
+    let scope = list_scope(&db, &actor)
+        .await
+        .map_err(IntoResponse::into_response)?;
     let org_id = normalize_org_id(q.org_id).map_err(IntoResponse::into_response)?;
     let pagination = paginate(q.page, q.page_size);
+    let search = q.search.unwrap_or_default();
 
-    let rows = ThreadRow::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        // $1 = raw term (exact-id match + empty-term passthrough), $2 = ILIKE
-        // pattern, $3 = source_type filter, $4 = status filter ("live" /
-        // "done" / ""), $5 = limit, $6 = offset, $7 = org_id scope (NULL =
-        // all tenants). Threads link to a workspace via `project_id`.
+    // $1 = raw term (exact-id match + empty-term passthrough), $2 = ILIKE
+    // pattern, $3 = source_type filter, $4 = status filter ("live" / "done" /
+    // ""), $5 = limit, $6 = offset, $7 = org_id filter (NULL = no filter), then
+    // the grant-scope array when the caller is bounded. Threads link to a
+    // workspace via `project_id`; they have no `status` column, so the status
+    // filter maps onto `is_processing`.
+    let mut values: Vec<sea_orm::Value> = vec![
+        search.clone().into(),
+        format!("%{search}%").into(),
+        q.source_type.unwrap_or_default().into(),
+        q.status.unwrap_or_default().into(),
+        pagination.limit.into(),
+        pagination.offset.into(),
+        org_id.into(),
+    ];
+    let in_scope = org_scope_clause("w.org_id", scope.as_deref(), &mut values);
+    let sql = format!(
         "SELECT t.id AS id, t.title AS title, left(t.input, 200) AS input_snippet, \
                 t.source_type AS source_type, t.is_processing AS is_processing, \
                 t.created_at AS created_at, u.email AS user_email, \
@@ -155,18 +177,14 @@ async fn search_threads(
            AND ($4 = '' \
                 OR ($4 = 'live' AND t.is_processing) \
                 OR ($4 = 'done' AND NOT t.is_processing)) \
-           AND ($7 IS NULL OR w.org_id = $7) \
+           AND ($7 IS NULL OR w.org_id = $7){in_scope} \
          ORDER BY t.created_at DESC \
-         LIMIT $5 OFFSET $6",
-        [
-            search.into(),
-            like.into(),
-            source_type.into(),
-            status.into(),
-            pagination.limit.into(),
-            pagination.offset.into(),
-            org_id.into(),
-        ],
+         LIMIT $5 OFFSET $6"
+    );
+    let rows = ThreadRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        sql,
+        values,
     ))
     .all(&db)
     .await
@@ -196,22 +214,33 @@ pub struct RunRow {
     pub total_count: i64,
 }
 
-async fn search_runs(
+pub async fn search_runs(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<PagedResponse<RunRow>>, Response> {
     let db = connect().await?;
-    let search = q.search.unwrap_or_default();
-    let like = format!("%{search}%");
-    let status = q.status.unwrap_or_default();
-    let source_type = q.source_type.unwrap_or_default();
+    let scope = list_scope(&db, &actor)
+        .await
+        .map_err(IntoResponse::into_response)?;
     let org_id = normalize_org_id(q.org_id).map_err(IntoResponse::into_response)?;
     let pagination = paginate(q.page, q.page_size);
+    let search = q.search.unwrap_or_default();
 
-    let rows = RunRow::find_by_statement(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        // $1 = raw term, $2 = ILIKE pattern, $3 = task_status filter,
-        // $4 = source_type filter, $5 = limit, $6 = offset, $7 = org_id scope
-        // (NULL = all tenants). Originating user comes via the run's thread.
+    // $1 = raw term, $2 = ILIKE pattern, $3 = task_status filter,
+    // $4 = source_type filter, $5 = limit, $6 = offset, $7 = org_id filter
+    // (NULL = no filter), then the grant-scope array when the caller is
+    // bounded. Originating user comes via the run's thread.
+    let mut values: Vec<sea_orm::Value> = vec![
+        search.clone().into(),
+        format!("%{search}%").into(),
+        q.status.unwrap_or_default().into(),
+        q.source_type.unwrap_or_default().into(),
+        pagination.limit.into(),
+        pagination.offset.into(),
+        org_id.into(),
+    ];
+    let in_scope = org_scope_clause("w.org_id", scope.as_deref(), &mut values);
+    let sql = format!(
         "SELECT ar.id AS id, left(ar.question, 200) AS question_snippet, \
                 ar.task_status AS task_status, ar.source_type AS source_type, \
                 ar.error_message AS error_message, ar.created_at AS created_at, \
@@ -227,18 +256,14 @@ async fn search_runs(
          WHERE ($1 = '' OR ar.question ILIKE $2 OR ar.error_message ILIKE $2 OR ar.id = $1) \
            AND ($3 = '' OR ar.task_status = $3) \
            AND ($4 = '' OR ar.source_type = $4) \
-           AND ($7 IS NULL OR w.org_id = $7) \
+           AND ($7 IS NULL OR w.org_id = $7){in_scope} \
          ORDER BY ar.created_at DESC \
-         LIMIT $5 OFFSET $6",
-        [
-            search.into(),
-            like.into(),
-            status.into(),
-            source_type.into(),
-            pagination.limit.into(),
-            pagination.offset.into(),
-            org_id.into(),
-        ],
+         LIMIT $5 OFFSET $6"
+    );
+    let rows = RunRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        sql,
+        values,
     ))
     .all(&db)
     .await

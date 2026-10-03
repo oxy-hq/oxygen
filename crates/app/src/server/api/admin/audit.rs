@@ -1,9 +1,9 @@
 //! `/api/admin/audit` — platform audit-log search for Oxy staff.
 //!
-//! Read-only view over the append-only `audit_events` stream at the **platform**
-//! scope (all orgs/partners). Runs under the permissive `/admin` guard
-//! (owner-or-app-admin), like the other ops surfaces. Filtering/paging is done
-//! in the DB via [`audit::search_events`].
+//! Read-only view over the append-only `audit_events` stream. Gated on
+//! `Action::PlatformAudit` (`view_audit`) by `admin::router`, and narrowed to the
+//! caller's grant scope here — the gate cannot see scope. Filtering, scoping and
+//! paging are all done in the DB via [`audit::search_events`].
 
 use axum::Json;
 use axum::Router;
@@ -140,7 +140,16 @@ impl From<entity::audit_events::Model> for AuditEventDto {
     }
 }
 
+/// `GET /admin/audit` — search the audit stream, newest first.
+///
+/// **Narrowed by the caller's grant scope, in the query.** `view_audit` is held by every
+/// Global Admin whatever their bound, and the capability gate cannot see scope, so
+/// unfenced this handed a grant bounded to one org every other tenant's trail. A bounded
+/// reader gets the events of the orgs their grant names and nothing else: asking for
+/// `?org_id=` outside it returns an empty page, and an event with no org — a
+/// platform-level action — is visible only to an unbounded grant and the Global Owner.
 pub async fn list_audit(
+    oxy_auth::extractor::AuthenticatedUserExtractor(actor): oxy_auth::extractor::AuthenticatedUserExtractor,
     OriginalUri(uri): OriginalUri,
     Query(q): Query<AuditQuery>,
 ) -> Result<Paged<AuditEventDto>, StatusCode> {
@@ -154,6 +163,7 @@ pub async fn list_audit(
         org_id: q.org_id,
         outcome: q.outcome,
         q: q.q,
+        org_scope: crate::server::api::admin::scope::list_scope(&db, &actor).await?,
     };
     // CLAMPED AT BOTH ENDS. `?limit=0` past a top-only clamp is an infinite
     // pagination loop, not an empty page: the over-fetch reads one row,

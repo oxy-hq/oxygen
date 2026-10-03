@@ -9,7 +9,9 @@
 //! available; the unit suite here keeps fast feedback on the parts that
 //! can run without one.
 
-use super::{QueueStatusCounts, accumulate, extract_task_type, redact_secrets, scheduled_jobs};
+use super::super::internal_jobs_fleet::scheduled_jobs;
+use super::super::internal_jobs_rows::{extract_task_type, redact_secrets};
+use super::{QueueStatusCounts, accumulate};
 use serde_json::json;
 
 #[test]

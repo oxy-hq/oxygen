@@ -4,11 +4,14 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::Response;
-use sea_orm::{DatabaseConnection, EntityTrait};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AuthenticatedUser;
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{BATCH_MAX_IDS, connect, error_body, insert_run_and_enqueue_compile, promote_one};
+use crate::server::api::admin::scope;
 
 // POST /admin/compiles/batch/run — enqueue a compile per workspace
 
@@ -35,7 +38,8 @@ pub struct BatchRunResponse {
 /// Enqueue a compile for each requested workspace. A single bad id (missing
 /// workspace, enqueue failure) is reported in its result row and does not abort
 /// the rest of the batch.
-pub(super) async fn batch_run_compile(
+pub async fn batch_run_compile(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Json(req): Json<BatchRunRequest>,
 ) -> Result<Json<BatchRunResponse>, Response> {
     if req.workspace_ids.len() > BATCH_MAX_IDS {
@@ -62,7 +66,7 @@ pub(super) async fn batch_run_compile(
     let mut results = Vec::with_capacity(workspace_ids.len());
     let mut enqueued = 0usize;
     for workspace_id in workspace_ids {
-        let row = match run_one_compile(&db, workspace_id, req.promote).await {
+        let row = match run_one_compile(&db, &actor, workspace_id, req.promote).await {
             Ok(task_id) => {
                 enqueued += 1;
                 BatchRunResultRow {
@@ -83,20 +87,25 @@ pub(super) async fn batch_run_compile(
     Ok(Json(BatchRunResponse { enqueued, results }))
 }
 
-/// Confirm the workspace exists, then enqueue a compile. Returns the task id or
-/// a flat operator-facing error string for the batch result row.
+/// Confirm the workspace exists **and is within the caller's grant**, then enqueue
+/// a compile. Returns the task id or a flat operator-facing error string for the
+/// batch result row.
+///
+/// The ids arrive in the body, where no path-based guard can see them, so the fence
+/// is per item — and an out-of-scope workspace reports the same "not found" a
+/// missing one does, so a batch cannot be used to probe the workspace directory.
 async fn run_one_compile(
     db: &DatabaseConnection,
+    actor: &AuthenticatedUser,
     workspace_id: Uuid,
     promote: bool,
 ) -> Result<String, String> {
-    let exists = entity::workspaces::Entity::find_by_id(workspace_id)
-        .one(db)
+    scope::deny_out_of_scope_for_workspace(db, actor, workspace_id)
         .await
-        .map_err(|e| format!("{e}"))?;
-    if exists.is_none() {
-        return Err(format!("workspace {workspace_id} not found"));
-    }
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND => format!("workspace {workspace_id} not found"),
+            _ => "platform grant could not be read".to_string(),
+        })?;
     insert_run_and_enqueue_compile(db, workspace_id, None, None, promote)
         .await
         .map_err(|e| {
@@ -128,7 +137,8 @@ pub struct BatchPromoteResponse {
 /// Promote each requested revision via `promote_one`. A single failure
 /// (not found, not promotable, DB error) is captured in its result row without
 /// aborting the rest of the batch.
-pub(super) async fn batch_promote(
+pub async fn batch_promote(
+    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
     Json(req): Json<BatchPromoteRequest>,
 ) -> Result<Json<BatchPromoteResponse>, Response> {
     if req.revision_ids.len() > BATCH_MAX_IDS {
@@ -154,7 +164,7 @@ pub(super) async fn batch_promote(
     let mut results = Vec::with_capacity(revision_ids.len());
     let mut promoted = 0usize;
     for revision_id in revision_ids {
-        let row = match promote_one(&db, revision_id).await {
+        let row = match promote_one(&db, &actor, revision_id).await {
             Ok(workspace_id) => {
                 promoted += 1;
                 BatchPromoteResultRow {

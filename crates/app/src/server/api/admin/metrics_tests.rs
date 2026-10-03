@@ -2,7 +2,8 @@
 //! exercise `build_overview` over hand-built rows, which is where the
 //! per-model pricing and the day/model/org rollups actually happen.
 
-use super::{DayModelRow, OrgModelRow, build_overview};
+use super::super::metrics_pricing::build_overview;
+use super::super::metrics_rollup::{DayModelRow, OrgModelRow};
 use uuid::Uuid;
 
 fn day_row(day: &str, model: Option<&str>, input: i64, output: i64, runs: i64) -> DayModelRow {
