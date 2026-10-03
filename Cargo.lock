@@ -10142,6 +10142,7 @@ name = "oxy-test-utils"
 version = "0.5.154"
 dependencies = [
  "migration",
+ "rand 0.10.2",
  "sea-orm",
  "sea-orm-migration",
  "serde",

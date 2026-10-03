@@ -50,7 +50,10 @@
 //! key (distinct from [`MIGRATION_LOCK_KEY`] and every other caller's) around
 //! the critical section, exactly like the migration bootstrap does.
 
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement,
+};
+use std::time::{Duration, Instant};
 use tokio::sync::OnceCell;
 
 /// Fast path only: skips re-migrating when one process asks twice. Correctness
@@ -111,13 +114,56 @@ pub(crate) fn database_url() -> Option<String> {
 /// to serialize its own critical section across nextest's per-process test
 /// execution — see "Serializing a test's own critical section" at the top of
 /// this file for why `#[serial_test::serial]` doesn't substitute for it here.
+///
+/// # Why `acquire` polls instead of blocking
+///
+/// `conn.execute_unprepared("SELECT pg_advisory_lock(key)")` used to block
+/// inside that one statement until the lock was free. That statement is an
+/// open implicit transaction — it holds a snapshot — for as long as it
+/// waits. [`MIGRATION_LOCK_KEY`]'s holder runs `m20260911_000002`'s `CREATE
+/// INDEX CONCURRENTLY` as part of the same migration, which must itself wait
+/// for every *other* session's snapshot to clear before it can finish. Six
+/// `kind(lib)` test processes blocked inside `pg_advisory_lock` are six open
+/// snapshots the holder's `CONCURRENTLY` build is waiting on — so the holder
+/// cannot finish migrating, cannot release the lock, and the waiters cannot
+/// stop waiting. That snapshot wait IS a real, trackable lock-manager wait —
+/// `WaitForOlderSnapshots` goes through `VirtualXactLock` and shows up in
+/// `pg_locks` as a `virtualxid` wait — so Postgres's deadlock detector isn't
+/// blind to it. What it can't see is the OTHER leg: the advisory lock sits
+/// on its own idle, separate connection, which isn't waiting on anything
+/// from Postgres's point of view. "This connection only releases once that
+/// OTHER connection's migration finishes" is a dependency our application
+/// code enforces, not one any backend-to-backend wait expresses — so the
+/// cycle has no edge back to the holder, and the detector reports nothing
+/// wrong. Observed 2026-10-02: six tests hung ~2,400s before panicking.
+///
+/// [`acquire`](Self::acquire) instead polls `pg_try_advisory_lock`, which
+/// returns immediately either way — no statement is ever left open between
+/// attempts, so no waiter holds a snapshot and the cycle can't form.
 pub(crate) struct AdvisoryLock {
     conn: DatabaseConnection,
     key: i64,
 }
 
+/// Total time [`AdvisoryLock::acquire`] polls before panicking.
+///
+/// `kind(lib)` tests run one process per test, so several can legitimately
+/// poll the same key at once; the normal wait is however long one process's
+/// migration run takes (seconds). 120s is generous against that and a small
+/// fraction of the 2,400s silent hang the old blocking wait produced — past
+/// it, something is actually stuck (most likely a migrator that panicked
+/// while holding the lock), and failing loudly beats hanging quietly.
+const LOCK_WAIT_BOUND: Duration = Duration::from_secs(120);
+
+/// First retry delay; doubles up to [`LOCK_POLL_MAX_BACKOFF`] between polls.
+const LOCK_POLL_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const LOCK_POLL_MAX_BACKOFF: Duration = Duration::from_secs(1);
+
 impl AdvisoryLock {
-    /// Blocks until every other session holding `key` has released it.
+    /// Polls until every other session holding `key` has released it, or
+    /// panics after [`LOCK_WAIT_BOUND`] naming the key and elapsed wait. See
+    /// the struct docs for why this polls `pg_try_advisory_lock` rather than
+    /// blocking in `pg_advisory_lock`.
     pub(crate) async fn acquire(url: &str, key: i64) -> Self {
         // A pool of exactly one connection — see the struct doc for why.
         let mut opt = ConnectOptions::new(url.to_string());
@@ -125,10 +171,36 @@ impl AdvisoryLock {
         let conn = Database::connect(opt)
             .await
             .expect("connect for advisory lock");
-        conn.execute_unprepared(&format!("SELECT pg_advisory_lock({key})"))
-            .await
-            .expect("acquire advisory lock");
-        Self { conn, key }
+
+        let start = Instant::now();
+        let mut backoff = LOCK_POLL_INITIAL_BACKOFF;
+        loop {
+            let locked = conn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT pg_try_advisory_lock($1) AS locked",
+                    [key.into()],
+                ))
+                .await
+                .expect("poll advisory lock")
+                .and_then(|row| row.try_get::<bool>("", "locked").ok())
+                .expect("pg_try_advisory_lock returns a row with a bool column");
+            if locked {
+                return Self { conn, key };
+            }
+
+            let elapsed = start.elapsed();
+            if elapsed >= LOCK_WAIT_BOUND {
+                panic!(
+                    "advisory lock {key} still held after {:.0}s — a migrator likely \
+                     crashed while holding it, or a cold database is still migrating; \
+                     see crates/app/src/server/test_support.rs::AdvisoryLock",
+                    elapsed.as_secs_f64()
+                );
+            }
+            tokio::time::sleep(jittered_backoff(backoff)).await;
+            backoff = (backoff * 2).min(LOCK_POLL_MAX_BACKOFF);
+        }
     }
 
     pub(crate) async fn release(self) {
@@ -145,6 +217,13 @@ impl AdvisoryLock {
     }
 }
 
+/// Equal-jitter backoff: half of `backoff` fixed, half random — so several
+/// waiters on the same key don't retry in lockstep forever.
+fn jittered_backoff(backoff: Duration) -> Duration {
+    let half_ms = (backoff.as_millis() as u64 / 2).max(1);
+    Duration::from_millis(half_ms + rand::random_range(0..=half_ms))
+}
+
 /// Advisory-lock key for the singleton `airway_deployment_config` row.
 ///
 /// Shared rather than declared twice on purpose: two test files write that row
@@ -159,3 +238,7 @@ pub(crate) const AIRWAY_DEPLOYMENT_LOCK_KEY: i64 = 0x4149_5257_4450;
 
 /// Message to print when skipping, so a skipped run says which knob to turn.
 pub(crate) const SKIP_MSG: &str = "skipping: OXY_DATABASE_URL not set";
+
+#[cfg(test)]
+#[path = "test_support_tests.rs"]
+mod tests;

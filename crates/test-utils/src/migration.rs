@@ -129,8 +129,12 @@
 //! surviving `.if_not_exists()` guards in `crates/migration` still earn their
 //! keep on; closing it means giving both bootstraps one key.
 
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbErr};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, DbErr,
+    Statement,
+};
 use sea_orm_migration::MigratorTrait;
+use std::time::{Duration, Instant};
 
 /// Advisory-lock key for the shared-test-database migration sequence.
 ///
@@ -243,21 +247,87 @@ impl<'a> DomainMigrations<'a> {
 /// copy of `oxy-app`'s `server::test_support::AdvisoryLock` rather than a
 /// dependency: that one is `pub(crate)` inside the binary crate, and a
 /// platform test crate cannot reach into it.
+///
+/// # Why `acquire` polls instead of blocking
+///
+/// A blocking `SELECT pg_advisory_lock(key)` holds this session's implicit
+/// transaction — and its snapshot — open for however long the wait takes.
+/// [`migrate_shared_test_db`] runs central's migrations under this lock,
+/// which include `CREATE INDEX CONCURRENTLY` ones (e.g.
+/// `m20260911_000002_function_failure_fingerprint_index`, `use_transaction()
+/// -> Some(false)`), and those must wait out every *other* session's open
+/// snapshot before they can finish. So another test binary blocked here,
+/// waiting for this same lock on this same database, is a snapshot the lock
+/// holder's own concurrent index build is waiting on — the holder can't
+/// finish migrating, can't release the lock, and the waiter can't stop
+/// waiting. That snapshot wait IS a real, trackable lock-manager wait —
+/// `WaitForOlderSnapshots` goes through `VirtualXactLock` and shows up in
+/// `pg_locks` as a `virtualxid` wait — so the deadlock detector isn't blind
+/// to it. What it can't see is the OTHER leg: the advisory lock sits on its
+/// own idle, separate connection, which isn't waiting on anything from
+/// Postgres's point of view. "This connection only releases once the OTHER
+/// connection's migration finishes" is a dependency [`migrate_shared_test_db`]
+/// enforces in application code, not one any backend-to-backend wait
+/// expresses — so the cycle has no edge back to the holder, and the
+/// detector reports nothing wrong. Polling `pg_try_advisory_lock` instead
+/// keeps every attempt to one short statement, so no snapshot is ever held
+/// open between attempts.
 struct AdvisoryLock {
     conn: DatabaseConnection,
     key: i64,
 }
 
+/// Total time [`AdvisoryLock::acquire`] polls before giving up. Generous
+/// relative to a normal migration run (seconds), and a small fraction of the
+/// multi-minute silent hang a blocking wait could produce here — past it,
+/// something is genuinely stuck and the fixture should say so.
+const LOCK_WAIT_BOUND: Duration = Duration::from_secs(120);
+const LOCK_POLL_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const LOCK_POLL_MAX_BACKOFF: Duration = Duration::from_secs(1);
+
 impl AdvisoryLock {
-    /// Blocks until every other session holding `key` has released it.
+    /// Polls until every other session holding `key` has released it, or
+    /// errors after [`LOCK_WAIT_BOUND`] naming the key and elapsed wait. See
+    /// the struct docs for why this polls rather than blocks.
     async fn acquire(url: &str, key: i64) -> Result<Self, DbErr> {
         // A pool of exactly one connection — see the struct doc for why.
         let mut opt = ConnectOptions::new(url.to_string());
         opt.max_connections(1).min_connections(1);
         let conn = Database::connect(opt).await?;
-        conn.execute_unprepared(&format!("SELECT pg_advisory_lock({key})"))
-            .await?;
-        Ok(Self { conn, key })
+
+        let start = Instant::now();
+        let mut backoff = LOCK_POLL_INITIAL_BACKOFF;
+        loop {
+            let row = conn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT pg_try_advisory_lock($1) AS locked",
+                    [key.into()],
+                ))
+                .await?;
+            // Fail now, not after a 120s wait that only then reports a
+            // misleading "still held" — a missing/malformed row means the
+            // poll itself is broken, not that someone else holds the lock.
+            let locked = row
+                .ok_or_else(|| DbErr::Custom("pg_try_advisory_lock returned no row".to_string()))?
+                .try_get::<bool>("", "locked")
+                .map_err(|e| DbErr::Custom(format!("pg_try_advisory_lock row: {e}")))?;
+            if locked {
+                return Ok(Self { conn, key });
+            }
+
+            let elapsed = start.elapsed();
+            if elapsed >= LOCK_WAIT_BOUND {
+                return Err(DbErr::Custom(format!(
+                    "advisory lock {key} still held after {:.0}s — a migrator in another \
+                     test binary likely crashed while holding it, or is still migrating a \
+                     cold database",
+                    elapsed.as_secs_f64()
+                )));
+            }
+            tokio::time::sleep(jittered_backoff(backoff)).await;
+            backoff = (backoff * 2).min(LOCK_POLL_MAX_BACKOFF);
+        }
     }
 
     async fn release(self) {
@@ -270,4 +340,11 @@ impl AdvisoryLock {
             .execute_unprepared(&format!("SELECT pg_advisory_unlock({key})"))
             .await;
     }
+}
+
+/// Equal-jitter backoff: half of `backoff` fixed, half random — so several
+/// test binaries waiting on the same key don't retry in lockstep.
+fn jittered_backoff(backoff: Duration) -> Duration {
+    let half_ms = (backoff.as_millis() as u64 / 2).max(1);
+    Duration::from_millis(half_ms + rand::random_range(0..=half_ms))
 }

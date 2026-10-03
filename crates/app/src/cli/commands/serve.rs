@@ -27,6 +27,7 @@ use oxy_cameras::CamerasMigrator;
 use oxy_shared::errors::OxyError;
 use std::future::IntoFuture;
 use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use tower::{ServiceBuilder, service_fn};
@@ -405,6 +406,29 @@ async fn seed_app_admins_from_env() -> Result<(), OxyError> {
 /// assuming this space is otherwise empty.
 const MIGRATION_ADVISORY_LOCK_KEY: i64 = 0x0078_795F_6D69_6772; // "\0xy_migr"
 
+/// How long [`run_database_migrations`] polls for [`MIGRATION_ADVISORY_LOCK_KEY`]
+/// before giving up.
+///
+/// Must comfortably exceed how long a full `run_all_migrators` can take on a
+/// cold database — a release can ship several `CREATE INDEX CONCURRENTLY`
+/// migrations at once (see `migration::m20260911_000002_*`), each of which
+/// waits out every other session's in-flight transaction before it can
+/// finish. The pool's own startup timeouts (`ACQUIRE_TIMEOUT` = 30s,
+/// `CONNECT_TIMEOUT` = 10s, `oxy_platform::db::client`) bound a single
+/// connection operation, not "wait for a sibling node's entire migration
+/// run" — this is deliberately much larger. Past this bound, either a
+/// migrator died while holding the lock or something else is wrong, and the
+/// node should fail its boot loudly rather than hang.
+const MIGRATION_LOCK_WAIT_BOUND: Duration = Duration::from_secs(300);
+
+/// First retry delay when polling the lock; doubles up to
+/// [`MIGRATION_LOCK_POLL_MAX_BACKOFF`] between attempts.
+const MIGRATION_LOCK_POLL_INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+const MIGRATION_LOCK_POLL_MAX_BACKOFF: Duration = Duration::from_secs(1);
+
+/// How often, while waiting, to print that we're still waiting.
+const MIGRATION_LOCK_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
 /// True when `OXY_SKIP_MIGRATIONS` is set. The long-lived pods — serve, compile,
 /// worker — consult this so a dedicated migrate Job / the canonical StatefulSet
 /// migrator owns the schema and the rest skip on boot (uniform intent across the
@@ -432,6 +456,11 @@ pub(crate) async fn run_database_migrations(_enterprise: bool) -> Result<(), Oxy
     // released even when a migrator fails, so a failure can't wedge other nodes
     // behind a stuck lock. A process that dies mid-migration drops its
     // connection, and Postgres releases the lock on disconnect too.
+    //
+    // A waiter POLLS for the lock (`acquire_migration_lock`) rather than
+    // blocking inside `pg_advisory_lock` — see that function's docs for why a
+    // blocking wait here can deadlock against this very migrator's own
+    // `CREATE INDEX CONCURRENTLY` migrations.
     let mut lock_conn = db
         .get_postgres_connection_pool()
         .acquire()
@@ -441,13 +470,7 @@ pub(crate) async fn run_database_migrations(_enterprise: bool) -> Result<(), Oxy
                 "migrations: failed to acquire lock connection: {e}"
             ))
         })?;
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(MIGRATION_ADVISORY_LOCK_KEY)
-        .execute(&mut *lock_conn)
-        .await
-        .map_err(|e| {
-            OxyError::RuntimeError(format!("migrations: failed to take advisory lock: {e}"))
-        })?;
+    acquire_migration_lock(&mut lock_conn).await?;
     println!("migrations: advisory lock held, running SeaORM migrations");
 
     let result = run_all_migrators(&db).await;
@@ -461,6 +484,76 @@ pub(crate) async fn run_database_migrations(_enterprise: bool) -> Result<(), Oxy
     }
 
     result
+}
+
+/// Polls `pg_try_advisory_lock` for [`MIGRATION_ADVISORY_LOCK_KEY`] rather
+/// than blocking in `pg_advisory_lock`.
+///
+/// A blocking wait holds this connection's implicit transaction — and the
+/// snapshot that comes with it — open for however long the wait takes. This
+/// migrator's own `run_all_migrators` includes `CREATE INDEX CONCURRENTLY`
+/// migrations (`use_transaction() -> Some(false)`), which must wait for
+/// every *other* session's open snapshot to clear before they can finish. So
+/// a second node blocking here while waiting for this lock is a snapshot the
+/// lock holder's own concurrent index build is waiting on — the holder can't
+/// finish migrating, can't release the lock, and the waiter can't stop
+/// waiting. That snapshot wait IS a real, trackable lock-manager wait —
+/// `WaitForOlderSnapshots` goes through `VirtualXactLock` and shows up in
+/// `pg_locks` as a `virtualxid` wait — so the deadlock detector isn't blind
+/// to it. What it can't see is the OTHER leg: `lock_conn` is its own idle,
+/// separate connection, which isn't waiting on anything from Postgres's
+/// point of view. "This connection only releases once `db`'s migration
+/// finishes" is a dependency this function's own code enforces, not one any
+/// backend-to-backend wait expresses — so the cycle has no edge back to the
+/// holder, and the detector reports nothing wrong.
+///
+/// Polling instead keeps every attempt to one short statement, so no
+/// snapshot is ever held open between attempts and the cycle can't form.
+/// Logs progress every [`MIGRATION_LOCK_LOG_INTERVAL`] and fails with a
+/// named cause after [`MIGRATION_LOCK_WAIT_BOUND`] rather than hanging.
+async fn acquire_migration_lock(lock_conn: &mut sqlx::PgConnection) -> Result<(), OxyError> {
+    let start = Instant::now();
+    let mut backoff = MIGRATION_LOCK_POLL_INITIAL_BACKOFF;
+    let mut next_log = MIGRATION_LOCK_LOG_INTERVAL;
+    loop {
+        let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(MIGRATION_ADVISORY_LOCK_KEY)
+            .fetch_one(&mut *lock_conn)
+            .await
+            .map_err(|e| {
+                OxyError::RuntimeError(format!("migrations: failed to poll advisory lock: {e}"))
+            })?;
+        if locked {
+            return Ok(());
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed >= MIGRATION_LOCK_WAIT_BOUND {
+            return Err(OxyError::RuntimeError(format!(
+                "migrations: advisory lock {MIGRATION_ADVISORY_LOCK_KEY} still held after \
+                 {:.0}s — another node's migrator likely died while holding it, or is still \
+                 migrating a cold database. Giving up rather than hanging.",
+                elapsed.as_secs_f64()
+            )));
+        }
+        if elapsed >= next_log {
+            println!(
+                "migrations: still waiting for the advisory lock (held by another node) — \
+                 {:.0}s elapsed",
+                elapsed.as_secs_f64()
+            );
+            next_log += MIGRATION_LOCK_LOG_INTERVAL;
+        }
+        tokio::time::sleep(jittered_backoff(backoff)).await;
+        backoff = (backoff * 2).min(MIGRATION_LOCK_POLL_MAX_BACKOFF);
+    }
+}
+
+/// Equal-jitter backoff: half of `backoff` fixed, half random — so several
+/// nodes waiting on the same lock don't retry in lockstep.
+fn jittered_backoff(backoff: Duration) -> Duration {
+    let half_ms = (backoff.as_millis() as u64 / 2).max(1);
+    Duration::from_millis(half_ms + rand::random_range(0..=half_ms))
 }
 
 /// Run every domain's migrator in dependency order. The caller holds the
