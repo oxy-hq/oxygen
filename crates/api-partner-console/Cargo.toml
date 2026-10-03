@@ -21,6 +21,7 @@ rust-version.workspace = true
 # crate never forces it back on via resolver-v2 unification.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }     # AppState (router state) + the audit reader
+oxy-tenancy = { workspace = true }
 oxy-server-authz = { workspace = true } # partner_authz, partner_allows, assume_liveness, enforce_for/Action/Resource
 oxy-authz = { workspace = true }        # Action/Resource rings (app_mgmt access checks)
 oxy = { workspace = true }              # database client

@@ -23,10 +23,12 @@ use uuid::Uuid;
 use super::{db, internal, require_org_scope};
 use crate::partner_context::PartnerActor;
 use oxy_app::server::api::admin::apps::handlers as admin_apps;
-use oxy_app::server::api::org_teams::dto::{
+use oxy_tenancy::org_teams::dto::{
     AppAccessDto, AppAccessSummaryDto, OrgMemberOptionDto, SetAppAccessRequest, TeamDto,
 };
-use oxy_app::server::api::org_teams::service as access_service;
+use oxy_tenancy::org_teams::service as access_service;
+// The cache-flushing wrapper: the flushed caches live in oxy-app (custom apps).
+use oxy_app::server::api::org_teams::service::write_access;
 use oxy_app_core::audit::{self, ActorType, AuditEntry};
 use oxy_server_authz::partner_authz::{PartnerCapability, PartnerScope};
 
@@ -242,7 +244,7 @@ pub async fn set_app_access(
     let app = load_manageable_app(&db, &scope, &actor, app_id).await?;
     let (org_id, name, slug) = (app.org_id, app.name.clone(), app.slug.clone());
 
-    let out = access_service::write_access(&db, &app, actor.id, &req).await?;
+    let out = write_access(&db, &app, actor.id, &req).await?;
 
     // Every partner action lands in the client org's append-only log — this one
     // especially, since it changes who can see the client's data.

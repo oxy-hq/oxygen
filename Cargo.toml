@@ -9,6 +9,7 @@ members = [
   "crates/api-documents",
   "crates/api-frontline",
   "crates/route-catalog",
+  "crates/tenancy",
   "crates/api-source-upload",
   "crates/app-core",
   "crates/auth",
@@ -98,6 +99,7 @@ oxy = { path = "crates/core" }
 oxy-airlayer-compat = { path = "crates/infrastructure/semantic" }
 oxy-auth = { path = "crates/auth" }
 oxy-app-core = { path = "crates/app-core" }
+oxy-tenancy = { path = "crates/tenancy" }
 oxy-authz = { path = "crates/authz" }
 oxy-server-authz = { path = "crates/server-authz" }
 oxy-billing = { path = "crates/billing" }

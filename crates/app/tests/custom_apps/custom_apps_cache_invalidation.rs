@@ -117,6 +117,22 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
 ];
 
+/// Files below `oxy-app` that write a row but cannot name the invalidator,
+/// because the cache lives above them — so they take the flush as a callback
+/// and `oxy-app` wraps them. `(writer, wrapper, why)`.
+///
+/// Not an exemption: the writer is excused only while its WRAPPER calls the
+/// invalidator, so the obligation moves to a file this test still checks
+/// rather than disappearing. The writer's signature makes the callback
+/// mandatory, so a caller cannot skip it by omission either.
+const DELEGATED: &[(&str, &str, &str)] = &[(
+    "tenancy/src/org_teams/service.rs",
+    "app/src/server/api/org_teams/service.rs",
+    "`write_access` updates `apps.visibility` and runs a caller-supplied \
+     `on_committed`; oxy-app's 4-arg wrapper, which every surface calls, \
+     passes `invalidate_app_resolution_cache`",
+)];
+
 /// The seed commands, which are the only row writers outside the server. They
 /// build rows against a fresh database with no serving process attached, so
 /// they hold no obligation — skipping them is cheaper than three allowlist
@@ -216,6 +232,16 @@ fn row_writers_acknowledge_the_resolution_cache() {
         }
         let rel = relative_to_src(path);
         if ALLOWED.iter().any(|(allowed, _)| rel.ends_with(allowed)) {
+            continue;
+        }
+        if let Some((_, wrapper, _)) = DELEGATED.iter().find(|(w, _, _)| rel == *w) {
+            let wrapper_src = fs::read_to_string(crates_root().join(wrapper)).unwrap_or_default();
+            if wrapper_src.contains(INVALIDATOR) {
+                continue;
+            }
+            offenders.push(format!(
+                "  {rel}  (writes `{needle}`; delegates to {wrapper}, which no longer calls it)"
+            ));
             continue;
         }
         offenders.push(format!("  {rel}  (writes `{needle}`)"));

@@ -31,6 +31,8 @@ crates/
                             #   workspace; built only by `--features dev-dynamic` (just dev-backend-dyn)
   app-core/                 # (oxy-app-core) Shared app-layer seam: audit, serve_mode,
                             #   org/custom-app subdomain dispatch, member authz
+  tenancy/                  # (oxy-tenancy) Tenancy domain logic shared across contexts: org teams +
+                            #   app-access grants. Below oxy-app and the api-* surfaces; no routes
   core/                     # (oxy) Core platform library, published as "oxy"
   auth/                     # (oxy-auth) Authentication — who you are
   authz/                    # (oxy-authz) Authorization — what you may do. THE authority model

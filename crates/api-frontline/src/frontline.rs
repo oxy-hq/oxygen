@@ -1314,11 +1314,11 @@ pub async fn enrol(
             // access settings file, one per app, so this door is not the one
             // way to reach an app that leaves no trail.
             for app in &granted {
-                oxy_app::server::api::org_teams::audit::record(
+                oxy_tenancy::org_teams::audit::record(
                     &db,
                     &ctx,
                     &actor,
-                    oxy_app::server::api::org_teams::audit::APP_ACCESS_CHANGED,
+                    oxy_tenancy::org_teams::audit::APP_ACCESS_CHANGED,
                     (
                         "app",
                         app.id,

@@ -21,6 +21,7 @@ rust-version.workspace = true
 # oxy-server keeps dropping V8.
 oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }  # AppState (router state) + the audit writer
+oxy-tenancy = { workspace = true }
 oxy = { workspace = true }           # database client
 oxy-auth = { workspace = true }      # AuthenticatedUserExtractor + the PIN primitives
 oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl

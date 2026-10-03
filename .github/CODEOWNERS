@@ -101,6 +101,7 @@ crates/oxy-compile/                                @luong-komorebi @NTtanh
 crates/project/                                    @luong-komorebi @NTtanh
 crates/workspace-fs/                               @luong-komorebi @NTtanh
 crates/app-core/                                   @luong-komorebi @haitrr
+crates/tenancy/                                    @luong-komorebi @NTtanh
 internal-docs/multi-instance-fleet.md              @luong-komorebi @NTtanh
 internal-docs/compile-boundary.md                  @luong-komorebi @NTtanh
 internal-docs/ephemeral-workspace-environments.md  @luong-komorebi @NTtanh

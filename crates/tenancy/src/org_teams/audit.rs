@@ -42,29 +42,29 @@ pub const APP_ACCESS_CHANGED: AccessAction = AccessAction {
     staff: "admin.app.access_changed",
 };
 
-pub(super) const TEAM_CREATED: AccessAction = AccessAction {
+pub const TEAM_CREATED: AccessAction = AccessAction {
     tenant: "team.created",
     staff: "admin.team.created",
 };
 
-pub(super) const TEAM_UPDATED: AccessAction = AccessAction {
+pub const TEAM_UPDATED: AccessAction = AccessAction {
     tenant: "team.updated",
     staff: "admin.team.updated",
 };
 
 /// Worth its own name rather than folding into `team.updated`: deleting a team
 /// cascades `app_team_grants`, so it silently revokes every app the team reached.
-pub(super) const TEAM_DELETED: AccessAction = AccessAction {
+pub const TEAM_DELETED: AccessAction = AccessAction {
     tenant: "team.deleted",
     staff: "admin.team.deleted",
 };
 
-pub(super) const TEAM_MEMBER_ADDED: AccessAction = AccessAction {
+pub const TEAM_MEMBER_ADDED: AccessAction = AccessAction {
     tenant: "team.member_added",
     staff: "admin.team.member_added",
 };
 
-pub(super) const TEAM_MEMBER_REMOVED: AccessAction = AccessAction {
+pub const TEAM_MEMBER_REMOVED: AccessAction = AccessAction {
     tenant: "team.member_removed",
     staff: "admin.team.member_removed",
 };

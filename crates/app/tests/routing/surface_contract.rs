@@ -34,9 +34,12 @@ const BACKLOG: &[(&str, &str)] = &[
     ("api-frontline", "server::api::frontline_grants"),
     ("api-frontline", "server::api::frontline_admin"),
     // tenancy (api-tenancy) and the operating graph
-    ("api-frontline", "server::api::org_teams"),
     ("api-frontline", "server::api::operating_graph"),
-    ("api-partner-console", "server::api::org_teams"),
+    // write_access flushes oxy-app's custom-app caches; the rest is oxy-tenancy
+    (
+        "api-partner-console",
+        "server::api::org_teams::service::write_access",
+    ),
     ("api-partner-console", "server::api::organizations"),
     ("api-partner-console", "server::api::admin::apps"),
     (

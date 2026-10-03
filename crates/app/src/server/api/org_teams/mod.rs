@@ -6,12 +6,13 @@
 //! the missing half, built around the unit an org admin actually thinks in: a named
 //! team, not a per-app list of people.
 //!
-//! - [`service`] — the surface-independent behavior (read/write access, list teams).
-//! - [`audit`] — the append-only rows every write here leaves in the org's log.
+//! - [`service`], [`audit`], [`dto`] — the behavior, the audit rows and the wire
+//!   types, which live in the `oxy-tenancy` domain crate (custom apps and
+//!   frontline use them too). `service` here adds only the cache-flushing
+//!   `write_access` wrapper.
 //! - [`handlers`] — the org's team roster (`/orgs/{id}/teams/*`).
 //! - [`app_access`] — one app's visibility + grants
 //!   (`/orgs/{id}/apps/{id}/access`).
-//! - [`dto`] — the wire types, notably the `kind: "user" | "team"` grant union.
 //!
 //! Everything here is gated by `Action::AppAccessManage`: an org officer, Oxy staff,
 //! or a `manage_apps` partner. All routes are `FleetOk` — pure Postgres, no
@@ -24,9 +25,7 @@
 //! `admin::apps::access` and `partner_console::app_access`.
 
 pub mod app_access;
-// `pub` for the extracted `oxy-api-frontline` crate: enrolling a worker with
-// app grants records the same `app.access_changed` event these routes do.
-pub mod audit;
-pub mod dto;
 pub mod handlers;
 pub mod service;
+
+pub use oxy_tenancy::org_teams::{audit, dto};

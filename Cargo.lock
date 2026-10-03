@@ -9332,6 +9332,7 @@ dependencies = [
  "oxy-cameras",
  "oxy-oltp",
  "oxy-shared",
+ "oxy-tenancy",
  "sea-orm",
  "serde",
  "serde_json",
@@ -9413,6 +9414,7 @@ dependencies = [
  "oxy-authz",
  "oxy-server-authz",
  "oxy-shared",
+ "oxy-tenancy",
  "sea-orm",
  "serde",
  "serde_json",
@@ -9541,6 +9543,7 @@ dependencies = [
  "oxy-simulation",
  "oxy-slack-client",
  "oxy-telemetry",
+ "oxy-tenancy",
  "oxy-test-utils",
  "oxy-workspace-fs",
  "oxy-world-model",
@@ -10114,6 +10117,23 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-tenancy"
+version = "0.5.154"
+dependencies = [
+ "entity",
+ "http 1.5.0",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-server-authz",
+ "sea-orm",
+ "serde",
+ "tracing",
+ "utoipa",
+ "uuid",
  "workspace-hack",
 ]
 

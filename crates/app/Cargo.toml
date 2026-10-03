@@ -70,6 +70,7 @@ agentic-automation = { workspace = true }
 oxy-airlayer-compat = { workspace = true }
 oxy-auth = { workspace = true }
 oxy-app-core = { workspace = true }
+oxy-tenancy = { workspace = true }
 oxy-authz = { workspace = true }
 oxy-server-authz = { workspace = true }
 oxy-billing = { workspace = true }
