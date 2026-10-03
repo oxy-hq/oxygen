@@ -25,7 +25,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use super::{db, internal, require_org_scope};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app::server::api::organizations::{
     find_live_invitation, normalize_invite_email, supersede_expired_invitations,
 };

@@ -37,11 +37,14 @@ const WORKSPACE_FS: &[&str] = &[
 /// so the exemption cannot quietly cover a second kind of access in that file.
 const DECLARED_ACCESSES: &[(&str, &str)] = &[
     // `POST /partners/{id}/orgs` creates the client org's Default workspace;
-    // `oxy_api_partner_console::route_roles()` declares it IdeOnly, and that
+    // `oxy_api_tenancy::partner_console::route_roles()` declares it IdeOnly, and that
     // crate's own test asserts the declaration classifies.
-    ("api-partner-console/src/orgs.rs", "workspace_provisioning"),
     (
-        "api-partner-console/src/orgs.rs",
+        "api-tenancy/src/partner_console/orgs.rs",
+        "workspace_provisioning",
+    ),
+    (
+        "api-tenancy/src/partner_console/orgs.rs",
         "create_default_workspace",
     ),
     // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
@@ -85,12 +88,15 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // diskless when those declarations were written; the reconcile config
         // read under `/admin/workspace-health` runs on the WORKER, not on the
         // request path, which is why it is not an exception here.
-        // Extracted from `src/server/api/partner_console` into a sibling crate.
+        // Extracted from `src/server/api/partner_console` into a sibling crate,
+        // now the `partner_console` module of `oxy-api-tenancy`. ONLY that
+        // module: the crate's `onboarding` module clones and scaffolds on purpose
+        // and declares every route IdeOnly, so scanning it here would be wrong.
         // The guard asserts its own sources are non-empty precisely so a move
         // like that fails loudly instead of silently covering nothing. Merged
         // at the root with no prefix; the one route that needs the ide is in
         // its `route_roles()`, and exempted by `DECLARED_ACCESSES`.
-        "../api-partner-console/src",
+        "../api-tenancy/src/partner_console",
         // Extracted from `src/server/api/documents`, merged at the root the same
         // way. Postgres + presigned S3 everywhere; `POST /documents/ask` resolves
         // an agent config out of the working copy (through the project context,

@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use super::{db, internal};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app_core::audit::{self, ActorType, AuditEntry};
 
 /// Who may change partner access: an **owner or admin of the partner org** (the same

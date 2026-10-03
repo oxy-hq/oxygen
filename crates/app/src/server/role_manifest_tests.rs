@@ -152,7 +152,7 @@ fn ide_routes_classify_against_live_uri() {
         RouteRole::IdeOnly
     );
     // `/orgs/{id}/onboarding/github` moved with the rest of the onboarding
-    // surface — asserted in `crates/api-onboarding/tests/route_roles.rs`.
+    // surface — asserted in `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
     // The two halves of /details: git state needs the ide, metadata does not.
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/git-state"),
@@ -1196,7 +1196,7 @@ fn manifest_covers_every_git_route() {
         );
     }
     // `onboarding-readiness` moved out with the rest of the onboarding surface
-    // — see `crates/api-onboarding/tests/route_roles.rs`.
+    // — see `crates/api-tenancy/tests/integration/onboarding_route_roles.rs`.
 }
 
 /// Coverage guard for routes that read NODE-LOCAL state the compile

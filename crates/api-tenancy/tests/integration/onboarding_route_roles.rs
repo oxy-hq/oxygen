@@ -14,7 +14,7 @@
 //! builder and raw `std::fs` rather than taking a working-copy extractor, so
 //! mounting it on the fleet door compiles clean.
 
-use oxy_api_onboarding::{route_roles, workspace_route_roles};
+use oxy_api_tenancy::onboarding::{route_roles, workspace_route_roles};
 use oxy_app::surface::roles::{RouteRole, classify, install_route_declarations_for_tests_with};
 
 const ORG: &str = "11111111-1111-1111-1111-111111111111";

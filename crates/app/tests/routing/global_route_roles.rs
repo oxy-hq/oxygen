@@ -29,7 +29,7 @@ fn org_routes_that_write_a_workspace_reach_the_ide() {
     // builder clones and writes a working copy, and the delete removes one.
     // The three `/onboarding/*` creators moved to the `oxy-api-onboarding`
     // sibling crate, and their guard moved with them
-    // (`crates/api-onboarding/tests/route_roles.rs`). They cannot be asserted
+    // (`crates/api-tenancy/tests/integration/onboarding_route_roles.rs`). They cannot be asserted
     // here: `oxy-app` does not depend on that crate, so the declaration set this
     // helper installs does not contain them and `classify` would answer with the
     // FleetOk default — a failure that says nothing about the product.

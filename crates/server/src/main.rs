@@ -106,15 +106,15 @@ type SeamRouter = axum::Router<oxy_app::server::router::AppState>;
 /// own probe only merges against a stand-in, never against its siblings.
 fn api_seam_routes() -> SeamRouter {
     oxy_api_github::routes()
-        .merge(oxy_api_partner_console::routes())
-        .merge(oxy_api_onboarding::routes())
+        .merge(oxy_api_tenancy::partner_console::routes())
+        .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
         .merge(oxy_api_frontline::routes())
 }
 
 /// The sibling crates merged inside the `/{workspace_id}` nest.
 fn workspace_seam_routes() -> SeamRouter {
-    oxy_api_onboarding::workspace_routes().merge(oxy_api_source_upload::routes())
+    oxy_api_tenancy::onboarding::workspace_routes().merge(oxy_api_source_upload::routes())
 }
 
 fn main() {
@@ -258,9 +258,9 @@ fn main() {
             let seams = SurfaceSeams {
                 api: SurfaceSeam {
                     routes: api_seam_routes(),
-                    decls: oxy_api_onboarding::route_roles()
+                    decls: oxy_api_tenancy::onboarding::route_roles()
                         .iter()
-                        .chain(oxy_api_partner_console::route_roles())
+                        .chain(oxy_api_tenancy::partner_console::route_roles())
                         .chain(oxy_api_documents::route_roles())
                         .chain(oxy_api_frontline::route_roles())
                         .copied()
@@ -268,7 +268,7 @@ fn main() {
                 },
                 workspace: SurfaceSeam {
                     routes: workspace_seam_routes(),
-                    decls: oxy_api_onboarding::workspace_route_roles()
+                    decls: oxy_api_tenancy::onboarding::workspace_route_roles()
                         .iter()
                         .chain(oxy_api_source_upload::route_roles())
                         .copied()
@@ -282,6 +282,9 @@ fn main() {
                 // oxy-app (see `oxy-route-catalog`). Passed, not global: a
                 // composition that dropped it would serve an empty catalog.
                 catalog: oxy_route_catalog::catalog(),
+                // No extracted surface has a staff-console section yet; the
+                // tenancy surface's `orgs_admin` / `workspaces_admin` are next.
+                admin: Vec::new(),
             };
             let exit_code = match cli(seams).await {
                 Ok(_) => 0,

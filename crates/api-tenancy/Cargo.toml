@@ -1,0 +1,42 @@
+[package]
+name = "oxy-api-tenancy"
+version.workspace = true
+authors.workspace = true
+# Editing this crate re-runs oxy-route-catalog's build script (it watches this
+# tree; see crates/route-catalog/build_route_catalog.rs) but does NOT rebuild
+# oxy-app — the catalog sits above it for exactly that reason.
+description = "Tenancy HTTP surface — org onboarding (workspace create/demo/import, readiness, uploads) and the partner console — mounted by oxy-server"
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Imported through `oxy_app::surface` (the S4 prelude) plus the backlog that
+# `crates/app/tests/routing/surface_contract.rs` lists. oxy-app never depends
+# back on this crate. default-features off so a `--no-default-features` build
+# of oxy-server keeps dropping V8.
+oxy-app = { path = "../app", default-features = false }
+oxy-app-core = { workspace = true }     # AppState (router state) + the audit reader
+oxy-tenancy = { workspace = true }      # org teams / app-access grants
+oxy-server-authz = { workspace = true } # partner_authz, partner_allows, assume_liveness, enforce_for
+oxy-authz = { workspace = true }        # Action/Resource rings (app_mgmt access checks)
+oxy = { workspace = true }
+oxy-auth = { workspace = true }
+oxy-shared = { workspace = true }       # fleet_role::RouteRoleDecl
+oxy-project = { workspace = true }
+oxy-git = { workspace = true }
+oxy-llm = { workspace = true }          # validate_provider_key (test-llm-key)
+entity = { workspace = true }
+axum = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }            # tokio::spawn (fire-and-forget invite email) + #[tokio::test]
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

@@ -120,7 +120,7 @@ fn the_admin_stack_the_manual_run_test_copies_still_matches_production() {
     let global = code("crates/app/src/server/router/global.rs");
     assert!(
         global.contains(
-            ".nest_declared(\"/admin\",admin::router().layer(middleware::from_fn(oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware)),admin::router_roles())"
+            ".nest_declared(\"/admin\",admin::router(admin).layer(middleware::from_fn(oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware)),&admin_decls)"
         ),
         "the `/admin` nest no longer applies exactly `oxy_owner_or_app_admin_guard_middleware`"
     );

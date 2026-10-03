@@ -9378,53 +9378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-api-onboarding"
-version = "0.5.154"
-dependencies = [
- "axum",
- "chrono",
- "entity",
- "oxy",
- "oxy-app",
- "oxy-app-core",
- "oxy-auth",
- "oxy-git",
- "oxy-llm",
- "oxy-project",
- "oxy-shared",
- "sea-orm",
- "serde",
- "tokio",
- "tracing",
- "uuid",
- "workspace-hack",
-]
-
-[[package]]
-name = "oxy-api-partner-console"
-version = "0.5.154"
-dependencies = [
- "axum",
- "chrono",
- "entity",
- "oxy",
- "oxy-app",
- "oxy-app-core",
- "oxy-auth",
- "oxy-authz",
- "oxy-server-authz",
- "oxy-shared",
- "oxy-tenancy",
- "sea-orm",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "uuid",
- "workspace-hack",
-]
-
-[[package]]
 name = "oxy-api-source-upload"
 version = "0.5.154"
 dependencies = [
@@ -9438,6 +9391,33 @@ dependencies = [
  "oxy-shared",
  "serde",
  "serde_json",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "oxy-api-tenancy"
+version = "0.5.154"
+dependencies = [
+ "axum",
+ "chrono",
+ "entity",
+ "oxy",
+ "oxy-app",
+ "oxy-app-core",
+ "oxy-auth",
+ "oxy-authz",
+ "oxy-git",
+ "oxy-llm",
+ "oxy-project",
+ "oxy-server-authz",
+ "oxy-shared",
+ "oxy-tenancy",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
  "uuid",
  "workspace-hack",
@@ -9998,9 +9978,8 @@ dependencies = [
  "oxy-api-documents",
  "oxy-api-frontline",
  "oxy-api-github",
- "oxy-api-onboarding",
- "oxy-api-partner-console",
  "oxy-api-source-upload",
+ "oxy-api-tenancy",
  "oxy-app",
  "oxy-app-dylib",
  "oxy-observability",

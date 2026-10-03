@@ -32,7 +32,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{api_router, internal_api_router};
 pub use openapi::{build_openapi_doc, openapi_router};
-pub use seams::{SurfaceSeam, SurfaceSeams};
+pub use seams::{AdminSection, SurfaceSeam, SurfaceSeams};
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
 // can hold it without depending on `oxy-app`. Re-exported here so every existing
@@ -121,6 +121,7 @@ pub fn route_declarations() -> Vec<role_router::Decl> {
         Router::new(),
         Vec::new(),
         Default::default(),
+        Vec::new(),
     );
     let (_, local) = protected::build_local_protected_routes(
         app_state.clone(),
@@ -625,7 +626,7 @@ mod router_split_tests {
     /// `api_router`'s auth stack would answer 401 first and hide which it was.
     #[tokio::test]
     async fn self_serve_org_creation_is_not_mounted() {
-        let router = global::build_global_routes(&bare_app_state())
+        let router = global::build_global_routes(&bare_app_state(), Vec::new())
             .into_router()
             .with_state(bare_app_state());
         let req = Request::builder()
@@ -639,6 +640,45 @@ mod router_split_tests {
             StatusCode::METHOD_NOT_ALLOWED,
             "POST /orgs must not reach a handler"
         );
+    }
+
+    /// An extracted surface's staff-console section (`SurfaceSeams::admin`)
+    /// is reachable under `/admin`, sits behind the capability it named, and
+    /// carries its pod-placement declarations under the same prefix — the
+    /// three things the seam promises, checked on the real global tree.
+    #[tokio::test]
+    async fn an_admin_section_mounts_under_admin_behind_its_capability() {
+        let section = AdminSection {
+            capability: crate::server::authz::Action::PlatformOrgs,
+            routes: Router::new().route("/seam-probe", axum::routing::post(|| async { "ok" })),
+            decls: vec![oxy_shared::fleet_role::RouteRoleDecl {
+                method: "POST",
+                path: "/seam-probe",
+                role: oxy_shared::fleet_role::RouteRole::IdeOnly,
+            }],
+        };
+        let (router, decls, _) =
+            global::build_global_routes(&bare_app_state(), vec![section]).into_parts();
+        assert!(
+            decls.iter().any(|(m, p, r)| *m == "POST"
+                && p == "/admin/seam-probe"
+                && *r == oxy_shared::fleet_role::RouteRole::IdeOnly),
+            "the section's declaration must land under /admin"
+        );
+
+        // No authenticated user: an unguarded handler would answer 200, and an
+        // unmounted one 404. The staff guards answer 401 before either.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/admin/seam-probe")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router
+            .with_state(bare_app_state())
+            .oneshot(req)
+            .await
+            .expect("oneshot");
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
     /// `entry::api_router` merges the public tree into the protected tree
@@ -656,7 +696,7 @@ mod router_split_tests {
     fn public_and_global_trees_do_not_collide() {
         let _merged = public::build_public_routes(&bare_app_state())
             .into_router()
-            .merge(global::build_global_routes(&bare_app_state()).into_router());
+            .merge(global::build_global_routes(&bare_app_state(), Vec::new()).into_router());
     }
 
     #[tokio::test]

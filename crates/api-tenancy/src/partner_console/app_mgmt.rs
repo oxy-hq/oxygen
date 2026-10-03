@@ -21,7 +21,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{db, internal, require_org_scope};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app::server::api::admin::apps::handlers as admin_apps;
 use oxy_tenancy::org_teams::dto::{
     AppAccessDto, AppAccessSummaryDto, OrgMemberOptionDto, SetAppAccessRequest, TeamDto,

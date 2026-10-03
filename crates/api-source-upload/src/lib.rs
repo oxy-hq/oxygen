@@ -42,7 +42,7 @@ pub fn routes() -> Router<AppState> {
         // Without this, axum 0.8's 2 MiB default governs and the handler's own
         // ceiling is unreachable — a larger report fails inside `field.bytes()`
         // as a 400, never the 413 the handler writes. At `Router` level rather
-        // than on the `MethodRouter` for the same reason `oxy-api-onboarding`
+        // than on the `MethodRouter` for the same reason `oxy-api-tenancy`'s `onboarding` module
         // gives: the latter can interact unexpectedly with outer CORS preflight
         // handling on axum 0.8.
         // `MAX_REPORT_BYTES` plus slack, because this bounds the whole

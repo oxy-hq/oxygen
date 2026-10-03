@@ -55,7 +55,7 @@ use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 use crate::server::api::middlewares::{app_scope_guard, oxy_owner_guard, platform_cap_guard};
 use crate::server::authz::Action;
 use crate::server::feature_flags;
-use crate::server::router::AppState;
+use crate::server::router::{AdminSection, AppState};
 
 /// Admin routes are flat under `/api/admin/*` after the 2026-04-28 redesign.
 /// Endpoints:
@@ -162,7 +162,9 @@ use crate::server::router::AppState;
 /// `internal_jobs::router()` is mounted separately at `/admin/internal-jobs`
 /// in `router::global` because its routes were flattened during the
 /// app-admin opening.
-pub(crate) fn router() -> Router<AppState> {
+/// `extracted` are the sections extracted surface crates contribute through
+/// `SurfaceSeams::admin` — see [`extracted_sections`].
+pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
     // route_layer applied per sub-router so only billing gets the strict
     // owner guard; everything else escalates to a capability, and anything
     // not named here runs only under the outer permissive guard.
@@ -246,12 +248,31 @@ pub(crate) fn router() -> Router<AppState> {
         // fleet-wide blast radius before it happens. If that stops holding, the
         // per-org row is the direction to take — not a second owner-only gate.
         .merge(airway_config::router().route_layer(cap(Action::PlatformOperate)))
+        // Sections from extracted surface crates, each behind the capability it
+        // names. Merged before the acting block below, so they are refused while
+        // acting exactly as the in-tree sections are.
+        .merge(extracted_sections(extracted))
         .route_layer(middleware::from_fn(assume::block_admin_while_acting));
 
     // Assume-role itself lives at `/api/assume`, NOT here — see `assume::router`.
     // It has to be reachable while acting (that's where the exit is) and by
     // partners (who are not staff and would be 403'd by this surface's guard).
     staff_surface
+}
+
+/// The sections extracted surfaces contribute, each wrapped in the capability
+/// guard it names. `oxy-app` applies the guard rather than the surface, so a
+/// section cannot reach the console without one.
+fn extracted_sections(sections: Vec<AdminSection>) -> Router<AppState> {
+    sections.into_iter().fold(Router::new(), |router, section| {
+        router.merge(
+            section
+                .routes
+                .route_layer(middleware::from_fn(platform_cap_guard::require(
+                    section.capability,
+                ))),
+        )
+    })
 }
 
 /// Which pod serves each route [`router`] mounts, relative to its `/admin` nest.
@@ -363,6 +384,28 @@ mod tests {
         router.oneshot(req).await.unwrap().status()
     }
 
+    /// The guard on an extracted section is `oxy-app`'s, not the surface's:
+    /// the same probe answers 200 bare and 401 once `extracted_sections` has
+    /// wrapped it in its capability. (The outer staff guard also answers 401,
+    /// so the real-router test cannot tell the two apart — this one can.)
+    #[tokio::test]
+    async fn extracted_sections_apply_the_capability_they_name() {
+        let probe = || Router::new().route("/probe", get(|| async { "ok" }));
+        let bare = probe().with_state(test_app_state());
+        assert_eq!(request_as(bare, "/probe", None).await, StatusCode::OK);
+
+        let guarded = extracted_sections(vec![AdminSection {
+            capability: Action::PlatformOrgs,
+            routes: probe(),
+            decls: Vec::new(),
+        }])
+        .with_state(test_app_state());
+        assert_eq!(
+            request_as(guarded, "/probe", None).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
     /// A non-owner caller gets 403 on billing, but 200 on the non-escalated paths.
     /// This pins the route_layer escalation itself.
     #[tokio::test]
@@ -455,7 +498,7 @@ mod tests {
     /// catches a doubled prefix.
     #[tokio::test]
     async fn oltp_admin_routes_are_mounted_on_the_real_router() {
-        let real_router = router().with_state(test_app_state());
+        let real_router = router(Vec::new()).with_state(test_app_state());
         let org = "d9830be4-c6a4-4c1c-9c1e-000000000002";
 
         for (method, path) in [
@@ -584,7 +627,7 @@ mod tests {
     /// MATCHED routes and an unmatched path bypasses it to axum's fallback.
     #[tokio::test]
     async fn airhouse_admin_routes_are_mounted_on_the_real_router() {
-        let real_router = router().with_state(test_app_state());
+        let real_router = router(Vec::new()).with_state(test_app_state());
         let ws = "3c6e0b8a-9c15-224a-8236-000000000001";
 
         for (method, path) in [
@@ -642,7 +685,7 @@ mod tests {
     /// to the original read one.
     #[tokio::test]
     async fn airway_config_is_mounted_on_the_real_router() {
-        let real_router = router().with_state(test_app_state());
+        let real_router = router(Vec::new()).with_state(test_app_state());
         let ws = "d9830be4-c6a4-4c1c-9c1e-000000000001";
 
         for (method, path) in [

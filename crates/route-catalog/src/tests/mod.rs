@@ -35,7 +35,7 @@ fn describe(route: &'static GeneratedRoute) -> RouteDescription {
 /// adding or renaming an endpoint does not churn it.
 ///
 /// A crate that mounts at **N** seams needs **N** entries, not one: a group
-/// another builder already satisfies pins nothing. `oxy-api-onboarding`
+/// another builder already satisfies pins nothing. `oxy-api-tenancy`
 /// fills two seams, and `/api/orgs` alone is satisfied by
 /// `build_global_routes` — so without the org entry below, dropping its
 /// org seed would lose eight endpoints with every guard still green.
@@ -47,7 +47,7 @@ const REQUIRED_GROUPS: &[&str] = &[
     "/api/health",
     "/api/auth/",
     "/api/orgs",
-    // The org seam of `oxy-api-onboarding`; `/api/orgs` above does not
+    // The org seam of `oxy-api-tenancy`'s onboarding module; `/api/orgs` above does not
     // cover it (see the note on N seams).
     "/api/orgs/{org_id}/onboarding",
     // `oxy-api-documents`: one seam, two subtrees — the reads at the root

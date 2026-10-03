@@ -2,10 +2,10 @@
 
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-/// The routes in [`crate::routes`] that may not take the FleetOk default.
+/// The routes in [`crate::partner_console::routes`] that may not take the FleetOk default.
 ///
 /// Stated here because `oxy-app` owns `RoleRouter` and cannot see these
-/// handlers — the same reason `oxy-api-onboarding` carries `route_roles()`.
+/// handlers — the same reason `oxy-api-tenancy`'s `onboarding` module carries `route_roles()`.
 /// Paths are absolute: `oxy-server` merges this crate at the protected-tree
 /// root, so there is no prefix to join.
 ///

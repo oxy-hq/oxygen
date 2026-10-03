@@ -12,7 +12,7 @@
 # cause, confirmed by calling the endpoint directly while holding a live
 # assume session as e2e@oxy.tech: `GET /partners/<acme>/own-apps` returns
 # 403. `require_own_org_authority`
-# (crates/api-partner-console/src/app_mgmt.rs:122-149) requires a REAL
+# (crates/api-tenancy/src/partner_console/app_mgmt.rs:122-149) requires a REAL
 # `org_members` Owner/Admin row for the caller in the partner org — which an
 # assume-role session deliberately never synthesizes
 # (crates/server-authz/src/partner_authz.rs's "never injected as a synthetic
@@ -62,7 +62,7 @@
 # the session again so the fleet is left clean, but do not run this
 # concurrently with another `e2e@oxy.tech` flow — the two will race.
 #
-# WHY FLEET-SENSITIVE: `crates/api-partner-console/src/lib.rs:51-55` states
+# WHY FLEET-SENSITIVE: `crates/api-tenancy/src/partner_console/mod.rs:51-55` states
 # the whole `/api/partners` surface is Postgres-only and deliberately
 # UNLISTED in `role_manifest.rs` — "FleetOk by default... a route added here
 # that touches the workspace FS ... would need an IdeOnly classification the

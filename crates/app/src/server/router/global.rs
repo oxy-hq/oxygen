@@ -18,12 +18,23 @@ use crate::server::api::chat;
 use crate::server::api::notifications;
 use crate::server::api::work;
 
-use oxy_shared::fleet_role::RouteRole;
+use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
-use super::AppState;
 use super::role_router::RoleRouter;
+use super::{AdminSection, AppState};
 
-pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
+pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>) -> RoleRouter {
+    // The extracted sections' declarations join the console's own, under the
+    // same `/admin` prefix; collected before `admin::router` takes the sections.
+    let admin_decls: Vec<RouteRoleDecl> = admin::router_roles()
+        .iter()
+        .copied()
+        .chain(
+            admin
+                .iter()
+                .flat_map(|section| section.decls.iter().copied()),
+        )
+        .collect();
     RoleRouter::new(app_state.clone())
         .route_fleet("/logout", get(user::logout))
         // Read-only. Customers do not create orgs: Oxy staff (`POST
@@ -145,10 +156,10 @@ pub(super) fn build_global_routes(app_state: &AppState) -> RoleRouter {
         // node-local disk. `admin::router_roles` states both.
         .nest_declared(
             "/admin",
-            admin::router().layer(middleware::from_fn(
+            admin::router(admin).layer(middleware::from_fn(
                 oxy_owner_or_app_admin_guard::oxy_owner_or_app_admin_guard_middleware,
             )),
-            admin::router_roles(),
+            &admin_decls,
         )
         // Internal Jobs is mounted as a sibling nest because its routes
         // were flattened (no `/internal-jobs/` prefix on each route). The

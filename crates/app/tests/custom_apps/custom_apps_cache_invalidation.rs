@@ -93,7 +93,7 @@ const ALLOWED: &[(&str, &str)] = &[
          deletion, and no field the serve path reads from the cached row",
     ),
     (
-        "api-partner-console/src/orgs.rs",
+        "api-tenancy/src/partner_console/orgs.rs",
         "creates orgs (a miss is never cached, so a new org needs no \
          invalidation) and renames only the display `name`, never the slug",
     ),

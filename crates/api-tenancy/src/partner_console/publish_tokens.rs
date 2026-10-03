@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{db, internal, require_org_scope};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app::server::api::custom_apps_publish_authz::consent_enabled;
 use oxy_app_core::audit::{self, ActorType, AuditEntry};
 use oxy_server_authz::partner_authz::{PartnerCapability, PartnerScope};

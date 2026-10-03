@@ -25,11 +25,8 @@ const BACKLOG: &[(&str, &str)] = &[
     ("api-documents", "server::api::custom_apps_gates"),
     ("api-documents", "server::api::custom_apps_storage"),
     ("api-frontline", "server::api::custom_apps_auth"),
-    ("api-partner-console", "server::api::custom_apps_auth"),
-    (
-        "api-partner-console",
-        "server::api::custom_apps_publish_authz",
-    ),
+    ("api-tenancy", "server::api::custom_apps_auth"),
+    ("api-tenancy", "server::api::custom_apps_publish_authz"),
     // frontline completion: this logic belongs IN api-frontline
     ("api-frontline", "server::api::frontline_grants"),
     ("api-frontline", "server::api::frontline_admin"),
@@ -37,21 +34,14 @@ const BACKLOG: &[(&str, &str)] = &[
     ("api-frontline", "server::api::operating_graph"),
     // write_access flushes oxy-app's custom-app caches; the rest is oxy-tenancy
     (
-        "api-partner-console",
+        "api-tenancy",
         "server::api::org_teams::service::write_access",
     ),
-    ("api-partner-console", "server::api::organizations"),
-    ("api-partner-console", "server::api::admin::apps"),
-    (
-        "api-partner-console",
-        "server::api::admin::WorkspaceHealthRow",
-    ),
-    ("api-partner-console", "server::api::admin::health_rollup"),
-    (
-        "api-partner-console",
-        "server::service::workspace_provisioning",
-    ),
-    ("api-onboarding", "server::service::workspace_provisioning"),
+    ("api-tenancy", "server::api::organizations"),
+    ("api-tenancy", "server::api::admin::apps"),
+    ("api-tenancy", "server::api::admin::WorkspaceHealthRow"),
+    ("api-tenancy", "server::api::admin::health_rollup"),
+    ("api-tenancy", "server::service::workspace_provisioning"),
 ];
 
 /// `path` is `prefix` or lies under it — on a segment boundary, so
@@ -137,11 +127,16 @@ fn surface_crates() -> Vec<(String, PathBuf)> {
 #[test]
 fn surfaces_reach_oxy_app_only_through_the_prelude() {
     let crates = surface_crates();
-    assert!(
-        crates.len() >= 6,
-        "found {} api-* crates — the scan lost its way",
-        crates.len()
-    );
+    // The scan is pointed at the right place if it finds every crate the
+    // backlog names. Not a count: surfaces merge (onboarding + partner console
+    // became `api-tenancy`), and a floor would fail each time one does.
+    for (name, _) in BACKLOG {
+        assert!(
+            crates.iter().any(|(n, _)| n == name),
+            "the scan found no `crates/{name}` although BACKLOG names it — the walk \
+             lost its way, or the crate moved and BACKLOG still has its old name"
+        );
+    }
 
     let mut violations = Vec::new();
     for (name, dir) in &crates {

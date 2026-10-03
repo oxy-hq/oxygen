@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::partner_context::{PartnerActor, partner_middleware};
+use crate::partner_console::partner_context::{PartnerActor, partner_middleware};
 use oxy_app_core::AppState;
 use oxy_app_core::audit::events_for_partner;
 use oxy_app_core::pagination::{self, Paged, trim_overfetch};

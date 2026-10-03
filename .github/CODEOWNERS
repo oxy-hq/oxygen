@@ -128,7 +128,7 @@ crates/platform/                                   @luong-komorebi @hotay
 internal-docs/platform-metrics.md                  @luong-komorebi @hotay
 
 # Partner distribution platform
-crates/api-partner-console/                        @luong-komorebi @NTtanh
+crates/api-tenancy/                                @luong-komorebi @NTtanh
 web-app/src/pages/partners/                        @luong-komorebi @NTtanh
 internal-docs/partner-platform.md                  @luong-komorebi @NTtanh
 
@@ -253,7 +253,8 @@ web-app/src/pages/launcher/                        @nresh @NTtanh
 internal-docs/apps-first-shell.md                  @nresh @NTtanh
 
 # Workspace onboarding (feature owner; files also churned by high-volume committers)
-crates/api-onboarding/                             @nresh @luong-komorebi
+crates/api-tenancy/src/onboarding/                 @nresh @luong-komorebi
+crates/api-tenancy/tests/integration/onboarding_route_roles.rs @nresh @luong-komorebi
 web-app/src/pages/onboarding/                      @nresh @luong-komorebi
 web-app/src/pages/create-workspace/                @nresh @luong-komorebi
 

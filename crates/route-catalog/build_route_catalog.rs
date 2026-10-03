@@ -53,7 +53,7 @@ struct RouterFn {
     imports: HashMap<String, Vec<String>>,
     /// Modules this file glob-imports (`use handlers::*`). A glob brings names
     /// into scope without naming them, so an unqualified handler can be defined
-    /// in any of these — `oxy-api-onboarding`'s `lib.rs` mounts
+    /// in any of these — `oxy-api-tenancy`'s `onboarding` module mounts
     /// `post(setup_demo)` on the strength of one.
     glob_imports: Vec<GlobImport>,
     /// Directory of the defining file, used to break `(module, fn)` ties.
@@ -125,7 +125,7 @@ struct Seed {
 /// `oxy-server` composition root fills: `SurfaceSeams::api`, merged beside the
 /// org tree at `/api`, `SurfaceSeams::workspace`, merged *inside* the
 /// `/{workspace_id}` tree, and `SurfaceSeams::public`, merged beside the public
-/// tree. A crate can use more than one — `oxy-api-onboarding` and
+/// tree. A crate can use more than one — `oxy-api-tenancy` and
 /// `oxy-api-frontline` do, which is why each has two seeds.
 const SEEDS: &[Seed] = &[
     Seed {
@@ -181,13 +181,13 @@ const SEEDS: &[Seed] = &[
     Seed {
         surface: "org",
         prefix: "/api",
-        module: "oxy_api_partner_console",
+        module: "oxy_api_tenancy::partner_console",
         function: "routes",
     },
     Seed {
         surface: "org",
         prefix: "/api",
-        module: "oxy_api_onboarding",
+        module: "oxy_api_tenancy::onboarding",
         function: "routes",
     },
     Seed {
@@ -212,13 +212,13 @@ const SEEDS: &[Seed] = &[
         module: "oxy_api_frontline",
         function: "public_routes",
     },
-    // `oxy-api-onboarding` also fills the `SurfaceSeams::workspace` seam, which lands
+    // `oxy-api-tenancy` (its onboarding module) also fills the `SurfaceSeams::workspace` seam, which lands
     // inside the `/{workspace_id}` tree rather than beside it — two mount
     // points, so two seeds.
     Seed {
         surface: "workspace",
         prefix: "/api/{workspace_id}",
-        module: "oxy_api_onboarding",
+        module: "oxy_api_tenancy::onboarding",
         function: "workspace_routes",
     },
     Seed {
@@ -240,8 +240,7 @@ const SEEDS: &[Seed] = &[
 /// webhooks, the worktree registry).
 ///
 /// REBUILD COST, deliberate — and it cuts against those crates' stated purpose.
-/// Both lists watch `crates/api-github/src`, `crates/api-partner-console/src`,
-/// `crates/api-onboarding/src`,
+/// Both lists watch `crates/api-github/src`, `crates/api-tenancy/src`,
 /// `crates/api-documents/src`, `crates/api-frontline/src` and
 /// `crates/api-source-upload/src`, none of which `oxy-app` depends on
 /// (`oxy-server` mounts them as siblings; they depend on `oxy-app`, not the
@@ -267,8 +266,7 @@ const DOC_DIRS: &[&str] = &[
     "crates/airhouse/src",
     "crates/oltp/src",
     "crates/api-github/src",
-    "crates/api-partner-console/src",
-    "crates/api-onboarding/src",
+    "crates/api-tenancy/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-source-upload/src",
@@ -295,8 +293,7 @@ pub const SOURCE_DIRS: &[&str] = &[
     "crates/cameras/src/routes",
     "crates/airhouse/src/api",
     "crates/api-github/src",
-    "crates/api-partner-console/src",
-    "crates/api-onboarding/src",
+    "crates/api-tenancy/src",
     "crates/api-documents/src",
     "crates/api-frontline/src",
     "crates/api-source-upload/src",

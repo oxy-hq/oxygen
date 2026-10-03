@@ -49,10 +49,13 @@ pub(super) fn build_protected_routes(
     extra_workspace_routes: Router<AppState>,
     extra_workspace_decls: Vec<oxy_shared::fleet_role::RouteRoleDecl>,
     catalog: RouteCatalog,
+    // Staff-console sections from extracted surfaces (`SurfaceSeams::admin`);
+    // they live in the global tree, so only cloud mode has them.
+    admin_sections: Vec<super::AdminSection>,
 ) -> (Router<AppState>, Vec<Decl>) {
     let root = RoleRouter::new(app_state.clone())
         .merge(build_catalog_routes(&app_state, catalog))
-        .merge(build_global_routes(&app_state));
+        .merge(build_global_routes(&app_state, admin_sections));
     // Beside the workspace tree, not in it: see `build_workspace_preview_routes`.
     let previews = build_workspace_preview_routes(&app_state)
         .map_router(|r| r.layer(middleware::from_fn(workspace_access_middleware)));
@@ -299,6 +302,7 @@ mod tests {
             Router::new(),
             Vec::new(),
             Default::default(),
+            Vec::new(),
         );
 
         let mut ambiguous = Vec::new();
@@ -386,6 +390,7 @@ mod tests {
             Router::new(),
             Vec::new(),
             Default::default(),
+            Vec::new(),
         );
         assert!(decls.len() > 150, "only {} declarations", decls.len());
 

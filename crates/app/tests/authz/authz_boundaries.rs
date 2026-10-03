@@ -107,7 +107,7 @@ const ALLOWED: &[(&str, &str)] = &[
          mis-modeled capability would silently become a hole instead of a loud 403",
     ),
     (
-        "api-partner-console/src/people.rs",
+        "api-tenancy/src/partner_console/people.rs",
         "legacy term for the partner-console ring",
     ),
     // ---- Deliberate non-merges. Different question, not a duplicated answer. ----

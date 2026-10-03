@@ -11,7 +11,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::{db, internal, require_org_scope};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_server_authz::partner_authz::PartnerCapability;
 
 #[derive(Serialize)]

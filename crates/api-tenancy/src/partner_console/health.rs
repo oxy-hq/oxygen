@@ -11,7 +11,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
 use super::{db, internal};
-use crate::partner_context::PartnerActor;
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app::server::api::admin::WorkspaceHealthRow;
 use oxy_app::server::api::admin::health_rollup;
 use oxy_server_authz::partner_authz::PartnerCapability;

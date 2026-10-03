@@ -35,11 +35,15 @@ const WRITE_HANDLERS: &[(&str, &str)] = &[
     ("src/server/api/apps.rs", "remove_integration_by_kind"),
     ("src/server/api/data_repo.rs", "add_repository"),
     ("src/server/api/data_repo.rs", "remove_repository"),
-    // Moved out of oxy-app into the `oxy-api-onboarding` sibling crate. The
+    // Moved out of oxy-app into the `oxy-api-onboarding` sibling crate, now
+    // `oxy-api-tenancy`'s `onboarding` module. The
     // path is relative to `crates/app`, and the guard still applies: crossing a
     // crate line does not stop a handler rewriting `config.yml`.
-    ("../api-onboarding/src/handlers.rs", "remove_database"),
-    ("../api-onboarding/src/handlers.rs", "remove_model"),
+    (
+        "../api-tenancy/src/onboarding/handlers.rs",
+        "remove_database",
+    ),
+    ("../api-tenancy/src/onboarding/handlers.rs", "remove_model"),
 ];
 
 #[test]

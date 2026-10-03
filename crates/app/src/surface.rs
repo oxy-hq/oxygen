@@ -49,6 +49,11 @@ pub use crate::server::router::is_allowed_origin;
 /// Router state for tests that mount a single handler.
 pub use crate::server::router::bare_app_state;
 
+/// A staff-console section under `/api/admin`, and the capabilities one may
+/// name. `oxy-app` applies the capability guard; the surface only names it.
+pub use crate::server::authz::Action;
+pub use crate::server::router::AdminSection;
+
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
     pub use crate::server::role_manifest::{
