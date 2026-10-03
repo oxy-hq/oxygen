@@ -120,6 +120,80 @@ export function workingTreeState(dir: string): WorkingTreeState {
   return { dirty: modified.length > 0, untracked, modified };
 }
 
+/**
+ * Does this checkout have the commit `sha`?
+ *
+ * False for a commit that exists on the remote but was never fetched here —
+ * this asks the local object store and nothing else.
+ */
+export function hasCommit(dir: string, sha: string): boolean {
+  return git(["cat-file", "-e", `${sha}^{commit}`], dir).status === 0;
+}
+
+/** Is `ancestor` reachable from `descendant`? Both must be commits this checkout has. */
+export function isAncestor(dir: string, ancestor: string, descendant = "HEAD"): boolean {
+  return git(["merge-base", "--is-ancestor", ancestor, descendant], dir).status === 0;
+}
+
+export interface CommitLine {
+  sha: string;
+  /** Committer date, `YYYY-MM-DD`. */
+  date: string;
+  author: string;
+  subject: string;
+}
+
+/** The commits in `range` (`a..b`) that touch `path`, newest first. */
+export function commitsTouching(dir: string, range: string, path: string): CommitLine[] {
+  const result = git(["log", "--format=%H%x1f%cs%x1f%an%x1f%s", range, "--", path], dir);
+  if (result.status !== 0) {
+    throw new CliError(`git log ${range} failed in ${dir}`, {
+      code: ExitCode.FAILURE,
+      detail: result.stderr.trim() || undefined
+    });
+  }
+  return result.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha = "", date = "", author = "", subject = ""] = line.split("\x1f");
+      return { sha, date, author, subject };
+    });
+}
+
+/** Tracked files matching `pathspec`, relative to the repo root `dir`. */
+export function trackedFiles(dir: string, pathspec: string[]): string[] {
+  const result = git(["ls-files", "-z", "--", ...pathspec], dir);
+  if (result.status !== 0) return [];
+  return result.stdout.split("\0").filter(Boolean);
+}
+
+/**
+ * The uncommitted paths under `path`: modified, staged, or untracked.
+ *
+ * `--no-optional-locks` because a plain `git status` refreshes the index as a
+ * side effect, and the callers of this promise not to write to the checkout.
+ *
+ * Throws when `git status` fails. An empty list means "nothing uncommitted",
+ * and a status that could not be read is not that.
+ */
+export function uncommittedIn(dir: string, path: string): string[] {
+  const result = git(
+    ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all", "--", path],
+    dir
+  );
+  if (result.status !== 0) {
+    throw new CliError(`git status failed in ${dir}`, {
+      code: ExitCode.FAILURE,
+      detail: result.stderr.trim() || undefined
+    });
+  }
+  return result.stdout
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => line.slice(3));
+}
+
 /** Clone `slug` into `dest`, preferring `gh` so private repos work unattended. */
 export function clone(slug: string, dest: string, useGh: boolean): void {
   const [bin, args] = useGh

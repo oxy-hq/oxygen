@@ -127,6 +127,7 @@ Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far few
 
     oxyc validate                  # check the workspace YAML — no network, no token
     oxyc proxy --env dev           # local app dev against cloud data
+    oxyc apps list|show|builds|health|usage|drift   # custom apps: live build, health, usage — read-only
     oxyc <customer>                # a session scoped to one customer
     oxyc assume start --org <o> -r "why"   # staff/partner session, 60 min, not renewable
 

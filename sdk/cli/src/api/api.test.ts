@@ -6,11 +6,11 @@
  * type, a `--paginate` that stops early and reads as complete.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseDuration } from "./cache.js";
 import { paramsToQuery, parseFields, parseTypedValue } from "./fields.js";
 import { toMarkdown } from "./output.js";
-import { hasLinkHeader, linkNext, readPage, withPage } from "./paginate.js";
+import { hasLinkHeader, linkNext, paginate, readPage, withOffset, withPage } from "./paginate.js";
 import {
   isExternalSurface,
   normalizePath,
@@ -309,6 +309,111 @@ describe("pagination", () => {
   it("replaces rather than appends ?page, so it cannot accumulate", () => {
     expect(withPage("/api/x?page=1&limit=5", 2)).toBe("/api/x?page=2&limit=5");
     expect(withPage("/api/x", 2)).toBe("/api/x?page=2");
+  });
+
+  /**
+   * The app listings (`/api/admin/apps`, `/api/customer-apps`) page by
+   * `limit`/`offset` and answer `{items, next_offset}`. A number means "ask
+   * again from here"; `null` is the server saying this was the last page, which
+   * is an answer and must not read as "no pagination signal".
+   */
+  it("reads the next_offset shape the app listings use", () => {
+    const more = readPage({ items: [{ id: 1 }], next_offset: 50 }, 1);
+    expect(more).toMatchObject({
+      rowsKey: "items",
+      hasMore: true,
+      signal: "next_offset",
+      nextOffset: 50
+    });
+
+    const last = readPage({ items: [{ id: 2 }], next_offset: null }, 2);
+    expect(last.hasMore).toBe(false);
+    expect(last.signal).toBe("next_offset");
+    expect(last.nextOffset).toBeUndefined();
+  });
+
+  it("replaces ?offset and keeps the caller's limit", () => {
+    expect(withOffset("/api/customer-apps?limit=20&offset=20", 40)).toBe(
+      "/api/customer-apps?limit=20&offset=40"
+    );
+    expect(withOffset("/api/customer-apps", 50)).toBe("/api/customer-apps?offset=50");
+  });
+});
+
+describe("paginate — an endpoint that pages by next_offset", () => {
+  const TARGET = "https://oxy.test";
+
+  /** Serve `pages` keyed by the `offset` the request carried; record every URL asked for. */
+  function stubListing(pages: Record<string, unknown>): string[] {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        urls.push(url.replace(TARGET, ""));
+        const offset = new URL(url).searchParams.get("offset") ?? "0";
+        return new Response(JSON.stringify(pages[offset] ?? { error: `no page at ${offset}` }), {
+          status: pages[offset] ? 200 : 404,
+          headers: { "content-type": "application/json" }
+        });
+      })
+    );
+    return urls;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * THE BUG THIS PINS. `next_offset` was not a signal `readPage` knew, so
+   * `oxyc api api/customer-apps --paginate` returned the first 50 apps of 58
+   * and warned only that there was "no pagination signal" — and asking for
+   * `?page=2` instead would not have helped, because the endpoint ignores it.
+   */
+  it("follows next_offset to the last page and merges every row", async () => {
+    const urls = stubListing({
+      "0": { items: [{ id: "a" }, { id: "b" }], next_offset: 2 },
+      "2": { items: [{ id: "c" }, { id: "d" }], next_offset: 4 },
+      "4": { items: [{ id: "e" }], next_offset: null }
+    });
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    const merged = JSON.parse(
+      await paginate({ target: TARGET, path: "/api/customer-apps?limit=2", method: "GET" })
+    );
+
+    expect(merged.items.map((row: { id: string }) => row.id)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(merged.next_offset).toBeNull();
+    expect(urls).toEqual([
+      "/api/customer-apps?limit=2",
+      "/api/customer-apps?limit=2&offset=2",
+      "/api/customer-apps?limit=2&offset=4"
+    ]);
+    // A listing that reported its own last page is complete: nothing to warn about.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /** A server that keeps answering the same offset must not be asked a hundred times. */
+  it("stops, and says the result is incomplete, when next_offset does not advance", async () => {
+    const urls = stubListing({
+      "0": { items: [{ id: "a" }], next_offset: 1 },
+      "1": { items: [{ id: "b" }], next_offset: 1 }
+    });
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    const merged = JSON.parse(
+      await paginate({ target: TARGET, path: "/api/customer-apps", method: "GET" })
+    );
+
+    expect(merged.items).toHaveLength(2);
+    expect(urls).toHaveLength(2);
+    expect(stderr.join("")).toMatch(/INCOMPLETE/);
   });
 });
 

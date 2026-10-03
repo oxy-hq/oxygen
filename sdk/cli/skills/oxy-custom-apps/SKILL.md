@@ -361,6 +361,11 @@ oxyc publish --env production --promote # …straight to live
 - `--dir out` skips the build and uploads a prebuilt directory.
 - Promote / roll back / unpublish from the oxy admin app-detail console;
   every publish is audited (who shipped each build, when).
+- **What is live now:** `oxyc apps show <org>/<app>` prints the live build, the
+  commit it was built from, a newer draft if there is one, and its health;
+  `oxyc apps builds <org>/<app>` is the history. `oxyc apps drift <org>/<app>`
+  lists the commits in your checkout that touch the app after the live build's
+  commit — `unknown` there means it could not compare, not that nothing changed.
 
 Full hands-on guide: `oxy-hq/customer-apps: docs/local-development.md`.
 

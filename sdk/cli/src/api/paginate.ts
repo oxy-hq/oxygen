@@ -5,14 +5,15 @@
  * every paginated endpoint, so the client follows a URL it was given. Oxy has
  * no such header and no single pagination shape — `thread.rs` answers with
  * `{pagination:{total_pages,has_next}}`, `workspaces/ops.rs` with a bare
- * `has_more`, and plenty of list endpoints with neither.
+ * `has_more`, the app listings (`admin/apps`, `customer-apps`) with
+ * `next_offset`, and plenty of list endpoints with none of them.
  *
  * So this is a HEURISTIC, and it says so in `--help` rather than pretending to
  * be a contract. It reads, in order: a `Link: rel="next"` header (free
- * correctness if one ever appears), then `pagination.has_next`, then
- * `has_more`, then `page < pagination.total_pages`. Nothing recognised means
- * one page, which is the safe direction — a missed page is visible in the
- * result, an invented one is not.
+ * correctness if one ever appears), then `next_offset`, then
+ * `pagination.has_next`, then `has_more`, then `page < pagination.total_pages`.
+ * Nothing recognised means one page, which is the safe direction — a missed
+ * page is visible in the result, an invented one is not.
  */
 
 import * as log from "../ui/log.js";
@@ -61,7 +62,15 @@ export interface PageShape {
    * `--paginate` returns page one and looks complete. Naming the rule is what
    * lets `paginate()` say so instead.
    */
-  signal?: "pagination.has_next" | "has_more" | "pagination.total_pages";
+  signal?: "next_offset" | "pagination.has_next" | "has_more" | "pagination.total_pages";
+  /**
+   * The `offset` the next request must carry, when `next_offset` decided.
+   *
+   * The other signals only say THAT there is another page, and the walk then
+   * asks for `?page=<n+1>`. An endpoint that pages by `limit`/`offset` ignores
+   * `page`, so for it the offset is the only way to reach the next rows.
+   */
+  nextOffset?: number;
 }
 
 /** A JSON object, narrowed enough to index. */
@@ -100,6 +109,16 @@ export function readPage(payload: unknown, page: number, explicitKey?: string): 
   const pagination = isObject(payload.pagination) ? payload.pagination : undefined;
   let hasMore = false;
   let signal: PageShape["signal"];
+  // `next_offset` first: it is the one signal that also says WHERE the next
+  // page starts. `null` is the server saying this is the last page — a
+  // recognised answer, so it sets `signal` and does not trip the
+  // "no pagination signal" warning.
+  if (typeof payload.next_offset === "number") {
+    return { rowsKey, rows, hasMore: true, signal: "next_offset", nextOffset: payload.next_offset };
+  }
+  if (payload.next_offset === null) {
+    return { rowsKey, rows, hasMore: false, signal: "next_offset" };
+  }
   if (pagination && typeof pagination.has_next === "boolean") {
     hasMore = pagination.has_next;
     signal = "pagination.has_next";
@@ -146,6 +165,20 @@ export function withPage(path: string, page: number): string {
   const params = new URLSearchParams(query);
   params.set("page", String(page));
   return `${base}?${params.toString()}`;
+}
+
+/** Replace or add `?offset=` on a path, keeping every other parameter (`limit` included). */
+export function withOffset(path: string, offset: number): string {
+  const [base, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("offset", String(offset));
+  return `${base}?${params.toString()}`;
+}
+
+/** The `?offset=` a path already carries, or 0. */
+function offsetOf(path: string): number {
+  const offset = Number(new URLSearchParams(path.split("?", 2)[1] ?? "").get("offset"));
+  return Number.isFinite(offset) ? offset : 0;
 }
 
 /**
@@ -206,7 +239,20 @@ export async function paginate(opts: PaginateOptions): Promise<string> {
       continue;
     }
     if (!shape.hasMore) break;
-    path = withPage(opts.path, page + 1);
+    if (shape.nextOffset === undefined) {
+      path = withPage(opts.path, page + 1);
+      continue;
+    }
+    // An offset that does not advance would fetch this same page until the
+    // cap and merge every copy. Stopping is the visible failure; said out
+    // loud because what was merged so far is not the whole collection.
+    if (shape.nextOffset <= offsetOf(path)) {
+      log.warn(
+        `${opts.path} answered next_offset ${shape.nextOffset}, which is not past the current offset — stopped; the result is INCOMPLETE.`
+      );
+      break;
+    }
+    path = withOffset(path, shape.nextOffset);
   }
 
   if (page > limit) {

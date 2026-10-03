@@ -159,6 +159,8 @@ export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Pr
       paginateKey: flags.paginateKey,
       slurp: flags.slurp,
       maxPages: flags.maxPages ? Number(flags.maxPages) : undefined
+    }).catch((cause) => {
+      throw onBundleMount(cause, path);
     });
     emit(formatBody(merged, { jq: flags.jq, md: flags.md, silent: flags.silent }));
     return;
@@ -177,10 +179,33 @@ export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Pr
   }
   if (response.fromCache) log.info("(served from --cache)");
 
-  if (response.status < 200 || response.status >= 300) throw errorForResponse(response);
+  if (response.status < 200 || response.status >= 300) {
+    throw onBundleMount(errorForResponse(response), path);
+  }
 
   noteNullBody(response.body, bearer);
   emit(formatBody(response.body, { jq: flags.jq, md: flags.md, silent: flags.silent }));
+}
+
+/**
+ * A 404 under `/customer-apps` gets a hint naming `/api/customer-apps`.
+ *
+ * `customer-apps` is in `TOP_LEVEL_MOUNTS` on purpose: `/customer-apps/<org>/<app>/…`
+ * is where the server serves an app's bundle, and `oxyc api customer-apps/acme/store/`
+ * has to reach it without an `/api` prefix. The app registry is a different
+ * mount, `/api/customer-apps/…`, so `oxyc api customer-apps` and
+ * `oxyc api customer-apps/<id>/builds` are 404s whose generic hint ("check the
+ * path with `oxyc routes`") sends the caller to a listing that shows the path
+ * they believe they typed.
+ */
+function onBundleMount(cause: unknown, path: string): unknown {
+  if (!(cause instanceof CliError) || cause.code !== ExitCode.NOT_FOUND) return cause;
+  if (!/^\/customer-apps(?:[/?]|$)/.test(path)) return cause;
+  return new CliError(cause.message, {
+    code: cause.code,
+    detail: cause.detail,
+    hint: `/customer-apps/<org>/<app>/… serves an app's bundle; the app registry API is under /api — try \`oxyc api api${path}\``
+  });
 }
 
 /**

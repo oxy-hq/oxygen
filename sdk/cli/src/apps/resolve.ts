@@ -48,7 +48,8 @@ export function staffCreds(ctx: Context): Creds {
     if (bearer.startsWith(PUBLISH_TOKEN_PREFIX)) {
       throw usageError(
         "a publish token cannot use this command",
-        "sandbox management needs a staff credential — `oxyc login`, or OXY_TOKEN set to a user token"
+        // Worded for every caller: sandbox management and `oxyc apps` both come here.
+        "it needs a staff credential — `oxyc login`, or OXY_TOKEN set to a user token"
       );
     }
     return { target: ctx.target(), bearer };

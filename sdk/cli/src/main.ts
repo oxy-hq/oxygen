@@ -20,6 +20,14 @@ import { Command } from "commander";
 import { clearAllCaches, unknownCacheEntries } from "./api/cache.js";
 import { runActivity } from "./commands/activity.js";
 import { runApi } from "./commands/api.js";
+import {
+  runAppsBuilds,
+  runAppsHealth,
+  runAppsList,
+  runAppsShow,
+  runAppsUsage
+} from "./commands/apps.js";
+import { runAppsDrift } from "./commands/apps-drift.js";
 import { runAssumeEnd, runAssumeStart, runAssumeStatus } from "./commands/assume.js";
 import { runLogin, runLogout, runToken, runWhoami } from "./commands/auth.js";
 import { runChecks } from "./commands/checks.js";
@@ -480,6 +488,100 @@ function buildProgram(): Command {
       data: opts.data as string | undefined,
       json: Boolean(opts.json),
       timeoutSeconds: Number(opts.timeout)
+    });
+  });
+
+  const apps = program
+    .command("apps")
+    .description("custom apps on a deployment: what is registered, live, healthy and used");
+
+  withGlobals(
+    apps
+      .command("list")
+      .description("every custom app you can see, across organizations")
+      // `--org` comes from `withGlobals`, as it does for `assume` and `oltp`.
+      .option("--published", "only apps with a live build")
+      .option("--draft", "only apps with nothing published")
+      .option("--builds", "add each app's live build: id, commit, publisher (one request per app)")
+      .option("--json", "emit the rows as a JSON array")
+      .addHelpText("after", "\n--org <slug> limits the list to one organization.\n")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runAppsList(createContext(globals(opts)), {
+      org: opts.org as string | undefined,
+      published: opts.published as boolean | undefined,
+      draft: opts.draft as boolean | undefined,
+      builds: opts.builds as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    apps
+      .command("show <app>")
+      .description("one app (<org>/<app> or an app id): builds, health, availability, usage")
+      .option("--json", "emit one JSON object")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runAppsShow(createContext(globals(opts)), app, Boolean(opts.json));
+  });
+
+  withGlobals(
+    apps
+      .command("builds <app>")
+      .description("an app's build history, newest first, marking the live and the draft build")
+      .option("--json", "emit the server's response")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runAppsBuilds(createContext(globals(opts)), app, Boolean(opts.json));
+  });
+
+  withGlobals(
+    apps
+      .command("health [app]")
+      .description(
+        "every published app's health — or, with <app>, its integrity checks, availability and errors"
+      )
+      .option("--needs-attention", "only apps that are down, degraded or not measured")
+      .option("--json", "emit the report as JSON")
+  ).action(async (app: string | undefined, opts: Record<string, unknown>) => {
+    await runAppsHealth(createContext(globals(opts)), app, {
+      needsAttention: opts.needsAttention as boolean | undefined,
+      json: opts.json as boolean | undefined
+    });
+  });
+
+  withGlobals(
+    apps
+      .command("usage <app>")
+      .description("an app's last 7 days: views, visitors and tracked events")
+      .option("--json", "emit one JSON object")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runAppsUsage(createContext(globals(opts)), app, Boolean(opts.json));
+  });
+
+  withGlobals(
+    apps
+      .command("drift [app]")
+      .description("commits in a local checkout that touch an app after its live build's commit")
+      .option("--dir <path>", "use this checkout instead of the one found on this machine")
+      .option("--refresh", "rescan for checkouts instead of using the cache")
+      .option("--json", "emit the report as JSON")
+      .addHelpText(
+        "after",
+        "\nReports, per app: in sync, N commits ahead, or unknown with the reason — the\n" +
+          "commit was not recorded, the repository is not checked out here, the checkout\n" +
+          "does not have the commit, no oxy-app.json matches, the commit is not on the\n" +
+          "checked-out branch, or the app directory has uncommitted changes. Unknown is\n" +
+          "never reported as in sync.\n" +
+          "\nCompares against the checkout's CURRENT branch as it is on disk. Nothing is\n" +
+          "fetched and no checkout is changed: `git fetch` first if you want the remote's\n" +
+          "state. With no <app>, every published app is compared (--org <slug> for one\n" +
+          "organization), and --dir applies to the apps built from that checkout's origin.\n"
+      )
+  ).action(async (app: string | undefined, opts: Record<string, unknown>) => {
+    await runAppsDrift(createContext(globals(opts)), app, {
+      dir: opts.dir as string | undefined,
+      org: opts.org as string | undefined,
+      refresh: opts.refresh as boolean | undefined,
+      json: opts.json as boolean | undefined
     });
   });
 

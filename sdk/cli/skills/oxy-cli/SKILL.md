@@ -79,6 +79,29 @@ wins where the two disagree.
 If your runtime speaks MCP, `oxyc mcp` serves the same API surface as four
 tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead.
 
+## Custom apps: what is live, healthy, used
+
+Read-only — every request is a GET. `<app>` is `<org-slug>/<app-slug>` or an
+app UUID; each command takes `--json`.
+
+    oxyc apps list [--org <slug>] [--published|--draft] [--builds]   # every app you can see
+    oxyc apps show <app>           # live build, draft build, health, availability, 7-day usage
+    oxyc apps builds <app>         # build history; which build is live, which is the draft
+    oxyc apps health [<app>]       # fleet table (--needs-attention), or one app's checks and errors
+    oxyc apps usage <app>          # views, visitors, tracked events over 7 days
+    oxyc apps drift [<app>]        # commits in a LOCAL checkout after the live build's commit
+
+- Use these rather than `oxyc api api/customer-apps…` by hand: they walk the
+  paged listing to its end and resolve `<org>/<app>` to the id the routes take.
+- **A failed request never prints as an empty result.** The part that was not
+  read says `NOT READ` and the exit code is non-zero. A failing health check or
+  a drifted app is a report and exits `0` — read the output, not the code.
+- **`drift` answers `in sync`, `N commits ahead`, or `unknown — <reason>`.**
+  `unknown` means the comparison could not be made (commit not recorded,
+  repository not checked out, commit not fetched, no matching `oxy-app.json`,
+  uncommitted changes) and is NOT evidence of no drift. It never fetches: run
+  `git fetch` in the checkout first if you want the remote's state.
+
 ## Branch on the exit code, not the text
 
 | | |

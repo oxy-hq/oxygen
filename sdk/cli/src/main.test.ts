@@ -146,6 +146,44 @@ describe("exit codes", () => {
   });
 });
 
+describe("apps", () => {
+  it("is a command group with its six read-only subcommands", () => {
+    const r = oxyc("apps", "--help");
+    expect(r.status).toBe(ExitCode.OK);
+    for (const sub of ["list", "show", "builds", "health", "usage", "drift"]) {
+      expect(r.stdout, `apps --help never mentions ${sub}`).toMatch(
+        new RegExp(`^  ${sub}\\b`, "m")
+      );
+    }
+  });
+
+  /**
+   * Checked before the credential: with no login, a mistyped invocation must
+   * still answer "you called it wrong" (2), not "log in" (4) — an agent that
+   * logs in and retries the same wrong command has learned nothing.
+   */
+  it("reports a wrong invocation as USAGE before it asks for a credential", () => {
+    expect(oxyc("apps", "list", "--nonsense").status).toBe(ExitCode.USAGE);
+    expect(oxyc("apps", "show").status).toBe(ExitCode.USAGE); // missing <app>
+    expect(oxyc("apps", "list", "--published", "--draft").status).toBe(ExitCode.USAGE);
+    expect(oxyc("apps", "health", "acme/store", "--needs-attention").status).toBe(ExitCode.USAGE);
+    for (const sub of ["show", "builds", "health", "usage", "drift"]) {
+      const r = oxyc("apps", sub, "not-an-app-reference");
+      expect(r.status, `apps ${sub}`).toBe(ExitCode.USAGE);
+      expect(r.stderr).toMatch(/does not name an app/);
+    }
+  });
+
+  it("reports a missing credential as AUTH, with the login command", () => {
+    for (const args of [["list"], ["show", "acme/store"], ["health"], ["drift"]]) {
+      const r = oxyc("apps", ...args, "--env", "production");
+      expect(r.status, `apps ${args.join(" ")}`).toBe(ExitCode.AUTH);
+      expect(r.stderr).toMatch(/oxyc login/);
+      expect(r.stdout).toBe("");
+    }
+  });
+});
+
 describe("stream discipline", () => {
   /**
    * The rule that makes this tool pipeable: stdout carries the answer and

@@ -5,7 +5,7 @@ manages customer workspace repos.
 
 - **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `assume`, `oltp`
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
-- **Custom apps** — `publish`, `init-ci`, `proxy`
+- **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
 - **Sandboxes** — `env`, `fn call`, `invocations`, `logs`
 - **Workspace previews** — `preview`
@@ -79,7 +79,10 @@ Credentials are stored **per deployment**, and the default is production. A
 oxyc api <path> [flags]
 ```
 
-`<path>` is relative to `/api`; a leading `/` or `api/` is accepted.
+`<path>` is relative to `/api`; a leading `/` or `api/` is accepted. One
+exception: `customer-apps/…` is sent as written, because `/customer-apps/<org>/<app>/…`
+is where an app's bundle is served. The app registry API is `api/customer-apps/…`
+— spell the `api/` out for it (a 404 on the bare form says so).
 
 | Flag | Meaning |
 | --- | --- |
@@ -113,9 +116,10 @@ the server.
 `oxyc login`; `/external/api/**` sends `X-API-Key` from `$OXY_API_KEY`.
 
 **`--paginate` is a heuristic.** Oxy sends `Link: rel="next"` on some endpoints
-and nothing on others; where there is no header, `oxyc` reads
-`pagination.has_next`, then `has_more`, then `page < total_pages`. Nothing
-recognised means one page, and it warns when the server said nothing at all.
+and nothing on others; where there is no header, `oxyc` reads `next_offset`
+(and asks again with `?offset=`), then `pagination.has_next`, then `has_more`,
+then `page < total_pages` (asking again with `?page=`). Nothing recognised
+means one page, and it warns when the server said nothing at all.
 
 ```bash
 oxyc api {org}/workspaces --md
@@ -295,6 +299,98 @@ draft/live channel — see [Sandboxes](#sandboxes). It needs a staff credential
 (never a publish token or OIDC) and is refused together with `--promote`: a
 sandbox build is never promoted, so the loop is publish to the sandbox,
 iterate, then publish the same tree to staging and promote that.
+
+## Apps
+
+Read-only: every request these make is a GET, against `/api/customer-apps/**`
+(the app-admin role). `<app>` is `<org-slug>/<app-slug>` or an app UUID.
+
+```bash
+oxyc apps list [--org <slug>] [--published | --draft] [--builds] [--json]
+oxyc apps show <app> [--json]
+oxyc apps builds <app> [--json]
+oxyc apps health [<app>] [--needs-attention] [--json]
+oxyc apps usage <app> [--json]
+oxyc apps drift [<app>] [--org <slug>] [--dir <path>] [--refresh] [--json]
+```
+
+- **`list`** — every app you can see, across organizations, walking the paged
+  registry to its end. `STATE` is `live` when the app has a published build and
+  `draft` when it has none. `SOURCE` is the repository the app is *registered*
+  against. `--builds` adds the live build's id, the repository and commit it was
+  built from, who published it and when — one extra request per app, six at a
+  time.
+- **`show`** — one app on one screen: the registry row, the live build, the
+  draft build when it is newer than the live one, deployment integrity,
+  availability, and the 7-day usage summary. `last promote` is when the promote
+  or rollback action was last used; `oxyc publish --promote` does not update it,
+  so it can be older than the live build.
+- **`builds`** — the build history, newest first. `CHANNEL` marks the build each
+  channel points at: `live`, `draft`, or both for one build.
+- **`health`** — with no argument, the fleet table (published apps only):
+  `down`, `degraded`, `not_measured`, `quiet` or `operational` per app, with the
+  totals on stderr. `--needs-attention` keeps the first three. With `<app>`: the
+  deployment-integrity checks, the availability windows, and the browser errors
+  of the last 24 hours.
+- **`usage`** — the 7-day summary, the visitors, and the tracked events by name.
+- **`drift`** — see below.
+
+Times are UTC. `--json` prints one document on stdout; a table goes to stdout and
+the count line to stderr.
+
+**An empty result and a failed request are different answers.** No apps, no
+builds, no errors recorded: the command says so and exits `0`. A request that
+failed exits with the code its status maps to (`4`, `5`, `7`, …). Where a
+command makes several independent requests (`show`, `health <app>`,
+`list --builds`, `drift`), it prints what it did read, marks what it did not as
+`NOT READ` (`"failed": […]` / `live_build_error` in `--json`), and then exits
+non-zero. These commands report state: a failing health check, a `down` app or
+a drifted app is an answer and exits `0` — read it from the output.
+
+The health route answers **503 with its report** when a check fails; `oxyc`
+prints that as a failing report, not as an outage.
+
+### `apps drift`
+
+Compares what is live against source on **this machine**. For each app it takes
+the live build's recorded repository and commit, finds a local checkout of that
+repository (the ones `oxyc repos` and `oxyc path` report, or `--dir`), finds the
+app's directory by the `oxy-app.json` whose `slug` and `orgSlug` match — at
+`<app>/oxy-app.json` or `<app>/public/oxy-app.json`, never by folder name — and
+counts the commits on the checkout's **current branch** that touch that
+directory after the published commit.
+
+| Result | Meaning |
+| --- | --- |
+| `in sync` | no commit on the current branch touches the app directory after the published commit |
+| `N commits ahead` | that many do; they are listed |
+| `unknown — <reason>` | the comparison could not be made |
+
+`unknown` is never reported as `in sync`. Its reasons (`reason` in `--json`):
+
+| `reason` | |
+| --- | --- |
+| `not_published` | nothing is live |
+| `source_unrecorded` | the live build records no repository or no commit |
+| `repo_not_checked_out` | the repository is not on this machine — clone it, or pass `--dir` |
+| `commit_not_in_checkout` | the checkout does not have the published commit — `git fetch` there |
+| `app_dir_not_found` | no tracked `oxy-app.json` declares this `slug` and `orgSlug` |
+| `app_dir_ambiguous` | more than one does |
+| `commit_not_on_branch` | the published commit is not an ancestor of the checked-out branch |
+| `working_tree_dirty` | the app directory has uncommitted or untracked files |
+| `git_failed` | `git log` or `git status` failed in the checkout, so the comparison could not be read |
+| `request_failed` | the builds request failed (the command then exits non-zero) |
+
+It runs read-only git commands and nothing else: it does not fetch, check out,
+or refresh the index. The answer is therefore about the checkout as it is on
+disk — a branch that is behind its remote reports fewer commits than the remote
+has. With no `<app>`, every published app is compared, and `--dir` applies to
+the apps whose source repository is that checkout's `origin`; with `<app>`,
+`--dir` is used whatever its remote is.
+
+An app published to two organizations from one directory (a staging org and a
+production org) matches the manifest for only one of them; the other reports
+`app_dir_not_found` and names the manifest it found with the other `orgSlug`.
 
 ## Checks
 
