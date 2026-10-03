@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useState } from "react";
+import ErrorAlert from "@/components/ui/ErrorAlert";
 import {
   Table as DataTable,
   TableBody,
@@ -12,12 +13,12 @@ import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { getDuckDB } from "@/libs/duckdb";
 import type { DataContainer, TableData, TableDisplay } from "@/types/app";
 import {
+  cellText,
   formatValue,
   getArrowFieldType,
   getArrowValueWithType,
   getData,
-  inferCurrencyFormat,
-  isNumericType,
+  inferColumnFormat,
   registerFromTableData
 } from "./utils";
 
@@ -46,11 +47,16 @@ export const DataTableBlock = ({
   const [isLoading, setIsLoading] = useState(true);
   const { project, branchName } = useCurrentProjectBranch();
   const [table, setTable] = useState<Awaited<ReturnType<typeof load_table>> | null>(null);
+  // A load that failed is not a result with no rows: it is reported as itself.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const dataAvailable = data && display.data;
 
   useEffect(() => {
+    // A load that a newer one has replaced must not report over it.
+    let cancelled = false;
     setIsLoading(true);
+    setLoadError(null);
     // Cannot reject: the only await is inside the try/catch below.
     void (async () => {
       if (!dataAvailable) {
@@ -73,20 +79,30 @@ export const DataTableBlock = ({
 
       try {
         const table = await load_table(value, project.id, branchName);
-        setTable(table);
-      } catch {
-        setTable(null);
+        if (!cancelled) setTable(table);
+      } catch (error) {
+        console.error("Failed to load table data:", error);
+        if (!cancelled) {
+          setTable(null);
+          setLoadError(error instanceof Error ? error.message : "Unknown error");
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [branchName, data, dataAvailable, display.data, project.id]);
 
   if (isLoading)
     return <div className='flex h-full w-full items-center justify-center'>Loading...</div>;
 
   let tableContent: React.ReactNode;
-  if (!table) {
+  if (loadError !== null) {
+    tableContent = <ErrorAlert title='Failed to load this table' message={loadError} />;
+  } else if (!table) {
     tableContent = <div className='p-2 text-center text-muted-foreground'>No data found</div>;
   } else {
     tableContent = (
@@ -110,11 +126,10 @@ export const DataTableBlock = ({
                 // Explicit per-column format from the app.yml wins; otherwise
                 // infer `currency` from column names like `*_sales` /
                 // `*_revenue` so existing dashboards get the right formatting
-                // without regeneration. Only a numeric column is inferred:
-                // `payment_date` is a date, not an amount of money.
+                // without regeneration. The rule is `inferColumnFormat`'s, the
+                // one the charts use: a numeric column whose name says money.
                 const columnFormat =
-                  display.formats?.[field.name] ??
-                  (isNumericType(fieldType) ? inferCurrencyFormat(field.name) : undefined);
+                  display.formats?.[field.name] ?? inferColumnFormat(field.name, fieldType);
                 // When a format is in play, always route through the
                 // currency/percent/number formatter — it handles bigints and
                 // stringified numerics uniformly, and decimals given the
@@ -125,9 +140,12 @@ export const DataTableBlock = ({
                   : fieldType
                     ? getArrowValueWithType(value, fieldType)
                     : value;
+                // `cellText`, as the query-result table prints a cell: a NULL is
+                // empty in every column, where `String` wrote "null" in the ones
+                // with no format.
                 return (
                   <TableCell className='border' key={field.name}>
-                    {String(formattedValue)}
+                    {cellText(formattedValue)}
                   </TableCell>
                 );
               })}

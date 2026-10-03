@@ -1,4 +1,4 @@
-import { DataType, Struct, type Timestamp } from "apache-arrow";
+import { DataType, type Float, Precision, Struct, type Timestamp } from "apache-arrow";
 
 // Minimal structural interface for Apache Arrow Table/Schema so that the
 // version bundled by @duckdb/duckdb-wasm (v17) and our own (v21) are both
@@ -48,6 +48,11 @@ export const getArrowColumnValues = (table: ArrowTable, columnName: string) => {
   });
 };
 
+/**
+ * One Arrow cell for a chart series or an app table's unformatted column: a
+ * date reads as a date, and a number is rounded to two places (`formatNumber`).
+ * A query-result table shows the value itself: `getArrowResultCell`.
+ */
 export const getArrowValueWithType = (
   value: unknown,
   type: DataType
@@ -94,19 +99,51 @@ const decimalText = (value: unknown, scale: number): string => {
   return `${isNeg ? "-" : ""}${padded.slice(0, -scale)}.${padded.slice(-scale)}`;
 };
 
+/**
+ * A float as the shortest decimal that reads back as the value the column
+ * holds, e.g. "0.123456". A DOUBLE prints as JavaScript prints any number. A
+ * single-precision cell arrives widened to a double, where 0.1 has become
+ * 0.10000000149011612: those extra digits are not in the column, so the
+ * shortest decimal that is still the same single-precision value is printed.
+ */
+const floatText = (value: number, type: Float): string => {
+  if (type.precision !== Precision.SINGLE || !Number.isFinite(value)) return String(value);
+  // Nine significant digits always identify a single-precision value.
+  for (let digits = 1; digits <= 9; digits++) {
+    const rounded = Number(value.toPrecision(digits));
+    if (Math.fround(rounded) === value) return String(rounded);
+  }
+  return String(value);
+};
+
+/**
+ * One Arrow cell of a query-result table. A result table reports the data, so a
+ * number is the value the column holds: a decimal keeps every digit of its
+ * declared scale and a float is not rounded (0.004 is not "0.00", 0.123456 is
+ * not "0.12"), nor padded (1.5 is not "1.50"). Everything else reads as
+ * `getArrowValueWithType` reads it.
+ */
+export const getArrowResultCell = (value: unknown, type: DataType): unknown => {
+  if (value === null || value === undefined) return value;
+  if (DataType.isDecimal(type)) return decimalText(value, type.scale);
+  if (DataType.isFloat(type) && typeof value === "number") return floatText(value, type);
+  return getArrowValueWithType(value, type);
+};
+
 // A timestamp in an export keeps its seconds, and its milliseconds when it has any.
 const EXPORT_TIMESTAMP_FORMAT = "YYYY-MM-DD HH:mm:ss.SSS";
 const withoutZeroMillis = (timestamp: string) => timestamp.replace(/\.000$/, "");
 
 /**
- * Text for one Arrow cell in an export. It reads the cell the way the table
- * does (a decimal is scaled, a date or timestamp is a date, not its epoch) but
- * without the table's display rounding: a decimal keeps every digit, a float
- * its full precision and a timestamp its seconds.
+ * Text for one Arrow cell in an export. It reads the cell the way the result
+ * table does (a decimal keeps every digit, a float its own precision, a date
+ * or timestamp is a date, not its epoch), and a timestamp keeps the seconds the
+ * table leaves out.
  */
 export const getArrowExportText = (value: unknown, type?: DataType): string => {
   if (value === null || value === undefined || !type) return cellText(value);
   if (DataType.isDecimal(type)) return decimalText(value, type.scale);
+  if (DataType.isFloat(type) && typeof value === "number") return floatText(value, type);
   if (DataType.isDate(type)) return formatDate(value as number);
   if (DataType.isTimestamp(type)) {
     return withoutZeroMillis(
@@ -182,15 +219,18 @@ function formatTime(value: number | bigint | string): string {
 // blanks the y-axis and line. Human-friendly formatting with commas /
 // dollar signs lives at the render layer (`formatValue`, chart tooltip
 // formatter, table cells).
+//
+// It rounds, so it is not for a query-result table: see `getArrowResultCell`.
 function formatNumber(num: number) {
   return num % 1 === 0 ? num.toString() : num.toFixed(2);
 }
 
 /**
- * Monetary column-name detection. When a column name contains any of these
- * word parts (split on non-alphanumerics), the value is formatted as
- * currency even if the app.yml didn't declare a `format` hint. Keeps
- * existing dashboards legible without requiring regeneration.
+ * Monetary column-name detection. When a numeric column's name contains any of
+ * these word parts (split on non-alphanumerics), and none that says otherwise
+ * (see `inferColumnFormat`), the value is formatted as currency even if the
+ * app.yml didn't declare a `format` hint. Keeps existing dashboards legible
+ * without requiring regeneration.
  */
 const MONETARY_KEYWORDS: ReadonlySet<string> = new Set([
   "sales",
@@ -236,30 +276,74 @@ const MONETARY_KEYWORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Infer a `DisplayFormat` from a column name. Returns `"currency"` when the
- * column name contains a word that strongly suggests a monetary measure,
- * and `undefined` otherwise so the caller can fall back to the default
- * numeric formatter.
- *
- * Examples:
- *   `oxymart__total_weekly_sales` → `"currency"` (matches `sales`)
- *   `oxymart__store`              → `undefined`
- *   `holiday_flag`                → `undefined`
- *   `product_price`               → `"currency"` (matches `price`)
+ * Words that say a number is something other than an amount of money, however
+ * monetary the rest of its name: `payment_id` is a key, `discount_count` a
+ * tally, `revenue_pct` a ratio and `price_rank` a position.
  */
-export function inferCurrencyFormat(
-  columnName: string | undefined | null
-): DisplayFormat | undefined {
-  if (!columnName) return undefined;
-  // Split on any non-alphanumeric separator so `oxymart__total_weekly_sales`
-  // becomes `["oxymart", "total", "weekly", "sales"]` and we can check each
-  // part against the keyword set individually.
-  const parts = columnName
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  return parts.some((part) => MONETARY_KEYWORDS.has(part)) ? "currency" : undefined;
-}
+const NON_MONETARY_WORDS: ReadonlySet<string> = new Set([
+  // identifiers and codes
+  "id",
+  "ids",
+  "key",
+  "code",
+  "number",
+  "num",
+  "no",
+  // flags and enumerations
+  "flag",
+  "is",
+  "has",
+  "type",
+  "status",
+  // tallies and quantities
+  "count",
+  "counts",
+  "cnt",
+  "n",
+  "qty",
+  "quantity",
+  "units",
+  // ratios
+  "pct",
+  "percent",
+  "percentage",
+  "ratio",
+  "rate",
+  "share",
+  "growth",
+  // positions on a scale
+  "rank",
+  "index",
+  "score",
+  "tier",
+  "level"
+]);
+
+/**
+ * Calendar parts. As the last word of a name one says what the number is
+ * (`payment_year` is 2024), unless the word before it makes it the period the
+ * money is for (`revenue_last_month`, `sales_per_day`).
+ */
+const CALENDAR_PARTS: ReadonlySet<string> = new Set([
+  "year",
+  "quarter",
+  "month",
+  "week",
+  "day",
+  "date",
+  "hour"
+]);
+const PERIOD_QUALIFIERS: ReadonlySet<string> = new Set([
+  "per",
+  "by",
+  "last",
+  "this",
+  "next",
+  "prior",
+  "previous",
+  "prev",
+  "current"
+]);
 
 /**
  * Whether a column holds numbers. A format is only inferred from the name of
@@ -268,6 +352,42 @@ export function inferCurrencyFormat(
  */
 export const isNumericType = (type: DataType | undefined): boolean =>
   DataType.isInt(type) || DataType.isFloat(type) || DataType.isDecimal(type);
+
+/**
+ * The format a column's name and type imply when the app declares none: the
+ * one rule for a table column and for a chart's value column. It is
+ * `"currency"` for a numeric column whose name says money and does not say
+ * something else, and `undefined` otherwise, leaving the plain number.
+ *
+ * It errs towards the plain number. A missing `$` costs nothing but looks; a
+ * `$` on an id, a count or a percentage misstates the data.
+ *
+ *   `oxymart__total_weekly_sales` → `"currency"` (matches `sales`)
+ *   `product_price`               → `"currency"` (matches `price`)
+ *   `revenue_last_month`          → `"currency"` (the month is the period)
+ *   `payment_id`, `discount_count`, `revenue_pct`, `payment_year` → `undefined`
+ *   `payment_date` (a date), `discount_code` (text)               → `undefined`
+ *   `oxymart__store`, `holiday_flag`                              → `undefined`
+ */
+export function inferColumnFormat(
+  columnName: string | undefined | null,
+  type: DataType | undefined
+): DisplayFormat | undefined {
+  if (!columnName || !isNumericType(type)) return undefined;
+  // Split on any non-alphanumeric separator so `oxymart__total_weekly_sales`
+  // becomes `["oxymart", "total", "weekly", "sales"]` and each word is checked
+  // on its own.
+  const words = columnName
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (!words.some((word) => MONETARY_KEYWORDS.has(word))) return undefined;
+  if (words.some((word) => NON_MONETARY_WORDS.has(word))) return undefined;
+  const namesCalendarPart =
+    CALENDAR_PARTS.has(words[words.length - 1]) &&
+    !(words.length > 1 && PERIOD_QUALIFIERS.has(words[words.length - 2]));
+  return namesCalendarPart ? undefined : "currency";
+}
 
 // Intl.NumberFormat instances are expensive to construct; cache one per
 // (format, compact) pairing so repeat chart renders don't allocate.

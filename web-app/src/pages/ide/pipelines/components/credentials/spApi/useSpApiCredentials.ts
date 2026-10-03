@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useCreateSecret } from "@/hooks/api/secrets/useSecretMutations";
 import useSecrets from "@/hooks/api/secrets/useSecrets";
 import useSpApiMarketplaces from "@/hooks/api/spApi/useSpApiMarketplaces";
@@ -88,7 +89,9 @@ export function useSpApiCredentials() {
     if (first && !marketplaceId) setMarketplaceId(first);
   }, [marketplaces.data, marketplaceId]);
   const [defaultStart, setDefaultStart] = useState(firstOfLastMonth());
-  const createSecret = useCreateSecret();
+  // This form stores up to two secrets on one submit. The hook would say
+  // "Secret created successfully" for each; `persistSecret` says it once.
+  const createSecret = useCreateSecret({ toastOnSuccess: false });
   // Needed to tell "reuse the existing secret" from "reference one that was
   // never created" — a blank value means the former, and without this the two
   // are indistinguishable at the point the operator can still fix it.
@@ -187,19 +190,32 @@ export function useSpApiCredentials() {
     // indistinguishable once stored — both are `Atzr|…` — and the secret list
     // is where someone later works out which pipeline a name belongs to.
     const account = partnerType === "vendor" ? "Vendor Central" : "Seller Central";
-    if (clientSecret.trim()) {
-      await createSecret.mutateAsync({
-        name: clientSecretName.trim(),
-        value: clientSecret,
-        description: `Amazon LWA client secret (${account}) for pipeline ${pipelineName}`
-      });
-    }
-    if (refreshToken.trim()) {
-      await createSecret.mutateAsync({
-        name: refreshTokenName.trim(),
-        value: refreshToken,
-        description: `Amazon SP-API refresh token (${account}) for pipeline ${pipelineName}`
-      });
+    const created: string[] = [];
+    try {
+      if (clientSecret.trim()) {
+        await createSecret.mutateAsync({
+          name: clientSecretName.trim(),
+          value: clientSecret,
+          description: `Amazon LWA client secret (${account}) for pipeline ${pipelineName}`
+        });
+        created.push(clientSecretName.trim());
+      }
+      if (refreshToken.trim()) {
+        await createSecret.mutateAsync({
+          name: refreshTokenName.trim(),
+          value: refreshToken,
+          description: `Amazon SP-API refresh token (${account}) for pipeline ${pipelineName}`
+        });
+        created.push(refreshTokenName.trim());
+      }
+    } finally {
+      // One toast for the submit, naming what was stored. In a `finally` because a
+      // second create that fails leaves the first one stored: the error toast alone
+      // would hide the secret the next attempt then collides with.
+      if (created.length === 1) toast.success(`Secret ${created[0]} created successfully`);
+      if (created.length === 2) {
+        toast.success(`Secrets ${created[0]} and ${created[1]} created successfully`);
+      }
     }
   };
 

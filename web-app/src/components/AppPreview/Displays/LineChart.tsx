@@ -12,9 +12,9 @@ import {
   getSeriesValues,
   getSimpleAggregatedData,
   getXAxisData,
+  resolveValueFormat,
   useChartBase
 } from "./hooks";
-import { inferCurrencyFormat } from "./utils";
 
 export const LineChart = ({
   display,
@@ -29,8 +29,8 @@ export const LineChart = ({
     async ({ display, connection, fileName, isDarkMode }: ChartBuilderParams<LineChartDisplay>) => {
       const baseOptions = createBaseChartOptions(isDarkMode);
       const xData = await getXAxisData(connection, fileName, display.x);
-      // Explicit `y_format` wins; otherwise infer from the y column name.
-      const yFormat = display.y_format ?? inferCurrencyFormat(display.y);
+      // Explicit `y_format` wins; otherwise infer from the y column's name and type.
+      const yFormat = await resolveValueFormat(connection, fileName, display.y, display.y_format);
       const xyAxisOptions = createXYAxisOptions(xData, isDarkMode, yFormat);
       const tooltipFormatter = createAxisTooltipFormatter(yFormat);
 

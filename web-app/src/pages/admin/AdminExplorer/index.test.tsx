@@ -159,7 +159,7 @@ describe("AdminExplorer", () => {
     await screen.findByText("60 results");
 
     threadsFn.mockResolvedValue(page(manyThreads(25, 25), 60));
-    await userEvent.click(screen.getByRole("link", { name: "2", exact: true }));
+    await userEvent.click(screen.getByRole("link", { name: "2" }));
 
     await waitFor(() => {
       expect(threadsFn).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
@@ -177,7 +177,7 @@ describe("AdminExplorer", () => {
     render(wrap(<AdminExplorer />));
     await screen.findByText("60 results");
 
-    await userEvent.click(screen.getByRole("link", { name: "2", exact: true }));
+    await userEvent.click(screen.getByRole("link", { name: "2" }));
 
     // The out-of-range page-2 fetch returns total 0, so the clamp bounces
     // back to a valid page rather than stranding the user on an empty one —
@@ -187,10 +187,7 @@ describe("AdminExplorer", () => {
       expect(threadsFn).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
     });
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: "1", exact: true })).toHaveAttribute(
-        "aria-current",
-        "page"
-      );
+      expect(screen.getByRole("link", { name: "1" })).toHaveAttribute("aria-current", "page");
     });
     expect(screen.getByText("60 results")).toBeInTheDocument();
   });

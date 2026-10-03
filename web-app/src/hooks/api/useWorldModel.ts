@@ -288,63 +288,75 @@ export function applyInstanceDetailEvent(
   }
 }
 
+/**
+ * Stream one instance's detail as a **keyed React Query subscription**, the way
+ * {@link useWmMeasureBreakdown} streams a breakdown. The page mounts this hook
+ * for the filter seed (measure chips on the entity cards) and the detail panel
+ * mounts it for the selected instance — usually the same one. React Query puts
+ * both on a single query, so the stream runs once and both read the same
+ * `data`, the same `isLoading` and the same `error`; each used to open a stream
+ * of its own, and the page dropped its copy's failure.
+ *
+ * Each event is folded into the cache via `setQueryData`, so subscribers
+ * re-render as sections arrive, and `isLoading` stays true until the stream is
+ * done. A stream that fails, or ends before `done`, rejects the query: `error`
+ * is set, `data` keeps what had arrived, and the partial instance is not cached
+ * as a finished one.
+ */
 export function useWmInstanceDetail(entityId: string | null, keyValue: string | null) {
   const { project, branchName } = useCurrentProjectBranch();
   const projectId = project.id;
+  const queryClient = useQueryClient();
 
-  const [state, setState] = useState<WmInstanceDetailState>(EMPTY_INSTANCE_DETAIL_STATE);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const queryKey = queryKeys.worldModel.instanceDetail(
+    projectId,
+    branchName,
+    entityId ?? "",
+    keyValue ?? ""
+  );
 
-  const reset = useCallback(() => {
-    abortRef.current?.abort();
-    setState(EMPTY_INSTANCE_DETAIL_STATE);
-    setIsLoading(false);
-    setError(null);
-  }, []);
+  const query = useQuery<WmInstanceDetail | null>({
+    queryKey,
+    enabled: !!entityId && !!keyValue,
+    // The stream runs several warehouse queries; keep the assembled instance
+    // briefly so a consumer mounting late reuses it instead of re-streaming.
+    staleTime: 60 * 1000,
+    retry: false,
+    // An instance is streamed when it is chosen. Coming back to the window must
+    // not re-run its queries and blank the measures that had already arrived.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    // React Query aborts `signal` when the last consumer unmounts mid-flight or
+    // the instance changes, which ends the stream. Nothing a cancelled stream
+    // reports after that reaches the instance that replaced it.
+    queryFn: ({ signal }) =>
+      new Promise<WmInstanceDetail | null>((resolve, reject) => {
+        let state = EMPTY_INSTANCE_DETAIL_STATE;
+        WorldModelService.streamInstanceDetail(
+          projectId,
+          entityId as string,
+          keyValue as string,
+          (event) => {
+            if (event.kind === "done") {
+              resolve(state.data);
+              return;
+            }
+            state = applyInstanceDetailEvent(state, event);
+            // Publish what has arrived to every subscriber of this instance.
+            // Before `init` there is no instance yet, only buffered events.
+            if (state.data) queryClient.setQueryData(queryKey, state.data);
+          },
+          // The server always ends with `done`, which has resolved by now (settling
+          // twice is a no-op). A close without it is a stream cut short.
+          () => reject(new Error("Instance detail stream ended before it finished")),
+          reject,
+          signal,
+          branchName
+        );
+      })
+  });
 
-  useEffect(() => {
-    if (!entityId || !keyValue) {
-      reset();
-      return;
-    }
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setState(EMPTY_INSTANCE_DETAIL_STATE);
-    setIsLoading(true);
-    setError(null);
-
-    WorldModelService.streamInstanceDetail(
-      projectId,
-      entityId,
-      keyValue,
-      (event) => {
-        if (event.kind === "done") {
-          setIsLoading(false);
-          return;
-        }
-        setState((prev) => applyInstanceDetailEvent(prev, event));
-      },
-      () => setIsLoading(false),
-      (streamError) => {
-        // See `useWmFilterCounts`: a failure of a superseded stream is not this one's.
-        if (controller.signal.aborted) return;
-        setError(streamError);
-        setIsLoading(false);
-      },
-      controller.signal,
-      branchName
-    );
-
-    return () => {
-      controller.abort();
-    };
-  }, [projectId, branchName, entityId, keyValue, reset]);
-
-  return { data: state.data, isLoading, error };
+  return { data: query.data ?? null, isLoading: query.isFetching, error: query.error };
 }
 
 /**

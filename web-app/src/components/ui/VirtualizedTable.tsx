@@ -6,7 +6,7 @@ import {
   cellText,
   getArrowExportText,
   getArrowFieldType,
-  getArrowValueWithType
+  getArrowResultCell
 } from "@/components/AppPreview/Displays/utils";
 import ErrorAlert from "@/components/ui/ErrorAlert";
 import { Button } from "@/components/ui/shadcn/button";
@@ -159,13 +159,14 @@ export const VirtualizedTable = ({
           const result = await conn.query(query);
           const rows = result.toArray();
 
-          // Convert to array format for rendering
+          // Convert to array format for rendering. This table reports the data,
+          // so a number is read as the value it is, not rounded for display.
           const formattedData = rows.map((row) =>
             columnsRef.current.map((col) => {
               const value = (row as Record<string, unknown>)[col];
               if (schemaRef.current) {
                 const fieldType = getArrowFieldType(col, result.schema);
-                return fieldType ? getArrowValueWithType(value, fieldType) : value;
+                return fieldType ? getArrowResultCell(value, fieldType) : value;
               }
               return value;
             })

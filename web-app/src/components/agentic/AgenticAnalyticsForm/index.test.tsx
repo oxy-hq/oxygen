@@ -26,8 +26,6 @@ describe("AgenticAnalyticsForm — rendering", () => {
     expect(screen.getByText("LLM Configuration")).toBeInTheDocument();
     expect(screen.getByText("Context")).toBeInTheDocument();
     expect(screen.getByText("State Overrides")).toBeInTheDocument();
-    expect(screen.getByText("Validation")).toBeInTheDocument();
-    expect(screen.getByText("Semantic Engine")).toBeInTheDocument();
   });
 
   it("renders the instructions textarea", () => {
@@ -35,9 +33,12 @@ describe("AgenticAnalyticsForm — rendering", () => {
     expect(screen.getByPlaceholderText(/Global instructions injected/i)).toBeInTheDocument();
   });
 
-  it("renders the global thinking mode select", () => {
+  // The thinking mode that applies to every pipeline state lives under LLM
+  // Configuration (`llm.thinking`); there is no separate top-level control.
+  it("renders the thinking mode select with the configured mode", () => {
     render(<AgenticAnalyticsForm data={defaultData} />);
-    expect(screen.getByText("Global Thinking Mode")).toBeInTheDocument();
+    expect(screen.getByText("Thinking Mode")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveTextContent("Disabled");
   });
 
   it("pre-fills LLM fields from data", () => {
@@ -84,11 +85,28 @@ describe("AgenticAnalyticsForm — rendering", () => {
 // ─── LLM Config ──────────────────────────────────────────────────────────────
 
 describe("AgenticAnalyticsForm — LLM config", () => {
-  it("renders vendor, api_key, and base_url fields", () => {
+  it("renders api_key and base_url fields", () => {
     render(<AgenticAnalyticsForm data={defaultData} />);
-    expect(screen.getByLabelText(/^Vendor/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/API Key/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Base URL/i)).toBeInTheDocument();
+  });
+
+  // A provider ref inherits its vendor from `config.yml`, so the vendor picker
+  // is only offered while no ref is set.
+  it("hides the vendor picker while a provider ref is set", () => {
+    render(<AgenticAnalyticsForm data={defaultData} />);
+    expect(screen.queryByText("Vendor")).not.toBeInTheDocument();
+    expect(screen.queryByText("Select vendor (default: anthropic)")).not.toBeInTheDocument();
+  });
+
+  it("shows the vendor picker without a provider ref, and hides it once one is typed", () => {
+    const data: AgenticFormData = { ...defaultData, llm: { ...defaultData.llm, ref: undefined } };
+    render(<AgenticAnalyticsForm data={data} />);
+    expect(screen.getByText("Vendor")).toBeInTheDocument();
+    expect(screen.getByText("Select vendor (default: anthropic)")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Provider Ref"), { target: { value: "claude" } });
+    expect(screen.queryByText("Vendor")).not.toBeInTheDocument();
   });
 });
 
@@ -157,66 +175,11 @@ describe("AgenticAnalyticsForm — context globs", () => {
   });
 });
 
-// ─── Semantic Engine ─────────────────────────────────────────────────────────
-
-describe("AgenticAnalyticsForm — semantic engine", () => {
-  it("shows add button by default when no semantic engine data", () => {
-    render(<AgenticAnalyticsForm data={defaultData} />);
-    expect(screen.getByRole("button", { name: /Add Semantic Engine/i })).toBeInTheDocument();
-  });
-
-  it("shows engine fields after clicking Add Semantic Engine", () => {
-    render(<AgenticAnalyticsForm data={defaultData} />);
-    fireEvent.click(screen.getByRole("button", { name: /Add Semantic Engine/i }));
-    expect(screen.getByText(/Vendor/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Base URL/)).toBeInTheDocument();
-  });
-
-  it("marks vendor and base_url as required with asterisk", () => {
-    const data: AgenticFormData = { ...defaultData, semantic_engine: { vendor: "cube" } };
-    render(<AgenticAnalyticsForm data={data} />);
-    // Both required labels have * markers
-    const vendorLabel = screen.getByText("*", { selector: "span.text-destructive" });
-    expect(vendorLabel).toBeInTheDocument();
-  });
-
-  it("shows api_token field for cube vendor", () => {
-    const data: AgenticFormData = {
-      ...defaultData,
-      semantic_engine: { vendor: "cube", base_url: "https://cube.example.com" }
-    };
-    render(<AgenticAnalyticsForm data={data} />);
-    expect(screen.getByLabelText(/API Token/i)).toBeInTheDocument();
-  });
-});
-
-// ─── Validation ──────────────────────────────────────────────────────────────
-
-describe("AgenticAnalyticsForm — validation", () => {
-  it("expands validation section on click", async () => {
-    render(<AgenticAnalyticsForm data={defaultData} />);
-    fireEvent.click(screen.getByText("Validation"));
-    await waitFor(() => expect(screen.getByText("After Specify")).toBeInTheDocument());
-    expect(screen.getByText("After Solve")).toBeInTheDocument();
-    expect(screen.getByText("After Execute")).toBeInTheDocument();
-  });
-
-  it("adds a rule to a stage and shows rule name select", async () => {
-    render(<AgenticAnalyticsForm data={defaultData} />);
-    fireEvent.click(screen.getByText("Validation"));
-    await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: /Add Rule/i })).toHaveLength(3)
-    );
-    fireEvent.click(screen.getAllByRole("button", { name: /Add Rule/i })[0]);
-    await waitFor(() => expect(screen.getByText("Rule Name")).toBeInTheDocument());
-  });
-});
-
 // ─── onChange serialization ───────────────────────────────────────────────────
 
 describe("AgenticAnalyticsForm — onChange serialization", () => {
   it("calls onChange with correct yaml shape after LLM ref change", async () => {
-    const onChange = vi.fn<[AgenticYamlData], void>();
+    const onChange = vi.fn<(data: AgenticYamlData) => void>();
     render(<AgenticAnalyticsForm data={defaultData} onChange={onChange} />);
     const refInput = screen.getByDisplayValue("claude");
     fireEvent.change(refInput, { target: { value: "openai" } });
@@ -227,7 +190,7 @@ describe("AgenticAnalyticsForm — onChange serialization", () => {
   });
 
   it("omits empty databases from onChange payload", async () => {
-    const onChange = vi.fn<[AgenticYamlData], void>();
+    const onChange = vi.fn<(data: AgenticYamlData) => void>();
     render(<AgenticAnalyticsForm data={defaultData} onChange={onChange} />);
     fireEvent.click(screen.getByRole("button", { name: /Add Database/i }));
     const refInput = screen.getByDisplayValue("claude");
@@ -239,7 +202,7 @@ describe("AgenticAnalyticsForm — onChange serialization", () => {
   });
 
   it("serializes context globs as a string array (not object array)", async () => {
-    const onChange = vi.fn<[AgenticYamlData], void>();
+    const onChange = vi.fn<(data: AgenticYamlData) => void>();
     const data: AgenticFormData = {
       ...defaultData,
       context: [{ value: "./semantics/**/*" }]
@@ -252,5 +215,33 @@ describe("AgenticAnalyticsForm — onChange serialization", () => {
     const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
     expect(Array.isArray(lastCall.context)).toBe(true);
     expect(typeof lastCall.context?.[0]).toBe("string");
+  });
+
+  // The form has no controls for `thinking`, `validation` or `semantic_engine`,
+  // but the editor replaces the whole file with what `onChange` emits. An edit
+  // to any other field must therefore carry those keys through untouched, or
+  // saving from the form silently deletes them from the user's YAML.
+  it("carries keys it has no controls for through an edit", async () => {
+    const onChange = vi.fn<(data: AgenticYamlData) => void>();
+    const data: AgenticFormData = {
+      ...defaultData,
+      thinking: "adaptive",
+      validation: {
+        rules: {
+          solved: [{ name: "outlier_detection", enabled: false, threshold_sigma: 3, min_rows: 6 }]
+        }
+      },
+      semantic_engine: { vendor: "cube", base_url: "https://cube.example.com" }
+    };
+    render(<AgenticAnalyticsForm data={data} onChange={onChange} />);
+    const refInput = screen.getByDisplayValue("claude");
+    fireEvent.change(refInput, { target: { value: "openai" } });
+    fireEvent.blur(refInput);
+    await waitFor(() => expect(onChange).toHaveBeenCalled(), { timeout: 1000 });
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+    expect(lastCall.llm?.ref).toBe("openai");
+    expect(lastCall.thinking).toBe("adaptive");
+    expect(lastCall.validation).toEqual(data.validation);
+    expect(lastCall.semantic_engine).toEqual(data.semantic_engine);
   });
 });

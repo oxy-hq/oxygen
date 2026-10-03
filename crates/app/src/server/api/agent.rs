@@ -7,6 +7,7 @@
 
 use crate::api::middlewares::workspace_context::WorkspaceManagerReadOnly;
 use axum::{extract, http::StatusCode};
+use oxy::config::model::BuilderAgentConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
@@ -25,23 +26,31 @@ pub struct BuilderAvailabilityResponse {
 pub async fn check_builder_availability(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
 ) -> Result<extract::Json<BuilderAvailabilityResponse>, StatusCode> {
-    use oxy::config::model::BuilderAgentConfig;
+    Ok(extract::Json(builder_availability(
+        workspace_manager.config_manager.get_builder_config(),
+    )))
+}
 
-    match workspace_manager.config_manager.get_builder_config() {
-        Some(BuilderAgentConfig::Builtin { model }) => {
-            Ok(extract::Json(BuilderAvailabilityResponse {
+/// A `builder_agent` whose `model` is blank is a builder that cannot run, and
+/// the config accepts one (`builder_agent` is not validated). Reporting it as
+/// available let the UI open a builder thread that then never started, so a
+/// blank model reads the same as no builder at all.
+fn builder_availability(config: Option<&BuilderAgentConfig>) -> BuilderAvailabilityResponse {
+    match config {
+        Some(BuilderAgentConfig::Builtin { model }) if !model.trim().is_empty() => {
+            BuilderAvailabilityResponse {
                 available: true,
                 builder_path: None,
                 builtin: true,
                 model: Some(model.clone()),
-            }))
+            }
         }
-        None => Ok(extract::Json(BuilderAvailabilityResponse {
+        _ => BuilderAvailabilityResponse {
             available: false,
             builder_path: None,
             builtin: false,
             model: None,
-        })),
+        },
     }
 }
 
@@ -140,4 +149,38 @@ pub async fn get_agents(
             })
             .collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn builtin(model: &str) -> BuilderAgentConfig {
+        BuilderAgentConfig::Builtin {
+            model: model.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_builder_with_a_model_is_available() {
+        let response = builder_availability(Some(&builtin("claude-sonnet-4-6")));
+        assert!(response.available && response.builtin);
+        assert_eq!(response.model.as_deref(), Some("claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn a_blank_model_is_no_builder_at_all() {
+        for model in ["", "   "] {
+            let response = builder_availability(Some(&builtin(model)));
+            assert!(!response.available && !response.builtin, "{model:?}");
+            assert_eq!(response.model, None);
+        }
+    }
+
+    #[test]
+    fn no_builder_config_is_unavailable() {
+        let response = builder_availability(None);
+        assert!(!response.available);
+        assert_eq!(response.model, None);
+    }
 }

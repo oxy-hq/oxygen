@@ -38,11 +38,11 @@ describe("AutomationDelegationCard", () => {
     const { container } = render(
       <AutomationDelegationCard item={makeItem({ stepsDone: 1 })} onSelect={vi.fn()} />
     );
-    const card = container.querySelector("[data-testid='automation-delegation-card']");
-    expect(card).not.toBeNull();
-    const fill = card.querySelector("[data-testid='progress-fill']") as HTMLElement;
+    const fill = container.querySelector<HTMLElement>(
+      "[data-testid='automation-delegation-card'] [data-testid='progress-fill']"
+    );
     // 1/3 done = ~33.3%
-    expect(fill.style.width).toMatch(/33/);
+    expect(fill?.style.width).toMatch(/33/);
   });
 
   it("calls onSelect when View button is clicked", () => {

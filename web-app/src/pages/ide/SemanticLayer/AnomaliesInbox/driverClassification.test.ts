@@ -16,7 +16,7 @@ function driver(overrides: Partial<DriverAttribution> = {}): DriverAttribution {
     driver_delta: -60.58,
     direction: "negative",
     contribution: "counteracting",
-    form: "additive",
+    form: "linear",
     ...overrides
   };
 }
@@ -76,7 +76,12 @@ describe("groupDrivers", () => {
       driver({ driver_measure: "b", contribution: "counteracting" }),
       driver({ driver_measure: "c", contribution: "unknown" }),
       driver({ driver_measure: "d", contribution: undefined }),
-      { ...driver({ driver_measure: "e" }), contribution: "ambiguous" } as DriverAttribution,
+      // Deliberately outside the union, as above: a newer backend's value must
+      // still be rendered by this build, and the type forbids writing it.
+      {
+        ...driver({ driver_measure: "e" }),
+        contribution: "ambiguous"
+      } as unknown as DriverAttribution,
       driver({
         driver_measure: "f",
         passthrough: {

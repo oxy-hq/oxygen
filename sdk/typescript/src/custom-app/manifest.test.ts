@@ -6,6 +6,7 @@
 // function we reach indirectly via `loadCustomAppManifest`.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { OxyInjectedAppConfig } from "./inject";
 import { _resetCustomAppManifestCacheForTest, loadCustomAppManifest } from "./manifest";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -23,11 +24,19 @@ function mockFetchReturning(body: unknown): void {
     }) as Response;
 }
 
+const INJECTED_PROJECT_ID = "00000000-0000-0000-0000-00000000000a";
+
 function injectRuntime(orgSlug = "test-org", slug = "test-app"): void {
-  const config = {
-    orgSlug,
-    slug,
+  // The whole identity object, as oxy serialises it at serve time
+  // (`AppRuntimeConfig`): the server never injects a partial one, so a
+  // fixture missing `projectId` describes a page that cannot exist.
+  const config: OxyInjectedAppConfig = {
     appId: "app-uuid",
+    slug,
+    orgId: "org-uuid",
+    orgSlug,
+    projectId: INJECTED_PROJECT_ID,
+    branch: "main",
     apiBaseUrl: ""
   };
   // readInjectedConfig checks `window.__OXY_APP__`. In the vitest node
@@ -37,7 +46,7 @@ function injectRuntime(orgSlug = "test-org", slug = "test-app"): void {
   if (typeof window === "undefined") {
     (globalThis as Record<string, unknown>).window = { __OXY_APP__: config };
   } else {
-    (window as Record<string, unknown>).__OXY_APP__ = config;
+    window.__OXY_APP__ = config;
   }
 }
 
@@ -106,7 +115,10 @@ describe("parseOxyAppManifest — v2", () => {
 
     expect(resolved.manifest.schemaVersion).toBe(2);
     expect(resolved.productNames).toEqual([]);
-    expect(resolved.projectId).toBe("proj-uuid-2");
+    // The parser keeps the manifest's hint, but the page is served by oxy
+    // here, so the resolved id is the injected one — the hint is advisory.
+    expect(resolved.manifest.projectId).toBe("proj-uuid-2");
+    expect(resolved.projectId).toBe(INJECTED_PROJECT_ID);
     expect(resolved.manifest.name).toBe("Dashboard v2");
   });
 
@@ -118,7 +130,7 @@ describe("parseOxyAppManifest — v2", () => {
     expect(resolved.manifest.schemaVersion).toBe(2);
     expect(resolved.manifest.slug).toBe("my-app");
     expect(resolved.productNames).toEqual([]);
-    expect(resolved.projectId).toBeUndefined();
+    expect(resolved.manifest.projectId).toBeUndefined();
   });
 
   it("rejects a slug with an underscore (would alias a hyphenated sibling onto one OLTP schema)", async () => {

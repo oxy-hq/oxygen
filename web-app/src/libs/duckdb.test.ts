@@ -38,15 +38,16 @@ beforeEach(() => {
   // Worker is a browser API absent from Node. Must be a real constructor
   // (not a vi.fn() arrow mock) because duckdb.ts calls `new Worker(...)`.
   vi.stubGlobal("Worker", class MockWorker {});
-  // URL.createObjectURL / revokeObjectURL are browser-only; patch them in.
-  (URL as Record<string, unknown>).createObjectURL = vi.fn().mockReturnValue("blob:mock");
-  (URL as Record<string, unknown>).revokeObjectURL = vi.fn();
+  // Node has URL.createObjectURL / revokeObjectURL too, but a real blob URL is
+  // registered process-wide; spy so the test stays hermetic, and restore the
+  // real statics afterwards rather than deleting them.
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock");
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  delete (URL as Record<string, unknown>).createObjectURL;
-  delete (URL as Record<string, unknown>).revokeObjectURL;
+  vi.restoreAllMocks();
 });
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -100,16 +101,19 @@ describe("getDuckDB – CDN init path", () => {
     const instantiateGate = new Promise<void>((res) => {
       resolveInstantiate = res;
     });
-    const instantiate = vi.fn().mockReturnValue(instantiateGate);
+    const instantiate = vi.fn<() => Promise<void>>().mockReturnValue(instantiateGate);
 
     // Put instantiate on the prototype so the old `origInstantiate.call()`
     // approach also finds it (instance-property mocks would shadow it and
-    // make the pre-fix code throw before revealing the race).
+    // make the pre-fix code throw before revealing the race). A class method
+    // lives on the prototype; it delegates to the mock so calls are counted.
     vi.doMock("@duckdb/duckdb-wasm", () => {
       class MockAsyncDuckDB {
         connect = vi.fn().mockResolvedValue({ close: vi.fn() });
+        instantiate() {
+          return instantiate();
+        }
       }
-      (MockAsyncDuckDB.prototype as Record<string, unknown>).instantiate = instantiate;
       return {
         AsyncDuckDB: MockAsyncDuckDB,
         ConsoleLogger: class {},

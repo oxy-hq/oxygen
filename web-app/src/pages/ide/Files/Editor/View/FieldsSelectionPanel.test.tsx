@@ -46,7 +46,8 @@ const builtElsewhere: PreaggRollupStatus = {
   granularity: "month",
   refresh_key: "every 1h",
   build_date: null,
-  refresh_key_checked_at: "2026-05-11T14:03:22+00:00"
+  refresh_key_checked_at: "2026-05-11T14:03:22+00:00",
+  empty_since: null
 };
 
 const serve = (blob_reads_available: boolean) => {

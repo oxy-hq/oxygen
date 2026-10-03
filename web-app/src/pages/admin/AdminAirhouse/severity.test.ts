@@ -14,6 +14,11 @@ function row(overrides: Partial<AirhouseFleetRow> = {}): AirhouseFleetRow {
     prefix: "",
     service_account_ready: true,
     sa_rotated_at: null,
+    created_at: "2026-01-15T10:00:00Z",
+    service_account_id: "sa-1",
+    sa_created_at: "2026-01-15T10:00:00Z",
+    bearer_max_role: "admin",
+    bearer_max_ttl_secs: 86_400,
     ...overrides
   };
 }

@@ -1,106 +1,79 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
+import type useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import type { SseEvent, UseAnalyticsRunResult } from "@/hooks/useAnalyticsRun";
+import type { AnalyticsRunSummary, ChartConfig } from "@/services/api/analytics";
+import { setPendingThinkingMode } from "@/stores/analyticsThinkingMode";
 import type { ThreadItem } from "@/types/chat";
 import AnalyticsThread from "./index";
 
+// The reasoning trace and the artifact sidebar are rendered for real: what these
+// tests pin is the page wiring between them (an item picked in the trace opens the
+// right panel, fed by the right run's events). Only the edges are replaced — the
+// run state machine, the run-list query, and leaves that need a browser.
+
+type RunsQuery = { data: AnalyticsRunSummary[]; isLoading: boolean; isFetching: boolean };
+type BuilderAvailability = ReturnType<typeof useBuilderAvailable>;
+
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: mockUseQuery,
-  useQueryClient: vi.fn(() => ({ invalidateQueries: vi.fn() }))
-}));
+const { mockUseAnalyticsRun, mockUseQuery, mockUseBuilderAvailable, queryClientStub } = vi.hoisted(
+  () => ({
+    mockUseAnalyticsRun: vi.fn<() => UseAnalyticsRunResult>(),
+    mockUseQuery: vi.fn<() => RunsQuery>(),
+    mockUseBuilderAvailable: vi.fn<() => BuilderAvailability>(),
+    // One stable client, as in the app: a fresh object per render would re-fire
+    // every effect that lists the client as a dependency.
+    queryClientStub: { invalidateQueries: vi.fn(), refetchQueries: vi.fn() }
+  })
+);
 
-const { mockUseAnalyticsRun, sidebarDisplayBlocksSpy, mockUseQuery } = vi.hoisted(() => ({
-  mockUseAnalyticsRun: vi.fn<[], UseAnalyticsRunResult>(),
-  sidebarDisplayBlocksSpy: vi.fn(),
-  mockUseQuery: vi.fn(() => ({ data: [], isLoading: false }))
-}));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@tanstack/react-query")>();
+  return {
+    ...original,
+    useQuery: (options: { queryKey: readonly unknown[] }) => {
+      // Only the thread's run list is served here. A query added to this tree later
+      // must be mocked on purpose rather than silently handed a list of runs.
+      if (options.queryKey[0] !== "analytics" || options.queryKey[1] !== "runsByThread") {
+        throw new Error(`unmocked query: ${JSON.stringify(options.queryKey)}`);
+      }
+      return mockUseQuery();
+    },
+    useQueryClient: () => queryClientStub
+  };
+});
+
 vi.mock("@/hooks/useAnalyticsRun", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/hooks/useAnalyticsRun")>();
   return { ...original, useAnalyticsRun: mockUseAnalyticsRun };
 });
 
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
-  default: () => ({ project: { id: "proj-1" } })
+  default: () => ({ project: { id: "proj-1" }, branchName: "main" })
 }));
 
-vi.mock("@/hooks/api/queryKey", () => ({
-  default: {
-    analytics: {
-      runsByThread: (...args: unknown[]) => ["analytics", "runs", ...args]
-    }
-  }
-}));
+vi.mock("@/hooks/api/useBuilderAvailable", () => ({ default: mockUseBuilderAvailable }));
+
+// Read by the builder input for @-mentions; it needs a QueryClient of its own.
+vi.mock("@/hooks/api/files/useFileTree", () => ({ default: () => ({ data: undefined }) }));
+
+// lottie-web paints a canvas at import time and jsdom has no canvas.
+vi.mock("@lottiefiles/react-lottie-player", () => ({ Player: "div" }));
 
 vi.mock("@/components/ui/shadcn/resizable", () => ({
-  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => (
+  ResizablePanelGroup: ({ children }: { children: ReactNode }) => (
     <div data-testid='panel-group'>{children}</div>
   ),
-  ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResizablePanel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ResizableHandle: () => null
 }));
 
 vi.mock("./Header", () => ({ default: () => <div data-testid='thread-header' /> }));
-// Expose a test-only trigger that simulates clicking the AutomationChild row inside
-// the real reasoning trace. onSelectArtifact is called with a automation item to
-// mirror what AutomationChild does when the user clicks it.
-vi.mock("./AnalyticsReasoningTrace", () => ({
-  default: ({
-    onSelectArtifact
-  }: {
-    events: unknown[];
-    isRunning: boolean;
-    onSelectArtifact: (item: unknown) => void;
-  }) => (
-    <>
-      <button
-        type='button'
-        data-testid='proc-trigger'
-        onClick={() =>
-          onSelectArtifact({
-            kind: "automation",
-            id: "mock-proc",
-            automationName: "mock",
-            stepCount: 1,
-            isStreaming: false
-          })
-        }
-      >
-        Open automation
-      </button>
-      <button
-        type='button'
-        data-testid='chart-trigger'
-        onClick={() =>
-          onSelectArtifact({
-            kind: "artifact",
-            id: "mock-chart",
-            toolName: "render_chart",
-            toolInput: "{}",
-            isStreaming: true
-          })
-        }
-      >
-        Open chart
-      </button>
-    </>
-  )
-}));
-vi.mock("./AnalyticsArtifactSidebar", () => ({
-  default: ({
-    displayBlocks = [],
-    onClose
-  }: {
-    displayBlocks?: unknown[];
-    onClose: () => void;
-  }) => {
-    sidebarDisplayBlocksSpy(displayBlocks);
-    return <button type='button' aria-label='Close panel' onClick={onClose} />;
-  }
-}));
 vi.mock("./SuspensionPrompt", () => ({ default: () => null }));
 vi.mock("@/components/Messages/UserMessage", () => ({
   default: ({ content }: { content: string }) => <div data-testid='user-message'>{content}</div>
@@ -108,10 +81,15 @@ vi.mock("@/components/Messages/UserMessage", () => ({
 vi.mock("@/components/Markdown", () => ({
   default: ({ children }: { children: string }) => <div>{children}</div>
 }));
-vi.mock("@/components/MessageInput", () => ({
-  default: () => <div data-testid='message-input' />
+// Charts draw through DuckDB WASM and ECharts. Stand in with a marker that says
+// which chart was asked for, so a test can tell one chart from another.
+vi.mock("@/components/AppPreview/Displays", () => ({
+  DisplayBlock: ({ display }: { display: { type: string; title?: string } }) => (
+    <div data-testid='display-block' data-chart-type={display.type}>
+      {display.title}
+    </div>
+  )
 }));
-vi.mock("@/components/AppPreview/Displays", () => ({ DisplayBlock: () => null }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -127,12 +105,50 @@ const THREAD: ThreadItem = {
   is_processing: false
 };
 
+const BUILDER_THREAD: ThreadItem = { ...THREAD, source: "__builder__" };
+
 let counter = 0;
 
 const sseEv = <T extends SseEvent["type"]>(
   type: T,
   data: Extract<SseEvent, { type: T }>["data"]
 ): SseEvent => ({ id: String(counter++), type, data }) as SseEvent;
+
+type AutomationStep = { name: string; task_type: string };
+
+/**
+ * The events the pipeline emits when a step hands off to an automation: the step
+ * suspends on a delegation prompt and stays open, and the automation attaches to it.
+ */
+const automationStarted = (name: string, steps: AutomationStep[]): SseEvent[] => [
+  sseEv("step_start", { label: "Executing" }),
+  sseEv("awaiting_input", {
+    questions: [{ prompt: `Executing step: ${name}`, suggestions: [] }]
+  }),
+  sseEv("step_end", { label: "Executing", outcome: "suspended" }),
+  sseEv("subrun_started", { subrun_name: name, steps })
+];
+
+/** A `render_chart` tool call followed by the chart it produced. */
+const chartRendered = (config: ChartConfig, rows: unknown[][]) => {
+  const block = { config, columns: [config.x ?? "x", config.y ?? "y"], rows };
+  return {
+    block,
+    events: [
+      sseEv("tool_call", { name: "render_chart", input: config }),
+      sseEv("chart_rendered", block)
+    ]
+  };
+};
+
+const pastRun = (overrides: Partial<AnalyticsRunSummary> = {}): AnalyticsRunSummary => ({
+  run_id: "r1",
+  agent_id: "agent-1",
+  question: "Analyze sales data",
+  status: "done",
+  ui_events: [],
+  ...overrides
+});
 
 const noop = () => {};
 
@@ -155,10 +171,50 @@ function runningWith(events: SseEvent[]): UseAnalyticsRunResult {
   return makeResult({ state: { tag: "running", runId: "run-1", events } });
 }
 
+function doneWith(
+  events: SseEvent[],
+  displayBlocks: { config: ChartConfig; columns: string[]; rows: unknown[][] }[] = []
+): UseAnalyticsRunResult {
+  return makeResult({
+    state: { tag: "done", runId: "run-1", answer: "", displayBlocks, durationMs: 0, events }
+  });
+}
+
+const builderAvailability = (
+  overrides: Partial<BuilderAvailability> = {}
+): BuilderAvailability => ({
+  isAvailable: true,
+  isLoading: false,
+  isError: false,
+  builderPath: "",
+  isBuiltin: true,
+  builderModel: undefined,
+  ...overrides
+});
+
+const renderThread = (thread: ThreadItem = THREAD) =>
+  render(<AnalyticsThread thread={thread} />, { wrapper: SidebarProvider });
+
+/** The pill the reasoning trace shows for an automation or a tool call. */
+const pills = (label: string) =>
+  screen.getAllByTestId(`reasoning-pill-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`);
+
+const selectInTrace = (label: string, nth = 0) => fireEvent.click(pills(label)[nth]);
+
+/** Queries scoped to the side panel whose header carries `title`. */
+const panel = (title: string) => {
+  const root = screen
+    .getByRole("heading", { name: title })
+    .closest<HTMLElement>("[data-slot='panel']");
+  if (!root) throw new Error(`"${title}" heading is not inside a panel`);
+  return within(root);
+};
+
 beforeEach(() => {
   counter = 0;
   mockUseAnalyticsRun.mockReturnValue(makeResult());
   mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: false });
+  mockUseBuilderAvailable.mockReturnValue(builderAvailability());
   // jsdom does not implement scrollIntoView
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 });
@@ -168,342 +224,291 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// helper — click the mock trace trigger to open the automation panel
-const openPanel = () => fireEvent.click(screen.getByTestId("proc-trigger"));
+// ── Automation run panel ──────────────────────────────────────────────────────
 
-// ── automationInfo derivation ───────────────────────────────────────────────────
+describe("AnalyticsThread — automation run panel", () => {
+  const STEPS: AutomationStep[] = [
+    { name: "fetch_data", task_type: "execute_sql" },
+    { name: "process_data", task_type: "execute_sql" },
+    { name: "generate_report", task_type: "formatter" }
+  ];
 
-describe("AnalyticsThread — automationInfo derivation", () => {
-  it("does not render SubrunDagPanel when state is idle", () => {
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ state: { tag: "idle" } }));
-    render(<AnalyticsThread thread={THREAD} />);
+  it("shows no panel while idle", () => {
+    renderThread();
     expect(screen.queryByRole("heading")).toBeNull();
   });
 
-  it("does not render SubrunDagPanel when running but no subrun_started event", () => {
-    mockUseAnalyticsRun.mockReturnValue(runningWith([]));
-    render(<AnalyticsThread thread={THREAD} />);
+  it("stays closed until the automation is picked in the trace", () => {
+    mockUseAnalyticsRun.mockReturnValue(runningWith(automationStarted("store_deep_dive", STEPS)));
+    renderThread();
+    expect(pills("store_deep_dive")).toHaveLength(1);
     expect(screen.queryByRole("heading")).toBeNull();
   });
 
-  it("shows panel with correct automation name after triggering via trace row", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "store_deep_dive",
-        steps: [
-          { name: "fetch_data", task_type: "execute_sql" },
-          { name: "process_data", task_type: "execute_sql" }
-        ]
-      })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "store_deep_dive" })).toBeInTheDocument();
-    });
+  it("opens the picked automation's run with its name and steps", () => {
+    mockUseAnalyticsRun.mockReturnValue(runningWith(automationStarted("store_deep_dive", STEPS)));
+    renderThread();
+    selectInTrace("store_deep_dive");
+    const run = panel("store_deep_dive");
+    for (const step of STEPS) {
+      expect(run.getByText(step.name)).toBeInTheDocument();
+    }
   });
 
-  it("renders all steps from the subrun_started event", async () => {
-    const STEPS = [
-      { name: "fetch_data", task_type: "execute_sql" },
-      { name: "process_data", task_type: "execute_sql" },
-      { name: "generate_report", task_type: "formatter" }
-    ];
-    const events: SseEvent[] = [sseEv("subrun_started", { subrun_name: "my_proc", steps: STEPS })];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      for (const step of STEPS) {
-        expect(screen.getByText(step.name)).toBeInTheDocument();
-      }
-    });
-  });
+  it("opens the run of whichever automation was picked, not the latest one", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        ...automationStarted("first_proc", [{ name: "step_a", task_type: "execute_sql" }]),
+        sseEv("subrun_started", {
+          subrun_name: "second_proc",
+          steps: [{ name: "step_b", task_type: "execute_sql" }]
+        })
+      ])
+    );
+    renderThread();
 
-  it("uses the last subrun_started event when duplicates exist", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "first_proc",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      }),
-      sseEv("subrun_started", {
-        subrun_name: "second_proc",
-        steps: [{ name: "step_b", task_type: "execute_sql" }]
-      })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "second_proc" })).toBeInTheDocument();
-    });
+    selectInTrace("first_proc");
+    expect(panel("first_proc").getByText("step_a")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "second_proc" })).toBeNull();
+
+    selectInTrace("second_proc");
+    expect(panel("second_proc").getByText("step_b")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "first_proc" })).toBeNull();
   });
 
-  it("passes all SSE events to SubrunDagPanel for step status derivation", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "my_proc",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      }),
-      sseEv("subrun_step_started", { step: "step_a" })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    // Both the header subtitle and the step status show "Running…" — at least one must exist
-    await waitFor(() => {
-      expect(screen.queryAllByText("Running…").length).toBeGreaterThan(0);
-    });
-  });
-});
+  it("keeps step status live as events arrive after the panel was opened", () => {
+    const started = automationStarted("p", [{ name: "step_a", task_type: "execute_sql" }]);
+    mockUseAnalyticsRun.mockReturnValue(runningWith(started));
+    const { rerender } = renderThread();
+    selectInTrace("p");
+    // The header says the run is going; the step itself has not started.
+    expect(panel("p").getAllByText("Running…")).toHaveLength(1);
 
-// ── Panel open/close behavior ─────────────────────────────────────────────────
+    const stepRunning = [...started, sseEv("subrun_step_started", { step: "step_a" })];
+    mockUseAnalyticsRun.mockReturnValue(runningWith(stepRunning));
+    rerender(<AnalyticsThread thread={THREAD} />);
+    expect(panel("p").getAllByText("Running…")).toHaveLength(2);
 
-describe("AnalyticsThread — panel open/close behavior", () => {
-  it("panel is not open before user triggers it", () => {
     mockUseAnalyticsRun.mockReturnValue(
       runningWith([
-        sseEv("subrun_started", {
-          subrun_name: "p",
-          steps: [{ name: "s", task_type: "execute_sql" }]
-        })
+        ...stepRunning,
+        sseEv("subrun_step_completed", { step: "step_a", success: true })
       ])
     );
-    render(<AnalyticsThread thread={THREAD} />);
-    // Panel heading not visible — user hasn't clicked yet
-    expect(screen.queryByRole("heading")).toBeNull();
+    rerender(<AnalyticsThread thread={THREAD} />);
+    expect(panel("p").getByText("Done")).toBeInTheDocument();
+    expect(panel("p").getAllByText("Running…")).toHaveLength(1);
   });
 
-  it("panel is not shown when state is idle (no automationInfo)", () => {
-    mockUseAnalyticsRun.mockReturnValue(makeResult());
-    render(<AnalyticsThread thread={THREAD} />);
-    expect(screen.queryByRole("heading")).toBeNull();
+  it("shows a step as Failed when it completes unsuccessfully", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        ...automationStarted("p", [{ name: "step_a", task_type: "execute_sql" }]),
+        sseEv("subrun_step_started", { step: "step_a" }),
+        sseEv("subrun_step_completed", { step: "step_a", success: false, error: "timeout" })
+      ])
+    );
+    renderThread();
+    selectInTrace("p");
+    expect(panel("p").getByText("Failed")).toBeInTheDocument();
   });
 
-  it("shows 'Running…' header subtitle while isRunning is true", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "running_proc",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "running_proc" })).toBeInTheDocument();
-    });
+  it("says Running… in the header while the run is streaming", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith(automationStarted("running_proc", [{ name: "step_a", task_type: "execute_sql" }]))
+    );
+    renderThread();
+    selectInTrace("running_proc");
     const header = screen
       .getByRole("heading", { name: "running_proc" })
-      .closest("[data-slot='panel-header']") as HTMLElement;
+      .closest<HTMLElement>("[data-slot='panel-header']");
     expect(header).not.toBeNull();
-    expect(header.textContent).toContain("Running…");
+    expect(header?.textContent).toContain("Running…");
   });
 
-  it("second trigger click closes the panel (toggle)", async () => {
+  it("says Completed in the header once the automation succeeded and the run is over", () => {
     mockUseAnalyticsRun.mockReturnValue(
-      runningWith([
-        sseEv("subrun_started", {
-          subrun_name: "p",
-          steps: [{ name: "s", task_type: "execute_sql" }]
-        })
+      doneWith([
+        ...automationStarted("p", [{ name: "step_a", task_type: "execute_sql" }]),
+        sseEv("subrun_step_completed", { step: "step_a", success: true }),
+        sseEv("subrun_completed", { subrun_name: "p", success: true }),
+        sseEv("input_resolved", { answer: "done" })
       ])
     );
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => expect(screen.getByRole("heading", { name: "p" })).toBeInTheDocument());
-    openPanel(); // second click → toggle off
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "p" })).toBeNull());
-  });
-});
-
-// ── Close button ──────────────────────────────────────────────────────────────
-
-describe("AnalyticsThread — automation panel close", () => {
-  it("hides SubrunDagPanel when onClose is triggered", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "my_proc",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
-    });
-
-    // Click the close button on SubrunDagPanel
-    fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
-
-    // Panel should be hidden
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
-    });
+    renderThread();
+    selectInTrace("p");
+    const header = screen
+      .getByRole("heading", { name: "p" })
+      .closest<HTMLElement>("[data-slot='panel-header']");
+    expect(header?.textContent).toContain("Completed");
+    expect(header?.textContent).not.toContain("Running…");
   });
 
-  it("does not re-open the panel after close on rerender", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "my_proc",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    const { rerender } = render(<AnalyticsThread thread={THREAD} />);
+  it("closes from the panel's close button and stays closed on the next render", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith(automationStarted("my_proc", [{ name: "step_a", task_type: "execute_sql" }]))
+    );
+    const { rerender } = renderThread();
 
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
-    });
+    selectInTrace("my_proc");
+    expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
-    });
+    expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
 
     rerender(<AnalyticsThread thread={THREAD} />);
     expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
   });
 });
 
-// ── Automation step status propagation ────────────────────────────────────────
-
-describe("AnalyticsThread — step status propagation via events", () => {
-  it("step shows Done when subrun_step_completed success=true", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "p",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      }),
-      sseEv("subrun_step_started", { step: "step_a" }),
-      sseEv("subrun_step_completed", { step: "step_a", success: true })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByText("Done")).toBeInTheDocument();
-    });
-  });
-
-  it("step shows Failed when subrun_step_completed success=false", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "p",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      }),
-      sseEv("subrun_step_started", { step: "step_a" }),
-      sseEv("subrun_step_completed", { step: "step_a", success: false, error: "timeout" })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByText("Failed")).toBeInTheDocument();
-    });
-  });
-
-  it("shows Completed subtitle when subrun_completed success=true and not running", async () => {
-    const events: SseEvent[] = [
-      sseEv("subrun_started", {
-        subrun_name: "p",
-        steps: [{ name: "step_a", task_type: "execute_sql" }]
-      }),
-      sseEv("subrun_step_completed", { step: "step_a", success: true }),
-      sseEv("subrun_completed", { subrun_name: "p", success: true })
-    ];
-    mockUseAnalyticsRun.mockReturnValue(
-      makeResult({
-        state: { tag: "done", runId: "run-1", answer: "", displayBlocks: [], durationMs: 0, events }
-      })
-    );
-    render(<AnalyticsThread thread={THREAD} />);
-    openPanel();
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "p" })).toBeInTheDocument();
-    });
-    const header = screen
-      .getByRole("heading", { name: "p" })
-      .closest("[data-slot='panel-header']") as HTMLElement;
-    expect(header.textContent).toContain("Completed");
-  });
-});
-
 // ── Thread switching ──────────────────────────────────────────────────────────
 
 describe("AnalyticsThread — thread switching", () => {
-  it("calls reset when thread.id changes while a run is active", async () => {
+  const THREAD_2: ThreadItem = { ...THREAD, id: "thread-2" };
+
+  it("calls reset when thread.id changes while a run is active", () => {
     const reset = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(
       makeResult({ state: { tag: "running", runId: "run-1", events: [] }, reset })
     );
-    const { rerender } = render(<AnalyticsThread thread={THREAD} />);
-
-    const THREAD_2: ThreadItem = { ...THREAD, id: "thread-2" };
-    rerender(<AnalyticsThread thread={THREAD_2} />);
-
-    await waitFor(() => expect(reset).toHaveBeenCalled());
-  });
-
-  it("calls reset when thread.id changes while state is idle", async () => {
-    const reset = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
-    const { rerender } = render(<AnalyticsThread thread={THREAD} />);
-
-    const THREAD_2: ThreadItem = { ...THREAD, id: "thread-2" };
-    rerender(<AnalyticsThread thread={THREAD_2} />);
-
-    await waitFor(() => expect(reset).toHaveBeenCalled());
-  });
-
-  it("does not call reset on re-render with the same thread.id", async () => {
-    const reset = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
-    render(<AnalyticsThread thread={THREAD} />);
+    const { rerender } = renderThread();
+    // Mounting resets too; only the switch is under test.
     reset.mockClear();
+
+    rerender(<AnalyticsThread thread={THREAD_2} />);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls reset when thread.id changes while state is idle", () => {
+    const reset = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
+    const { rerender } = renderThread();
+    reset.mockClear();
+
+    rerender(<AnalyticsThread thread={THREAD_2} />);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call reset on re-render with the same thread.id", () => {
+    const reset = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
+    const { rerender } = renderThread();
+    reset.mockClear();
+
+    rerender(<AnalyticsThread thread={{ ...THREAD }} />);
     expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("closes the open panel when the thread changes", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith(automationStarted("my_proc", [{ name: "step_a", task_type: "execute_sql" }]))
+    );
+    const { rerender } = renderThread();
+    selectInTrace("my_proc");
+    expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
+
+    rerender(<AnalyticsThread thread={THREAD_2} />);
+    expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
   });
 });
 
 // ── Auto-start on first visit ─────────────────────────────────────────────────
 
 describe("AnalyticsThread — auto-start on first visit", () => {
-  it("calls start automatically when isFirstVisit is true", () => {
+  it("starts the thread's question once when the thread has no run yet", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
-    render(<AnalyticsThread thread={THREAD} />);
-    expect(start).toHaveBeenCalledWith("agent-1", "Analyze sales data", "thread-1");
+    renderThread();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith(
+      "agent-1",
+      "Analyze sales data",
+      "thread-1",
+      "auto",
+      undefined
+    );
   });
 
-  it("does not show the Run analytics button on first visit (auto-starts instead)", () => {
+  it("starts with the thinking mode chosen in the chat panel", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
-    render(<AnalyticsThread thread={THREAD} />);
-    expect(screen.queryByText("Run analytics")).toBeNull();
+    setPendingThinkingMode("thread-1", "extended_thinking");
+    renderThread();
+    expect(start).toHaveBeenCalledWith(
+      "agent-1",
+      "Analyze sales data",
+      "thread-1",
+      "extended_thinking",
+      undefined
+    );
+  });
+
+  it("shows the question and a running trace while the first run is starting", () => {
+    renderThread();
+    expect(screen.getByTestId("user-message").textContent).toBe("Analyze sales data");
+    expect(screen.getByText("Reasoning trace")).toBeInTheDocument();
   });
 
   it("does not auto-start when allRuns exist (not first visit)", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
     mockUseQuery.mockReturnValue({
-      data: [{ run_id: "r1", question: "q", status: "done", ui_events: [] }],
-      isLoading: false
+      data: [pastRun({ question: "q" })],
+      isLoading: false,
+      isFetching: false
     });
-    render(<AnalyticsThread thread={THREAD} />);
+    renderThread();
     expect(start).not.toHaveBeenCalled();
   });
 
   it("does not auto-start while allRuns are still loading", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
-    mockUseQuery.mockReturnValue({ data: [], isLoading: true });
-    render(<AnalyticsThread thread={THREAD} />);
+    mockUseQuery.mockReturnValue({ data: [], isLoading: true, isFetching: true });
+    renderThread();
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it("holds a builder thread until the builder model is known", () => {
+    const start = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
+    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ isLoading: true }));
+    renderThread(BUILDER_THREAD);
+    expect(start).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("starts a builder thread with the configured builder model", () => {
+    const start = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
+    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ builderModel: "builder-model" }));
+    renderThread(BUILDER_THREAD);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledWith(
+      "__builder__",
+      "Analyze sales data",
+      "thread-1",
+      "auto",
+      "builder-model"
+    );
+  });
+
+  it("says why a builder thread cannot start when no model is configured", () => {
+    const start = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
+    renderThread(BUILDER_THREAD);
+    expect(start).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("The Builder Agent didn't start");
+    expect(alert.textContent).toContain("Set builder_agent.model in config.yml");
+  });
+
+  it("blames the availability check, not the config, when that check failed", () => {
+    mockUseBuilderAvailable.mockReturnValue(builderAvailability({ isError: true }));
+    renderThread(BUILDER_THREAD);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Couldn't check this workspace's Builder Agent");
+    expect(alert.textContent).not.toContain("config.yml");
   });
 });
 
@@ -516,7 +521,7 @@ describe("AnalyticsThread — auto-start on first visit", () => {
 //   4. Switch back to thread-2.
 //      → React Query has stale cache [] for thread-2 (run-2 was created AFTER the cache
 //        was last written, so it is not reflected).
-//      → The component remounts fresh (autoStartedRef = false).
+//      → The component remounts fresh.
 //      → isFetching=true (background refetch in progress), but isLoading=false.
 //      → Without the fix: isFirstVisit = !isLoading && [] && idle = true → DUPLICATE start.
 //      → With the fix: isFirstVisit must also require !isFetching → no start until
@@ -529,7 +534,7 @@ describe("AnalyticsThread — stale-cache duplicate auto-start race condition", 
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
     mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: true });
-    render(<AnalyticsThread thread={THREAD} />);
+    renderThread();
     // Must NOT auto-start while a fetch is still in progress — allRuns may return data.
     expect(start).not.toHaveBeenCalled();
   });
@@ -537,106 +542,132 @@ describe("AnalyticsThread — stale-cache duplicate auto-start race condition", 
   it("auto-starts only after the fetch completes and allRuns is confirmed empty", () => {
     const start = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
+    mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: true });
+    const { rerender } = renderThread();
+    expect(start).not.toHaveBeenCalled();
+
     // Fetch complete, truly empty → genuine first visit
     mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: false });
-    render(<AnalyticsThread thread={THREAD} />);
+    rerender(<AnalyticsThread thread={THREAD} />);
     expect(start).toHaveBeenCalledTimes(1);
   });
 
-  it("does not auto-start when fetch completes and allRuns has existing runs", () => {
+  it("resumes the in-flight run instead of starting a second one when the fetch finds it", () => {
     const start = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ start }));
+    const reconnect = vi.fn();
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ start, reconnect }));
+    mockUseQuery.mockReturnValue({ data: [], isLoading: false, isFetching: true });
+    const { rerender } = renderThread();
+
     mockUseQuery.mockReturnValue({
-      data: [{ run_id: "r1", question: "Analyze sales data", status: "running", ui_events: [] }],
+      data: [pastRun({ status: "running" })],
       isLoading: false,
       isFetching: false
     });
-    render(<AnalyticsThread thread={THREAD} />);
+    rerender(<AnalyticsThread thread={THREAD} />);
     expect(start).not.toHaveBeenCalled();
+    expect(reconnect).toHaveBeenCalledWith("r1", "running");
   });
 
   it("does not render duplicate questions when allRuns contains the original run", () => {
-    mockUseAnalyticsRun.mockReturnValue(makeResult());
     mockUseQuery.mockReturnValue({
-      data: [
-        {
-          run_id: "r1",
-          question: "Analyze sales data",
-          status: "done",
-          answer: "Result",
-          ui_events: []
-        }
-      ],
+      data: [pastRun({ answer: "Result" })],
       isLoading: false,
       isFetching: false
     });
-    render(<AnalyticsThread thread={THREAD} />);
+    renderThread();
     const messages = screen.getAllByTestId("user-message");
     expect(messages).toHaveLength(1);
     expect(messages[0].textContent).toBe("Analyze sales data");
   });
+
+  it("renders a finished run once while it is both live and already in allRuns", () => {
+    // The window between the run finishing and the page dropping its live copy:
+    // the refetched list already has the run the page is still showing.
+    mockUseAnalyticsRun.mockReturnValue(doneWith([]));
+    mockUseQuery.mockReturnValue({
+      data: [pastRun({ run_id: "run-1", answer: "Result" })],
+      isLoading: false,
+      isFetching: false
+    });
+    renderThread();
+    expect(screen.getAllByTestId("user-message")).toHaveLength(1);
+  });
 });
 
-// ── ChartSection — streaming display blocks ───────────────────────────────────
+// ── Chart panel ───────────────────────────────────────────────────────────────
 
-const openChart = () => fireEvent.click(screen.getByTestId("chart-trigger"));
+describe("AnalyticsThread — chart panel", () => {
+  const BAR: ChartConfig = { chart_type: "bar_chart", x: "month", y: "revenue", title: "Revenue" };
+  const LINE: ChartConfig = { chart_type: "line_chart", x: "date", y: "sales", title: "Sales" };
 
-describe("AnalyticsThread — ChartSection streaming display blocks", () => {
-  it("passes empty displayBlocks to sidebar when no chart_rendered events exist during streaming", () => {
-    mockUseAnalyticsRun.mockReturnValue(runningWith([]));
-    render(<AnalyticsThread thread={THREAD} />);
-    openChart();
-    const lastCall = sidebarDisplayBlocksSpy.mock.calls.at(-1);
-    expect(lastCall?.[0]).toEqual([]);
-  });
-
-  it("passes chart_rendered blocks to sidebar derived from live events during streaming", async () => {
-    const chartBlock = {
-      config: { chart_type: "bar_chart", x: "month", y: "revenue" },
-      columns: ["month", "revenue"],
-      rows: [
-        ["Jan", 100],
-        ["Feb", 200]
-      ]
-    };
-    const events = [sseEv("chart_rendered", chartBlock)];
-    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
-
-    render(<AnalyticsThread thread={THREAD} />);
-    openChart();
-
-    await waitFor(() => {
-      const lastCall = sidebarDisplayBlocksSpy.mock.calls.at(-1);
-      expect(lastCall?.[0]).toEqual([chartBlock]);
-    });
-  });
-
-  it("passes chart_rendered blocks from done state to sidebar", async () => {
-    const chartBlock = {
-      config: { chart_type: "line_chart", x: "date", y: "sales" },
-      columns: ["date", "sales"],
-      rows: [["2024-01", 500]]
-    };
-    const events = [sseEv("chart_rendered", chartBlock)];
+  it("shows the chart settings but no chart while the call has rendered nothing yet", () => {
     mockUseAnalyticsRun.mockReturnValue(
-      makeResult({
-        state: {
-          tag: "done",
-          runId: "run-1",
-          answer: "",
-          displayBlocks: [chartBlock],
-          durationMs: 0,
-          events
-        }
-      })
+      runningWith([
+        sseEv("step_start", { label: "Interpreting" }),
+        sseEv("tool_call", { name: "render_chart", input: BAR })
+      ])
     );
+    renderThread();
+    selectInTrace("Render Chart");
+    expect(panel("Render Chart").getByText("bar_chart")).toBeInTheDocument();
+    expect(screen.queryByTestId("display-block")).toBeNull();
+  });
 
-    render(<AnalyticsThread thread={THREAD} />);
-    openChart();
+  it("shows the chart rendered by the picked call while the run is still streaming", () => {
+    const chart = chartRendered(BAR, [
+      ["Jan", 100],
+      ["Feb", 200]
+    ]);
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([sseEv("step_start", { label: "Interpreting" }), ...chart.events])
+    );
+    renderThread();
+    selectInTrace("Render Chart");
 
-    await waitFor(() => {
-      const lastCall = sidebarDisplayBlocksSpy.mock.calls.at(-1);
-      expect(lastCall?.[0]).toEqual([chartBlock]);
-    });
+    const rendered = panel("Render Chart").getByTestId("display-block");
+    expect(rendered.dataset.chartType).toBe("bar_chart");
+    expect(rendered.textContent).toBe("Revenue");
+  });
+
+  it("shows each render_chart call its own chart", () => {
+    const first = chartRendered(BAR, [["Jan", 100]]);
+    const second = chartRendered(LINE, [["2024-01", 500]]);
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        sseEv("step_start", { label: "Interpreting" }),
+        ...first.events,
+        ...second.events
+      ])
+    );
+    renderThread();
+
+    selectInTrace("Render Chart", 1);
+    const shown = panel("Render Chart").getAllByTestId("display-block");
+    expect(shown).toHaveLength(1);
+    expect(shown[0].textContent).toBe("Sales");
+
+    selectInTrace("Render Chart", 0);
+    expect(panel("Render Chart").getByTestId("display-block").textContent).toBe("Revenue");
+  });
+
+  it("shows the chart for a finished run", () => {
+    const chart = chartRendered(LINE, [["2024-01", 500]]);
+    mockUseAnalyticsRun.mockReturnValue(
+      doneWith(
+        [
+          sseEv("step_start", { label: "Interpreting" }),
+          ...chart.events,
+          sseEv("step_end", { label: "Interpreting", outcome: "advanced" })
+        ],
+        [chart.block]
+      )
+    );
+    renderThread();
+    selectInTrace("Render Chart");
+
+    const rendered = panel("Render Chart").getByTestId("display-block");
+    expect(rendered.dataset.chartType).toBe("line_chart");
+    expect(rendered.textContent).toBe("Sales");
   });
 });

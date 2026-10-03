@@ -1,8 +1,27 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import { getArrowColumnValues } from "../utils";
+import type { DisplayFormat } from "@/types/app";
+import { getArrowColumnValues, getArrowFieldType, inferColumnFormat } from "../utils";
 
 /** Wraps an identifier in double quotes, escaping any embedded double quotes. */
 const q = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
+
+/**
+ * The format for a chart's value column: the one the app declares, else the one
+ * the column's name and type imply. That is `inferColumnFormat`, the rule a
+ * table applies to each of its columns, so a chart of `payment_count` gets no
+ * more of a `$` on its axis than a table gives that column. The type is the
+ * source column's, read without fetching a row.
+ */
+export const resolveValueFormat = async (
+  connection: AsyncDuckDBConnection,
+  fileName: string,
+  valueField: string,
+  declared?: DisplayFormat
+): Promise<DisplayFormat | undefined> => {
+  if (declared) return declared;
+  const column = await connection.query(`SELECT ${q(valueField)} FROM "${fileName}" LIMIT 0`);
+  return inferColumnFormat(valueField, getArrowFieldType(valueField, column.schema));
+};
 
 export const getXAxisData = async (
   connection: AsyncDuckDBConnection,

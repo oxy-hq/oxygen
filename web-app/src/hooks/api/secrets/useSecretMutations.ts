@@ -10,7 +10,12 @@ import type {
 } from "@/types/secret";
 import queryKeys from "../queryKey";
 
-export const useCreateSecret = () => {
+/**
+ * Creates one secret and says so. A caller that creates several for one submit
+ * passes `toastOnSuccess: false` and reports them together, so the user gets one
+ * toast for one action; a failure is always reported here.
+ */
+export const useCreateSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: boolean } = {}) => {
   const queryClient = useQueryClient();
   const { project } = useCurrentProjectBranch();
   const projectId = project.id;
@@ -21,7 +26,7 @@ export const useCreateSecret = () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.secret.list(projectId)
       });
-      toast.success("Secret created successfully");
+      if (toastOnSuccess) toast.success("Secret created successfully");
     },
     onError: (error) => {
       console.error("Failed to create secret:", error);

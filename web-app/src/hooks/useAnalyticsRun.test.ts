@@ -4,11 +4,13 @@ import type { SseEvent } from "./useAnalyticsRun";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-const ev = (type: string, data: Record<string, unknown> = {}): SseEvent => ({
-  id: type,
-  type,
-  data
-});
+// `data` is checked against the wire payload of `type`, so a fixture that drifts
+// from the event shape fails the typecheck. The cast only rejoins the pair into
+// the union, which TypeScript cannot correlate through a generic.
+const ev = <T extends SseEvent["type"]>(
+  type: T,
+  data: Extract<SseEvent, { type: T }>["data"]
+): SseEvent => ({ id: type, type, data }) as SseEvent;
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
@@ -26,7 +28,7 @@ describe("buildAnalyticsNodes", () => {
   it("step_start + step_end success → done step node", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Planning" }),
-      ev("step_end", { label: "Planning", success: true })
+      ev("step_end", { label: "Planning", outcome: "advanced" })
     ]);
     expect(nodes).toHaveLength(1);
     expect(nodes[0]).toMatchObject({ kind: "step", status: "done", label: "Planning" });
@@ -35,7 +37,7 @@ describe("buildAnalyticsNodes", () => {
   it("step_start + step_end failed → failed step node", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Running" }),
-      ev("step_end", { label: "Running", success: false })
+      ev("step_end", { label: "Running", outcome: "failed" })
     ]);
     expect(nodes).toHaveLength(1);
     expect(nodes[0]).toMatchObject({ kind: "step", status: "failed" });
@@ -47,7 +49,7 @@ describe("buildAnalyticsNodes", () => {
         query: "SELECT 1",
         success: true,
         columns: ["id"],
-        rows: [[1]],
+        rows: [["1"]],
         duration_ms: 42,
         row_count: 1
       })
@@ -78,7 +80,24 @@ describe("buildAnalyticsNodes", () => {
   });
 
   it("unknown event type → skipped", () => {
-    const nodes = buildAnalyticsNodes([ev("llm_token", { token: "hello" })]);
+    // Deliberately not a member of SseEvent: the SSE boundary casts whatever event
+    // name the server sends, so a newer backend can deliver a type this build has
+    // never heard of. The reducer must drop it rather than throw.
+    const unknownEvent = {
+      id: "llm_token",
+      type: "llm_token",
+      data: { token: "hello" }
+    } as unknown as SseEvent;
+    expect(buildAnalyticsNodes([unknownEvent])).toEqual([]);
+  });
+
+  it("streaming events that have no node → skipped", () => {
+    const nodes = buildAnalyticsNodes([
+      ev("thinking_start", {}),
+      ev("thinking_token", { token: "hmm" }),
+      ev("thinking_end", {}),
+      ev("text_delta", { token: "hello" })
+    ]);
     expect(nodes).toEqual([]);
   });
 
@@ -94,7 +113,7 @@ describe("buildAnalyticsNodes", () => {
         duration_ms: 10,
         row_count: 0
       }),
-      ev("step_end", { label: "Running", success: true })
+      ev("step_end", { label: "Running", outcome: "advanced" })
     ]);
     expect(nodes).toHaveLength(3);
     expect(nodes[0]).toMatchObject({ kind: "step", status: "done", label: "Running" });
@@ -103,7 +122,9 @@ describe("buildAnalyticsNodes", () => {
   });
 
   it("schema_resolved → domain node with tables", () => {
-    const nodes = buildAnalyticsNodes([ev("schema_resolved", { tables: ["orders", "users"] })]);
+    const nodes = buildAnalyticsNodes([
+      ev("schema_resolved", { tables: ["orders", "users"], duration_ms: 12 })
+    ]);
     expect(nodes).toHaveLength(1);
     expect(nodes[0]).toMatchObject({
       kind: "domain",
@@ -154,9 +175,9 @@ describe("buildAnalyticsNodes", () => {
   it("multiple steps in sequence have independent status", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Analyzing" }),
-      ev("step_end", { label: "Analyzing", success: true }),
+      ev("step_end", { label: "Analyzing", outcome: "advanced" }),
       ev("step_start", { label: "Planning" }),
-      ev("step_end", { label: "Planning", success: true }),
+      ev("step_end", { label: "Planning", outcome: "advanced" }),
       ev("step_start", { label: "Running" })
     ]);
     expect(nodes).toHaveLength(3);
@@ -199,7 +220,7 @@ describe("buildAnalyticsNodes", () => {
   it("done/error events are not rendered as nodes", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Answering" }),
-      ev("step_end", { label: "Answering", success: true }),
+      ev("step_end", { label: "Answering", outcome: "advanced" }),
       ev("done", { duration_ms: 1234 })
     ]);
     expect(nodes).toHaveLength(1);
@@ -208,8 +229,8 @@ describe("buildAnalyticsNodes", () => {
   it("each node has a unique string id", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Analyzing" }),
-      ev("schema_resolved", { tables: [] }),
-      ev("step_end", { label: "Analyzing", success: true })
+      ev("schema_resolved", { tables: [], duration_ms: 12 }),
+      ev("step_end", { label: "Analyzing", outcome: "advanced" })
     ]);
     const ids = nodes.map((n) => n.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -226,21 +247,21 @@ describe("groupNodesByStep", () => {
   it("only step nodes → groups with empty children", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Analyzing" }),
-      ev("step_end", { label: "Analyzing", success: true }),
+      ev("step_end", { label: "Analyzing", outcome: "advanced" }),
       ev("step_start", { label: "Planning" }),
-      ev("step_end", { label: "Planning", success: true })
+      ev("step_end", { label: "Planning", outcome: "advanced" })
     ]);
     const groups = groupNodesByStep(nodes);
     expect(groups).toHaveLength(2);
-    expect(groups[0].step.label).toBe("Analyzing");
+    expect(groups[0].step?.label).toBe("Analyzing");
     expect(groups[0].children).toHaveLength(0);
-    expect(groups[1].step.label).toBe("Planning");
+    expect(groups[1].step?.label).toBe("Planning");
     expect(groups[1].children).toHaveLength(0);
   });
 
   it("domain nodes before any step → orphan group", () => {
     const nodes = buildAnalyticsNodes([
-      ev("schema_resolved", { tables: ["orders"] }),
+      ev("schema_resolved", { tables: ["orders"], duration_ms: 12 }),
       ev("step_start", { label: "Analyzing" })
     ]);
     const groups = groupNodesByStep(nodes);
@@ -264,7 +285,7 @@ describe("groupNodesByStep", () => {
         duration_ms: 10,
         row_count: 0
       }),
-      ev("step_end", { label: "Running", success: true }),
+      ev("step_end", { label: "Running", outcome: "advanced" }),
       ev("step_start", { label: "Answering" })
     ]);
     const groups = groupNodesByStep(nodes);
@@ -280,7 +301,7 @@ describe("groupNodesByStep", () => {
   it("multiple steps each collect their own domain children", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Analyzing" }),
-      ev("schema_resolved", { tables: [] }),
+      ev("schema_resolved", { tables: [], duration_ms: 12 }),
       ev("triage_completed", {
         summary: "s",
         question_type: "q",
@@ -288,7 +309,7 @@ describe("groupNodesByStep", () => {
         relevant_tables: [],
         ambiguities: []
       }),
-      ev("step_end", { label: "Analyzing", success: true }),
+      ev("step_end", { label: "Analyzing", outcome: "advanced" }),
       ev("step_start", { label: "Planning" }),
       ev("spec_resolved", {
         resolved_metrics: [],
@@ -298,7 +319,7 @@ describe("groupNodesByStep", () => {
         assumptions: [],
         solution_source: "Llm"
       }),
-      ev("step_end", { label: "Planning", success: true })
+      ev("step_end", { label: "Planning", outcome: "advanced" })
     ]);
     const groups = groupNodesByStep(nodes);
     expect(groups).toHaveLength(2);
@@ -328,7 +349,7 @@ describe("groupNodesByStep", () => {
         duration_ms: 10,
         row_count: 1
       }),
-      ev("step_end", { label: "Query 1 of 3", success: true }),
+      ev("step_end", { label: "Query 1 of 3", outcome: "advanced" }),
       ev("step_start", { label: "Query 2 of 3" }), // depth 1
       ev("spec_resolved", {
         resolved_metrics: [],
@@ -346,8 +367,8 @@ describe("groupNodesByStep", () => {
         duration_ms: 15,
         row_count: 2
       }),
-      ev("step_end", { label: "Query 2 of 3", success: true }),
-      ev("step_end", { label: "Running 3 queries", success: true })
+      ev("step_end", { label: "Query 2 of 3", outcome: "advanced" }),
+      ev("step_end", { label: "Running 3 queries", outcome: "advanced" })
     ]);
     const groups = groupNodesByStep(nodes);
     expect(groups).toHaveLength(1);
@@ -373,7 +394,7 @@ describe("groupNodesByStep", () => {
         duration_ms: 5,
         row_count: 0
       }),
-      ev("step_end", { label: "Query 1 of 2", success: false }),
+      ev("step_end", { label: "Query 1 of 2", outcome: "failed" }),
       ev("step_start", { label: "Query 2 of 2" }),
       ev("query_executed", {
         query: "SELECT 2",
@@ -383,8 +404,8 @@ describe("groupNodesByStep", () => {
         duration_ms: 5,
         row_count: 0
       }),
-      ev("step_end", { label: "Query 2 of 2", success: true }),
-      ev("step_end", { label: "Running 2 queries", success: false })
+      ev("step_end", { label: "Query 2 of 2", outcome: "advanced" }),
+      ev("step_end", { label: "Running 2 queries", outcome: "failed" })
     ]);
     const groups = groupNodesByStep(nodes);
     expect(groups[0].step?.status).toBe("failed");
@@ -404,7 +425,7 @@ describe("groupNodesByStep", () => {
         duration_ms: 5,
         row_count: 0
       }),
-      ev("step_end", { label: "Query 1 of 3", success: true }),
+      ev("step_end", { label: "Query 1 of 3", outcome: "advanced" }),
       ev("step_start", { label: "Query 2 of 3" }) // still running
     ]);
     const groups = groupNodesByStep(nodes);
@@ -416,8 +437,8 @@ describe("groupNodesByStep", () => {
   it("non-fan-out steps have empty subGroups", () => {
     const nodes = buildAnalyticsNodes([
       ev("step_start", { label: "Analyzing" }),
-      ev("schema_resolved", { tables: [] }),
-      ev("step_end", { label: "Analyzing", success: true })
+      ev("schema_resolved", { tables: [], duration_ms: 12 }),
+      ev("step_end", { label: "Analyzing", outcome: "advanced" })
     ]);
     const groups = groupNodesByStep(nodes);
     expect(groups[0].subGroups).toHaveLength(0);

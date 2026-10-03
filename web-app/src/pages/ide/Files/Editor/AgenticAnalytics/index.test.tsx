@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FilesSubViewMode } from "../../FilesSidebar/constants";
 
@@ -48,8 +49,7 @@ vi.mock("./PreviewSection", () => ({
 
 vi.mock("@/components/agentic/AgenticAnalyticsForm", () => ({
   AgenticAnalyticsForm: () => <div data-testid='agentic-form' />,
-  yamlToForm: (d: unknown) => d,
-  formToYaml: (d: unknown) => d
+  yamlToForm: (d: unknown) => d
 }));
 
 // --- Imports after mocks ---
@@ -111,24 +111,27 @@ describe("AgenticAnalyticsEditor — view mode toggle", () => {
     expect(screen.getByTestId("header-prefix")).toBeInTheDocument();
   });
 
-  it("switches from form to YAML editor when Editor tab is clicked", () => {
+  // The toggle is a Radix tab list, which selects a tab on mousedown / focus, not
+  // on `click`. `userEvent.click` sends the whole pointer sequence a browser
+  // does; a bare `fireEvent.click` sends only the last event and selects nothing.
+  it("switches from form to YAML editor when Editor tab is clicked", async () => {
     setupMocks(FilesSubViewMode.OBJECTS);
     render(<AgenticAnalyticsEditor />);
     // Initially shows form
     expect(screen.getByTestId("custom-editor")).toBeInTheDocument();
     // Click the Editor tab (aria-label="Editor view")
-    fireEvent.click(screen.getByRole("tab", { name: "Editor view" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Editor view" }));
     expect(screen.getByTestId("yaml-editor")).toBeInTheDocument();
     expect(screen.queryByTestId("custom-editor")).not.toBeInTheDocument();
   });
 
-  it("switches from YAML editor to form when Form tab is clicked", () => {
+  it("switches from YAML editor to form when Form tab is clicked", async () => {
     setupMocks(FilesSubViewMode.FILES);
     render(<AgenticAnalyticsEditor />);
     // Initially shows YAML editor
     expect(screen.getByTestId("yaml-editor")).toBeInTheDocument();
     // Click the Form tab (aria-label="Form view")
-    fireEvent.click(screen.getByRole("tab", { name: "Form view" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Form view" }));
     expect(screen.getByTestId("custom-editor")).toBeInTheDocument();
     expect(screen.queryByTestId("yaml-editor")).not.toBeInTheDocument();
   });

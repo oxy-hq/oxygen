@@ -21,12 +21,20 @@ const ev = <T extends UiBlock["event_type"]>(
   payload: Extract<UiBlock, { event_type: T }>["payload"]
 ): UiBlock => ({ seq: seq++, event_type: type, payload }) as UiBlock;
 
-const stepStart = (label: string) => ev("step_start", { label });
-const stepEnd = () => ev("step_end", { label: "", success: true });
+// Events emitted inside a fan-out card carry that card's `sub_spec_index`; the
+// reducer routes on it, so a step without one lands outside every card.
+const stepStart = (label: string, subSpecIndex?: number) =>
+  ev("step_start", { label, ...(subSpecIndex != null ? { sub_spec_index: subSpecIndex } : {}) });
+const stepEnd = (subSpecIndex?: number) =>
+  ev("step_end", {
+    label: "",
+    outcome: "advanced",
+    ...(subSpecIndex != null ? { sub_spec_index: subSpecIndex } : {})
+  });
 const fanOutStart = (total: number) => ev("fan_out_start", { total });
 const subSpecStart = (index: number, label: string) =>
   ev("sub_spec_start", { index, total: 0, label });
-const subSpecEnd = () => ev("sub_spec_end", { index: 0, success: true });
+const subSpecEnd = (index: number) => ev("sub_spec_end", { index, success: true });
 const fanOutEnd = () => ev("fan_out_end", { success: true });
 
 const noop = () => {};
@@ -80,9 +88,9 @@ describe("AnalyticsReasoningTrace", () => {
         events={[
           fanOutStart(1),
           subSpecStart(0, "Q1"),
-          stepStart("Solving"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving", 0),
+          stepEnd(0),
+          subSpecEnd(0),
           fanOutEnd()
         ]}
         isRunning={false}
@@ -98,13 +106,13 @@ describe("AnalyticsReasoningTrace", () => {
         events={[
           fanOutStart(2),
           subSpecStart(0, "Q1"),
-          stepStart("Solving for Q1"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q1", 0),
+          stepEnd(0),
+          subSpecEnd(0),
           subSpecStart(1, "Q2"),
-          stepStart("Solving for Q2"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q2", 1),
+          stepEnd(1),
+          subSpecEnd(1),
           fanOutEnd()
         ]}
         isRunning={false}
@@ -121,13 +129,13 @@ describe("AnalyticsReasoningTrace", () => {
         events={[
           fanOutStart(2),
           subSpecStart(0, "Q1"),
-          stepStart("Solving for Q1"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q1", 0),
+          stepEnd(0),
+          subSpecEnd(0),
           subSpecStart(1, "Q2"),
-          stepStart("Solving for Q2"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q2", 1),
+          stepEnd(1),
+          subSpecEnd(1),
           fanOutEnd()
         ]}
         isRunning={false}
@@ -145,13 +153,13 @@ describe("AnalyticsReasoningTrace", () => {
         events={[
           fanOutStart(2),
           subSpecStart(0, "Q1"),
-          stepStart("Solving for Q1"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q1", 0),
+          stepEnd(0),
+          subSpecEnd(0),
           subSpecStart(1, "Q2"),
-          stepStart("Solving for Q2"),
-          stepEnd(),
-          subSpecEnd(),
+          stepStart("Solving for Q2", 1),
+          stepEnd(1),
+          subSpecEnd(1),
           fanOutEnd()
         ]}
         isRunning={false}
@@ -169,7 +177,7 @@ describe("AnalyticsReasoningTrace", () => {
   it("shows step inside an active card before sub_spec_end arrives", () => {
     render(
       <AnalyticsReasoningTrace
-        events={[fanOutStart(2), subSpecStart(0, "Q1"), stepStart("Solving"), stepEnd()]}
+        events={[fanOutStart(2), subSpecStart(0, "Q1"), stepStart("Solving", 0), stepEnd(0)]}
         isRunning={true}
         onSelectArtifact={noop}
       />
@@ -191,7 +199,7 @@ describe("AnalyticsReasoningTrace", () => {
   it("shows parallel query count in card header", () => {
     render(
       <AnalyticsReasoningTrace
-        events={[fanOutStart(3), subSpecStart(0, "Q1"), stepStart("Solving"), stepEnd()]}
+        events={[fanOutStart(3), subSpecStart(0, "Q1"), stepStart("Solving", 0), stepEnd(0)]}
         isRunning={true}
         onSelectArtifact={noop}
       />
@@ -233,13 +241,13 @@ describe("AnalyticsReasoningTrace — incremental event stream", () => {
     const events = [
       fanOutStart(2),
       subSpecStart(0, "Q1"),
-      stepStart("Solving for Q1"),
-      stepEnd(),
-      subSpecEnd(),
+      stepStart("Solving for Q1", 0),
+      stepEnd(0),
+      subSpecEnd(0),
       subSpecStart(1, "Q2"),
-      stepStart("Solving for Q2"),
-      stepEnd(),
-      subSpecEnd(),
+      stepStart("Solving for Q2", 1),
+      stepEnd(1),
+      subSpecEnd(1),
       fanOutEnd()
     ];
 
@@ -292,9 +300,9 @@ describe("AnalyticsReasoningTrace — incremental event stream", () => {
     const events = [
       fanOutStart(2),
       subSpecStart(0, "Q1"),
-      stepStart("Solving for Q1"),
-      stepEnd(),
-      subSpecEnd(),
+      stepStart("Solving for Q1", 0),
+      stepEnd(0),
+      subSpecEnd(0),
       subSpecStart(1, "Q2")
     ];
 

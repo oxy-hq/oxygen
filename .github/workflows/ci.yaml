@@ -213,24 +213,25 @@ jobs:
       # `test:unit` is `vitest run` (non-watch). Invoked directly via the pnpm
       # workspace filter — NOT wired as a turbo task (turbo.json is owned outside
       # this change-scope), so it runs standalone.
-      # NON-BLOCKING: this suite was never gated before and carries pre-existing
-      # failures across areas untouched by this change (billing / database /
-      # context-graph / metric-tree). It runs for visibility; drop
-      # `continue-on-error` to enforce once a dedicated pass greens the suite.
+      # BLOCKING. It ran with `continue-on-error` while it carried 71 failures
+      # in 11 files — every one a stale test, harness or fixture, several red
+      # since the day they were added, which is what a suite that cannot fail
+      # the build collects. Those are fixed; a red test here is now a red PR.
       - name: Run Vitest unit suite
-        continue-on-error: true
         run: pnpm --filter oxy-web run test:unit
 
       # `src/**/*.test.tsx` is typechecked by no other project — `tsconfig.app.json`
       # excludes it and `tsconfig.node.json` covers only `tests/`. See the header
       # of `web-app/tsconfig.test.json` for why it is not in `references:` yet.
       #
-      # A RATCHET, not a pass/fail gate: the project carries a documented backlog
-      # of pre-existing errors, so blocking on zero would block every contributor.
-      # Blocking on "no more than there were" catches the bug this exists to catch
-      # — a test file referencing a field the wire type no longer has — while the
-      # backlog drains. Lower TS_TEST_ERROR_BASELINE whenever a pass clears some;
-      # at 0, delete this step and add the project to `tsconfig.json`'s references.
+      # Built as a RATCHET while the project carried a backlog (118 errors at its
+      # last count); the backlog is cleared, so with a baseline of 0 it is now a
+      # plain gate: any type error in a test file fails. What it exists to catch
+      # is a test referencing a field the wire type no longer has — most of the
+      # 118 were exactly that, fixtures that had drifted from the types. The
+      # ratchet shape stays for its two guards (a moved tsconfig, a narrowed
+      # project); folding the project into `tsconfig.json`'s references instead
+      # is still open.
       - name: Typecheck unit tests (ratchet)
         env:
           # Matches a real tsc diagnostic's `(line,col): error TSxxxx:`.
@@ -238,11 +239,11 @@ jobs:
           # failure — `error TS5058`, `error TS18003`, both at column 0 —
           # count zero rather than read as a shrinking backlog.
           TS_DIAG_TAIL: '\([0-9]+,[0-9]+\): error TS[0-9]+:'
-          TS_TEST_ERROR_BASELINE: 118
-          # 122 test files exist today (the `--showConfig` count this step runs);
+          TS_TEST_ERROR_BASELINE: 0
+          # 205 test files exist today (the `--showConfig` count this step runs);
           # floor just under, so a real exclusion trips it but adding or
           # deleting a handful of tests does not.
-          TS_TESTFILE_FLOOR: 115
+          TS_TESTFILE_FLOOR: 200
         run: |
           # A gate that reports success while checking nothing is the bug this
           # branch started from, and it has three keys. All three are closed.
@@ -354,9 +355,10 @@ jobs:
           # brought `/// <reference types="node" />` into the program, which
           # resolved the `process` / `Buffer` / `node:fs` diagnostics the old
           # baseline was mostly made of. What is left is the two dependency
-          # gaps the advisory step above describes, plus one fixture cast.
-          SDK_TEST_ERROR_BASELINE: 3
-          SDK_TESTFILE_ERROR_BASELINE: 1
+          # gaps the advisory step above describes; the fixture cast that was
+          # the one test-file error is fixed, so that baseline is 0.
+          SDK_TEST_ERROR_BASELINE: 2
+          SDK_TESTFILE_ERROR_BASELINE: 0
           # 23 test files today; floor just under. See the web-app ratchet.
           # Raised with the count: the floor exists to catch the project being
           # narrowed, so slack of 13 measured nothing and the step's own

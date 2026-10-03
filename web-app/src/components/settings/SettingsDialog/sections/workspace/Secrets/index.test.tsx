@@ -4,8 +4,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import queryKeys from "@/hooks/api/queryKey";
 import { CustomAppsService } from "@/services/api/customApps";
 import { SecretService } from "@/services/secretService";
+import type { Secret, SecretListResponse } from "@/types/secret";
 
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
   default: () => ({ project: { id: "proj-1" }, branchName: "main" })
@@ -58,9 +60,27 @@ const setWorkspaceAppSecret = vi.mocked(CustomAppsService.setWorkspaceAppSecret)
 /** Every promise callback already queued has run by the time this resolves. */
 const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** Opens the create dialog and fills it in for a secret named API_KEY. */
-const fillInNewSecret = () => {
+/** A stored secret as the workspace's list holds it. */
+const stored = (name: string): Secret => ({
+  id: `id-of-${name}`,
+  name,
+  created_at: "2024-03-05T00:00:00Z",
+  updated_at: "2024-03-05T00:00:00Z",
+  created_by: "user-1",
+  is_active: true
+});
+
+/**
+ * Opens the create dialog and fills it in for a secret named API_KEY. `existing`
+ * is the workspace's secrets list as the section has it loaded; `null` leaves it
+ * not loaded at all.
+ */
+const fillInNewSecret = (existing: Secret[] | null = []) => {
   const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  if (existing) {
+    const list: SecretListResponse = { secrets: existing, total: existing.length };
+    queryClient.setQueryData(queryKeys.secret.list("proj-1"), list);
+  }
   render(
     <QueryClientProvider client={queryClient}>
       <Secrets />
@@ -116,5 +136,31 @@ describe("Secrets section create", () => {
     expect(setWorkspaceAppSecret).toHaveBeenCalledWith("proj-1", "app-1", "API_KEY", "s3cret");
     expect(createSecret).not.toHaveBeenCalled();
     expect(vi.mocked(toast.success).mock.calls).toEqual([["Secret created successfully"]]);
+  });
+
+  /** Submits the dialog for app-1's API_KEY, given what the workspace already stores. */
+  const saveAppSecret = async (existing: Secret[] | null) => {
+    setWorkspaceAppSecret.mockResolvedValue(undefined);
+    fillInNewSecret(existing);
+    fireEvent.change(screen.getByLabelText("Available to"), { target: { value: "app-1" } });
+    await submit();
+    return vi.mocked(toast.success).mock.calls;
+  };
+
+  it("says an app secret was updated when the app already had that key", async () => {
+    // The same endpoint rotates an existing key: nothing was created.
+    expect(await saveAppSecret([stored("apps/app-1/API_KEY")])).toEqual([
+      ["Secret updated successfully"]
+    ]);
+  });
+
+  it("says created when only another app, or the workspace, has a key of that name", async () => {
+    expect(await saveAppSecret([stored("apps/app-2/API_KEY"), stored("API_KEY")])).toEqual([
+      ["Secret created successfully"]
+    ]);
+  });
+
+  it("claims neither when the secrets list is not loaded to tell which it was", async () => {
+    expect(await saveAppSecret(null)).toEqual([["Secret saved successfully"]]);
   });
 });

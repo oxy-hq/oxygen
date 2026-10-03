@@ -3,6 +3,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import {
   DateDay,
   Decimal,
+  Float64,
+  Int32,
   makeData,
   makeVector,
   Table,
@@ -16,15 +18,19 @@ vi.mock("@/hooks/useCurrentProjectBranch", () => ({
   default: () => ({ project: { id: "proj-1" }, branchName: "main" })
 }));
 
-// DuckDB answers `select * from "<file>"` with whatever table the test hands it.
-const queryResult = vi.hoisted(() => ({ table: null as unknown }));
+// DuckDB answers `select * from "<file>"` with whatever table the test hands it,
+// or fails the query with `error` once a test sets one.
+const queryResult = vi.hoisted(() => ({ table: null as unknown, error: null as Error | null }));
 vi.mock("@/libs/duckdb", () => ({
   getDuckDB: () =>
     Promise.resolve({
       registerFileBuffer: () => Promise.resolve(),
       connect: () =>
         Promise.resolve({
-          query: () => Promise.resolve(queryResult.table),
+          query: () =>
+            queryResult.error
+              ? Promise.reject(queryResult.error)
+              : Promise.resolve(queryResult.table),
           close: () => Promise.resolve()
         })
     })
@@ -66,7 +72,11 @@ const renderTable = async (table: Table, display: Partial<TableDisplay> = {}) =>
   return screen.getAllByRole("cell").map((cell) => cell.textContent);
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  queryResult.error = null;
+  vi.restoreAllMocks();
+});
 
 describe("DataTableBlock decimal columns", () => {
   it("formats a decimal as currency when the column name implies money", async () => {
@@ -124,5 +134,70 @@ describe("DataTableBlock inferred currency", () => {
       { formats: { orders: "number", unit_price: "percent" } }
     );
     expect(cells).toEqual(["1,234,567", "12.5%"]);
+  });
+
+  it("is not inferred for a number that is not an amount of money", async () => {
+    const cells = await renderTable(
+      new Table({
+        payment_id: makeVector(new Int32Array([1234])),
+        discount_count: makeVector(new BigInt64Array([1234n])),
+        revenue_pct: makeVector(new Float64Array([12.5])),
+        payment_year: makeVector(new Int32Array([2024])),
+        payment_amount: makeVector(new Int32Array([1234]))
+      })
+    );
+    expect(cells).toEqual(["1234", "1234", "12.50", "2024", "$1,234.00"]);
+  });
+
+  it("keeps an explicit format on a column the name rule would not infer", async () => {
+    const cells = await renderTable(
+      new Table({ discount_count: makeVector(new Int32Array([1234])) }),
+      { formats: { discount_count: "currency" } }
+    );
+    expect(cells).toEqual(["$1,234.00"]);
+  });
+});
+
+describe("DataTableBlock NULL cells", () => {
+  it("are empty in every column, formatted or not", async () => {
+    const cells = await renderTable(
+      new Table({
+        label: vectorFromArray([null, "north"]),
+        quantity: vectorFromArray([null, 3], new Int32()),
+        total_sales: vectorFromArray([null, 12.5], new Float64())
+      })
+    );
+    expect(cells).toEqual(["", "", "", "north", "3", "$12.50"]);
+  });
+});
+
+describe("DataTableBlock load failure", () => {
+  it("shows the failure, not an empty result", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    queryResult.error = new Error("Out of memory");
+
+    render(
+      <DataTableBlock
+        display={{ type: "table", data: "result.parquet", title: "Sales" }}
+        data={{}}
+      />
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Failed to load this table");
+    expect(alert.textContent).toContain("Out of memory");
+    expect(screen.queryByText("No data found")).toBeNull();
+  });
+
+  it("still says an empty result has no data", async () => {
+    render(
+      <DataTableBlock
+        display={{ type: "table", data: "orders", title: "Sales" }}
+        data={{ orders: { file_path: "orders.parquet", json: "[]" } }}
+      />
+    );
+
+    expect(await screen.findByText("No data found")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

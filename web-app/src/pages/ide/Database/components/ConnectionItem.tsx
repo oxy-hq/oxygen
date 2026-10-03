@@ -99,6 +99,7 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ database }) => {
           onClick={handleRefresh}
           disabled={isFetching}
           tooltip='Refresh Schema'
+          aria-label='Refresh Schema'
         >
           <RotateCw className={cn(isFetching && "animate-spin")} />
         </Button>

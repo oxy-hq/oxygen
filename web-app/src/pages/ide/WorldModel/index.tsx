@@ -66,7 +66,10 @@ export default function WorldModelView() {
   } = useWmFilterCounts(filterSeed?.entityId ?? null, filterSeed?.keyValue ?? null);
 
   // Load computed measures for the filter seed so entity card chips can show values.
-  const { data: seedDetail } = useWmInstanceDetail(
+  // The detail panel reads the same instance through the same hook, which opens
+  // one stream for both; a failure is this page's to report too, because the
+  // panel may be showing something other than the seed.
+  const { data: seedDetail, error: seedDetailError } = useWmInstanceDetail(
     filterSeed?.entityId ?? null,
     filterSeed?.keyValue ?? null
   );
@@ -180,6 +183,7 @@ export default function WorldModelView() {
             seed={filterSeed}
             isCountLoading={isCountLoading}
             countFailed={!!countError}
+            measuresFailed={!!seedDetailError}
             onClear={handleClearFilter}
           />
         )}

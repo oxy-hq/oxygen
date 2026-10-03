@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { appSecretName } from "@/components/settings/secrets/UnifiedSecretsTable/appSecretName";
 import { CustomAppsService } from "@/services/api/customApps";
+import type { SecretListResponse } from "@/types/secret";
 import { errMessage } from "../errMessage";
 import queryKeys from "../queryKey";
 
@@ -37,12 +39,27 @@ export function useSetAppSecret(id: string) {
 export function useSetWorkspaceAppSecret(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ appId, key, value }: { appId: string; key: string; value: string }) =>
-      CustomAppsService.setWorkspaceAppSecret(workspaceId, appId, key, value),
+    /**
+     * Resolves with whether the key was already stored, so the toast can say what
+     * the write did. The endpoint creates or rotates and answers 204 either way,
+     * so that is read from the workspace's secrets list as it stood before the
+     * write — the list the surface calling this renders. `undefined` when it is
+     * not loaded: then nothing here knows which it was.
+     */
+    mutationFn: async ({ appId, key, value }: { appId: string; key: string; value: string }) => {
+      const stored = queryClient.getQueryData<SecretListResponse>(
+        queryKeys.secret.list(workspaceId)
+      );
+      const existed = stored?.secrets.some((secret) => secret.name === appSecretName(appId, key));
+      await CustomAppsService.setWorkspaceAppSecret(workspaceId, appId, key, value);
+      return existed;
+    },
     // The hook owns the success toast as well, as `useCreateSecret` does: the
-    // dialog's callers only close it, so each path says it exactly once.
-    onSuccess: () => {
-      toast.success("Secret created successfully");
+    // dialog's callers only close it, so each path says it exactly once. Rotating
+    // a key the app already had replaces a live value; that is not "created".
+    onSuccess: (existed) => {
+      if (existed === undefined) toast.success("Secret saved successfully");
+      else toast.success(existed ? "Secret updated successfully" : "Secret created successfully");
       return queryClient.invalidateQueries({ queryKey: queryKeys.secret.list(workspaceId) });
     },
     // The dialog calling this catches and only `console.error`s, on the

@@ -12,6 +12,7 @@ const org = (over: Partial<AdminOrgMeta>): AdminOrgMeta => ({
   workspace_count: 0,
   owner_email: null,
   partner: null,
+  is_partner: false,
   ...over
 });
 

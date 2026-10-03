@@ -554,8 +554,12 @@ describe("reduceAirwayEvents", () => {
   it("captures per-phase timestamps from event `ts` and stays idempotent", () => {
     // The worker stamps every payload with `ts`; the reducer records
     // per-resource phase times for the run-timeline Gantt.
-    const withTs = (e: AirwayEvent, ts: string): AirwayEvent =>
-      ({ ...e, payload: { ...e.payload, ts } }) as AirwayEvent;
+    // `ts` is not on the `AirwayEvent` payload types (the reducer reads it as
+    // an untyped extra), so it is added on top of the event's own type here.
+    const withTs = <E extends AirwayEvent>(e: E, ts: string): E => ({
+      ...e,
+      payload: { ...e.payload, ts }
+    });
 
     const stream: AirwayEvent[] = [
       withTs(loadStarted(), "2026-05-17T00:00:00.000Z"),

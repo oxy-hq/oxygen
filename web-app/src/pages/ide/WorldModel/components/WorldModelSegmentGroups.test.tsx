@@ -49,7 +49,6 @@ function renderSizingBody({ drillEnabled }: { drillEnabled: boolean }) {
       overallValue={100000}
       model={EMPTY_MODEL}
       onSelect={vi.fn()}
-      nodeId='orders.revenue'
       timeDimension='orders.created_at'
       drillEnabled={drillEnabled}
     />
@@ -71,8 +70,14 @@ describe("SizingBody", () => {
     // decomposition at that row rather than at the engine's own top pick.
     renderSizingBody({ drillEnabled: true });
     fireEvent.click(screen.getByTestId("wm-opp-drill-toggle-mobile_app"));
+    // The drill's target is the sizing `target` itself — there is no separate
+    // node id to pass, so a row can't be decomposed against a different measure
+    // than the one it was sized on.
     expect(useDrillQuery).toHaveBeenCalledWith(
-      expect.objectContaining({ root: { dimension: "orders.channel", segment: "mobile_app" } }),
+      expect.objectContaining({
+        target: "orders.revenue",
+        root: { dimension: "orders.channel", segment: "mobile_app" }
+      }),
       true
     );
   });

@@ -86,7 +86,8 @@ describe("useGraphFocus", () => {
     edges: [
       { id: "e1", source: "n1", target: "n2" },
       { id: "e2", source: "n3", target: "n2" }
-    ]
+    ],
+    tablesUnknown: false
   };
 
   afterEach(() => {

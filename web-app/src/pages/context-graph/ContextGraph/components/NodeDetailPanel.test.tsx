@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContextGraphNode } from "@/types/contextGraph";
 
@@ -57,6 +58,12 @@ vi.mock("@/components/ui/panel", () => ({
 }));
 
 const { NodeDetailPanel } = await import("./NodeDetailPanel");
+
+// The panel reads the node's file through `useFile`, a React Query hook.
+const render = (ui: React.ReactElement) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+};
 
 afterEach(() => cleanup());
 

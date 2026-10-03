@@ -9,7 +9,9 @@ import {
   cellText,
   formatValue,
   getArrowExportText,
+  getArrowResultCell,
   getArrowValueWithType,
+  inferColumnFormat,
   isNumericType
 } from "./utils";
 
@@ -146,12 +148,152 @@ describe.each([
     });
   });
 
+  describe("inferColumnFormat", () => {
+    const float = new arrow.Float64();
+
+    it.each([
+      "total_sales",
+      "oxymart__total_weekly_sales",
+      "unit_price",
+      "order_revenue",
+      "refund_fee",
+      "avg_cost",
+      "price_usd",
+      "Total Revenue",
+      // A calendar word after a period qualifier is the period the money is for.
+      "revenue_last_month",
+      "sales_per_day",
+      "prior_year_revenue"
+    ])("reads %s as an amount of money", (name) => {
+      expect(inferColumnFormat(name, float)).toBe("currency");
+    });
+
+    it.each([
+      // identifiers and codes
+      "payment_id",
+      "price_key",
+      "discount_code",
+      "payment_number",
+      // flags and enumerations
+      "discount_flag",
+      "is_discount",
+      "payment_status",
+      "payment_type",
+      // tallies and quantities
+      "discount_count",
+      "num_payments",
+      "sales_qty",
+      "sales_units",
+      // ratios
+      "revenue_pct",
+      "discount_rate",
+      "revenue_share",
+      "sales_growth",
+      // positions on a scale
+      "price_rank",
+      "price_index",
+      // calendar parts
+      "payment_year",
+      "sales_month",
+      // no monetary word at all
+      "holiday_flag",
+      "oxymart__store"
+    ])("does not read %s as money", (name) => {
+      expect(inferColumnFormat(name, float)).toBeUndefined();
+    });
+
+    it("infers for a numeric column of any kind, and for no other", () => {
+      const { typeOf } = firstRow({
+        int: arrow.makeVector(new Int32Array([1])),
+        bigint: arrow.makeVector(new BigInt64Array([1n])),
+        float: arrow.makeVector(new Float64Array([1.5])),
+        decimal: decimals([150n], 2),
+        day: arrow.vectorFromArray([new Date(0)], new arrow.DateDay()),
+        label: arrow.vectorFromArray(["2024"]),
+        flag: arrow.vectorFromArray([true])
+      });
+      const inferred = ["int", "bigint", "float", "decimal", "day", "label", "flag"].filter(
+        (column) => inferColumnFormat("total_sales", typeOf(column)) === "currency"
+      );
+      expect(inferred).toEqual(["int", "bigint", "float", "decimal"]);
+      expect(inferColumnFormat("total_sales", undefined)).toBeUndefined();
+      expect(inferColumnFormat(undefined, float)).toBeUndefined();
+    });
+  });
+
+  describe("getArrowResultCell", () => {
+    const cellOf = (columns: Record<string, ownArrow.Vector>) => {
+      const { row, typeOf } = firstRow(columns);
+      return (column: string) =>
+        getArrowResultCell(row[column], typeOf(column) as ownArrow.DataType);
+    };
+
+    it("shows a float as the value it holds, not rounded to two places", () => {
+      const cell = cellOf({
+        ratio: arrow.makeVector(new Float64Array([0.123456])),
+        tiny: arrow.makeVector(new Float64Array([0.004])),
+        half: arrow.makeVector(new Float64Array([1.5])),
+        whole: arrow.makeVector(new Float64Array([3])),
+        negative: arrow.makeVector(new Float64Array([-0.000125]))
+      });
+      expect(cell("ratio")).toBe("0.123456");
+      expect(cell("tiny")).toBe("0.004");
+      // No digit is added either: 1.5 is not "1.50".
+      expect(cell("half")).toBe("1.5");
+      expect(cell("whole")).toBe("3");
+      expect(cell("negative")).toBe("-0.000125");
+    });
+
+    it("shows a single-precision float without the digits widening it to a double adds", () => {
+      const cell = cellOf({
+        tenth: arrow.makeVector(new Float32Array([0.1])),
+        third: arrow.makeVector(new Float32Array([1 / 3])),
+        whole: arrow.makeVector(new Float32Array([16777216]))
+      });
+      // The cell arrives as the double 0.10000000149011612.
+      expect(cell("tenth")).toBe("0.1");
+      expect(cell("third")).toBe("0.33333334");
+      expect(cell("whole")).toBe("16777216");
+    });
+
+    it("shows a decimal at its declared scale, every digit", () => {
+      const cell = cellOf({
+        rate: decimals([1234567n], 6),
+        amount: decimals([150n], 2),
+        small: decimals([-5n], 2),
+        // Past 2^53, where reading it through a double loses the cents.
+        large: decimals([10n ** 20n + 25n], 2)
+      });
+      expect(cell("rate")).toBe("1.234567");
+      expect(cell("amount")).toBe("1.50");
+      expect(cell("small")).toBe("-0.05");
+      expect(cell("large")).toBe("1000000000000000000.25");
+    });
+
+    it("reads every other cell as before", () => {
+      const cell = cellOf({
+        count: arrow.makeVector(new Int32Array([42])),
+        big: arrow.makeVector(new BigInt64Array([9007199254740993n])),
+        day: arrow.vectorFromArray([new Date("2024-03-05T00:00:00Z")], new arrow.DateDay()),
+        label: arrow.vectorFromArray(["north"]),
+        missing: arrow.vectorFromArray([null], new arrow.Float64())
+      });
+      expect(cell("count")).toBe("42");
+      expect(cell("big")).toBe("9007199254740993");
+      expect(cell("day")).toBe("2024-03-05");
+      expect(cell("label")).toBe("north");
+      expect(cell("missing")).toBeNull();
+    });
+  });
+
   describe("getArrowExportText", () => {
     it("writes a decimal with its scale and every digit", () => {
       const { row, typeOf } = firstRow({ rate: decimals([1234567n, -5n], 6) });
       const type = typeOf("rate");
       expect(getArrowExportText(row.rate, type)).toBe("1.234567");
-      // The table rounds the same cell to two places for display.
+      // The result table shows the same digits; a chart series and an app
+      // table's unformatted column round the cell to two places.
+      expect(getArrowResultCell(row.rate, type as ownArrow.DataType)).toBe("1.234567");
       expect(getArrowValueWithType(row.rate, type as ownArrow.DataType)).toBe("1.23");
     });
 
@@ -207,6 +349,12 @@ describe.each([
       expect(getArrowExportText(row.ratio, typeOf("ratio"))).toBe("0.123456");
       expect(getArrowExportText(row.count, typeOf("count"))).toBe("9007199254740993");
       expect(getArrowExportText(row.label, typeOf("label"))).toBe("north");
+    });
+
+    it("writes a single-precision float as the table shows it", () => {
+      const { row, typeOf } = firstRow({ tenth: arrow.makeVector(new Float32Array([0.1])) });
+      // The cell is the double 0.10000000149011612; the column holds 0.1.
+      expect(getArrowExportText(row.tenth, typeOf("tenth"))).toBe("0.1");
     });
 
     it("writes a null as an empty field whatever the column type", () => {

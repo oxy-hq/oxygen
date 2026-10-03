@@ -81,7 +81,8 @@ const mockData = {
     { id: "a1", type: "agent" as const, label: "Agent 1", data: { name: "agent1" } },
     { id: "t1", type: "table" as const, label: "Table 1", data: { name: "table1" } }
   ],
-  edges: [{ id: "e1", source: "a1", target: "t1" }]
+  edges: [{ id: "e1", source: "a1", target: "t1" }],
+  tablesUnknown: false
 };
 
 describe("ContextGraph orchestrator", () => {

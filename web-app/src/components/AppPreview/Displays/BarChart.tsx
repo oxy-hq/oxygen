@@ -12,9 +12,9 @@ import {
   getSeriesValues,
   getSimpleAggregatedData,
   getXAxisData,
+  resolveValueFormat,
   useChartBase
 } from "./hooks";
-import { inferCurrencyFormat } from "./utils";
 
 export const BarChart = ({
   display,
@@ -30,9 +30,9 @@ export const BarChart = ({
       const baseOptions = createBaseChartOptions(isDarkMode);
       const xData = await getXAxisData(connection, fileName, display.x);
       // Explicit `y_format` wins; otherwise infer currency from the y
-      // column name so dashboards built before `y_format` existed still
-      // render monetary columns as dollars.
-      const yFormat = display.y_format ?? inferCurrencyFormat(display.y);
+      // column's name and type so dashboards built before `y_format` existed
+      // still render monetary columns as dollars.
+      const yFormat = await resolveValueFormat(connection, fileName, display.y, display.y_format);
       const xyAxisOptions = createXYAxisOptions(xData, isDarkMode, yFormat);
       const tooltipFormatter = createAxisTooltipFormatter(yFormat);
 

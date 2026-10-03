@@ -33,17 +33,31 @@ describe("deriveRailState — expected files", () => {
 
   it("preserves config, per-table view, and app entries around the agentic entry", () => {
     const rail = deriveRailState(baseWithTables);
-    const names = rail.expectedFiles.map((f) => f.name);
-    // The second-app entry is named after the second topic alphabetically
-    // (here: "orders" from ["customers", "orders"]) — not a generic "detail".
-    expect(names).toEqual([
-      "config.yml",
-      "orders",
-      "customers",
-      "analytics.agentic.yml",
-      "overview",
-      "orders"
+    // The second-app entry is typed "app2", not "app": its filename can't be
+    // predicted (single-topic or cross-topic dashboard), so the rail matches it
+    // against any non-overview `.app.yml`. Its `name` is only a display label —
+    // the second topic alphabetically (here: "orders" from ["customers",
+    // "orders"]), title-cased — shown until the real `title:` is read.
+    expect(rail.expectedFiles).toEqual([
+      { name: "config.yml", type: "config" },
+      { name: "orders", type: "view" },
+      { name: "customers", type: "view" },
+      { name: "analytics.agentic.yml", type: "agentic" },
+      { name: "overview", type: "app" },
+      { name: "Orders", type: "app2" }
     ]);
+  });
+
+  it("title-cases a snake_case topic for the second-app label", () => {
+    const rail = deriveRailState({
+      ...initialState,
+      step: "building",
+      selectedTables: ["public.customers", "public.order_items"]
+    });
+    expect(rail.expectedFiles.find((f) => f.type === "app2")).toEqual({
+      name: "Order Items",
+      type: "app2"
+    });
   });
 
   it("omits the second-app entry when the workspace has only one topic", () => {
@@ -53,8 +67,8 @@ describe("deriveRailState — expected files", () => {
       selectedTables: ["public.orders"]
     };
     const rail = deriveRailState(singleTopic);
-    const appEntries = rail.expectedFiles.filter((f) => f.type === "app");
-    expect(appEntries.map((f) => f.name)).toEqual(["overview"]);
+    const appEntries = rail.expectedFiles.filter((f) => f.type === "app" || f.type === "app2");
+    expect(appEntries).toEqual([{ name: "overview", type: "app" }]);
   });
 
   it("returns an empty expected-files list until tables are selected", () => {

@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorldModelService } from "@/services/api/worldModel";
-import type { WmMeasureBreakdownEvent } from "@/types/worldModel";
+import type { WmInstanceDetailEvent, WmMeasureBreakdownEvent } from "@/types/worldModel";
 import { useWmFilterCounts, useWmInstanceDetail, useWmMeasureBreakdown } from "./useWorldModel";
 
 vi.mock("@/hooks/useCurrentProjectBranch", () => ({
@@ -131,14 +131,154 @@ describe("useWmFilterCounts", () => {
 });
 
 describe("useWmInstanceDetail", () => {
+  /** One query cache for the whole render, as the app has one for the whole page. */
+  const sharedCache = () => {
+    const client = new QueryClient();
+    return ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+  };
+
+  /** The page (measure chips on the cards) and the detail panel, on one instance. */
+  const renderBothConsumers = () =>
+    renderHook(
+      () => ({
+        page: useWmInstanceDetail("store", "42"),
+        panel: useWmInstanceDetail("store", "42")
+      }),
+      { wrapper: sharedCache() }
+    );
+
+  const instance: WmInstanceDetailEvent = {
+    kind: "init",
+    entity_id: "store",
+    key_value: "42",
+    display: "Store 42",
+    attributes: []
+  };
+
   it("reports a failed stream as an error and stops loading", async () => {
     streamInstanceDetail.mockImplementation((_p, _e, _k, _onEvent, _onClose, onError) => {
       queueMicrotask(() => onError(failure));
     });
 
-    const { result } = renderHook(() => useWmInstanceDetail("store", "42"));
+    const { result } = renderHook(() => useWmInstanceDetail("store", "42"), {
+      wrapper: sharedCache()
+    });
 
     await waitFor(() => expect(result.current.error).toBe(failure));
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it("opens one stream for an instance, however many consumers read it", async () => {
+    streamInstanceDetail.mockImplementation((_p, _e, _k, onEvent, onClose) => {
+      queueMicrotask(() => {
+        onEvent({
+          kind: "measure_names",
+          measure_names: [{ name: "revenue", measure_type: "sum" }]
+        });
+        onEvent(instance);
+        onEvent({
+          kind: "measure",
+          computed_measures: [{ name: "revenue", measure_type: "sum", value: "10", fiber_count: 3 }]
+        });
+        onEvent({ kind: "done" });
+        onClose();
+      });
+    });
+
+    const { result } = renderBothConsumers();
+
+    await waitFor(() => expect(result.current.panel.isLoading).toBe(false));
+    expect(streamInstanceDetail).toHaveBeenCalledTimes(1);
+    // Both read the one assembled instance, the page's measure values included.
+    expect(result.current.page.data?.computed_measures[0].value).toBe("10");
+    expect(result.current.page.data).toBe(result.current.panel.data);
+    expect(result.current.page.error).toBeNull();
+    expect(result.current.page.isLoading).toBe(false);
+  });
+
+  it("shows every consumer the same failure, and what arrived before it", async () => {
+    streamInstanceDetail.mockImplementation((_p, _e, _k, onEvent, _onClose, onError) => {
+      queueMicrotask(() => {
+        onEvent(instance);
+        onError(failure);
+      });
+    });
+
+    const { result } = renderBothConsumers();
+
+    await waitFor(() => expect(result.current.page.error).toBe(failure));
+    expect(result.current.panel.error).toBe(failure);
+    expect(streamInstanceDetail).toHaveBeenCalledTimes(1);
+    expect(result.current.page.data?.display).toBe("Store 42");
+    expect(result.current.panel.data?.display).toBe("Store 42");
+    expect(result.current.panel.isLoading).toBe(false);
+  });
+
+  it("keeps loading until the stream is done, with what has arrived so far", async () => {
+    let finish = () => {};
+    streamInstanceDetail.mockImplementation((_p, _e, _k, onEvent, onClose) => {
+      queueMicrotask(() => onEvent(instance));
+      finish = () => {
+        onEvent({ kind: "done" });
+        onClose();
+      };
+    });
+
+    const { result } = renderBothConsumers();
+
+    await waitFor(() => expect(result.current.panel.data?.display).toBe("Store 42"));
+    expect(result.current.panel.isLoading).toBe(true);
+    expect(result.current.page.isLoading).toBe(true);
+
+    finish();
+    await waitFor(() => expect(result.current.panel.isLoading).toBe(false));
+    expect(result.current.panel.error).toBeNull();
+  });
+
+  it("reports a stream that closes before `done` as an error", async () => {
+    streamInstanceDetail.mockImplementation((_p, _e, _k, onEvent, onClose) => {
+      queueMicrotask(() => {
+        onEvent(instance);
+        onClose();
+      });
+    });
+
+    const { result } = renderBothConsumers();
+
+    await waitFor(() => expect(result.current.panel.error).toBeInstanceOf(Error));
+    expect(result.current.page.error).toBe(result.current.panel.error);
+  });
+
+  it("ends the stream of an instance nobody reads any more", async () => {
+    // Streams that never finish: only an abort ends them.
+    streamInstanceDetail.mockImplementation(() => {});
+
+    const { rerender, unmount } = renderHook(
+      ({ keyValue }: { keyValue: string }) => useWmInstanceDetail("store", keyValue),
+      { initialProps: { keyValue: "42" }, wrapper: sharedCache() }
+    );
+    await waitFor(() => expect(streamInstanceDetail).toHaveBeenCalledTimes(1));
+    const first = streamInstanceDetail.mock.calls[0][6];
+    expect(first.aborted).toBe(false);
+
+    rerender({ keyValue: "43" });
+    await waitFor(() => expect(streamInstanceDetail).toHaveBeenCalledTimes(2));
+    const second = streamInstanceDetail.mock.calls[1][6];
+    expect(first.aborted).toBe(true);
+    expect(second.aborted).toBe(false);
+
+    unmount();
+    expect(second.aborted).toBe(true);
+  });
+
+  it("opens no stream until an instance is chosen", () => {
+    const { result } = renderHook(() => useWmInstanceDetail(null, null), {
+      wrapper: sharedCache()
+    });
+
+    expect(streamInstanceDetail).not.toHaveBeenCalled();
+    expect(result.current).toEqual({ data: null, isLoading: false, error: null });
   });
 });

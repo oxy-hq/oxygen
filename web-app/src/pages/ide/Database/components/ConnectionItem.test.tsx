@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import type { DatabaseInfo, DatabaseSchema } from "@/types/database";
 import { ConnectionItem } from "./ConnectionItem";
 
@@ -44,6 +45,7 @@ vi.mock("@/stores/useDatabaseClient", () => ({
 const mockDb: DatabaseInfo = {
   name: "my-postgres",
   dialect: "postgres",
+  db_type: "postgres",
   datasets: {},
   synced: false
 };
@@ -57,13 +59,16 @@ function renderItem() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={client}>
-        <ConnectionItem database={mockDb} />
+        <SidebarProvider>
+          <ConnectionItem database={mockDb} />
+        </SidebarProvider>
       </QueryClientProvider>
     </MemoryRouter>
   );
 }
 
 afterEach(() => {
+  cleanup();
   vi.clearAllMocks();
   mockSchemaState = {
     data: undefined,

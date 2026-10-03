@@ -783,30 +783,51 @@ describe("buildAnalyticsSteps — delegation suspension", () => {
 
 // ── recovery attempt boundary ────────────────────────────────────────────────
 
-const recoveryResumed = (attempt: number) => ev("recovery_resumed", { attempt });
+// The payload the backend writes for the marker (agentic/pipeline/src/recovery.rs).
+// The attempt number is a column on the event row, not part of the payload.
+const RESUME_MESSAGE = "Resuming from server restart";
+const recoveryResumed = (message = RESUME_MESSAGE) => ev("recovery_resumed", { message });
+// What a recovery marker renders as: a closed, non-failed info step.
+const resumingStep = (summary = RESUME_MESSAGE) => ({
+  kind: "step",
+  label: "Resuming",
+  summary,
+  isStreaming: false
+});
 
 describe("buildAnalyticsSteps — recovery_resumed (recovery)", () => {
   it("open non-automation step is marked interrupted on recovery_resumed", () => {
     const items = buildAnalyticsSteps([
       stepStart("Solving"),
       ev("text_delta", { token: "partial" }),
-      recoveryResumed(1),
+      recoveryResumed(),
       stepStart("Solving again"),
       stepEnd()
     ]);
 
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(3);
     expect(items[0]).toMatchObject({
       kind: "step",
       label: "Solving",
       isStreaming: false,
       error: "Interrupted by server restart"
     });
-    expect(items[1]).toMatchObject({
+    // The marker itself shows up as an info step between the two attempts.
+    expect(items[1]).toMatchObject(resumingStep());
+    expect((items[1] as { error?: string }).error).toBeUndefined();
+    expect(items[2]).toMatchObject({
       kind: "step",
       label: "Solving again",
       isStreaming: false
     });
+  });
+
+  it("the Resuming step shows the backend's message, with a fallback when it is absent", () => {
+    const [custom] = buildAnalyticsSteps([recoveryResumed("Picking up after a deploy")]);
+    expect(custom).toMatchObject(resumingStep("Picking up after a deploy"));
+
+    const [fallback] = buildAnalyticsSteps([ev("recovery_resumed", {})]);
+    expect(fallback).toMatchObject(resumingStep());
   });
 
   it("automation step is NOT marked interrupted — kept for aggregation", () => {
@@ -819,7 +840,7 @@ describe("buildAnalyticsSteps — recovery_resumed (recovery)", () => {
       procStepCompleted("fetch_data"),
       procStepStarted("process_data"),
       // crash mid-step
-      recoveryResumed(1),
+      recoveryResumed(),
       // new attempt re-emits subrun_started + continues
       automationStarted(),
       procStepStarted("process_data"),
@@ -848,7 +869,7 @@ describe("buildAnalyticsSteps — recovery_resumed (recovery)", () => {
       procStepStarted("fetch_data"),
       procStepCompleted("fetch_data"), // +1
       // crash
-      recoveryResumed(1),
+      recoveryResumed(),
       // recovery re-emits subrun_started, resumes from fetch_data
       automationStarted(),
       procStepStarted("fetch_data"),
@@ -887,8 +908,8 @@ describe("buildAnalyticsSteps — recovery_resumed (recovery)", () => {
       procStepCompleted("temperature_correlation"),
       procStepStarted("fuel_price_impact"),
       // crash mid fuel_price_impact
-      recoveryResumed(1),
-      recoveryResumed(2),
+      recoveryResumed(),
+      recoveryResumed(),
       // recovery continues without new subrun_started
       procStepStarted("fuel_price_impact"),
       procStepCompleted("fuel_price_impact"),
@@ -929,37 +950,41 @@ describe("buildAnalyticsSteps — recovery_resumed (recovery)", () => {
     expect(completedArtifacts.length).toBeGreaterThanOrEqual(7);
   });
 
-  it("recovery_resumed with no open steps is a no-op", () => {
+  it("recovery_resumed with no open steps leaves closed steps untouched", () => {
     const items = buildAnalyticsSteps([
       stepStart("A"),
       stepEnd(),
-      recoveryResumed(1),
+      recoveryResumed(),
       stepStart("B"),
       stepEnd()
     ]);
 
-    expect(items).toHaveLength(2);
+    // Nothing was open, so nothing is marked interrupted — only the marker is added.
+    expect(items).toHaveLength(3);
     expect(items[0]).toMatchObject({ kind: "step", label: "A" });
     expect((items[0] as { error?: string }).error).toBeUndefined();
-    expect(items[1]).toMatchObject({ kind: "step", label: "B" });
-    expect((items[1] as { error?: string }).error).toBeUndefined();
+    expect(items[1]).toMatchObject(resumingStep());
+    expect(items[2]).toMatchObject({ kind: "step", label: "B" });
+    expect((items[2] as { error?: string }).error).toBeUndefined();
   });
 
   it("multiple attempt boundaries work correctly", () => {
     const items = buildAnalyticsSteps([
       stepStart("Attempt 0"),
-      recoveryResumed(1),
+      recoveryResumed(),
       stepStart("Attempt 1"),
-      recoveryResumed(2),
+      recoveryResumed(),
       stepStart("Attempt 2"),
       stepEnd()
     ]);
 
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(5);
     expect(items[0]).toMatchObject({ label: "Attempt 0", error: "Interrupted by server restart" });
-    expect(items[1]).toMatchObject({ label: "Attempt 1", error: "Interrupted by server restart" });
-    expect(items[2]).toMatchObject({ label: "Attempt 2", isStreaming: false });
-    expect((items[2] as { error?: string }).error).toBeUndefined();
+    expect(items[1]).toMatchObject(resumingStep());
+    expect(items[2]).toMatchObject({ label: "Attempt 1", error: "Interrupted by server restart" });
+    expect(items[3]).toMatchObject(resumingStep());
+    expect(items[4]).toMatchObject({ label: "Attempt 2", isStreaming: false });
+    expect((items[4] as { error?: string }).error).toBeUndefined();
   });
 });
 
@@ -978,9 +1003,7 @@ describe("builder delegation", () => {
             prompt: "Delegating to builder: creating 1 missing semantic member(s)",
             suggestions: []
           }
-        ],
-        from_state: "clarifying",
-        trace_id: "t1"
+        ]
       }),
       stepEnd("suspended"),
       ev("delegation_started", {
@@ -1015,9 +1038,7 @@ describe("builder delegation", () => {
             prompt: "Delegating to builder: creating 1 missing semantic member(s)",
             suggestions: []
           }
-        ],
-        from_state: "clarifying",
-        trace_id: "t1"
+        ]
       }),
       stepEnd("suspended"),
       ev("delegation_started", {
@@ -1053,9 +1074,7 @@ describe("builder delegation", () => {
             prompt: "Delegating to builder: creating 1 missing semantic member(s)",
             suggestions: []
           }
-        ],
-        from_state: "clarifying",
-        trace_id: "t1"
+        ]
       }),
       stepEnd("suspended"),
       ev("delegation_started", {
@@ -1086,9 +1105,7 @@ describe("builder delegation", () => {
     const items = buildAnalyticsSteps([
       stepStart("Running"),
       ev("awaiting_input", {
-        questions: [{ prompt: "Execute procedure test.yml", suggestions: [] }],
-        from_state: "executing",
-        trace_id: "t1"
+        questions: [{ prompt: "Execute procedure test.yml", suggestions: [] }]
       }),
       stepEnd("suspended"),
       ev("delegation_started", {

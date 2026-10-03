@@ -37,7 +37,7 @@ function driver(overrides: Partial<DriverAttribution> = {}): DriverAttribution {
     driver_delta: -60.58,
     direction: "negative",
     contribution: "counteracting",
-    form: "additive",
+    form: "linear",
     ...overrides
   };
 }
@@ -203,7 +203,11 @@ describe("warningMessage", () => {
       warningMessage({
         type: "simpsons_paradox",
         dimension: "location",
-        aggregate_delta: -589.39
+        aggregate_delta: -589.39,
+        segment_directions: [
+          ["Downtown", 41.2],
+          ["Uptown", 17.9]
+        ]
       })
     ).toContain("aggregate moved -589.39");
     expect(

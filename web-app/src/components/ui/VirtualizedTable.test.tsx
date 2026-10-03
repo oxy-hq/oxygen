@@ -106,11 +106,11 @@ it("exports each cell as the value the table shows, not the raw Arrow cell", asy
 
   render(<VirtualizedTable filePath='result.parquet' />);
 
-  // On screen: scaled, readable, and rounded for display.
+  // On screen: scaled and readable, each number the value the column holds.
   expect(await screen.findByTitle("1234.50")).toBeTruthy();
   expect(screen.getByTitle("2024-03-05")).toBeTruthy();
   expect(screen.getByTitle("2024-03-05 12:34")).toBeTruthy();
-  expect(screen.getByTitle("0.12")).toBeTruthy();
+  expect(screen.getByTitle("0.123456")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "CSV" }));
   const csv = await waitFor(() => {
@@ -118,13 +118,42 @@ it("exports each cell as the value the table shows, not the raw Arrow cell", asy
     return downloaded;
   });
 
-  // In the file: the same values, without the display rounding.
+  // In the file: the same values, and the seconds the table leaves out.
   expect(await csv.text()).toBe(
     [
       "amount,day,at,ratio,label",
       '1234.50,2024-03-05,2024-03-05 12:34:56,0.123456,"north, east"'
     ].join("\r\n")
   );
+});
+
+it("shows a number as the value it is, not rounded to two decimal places", async () => {
+  // A DECIMAL(18,6): 1.234567 and 0.000004, held as unscaled integers.
+  const rates = new BigInt64Array([1234567n, 0n, 4n, 0n]);
+  queryResult.table = new Table({
+    rate: makeVector(
+      makeData({ type: new Decimal(6, 18, 128), length: 2, data: new Uint32Array(rates.buffer) })
+    ),
+    ratio: makeVector(new Float64Array([0.123456, 0.004])),
+    share: makeVector(new Float32Array([0.1, 1.5])),
+    orders: makeVector(new Int32Array([42, 7]))
+  });
+
+  render(<VirtualizedTable filePath='result.parquet' />);
+
+  const cells = async () => {
+    await screen.findByTitle("42");
+    return screen
+      .getAllByTitle(/.*/)
+      .map((cell) => cell.getAttribute("title"))
+      .filter((title) => !["rate", "ratio", "share", "orders"].includes(title ?? ""));
+  };
+  expect(await cells()).toEqual([
+    // 0.123456 used to read "0.12", and 1.234567 "1.23".
+    ...["1.234567", "0.123456", "0.1", "42"],
+    // 0.004 and 0.000004 used to read "0.00", and 1.5 "1.50".
+    ...["0.000004", "0.004", "1.5", "7"]
+  ]);
 });
 
 it("shows a NULL as an empty cell, whatever its column type", async () => {

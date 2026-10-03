@@ -25,7 +25,7 @@ vi.mock("@/components/AppPreview/Displays", () => ({
 }));
 
 const { mockUseAnalyticsRun } = vi.hoisted(() => ({
-  mockUseAnalyticsRun: vi.fn<[], UseAnalyticsRunResult>()
+  mockUseAnalyticsRun: vi.fn<() => UseAnalyticsRunResult>()
 }));
 
 vi.mock("@/hooks/useAnalyticsRun", async (importOriginal) => {
@@ -55,6 +55,7 @@ const idleResult = (): UseAnalyticsRunResult => ({
   state: { tag: "idle" },
   start: vi.fn(),
   reconnect: vi.fn(),
+  hydrate: vi.fn(),
   answer: vi.fn(),
   stop: vi.fn(),
   reset: vi.fn(),
@@ -123,7 +124,7 @@ describe("AgenticAnalyticsPreview", () => {
       state: {
         tag: "running",
         runId: "r1",
-        events: [{ id: "1", type: "step_start", data: { label: "Querying" } } as never]
+        events: [{ id: "1", type: "step_start", data: { label: "Querying" } }]
       }
     });
     render(<AgenticAnalyticsPreview pathb64={pathb64} />);

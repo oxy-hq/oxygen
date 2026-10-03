@@ -175,7 +175,9 @@ describe("WorldModelSegmentDrill", () => {
     // chain, which would read as "nothing wrong here" rather than "couldn't
     // decompose".
     mockDrill({});
-    const { getByText } = renderSegmentDrill({ dimension: "orders.channel", segment: "gone" });
+    const { getByText } = renderSegmentDrill({
+      root: { dimension: "orders.channel", segment: "gone" }
+    });
     expect(getByText(/this row is no longer in the current scan/)).toBeTruthy();
   });
 
