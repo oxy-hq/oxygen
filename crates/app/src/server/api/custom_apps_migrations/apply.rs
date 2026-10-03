@@ -199,7 +199,7 @@ pub(super) async fn apply_to(
 /// `search_path` is already pinned to the writer's schema by the resolver, so
 /// an unqualified `CREATE TABLE orders` lands in `app_<writer>` and a
 /// reference to anything outside it fails on grants rather than on trust.
-async fn open_locked(
+pub(super) async fn open_locked(
     app_id: Uuid,
     dest: &Destination<'_>,
 ) -> Result<(tokio_postgres::Client, i64), MigrationError> {

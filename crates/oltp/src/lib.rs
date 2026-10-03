@@ -45,6 +45,9 @@
 //! the tenant; resolved through
 //! [`resolver::resolve_branch_writer_connection_for_org`].
 //!
+//! A custom-app sandbox gets a schema of its own inside that branch
+//! ([`sandbox_schema`]): a copy of staging's, reached as the app's writer.
+//!
 //! Design: `internal-docs/per-org-oltp-postgres.md`.
 
 pub mod api;
@@ -61,6 +64,7 @@ pub mod provider;
 pub mod provisioner;
 pub mod resolver;
 pub mod roles;
+pub mod sandbox_schema;
 pub mod schema;
 pub mod sql;
 

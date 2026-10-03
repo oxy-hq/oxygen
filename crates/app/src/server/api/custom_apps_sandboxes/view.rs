@@ -11,7 +11,7 @@ use oxy_app_core::custom_apps_host_dispatch::environment_url_for;
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
-use super::{EnvironmentDto, OwnerDto, activity};
+use super::{EnvironmentDto, OwnerDto, activity, oltp_state};
 
 /// What the rows of one app need looked up to be shown.
 pub(super) struct View<'a> {
@@ -22,6 +22,9 @@ pub(super) struct View<'a> {
     emails: HashMap<Uuid, Option<String>>,
     last_invocations: HashMap<String, DateTime<Utc>>,
     ttl: chrono::Duration,
+    /// The org's OLTP staging branch as it is cut now, when it is active:
+    /// what a sandbox's recorded schema is fresh or stale against.
+    oltp_cut: Option<oxy_oltp::branches::BranchCut>,
 }
 
 impl<'a> View<'a> {
@@ -46,6 +49,7 @@ impl<'a> View<'a> {
             emails: load_emails(db, owner_ids).await?,
             last_invocations: activity::last_invocations(db, app.id).await?,
             ttl: super::idle_ttl(),
+            oltp_cut: oltp_cut(db, app, rows).await?,
         })
     }
 
@@ -91,6 +95,8 @@ impl<'a> View<'a> {
         });
         dto.last_activity_at = Some(last_activity);
         dto.expires_at = Some(activity::expires_at(last_activity, self.ttl));
+        dto.oltp_schema = oltp_state::of_row(row)
+            .map(|state| oltp_state::OltpSchemaDto::of(state, self.oltp_cut.as_ref()));
         Some(dto)
     }
 
@@ -115,8 +121,27 @@ impl<'a> View<'a> {
             last_activity_at: None,
             expires_at: None,
             url: environment_url_for(environment, self.org_slug, &self.app.slug),
+            oltp_schema: None,
         }
     }
+}
+
+/// The cut of the org's active OLTP staging branch — looked up only when a
+/// shown row records a schema, so an app whose sandboxes have none pays no
+/// query.
+async fn oltp_cut(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    rows: &[app_environments::Model],
+) -> Result<Option<oxy_oltp::branches::BranchCut>, DbErr> {
+    if rows.iter().all(|row| row.oltp_schema.is_none()) {
+        return Ok(None);
+    }
+    let (_, branch) =
+        oxy_oltp::branches::find(db, app.org_id, oxy_oltp::OltpBranch::Staging).await?;
+    Ok(branch
+        .filter(|row| row.status == oxy_oltp::entity::branches::BranchStatus::Active)
+        .map(|row| oxy_oltp::branches::BranchCut::of(&row)))
 }
 
 /// Whether `row` is a sandbox's.

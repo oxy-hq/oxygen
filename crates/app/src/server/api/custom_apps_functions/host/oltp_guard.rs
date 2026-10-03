@@ -8,6 +8,11 @@
 //!   (`env_policy::admit_branch_statement`); either is listed in the held
 //!   row. A `ctx.oltp.tx` handle opened there runs its statements and its
 //!   commit there.
+//! - **In a sandbox's own schema on the branch**: the same, and a statement
+//!   that names another schema, or changes how names resolve, is refused too
+//!   (`env_policy::admit_sandbox_statement`). While that schema is not ready
+//!   every OLTP op is refused before anything connects
+//!   ([`ProjectFunctionHost::refuse_unready_sandbox`]).
 //! - **Held on production** (no branch): a statement is sent only when it is
 //!   one read calling no side-effect function
 //!   (`env_policy::admit_oltp_statement`), on a session whose
@@ -45,6 +50,8 @@ impl ProjectFunctionHost {
         if decided == Decision::Isolate(Target::OltpBranch) {
             return self.admit_on_oltp_branch(op, sql, namespace).await;
         }
+        self.refuse_unready_sandbox(op, namespace, "STATEMENT")
+            .await?;
         if !holds(decided) {
             return Ok(());
         }
@@ -67,7 +74,7 @@ impl ProjectFunctionHost {
         namespace: &str,
     ) -> Result<(), String> {
         let (statement, message) = match env_policy::admit_branch_statement(sql) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return self.admit_in_sandbox_schema(op, sql, namespace).await,
             Err(env_policy::NotSent::Refused(statement)) => {
                 let message = env_policy::branch_statement_message(
                     op,
@@ -84,6 +91,52 @@ impl ProjectFunctionHost {
         self.note_held(op, ("oltp", namespace, &statement.verb, &statement.table))
             .await;
         Err(message)
+    }
+
+    /// A statement the branch admits, bound for a **sandbox's** schema there:
+    /// sent unless it names another schema or changes how names resolve
+    /// (`env_policy::admit_sandbox_statement`). Staging, which runs in the
+    /// app's own schema, has no such fence.
+    async fn admit_in_sandbox_schema(
+        &self,
+        op: HostOp,
+        sql: &str,
+        namespace: &str,
+    ) -> Result<(), String> {
+        let env_policy::OltpHome::SandboxSchema(home) = self.policy.oltp_home() else {
+            return Ok(());
+        };
+        let fence = env_policy::SandboxFence::new(home.schema.app_schema(), home.schema.name());
+        let Err(statement) = env_policy::admit_sandbox_statement(&fence, sql) else {
+            return Ok(());
+        };
+        self.note_held(op, ("oltp", namespace, &statement.verb, &statement.table))
+            .await;
+        Err(env_policy::sandbox_statement_message(
+            op,
+            self.policy.environment(),
+            &statement.why,
+        ))
+    }
+
+    /// `Err` when the policy refuses `op` outright — a sandbox whose own
+    /// schema on the org's staging branch is not ready. Noted in the held
+    /// row; nothing connects.
+    pub(super) async fn refuse_unready_sandbox(
+        &self,
+        op: HostOp,
+        namespace: &str,
+        verb: &str,
+    ) -> Result<(), String> {
+        let Decision::Refuse { fix } = self.policy.decide(op) else {
+            return Ok(());
+        };
+        self.note_held(op, ("oltp", namespace, verb, "")).await;
+        Err(env_policy::refused_message(
+            op,
+            self.policy.environment(),
+            fix,
+        ))
     }
 
     /// Where a `ctx.oltp.tx` handle opens into: the staging branch when the

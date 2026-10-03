@@ -38,7 +38,7 @@ use super::evaluator::{HealthThresholds, WorkspaceSignals};
 /// staff sampling a branch's pipeline: no such failure says anything about the
 /// workspace production serves. Nor does `custom_app_staging_migrations`, a
 /// custom app's staging homes migrated after a publish, nor a sandbox's
-/// (`custom_app_sandbox_migrations`) or its teardown
+/// (`custom_app_sandbox_migrations`, `custom_app_sandbox_oltp`) or its teardown
 /// (`custom_app_sandbox_teardown`): staff trying a build, not the tenant's work.
 const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "health_eval_workspace",
@@ -49,6 +49,7 @@ const NON_WORKSPACE_RUN_SOURCES: &[&str] = &[
     "preview_airway_sample",
     "custom_app_staging_migrations",
     "custom_app_sandbox_migrations",
+    "custom_app_sandbox_oltp",
     "custom_app_sandbox_teardown",
 ];
 
@@ -424,6 +425,7 @@ mod tests {
         for kind in [
             "custom_app_sandbox_teardown",
             "custom_app_sandbox_migrations",
+            "custom_app_sandbox_oltp",
         ] {
             insert_run(&db, ws, "failed", Some(kind)).await;
         }

@@ -110,6 +110,8 @@ async fn insert_within_limit<C: ConnectionTrait>(
         updated_at: ActiveValue::Set(now),
         created_at: ActiveValue::Set(now),
         deleting_at: ActiveValue::Set(None),
+        // Written by the OLTP schema task a publish queues (`oltp_state`).
+        oltp_schema: ActiveValue::NotSet,
     }
     .insert(txn)
     .await

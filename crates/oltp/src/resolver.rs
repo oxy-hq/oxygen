@@ -78,6 +78,13 @@ pub enum ResolveError {
         branch: crate::OltpBranch,
         role: String,
     },
+    /// The branch row holds no owner credential — a provision that never
+    /// finished. The same command finishes it.
+    #[error(
+        "org {0}'s {1} OLTP branch has no owner credential. \
+         Run: oxyc oltp provision --org {0} --branch {1}"
+    )]
+    BranchOwnerCredentialMissing(Uuid, crate::OltpBranch),
 }
 
 /// The command that gets a branch out of `status` — they differ, and naming
@@ -97,6 +104,7 @@ fn branch_fix(org_id: &Uuid, branch: &crate::OltpBranch, status: &str) -> String
 
 // Non-production branches: same connection shapes, pointed at the branch.
 mod branch;
+pub(crate) use branch::{BranchOwner, resolve_branch_owner, resolve_branch_writer_in_schema};
 pub use branch::{
     BranchWriter, branch_is_active, resolve_branch_analyst_connection_for_org,
     resolve_branch_writer_connection_for_org, resolve_branch_writer_for_org,

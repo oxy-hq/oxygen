@@ -29,6 +29,13 @@ pub struct Model {
     /// stays taken until the teardown task removes the row. Always `None` for
     /// `production` and `staging`.
     pub deleting_at: Option<DateTimeWithTimeZone>,
+    /// A sandbox's own schema on the org's OLTP staging branch, as the
+    /// platform last left it: its name, `seeding` / `ready` / `failed`, and
+    /// the branch cut it was seeded on (`custom_apps_sandboxes::oltp_state`).
+    /// `None` until a publish to the sandbox queues it, and always for
+    /// `production` and `staging`.
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub oltp_schema: Option<Json>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

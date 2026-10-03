@@ -97,6 +97,9 @@ impl ProjectFunctionHost {
     /// staging branch, which the handle then records it opened into.
     async fn begin_oltp_tx(&self) -> Result<serde_json::Value, String> {
         let writer_name = self.oltp_writer()?;
+        let schema = self.caps.oltp.schema().unwrap_or_default();
+        self.refuse_unready_sandbox(HostOp::TxBeginOltp, &schema, "BEGIN")
+            .await?;
         let conn = self.oltp_connection(writer_name).await?;
         let connector = self.oltp_connector(HostOp::TxBeginOltp, &conn)?;
         let mut tx = with_db_timeout("begin", async {

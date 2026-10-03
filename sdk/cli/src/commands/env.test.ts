@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode } from "../util/errors.js";
-import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./env.js";
+import { describeOltpSchema, runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./env.js";
 
 const TARGET = "https://oxy.test";
 const APP_ID = "a1a1a1a1-2222-3333-4444-555555555555";
@@ -276,6 +276,83 @@ describe("runEnvShow", () => {
     write.mockRestore();
 
     expect(JSON.parse(printed.trim())).toEqual(ENVIRONMENT);
+  });
+
+  it("prints a sandbox's oltp_schema verbatim with --json, and as an OLTP line without", async () => {
+    const oltp_schema = {
+      schema: "app_store__dev_a1",
+      status: "ready",
+      seeded_at: "2026-10-02T09:00:05Z",
+      tables: 3,
+      structure_only: ["audit_log"],
+      error: null
+    };
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`GET /api/customer-apps/${APP_ID}/environments/dev-a1`]: () => ({
+          status: 200,
+          body: { ...ENVIRONMENT, oltp_schema }
+        })
+      },
+      calls
+    );
+    for (const json of [true, false]) {
+      let printed = "";
+      const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        printed += String(chunk);
+        return true;
+      });
+      await runEnvShow(fakeContext({ bearer: "tok" }), "acme/store", "dev-a1", { json });
+      write.mockRestore();
+      if (json) expect(JSON.parse(printed.trim()).oltp_schema).toEqual(oltp_schema);
+      else
+        expect(printed).toContain(
+          "OLTP app_store__dev_a1 — ready (3 tables from staging, copied empty (over the size cap): audit_log)"
+        );
+    }
+  });
+
+  it("says what to do for a schema that failed or went stale", () => {
+    const base = {
+      schema: "app_store__dev_a1",
+      seeded_at: null,
+      tables: 0,
+      structure_only: [],
+      error: null
+    };
+    expect(describeOltpSchema({ ...base, status: "seeding" })).toBe(
+      "OLTP app_store__dev_a1 — seeding"
+    );
+    expect(describeOltpSchema({ ...base, status: "stale" })).toContain(
+      "was reset; publish to the sandbox again"
+    );
+    expect(describeOltpSchema({ ...base, status: "failed", error: "no such role" })).toBe(
+      "OLTP app_store__dev_a1 — failed: no such role; publish to the sandbox again"
+    );
+    expect(describeOltpSchema({ ...base, status: "ready", tables: 1 })).toBe(
+      "OLTP app_store__dev_a1 — ready (1 table from staging)"
+    );
+    expect(
+      describeOltpSchema({
+        ...base,
+        status: "ready",
+        tables: 1,
+        staging_dependencies: ["column labels.state uses type app_store.status"]
+      })
+    ).toBe(
+      "OLTP app_store__dev_a1 — ready (1 table from staging); still uses staging's column labels.state uses type app_store.status"
+    );
+    // The server's own reasons (`oltp_state::SEED_STALLED`, `BRANCH_RESET`):
+    // it says why, the CLI says what to do — once.
+    for (const why of [
+      "the seed did not finish (its worker may have stopped)",
+      "the org's OLTP staging branch was reset (or removed) since this schema was seeded"
+    ]) {
+      const line = describeOltpSchema({ ...base, status: "stale", error: why });
+      expect(line).toBe(`OLTP app_store__dev_a1 — stale: ${why}; publish to the sandbox again`);
+      expect(line.split("publish to the sandbox again")).toHaveLength(2);
+    }
   });
 
   it("accepts production/staging too — any valid --app-env name", async () => {

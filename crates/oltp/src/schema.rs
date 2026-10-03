@@ -387,8 +387,16 @@ pub fn search_path_option(writer: &WriterRef) -> String {
 
 /// Append [`search_path_option`] to a base DSN.
 pub fn with_search_path(dsn: &str, writer: &WriterRef) -> String {
+    with_search_path_to(dsn, &writer.schema_name())
+}
+
+/// `dsn` with `schema` as its one `search_path` entry. `schema` is a name
+/// this crate derived and validated — a writer's schema, or a sandbox's
+/// (`crate::sandbox_schema::SandboxSchema`) — never caller text.
+pub(crate) fn with_search_path_to(dsn: &str, schema: &str) -> String {
     let sep = if dsn.contains('?') { '&' } else { '?' };
-    format!("{dsn}{sep}{}", search_path_option(writer))
+    // `=` must be percent-encoded inside a URI query parameter.
+    format!("{dsn}{sep}options=-csearch_path%3D{schema}")
 }
 
 // ── Analyst visibility ───────────────────────────────────────────────────────

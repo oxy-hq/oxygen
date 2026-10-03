@@ -36,9 +36,10 @@ use super::visibility::{in_customer_feed, in_production, in_production_sql};
 /// the preview's own schemas (`server::previews::sample`).
 /// `custom_app_staging_migrations` is a custom app's staging migrations, queued
 /// by every publish (`server::api::custom_apps_nonproduction::staging_task`).
-/// `custom_app_sandbox_migrations` and `custom_app_sandbox_teardown` are a
-/// custom-app sandbox's Airhouse migrations (queued by a publish to it) and
-/// its teardown (queued by a delete or an expiry) —
+/// `custom_app_sandbox_migrations`, `custom_app_sandbox_oltp` and
+/// `custom_app_sandbox_teardown` are a custom-app sandbox's Airhouse
+/// migrations and its own OLTP schema (each queued by a publish to it) and its
+/// teardown (queued by a delete or an expiry) —
 /// `server::api::custom_apps_sandboxes`: staff work on a staff surface.
 pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preagg_cycle",
@@ -48,6 +49,7 @@ pub const SYSTEM_SOURCE_TYPES: &[&str] = &[
     "preview_airway_sample",
     "custom_app_staging_migrations",
     "custom_app_sandbox_migrations",
+    "custom_app_sandbox_oltp",
     "custom_app_sandbox_teardown",
 ];
 

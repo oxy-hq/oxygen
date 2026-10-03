@@ -18,6 +18,9 @@
 //! - after the teardown the name is free and inherits nothing, and the other
 //!   sandbox is intact.
 //!
+//! The app's own database is the loop's second test (`oltp`): on an app with
+//! an OLTP store, each sandbox reads and writes a schema of its own.
+//!
 //! `scripts/ci/platform-canary-sandbox-loop.mjs` drives the same loop through
 //! `oxyc` against a running server; what it cannot see — one sandbox's
 //! object from the other — is asserted here.
@@ -33,6 +36,7 @@
 //! **Needs** Postgres only.
 
 mod fixture;
+mod oltp;
 
 use agentic_core::delegation::TaskOutcome;
 use axum::http::StatusCode;

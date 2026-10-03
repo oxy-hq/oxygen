@@ -6,12 +6,14 @@
 //! * [`target_of`] — the request's `environment` field to a [`PublishTarget`];
 //! * [`admit_target`] — who may publish to a sandbox, and that the sandbox exists;
 //! * [`move_pointer`] — the sandbox's pointer, and nothing else;
-//! * [`queue_migrations`] — the sandbox's Airhouse sibling, queued; no OLTP.
+//! * [`queue_migrations`] — the sandbox's Airhouse sibling and its own OLTP
+//!   schema on the org's staging branch, each queued.
 //!
 //! **A sandbox publish never touches the app.** It does not create or rename
 //! the app row, move `apps.draft_build_id`, mirror staging, register a
-//! schedule, or apply a migration to production or to the org's OLTP staging
-//! branch. Two sandboxes of one app must not fight over production's label.
+//! schedule, or apply a migration to production or to staging's schema on the
+//! org's OLTP staging branch. Two sandboxes of one app must not fight over
+//! production's label.
 
 use entity::{app_environments, apps};
 use oxy_app_core::custom_app_environment::AppEnvironment;
@@ -19,6 +21,7 @@ use sea_orm::{DatabaseConnection, DbErr, EntityTrait, TransactionTrait};
 use uuid::Uuid;
 
 use super::migrations_task::{self, SandboxMigrationsTask};
+use super::oltp_task::{self, SandboxOltpTask};
 use crate::server::api::custom_apps_env_resolve::may_open_non_production;
 use crate::server::api::custom_apps_environments::{EnvAction, record_move};
 use crate::server::api::custom_apps_migrations::DeclaredMigration;
@@ -152,22 +155,23 @@ pub(crate) struct SandboxBuild<'a> {
     /// The app's workspace: where the run is filed, and whose Airhouse the
     /// sibling schema lives in.
     pub workspace_id: Uuid,
+    /// Whose OLTP staging branch the sandbox's own schema lives in.
+    pub org_id: Uuid,
     pub build_pk: Uuid,
     pub environment: &'a AppEnvironment,
 }
 
-/// The last thing a sandbox publish does: queue the build's Airhouse
-/// migrations for the sandbox's sibling, and say so when the bundle declares
-/// OLTP migrations — a sandbox publish applies none. The warnings are the
-/// publish's.
+/// The last thing a sandbox publish does: queue the sandbox's own OLTP schema
+/// on the org's staging branch — seeded if need be, then migrated with the
+/// build's OLTP files — and the build's Airhouse migrations for the sandbox's
+/// sibling. The warnings are the publish's.
 pub(crate) async fn queue_migrations(
     db: &DatabaseConnection,
     build: SandboxBuild<'_>,
     oltp: &[DeclaredMigration],
     airhouse: &[DeclaredMigration],
 ) -> Vec<String> {
-    let mut warnings = Vec::new();
-    warnings.extend(oltp_warning(build.environment, oltp.len()));
+    let mut warnings = queue_oltp_schema(db, build, oltp).await;
     if airhouse.is_empty() {
         return warnings;
     }
@@ -177,14 +181,7 @@ pub(crate) async fn queue_migrations(
         workspace_id: build.workspace_id,
         build_pk: build.build_pk,
         environment: build.environment.name(),
-        migrations: airhouse
-            .iter()
-            .map(|m| QueuedMigration {
-                filename: m.filename.clone(),
-                checksum: m.checksum.clone(),
-                sql: m.sql.clone(),
-            })
-            .collect(),
+        migrations: queued(airhouse),
     };
     if let Err(e) = migrations_task::enqueue(db, &task).await {
         tracing::warn!(app_id = %build.app_id, environment = %build.environment, error = %e,
@@ -198,15 +195,66 @@ pub(crate) async fn queue_migrations(
     warnings
 }
 
-/// A sandbox publish applies no OLTP migration; `declared` files are named in
-/// a warning rather than dropped in silence.
+fn queued(declared: &[DeclaredMigration]) -> Vec<QueuedMigration> {
+    declared
+        .iter()
+        .map(|m| QueuedMigration {
+            filename: m.filename.clone(),
+            checksum: m.checksum.clone(),
+            sql: m.sql.clone(),
+        })
+        .collect()
+}
+
+/// Queue the sandbox's OLTP schema task when the org has an active staging
+/// branch and the app an OLTP writer (`oltp_home::wants_schema`) — for every
+/// such publish, whether or not the bundle declares OLTP migrations: the
+/// schema must be there for the build's `ctx.oltp`. With no branch nothing is
+/// queued, and files the bundle declares are named in a warning rather than
+/// dropped in silence.
+async fn queue_oltp_schema(
+    db: &DatabaseConnection,
+    build: SandboxBuild<'_>,
+    oltp: &[DeclaredMigration],
+) -> Vec<String> {
+    let environment = build.environment;
+    let not_queued = |why: String| {
+        tracing::warn!(app_id = %build.app_id, %environment, "publish: {why}");
+        vec![format!(
+            "{environment}'s own OLTP schema was not queued ({why}); the publish went on, and \
+             the sandbox's ctx.oltp may be refused until a later publish to it queues it"
+        )]
+    };
+    match super::oltp_home::wants_schema(db, build.org_id, build.app_slug).await {
+        Ok(true) => {}
+        Ok(false) => return oltp_warning(environment, oltp.len()).into_iter().collect(),
+        Err(e) => return not_queued(e),
+    }
+    let task = SandboxOltpTask {
+        app_id: build.app_id,
+        app_slug: build.app_slug.to_string(),
+        org_id: build.org_id,
+        workspace_id: build.workspace_id,
+        build_pk: build.build_pk,
+        environment: environment.name(),
+        migrations: queued(oltp),
+    };
+    match oltp_task::enqueue(db, &task).await {
+        Ok(_) => Vec::new(),
+        Err(e) => not_queued(e.to_string()),
+    }
+}
+
+/// With no OLTP staging branch (or no OLTP writer) a sandbox has no schema of
+/// its own to migrate; `declared` files are named in a warning rather than
+/// dropped in silence.
 fn oltp_warning(environment: &AppEnvironment, declared: usize) -> Option<String> {
     (declared > 0).then(|| {
         format!(
             "{declared} OLTP migration file(s) were not applied: a publish to {environment} \
-             applies none, because every sandbox and staging share the org's one OLTP staging \
-             branch. Code that needs these tables fails in the sandbox until a staging publish \
-             has migrated that branch"
+             applies them to the sandbox's own schema on the org's OLTP staging branch, and \
+             this org has no active branch (or the app no OLTP writer). The sandbox's ctx.oltp \
+             writes are held; provision one with `oxyc oltp provision --branch staging`"
         )
     })
 }
@@ -274,8 +322,9 @@ mod tests {
         ));
     }
 
+    /// With no branch, declared files are named — and so is how to get one.
     #[test]
-    fn declared_oltp_migrations_are_named_in_a_warning_never_applied() {
+    fn with_no_branch_declared_oltp_migrations_are_named_in_a_warning() {
         assert_eq!(oltp_warning(&sandbox("a1"), 0), None);
         let warning = oltp_warning(&sandbox("a1"), 2).expect("a warning");
         assert!(
@@ -283,5 +332,9 @@ mod tests {
             "{warning}"
         );
         assert!(warning.contains("dev-a1"), "{warning}");
+        assert!(
+            warning.contains("oxyc oltp provision --branch staging"),
+            "{warning}"
+        );
     }
 }

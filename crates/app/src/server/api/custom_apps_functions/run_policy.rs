@@ -42,7 +42,7 @@ pub(crate) async fn build(
     if admission.policy.is_production() {
         return Ok(admission.policy);
     }
-    let admission = environment_gate::with_oltp_home(db, admission, app.org_id).await?;
+    let admission = environment_gate::with_oltp_home(db, admission, app).await?;
     let manifest = build.manifest_json.as_ref();
     let shared = effective_shared_env(db, app, admission.policy.environment(), manifest).await;
     Ok(with_build_pin(db, admission.policy, build)

@@ -210,6 +210,7 @@ const SYSTEM_SOURCE_TYPES: readonly string[] = [
   "preview_airway_sample",
   "custom_app_staging_migrations",
   "custom_app_sandbox_migrations",
+  "custom_app_sandbox_oltp",
   "custom_app_sandbox_teardown"
 ];
 

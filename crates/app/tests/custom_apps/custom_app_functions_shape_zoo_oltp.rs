@@ -75,6 +75,8 @@ pub(crate) struct AppStore {
     pub(crate) writer: WriterRef,
     /// The role `ensure_writer` minted, which cleanup drops.
     minted: Mutex<Option<String>>,
+    /// Roles of other writers a test minted in the same tenant.
+    extra: Mutex<Vec<String>>,
 }
 
 impl AppStore {
@@ -96,7 +98,19 @@ impl AppStore {
             org_id: t.org_id,
             writer,
             minted: Mutex::new(None),
+            extra: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Mint another writer in the org's tenant — a second app's, or a legacy
+    /// slug's. `cleanup` drops its role.
+    pub(crate) async fn ensure_extra_writer(&self, writer: &WriterRef, claimant: Uuid) {
+        let created = self
+            .provisioner
+            .ensure_writer(self.org_id, writer, GrantLevel::ReadWrite, Some(claimant))
+            .await
+            .expect("mint the extra writer");
+        self.extra.lock().expect("extra").push(created.role_name);
     }
 
     pub(crate) async fn provision(&self, claimant: Uuid) {
@@ -150,7 +164,8 @@ impl AppStore {
         let _ = self.provisioner.deprovision(self.org_id).await;
         let _ = self.provider.delete_project(&project).await;
         let role = self.minted.lock().expect("minted").clone();
-        if let Some(role) = role {
+        let extra = self.extra.lock().expect("extra").clone();
+        for role in role.into_iter().chain(extra) {
             let _ = self.provider.delete_role(&project, "local", &role).await;
         }
     }

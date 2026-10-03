@@ -32,6 +32,28 @@ export interface Environment {
   last_activity_at: string | null;
   expires_at: string | null;
   url: string | null;
+  /**
+   * A sandbox's own schema on the org's OLTP staging branch, once a publish
+   * has queued it; `null` otherwise, and absent from a server older than it.
+   */
+  oltp_schema?: OltpSchema | null;
+}
+
+/** `ctx.oltp`'s home in a sandbox: its schema, and whether it can be used yet. */
+export interface OltpSchema {
+  schema: string;
+  /** `stale`: the org's staging branch was reset since; publish again. */
+  status: "seeding" | "ready" | "failed" | "stale" | string;
+  seeded_at: string | null;
+  tables: number;
+  /** Tables copied empty from staging: over the seed's size cap. */
+  structure_only: string[];
+  /**
+   * What the copy still uses of staging's schema (a type, a function): while
+   * the sandbox exists a staging migration cannot drop these.
+   */
+  staging_dependencies?: string[];
+  error: string | null;
 }
 
 interface Deleting {
@@ -54,6 +76,29 @@ function printEnvironment(env: unknown, asJson: boolean): void {
   const build = e.build_id ?? "no build";
   process.stdout.write(`${e.name} (${e.kind}) — ${e.status}, build ${build}\n`);
   if (e.url) process.stdout.write(`  ${e.url}\n`);
+  if (e.oltp_schema) process.stdout.write(`  ${describeOltpSchema(e.oltp_schema)}\n`);
+}
+
+/** One line for the human output: the schema, its state, and what to do. */
+export function describeOltpSchema(oltp: OltpSchema): string {
+  const head = `OLTP ${oltp.schema} — ${oltp.status}`;
+  switch (oltp.status) {
+    case "ready": {
+      const empty = oltp.structure_only.length
+        ? `, copied empty (over the size cap): ${oltp.structure_only.join(", ")}`
+        : "";
+      const uses = oltp.staging_dependencies?.length
+        ? `; still uses staging's ${oltp.staging_dependencies.join(", ")}`
+        : "";
+      return `${head} (${oltp.tables} table${oltp.tables === 1 ? "" : "s"} from staging${empty})${uses}`;
+    }
+    case "failed":
+      return `${head}: ${oltp.error ?? "no reason recorded"}; publish to the sandbox again`;
+    case "stale":
+      return `${head}: ${oltp.error ?? "the org's OLTP staging branch was reset"}; publish to the sandbox again`;
+    default:
+      return head;
+  }
 }
 
 /**

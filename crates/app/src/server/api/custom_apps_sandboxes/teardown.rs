@@ -5,13 +5,16 @@
 //! `ops::begin_delete` marks the row `deleting_at`, clears its pointer and
 //! queues this task in one transaction, so the sandbox stops serving at once
 //! and the request never waits on an object store or on Airhouse. The task
-//! then removes the sandbox's homes and, last, the row — which is what frees
-//! the name.
+//! then removes the sandbox's homes — its storage silo, its secrets, its
+//! Airhouse sibling and its own schema on the org's OLTP staging branch —
+//! and, last, the row, which is what frees the name.
 //!
 //! **Each step is idempotent**, and the row goes last: a run that fails in
-//! storage, the secret store or Airhouse leaves the row `deleting`, so the
-//! name stays taken and a later run (a second `DELETE`, or the maintenance
-//! loop after six hours) finishes what is left.
+//! storage, the secret store, Airhouse or the OLTP branch leaves the row
+//! `deleting`, so the name stays taken and a later run (a second `DELETE`, or
+//! the maintenance loop after six hours) finishes what is left. The OLTP
+//! step fails — and so keeps the row — whenever the row records a schema and
+//! its drop cannot be confirmed.
 //!
 //! **One run of a sandbox at a time, and only of a sandbox marked for it.**
 //! Two runs of one sandbox can exist — a task claimed again after its worker
@@ -41,8 +44,9 @@ use uuid::Uuid;
 
 use super::lock::SandboxLock;
 pub use super::teardown_executor::SandboxTeardownExecutor;
+use super::{oltp_home, oltp_state};
 use crate::server::api::custom_apps_migrations::{
-    AirhouseDrop, DropOutcome, MigrationError, drop_environment_schema,
+    AirhouseDrop, DropOutcome, MigrationError, SandboxOltpDrop, drop_environment_schema,
 };
 use crate::server::api::custom_apps_nonproduction::staging_task_executor::{
     BUSY_RETRY_DELAYS, HUNG_APPLY_BACKSTOP, bounded, retry_busy,
@@ -174,7 +178,7 @@ pub(super) async fn enqueue<C: ConnectionTrait>(
 }
 
 /// Tear the sandbox down: its storage silo, its secrets, its Airhouse sibling
-/// and ledger rows, then its row. `Ok(what was removed)`, or `Err(why it was
+/// and ledger rows, its OLTP schema and ledger rows, then its row. `Ok(what was removed)`, or `Err(why it was
 /// not)` — and then the row is still there, still `deleting`.
 ///
 /// Waits [`BUSY_RETRY_DELAYS`] for the sandbox's lock; see [`run_with`].
@@ -244,10 +248,47 @@ async fn tear_down(
     let dropped = drop_sibling(db, task, environment)
         .await
         .map_err(|e| not_torn_down(task, "Airhouse", e.to_string()))?;
+    let oltp = drop_oltp_schema(db, task, environment)
+        .await
+        .map_err(|e| not_torn_down(task, "OLTP schema", e.to_string()))?;
     let rows = remove_row(db, task)
         .await
         .map_err(|e| not_torn_down(task, "remove its row", e.to_string()))?;
-    Ok(summary(task, secrets, &dropped, rows))
+    Ok(format!(
+        "{}, {}",
+        summary(task, secrets, &dropped, rows),
+        oltp_summary(&oltp)
+    ))
+}
+
+/// The OLTP step: drop the sandbox's own schema on the org's staging branch
+/// and its ledger rows — that schema, and no other. The row's state, read
+/// here under the lock, is what says there is one; it goes with the row. Any
+/// state counts, including one this build cannot read — a newer build's — so
+/// a schema is never left behind because its record was not understood.
+async fn drop_oltp_schema(
+    db: &DatabaseConnection,
+    task: &SandboxTeardownTask,
+    environment: &AppEnvironment,
+) -> Result<SandboxOltpDrop, MigrationError> {
+    let recorded = oltp_state::is_recorded(db, task.app_id, environment)
+        .await
+        .map_err(|e| MigrationError::Db(e.to_string()))?;
+    let sandbox = oltp_home::Sandbox {
+        app_id: task.app_id,
+        app_slug: &task.app_slug,
+        org_id: task.org_id,
+        environment,
+    };
+    oltp_home::drop_schema(db, sandbox, recorded).await
+}
+
+fn oltp_summary(oltp: &SandboxOltpDrop) -> &'static str {
+    match (oltp.attempted, oltp.branch_gone) {
+        (false, _) => "no OLTP schema",
+        (true, true) => "its OLTP schema went with the org's staging branch",
+        (true, false) => "OLTP schema dropped",
+    }
 }
 
 /// What the sandbox's name stands for when a run takes its lock.

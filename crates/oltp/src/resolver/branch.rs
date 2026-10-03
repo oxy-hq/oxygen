@@ -64,6 +64,21 @@ pub async fn resolve_branch_writer_for_org(
     branch: OltpBranch,
     writer: &WriterRef,
 ) -> Result<Option<BranchWriter>, ResolveError> {
+    resolve_branch_writer_in_schema(db, org_id, branch, writer, &writer.schema_name()).await
+}
+
+/// [`resolve_branch_writer_for_org`], with `schema` as the connection's one
+/// `search_path` entry instead of the writer's own schema — a sandbox's
+/// schema on the branch (`crate::sandbox_schema`), which is the only caller
+/// that passes anything else. The role, the endpoint and the password are the
+/// writer's on the branch either way.
+pub(crate) async fn resolve_branch_writer_in_schema(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    branch: OltpBranch,
+    writer: &WriterRef,
+    schema: &str,
+) -> Result<Option<BranchWriter>, ResolveError> {
     let Some((tenant, row)) = active_branch(db, org_id, branch).await? else {
         return Ok(None);
     };
@@ -96,9 +111,9 @@ pub async fn resolve_branch_writer_for_org(
     );
     Ok(Some(BranchWriter {
         connection: WriterConnection {
-            schema: writer.schema_name(),
+            schema: schema.to_string(),
             role,
-            dsn: schema::with_search_path(&base, writer),
+            dsn: schema::with_search_path_to(&base, schema),
             verify_tls: crate::provisioner::verify_tls_for(&tenant.provider),
         },
         cut: crate::branches::BranchCut::of(&row),
@@ -132,6 +147,46 @@ pub async fn resolve_branch_analyst_connection_for_org(
         password,
         sslmode: crate::provisioner::sslmode_for(&tenant.provider).to_string(),
         verify_tls: crate::provisioner::verify_tls_for(&tenant.provider),
+    }))
+}
+
+/// The owner's connection to an org's `branch`, and what it reaches — for the
+/// DDL only the database owner may run there (a sandbox's schema,
+/// `crate::sandbox_schema`). Never handed to app code.
+pub(crate) struct BranchOwner {
+    pub dsn: String,
+    pub owner_role: String,
+    pub tenant: oltp_tenants::Model,
+    pub cut: crate::branches::BranchCut,
+}
+
+/// The owner of the org's active `branch`. `Ok(None)`: the org has no such
+/// branch. Refuses a branch that is not active or that names production, as
+/// every resolver here does.
+pub(crate) async fn resolve_branch_owner(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    branch: OltpBranch,
+) -> Result<Option<BranchOwner>, ResolveError> {
+    let Some((tenant, row)) = active_branch(db, org_id, branch).await? else {
+        return Ok(None);
+    };
+    // The branch's own sealed owner password where it has one (Neon); the
+    // tenant's where the branch shares the tenant's roles (a local cluster).
+    let sealed = match &row.owner_password_ciphertext {
+        Some(sealed) => sealed,
+        None if schema::shares_role_namespace(&tenant.provider) => tenant
+            .owner_password_ciphertext
+            .as_ref()
+            .ok_or(ResolveError::BranchOwnerCredentialMissing(org_id, branch))?,
+        None => return Err(ResolveError::BranchOwnerCredentialMissing(org_id, branch)),
+    };
+    let password = open(sealed)?;
+    Ok(Some(BranchOwner {
+        dsn: crate::provisioner::branch_dsn(&tenant.provider, &row, &row.owner_role, &password),
+        owner_role: row.owner_role.clone(),
+        cut: crate::branches::BranchCut::of(&row),
+        tenant,
     }))
 }
 

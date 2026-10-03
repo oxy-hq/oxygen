@@ -30,15 +30,17 @@
 //!
 //! What an environment's policy *does* lands in `env_policy`, not here. The
 //! one fact it needs from the database is decided here, once per admitted
-//! run: whether the org has an OLTP staging branch ([`with_oltp_home`], P4b)
-//! — one branch, shared by staging and every sandbox of every app in the org.
+//! run: where its `ctx.oltp` lands ([`with_oltp_home`], P4b). The org has at
+//! most one OLTP staging branch; staging runs in the app's schema there, and
+//! a sandbox in a schema of its own, when its row records one ready
+//! (`custom_apps_sandboxes::oltp_state`).
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
-use super::env_policy::{EnvPolicy, OltpHome};
+use super::env_policy::{EnvPolicy, OltpHome, SandboxUnready};
 use crate::server::api::custom_apps_env_resolve::{ResolvedEnvironment, may_open_non_production};
 
 /// How a run reached the gate.
@@ -134,20 +136,64 @@ pub(crate) fn admit(
 /// `admission`, with where its `ctx.oltp` lands decided — once, here, for the
 /// whole invocation (env design §4.2; `env_policy::OltpHome`). Production
 /// always writes its own database and pays no lookup. Outside production, one
-/// lookup of the org's staging branch ([`oltp_home_for`]).
+/// lookup of the org's staging branch ([`oltp_home_for`]); a sandbox in an
+/// org that has one also reads its own row ([`sandbox_oltp_home`]).
 pub(crate) async fn with_oltp_home(
     db: &sea_orm::DatabaseConnection,
     mut admission: Admission,
-    org_id: Uuid,
+    app: &entity::apps::Model,
 ) -> Result<Admission, sea_orm::DbErr> {
     if admission.policy.is_production() {
         return Ok(admission);
     }
-    let (_, branch) = oxy_oltp::branches::find(db, org_id, oxy_oltp::OltpBranch::Staging).await?;
-    admission.policy = admission
-        .policy
-        .with_oltp_home(oltp_home_for(branch.as_ref()));
+    let (_, branch) =
+        oxy_oltp::branches::find(db, app.org_id, oxy_oltp::OltpBranch::Staging).await?;
+    let home = match (oltp_home_for(branch.as_ref()), branch.as_ref()) {
+        (OltpHome::StagingBranch(_), Some(row)) if is_sandbox(&admission) => {
+            let cut = oxy_oltp::branches::BranchCut::of(row);
+            sandbox_oltp_home(db, app, admission.policy.environment(), &cut).await?
+        }
+        (home, _) => home,
+    };
+    admission.policy = admission.policy.with_oltp_home(home);
     Ok(admission)
+}
+
+fn is_sandbox(admission: &Admission) -> bool {
+    matches!(admission.policy.environment(), AppEnvironment::Dev { .. })
+}
+
+/// A sandbox's OLTP home in an org whose staging branch is cut as `cut`: its
+/// own schema there when its row records one ready on that cut, and a refusal
+/// that says why otherwise — never the schema staging uses.
+async fn sandbox_oltp_home(
+    db: &sea_orm::DatabaseConnection,
+    app: &entity::apps::Model,
+    environment: &AppEnvironment,
+    cut: &oxy_oltp::branches::BranchCut,
+) -> Result<OltpHome, sea_orm::DbErr> {
+    use crate::server::api::custom_apps_sandboxes::oltp_state;
+    let Some(schema) = sandbox_schema_of(&app.slug, environment) else {
+        return Ok(OltpHome::SandboxUnready(SandboxUnready::NoSchemaName));
+    };
+    let state = oltp_state::read(db, app.id, environment).await?;
+    Ok(oltp_state::home_for(state.as_ref(), &schema, cut))
+}
+
+/// The schema `environment` of the app `slug` has on the org's staging
+/// branch, when the two name one: derived, as `ctx.oltp`'s writer is, from
+/// the slug — never from a manifest or a request.
+pub(crate) fn sandbox_schema_of(
+    slug: &str,
+    environment: &AppEnvironment,
+) -> Option<oxy_oltp::sandbox_schema::SandboxSchema> {
+    let label = match environment {
+        AppEnvironment::Dev { .. } => environment.schema_label()?,
+        _ => return None,
+    };
+    let writer = oxy_oltp::schema::app_writer_name(slug)
+        .and_then(|name| oxy_oltp::WriterRef::app(name).ok())?;
+    oxy_oltp::sandbox_schema::SandboxSchema::for_writer(&writer, &label).ok()
 }
 
 /// The home a staging run's `ctx.oltp` gets from the org's branch row: the
@@ -287,6 +333,28 @@ mod tests {
         AppEnvironment::Dev {
             handle: "luong".into(),
         }
+    }
+
+    /// A sandbox's schema is the app's writer schema and the sandbox's label —
+    /// the Airhouse sibling's name — and only a sandbox has one. A name over
+    /// 63 bytes is none, not a shorter one.
+    #[test]
+    fn a_sandboxs_oltp_schema_is_derived_from_the_slug_and_the_sandbox() {
+        let schema = sandbox_schema_of("store-ops", &sandbox()).expect("a schema");
+        assert_eq!(schema.name(), "app_store_ops__dev_luong");
+        assert_eq!(
+            Some(schema.name().to_string()),
+            airhouse::app_schema::environment_schema(
+                "app_store_ops",
+                &sandbox().schema_label().expect("a label")
+            ),
+            "one name in both stores"
+        );
+        assert!(sandbox_schema_of("store-ops", &AppEnvironment::Staging).is_none());
+        assert!(sandbox_schema_of("store-ops", &AppEnvironment::Production).is_none());
+        let long = "a".repeat(50);
+        assert!(sandbox_schema_of(&long, &sandbox()).is_none(), "64+ bytes");
+        assert!(sandbox_schema_of("store_ops", &sandbox()).is_none());
     }
 
     /// A sandbox is admitted on the arm staging is: a route call from staff,

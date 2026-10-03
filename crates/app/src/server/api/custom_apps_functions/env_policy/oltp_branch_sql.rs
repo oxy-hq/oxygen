@@ -361,7 +361,7 @@ fn string_body<'a>(tokens: &[&Token], i: usize, token: &'a Token) -> Option<(&'a
 }
 
 /// The value of a string literal, escapes already decoded by the tokenizer.
-fn string_value(token: &Token) -> Option<&str> {
+pub(super) fn string_value(token: &Token) -> Option<&str> {
     match token {
         Token::SingleQuotedString(s)
         | Token::EscapedStringLiteral(s)
@@ -373,7 +373,7 @@ fn string_value(token: &Token) -> Option<&str> {
 }
 
 /// An unquoted word, upper-cased: a keyword or a bare name.
-fn keyword(token: &Token) -> Option<String> {
+pub(super) fn keyword(token: &Token) -> Option<String> {
     match token {
         Token::Word(w) if w.quote_style.is_none() => Some(w.value.to_ascii_uppercase()),
         _ => None,

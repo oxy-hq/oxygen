@@ -160,6 +160,13 @@ fn oltp_databases(policy: &EnvPolicy, op: HostOp) -> BTreeSet<String> {
         (Decision::Isolate(Target::OltpBranch), OltpHome::StagingBranch(id)) => {
             [format!("branch:{id}")].into()
         }
+        // A sandbox's own schema inside the branch — the same database as
+        // staging's, a different namespace in it.
+        (Decision::Isolate(Target::OltpBranch), OltpHome::SandboxSchema(home)) => [format!(
+            "branch:{}/{}",
+            home.cut.provider_branch_id, home.schema
+        )]
+        .into(),
         _ => BTreeSet::new(),
     }
 }
@@ -458,4 +465,57 @@ fn staging_oltp_on_a_branch_touches_a_different_database_than_production() {
         written(&no_branch, HostOp::OltpExec, Target::OltpBranch).is_empty(),
         "without a branch the op is held and touches nothing"
     );
+}
+
+/// A sandbox's `ctx.oltp` reaches its own schema on the branch: not
+/// production's database, not staging's schema there, and not another
+/// sandbox's. One whose schema is not ready reaches nothing at all.
+#[test]
+fn a_sandboxs_oltp_touches_its_own_schema_and_no_other_environments() {
+    use super::{SandboxHome, SandboxUnready};
+    use oxy_oltp::sandbox_schema::SandboxSchema;
+    let cut = oxy_oltp::branches::BranchCut {
+        row_id: uuid::Uuid::from_u128(1),
+        provider_branch_id: "br-staging".into(),
+        cut_at: chrono::Utc::now().into(),
+    };
+    let writer = oxy_oltp::WriterRef::app("store").expect("a writer");
+    let on = |handle: &str| {
+        let environment = AppEnvironment::Dev {
+            handle: handle.into(),
+        };
+        let label = environment.schema_label().expect("a label");
+        let schema = SandboxSchema::for_writer(&writer, &label).expect("a schema");
+        EnvPolicy::for_environment(environment).with_oltp_home(OltpHome::SandboxSchema(
+            SandboxHome {
+                cut: cut.clone(),
+                schema,
+            },
+        ))
+    };
+    let staging_home = OltpHome::StagingBranch("br-staging".into());
+    let staging = staging().with_oltp_home(staging_home);
+    let production = EnvPolicy::production();
+    for op in [HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec] {
+        let a1 = written(&on("a1"), op, Target::OltpBranch);
+        let b2 = written(&on("b2"), op, Target::OltpBranch);
+        assert_eq!(
+            a1,
+            BTreeSet::from(["branch:br-staging/app_store__dev_a1".to_string()]),
+            "{op:?}"
+        );
+        for other in [
+            &b2,
+            &written(&staging, op, Target::OltpBranch),
+            &written(&production, op, Target::OltpBranch),
+        ] {
+            assert!(!other.is_empty(), "{op:?}");
+            assert!(a1.is_disjoint(other), "{op:?}: {a1:?} and {other:?}");
+        }
+        let unready = on("a1").with_oltp_home(OltpHome::SandboxUnready(SandboxUnready::Seeding));
+        assert!(
+            written(&unready, op, Target::OltpBranch).is_empty(),
+            "{op:?}"
+        );
+    }
 }

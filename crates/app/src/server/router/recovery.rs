@@ -1350,6 +1350,16 @@ fn build_custom_task_registry(
             Arc::new(migrations_task::SandboxMigrationsExecutor { db: db.clone() }),
         );
     }
+    // A sandbox's own schema on the org's OLTP staging branch, created, seeded
+    // and migrated after a publish to it. A kind of its own for the same
+    // reason: an older worker fails it rather than migrate staging's schema.
+    {
+        use crate::server::api::custom_apps_sandboxes::oltp_task;
+        reg.register(
+            oltp_task::SANDBOX_OLTP_KIND,
+            Arc::new(oltp_task::SandboxOltpExecutor { db: db.clone() }),
+        );
+    }
     Arc::new(reg)
 }
 

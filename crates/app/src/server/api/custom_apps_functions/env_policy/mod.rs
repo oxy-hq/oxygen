@@ -18,9 +18,10 @@
 //! (`internal-docs/custom-app-sandboxes.md`) has no table of its own: every
 //! "staging" below reads "any non-production environment". What differs per
 //! environment is where an isolated write lands — each has its own storage
-//! silo, secret path and Airhouse sibling — while the OLTP staging branch and
-//! the `nonProduction.destinations` map are one per org and per build, shared
-//! by staging and every sandbox.
+//! silo, secret path, Airhouse sibling and, inside the org's OLTP staging
+//! branch, its own schema (`oltp_home`) — while the branch database itself
+//! and the `nonProduction.destinations` map are one per org and per build,
+//! shared by staging and every sandbox.
 //!
 //! **Staging holds every write that has no isolated home.** Reads of
 //! production data are allowed (§4.2: staging reads the same warehouse,
@@ -76,7 +77,9 @@
 //! `Isolate(Target::OltpBranch)`: they read and write the branch — a copy —
 //! except a call that reaches outside that database (refused) and SQL decided
 //! only when it runs (held) (`oltp_branch_sql`). Without one they hold as
-//! above.
+//! above. A sandbox's run on the branch too, in the sandbox's own schema,
+//! where a statement naming another schema is refused as well
+//! (`oltp_sandbox_sql`); while that schema is not ready they are refused.
 
 pub mod destination_sql;
 #[cfg(test)]
@@ -85,6 +88,7 @@ mod held;
 pub mod homes;
 mod oltp_branch_sql;
 mod oltp_home;
+mod oltp_sandbox_sql;
 mod oltp_sql;
 #[cfg(test)]
 mod tests;
@@ -98,7 +102,11 @@ pub use held::{
 pub use oltp_branch_sql::{
     NotSent, admit_branch_statement, branch_held_statement_message, branch_statement_message,
 };
-pub use oltp_home::{BRANCH_REFUSED_FIX, NO_BRANCH_NOTE, OltpHome};
+pub use oltp_home::{BRANCH_REFUSED_FIX, NO_BRANCH_NOTE, OltpHome, SandboxHome, SandboxUnready};
+pub use oltp_sandbox_sql::{
+    SANDBOX_REFUSED_FIX, SandboxFence, admit_sandbox_statement, sandbox_statement_message,
+    schema_named_in,
+};
 pub use oltp_sql::{HeldStatement, admit_oltp_statement};
 pub use upload::MintedUpload;
 
@@ -210,7 +218,8 @@ pub enum Target {
     /// The org's OLTP staging branch (P4a): a copy of production's database,
     /// reached with the branch's own writer credential
     /// (`oxy_oltp::resolver::resolve_branch_writer_connection_for_org`), whose
-    /// resolver refuses a row that names production.
+    /// resolver refuses a row that names production. Staging runs in the
+    /// app's schema there; a sandbox in its own ([`OltpHome::SandboxSchema`]).
     OltpBranch,
 }
 

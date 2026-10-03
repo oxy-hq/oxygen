@@ -2007,8 +2007,8 @@ fn drop_resolution_cache(target: &PublishTarget) {
 /// Queue the migrations of the homes `target`'s pointer move reaches; the
 /// warnings are the publish's. The channels' publish moved staging's pointer:
 /// staging's Airhouse sibling and the org's OLTP staging branch. A sandbox's
-/// moved the sandbox's: its own Airhouse sibling, under a task kind of its
-/// own, and nothing for the OLTP branch the org's environments share.
+/// moved the sandbox's: its own Airhouse sibling and its own schema on that
+/// branch, each under a task kind of its own — never staging's schema.
 async fn queue_migrations_for(
     db: &DatabaseConnection,
     target: &PublishTarget,
@@ -2025,6 +2025,7 @@ async fn queue_migrations_for(
                 app_id: built.app_id,
                 app_slug: built.app_slug,
                 workspace_id: built.workspace_id,
+                org_id: built.org_id,
                 build_pk: built.build_pk,
                 environment,
             };

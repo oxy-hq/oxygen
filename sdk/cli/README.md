@@ -484,12 +484,21 @@ oxyc logs <app> [--app-env] [--invocation] [--request] [--hours] [--limit]
 ```
 
 A **sandbox** is a named, short-lived `dev-<handle>` environment of one custom
-app: its own build pointer, storage silo, secrets and Airhouse sibling, with
+app: its own build pointer, storage silo, secrets, Airhouse sibling and — in
+an org with an OLTP staging branch — its own copy of the app's database, with
 reads hitting production and most writes either isolated or *held* (recorded,
 not performed — see `invocations held`). It starts with no build, is deleted
 explicitly or after 7 idle days, and an app has at most 20. Full contract,
-including what is **not** isolated (`ctx.oltp`, `ctx.warehouse`) and the other
-gaps: `internal-docs/custom-app-sandboxes.md`.
+including what is **not** isolated (`ctx.warehouse`) and the other gaps:
+`internal-docs/custom-app-sandboxes.md`.
+
+`ctx.oltp` in a sandbox runs in a schema of its own (`app_<app>__dev_<handle>`)
+inside the org's staging branch. `publish --app-env` queues it: a copy of
+staging's tables (rows up to a size cap), then the build's OLTP migrations.
+`env show` reports it as `oltp_schema` — `status` is `seeding`, `ready`,
+`failed` (with `error`) or `stale` (the branch was reset; publish again), and
+`structure_only` lists the tables copied empty. Until it is `ready` a
+`ctx.oltp` call in the sandbox is refused with a message that says which.
 
 The loop: `env create` → `publish --app-env` → `fn call` / `checks run
 --app-env` → `invocations list` / `held` to read back what ran → iterate from

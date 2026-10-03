@@ -9,16 +9,22 @@
 //! any spelling). If the branch is gone or not active by the time a call
 //! connects, or was re-cut under another id since the admission chose it, the
 //! call fails; it never falls back to production, nor moves to another copy.
+//!
+//! A sandbox admitted with its own schema on the branch resolves the same
+//! writer there with that schema as the only `search_path` entry
+//! (`oxy_oltp::sandbox_schema`), and only on the cut the admission found the
+//! schema ready on: a branch reset since replaced the database it was in.
 
 use oxy_oltp::OltpBranch;
 use oxy_oltp::resolver::{
     WriterConnection, resolve_branch_writer_for_org, resolve_writer_connection_for_org,
 };
+use oxy_oltp::sandbox_schema::resolve_branch_sandbox_writer_for_org;
 use oxy_oltp::schema::WriterRef;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use super::super::env_policy::OltpHome;
+use super::super::env_policy::{OltpHome, REFUSED_LABEL, SandboxHome};
 
 /// The app writer `writer_name`'s connection in `org_id`, on `home`. Public so
 /// the environments' differential test resolves both homes exactly as the
@@ -45,6 +51,39 @@ pub async fn writer_connection(
         OltpHome::StagingBranch(admitted) => {
             branch_connection(db, org_id, writer_name, &writer, admitted).await
         }
+        OltpHome::SandboxSchema(home) => sandbox_connection(db, org_id, &writer, home).await,
+        // Every op is refused before it connects (`oltp_guard`); a path that
+        // reaches here anyway gets no connection, never staging's schema.
+        OltpHome::SandboxUnready(why) => Err(format!("{REFUSED_LABEL}: {}.", why.fix())),
+    }
+}
+
+/// The writer on the org's staging branch, in the sandbox's own schema — and
+/// only while the branch is still the cut the admission found it ready on.
+async fn sandbox_connection(
+    db: &DatabaseConnection,
+    org_id: Uuid,
+    writer: &WriterRef,
+    home: &SandboxHome,
+) -> Result<WriterConnection, String> {
+    let schema = &home.schema;
+    let resolved =
+        resolve_branch_sandbox_writer_for_org(db, org_id, OltpBranch::Staging, writer, schema)
+            .await;
+    match resolved {
+        Ok(Some(branch)) if branch.cut == home.cut => Ok(branch.connection),
+        Ok(Some(_)) => Err(format!(
+            "the org's OLTP staging branch was reset or re-cut since this invocation was \
+             admitted, which removed this sandbox's schema {schema}; nothing was sent. Publish \
+             to the sandbox again"
+        )),
+        Ok(None) => Err(format!(
+            "this invocation was admitted to the sandbox's schema {schema} on the org's OLTP \
+             staging branch, which no longer exists; nothing was sent"
+        )),
+        Err(e) => Err(format!(
+            "this sandbox's schema {schema} on the org's staging branch cannot be used: {e}"
+        )),
     }
 }
 

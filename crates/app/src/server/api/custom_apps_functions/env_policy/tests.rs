@@ -457,3 +457,88 @@ fn production_and_a_preview_never_take_an_oltp_branch() {
     assert_eq!(staging().oltp_home(), &OltpHome::Production, "the default");
     assert_eq!(staging_on_branch().oltp_home(), &home);
 }
+
+fn sandbox_home() -> OltpHome {
+    let writer = oxy_oltp::WriterRef::app("store").expect("a writer");
+    OltpHome::SandboxSchema(SandboxHome {
+        cut: oxy_oltp::branches::BranchCut {
+            row_id: uuid::Uuid::from_u128(1),
+            provider_branch_id: "br-staging".into(),
+            cut_at: chrono::Utc::now().into(),
+        },
+        schema: oxy_oltp::sandbox_schema::SandboxSchema::for_writer(&writer, "dev_a1")
+            .expect("a schema"),
+    })
+}
+
+/// A sandbox with its own schema on the org's branch decides exactly as
+/// staging on the branch does — the same three rows isolate, nothing else
+/// moves. What differs is where the connection lands, and the fence.
+#[test]
+fn a_sandbox_with_its_own_schema_decides_as_staging_on_the_branch() {
+    let sandbox = sandbox().with_oltp_home(sandbox_home());
+    let staging = staging_on_branch();
+    for op in HostOp::ALL {
+        assert_eq!(sandbox.decide(*op), staging.decide(*op), "{op:?}");
+        assert_eq!(
+            sandbox.decide_on_handle(*op, Some(Target::OltpBranch)),
+            staging.decide_on_handle(*op, Some(Target::OltpBranch)),
+            "{op:?}"
+        );
+    }
+}
+
+/// While its schema is not ready a sandbox's OLTP rows are refused — not
+/// held (which would read production) and not isolated (which would write
+/// the schema staging uses) — each reason saying what to do. No other row
+/// moves.
+#[test]
+fn a_sandbox_whose_schema_is_not_ready_has_its_oltp_rows_refused() {
+    let oltp = [HostOp::TxBeginOltp, HostOp::OltpQuery, HostOp::OltpExec];
+    for why in [
+        SandboxUnready::NotCreated,
+        SandboxUnready::Seeding,
+        SandboxUnready::Failed,
+        SandboxUnready::BranchReset,
+        SandboxUnready::NoSchemaName,
+    ] {
+        let policy = sandbox().with_oltp_home(OltpHome::SandboxUnready(why));
+        for op in oltp {
+            assert_eq!(
+                policy.decide(op),
+                Decision::Refuse { fix: why.fix() },
+                "{why:?} {op:?}"
+            );
+        }
+        for row in ROWS.iter().filter(|r| !oltp.contains(&r.op)) {
+            assert_eq!(policy.decide(row.op), row.staging, "{why:?} {:?}", row.op);
+        }
+        assert!(why.fix().contains("OLTP staging branch"), "{why:?}");
+    }
+    for (why, says) in [
+        (SandboxUnready::NotCreated, "oxyc publish --app-env"),
+        (SandboxUnready::Seeding, "try again"),
+        (
+            SandboxUnready::Seeding,
+            "if it stays seeding, publish to the sandbox again",
+        ),
+        (SandboxUnready::Failed, "oltp_schema.error"),
+        (SandboxUnready::BranchReset, "was reset"),
+        (SandboxUnready::NoSchemaName, "63 bytes"),
+    ] {
+        assert!(why.fix().contains(says), "{why:?}: {}", why.fix());
+    }
+}
+
+/// Production takes no sandbox home either, whatever it is handed.
+#[test]
+fn production_never_takes_a_sandbox_home() {
+    for home in [
+        sandbox_home(),
+        OltpHome::SandboxUnready(SandboxUnready::Seeding),
+    ] {
+        let production = EnvPolicy::production().with_oltp_home(home);
+        assert_eq!(production.oltp_home(), &OltpHome::Production);
+        assert_eq!(production.decide(HostOp::OltpExec), Decision::Allow);
+    }
+}

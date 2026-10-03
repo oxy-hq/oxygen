@@ -4,7 +4,8 @@
 //!
 //! A sandbox is the environments design's dev slot made real: its own build
 //! pointer and its own homes for writes (a storage silo, secrets, an Airhouse
-//! sibling), under the per-call policy staging has. Everything that *runs* in
+//! sibling, a schema on the org's OLTP staging branch), under the per-call
+//! policy staging has. Everything that *runs* in
 //! one — resolution, admission, the policy, the homes — lives where staging's
 //! does and treats a sandbox as one more non-production environment. This
 //! module owns only what staging never needed: the row's lifecycle.
@@ -19,6 +20,9 @@
 //! * [`lock`] — one teardown or migration of a sandbox at a time;
 //! * [`publish`] — what a publish that names a sandbox checks, moves and queues;
 //! * [`migrations_task`] — a sandbox build's Airhouse migrations, queued;
+//! * [`oltp_task`] — the sandbox's own schema on the org's OLTP staging
+//!   branch, seeded and migrated, queued; [`oltp_home`] its steps and
+//!   [`oltp_state`] what the row records of it;
 //! * [`retention`] — which builds a publish may prune, sandbox builds apart;
 //! * [`teardown`] — the second half of a delete, on the worker fleet;
 //! * [`maintenance`] — the loop that expires idle sandboxes and retries
@@ -35,6 +39,9 @@ pub mod handlers;
 pub mod lock;
 pub mod maintenance;
 pub mod migrations_task;
+pub mod oltp_home;
+pub mod oltp_state;
+pub mod oltp_task;
 pub mod ops;
 pub(crate) mod publish;
 pub(crate) mod retention;
@@ -103,6 +110,9 @@ pub struct EnvironmentDto {
     /// The environment's host; `null` when the deployment has no custom-apps
     /// zone or the host label would exceed 63 bytes.
     pub url: Option<String>,
+    /// A sandbox's own schema on the org's OLTP staging branch, once a
+    /// publish has queued it; `null` otherwise.
+    pub oltp_schema: Option<oltp_state::OltpSchemaDto>,
 }
 
 /// Why a sandbox is being torn down.
@@ -320,6 +330,7 @@ mod tests {
             last_activity_at: None,
             expires_at: None,
             url: None,
+            oltp_schema: None,
         };
         let json = serde_json::to_value(&dto).expect("json");
         let object = json.as_object().expect("an object");
@@ -336,10 +347,11 @@ mod tests {
             "last_activity_at",
             "expires_at",
             "url",
+            "oltp_schema",
         ] {
             assert!(object.contains_key(field), "{field} is missing");
         }
-        assert_eq!(object.len(), 12);
+        assert_eq!(object.len(), 13);
         assert!(json["build_id"].is_null(), "null, not omitted");
     }
 }

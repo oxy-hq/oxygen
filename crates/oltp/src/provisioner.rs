@@ -199,6 +199,9 @@ mod branch_state;
 mod branches;
 mod credentials;
 
+// The branch owner's DSN shape, for the owner resolve in `resolver::branch`.
+pub(crate) use branch_roles::branch_dsn;
+
 pub struct OltpProvisioner {
     db: DatabaseConnection,
     provider: Arc<dyn OltpProvider>,

@@ -92,6 +92,9 @@
 //! * [`branch`] — the same files on the org's OLTP staging branch, on every
 //!   publish, recorded under `branch:<provider id>`; a failure there warns and
 //!   never fails the publish (previews P4b).
+//! * [`sandbox_schema`] — a sandbox's own schema on that branch: created and
+//!   seeded from staging's with staging's ledger, migrated under
+//!   `schema:<sandbox schema>`, and dropped with its ledger rows.
 
 mod airhouse;
 mod airhouse_drop;
@@ -99,6 +102,7 @@ mod airhouse_home;
 mod apply;
 mod branch;
 mod plan;
+mod sandbox_schema;
 mod types;
 
 pub(super) use airhouse::{AirhouseRun, apply_airhouse_on_promote, apply_airhouse_to_environment};
@@ -115,4 +119,8 @@ pub use branch::apply_to_resolved_branch;
 pub(super) use branch::{apply_to_staging_branch, branch_warning};
 pub(super) use plan::declare;
 pub use plan::declare_airhouse;
+pub use sandbox_schema::{
+    SandboxOltp, SandboxOltpDrop, apply as apply_to_sandbox_schema,
+    create_and_seed as create_and_seed_sandbox_schema, drop_schema as drop_sandbox_schema,
+};
 pub use types::{Applied, DeclaredMigration, MigrationError, MigrationTarget};

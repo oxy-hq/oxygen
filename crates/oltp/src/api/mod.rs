@@ -28,7 +28,8 @@ pub(crate) fn resolve_status(e: crate::resolver::ResolveError) -> (StatusCode, S
         | R::NotProvisioned(_)
         | R::NoAnalystCredential(_)
         | R::WriterNotProvisioned { .. }
-        | R::BranchCredentialMissing { .. } => StatusCode::NOT_FOUND,
+        | R::BranchCredentialMissing { .. }
+        | R::BranchOwnerCredentialMissing(..) => StatusCode::NOT_FOUND,
         R::NotActive(..) | R::BranchNotActive(..) | R::BranchIsProduction(..) => {
             StatusCode::CONFLICT
         }
