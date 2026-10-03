@@ -74,7 +74,6 @@ mod oltp_branches_local;
 mod oltp_branches_teardown;
 mod oltp_provisioner;
 mod operating_graph;
-mod org_default_workspace;
 mod preagg_promote_nudge;
 mod preview_routes;
 mod preview_runs;

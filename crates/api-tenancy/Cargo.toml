@@ -36,7 +36,36 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }            # tokio::spawn (fire-and-forget invite email) + #[tokio::test]
 tracing = { workspace = true }
+# Tenancy's own: org slugs, invitation email, OLTP branch cleanup on org delete,
+# Airhouse credential revocation on member removal, workspace provisioning.
+airhouse = { workspace = true }
+agentic-pipeline = { workspace = true }
+oxy-oltp = { workspace = true }
+email_address = { workspace = true }
+handlebars = { workspace = true }
+once_cell = { workspace = true }
+slugify = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+utoipa = { workspace = true }              # OpenAPI for the documented handlers
+utoipa-axum = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# from crates/app/tests/common), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
+migration = { workspace = true }
+agentic-runtime = { workspace = true }
+oxy-cameras = { workspace = true }
+tempfile = { workspace = true }
+url = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
 
 [lints]
 workspace = true

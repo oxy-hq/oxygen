@@ -10,8 +10,8 @@
 //!   types, which live in the `oxy-tenancy` domain crate (custom apps and
 //!   frontline use them too). `service` here adds only the cache-flushing
 //!   `write_access` wrapper.
-//! - [`handlers`] — the org's team roster (`/orgs/{id}/teams/*`).
-//! - [`app_access`] — one app's visibility + grants
+//! - `handlers` / `app_access` — the org's team roster (`/orgs/{id}/teams/*`) and
+//!   one app's visibility + grants; both moved to `oxy-api-tenancy`'s `org_teams`
 //!   (`/orgs/{id}/apps/{id}/access`).
 //!
 //! Everything here is gated by `Action::AppAccessManage`: an org officer, Oxy staff,
@@ -24,8 +24,6 @@
 //! console is capability-scoped rather than membership-scoped. See
 //! `admin::apps::access` and `partner_console::app_access`.
 
-pub mod app_access;
-pub mod handlers;
 pub mod service;
 
 pub use oxy_tenancy::org_teams::{audit, dto};

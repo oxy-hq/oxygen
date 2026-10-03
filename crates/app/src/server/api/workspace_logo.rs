@@ -42,7 +42,9 @@ use crate::server::api::middlewares::workspace_context::WorkspaceManagerReadOnly
 /// None of these affect the legitimate `<img>` embedding in the rail/heading:
 /// `<img>` ignores `Content-Disposition`, renders SVG in script-free secure
 /// mode, and is not governed by the response's own CSP.
-pub(crate) fn logo_response(content_type: impl Into<String>, bytes: Vec<u8>) -> Response {
+// `pub` for `oxy-api-tenancy`'s org logo, which serves bytes the same way —
+// on its `surface_contract` backlog.
+pub fn logo_response(content_type: impl Into<String>, bytes: Vec<u8>) -> Response {
     (
         [
             (header::CONTENT_TYPE, content_type.into()),

@@ -1,7 +1,7 @@
-//! The directories and rollups: `/admin/orgs-meta`, `/admin/workspaces-meta`,
-//! `/admin/metrics/llm-usage`, `/admin/workspace-health`, and the one org-owned
+//! The directories and rollups: `/admin/metrics/llm-usage`, `/admin/workspace-health`, and the one org-owned
 //! write on the users router. None was in the review; the audit of the rest of the
-//! console found them.
+//! console found them. (`/admin/orgs-meta` and `/admin/workspaces-meta` moved
+//! with their handlers to `oxy-api-tenancy`'s `admin_staff_scope_directories`.)
 
 use axum::extract::{OriginalUri, Path, Query};
 use axum::http::{StatusCode, Uri};
@@ -10,10 +10,8 @@ use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::OrgRole;
 use entity::workspace_health_state;
 use oxy_app::server::api::admin::metrics::{UsageQuery, llm_usage};
-use oxy_app::server::api::admin::orgs_admin::{ListMetaQuery, list_orgs_meta};
 use oxy_app::server::api::admin::scope::list_scope;
 use oxy_app::server::api::admin::users_admin::revoke_user_invitation;
-use oxy_app::server::api::admin::workspaces_admin::{ListWorkspacesQuery, list_workspaces};
 use oxy_app::server::api::admin::{
     TriggerEvalParams, list_workspace_health, trigger_workspace_health_eval,
 };
@@ -45,83 +43,6 @@ async fn list_scope_is_the_grants_orgs_and_nothing_for_no_standing() {
     // changes the listing comes back empty rather than whole.
     let stranger = seed_user(&w.db, "stranger@tenant.test").await;
     assert_eq!(list_scope(&w.db, &stranger).await, Ok(Some(Vec::new())));
-}
-
-async fn orgs_as(actor: &AuthenticatedUser, page_size: Option<u64>) -> Reply {
-    reply(
-        list_orgs_meta(
-            as_actor(actor),
-            uri("/api/admin/orgs-meta"),
-            Query(ListMetaQuery {
-                search: None,
-                page: None,
-                page_size,
-            }),
-        )
-        .await,
-    )
-    .await
-}
-
-async fn workspaces_as(actor: &AuthenticatedUser, org_id: Option<Uuid>) -> Reply {
-    reply(
-        list_workspaces(
-            as_actor(actor),
-            uri("/api/admin/workspaces-meta"),
-            Query(ListWorkspacesQuery {
-                search: None,
-                status: None,
-                org_id,
-                page: None,
-                page_size: None,
-            }),
-        )
-        .await,
-    )
-    .await
-}
-
-/// The directory that undid the 404 policy: every by-id route on these routers
-/// already refused an out-of-scope org, and the listing named all of them.
-#[tokio::test]
-async fn a_bounded_grant_lists_only_its_own_orgs_and_their_workspaces() {
-    let w = world().await;
-
-    let orgs = orgs_as(&w.bounded, None).await;
-    assert_eq!(orgs.status, StatusCode::OK);
-    assert_eq!(orgs.column(None, "id"), vec![w.org_a.to_string()]);
-    // Org A sorts first by name, so a page of one shows it either way — what the
-    // scope must change is whether the response claims a second page.
-    let first = orgs_as(&w.bounded, Some(1)).await;
-    assert_eq!(first.column(None, "id"), vec![w.org_a.to_string()]);
-    assert!(
-        !first.has_next(),
-        "`rel=\"next\"` tells a bounded grant another org exists"
-    );
-
-    let workspaces = workspaces_as(&w.bounded, None).await;
-    assert_eq!(workspaces.status, StatusCode::OK);
-    assert_eq!(
-        workspaces.column(None, "id"),
-        vec![w.ws_a.to_string()],
-        "org B's workspace, or the org-less one, is listed"
-    );
-    assert!(
-        workspaces_as(&w.bounded, Some(w.org_b))
-            .await
-            .column(None, "id")
-            .is_empty(),
-        "`?org_id=<org B>` listed org B's workspaces"
-    );
-
-    for (who, actor) in w.everything_readers() {
-        let orgs = orgs_as(actor, None).await.column(None, "id");
-        assert!(orgs.contains(&w.org_a.to_string()) && orgs.contains(&w.org_b.to_string()));
-        let workspaces = workspaces_as(actor, None).await.column(None, "id");
-        for ws in [w.ws_a, w.ws_b, w.ws_orphan] {
-            assert!(workspaces.contains(&ws.to_string()), "{who} lost {ws}");
-        }
-    }
 }
 
 /// One run with one LLM call, in `workspace`.

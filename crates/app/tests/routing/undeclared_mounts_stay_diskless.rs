@@ -47,6 +47,12 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
         "api-tenancy/src/partner_console/orgs.rs",
         "create_default_workspace",
     ),
+    // `POST /admin/orgs` creates the new org's Default workspace; the tenancy
+    // crate's admin section declares it IdeOnly (`CREATE_ORG_ROLE`), and
+    // `oxy-api-tenancy`'s `tests/integration/admin_route_roles.rs` asserts
+    // the declaration classifies.
+    ("api-tenancy/src/admin/orgs.rs", "workspace_provisioning"),
+    ("api-tenancy/src/admin/orgs.rs", "create_default_workspace"),
     // `POST /{workspace_id}/source-uploads/reports` reads the pipeline
     // definition through `ConfigManager`, which owns the compiled-vs-disk
     // choice and pins the request's revision; `oxy_api_source_upload::
@@ -57,8 +63,15 @@ const DECLARED_ACCESSES: &[(&str, &str)] = &[
     ("api-source-upload/src/source_upload.rs", "ConfigManager"),
 ];
 
+/// Every `.rs` file under `dir` — or `dir` itself, when it names one file.
 fn rust_sources(dir: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
+    if dir.is_file() {
+        if let Ok(body) = std::fs::read_to_string(dir) {
+            out.push((dir.display().to_string(), body));
+        }
+        return out;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return out;
     };
@@ -97,6 +110,17 @@ fn the_crates_mounted_without_a_declaration_never_touch_the_working_copy() {
         // at the root with no prefix; the one route that needs the ide is in
         // its `route_roles()`, and exempted by `DECLARED_ACCESSES`.
         "../api-tenancy/src/partner_console",
+        // The rest of tenancy, moved out of `oxy-app`'s `build_global_routes`.
+        // There the routes were `route_fleet`, whose state type refused a
+        // working-copy extractor at compile time; as plain axum routes merged
+        // through the seam they lost that gate, so this scan is what is left.
+        // All FleetOk except `POST /admin/orgs`, exempted above.
+        "../api-tenancy/src/organizations",
+        "../api-tenancy/src/org_teams",
+        "../api-tenancy/src/admin",
+        // One file, not a directory: `PUT/DELETE /orgs/{org_id}/logo`. Logo
+        // bytes live in Postgres; this is the only guard left on that.
+        "../api-tenancy/src/org_logo.rs",
         // Extracted from `src/server/api/documents`, merged at the root the same
         // way. Postgres + presigned S3 everywhere; `POST /documents/ask` resolves
         // an agent config out of the working copy (through the project context,

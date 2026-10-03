@@ -88,7 +88,7 @@ const INVALIDATOR: &str = "invalidate_app_resolution_cache";
 /// Files that write one of the rows but cannot invalidate the cache, and why.
 const ALLOWED: &[(&str, &str)] = &[
     (
-        "server/api/org_logo.rs",
+        "api-tenancy/src/org_logo.rs",
         "writes only `logo` / `logo_content_type` / `updated_at` — no slug, no \
          deletion, and no field the serve path reads from the cached row",
     ),

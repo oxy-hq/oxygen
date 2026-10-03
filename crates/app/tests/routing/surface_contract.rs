@@ -26,6 +26,7 @@ const BACKLOG: &[(&str, &str)] = &[
     ("api-documents", "server::api::custom_apps_storage"),
     ("api-frontline", "server::api::custom_apps_auth"),
     ("api-tenancy", "server::api::custom_apps_auth"),
+    ("api-tenancy", "server::api::custom_apps_cache"),
     ("api-tenancy", "server::api::custom_apps_publish_authz"),
     // frontline completion: this logic belongs IN api-frontline
     ("api-frontline", "server::api::frontline_grants"),
@@ -37,11 +38,14 @@ const BACKLOG: &[(&str, &str)] = &[
         "api-tenancy",
         "server::api::org_teams::service::write_access",
     ),
-    ("api-tenancy", "server::api::organizations"),
     ("api-tenancy", "server::api::admin::apps"),
     ("api-tenancy", "server::api::admin::WorkspaceHealthRow"),
     ("api-tenancy", "server::api::admin::health_rollup"),
-    ("api-tenancy", "server::service::workspace_provisioning"),
+    // billing: seat sync when a member is added or removed
+    ("api-tenancy", "server::api::billing::billing_service"),
+    // workspace context: schedule cleanup on delete, the directory read, logo bytes
+    ("api-tenancy", "server::api::workspaces"),
+    ("api-tenancy", "server::api::workspace_logo"),
 ];
 
 /// `path` is `prefix` or lies under it — on a segment boundary, so

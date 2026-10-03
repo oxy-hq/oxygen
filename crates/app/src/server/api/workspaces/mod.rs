@@ -15,7 +15,7 @@ mod ops;
 pub use detached::GitRefusal;
 pub use dto::*;
 pub use handlers::*;
-pub(crate) use ops::cleanup_workspace_schedules;
+pub use ops::cleanup_workspace_schedules;
 pub use ops::{
     build_workspace_details_response_for_uninitialized_local, compute_workspace_storage_key,
 };

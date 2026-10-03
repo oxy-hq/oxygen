@@ -13,7 +13,7 @@ use crate::api::middlewares::{
     app_scope_guard, org_context, oxy_owner_or_app_admin_guard, platform_cap_guard,
     subscription_guard,
 };
-use crate::api::{admin, org_logo, org_teams, organizations, user, workspaces};
+use crate::api::{admin, user, workspaces};
 use crate::server::api::chat;
 use crate::server::api::notifications;
 use crate::server::api::work;
@@ -37,15 +37,10 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         .collect();
     RoleRouter::new(app_state.clone())
         .route_fleet("/logout", get(user::logout))
-        // Read-only. Customers do not create orgs: Oxy staff (`POST
-        // /admin/orgs`) and partners (`POST /partners/{id}/orgs`) onboard them,
-        // each org arriving with a Ready Default workspace.
-        .route_fleet("/orgs", get(organizations::list_orgs))
         .route_fleet(
             "/apps/mine",
             get(crate::server::api::admin::apps::handlers::list_my_apps),
         )
-        .route_fleet("/invitations/mine", get(organizations::list_my_invitations))
         // ── Chat ────────────────────────────────────────────────────────────
         //
         // Every route here is `route_fleet`, INCLUDING the SSE stream, and that
@@ -116,10 +111,6 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
         .route_fleet(
             "/notifications/{id}/read",
             post(notifications::handlers::mark_read),
-        )
-        .route_fleet(
-            "/invitations/{token}/accept",
-            post(organizations::accept_invitation),
         )
         .merge_undeclared(
             airhouse::api::router::<AppState>(),
@@ -471,16 +462,6 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
     //   - `bypass` covers `/billing/*`, the only org-scoped tree the user
     //     can hit while paywalled (so they can subscribe / open the portal)
     let gated = RoleRouter::new(app_state.clone())
-        .route_fleet(
-            "/",
-            get(organizations::get_org)
-                .patch(organizations::update_org)
-                .delete(organizations::delete_org),
-        )
-        .route_fleet(
-            "/logo",
-            put(org_logo::upload_org_logo).delete(org_logo::delete_org_logo),
-        )
         // The org-scoped frontline routes (`/frontline/workers*`,
         // `/frontline/devices*`, `/frontline/device/leave`) moved to the
         // `oxy-api-frontline` sibling crate, which re-applies this tree's
@@ -493,13 +474,6 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             "/partner-publish-consent",
             get(crate::server::api::partner_publish_consent::get_consent)
                 .put(crate::server::api::partner_publish_consent::set_consent),
-        )
-        .route_fleet("/members", get(organizations::list_members))
-        // Teams + per-app access — the control plane for restricted custom apps.
-        // Pure Postgres (no FS, no git), so every route here is FleetOk.
-        .route_fleet(
-            "/teams",
-            get(org_teams::handlers::list_teams).post(org_teams::handlers::create_team),
         )
         // Locations and tenant-defined roles. Under `/orgs/{org_id}` so the
         // `OrgAdmin` extractor can see the org it is guarding — a body-carried
@@ -544,41 +518,6 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
         .route_fleet(
             "/assignments/{id}",
             axum::routing::delete(crate::server::api::operating_graph::assignments::delete),
-        )
-        .route_fleet(
-            "/teams/{team_id}",
-            get(org_teams::handlers::get_team)
-                .patch(org_teams::handlers::update_team)
-                .delete(org_teams::handlers::delete_team),
-        )
-        .route_fleet(
-            "/teams/{team_id}/members",
-            post(org_teams::handlers::add_team_member),
-        )
-        .route_fleet(
-            "/teams/{team_id}/members/{user_id}",
-            delete(org_teams::handlers::remove_team_member),
-        )
-        .route_fleet("/apps", get(org_teams::app_access::list_org_apps))
-        .route_fleet(
-            "/apps/{app_id}/access",
-            get(org_teams::app_access::get_app_access).put(org_teams::app_access::set_app_access),
-        )
-        .route_fleet(
-            "/members/{user_id}",
-            patch(organizations::update_member_role).delete(organizations::remove_member),
-        )
-        .route_fleet(
-            "/invitations",
-            post(organizations::create_invitation).get(organizations::list_invitations),
-        )
-        .route_fleet(
-            "/invitations/bulk",
-            post(organizations::create_bulk_invitations),
-        )
-        .route_fleet(
-            "/invitations/{invitation_id}",
-            delete(organizations::revoke_invitation),
         )
         // The three workspace-creating onboarding routes moved to the
         // `oxy-api-onboarding` sibling crate. They CREATE a checkout on disk

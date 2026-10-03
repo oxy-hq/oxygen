@@ -553,33 +553,9 @@ fn org_subdomain_routes_are_fleet_ok() {
     }
 }
 
-#[test]
-fn admin_create_org_reaches_the_ide_and_the_rest_of_the_console_does_not() {
-    // Creating an org scaffolds its Default workspace — a working copy on
-    // node-local disk — so a stateless replica must not answer it.
-    assert_eq!(
-        classify("POST", "/api/admin/orgs"),
-        RouteRole::IdeOnly,
-        "POST admin create-org writes the new org's Default workspace working copy"
-    );
-    // The carve-out names its verb and its path: the billing list on the same
-    // path, and the rest of the orgs console, stay on the fleet.
-    let id = "d9830be4-c6a4";
-    for (method, path) in [
-        ("GET", "/api/admin/orgs".to_string()),
-        ("GET", "/api/admin/orgs-meta".to_string()),
-        ("GET", format!("/api/admin/orgs/{id}/detail")),
-        ("PATCH", format!("/api/admin/orgs/{id}")),
-        ("DELETE", format!("/api/admin/orgs/{id}")),
-        ("GET", "/api/admin/feature-flags".to_string()),
-    ] {
-        assert_eq!(
-            classify(method, &path),
-            RouteRole::FleetOk,
-            "{method} {path} is Postgres-only and must stay FleetOk"
-        );
-    }
-}
+// `admin_create_org_reaches_the_ide_…` moved to `oxy-api-tenancy`
+// (`tests/integration/admin_route_roles.rs`) with the org section, whose
+// declaration this harness can no longer see.
 
 #[test]
 fn ide_only_accepted_by_ide_and_all_only() {

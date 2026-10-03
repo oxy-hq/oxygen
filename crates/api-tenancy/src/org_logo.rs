@@ -18,7 +18,7 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait};
 use uuid::Uuid;
 
-use super::middlewares::role_guards::OrgAdmin;
+use oxy_app::surface::role_guards::OrgAdmin;
 
 /// Logos are tiny; cap well below axum's default 2 MB body limit.
 const MAX_LOGO_BYTES: usize = 1024 * 1024; // 1 MB
@@ -138,13 +138,13 @@ pub async fn admin_get_org_logo(
         tracing::error!("org logo: DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor, org_id).await?;
     let org = load_org_for_admin(org_id).await?;
     let bytes = org.logo.ok_or(StatusCode::NOT_FOUND)?;
     let mime = org
         .logo_content_type
         .unwrap_or_else(|| "image/png".to_string());
-    Ok(crate::server::api::workspace_logo::logo_response(
+    Ok(oxy_app::server::api::workspace_logo::logo_response(
         mime, bytes,
     ))
 }
@@ -164,7 +164,7 @@ pub async fn admin_upload_org_logo(
         tracing::error!("org logo: DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor, org_id).await?;
 
     let Some(content_type) = allowed_content_type(&headers) else {
         return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
@@ -204,7 +204,7 @@ pub async fn admin_delete_org_logo(
         tracing::error!("org logo: DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    crate::server::api::admin::scope::deny_out_of_scope(&db, &actor, org_id).await?;
+    oxy_app::surface::admin_scope::deny_out_of_scope(&db, &actor, org_id).await?;
 
     let org = load_org_for_admin(org_id).await?;
     let mut active: organizations::ActiveModel = org.into();

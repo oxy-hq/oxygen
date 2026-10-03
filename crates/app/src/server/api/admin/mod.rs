@@ -28,7 +28,6 @@ mod metrics_pricing;
 mod metrics_rollup;
 pub mod oltp;
 pub mod org_subdomains;
-pub mod orgs_admin;
 pub mod oxy_access;
 pub mod partners;
 pub mod routing;
@@ -40,7 +39,6 @@ pub mod users_admin;
 // `oxy-api-partner-console` surface uses, and the two handlers, which
 // `tests/platform/admin_staff_scope` drives as a bounded grant.
 pub(crate) mod workspace_health;
-pub mod workspaces_admin;
 
 pub use workspace_health::{
     TriggerEvalParams, WorkspaceHealthResponse, WorkspaceHealthRow, health_rollup,
@@ -188,13 +186,11 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         .merge(app_publish_tokens::router().route_layer(cap(Action::PlatformApps)))
         .merge(explorer::router().route_layer(cap(Action::PlatformExplorer)))
         .merge(metrics::router().route_layer(cap(Action::PlatformOperate)))
-        // Org administration and creation are one router but two capabilities; the
-        // router-level gate is the broader `PlatformOrgs`, and `create_org` asks for
-        // `PlatformOrgCreate` inside the handler where the verb is known.
-        .merge(orgs_admin::router().route_layer(cap(Action::PlatformOrgs)))
+        // Org and workspace administration (`/orgs*`, `/workspaces*`) moved to
+        // `oxy-api-tenancy` and arrive through `extracted` below, behind
+        // `PlatformOrgs` — the capability they had here.
         .merge(org_subdomains::router().route_layer(cap(Action::PlatformOrgs)))
         .merge(users_admin::router().route_layer(cap(Action::PlatformUsers)))
-        .merge(workspaces_admin::router().route_layer(cap(Action::PlatformOrgs)))
         .merge(routing::router().route_layer(cap(Action::PlatformOperate)))
         // Per-org OLTP: provisioning creates a billable project at the
         // provider, so it sits behind `OperatePlatform`, not the staff door —
@@ -293,7 +289,6 @@ pub(crate) fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/{*rest}",
             role: RouteRole::FleetOk,
         },
-        orgs_admin::CREATE_ORG_ROLE,
     ];
     ROLES
 }

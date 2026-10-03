@@ -493,10 +493,10 @@ pub(super) fn count_yml_suffix(dir: &std::path::Path, suffix: &str) -> usize {
 /// (`monitor_scan` rows do the same). Shared by every workspace-removal path
 /// (this handler, the admin delete, and org deletion) so they stay in sync.
 /// Logged, never fatal.
-pub(crate) async fn cleanup_workspace_schedules(
-    db: &sea_orm::DatabaseConnection,
-    workspace_id: Uuid,
-) {
+// `pub` for `oxy-api-tenancy` (deleting an org or a workspace drops its
+// schedules) — on its `surface_contract` backlog until the workspace context
+// is lowered.
+pub async fn cleanup_workspace_schedules(db: &sea_orm::DatabaseConnection, workspace_id: Uuid) {
     match agentic_pipeline::scheduler::delete_workspace_schedules(db, workspace_id).await {
         Ok(n) if n > 0 => info!("Removed {} schedule(s) for workspace {}", n, workspace_id),
         Ok(_) => {}

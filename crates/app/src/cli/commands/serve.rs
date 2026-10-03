@@ -686,6 +686,8 @@ async fn create_web_application(
     disable_inprocess_workers: bool,
     seams: crate::server::router::SurfaceSeams,
 ) -> Result<Router, OxyError> {
+    // Taken before `api_router` consumes the seams: the document is assembled below.
+    let surface_openapi = seams.openapi.clone();
     let (api_router, external_api_router, preagg_ctx) = crate::server::router::api_router(
         mode,
         enterprise,
@@ -699,7 +701,7 @@ async fn create_web_application(
     .map_err(|e| OxyError::RuntimeError(format!("Failed to create API router: {}", e)))?;
     // Assembled by `router::openapi` so `oxyc openapi` serves the exact
     // same document offline — one spec, two consumers.
-    let openapi_doc = crate::server::router::build_openapi_doc().await;
+    let openapi_doc = crate::server::router::build_openapi_doc(surface_openapi).await;
     println!("create_web_application: openapi_router done, assembling final router");
     let static_service = service_fn(handle_static_files);
 

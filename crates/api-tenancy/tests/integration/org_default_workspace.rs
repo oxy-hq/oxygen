@@ -22,10 +22,10 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use entity::workspaces::WorkspaceStatus;
 use entity::{org_members, organizations, users, workspaces};
-use oxy_app::server::api::admin::orgs_admin::{AdminCreateOrgBody, create_org};
-use oxy_app::server::api::middlewares::org_context::{OrgContext, OrgContextExtractor};
+use oxy_api_tenancy::admin::orgs::{AdminCreateOrgBody, create_org};
 use oxy_app::server::api::workspaces::list_workspaces;
-use oxy_app::server::router::bare_app_state;
+use oxy_app::surface::bare_app_state;
+use oxy_app::surface::{OrgContext, OrgContextExtractor};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
@@ -124,7 +124,7 @@ async fn an_org_whose_workspace_cannot_be_made_is_not_created() {
     let staff = seed_owner(&db).await;
     // SAFETY: process-per-test; the role is read once, into a once-cell.
     unsafe { std::env::set_var("OXY_ROLE", "serve") };
-    oxy_app::server::role_manifest::init_process_role_from_env();
+    oxy_app::surface::roles::init_process_role_from_env();
 
     let slug = fresh_slug();
     let refused = create_org(actor(&staff), HeaderMap::new(), body(&staff, &slug)).await;

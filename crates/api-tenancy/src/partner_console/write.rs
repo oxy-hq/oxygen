@@ -25,10 +25,10 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use super::{db, internal, require_org_scope};
-use crate::partner_console::partner_context::PartnerActor;
-use oxy_app::server::api::organizations::{
+use crate::organizations::{
     find_live_invitation, normalize_invite_email, supersede_expired_invitations,
 };
+use crate::partner_console::partner_context::PartnerActor;
 use oxy_app_core::audit::{self, ActorType, AuditEntry};
 use oxy_server_authz::partner_authz::PartnerCapability;
 
@@ -159,7 +159,7 @@ pub async fn invite_member(
     let (to_email, token_clone) = (invitation.email.clone(), token.clone());
     let (inviter_name, inviter_email) = (actor.name.clone(), actor.email.clone());
     tokio::spawn(async move {
-        if let Err(e) = oxy_app::server::api::organizations::send_invitation_email(
+        if let Err(e) = crate::organizations::send_invitation_email(
             &to_email,
             &token_clone,
             &base_url,

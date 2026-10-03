@@ -20,8 +20,8 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::admin::scope;
-use crate::server::router::AppState;
+use oxy_app::surface::admin_scope as scope;
+use oxy_app_core::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -357,7 +357,7 @@ pub async fn delete_workspace(
     }
     // Remove the deleted workspace's orphaned schedule rows (no FK cascade),
     // else its health_eval row keeps firing tasks into the dead-letter queue.
-    crate::server::api::workspaces::cleanup_workspace_schedules(&db, workspace_id).await;
+    oxy_app::server::api::workspaces::cleanup_workspace_schedules(&db, workspace_id).await;
     tracing::info!(
         admin_email = %actor.label(),
         target_id = %workspace_id,

@@ -1,7 +1,7 @@
+use crate::workspace_provisioning as provisioning;
 use axum::http::StatusCode;
 use oxy::adapters::secrets::SecretsManager;
 use oxy::service::secret_manager::SecretManagerService;
-use oxy_app::server::service::workspace_provisioning as provisioning;
 use uuid::Uuid;
 
 use super::dto::*;

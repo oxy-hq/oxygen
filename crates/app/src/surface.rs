@@ -24,7 +24,9 @@ pub use crate::server::api::middlewares::role_guards;
 
 /// Org-scoped request context: the middleware that resolves `{org_id}` and the
 /// extractor it leaves behind.
-pub use crate::server::api::middlewares::org_context::{OrgContext, org_middleware};
+pub use crate::server::api::middlewares::org_context::{
+    OrgContext, OrgContextExtractor, org_middleware,
+};
 
 /// Subscription gating for org-scoped routes.
 pub use crate::server::api::middlewares::subscription_guard::subscription_guard_middleware;
@@ -38,8 +40,8 @@ pub use crate::server::api::middlewares::workspace_context::{
 pub mod session {
     pub use crate::server::api::auth::{
         build_session_cookie_with_max_age, create_auth_token, create_auth_token_with_ttl,
-        extract_base_url_from_headers, is_request_secure, session_cookie_user_id,
-        validate_return_to_url,
+        extract_base_url_from_headers, extract_link_base_for_authenticated_request,
+        is_request_secure, session_cookie_user_id, validate_return_to_url,
     };
 }
 
@@ -57,10 +59,18 @@ pub use crate::server::router::AdminSection;
 /// Route-role (pod placement) declarations and the classifier that reads them.
 pub mod roles {
     pub use crate::server::role_manifest::{
-        RouteRole, classify, ensure_fs_writable, install_route_declarations_for_tests_with,
+        RouteRole, classify, ensure_fs_writable, init_process_role_from_env,
+        install_route_declarations_for_tests_with,
     };
 }
 
 /// Staff assume-role sessions — platform authz, not a tenant context: whether
 /// a staff member is acting inside an org right now.
 pub use crate::server::api::admin::assume;
+
+/// Staff-scope fencing: whether a bounded platform grant reaches this org.
+/// Platform authz, applied inside admin handlers where the org is known.
+pub use crate::server::api::admin::scope as admin_scope;
+
+/// Transactional email delivery (SES, or the local preview provider).
+pub use crate::emails;

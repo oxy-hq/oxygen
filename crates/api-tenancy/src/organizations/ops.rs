@@ -194,7 +194,7 @@ pub(super) async fn count_workspaces_per_org(
 
 static INVITATION_TEMPLATE: Lazy<Handlebars<'static>> = Lazy::new(|| {
     let mut hbs = Handlebars::new();
-    hbs.register_template_string("invitation", include_str!("../../../emails/invitation.hbs"))
+    hbs.register_template_string("invitation", include_str!("invitation.hbs"))
         .expect("invitation.hbs is valid");
     hbs
 });
@@ -210,7 +210,7 @@ pub async fn send_invitation_email(
     inviter_email: &str,
     org_name: &str,
 ) -> Result<(), OxyError> {
-    use crate::emails::{
+    use oxy_app::surface::emails::{
         EmailMessage, EmailProvider, local_test::LocalTestEmailProvider, ses::SesEmailProvider,
     };
 

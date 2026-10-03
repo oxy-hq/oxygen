@@ -106,6 +106,7 @@ type SeamRouter = axum::Router<oxy_app::server::router::AppState>;
 /// own probe only merges against a stand-in, never against its siblings.
 fn api_seam_routes() -> SeamRouter {
     oxy_api_github::routes()
+        .merge(oxy_api_tenancy::routes())
         .merge(oxy_api_tenancy::partner_console::routes())
         .merge(oxy_api_tenancy::onboarding::routes())
         .merge(oxy_api_documents::routes())
@@ -282,9 +283,11 @@ fn main() {
                 // oxy-app (see `oxy-route-catalog`). Passed, not global: a
                 // composition that dropped it would serve an empty catalog.
                 catalog: oxy_route_catalog::catalog(),
-                // No extracted surface has a staff-console section yet; the
-                // tenancy surface's `orgs_admin` / `workspaces_admin` are next.
-                admin: Vec::new(),
+                // Staff-console sections, each behind the capability it names.
+                admin: oxy_api_tenancy::admin_sections(),
+                // Operations the surfaces document, merged into the served
+                // OpenAPI document (`oxyc schema` reads it).
+                openapi: vec![oxy_api_tenancy::openapi()],
             };
             let exit_code = match cli(seams).await {
                 Ok(_) => 0,
@@ -356,5 +359,21 @@ mod tests {
             catalog.routes.len()
         );
         assert!(catalog.routes.iter().any(|r| r.path == "/api/_catalog"));
+    }
+
+    /// `GET /orgs` is one of the lookups an agent needs a schema for (see
+    /// `oxy-app`'s `the_agent_data_plane_is_documented`). Its handler moved to
+    /// `oxy-api-tenancy`, so only the document the composition root assembles
+    /// can show it — a dropped `openapi:` entry would lose it silently.
+    #[tokio::test]
+    async fn the_served_openapi_document_includes_the_surfaces() {
+        let doc =
+            oxy_app::server::router::build_openapi_doc(vec![oxy_api_tenancy::openapi()]).await;
+        let orgs = doc
+            .paths
+            .paths
+            .get("/orgs")
+            .expect("GET /orgs is missing from the OpenAPI document");
+        assert!(orgs.get.is_some(), "/orgs is documented but carries no get");
     }
 }

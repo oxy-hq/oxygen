@@ -125,8 +125,9 @@ struct Seed {
 /// `oxy-server` composition root fills: `SurfaceSeams::api`, merged beside the
 /// org tree at `/api`, `SurfaceSeams::workspace`, merged *inside* the
 /// `/{workspace_id}` tree, and `SurfaceSeams::public`, merged beside the public
-/// tree. A crate can use more than one — `oxy-api-tenancy` and
-/// `oxy-api-frontline` do, which is why each has two seeds.
+/// tree, and `SurfaceSeams::admin`, merged inside `/admin`. A crate can use
+/// more than one — `oxy-api-tenancy` and `oxy-api-frontline` do, which is why
+/// each has more than one seed.
 const SEEDS: &[Seed] = &[
     Seed {
         surface: "public",
@@ -189,6 +190,24 @@ const SEEDS: &[Seed] = &[
         prefix: "/api",
         module: "oxy_api_tenancy::onboarding",
         function: "routes",
+    },
+    // The rest of tenancy (`organizations`, the org-team handlers, the org
+    // logo), moved out of `build_global_routes`: the caller's orgs and
+    // invitations at the root, one org's tree under `/orgs/{org_id}`.
+    Seed {
+        surface: "org",
+        prefix: "/api",
+        module: "oxy_api_tenancy",
+        function: "routes",
+    },
+    // The staff console's org and workspace sections, which arrive through
+    // `SurfaceSeams::admin` and so land INSIDE `/api/admin` — the admin seam,
+    // a fourth mount point beside the three above.
+    Seed {
+        surface: "org",
+        prefix: "/api/admin",
+        module: "oxy_api_tenancy",
+        function: "admin_routes",
     },
     Seed {
         surface: "org",

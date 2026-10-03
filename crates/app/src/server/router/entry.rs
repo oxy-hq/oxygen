@@ -72,6 +72,8 @@ pub async fn api_router(
             },
         catalog,
         admin,
+        // Documentation only — `build_openapi_doc` merges it, not the router.
+        openapi: _,
     } = seams;
     let agentic_state = new_agentic_state(shutdown_token, true).await?;
 
@@ -461,6 +463,8 @@ pub async fn internal_api_router(
             },
         catalog,
         admin,
+        // Documentation only — `build_openapi_doc` merges it, not the router.
+        openapi: _,
     } = seams;
     let app_state = AppState {
         enterprise,

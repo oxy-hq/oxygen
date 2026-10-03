@@ -406,13 +406,29 @@ fn every_org_scoped_route_resolves_to_a_fenced_handler() {
         routers.len()
     );
 
+    // Sections that arrive through `SurfaceSeams::admin` are merged into the
+    // staff surface at boot, not named in it, so the parse above cannot see them.
+    // Listed here — and REQUIRED to exist, unlike the parsed ones: a section that
+    // moved again would otherwise drop out of this check with every test green,
+    // which for `delete_org` is exactly the hole this test was written to close.
+    let extracted_sections = [
+        "crates/api-tenancy/src/admin/orgs.rs",
+        "crates/api-tenancy/src/admin/workspaces.rs",
+    ];
+    for file in extracted_sections {
+        assert!(
+            repo_root().join(file).exists(),
+            "{file} moved — point this test at the admin section's new home"
+        );
+    }
     // Handlers can live outside their router's file (the logo trio, and `org_logo` is
-    // reached through `orgs_admin`), so search the admin tree plus its delegates.
+    // reached through the org section), so search the admin tree plus its delegates.
     let searched: Vec<String> = routers
         .iter()
         .map(|r| format!("crates/app/src/server/api/admin/{r}.rs"))
-        .chain(["crates/app/src/server/api/org_logo.rs".to_string()])
         .filter(|p| repo_root().join(p).exists())
+        .chain(extracted_sections.iter().map(|f| f.to_string()))
+        .chain(["crates/api-tenancy/src/org_logo.rs".to_string()])
         .collect();
     let bodies: String = searched
         .iter()
@@ -495,7 +511,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
         (
             // The most destructive verbs on the console. `delete_org` had no lookup at
             // all — it went straight to `delete_by_id`.
-            "crates/app/src/server/api/admin/orgs_admin.rs",
+            "crates/api-tenancy/src/admin/orgs.rs",
             &[
                 "delete_org",
                 "rename_org",
@@ -504,7 +520,7 @@ fn scoped_admin_writes_fence_before_touching_the_database() {
             ],
         ),
         (
-            "crates/app/src/server/api/admin/workspaces_admin.rs",
+            "crates/api-tenancy/src/admin/workspaces.rs",
             &[
                 "delete_workspace",
                 "update_workspace",

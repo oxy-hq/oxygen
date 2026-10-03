@@ -15,8 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::api::{
-    agent, api_keys, app, data, database, healthcheck, organizations, projects, thread, user,
-    workspaces,
+    agent, api_keys, app, data, database, healthcheck, projects, thread, user, workspaces,
 };
 
 use super::{IdeState, build_cors_layer};
@@ -58,7 +57,6 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(projects::semantic_query::run_semantic_query))
         // Turning "the customer" into the ids every other endpoint wants.
         .routes(routes!(user::get_current_user_public))
-        .routes(routes!(organizations::list_orgs))
         .routes(routes!(workspaces::list_workspaces))
         // Database routes
         .routes(routes!(database::create_database_config))
@@ -84,8 +82,16 @@ const APIDOC_DESCRIPTION: &str = include_str!("../../cli/commands/apidoc.md");
 /// Scope: `openapi_router`'s route set is **curated**, not the whole surface —
 /// it is where the request/response *schemas* live. `oxyc routes` is the
 /// complete endpoint list.
-pub async fn build_openapi_doc() -> utoipa::openapi::OpenApi {
+/// `extracted` are the operations extracted surface crates document
+/// (`SurfaceSeams::openapi`) — `GET /orgs` among them, from `oxy-api-tenancy`.
+/// Merged before the document-wide settings below, so they apply to all.
+pub async fn build_openapi_doc(
+    extracted: Vec<utoipa::openapi::OpenApi>,
+) -> utoipa::openapi::OpenApi {
     let mut doc = openapi_router().await.into_openapi();
+    for part in extracted {
+        doc.merge(part);
+    }
 
     doc.info.title = "Oxy API".to_string();
     doc.info.description = Some(APIDOC_DESCRIPTION.to_string());
@@ -141,7 +147,8 @@ mod openapi_coverage_tests {
         ("/projects/{project_id}/query", "post"),
         ("/projects/{project_id}/semantic-query", "post"),
         ("/user", "get"),
-        ("/orgs", "get"),
+        // `GET /orgs` is documented by `oxy-api-tenancy` and merged in by the
+        // composition root; `oxy-server`'s tests assert it there.
         ("/orgs/{org_id}/workspaces", "get"),
     ];
 
@@ -184,7 +191,7 @@ mod openapi_coverage_tests {
 
     #[tokio::test]
     async fn the_agent_data_plane_is_documented() {
-        let doc = build_openapi_doc().await;
+        let doc = build_openapi_doc(Vec::new()).await;
         for (path, method) in AGENT_PATHS {
             let item = doc.paths.paths.get(*path).unwrap_or_else(|| {
                 panic!(
@@ -212,7 +219,7 @@ mod openapi_coverage_tests {
     async fn the_sql_request_body_carries_its_fields() {
         use utoipa::openapi::{RefOr, Schema};
 
-        let doc = build_openapi_doc().await;
+        let doc = build_openapi_doc(Vec::new()).await;
         let item = doc
             .paths
             .paths
@@ -267,7 +274,7 @@ mod openapi_coverage_tests {
     /// well-formed.
     #[tokio::test]
     async fn every_security_requirement_names_a_registered_scheme() {
-        let doc = build_openapi_doc().await;
+        let doc = build_openapi_doc(Vec::new()).await;
         let registered: Vec<String> = doc
             .components
             .as_ref()
@@ -323,7 +330,7 @@ mod openapi_coverage_tests {
     async fn the_two_query_response_schemas_stayed_distinct() {
         use utoipa::openapi::{RefOr, Schema};
 
-        let doc = build_openapi_doc().await;
+        let doc = build_openapi_doc(Vec::new()).await;
         let components = doc.components.as_ref().expect("components");
 
         let object_with = |name: &str| -> bool {

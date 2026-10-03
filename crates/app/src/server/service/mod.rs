@@ -10,4 +10,3 @@ pub mod formatters; // CLI-specific formatters (different from oxy::service::for
 pub mod project;
 pub mod test;
 pub mod test_runs;
-pub mod workspace_provisioning;

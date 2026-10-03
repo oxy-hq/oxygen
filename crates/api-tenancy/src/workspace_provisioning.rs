@@ -132,7 +132,7 @@ pub async fn create_blank_workspace<C: ConnectionTrait>(
     conn: &C,
     spec: BlankWorkspace<'_>,
 ) -> Result<StagedWorkspace, ProvisionError> {
-    crate::server::role_manifest::ensure_fs_writable("create a workspace working copy")
+    oxy_app::surface::roles::ensure_fs_writable("create a workspace working copy")
         .map_err(|e| ProvisionError::NoWorkingCopy(e.to_string()))?;
 
     let id = Uuid::new_v4();

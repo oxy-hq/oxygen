@@ -10,8 +10,8 @@ use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
-use crate::server::api::middlewares::org_context::OrgContextExtractor;
-use crate::server::api::middlewares::role_guards::{OrgAdmin, OrgOwner};
+use oxy_app::surface::OrgContextExtractor;
+use oxy_app::surface::role_guards::{OrgAdmin, OrgOwner};
 
 use super::dto::*;
 use super::ops::*;
@@ -68,7 +68,7 @@ pub async fn list_orgs(
     // closed while acting (`assume::block_admin_while_acting`), which is what
     // broke this. Making the list honest is better than punching a hole in the
     // block: the truth is that you have this org right now.
-    let assumed: Vec<Uuid> = crate::server::api::admin::assume::live_sessions_for(&db, user.id)
+    let assumed: Vec<Uuid> = oxy_app::surface::assume::live_sessions_for(&db, user.id)
         .await
         .into_iter()
         .map(|s| s.org_id)
@@ -103,7 +103,7 @@ pub async fn list_orgs(
     // exactly the mismatch this block is supposed to avoid.
     let mut assumed_role: std::collections::HashMap<Uuid, &'static str> = Default::default();
     for org_id in &assumed {
-        if let Some(authority) = crate::server::api::admin::assume::may_act_as(
+        if let Some(authority) = oxy_app::surface::assume::may_act_as(
             &db,
             user.id,
             user.email.as_deref().unwrap_or(""),
@@ -192,7 +192,7 @@ pub async fn update_org(
     // computed against a prefix that no longer exists. This is the tenant-facing
     // rename — an org admin renaming their own org — and is far more common than
     // the staff path in `admin::orgs_admin::rename_org`.
-    crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
+    oxy_app::server::api::custom_apps_cache::invalidate_app_resolution_cache();
 
     Ok(Json(org_response(&updated, &ctx.membership.role)))
 }
@@ -316,18 +316,18 @@ pub async fn delete_org(OrgOwner(ctx): OrgOwner) -> Result<StatusCode, StatusCod
     // or their health_eval/monitor schedules keep firing into the dead-letter
     // queue.
     for workspace_id in &workspace_ids {
-        crate::server::api::workspaces::cleanup_workspace_schedules(&db, *workspace_id).await;
+        oxy_app::server::api::workspaces::cleanup_workspace_schedules(&db, *workspace_id).await;
     }
 
     // The org delete cascades its apps away, but a cached `(org_slug, app_slug)`
     // resolution outlives them — and the access check that follows is computed
     // from the cached app model, so without this a global app admin can still be
     // served bundle bytes from a deleted org until the TTL expires.
-    crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
+    oxy_app::server::api::custom_apps_cache::invalidate_app_resolution_cache();
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]
-#[path = "../organizations_tests.rs"]
+#[path = "organizations_tests.rs"]
 mod organizations_tests;

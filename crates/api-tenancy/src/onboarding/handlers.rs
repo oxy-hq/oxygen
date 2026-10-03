@@ -115,9 +115,7 @@ pub async fn setup_new(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     body: Option<Json<NewSetupRequest>>,
 ) -> Result<Json<OnboardingResult>, (StatusCode, String)> {
-    use oxy_app::server::service::workspace_provisioning::{
-        BlankWorkspace, WorkspaceName, create_blank_workspace,
-    };
+    use crate::workspace_provisioning::{BlankWorkspace, WorkspaceName, create_blank_workspace};
 
     let req = body.map(|b| b.0).unwrap_or_default();
     let name = match req.name.as_deref() {

@@ -35,9 +35,9 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::server::api::admin::scope;
-use crate::server::router::AppState;
-use crate::server::service::workspace_provisioning::{StagedWorkspace, create_default_workspace};
+use crate::workspace_provisioning::{StagedWorkspace, create_default_workspace};
+use oxy_app::surface::admin_scope as scope;
+use oxy_app_core::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -46,9 +46,9 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/orgs/{org_id}/detail", get(get_org_detail))
         .route(
             "/orgs/{org_id}/logo",
-            get(crate::server::api::org_logo::admin_get_org_logo)
-                .put(crate::server::api::org_logo::admin_upload_org_logo)
-                .delete(crate::server::api::org_logo::admin_delete_org_logo),
+            get(crate::org_logo::admin_get_org_logo)
+                .put(crate::org_logo::admin_upload_org_logo)
+                .delete(crate::org_logo::admin_delete_org_logo),
         )
         .route("/orgs/{org_id}", patch(rename_org).delete(delete_org))
         .route(
@@ -128,7 +128,7 @@ pub async fn create_org(
     headers: HeaderMap,
     Json(body): Json<AdminCreateOrgBody>,
 ) -> Result<Json<AdminCreateOrgResponse>, StatusCode> {
-    use crate::server::api::organizations::{
+    use crate::organizations::{
         is_reserved_slug, normalize_invite_email, send_invitation_email, slugify_name,
     };
 
@@ -141,7 +141,7 @@ pub async fn create_org(
         // in this change. Answering "you don't have permission" to a database blip is
         // both wrong and unactionable, and two call sites disagreeing about it is the
         // drift the helper split was meant to end.
-        let facts = match crate::server::authz::loader::load_platform_facts(
+        let facts = match oxy_server_authz::loader::load_platform_facts(
             &db,
             actor.id,
             actor.email.as_deref().unwrap_or(""),
@@ -157,10 +157,10 @@ pub async fn create_org(
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
-        if !crate::server::authz::allows(
+        if !oxy_server_authz::allows(
             &facts,
-            crate::server::authz::Action::PlatformOrgCreate,
-            &crate::server::authz::Resource::platform(),
+            oxy_server_authz::Action::PlatformOrgCreate,
+            &oxy_server_authz::Resource::platform(),
         ) {
             return Err(StatusCode::FORBIDDEN);
         }
@@ -292,7 +292,7 @@ pub async fn create_org(
     // the request). Seeded owners get no email by design.
     if let Some((to_email, token)) = pending_invite {
         let base_url =
-            crate::server::api::auth::extract_link_base_for_authenticated_request(&headers);
+            oxy_app::surface::session::extract_link_base_for_authenticated_request(&headers);
         let inviter_name = actor.name.clone();
         // The inviter's ADDRESS, not their display label — this is the
         // reply-to an invitation carries. Empty when the actor has none, which
@@ -654,7 +654,7 @@ pub async fn rename_org(
     // model carries the stale slug into `AppRuntimeConfig`, so the serve-time
     // base-path rewrite is computed against a prefix that no longer exists.
     // Same reason `update_app` invalidates on an app-slug change.
-    crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
+    oxy_app::server::api::custom_apps_cache::invalidate_app_resolution_cache();
 
     let member_count = org_members::Entity::find()
         .filter(org_members::Column::OrgId.eq(updated.id))
@@ -706,7 +706,7 @@ pub async fn delete_org(
     // takes the row that names it. ONLY the branch: tearing down production
     // OLTP from here is not in this change (the delete below can still 409 on
     // an FK and leave the org alive). A no-op for an org without a branch.
-    crate::server::api::organizations::delete_org_oltp_branches(&db, org_id).await;
+    crate::organizations::delete_org_oltp_branches(&db, org_id).await;
     let res = organizations::Entity::delete_by_id(org_id)
         .exec(&db)
         .await
@@ -716,7 +716,7 @@ pub async fn delete_org(
     }
     // Cascaded apps outlive their rows in the resolution cache — see the same
     // call in the tenant-facing `organizations::delete_org`.
-    crate::server::api::custom_apps_cache::invalidate_app_resolution_cache();
+    oxy_app::server::api::custom_apps_cache::invalidate_app_resolution_cache();
     tracing::info!(
         admin_email = %actor.label(),
         target_id = %org_id,
@@ -1097,7 +1097,7 @@ mod tests {
     /// `tests/platform/oltp_branches_teardown.rs`.
     #[test]
     fn staff_org_delete_removes_only_the_staging_branch() {
-        let src = include_str!("orgs_admin.rs");
+        let src = include_str!("orgs.rs");
         let body = src
             .split_once("pub async fn delete_org(")
             .expect("delete_org is here")
