@@ -5,11 +5,12 @@ use std::sync::{Arc, RwLock};
 
 use agentic_automation::workspace::IntegrationConfig;
 use agentic_automation::{ContextRoot, HttpReview, WorkspaceContext, WorkspaceReadError};
-use agentic_connector::DatabaseConnector;
+use agentic_connector::{DatabaseConnector, StringLiteral};
 use async_trait::async_trait;
 use oxy::config::model::IntegrationType;
 
 use super::{OxyProjectContext, resolve_workspace_relative};
+use crate::agentic_wiring::string_literal::string_literal_of;
 
 #[async_trait]
 impl WorkspaceContext for OxyProjectContext {
@@ -144,6 +145,17 @@ impl WorkspaceContext for OxyProjectContext {
 
     async fn get_connector(&self, name: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
         self.build_connector_lazy(name).await
+    }
+
+    /// From `config.yml`'s engine type, so no connector is built to render a
+    /// step's SQL. `None` for a name the config does not hold: the step then
+    /// fails on its connector, having quoted nothing by a guessed rule.
+    fn string_literal(&self, database: &str) -> Option<StringLiteral> {
+        self.workspace_manager
+            .config_manager
+            .resolve_database(database)
+            .ok()
+            .map(|db| string_literal_of(&db.database_type))
     }
 
     // Forward the `http_request` task's secret read/write to the real secret

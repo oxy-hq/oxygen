@@ -119,6 +119,12 @@ pre-materialised prior-cache snapshot.
   **Does NOT depend on** `agentic-analytics`, `agentic-builder`,
   `agentic-pipeline`, `agentic-http`, or `oxy`. No domain depends on
   another domain — cross-domain wiring lives in `agentic-pipeline`.
+- **SQL is rendered with `render_sql_string(.., workspace.string_literal(database))`, never
+  `render_jinja_string`.** The `sqlquote` filter escapes by the rule of the engine the SQL is
+  sent to, and the host names that rule per database (`WorkspaceContext::string_literal`) without
+  building a connector. `render_jinja_string` is for text no database reads (paths, prompts, HTTP
+  parts): there `sqlquote` refuses a value holding a quote or a backslash, because no spelling of
+  one is read the same on every engine. A new step type that sends SQL takes the first.
 - Migrator is independent (`seaql_migrations_workflow`) so the workflow schema
   evolves without coordinating with runtime/analytics migrations.
 - Used by `agentic-pipeline` directly (via `WorkflowDecider` +

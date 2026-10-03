@@ -8,12 +8,13 @@ use agentic_automation::workspace::IntegrationConfig;
 use agentic_automation::{
     ContextRoot, HttpReview, SqlReview, WorkspaceContext, WorkspaceReadError,
 };
-use agentic_connector::{DatabaseConnector, SqlDialect};
+use agentic_connector::{DatabaseConnector, SqlDialect, StringLiteral};
 use async_trait::async_trait;
 use oxy::config::model::DatabaseType;
 
 use super::airhouse_writes::{PreviewAirhouse, Step};
 use super::{PreviewPlatformContext, airhouse, names};
+use crate::agentic_wiring::string_literal::string_literal_of;
 use crate::server::previews::hold::HoldingConnector;
 use crate::server::previews::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
 
@@ -171,6 +172,15 @@ impl WorkspaceContext for PreviewPlatformContext {
 
     async fn get_connector(&self, name: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
         self.held_connector(name).await
+    }
+
+    /// The previewed branch's engine for `name`, scoped to this run or not.
+    /// A preview swaps a database's credential, never its engine.
+    fn string_literal(&self, database: &str) -> Option<StringLiteral> {
+        let name = self.own_name(database).ok()?;
+        self.database_type(name)
+            .ok()
+            .map(|engine| string_literal_of(&engine))
     }
 
     async fn get_integration(&self, name: &str) -> Result<IntegrationConfig, String> {

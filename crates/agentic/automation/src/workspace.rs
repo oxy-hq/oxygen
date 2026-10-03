@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use agentic_connector::DatabaseConnector;
+use agentic_connector::{DatabaseConnector, StringLiteral};
 
 use crate::refresh_key_cache::RefreshKeyCache;
 pub use crate::review::{HttpReview, SqlReview};
@@ -191,6 +191,23 @@ pub trait WorkspaceContext: Send + Sync {
     fn database_configs(&self) -> Vec<oxy_airlayer_compat::DatabaseConfig>;
 
     async fn get_connector(&self, name: &str) -> Result<Arc<dyn DatabaseConnector>, String>;
+
+    /// How `database`'s engine reads a `'…'` literal — the rule the `sqlquote`
+    /// filter escapes by when it renders that database's SQL.
+    ///
+    /// The answer [`DatabaseConnector::string_literal`] would give, without
+    /// building the connector: a step's SQL is rendered before it is reviewed,
+    /// and a held statement must never have had a connection to reach.
+    /// [`Self::database_configs`] cannot stand in for it — it reports Redshift
+    /// as `postgres`, and the two read a backslash differently.
+    ///
+    /// `None` is "this host cannot say", and is the default: `sqlquote` then
+    /// writes only a value every engine reads the same way and refuses one
+    /// holding a quote or a backslash
+    /// (`oxy_shared::sql_literal::quote_engine_unknown`).
+    fn string_literal(&self, _database: &str) -> Option<StringLiteral> {
+        None
+    }
 
     async fn get_integration(&self, name: &str) -> Result<IntegrationConfig, String>;
 

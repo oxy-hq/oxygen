@@ -355,7 +355,12 @@ GROUP BY region
 Rules — the agent gets these wrong:
 
 1. **Pipe every string/date value through `| sqlquote`.** It wraps in
-   single quotes and escapes embedded quotes (`O'Brien` → `'O''Brien'`).
+   single quotes and escapes the value the way the task's `database` reads
+   a literal (`O'Brien` → `'O''Brien'` on DuckDB and Postgres, `'O\'Brien'`
+   on BigQuery; a backslash is doubled on ClickHouse, MySQL, Snowflake,
+   Redshift and BigQuery). Use it only inside an `execute_sql` task's SQL
+   or `variables:` — anywhere else no database is known, and a value
+   holding a quote or a backslash fails the render instead of being guessed.
 2. **Never add your own quotes around a `sqlquote` value.**
    `'{{ controls.x | sqlquote }}'` produces `''value''` — broken SQL.
 3. **Optional-filter idiom.** A `select` can't be empty, so use the

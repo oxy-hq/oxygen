@@ -25,10 +25,11 @@
 
 use std::path::{Path, PathBuf};
 
+use agentic_connector::StringLiteral;
 use serde_json::Value;
 
 /// Build a chainable-undefined minijinja [`Environment`] preloaded with
-/// the automation filter set.
+/// the automation filter set, for text that is not sent to a database.
 ///
 /// Used for step bodies, formatters, and any user-authored template
 /// where a typo'd path should expand to empty rather than fail — this
@@ -39,13 +40,33 @@ use serde_json::Value;
 ///
 /// - `now(utc?, fmt?)` — current datetime, RFC3339 by default.
 /// - `tojson` — serialize to a compact JSON string.
-/// - `sqlquote` — escape as a SQL string literal (`O'Brien` →
-///   `'O''Brien'`). Templates should NOT add their own surrounding
-///   quotes when using this filter.
+/// - `sqlquote` — write as a SQL string literal (`Paris` → `'Paris'`).
+///   Templates should NOT add their own surrounding quotes when using
+///   this filter. No engine reads what this environment renders, so a
+///   value holding a quote or a backslash is refused — see
+///   [`automation_env_for`], which is the environment SQL is rendered in.
 pub(crate) fn automation_env() -> minijinja::Environment<'static> {
+    automation_env_for(None)
+}
+
+/// [`automation_env`] for SQL sent to an engine that reads a literal by
+/// `literal`: `sqlquote` escapes a value the way that engine reads it.
+///
+/// One quote-doubling filter for every engine is what this replaces. On an
+/// engine that reads a backslash as an escape, a value ending in `\`
+/// swallowed the closing quote and a `\'` ended the literal early, so a
+/// control value or an automation variable could run as SQL.
+///
+/// `None` is an engine nobody could name. A value with no quote and no
+/// backslash is written — it is the same bytes under every rule — and any
+/// other is refused: no spelling of it is read as that value everywhere
+/// (`oxy_shared::sql_literal::quote_engine_unknown`).
+pub(crate) fn automation_env_for(
+    literal: Option<StringLiteral>,
+) -> minijinja::Environment<'static> {
     let mut env = minijinja::Environment::new();
     env.set_undefined_behavior(minijinja::UndefinedBehavior::Chainable);
-    add_global_helpers(&mut env);
+    add_global_helpers(&mut env, literal);
     env
 }
 
@@ -59,11 +80,25 @@ pub(crate) fn automation_env() -> minijinja::Environment<'static> {
 /// not resolve" / "available keys" message.
 pub(crate) fn automation_env_strict() -> minijinja::Environment<'static> {
     let mut env = minijinja::Environment::new();
-    add_global_helpers(&mut env);
+    add_global_helpers(&mut env, None);
     env
 }
 
-fn add_global_helpers(env: &mut minijinja::Environment<'static>) {
+/// `value` as a `'…'` literal under `literal`, or by the fail-closed rule
+/// when the engine is not known.
+fn sqlquote(literal: Option<StringLiteral>, value: &str) -> Result<String, minijinja::Error> {
+    match literal {
+        Some(rule) => Ok(rule.quote(value)),
+        // The refusal travels as the error's source, so a caller that treats
+        // a failed render as "false" can tell this failure from the others.
+        None => oxy_shared::sql_literal::quote_engine_unknown(value).map_err(|refused| {
+            minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, refused.to_string())
+                .with_source(refused)
+        }),
+    }
+}
+
+fn add_global_helpers(env: &mut minijinja::Environment<'static>, literal: Option<StringLiteral>) {
     use chrono::{DateTime, Local, Utc};
 
     env.add_function(
@@ -100,15 +135,15 @@ fn add_global_helpers(env: &mut minijinja::Environment<'static>) {
         },
     );
 
-    // SQL-string-literal escape. Wraps in single quotes; doubles any
-    // embedded single quotes per ANSI SQL.
-    //   {{ controls.store | sqlquote }}  →  'O''Brien'
+    // SQL string literal, escaped as the engine the SQL is sent to reads
+    // one (see `automation_env_for`).
+    //   {{ controls.store | sqlquote }}  →  'O''Brien'  (DuckDB, Postgres)
+    //                                    →  'O\'Brien'  (BigQuery)
     // Templates must NOT add surrounding quotes themselves.
     env.add_filter(
         "sqlquote",
-        |value: minijinja::Value| -> Result<String, minijinja::Error> {
-            let escaped = value.to_string().replace('\'', "''");
-            Ok(format!("'{escaped}'"))
+        move |value: minijinja::Value| -> Result<String, minijinja::Error> {
+            sqlquote(literal, &value.to_string())
         },
     );
 
@@ -126,11 +161,26 @@ fn add_global_helpers(env: &mut minijinja::Environment<'static>) {
 
 /// Render a Jinja template string against the given context.
 ///
-/// See [`automation_env`] for the filters / functions available to
-/// templates. Returns `Err` with a parse or render error on failure;
-/// missing keys are forgiven (chainable undefined).
+/// For text that is not sent to a database — paths, prompts, HTTP parts,
+/// values handed to another automation. See [`automation_env`] for the
+/// filters / functions available to templates. Returns `Err` with a parse
+/// or render error on failure; missing keys are forgiven (chainable
+/// undefined).
 pub(crate) fn render_jinja_string(template: &str, context: &Value) -> Result<String, String> {
-    let env = automation_env();
+    render_sql_string(template, context, None)
+}
+
+/// [`render_jinja_string`] for SQL — or a value on its way into SQL — sent
+/// to an engine that reads a literal by `literal`
+/// ([`WorkspaceContext::string_literal`] for the task's `database`).
+///
+/// [`WorkspaceContext::string_literal`]: crate::workspace::WorkspaceContext::string_literal
+pub(crate) fn render_sql_string(
+    template: &str,
+    context: &Value,
+    literal: Option<StringLiteral>,
+) -> Result<String, String> {
+    let env = automation_env_for(literal);
     let tmpl = env
         .template_from_str(template)
         .map_err(|e| format!("template parse error: {e}"))?;
@@ -255,6 +305,48 @@ pub(crate) fn condition_is_truthy(rendered: &str) -> bool {
         && trimmed != "0"
         && !trimmed.eq_ignore_ascii_case("none")
 }
+
+/// Whether `condition` holds in `ctx`.
+///
+/// A condition that fails to render is false, as it always was, and is now
+/// logged. One failure is not: `sqlquote` refusing a value it cannot write
+/// with no engine named. That is the step's error — falling through to the
+/// next branch would run the wrong tasks for a reason nobody could see.
+pub(crate) fn condition_holds(
+    env: &minijinja::Environment<'_>,
+    condition: &str,
+    ctx: &minijinja::Value,
+) -> Result<bool, String> {
+    let source = format!("{{{{{condition}}}}}");
+    let tmpl = env
+        .template_from_str(&source)
+        .map_err(|e| format!("condition parse error: {e}"))?;
+    let rendered = match tmpl.render(ctx) {
+        Ok(text) => text,
+        Err(e) if sqlquote_refused(&e) => return Err(format!("condition `{condition}`: {e}")),
+        Err(e) => {
+            tracing::warn!(%condition, error = %e, "condition failed to render; treated as false");
+            String::new()
+        }
+    };
+    Ok(condition_is_truthy(&rendered))
+}
+
+/// Whether a render failed because `sqlquote` refused its value.
+fn sqlquote_refused(error: &minijinja::Error) -> bool {
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        if cause.is::<oxy_shared::sql_literal::EngineUnknown>() {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
+
+#[cfg(test)]
+#[path = "render_sqlquote_tests.rs"]
+mod sqlquote_tests;
 
 #[cfg(test)]
 mod tests {
@@ -415,22 +507,6 @@ mod tests {
     fn a_ref_naming_no_file_is_rejected() {
         assert!(normalize_workspace_relative_ref(".").is_err());
         assert!(normalize_workspace_relative_ref("./").is_err());
-    }
-
-    /// `sqlquote` wraps in single quotes and doubles embedded ones —
-    /// matches the legacy `oxy_core::exec_runtime::renderer` semantics, so
-    /// templates ported from the previous engine render the same SQL.
-    #[test]
-    fn sqlquote_filter_escapes_single_quotes() {
-        let ctx = json!({"name": "O'Brien", "plain": "hello"});
-        assert_eq!(
-            render_jinja_string("{{ name | sqlquote }}", &ctx).unwrap(),
-            "'O''Brien'"
-        );
-        assert_eq!(
-            render_jinja_string("{{ plain | sqlquote }}", &ctx).unwrap(),
-            "'hello'"
-        );
     }
 
     /// `tojson` filter round-trips a value to its JSON encoding.

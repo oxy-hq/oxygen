@@ -1178,12 +1178,7 @@ fn execute_conditional(
     let ctx = build_minijinja_context(render_context);
 
     for branch in &cond.conditions {
-        let expr_template = format!("{{{{{}}}}}", branch.condition);
-        let tmpl = env
-            .template_from_str(&expr_template)
-            .map_err(|e| format!("condition parse error: {e}"))?;
-        let result = tmpl.render(ctx.clone()).unwrap_or_default();
-        if crate::render::condition_is_truthy(&result) {
+        if crate::render::condition_holds(&env, &branch.condition, &ctx)? {
             let task_names: Vec<String> = branch.tasks.iter().map(|t| t.name.clone()).collect();
             return Ok(json!({
                 "branch": "matched",

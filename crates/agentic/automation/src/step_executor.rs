@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 
 use crate::config::{SemanticQueryConfig, TaskType};
 use crate::render::{
-    normalize_workspace_relative_ref, render_jinja_string, validate_workspace_relative_path,
+    normalize_workspace_relative_ref, render_jinja_string, render_sql_string,
+    validate_workspace_relative_path,
 };
 use crate::review::{HttpReview, SqlReview};
 use crate::workspace::WorkspaceContext;
@@ -87,9 +88,22 @@ async fn execute_sql(
         .and_then(|v| v.as_str())
         .ok_or("execute_sql: missing 'database' field")?;
 
+    // `sqlquote` escapes by the rule of the engine this task's SQL is sent
+    // to. Asked of the host by name rather than of the connector: the SQL is
+    // rendered before it is reviewed, and a held statement has no connector.
+    let literal = workspace.string_literal(database);
+    // A refused `sqlquote` blames the template; when the cause is a `database`
+    // the host has no engine for, say so.
+    let unnamed = match literal {
+        Some(_) => String::new(),
+        None => format!(" (the host names no engine for database `{database}`)"),
+    };
+
     // Render the per-task `variables` map (its own values may reference
-    // `render_context`) and merge into the SQL render env.
-    let sql_context = merge_sql_variables(render_context, cfg.get("variables"))?;
+    // `render_context`) and merge into the SQL render env. They feed this
+    // task's SQL, so they are quoted by the same rule.
+    let sql_context = merge_sql_variables(render_context, cfg.get("variables"), literal)
+        .map_err(|e| format!("{e}{unnamed}"))?;
 
     let raw_sql = if let Some(q) = cfg.get("sql_query").and_then(|v| v.as_str()) {
         q.to_string()
@@ -101,8 +115,8 @@ async fn execute_sql(
         return Err("execute_sql: need 'sql_query' or 'sql_file'".into());
     };
 
-    let sql =
-        render_jinja_string(&raw_sql, &sql_context).map_err(|e| format!("render SQL body: {e}"))?;
+    let sql = render_sql_string(&raw_sql, &sql_context, literal)
+        .map_err(|e| format!("render SQL body: {e}{unnamed}"))?;
 
     // Asked after rendering, so the host sees what would run, and before
     // `get_connector`, so a held statement never has a connection to reach.
@@ -225,7 +239,11 @@ async fn load_sql_body(workspace: &dyn WorkspaceContext, sql_ref: &str) -> Resul
 /// `variables` map against `render_context` and then merging the result
 /// into a flat object on top of `render_context`. Variables override
 /// existing keys (matching the legacy precedence).
-fn merge_sql_variables(render_context: &Value, variables: Option<&Value>) -> Result<Value, String> {
+fn merge_sql_variables(
+    render_context: &Value,
+    variables: Option<&Value>,
+    literal: Option<agentic_connector::StringLiteral>,
+) -> Result<Value, String> {
     let mut merged = render_context.clone();
     let Some(map) = variables.and_then(|v| v.as_object()) else {
         return Ok(merged);
@@ -236,7 +254,7 @@ fn merge_sql_variables(render_context: &Value, variables: Option<&Value>) -> Res
     for (k, v) in map {
         let resolved = match v.as_str() {
             Some(s) => Value::String(
-                render_jinja_string(s, render_context)
+                render_sql_string(s, render_context, literal)
                     .map_err(|e| format!("render variable {k:?}: {e}"))?,
             ),
             None => v.clone(),

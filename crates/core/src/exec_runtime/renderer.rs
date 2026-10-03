@@ -78,16 +78,23 @@ fn add_global_functions(env: &mut Environment<'static>) {
         },
     );
 
-    // Add sqlquote filter for safely embedding string values in SQL.
-    // The filter wraps the value in single quotes and escapes any embedded
-    // single quotes by doubling them (SQL standard):
-    //   {{ controls.store | sqlquote }}  →  'O''Brien'
+    // `sqlquote` writes a value as a `'…'` SQL literal:
+    //   {{ controls.store | sqlquote }}  →  'Paris'
     // Do NOT add surrounding quotes in the template — sqlquote provides them.
+    //
+    // Nothing rendered through this environment is sent to a database from
+    // here — control defaults, retrieval text, eval prompts — so the engine
+    // that would read the literal is not known, and engines disagree on how a
+    // quote or a backslash is written inside one. A value holding either is
+    // refused rather than escaped by one engine's rule and broken out of on
+    // another's. SQL that runs is rendered by the automation engine, which
+    // escapes by the rule of the task's `database`.
     env.add_filter(
         "sqlquote",
         |value: Value| -> Result<String, minijinja::Error> {
-            let escaped = value.to_string().replace('\'', "''");
-            Ok(format!("'{escaped}'"))
+            oxy_shared::sql_literal::quote_engine_unknown(&value.to_string()).map_err(|refused| {
+                minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, refused.to_string())
+            })
         },
     );
 }
@@ -317,5 +324,27 @@ mod tests {
         let result = renderer.render(template).unwrap();
         // Should return a datetime in YYYY-MM-DD HH:MM:SS format
         assert_eq!(result.len(), 19, "Expected YYYY-MM-DD HH:MM:SS format"); // "YYYY-MM-DD HH:MM:SS" is 19 characters
+    }
+
+    fn sqlquote(value: &str) -> Result<String, OxyError> {
+        Renderer::new(context! { v => value }).render_str("x = {{ v | sqlquote }} AND tail")
+    }
+
+    #[test]
+    fn sqlquote_writes_a_plain_value_unchanged() {
+        assert_eq!(sqlquote("Paris").unwrap(), "x = 'Paris' AND tail");
+        assert_eq!(sqlquote("2024-01-01").unwrap(), "x = '2024-01-01' AND tail");
+        assert_eq!(sqlquote("").unwrap(), "x = '' AND tail");
+    }
+
+    /// No engine is known to this renderer, and a quote-doubled literal ends
+    /// early on an engine that reads a backslash (`C:\`, `x\' OR 1=1 -- `)
+    /// or one that does not read `''` (`it's` on BigQuery). So none is written.
+    #[test]
+    fn sqlquote_refuses_a_value_engines_read_differently() {
+        for value in ["a\\b", "it's", "x\\' OR 1=1 -- ", "C:\\"] {
+            let refused = sqlquote(value).unwrap_err().to_string();
+            assert!(refused.contains("is not known"), "{value:?}: {refused}");
+        }
     }
 }

@@ -700,7 +700,15 @@ export function renderJinja(template: string, controls: Record<string, unknown>)
     (_, name: string, body: string) => (controls[name] ? body : "")
   );
 
-  // {{ controls.x | sqlquote }} — wraps value in single quotes with internal quotes escaped
+  // {{ controls.x | sqlquote }} — wraps value in single quotes with internal quotes escaped.
+  //
+  // Doubling the quote is the whole escape here, and only here. This SQL has
+  // one destination — `runSqlInDuckDB` below, DuckDB WASM in the browser — and
+  // DuckDB reads `''` as a quote and a backslash as an ordinary character. The
+  // server's `sqlquote` cannot do the same: its SQL goes to the task's
+  // `database`, and ClickHouse, MySQL, Snowflake, Redshift and BigQuery read a
+  // backslash as an escape, so it escapes by that engine's rule. If this
+  // renderer's output is ever sent anywhere but DuckDB, it needs that rule too.
   result = result.replace(
     /\{\{-?\s*controls\.(\w+)\s*\|\s*sqlquote\s*-?\}\}/g,
     (_, name: string) => `'${toText(controls[name]).replace(/'/g, "''")}'`
