@@ -144,11 +144,13 @@ services:
   # machine already running one. Nothing outside the compose network needs to
   # reach this, so it publishes nothing at all and the clash cannot happen.
   minio:
-    # Chainguard's build of MinIO (RELEASE.2026-09-22T19-25-18Z), pinned by
-    # digest: upstream stopped publishing images, and its Docker Hub and
-    # quay.io repositories are gone. It carries `mc` too, so the bucket job
-    # below uses the same image.
-    image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
+    # Our copy of Chainguard's MinIO build (RELEASE.2026-09-22T19-25-18Z), pinned
+    # by digest — the same image airhouse-internal uses. Upstream's Docker Hub
+    # and quay.io images are gone and Chainguard serves only `latest`, so we
+    # pull from a registry we own. It carries `mc` too, so the bucket job below
+    # uses the same image. How to move it: airhouse-internal's
+    # docs/internal/development.md.
+    image: ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
     # The upstream image ran as root and this one does not; root keeps a data
     # volume written by the old image readable.
     user: "0:0"
@@ -167,7 +169,7 @@ services:
   # `--ignore-existing` is what makes bringing the fleet up twice a no-op rather
   # than an error, which is the same property scripts/seed-fixtures.sh needs.
   createbucket:
-    image: cgr.dev/chainguard/minio@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
+    image: ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z@sha256:4692462f35d97d7e82c30371d82f057703c5d9489bcae726010594c812f2d285
     depends_on:
       minio:
         condition: service_healthy

@@ -20,8 +20,8 @@
 //! ```bash
 //! docker run -d --name oxy-doc-minio -p 9000:9000 \
 //!   -e MINIO_ROOT_USER=oxydocs -e MINIO_ROOT_PASSWORD=oxydocs123 \
-//!   cgr.dev/chainguard/minio:latest server /tmp/data
-//! docker run --rm --network host --entrypoint sh cgr.dev/chainguard/minio:latest -c \
+//!   ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z server /tmp/data
+//! docker run --rm --network host --entrypoint sh ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z -c \
 //!   "mc alias set l http://127.0.0.1:9000 oxydocs oxydocs123 && mc mb --ignore-existing l/oxy-documents"
 //!
 //! AWS_ENDPOINT_URL=http://127.0.0.1:9000 AWS_REGION=us-east-1 \

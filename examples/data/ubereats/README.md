@@ -37,7 +37,7 @@ Self-contained: no file outside the repo, and every value shown.
 ```bash
 docker run -d --name oxy-source-uploads-minio -p 9000:9000 -p 9001:9001 \
   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-  cgr.dev/chainguard/minio:latest server /tmp/data --console-address ":9001"
+  ghcr.io/oxy-hq/minio:RELEASE.2026-09-22T19-25-18Z server /tmp/data --console-address ":9001"
 
 docker exec oxy-source-uploads-minio sh -c \
   'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && \
