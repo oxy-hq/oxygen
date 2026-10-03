@@ -223,6 +223,14 @@ jobs:
             exit 0
           fi
           RELEASE="oxy@${VERSION}+${SHA}"
+          # 14 days, not 24 hours: `statsPeriod` filters by recent EVENTS, so with
+          # a one-day window an issue first seen on Friday that went quiet by
+          # Sunday has left the query by Monday 09:00, when the promote window
+          # opens — and a build that brought it reads clean. Two weeks covers a
+          # build's whole time on staging; `is:unresolved` is what lets a triaged
+          # issue stop counting. deploy-messages.ts links the same window
+          # (SENTRY_WINDOW) and its self-test holds the two together.
+          #
           # The issues themselves are kept, not only their number: the stuck
           # alert names them (deploy-messages.ts --sentry). Only a list counts,
           # as in custom-app-checks.yaml — `length` of an error object would be
@@ -233,7 +241,7 @@ jobs:
             -H "Authorization: Bearer ${SENTRY_READ_TOKEN}" \
             --data-urlencode "query=is:unresolved first-release:${RELEASE}" \
             --data-urlencode "environment=staging" \
-            --data-urlencode "statsPeriod=24h" \
+            --data-urlencode "statsPeriod=14d" \
             "${SENTRY_API}/projects/${SENTRY_ORG}/oxy/issues/"; then
             COUNT=$(jq -e 'if type == "array" then length else error("not a list") end' sentry-issues.json 2>/dev/null) || COUNT=""
           fi

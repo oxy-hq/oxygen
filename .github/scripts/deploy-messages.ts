@@ -34,7 +34,7 @@
 // than guessing, and says why on stderr.
 
 import { readFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { prodGate, SOAK_MINUTES, type ProdState } from "./promote.ts";
 
@@ -120,8 +120,16 @@ export interface Explained {
 export function sentryIssuesUrl(version: string | null, build: string, projectId?: string | number | null): string | null {
   if (!version) return null;
   const query = `is:unresolved first-release:oxy@${version}+${build}`;
-  return `https://oxygen-intelligence.sentry.io/issues/?project=${projectId ?? -1}&environment=staging&query=${encodeURIComponent(query)}`;
+  return `https://oxygen-intelligence.sentry.io/issues/?project=${projectId ?? -1}&environment=staging&statsPeriod=${SENTRY_WINDOW}&query=${encodeURIComponent(query)}`;
 }
+
+/**
+ * How far back the gate's Sentry query looks (`statsPeriod` in promote.yaml),
+ * and so how far back the link does. Sentry filters by recent events, and the
+ * page otherwise opens on the reader's last-used period: a link showing fewer
+ * issues than the gate counted is the same bug as one showing another project.
+ */
+export const SENTRY_WINDOW = "14d";
 
 /** The gate's reason, said for people. Order does not matter: the patterns are disjoint. */
 export function explainGate(why: string, { sentryUrl = null }: { sentryUrl?: string | null } = {}): Explained {
@@ -414,8 +422,14 @@ function selfTest(): void {
   is(
     "one new error is \"it\", and links the gate's own Sentry query",
     explainGate("1 new unresolved Sentry issue(s) in this release on staging", { sentryUrl: sentryIssuesUrl("0.5.153", "1a8c22d") }).action,
-    "an engineer triages it <https://oxygen-intelligence.sentry.io/issues/?project=-1&environment=staging&query=is%3Aunresolved%20first-release%3Aoxy%400.5.153%2B1a8c22d|in Sentry>. Resolving or ignoring it lets the release continue."
+    "an engineer triages it <https://oxygen-intelligence.sentry.io/issues/?project=-1&environment=staging&statsPeriod=14d&query=is%3Aunresolved%20first-release%3Aoxy%400.5.153%2B1a8c22d|in Sentry>. Resolving or ignoring it lets the release continue."
   );
+  // The gate and the link must look at the same window, or the link shows a
+  // different list than the one that blocked. The gate's is in promote.yaml.
+  const gateStep = readFileSync(new URL("../workflows/promote.yaml", import.meta.url), "utf8").split("- name: Count new Sentry issues in the candidate's release")[1]?.split("\n      - name: ")[0] ?? "";
+  is("the gate's Sentry query is found in promote.yaml", gateStep.includes("first-release:${RELEASE}"), true);
+  is("...and looks back as far as the link does", gateStep.includes(`--data-urlencode "statsPeriod=${SENTRY_WINDOW}"`), true);
+  is("...and no further or nearer anywhere in that step", (gateStep.match(/--data-urlencode "statsPeriod=/g) ?? []).length, 1);
   is("with no version there is no link to build", sentryIssuesUrl(null, "1a8c22d"), null);
   has("the link names the issues' own project when it is known", sentryIssuesUrl("0.5.153", "1a8c22d", 4507123) ?? "", "?project=4507123&");
   is("an entity in an error message shows as written, not decoded", issueTitle("a &lt; b & c"), "a &amp;lt; b &amp; c");

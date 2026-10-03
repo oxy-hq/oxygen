@@ -13,6 +13,19 @@ permissions:
   contents: write
   actions: read
   pull-requests: read
+
+# One mirror push at a time per branch. Two merges seconds apart used to race:
+# both runs migrated the same pending commits, the second push was rejected
+# ("fetch first"), and when the loser was the later commit's run that commit
+# stayed unmirrored — so no image was built for it — until the next push.
+# Queued, the second run starts after the first and migrates whatever is left;
+# with nothing left, copybara reports a no-op, which the action treats as a
+# pass. A run that is still waiting when a newer one arrives is cancelled, and
+# the newer one carries its commits. PR runs get a group each.
+concurrency:
+  group: opensource-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   move-code:
     runs-on: "ubuntu-latest"
