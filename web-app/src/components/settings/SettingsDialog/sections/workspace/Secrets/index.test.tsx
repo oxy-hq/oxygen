@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import queryKeys from "@/hooks/api/queryKey";
-import { CustomAppsService } from "@/services/api/customApps";
+import { type AppSecretWrite, CustomAppsService } from "@/services/api/customApps";
 import { SecretService } from "@/services/secretService";
 import type { Secret, SecretListResponse } from "@/types/secret";
 
@@ -127,7 +127,7 @@ describe("Secrets section create", () => {
   });
 
   it("says an app secret was created once", async () => {
-    setWorkspaceAppSecret.mockResolvedValue(undefined);
+    setWorkspaceAppSecret.mockResolvedValue("created");
 
     fillInNewSecret();
     fireEvent.change(screen.getByLabelText("Available to"), { target: { value: "app-1" } });
@@ -138,29 +138,33 @@ describe("Secrets section create", () => {
     expect(vi.mocked(toast.success).mock.calls).toEqual([["Secret created successfully"]]);
   });
 
-  /** Submits the dialog for app-1's API_KEY, given what the workspace already stores. */
-  const saveAppSecret = async (existing: Secret[] | null) => {
-    setWorkspaceAppSecret.mockResolvedValue(undefined);
+  /**
+   * Submits the dialog for app-1's API_KEY. `existing` is the workspace's list
+   * as loaded; `write` is what the server answers the endpoint did.
+   */
+  const saveAppSecret = async (existing: Secret[] | null, write: AppSecretWrite) => {
+    setWorkspaceAppSecret.mockResolvedValue(write);
     fillInNewSecret(existing);
     fireEvent.change(screen.getByLabelText("Available to"), { target: { value: "app-1" } });
     await submit();
     return vi.mocked(toast.success).mock.calls;
   };
 
-  it("says an app secret was updated when the app already had that key", async () => {
+  it("says an app secret was updated when the server replaced an existing key", async () => {
     // The same endpoint rotates an existing key: nothing was created.
-    expect(await saveAppSecret([stored("apps/app-1/API_KEY")])).toEqual([
+    expect(await saveAppSecret([stored("apps/app-1/API_KEY")], "updated")).toEqual([
       ["Secret updated successfully"]
     ]);
   });
 
-  it("says created when only another app, or the workspace, has a key of that name", async () => {
-    expect(await saveAppSecret([stored("apps/app-2/API_KEY"), stored("API_KEY")])).toEqual([
+  // The loaded list can be stale (another tab deleted or added the key) or not
+  // loaded at all; only the server's answer says what this write did.
+  it("goes by what the server did, not by the loaded list", async () => {
+    expect(await saveAppSecret([stored("apps/app-1/API_KEY")], "created")).toEqual([
       ["Secret created successfully"]
     ]);
-  });
-
-  it("claims neither when the secrets list is not loaded to tell which it was", async () => {
-    expect(await saveAppSecret(null)).toEqual([["Secret saved successfully"]]);
+    cleanup();
+    vi.mocked(toast.success).mockClear();
+    expect(await saveAppSecret(null, "updated")).toEqual([["Secret updated successfully"]]);
   });
 });

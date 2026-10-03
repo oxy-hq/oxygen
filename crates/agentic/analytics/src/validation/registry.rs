@@ -1,6 +1,7 @@
 //! Rule registry — maps rule name strings to constructor functions.
 //!
-//! [`RuleRegistry::default_registry`] registers all 14 built-in rules.
+//! [`RuleRegistry::default_registry`] registers all 17 built-in rules, each under
+//! the one stage it checks.
 //! Call [`RuleRegistry::build_specified`] / [`build_solvable`] / [`build_solved`]
 //! to instantiate a rule from a [`RuleEntry`].
 

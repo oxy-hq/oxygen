@@ -122,6 +122,20 @@ describe("UnifiedSecretsTable delete", () => {
     expect(deleteSecret).toHaveBeenCalledWith("proj-1", "secret-1");
     expect(toast.success).toHaveBeenCalledWith("Secret deleted successfully");
   });
+
+  it("sends one delete for a double click", async () => {
+    let finish: () => void = () => {};
+    deleteSecret.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+
+    confirmDelete();
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "Delete Secret" });
+    await waitFor(() => expect(button).toBeDisabled());
+    fireEvent.click(button);
+    expect(deleteSecret).toHaveBeenCalledTimes(1);
+
+    finish();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Secret" })).toBeNull());
+  });
 });
 
 describe("UnifiedSecretsTable success toasts", () => {

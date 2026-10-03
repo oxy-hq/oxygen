@@ -90,6 +90,7 @@ const MessageInputShell = ({
                 className='size-7'
                 onClick={onStop}
                 data-testid='message-input-stop-button'
+                aria-label='Stop run'
               >
                 <CircleX className='size-4' />
               </Button>
@@ -100,6 +101,7 @@ const MessageInputShell = ({
                 onClick={onSend}
                 disabled={isSendDisabled}
                 data-testid='message-input-send-button'
+                aria-label='Send message'
               >
                 <ArrowUp className='size-4' />
               </Button>

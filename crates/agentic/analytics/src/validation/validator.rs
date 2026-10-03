@@ -1,19 +1,20 @@
 //! [`Validator`] — holds the active rule lists for all three pipeline stages
 //! and exposes the `validate_*` entry points.
 //!
-//! Build from a [`ValidationConfig`] parsed out of the agent YAML, or use
-//! [`Validator::default`] to run all built-in rules with their default params.
+//! Build from a [`ValidationConfig`] parsed out of the agent YAML — which then
+//! runs exactly the rules it lists — or use [`Validator::default_validator`] to
+//! run the 15 default rules with their default params.
 //!
 //! # Example
 //! ```rust,ignore
-//! // From agent YAML config:
-//! let validator = Validator::from_config(&agent_config.validation)?;
+//! // From agent YAML config (`validation:` absent → the default set):
+//! let validator = match &agent_config.validation {
+//!     Some(cfg) => Validator::from_config(cfg)?,
+//!     None => Validator::default_validator(),
+//! };
 //! validator.validate_specified(&spec, &catalog)?;
 //! validator.validate_solvable(&sql, &spec, &catalog)?;
 //! validator.validate_solved(&result, &spec)?;
-//!
-//! // Default (all rules, default params):
-//! let validator = Validator::default();
 //! ```
 
 use crate::semantic::SemanticCatalog;
@@ -78,7 +79,7 @@ impl Validator {
         })
     }
 
-    /// Build the default validator: all 14 built-in rules enabled with their
+    /// Build the default validator: the 15 default rules enabled with their
     /// default parameters.  Equivalent to calling `Validator::from_config` with
     /// [`ValidationConfig::default_all_rules`].
     pub fn default_validator() -> Self {

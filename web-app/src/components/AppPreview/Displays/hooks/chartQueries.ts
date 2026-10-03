@@ -1,6 +1,11 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DisplayFormat } from "@/types/app";
-import { getArrowColumnValues, getArrowFieldType, inferColumnFormat } from "../utils";
+import {
+  getArrowColumnKeys,
+  getArrowColumnValues,
+  getArrowFieldType,
+  inferColumnFormat
+} from "../utils";
 
 /** Wraps an identifier in double quotes, escaping any embedded double quotes. */
 const q = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
@@ -23,27 +28,49 @@ export const resolveValueFormat = async (
   return inferColumnFormat(valueField, getArrowFieldType(valueField, column.schema));
 };
 
+/**
+ * The x axis's categories, in order: each one's label, and the key a series'
+ * point is matched to it by. A key is the full value; a label only as precise
+ * as the column needs, so two moments within a minute can share a label only
+ * when they are equal, and are never one point.
+ */
+export type XAxisData = { keys: (string | number)[]; labels: (string | number)[] };
+
 export const getXAxisData = async (
   connection: AsyncDuckDBConnection,
   fileName: string,
   xField: string
-): Promise<(string | number)[]> => {
+): Promise<XAxisData> => {
   const xData = await connection.query(
     `SELECT DISTINCT ${q(xField)} as x FROM "${fileName}" ORDER BY ${q(xField)}`
   );
-  return getArrowColumnValues(xData, "x") as (string | number)[];
+  return {
+    keys: getArrowColumnKeys(xData, "x") as (string | number)[],
+    labels: getArrowColumnValues(xData, "x") as (string | number)[]
+  };
 };
+
+/**
+ * A series: its name, as the legend shows it, and the key its rows are selected
+ * by (`getSeriesValues`). For a moment the key is its exact instant; the name is
+ * the clock time in the column's zone, which can stand for two instants.
+ */
+export type SeriesData = { name: unknown; key: unknown };
 
 export const getSeriesData = async (
   connection: AsyncDuckDBConnection,
   fileName: string,
   seriesField: string
-): Promise<unknown[]> => {
+): Promise<SeriesData[]> => {
   const seriesStmt = await connection.prepare(
     `SELECT DISTINCT ${q(seriesField)} as series FROM "${fileName}"`
   );
   const series = await seriesStmt.query();
-  return getArrowColumnValues(series, "series");
+  const keys = getArrowColumnKeys(series, "series");
+  return getArrowColumnValues(series, "series").map((name, index) => ({
+    name,
+    key: keys[index]
+  }));
 };
 
 export const getSeriesValues = async (
@@ -52,7 +79,7 @@ export const getSeriesValues = async (
   xField: string,
   yField: string,
   seriesField: string,
-  seriesValue: unknown
+  seriesKey: unknown
 ): Promise<{ x: number | string; y: number | string }[]> => {
   const seriesDataStatement = await connection.prepare(
     `SELECT ${q(xField)} as x, SUM(${q(yField)}) as y FROM "${fileName}"
@@ -60,8 +87,9 @@ export const getSeriesValues = async (
      GROUP BY ${q(xField)}, ${q(seriesField)}
      ORDER BY ${q(xField)}`
   );
-  const result = await seriesDataStatement.query(seriesValue);
-  const xValues = getArrowColumnValues(result, "x");
+  const result = await seriesDataStatement.query(seriesKey);
+  // Keyed as the x axis is keyed (`getXAxisData`), to find each point's place on it.
+  const xValues = getArrowColumnKeys(result, "x");
   const yValues = getArrowColumnValues(result, "y");
   return xValues.map((x: unknown, index: number) => ({
     x: x as number | string,

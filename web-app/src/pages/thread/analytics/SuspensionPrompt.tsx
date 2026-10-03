@@ -381,6 +381,13 @@ const SuspensionPrompt = ({ questions, onAnswer, isAnswering }: SuspensionPrompt
                   disabled={
                     questions.length === 1 ? isAnswering || !allFilled : isNextOrSubmitDisabled
                   }
+                  aria-label={
+                    questions.length === 1
+                      ? "Send answer"
+                      : allFilled
+                        ? "Send answers"
+                        : "Next unanswered question"
+                  }
                 >
                   {questions.length > 1 && !allFilled ? (
                     <ArrowRight className='size-4' />

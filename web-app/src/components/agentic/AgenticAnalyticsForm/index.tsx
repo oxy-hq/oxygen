@@ -6,7 +6,10 @@ import { cleanObject } from "@/utils/formDataCleaner";
 import { ContextGlobForm } from "./ContextGlobForm";
 import { DatabasesForm } from "./DatabasesForm";
 import { LlmConfigForm } from "./LlmConfigForm";
+import { SemanticEngineForm } from "./SemanticEngineForm";
 import { StateOverridesForm } from "./StateOverridesForm";
+import { ValidationForm } from "./ValidationForm";
+import { toYamlValidation } from "./ValidationForm/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,17 +36,24 @@ interface StateConfigData {
   thinking?: string;
 }
 
-interface ValidationRuleData {
+/** One rule entry. Keys besides `name` and `enabled` are that rule's parameters. */
+export interface ValidationRuleData {
   name?: string;
   enabled?: boolean;
-  // sql_syntax params
+  // sql_syntax
   dialect?: string;
-  // outlier_detection params
+  // outlier_detection
   threshold_sigma?: number;
   min_rows?: number;
+  // null_ratio_check
+  threshold?: number;
+  // duplicate_row_check
+  max_duplicate_ratio?: number;
+  // freshness_check
+  threshold_days?: number;
 }
 
-interface ValidationConfigData {
+export interface ValidationConfigData {
   rules?: {
     specified?: ValidationRuleData[];
     solvable?: ValidationRuleData[];
@@ -107,7 +117,11 @@ const formToYaml = (form: AgenticFormData): AgenticYamlData => {
     databases: form.databases?.map((d) => d.value).filter(Boolean),
     context: form.context?.map((c) => c.value).filter(Boolean)
   };
-  return (cleanObject(raw as Record<string, unknown>) as AgenticYamlData) ?? {};
+  const yaml = (cleanObject(raw as Record<string, unknown>) as AgenticYamlData | null) ?? {};
+  // An empty `validation:` section runs no rules and an absent one runs them
+  // all, so it must survive the empty-stripping above.
+  if (form.validation != null) yaml.validation = toYamlValidation(form.validation);
+  return yaml;
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -158,6 +172,8 @@ export const AgenticAnalyticsForm: React.FC<AgenticAnalyticsFormProps> = ({ data
             <ContextGlobForm />
             <DatabasesForm />
             <StateOverridesForm />
+            <ValidationForm />
+            <SemanticEngineForm />
           </form>
         </div>
       </div>

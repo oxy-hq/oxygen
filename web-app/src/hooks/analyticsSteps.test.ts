@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UiBlock } from "@/services/api/analytics";
+import type { AnalyticsStep, FanOutGroup } from "./analyticsSteps";
 import { buildAnalyticsSteps } from "./analyticsSteps";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -119,6 +120,162 @@ describe("buildAnalyticsSteps — basic steps", () => {
     const step = items[0] as { items: { kind: string; toolOutput: string; durationMs: number }[] };
     expect(step.items).toHaveLength(1);
     expect(step.items[0]).toMatchObject({ kind: "artifact", durationMs: 42, isStreaming: false });
+  });
+
+  it("a tool_result with is_error marks its artifact as an error", () => {
+    const [step] = buildAnalyticsSteps([
+      stepStart("S"),
+      ev("tool_call", { name: "edit_file", input: { path: "a.yml" } }),
+      ev("tool_result", {
+        name: "edit_file",
+        output: "old_string not found",
+        duration_ms: 3,
+        is_error: true
+      })
+    ]);
+    expect((step as AnalyticsStep).items[0]).toMatchObject({ kind: "artifact", isError: true });
+  });
+
+  it("a tool_result without is_error (runs persisted before the field) is not an error", () => {
+    const [step] = buildAnalyticsSteps([
+      stepStart("S"),
+      ev("tool_call", { name: "edit_file", input: { path: "a.yml" } }),
+      ev("tool_result", { name: "edit_file", output: "ok", duration_ms: 3 })
+    ]);
+    expect((step as AnalyticsStep).items[0]).toMatchObject({ kind: "artifact", isError: false });
+  });
+});
+
+// ── step_end outcomes ─────────────────────────────────────────────────────────
+
+describe("buildAnalyticsSteps — step_end outcome", () => {
+  // Every value of the Rust `Outcome` enum the wire can carry. `retry` and `backtracked`
+  // both mean the stage errored and diagnose recovered it — the run goes on, back to the
+  // same stage or an earlier one (agentic-core run_loop.rs). Only `failed` is fatal.
+  it.each([
+    { outcome: "advanced", error: undefined, suspended: undefined },
+    { outcome: "retry", error: undefined, suspended: undefined },
+    { outcome: "backtracked", error: undefined, suspended: undefined },
+    { outcome: "suspended", error: undefined, suspended: true },
+    { outcome: "failed", error: "Step failed", suspended: undefined }
+  ] as const)("$outcome closes the step with error=$error", ({ outcome, error, suspended }) => {
+    const [step] = buildAnalyticsSteps([stepStart("S"), ev("step_end", { label: "S", outcome })]);
+    expect(step).toMatchObject({ kind: "step", isStreaming: false });
+    expect((step as AnalyticsStep).error).toBe(error);
+    expect((step as AnalyticsStep).suspended).toBe(suspended);
+  });
+});
+
+// ── domain events ─────────────────────────────────────────────────────────────
+
+describe("buildAnalyticsSteps — domain events", () => {
+  const itemsOf = (...events: UiBlock[]) =>
+    (buildAnalyticsSteps([stepStart("S"), ...events])[0] as AnalyticsStep).items;
+
+  it("schema_resolved becomes a resolve_schema artifact listing the tables", () => {
+    expect(
+      itemsOf(ev("schema_resolved", { tables: ["orders", "users"], duration_ms: 12 }))
+    ).toEqual([
+      expect.objectContaining({
+        kind: "artifact",
+        toolName: "resolve_schema",
+        toolOutput: "Tables: orders, users",
+        durationMs: 12,
+        isStreaming: false
+      })
+    ]);
+  });
+
+  it("triage_completed shows its summary", () => {
+    const items = itemsOf(
+      ev("triage_completed", {
+        summary: "Revenue breakdown",
+        question_type: "Breakdown",
+        confidence: 0.9,
+        relevant_tables: ["orders"],
+        ambiguities: []
+      })
+    );
+    expect(items).toEqual([expect.objectContaining({ kind: "text", text: "Revenue breakdown" })]);
+  });
+
+  it("intent_clarified shows its metrics, dimensions and filters", () => {
+    const items = itemsOf(
+      ev("intent_clarified", {
+        question_type: "Breakdown",
+        metrics: ["revenue"],
+        dimensions: ["region"],
+        filters: ["date > 2024"]
+      })
+    );
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "text",
+        text: "Metrics: revenue · Dimensions: region · Filters: date > 2024"
+      })
+    ]);
+  });
+
+  it("spec_resolved shows its resolved metrics and tables", () => {
+    const items = itemsOf(
+      ev("spec_resolved", {
+        resolved_metrics: ["SUM(revenue)"],
+        resolved_tables: ["orders"],
+        join_path: [],
+        result_shape: "Table[region, revenue]",
+        assumptions: ["revenue = net"],
+        solution_source: "Llm"
+      })
+    );
+    expect(items).toEqual([
+      expect.objectContaining({ kind: "text", text: "Metrics: SUM(revenue) · Tables: orders" })
+    ]);
+  });
+
+  it("query_generated becomes a SQL item", () => {
+    expect(itemsOf(ev("query_generated", { sql: "SELECT 1" }))).toEqual([
+      expect.objectContaining({ kind: "sql", sql: "SELECT 1" })
+    ]);
+  });
+
+  it("a failed query_executed carries the error, or a fallback when it has none", () => {
+    const failed = (error?: string) =>
+      ev("query_executed", {
+        query: "SELECT bad",
+        success: false,
+        ...(error != null ? { error } : {}),
+        columns: [],
+        rows: [],
+        duration_ms: 5,
+        row_count: 0
+      });
+    expect(itemsOf(failed("syntax error"), failed())).toEqual([
+      expect.objectContaining({ kind: "sql", sql: "SELECT bad", error: "syntax error" }),
+      expect.objectContaining({ kind: "sql", error: "unknown error" })
+    ]);
+  });
+
+  it("analytics_validation_failed shows its reason", () => {
+    const items = itemsOf(
+      ev("analytics_validation_failed", {
+        state: "specifying",
+        reason: "Invalid spec",
+        model_response: "{}"
+      })
+    );
+    expect(items).toEqual([expect.objectContaining({ kind: "text", text: "Invalid spec" })]);
+  });
+
+  it("drops events that have no trace item, including a type this build does not know", () => {
+    // Deliberately not a member of UiBlock: the SSE boundary casts whatever event
+    // name the server sends, so a newer backend can deliver a type this build has
+    // never heard of. The reducer must drop it rather than throw.
+    const unknownEvent = {
+      seq: seq++,
+      event_type: "llm_token",
+      payload: { token: "hello" }
+    } as unknown as UiBlock;
+    expect(itemsOf(unknownEvent, ev("done", { duration_ms: 1234 }))).toEqual([]);
   });
 });
 
@@ -678,6 +835,26 @@ describe("buildAnalyticsSteps — concurrent fan-out", () => {
     expect(group.cards[1].label).toBe("Q2");
     expect(group.cards[1].steps).toHaveLength(1);
     expect(group.cards[1].steps[0].label).toBe("Solving");
+  });
+
+  it("routes a step into a card by sub_spec_index alone — an untagged one stays outside", () => {
+    // The backend tags every state a fan-out sub-spec enters (AnalyticsFanoutWorker
+    // sets sub_spec_index on its StateEnter/StateExit), so an untagged step is never
+    // a card's, even while a card is open.
+    const items = buildAnalyticsSteps([
+      fanOutStart(1),
+      subSpecStart(0, "Q1"),
+      stepStart("solving", 0),
+      stepEnd("advanced", 0),
+      stepStart("untagged"),
+      stepEnd(),
+      subSpecEnd(0),
+      fanOutEnd()
+    ]);
+    const group = items.find((i): i is FanOutGroup => i.kind === "fan_out");
+    expect(group?.cards[0].steps.map((s) => s.label)).toEqual(["solving"]);
+    const outer = items.filter((i): i is AnalyticsStep => i.kind === "step");
+    expect(outer.map((s) => s.label)).toEqual(["untagged"]);
   });
 });
 

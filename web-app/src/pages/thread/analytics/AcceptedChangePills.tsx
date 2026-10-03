@@ -84,6 +84,7 @@ const AcceptedChangePills = ({ changes, onSelect, selectedId }: AcceptedChangePi
           <button
             key={change.id}
             type='button'
+            aria-pressed={isSelected}
             onClick={() => onSelect(change)}
             title={change.filePath}
             className={cn(

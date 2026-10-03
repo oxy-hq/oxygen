@@ -5,7 +5,7 @@ import { FormProvider, useFieldArray, useForm } from "react-hook-form";
 import { NestedTasksForm } from "@/components/automation/AutomationForm/TasksForm/NestedTasksForm";
 import { Button } from "@/components/ui/shadcn/button";
 import { CardTitle } from "@/components/ui/shadcn/card";
-import { cleanObject } from "@/utils/formDataCleaner";
+import { cleanAppFormData } from "./cleanFormData";
 import { DisplayForm } from "./DisplayForm";
 
 export interface AppFormData {
@@ -36,30 +36,6 @@ interface AppFormProps {
   data?: Partial<AppFormData>;
   onChange?: (data: Partial<AppFormData>) => void;
 }
-
-const cleanFormData = (data: Partial<AppFormData>): Partial<AppFormData> => {
-  const cleaned: Partial<AppFormData> = {};
-
-  if (data.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-    const cleanedTasks = data.tasks
-      .map(cleanObject)
-      .filter((task): task is TaskFormData => task !== null);
-    if (cleanedTasks.length > 0) {
-      cleaned.tasks = cleanedTasks;
-    }
-  }
-
-  if (data.display && Array.isArray(data.display) && data.display.length > 0) {
-    const cleanedDisplay = data.display
-      .map(cleanObject)
-      .filter((display): display is DisplayFormData => display !== null);
-    if (cleanedDisplay.length > 0) {
-      cleaned.display = cleanedDisplay;
-    }
-  }
-
-  return cleaned;
-};
 
 const getDefaultData = (data?: Partial<AppFormData>) => {
   if (!data) {
@@ -98,7 +74,7 @@ export const AppForm: React.FC<AppFormProps> = ({ data, onChange }) => {
       },
       callback: ({ values, isDirty }) => {
         if (isDirty) {
-          const cleaned = cleanFormData(values as Partial<AppFormData>);
+          const cleaned = cleanAppFormData(values as Partial<AppFormData>);
           onChange?.(cleaned);
         }
       }

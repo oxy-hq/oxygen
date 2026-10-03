@@ -8,7 +8,9 @@
 //!
 //! ## Declarative validation via YAML config
 //!
-//! Use [`Validator`] to run a user-configured subset of rules:
+//! Use [`Validator`] to run a user-configured subset of rules. A `validation:`
+//! section replaces the default rule set rather than adjusting it, so this one
+//! runs outlier detection and no other rule, in any stage:
 //!
 //! ```yaml
 //! validation:
@@ -21,7 +23,10 @@
 //! ```
 //!
 //! ```rust,ignore
-//! let validator = Validator::from_config(&agent_config.validation)?;
+//! let validator = match &agent_config.validation {
+//!     Some(cfg) => Validator::from_config(cfg)?,
+//!     None => Validator::default_validator(),
+//! };
 //! validator.validate_solved(&result, &spec)?;
 //! ```
 

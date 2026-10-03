@@ -19,9 +19,16 @@ import AgenticAnalyticsPreview, { getAgentDisplayName, getAgentIdFromPath } from
 // Prevent lottie-web from crashing jsdom (no canvas support)
 vi.mock("@lottiefiles/react-lottie-player", () => ({ Player: "div" }));
 
-// Avoid pulling in chart/canvas rendering in these unit tests
+// Avoid pulling in chart/canvas rendering in these unit tests. The stand-in says which
+// axis titles it was asked to draw.
 vi.mock("@/components/AppPreview/Displays", () => ({
-  DisplayBlock: () => <div data-testid='display-block' />
+  DisplayBlock: ({ display }: { display: { xAxisTitle?: string; yAxisTitle?: string } }) => (
+    <div
+      data-testid='display-block'
+      data-x-axis-title={display.xAxisTitle}
+      data-y-axis-title={display.yAxisTitle}
+    />
+  )
 }));
 
 const { mockUseAnalyticsRun } = vi.hoisted(() => ({
@@ -145,6 +152,36 @@ describe("AgenticAnalyticsPreview", () => {
     render(<AgenticAnalyticsPreview pathb64={pathb64} />);
     expect(screen.getByTestId("suspension-prompt")).toBeTruthy();
     expect(screen.getByTestId("suspension-prompt").textContent).toContain("What date range?");
+  });
+
+  it("draws a line chart with the axis titles the agent chose", async () => {
+    mockUseAnalyticsRun.mockReturnValue({
+      ...idleResult(),
+      state: {
+        tag: "done",
+        runId: "r1",
+        answer: "",
+        durationMs: 0,
+        events: [],
+        displayBlocks: [
+          {
+            config: {
+              chart_type: "line_chart",
+              x: "week",
+              y: "revenue",
+              x_axis_label: "Week",
+              y_axis_label: "Revenue ($)"
+            },
+            columns: ["week", "revenue"],
+            rows: [["2024-01", 10]]
+          }
+        ]
+      }
+    });
+    render(<AgenticAnalyticsPreview pathb64={pathb64} />);
+    const chart = screen.getByTestId("display-block");
+    expect(chart.dataset.xAxisTitle).toBe("Week");
+    expect(chart.dataset.yAxisTitle).toBe("Revenue ($)");
   });
 });
 

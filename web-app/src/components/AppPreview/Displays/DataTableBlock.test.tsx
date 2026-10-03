@@ -103,6 +103,22 @@ describe("DataTableBlock decimal columns", () => {
   });
 });
 
+describe("DataTableBlock unformatted numbers", () => {
+  it("shows each as the value the column holds, not rounded to two places", async () => {
+    const cells = await renderTable(
+      new Table({
+        conversion: makeVector(new Float64Array([0.004])),
+        ratio: makeVector(new Float64Array([0.123456])),
+        share: makeVector(new Float32Array([0.1])),
+        rate: decimalColumn([1234567n], 6),
+        orders: makeVector(new Int32Array([42]))
+      })
+    );
+    // These used to read "0.00", "0.12", "0.10" and "1.23".
+    expect(cells).toEqual(["0.004", "0.123456", "0.1", "1.234567", "42"]);
+  });
+});
+
 describe("DataTableBlock inferred currency", () => {
   it("is inferred from the name of a numeric column only", async () => {
     const cells = await renderTable(
@@ -117,7 +133,7 @@ describe("DataTableBlock inferred currency", () => {
     );
     expect(cells).toEqual([
       "2024-03-05",
-      "2024-03-05 12:34",
+      "2024-03-05 12:34:56",
       "2024",
       "$12.50",
       "$1,234.00",
@@ -146,7 +162,7 @@ describe("DataTableBlock inferred currency", () => {
         payment_amount: makeVector(new Int32Array([1234]))
       })
     );
-    expect(cells).toEqual(["1234", "1234", "12.50", "2024", "$1,234.00"]);
+    expect(cells).toEqual(["1234", "1234", "12.5", "2024", "$1,234.00"]);
   });
 
   it("keeps an explicit format on a column the name rule would not infer", async () => {

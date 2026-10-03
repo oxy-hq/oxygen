@@ -6,11 +6,14 @@ import { cn } from "@/libs/shadcn/utils";
 interface AutomationDelegationCardProps {
   item: AutomationItem;
   onSelect: (item: SelectableItem) => void;
+  /** Whether the run's panel is open; undefined when the host tracks no selection. */
+  pressed?: boolean;
 }
 
 export default function AutomationDelegationCard({
   item,
-  onSelect
+  onSelect,
+  pressed
 }: AutomationDelegationCardProps) {
   const total = item.steps.length;
   const done = item.stepsDone;
@@ -54,6 +57,7 @@ export default function AutomationDelegationCard({
       {/* View details button */}
       <button
         type='button'
+        aria-pressed={pressed}
         onClick={() => onSelect(item)}
         className='flex items-center gap-1 text-primary text-xs hover:underline'
         data-testid='view-details-button'

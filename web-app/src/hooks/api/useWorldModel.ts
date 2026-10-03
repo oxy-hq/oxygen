@@ -424,6 +424,11 @@ export function useWmMeasureBreakdown(
     // mounting late) reuses it instead of re-streaming.
     staleTime: 60 * 1000,
     retry: false,
+    // As for an instance's detail: the tree is streamed when its measure is
+    // chosen. Coming back to the window, or online, must not re-run its
+    // queries, whose `init` sets every value back to empty until they arrive.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: ({ signal }) =>
       new Promise<WmMeasureBreakdown | null>((resolve, reject) => {
         // React Query cancels the query (aborts `signal`) when the last

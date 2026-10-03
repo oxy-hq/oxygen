@@ -20,7 +20,6 @@ type SemanticExplorerContextType = {
   loading: boolean;
   sqlLoading: boolean;
   executeLoading: boolean;
-  refetchData?: () => void;
 
   // Selection state
   selectedDimensions: string[];
@@ -81,7 +80,6 @@ type SemanticExplorerProviderProps = {
   children: ReactNode;
   dataLoading: boolean;
   loadingError?: string;
-  refetchData?: () => void;
   availableDimensions: Field[];
   availableMeasures: Field[];
   canExecuteQuery: boolean;
@@ -94,7 +92,6 @@ export const SemanticExplorerProvider = ({
   children,
   dataLoading,
   loadingError,
-  refetchData,
   availableDimensions,
   availableMeasures,
   canExecuteQuery,
@@ -295,7 +292,6 @@ export const SemanticExplorerProvider = ({
       loading,
       sqlLoading,
       executeLoading,
-      refetchData,
       selectedDimensions,
       setSelectedDimensions,
       selectedMeasures,
@@ -344,7 +340,6 @@ export const SemanticExplorerProvider = ({
       loading,
       sqlLoading,
       executeLoading,
-      refetchData,
       selectedDimensions,
       setSelectedDimensions,
       selectedMeasures,

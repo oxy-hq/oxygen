@@ -28,10 +28,10 @@ export const LineChart = ({
   const buildChartOptions = useCallback(
     async ({ display, connection, fileName, isDarkMode }: ChartBuilderParams<LineChartDisplay>) => {
       const baseOptions = createBaseChartOptions(isDarkMode);
-      const xData = await getXAxisData(connection, fileName, display.x);
+      const xAxis = await getXAxisData(connection, fileName, display.x);
       // Explicit `y_format` wins; otherwise infer from the y column's name and type.
       const yFormat = await resolveValueFormat(connection, fileName, display.y, display.y_format);
-      const xyAxisOptions = createXYAxisOptions(xData, isDarkMode, yFormat);
+      const xyAxisOptions = createXYAxisOptions(xAxis.labels, isDarkMode, yFormat);
       const tooltipFormatter = createAxisTooltipFormatter(yFormat);
 
       // Configure tooltip to show values on hover
@@ -46,20 +46,21 @@ export const LineChart = ({
       let series: LineSeriesOption[];
 
       if (display.series) {
-        const seriesNames = await getSeriesData(connection, fileName, display.series);
+        const allSeries = await getSeriesData(connection, fileName, display.series);
         series = await Promise.all(
-          seriesNames.map(async (seriesName): Promise<LineSeriesOption> => {
+          allSeries.map(async ({ name: seriesName, key: seriesKey }): Promise<LineSeriesOption> => {
             const values = await getSeriesValues(
               connection,
               fileName,
               display.x,
               display.y,
               display.series!,
-              seriesName
+              seriesKey
             );
             const valueMap = new Map(values.map((v) => [v.x, v.y]));
-            // Align data with xData axis, using null for missing values
-            const alignedData = xData.map((x) => valueMap.get(x) ?? null);
+            // Align data with the x axis by each category's full value (its
+            // key, not its label), using null for missing values
+            const alignedData = xAxis.keys.map((x) => valueMap.get(x) ?? null);
             return {
               name: JSON.stringify(seriesName),
               type: "line",

@@ -107,7 +107,12 @@ describe("useSpApiCredentials persistSecret", () => {
     // The submit fails, so the wizard stops before writing the pipeline.
     expect(await submit({ clientSecret: "lwa-secret", refreshToken: "Atzr|token" })).toBe(refused);
 
-    expect(errorToasts()).toEqual([["Failed to create secret"]]);
+    expect(errorToasts()).toEqual([
+      [
+        "Failed to create secret SP_API_REFRESH_TOKEN",
+        { description: "Request failed with status code 409" }
+      ]
+    ]);
     expect(successToasts()).toEqual([["Secret SP_API_CLIENT_SECRET created successfully"]]);
   });
 
@@ -117,7 +122,12 @@ describe("useSpApiCredentials persistSecret", () => {
     await submit({ clientSecret: "lwa-secret", refreshToken: "Atzr|token" });
 
     expect(createSecret).toHaveBeenCalledTimes(1);
-    expect(errorToasts()).toEqual([["Failed to create secret"]]);
+    expect(errorToasts()).toEqual([
+      [
+        "Failed to create secret SP_API_CLIENT_SECRET",
+        { description: "Request failed with status code 500" }
+      ]
+    ]);
     expect(successToasts()).toEqual([]);
   });
 });

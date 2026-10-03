@@ -16,7 +16,7 @@ import {
   cellText,
   formatValue,
   getArrowFieldType,
-  getArrowValueWithType,
+  getArrowResultCell,
   getData,
   inferColumnFormat,
   registerFromTableData
@@ -133,12 +133,13 @@ export const DataTableBlock = ({
                 // When a format is in play, always route through the
                 // currency/percent/number formatter — it handles bigints and
                 // stringified numerics uniformly, and decimals given the
-                // column type, which is where their scale is. Otherwise fall
-                // back to the Arrow-aware value formatter (dates, decimals, …).
+                // column type, which is where their scale is. Otherwise the
+                // cell reads as the query-result table reads it: a number as
+                // the value it holds, unrounded, and a timestamp to the second.
                 const formattedValue = columnFormat
                   ? formatValue(value, columnFormat, { type: fieldType })
                   : fieldType
-                    ? getArrowValueWithType(value, fieldType)
+                    ? getArrowResultCell(value, fieldType)
                     : value;
                 // `cellText`, as the query-result table prints a cell: a NULL is
                 // empty in every column, where `String` wrote "null" in the ones

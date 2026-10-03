@@ -82,7 +82,14 @@ type ToolCallBlock = {
 type ToolResultBlock = {
   seq: number;
   event_type: "tool_result";
-  payload: { name: string; output: unknown; duration_ms: number; sub_spec_index?: number | null };
+  payload: {
+    name: string;
+    output: unknown;
+    duration_ms: number;
+    /** The tool failed. Always sent today; absent on runs persisted before the field existed. */
+    is_error?: boolean;
+    sub_spec_index?: number | null;
+  };
 };
 
 export type HumanInputQuestion = {

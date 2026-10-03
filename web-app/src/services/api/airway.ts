@@ -339,7 +339,21 @@ export type ResourceContract = {
  * SSE `event:` field; `data:` carries the full payload (the tag is
  * echoed inside it too, harmlessly).
  */
-export type AirwayEvent =
+export type AirwayEvent = Stamped<AirwayEventBody>;
+
+/**
+ * Every payload may carry `ts`, the emit time (RFC 3339) stamped where the
+ * event is emitted: by the airway worker on each engine event and on its own
+ * fallback `pipeline_error` (`stamp_emit_time` in
+ * `crates/agentic/airway/src/worker.rs`), and by the coordinator on
+ * `task_failed`. It is persisted, so a replay returns the same value. Optional
+ * because a run recorded before those stamps existed replays without them.
+ */
+type Stamped<E> = E extends { type: infer T; payload: infer P }
+  ? { type: T; payload: P & { ts?: string } }
+  : never;
+
+type AirwayEventBody =
   | {
       type: "load_started";
       payload: { pipeline_name: string; load_id: string };

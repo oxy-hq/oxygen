@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { type TaskConfigWithId, type TaskNode, TaskType } from "@/stores/useAutomation";
 import { calculateNodesSize, getLayoutedElements } from ".";
-import { distanceBetweenNodes, normalNodeHeight } from "./constants";
+import {
+  contentPadding,
+  distanceBetweenNodes,
+  nodeBorder,
+  nodePadding,
+  normalNodeHeight
+} from "./constants";
 import { buildAutomationNodes } from "./nodeBuilder";
+
+/** The room a container leaves on each side of its children. */
+const sidePadding = contentPadding + nodePadding + nodeBorder;
 
 const base = (id: string) => ({ id, name: id, automationId: "automation" });
 
@@ -105,5 +114,43 @@ describe("container node size", () => {
 
     const size = (node: TaskNode) => ({ id: node.id, width: node.width, height: node.height });
     expect(ids.map((id) => size(sized(id)))).toEqual(ids.map((id) => size(laidOut(id))));
+  });
+
+  /** Where each child sits across its container, and how wide it is. */
+  const columnOf = (laidOut: (id: string) => TaskNode, ids: string[]) =>
+    ids.map((id) => ({ id, x: laidOut(id).position.x, width: laidOut(id).width }));
+
+  it("makes every child of a vertical container as wide as the container's inside", async () => {
+    const { laidOut } = await sizeAndLayOut([
+      loop("loop", [
+        step("loop.a"),
+        conditional("loop.check", [step("loop.check.yes")], [step("loop.check.no")]),
+        step("loop.c")
+      ])
+    ]);
+
+    // One column, as the top-level nodes are: the steps used to stay 200 wide
+    // beside a 562-wide conditional, one gap in from the container's left edge.
+    const inside = (laidOut("loop").width ?? 0) - 2 * sidePadding;
+    expect(columnOf(laidOut, ["loop.a", "loop.check", "loop.c"])).toEqual([
+      { id: "loop.a", x: sidePadding, width: inside },
+      { id: "loop.check", x: sidePadding, width: inside },
+      { id: "loop.c", x: sidePadding, width: inside }
+    ]);
+  });
+
+  it("widens a container's children with it when the top-level column widens it", async () => {
+    const { laidOut } = await sizeAndLayOut([
+      loop("loop", [step("loop.a"), step("loop.b")]),
+      conditional("check", [step("check.yes")], [step("check.no")])
+    ]);
+
+    // The loop is as wide as the conditional below it; its steps fill it.
+    expect(laidOut("loop").width).toBe(laidOut("check").width);
+    const inside = (laidOut("loop").width ?? 0) - 2 * sidePadding;
+    expect(columnOf(laidOut, ["loop.a", "loop.b"])).toEqual([
+      { id: "loop.a", x: sidePadding, width: inside },
+      { id: "loop.b", x: sidePadding, width: inside }
+    ]);
   });
 });

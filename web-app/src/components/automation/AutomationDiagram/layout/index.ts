@@ -1,7 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import type { TaskNode } from "@/stores/useAutomation";
 import { createElkLayout } from "./elkLayout";
-import { computeNodeDimensions } from "./nodeSize";
+import { computeNodeDimensions, fillContainerWidths } from "./nodeSize";
 
 export const calculateNodesSize = (nodes: TaskNode[]): TaskNode[] => {
   const nodesWithSize = nodes.map((node) => ({ ...node }));
@@ -15,6 +15,7 @@ export const calculateNodesSize = (nodes: TaskNode[]): TaskNode[] => {
     .filter((node) => !node.parentId)
     .forEach((node) => {
       node.width = maxWidth;
+      fillContainerWidths(node, nodesWithSize);
     });
 
   return nodesWithSize;

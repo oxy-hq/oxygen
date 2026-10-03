@@ -23,10 +23,10 @@ export class ArtifactService {
   }
 }
 
+// The server also sends `builder_path`, always null since the path-based builder was
+// removed; it stays in the response for older clients, and nothing here reads it.
 export interface BuilderAvailability {
   available: boolean;
-  /** Set for legacy path-based agents; absent for built-in. */
-  builder_path?: string;
   /** True when the built-in copilot is configured. */
   builtin?: boolean;
   /** Model name for the built-in copilot. */

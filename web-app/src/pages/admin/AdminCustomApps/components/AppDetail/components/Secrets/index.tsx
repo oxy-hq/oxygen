@@ -24,8 +24,9 @@ import { SetSecretDialog } from "./SetSecretDialog";
  */
 export const Secrets = ({ appId }: { appId: string }) => {
   const secrets = useAppSecrets(appId);
-  /** The key being set. `""` = a new one; a name = rotating that one. */
-  const [editing, setEditing] = useState<string | null>(null);
+  /** The key being set: `""` = a new one; a name = that row's key, and whether
+   *  it already has a value (a rotation) or not (a first set). */
+  const [editing, setEditing] = useState<{ key: string; stored: boolean } | null>(null);
 
   return (
     <div className='flex flex-col gap-2' data-testid='admin-app-secrets'>
@@ -41,7 +42,12 @@ export const Secrets = ({ appId }: { appId: string }) => {
             ) : (
               <ul className='flex flex-col gap-1.5' data-testid='admin-app-secrets-list'>
                 {data.entries.map((entry) => (
-                  <SecretRow key={entry.key} appId={appId} entry={entry} onSet={setEditing} />
+                  <SecretRow
+                    key={entry.key}
+                    appId={appId}
+                    entry={entry}
+                    onSet={() => setEditing({ key: entry.key, stored: entry.is_set })}
+                  />
                 ))}
               </ul>
             )}
@@ -55,7 +61,7 @@ export const Secrets = ({ appId }: { appId: string }) => {
           variant='outline'
           size='sm'
           className='h-7 gap-1.5 text-xs'
-          onClick={() => setEditing("")}
+          onClick={() => setEditing({ key: "", stored: false })}
           data-testid='admin-app-secrets-add'
         >
           <Plus className='size-3' />
@@ -65,8 +71,9 @@ export const Secrets = ({ appId }: { appId: string }) => {
 
       <SetSecretDialog
         appId={appId}
-        // A named key is a rotation, so the field is locked; `""` is a new one.
-        secretKey={editing}
+        // A named key is locked to its row; `""` is a new one.
+        secretKey={editing?.key ?? null}
+        stored={editing?.stored ?? false}
         onClose={() => setEditing(null)}
       />
     </div>

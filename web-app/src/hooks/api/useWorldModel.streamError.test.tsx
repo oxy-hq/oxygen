@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import {
+  focusManager,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider
+} from "@tanstack/react-query";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorldModelService } from "@/services/api/worldModel";
 import type { WmInstanceDetailEvent, WmMeasureBreakdownEvent } from "@/types/worldModel";
 import { useWmFilterCounts, useWmInstanceDetail, useWmMeasureBreakdown } from "./useWorldModel";
@@ -43,18 +48,35 @@ const init: WmMeasureBreakdownEvent = {
   edges: []
 };
 
-const withQueryClient = ({ children }: { children: ReactNode }) => (
-  <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
-);
+/** Every promise callback already queued has run by the time this resolves. */
+const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/**
+ * One query cache for the whole render, as the app has one for the whole page.
+ * A wrapper that made a client of its own each time it rendered would start
+ * every query again on a re-render.
+ */
+const sharedCache = () => {
+  const client = new QueryClient();
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// Unmount every hook a test rendered. A hook left mounted keeps its query, which
+// the next test's focus or reconnect would run again, and count as its own.
+afterEach(() => {
+  cleanup();
+});
+
 describe("useWmMeasureBreakdown", () => {
   const render = () =>
     renderHook(() => useWmMeasureBreakdown("store", "42", "revenue"), {
-      wrapper: withQueryClient
+      wrapper: sharedCache()
     });
 
   it("surfaces a failed stream as the query's error, even after a partial tree arrived", async () => {
@@ -104,6 +126,57 @@ describe("useWmMeasureBreakdown", () => {
     await waitFor(() => expect(result.current.data?.nodes[0].value).toBe("10"));
     expect(result.current.error).toBeNull();
   });
+
+  /**
+   * A finished tree, then `event` once the minute it is kept fresh for is over.
+   * The stream used to run again on it, and its `init` set every value back to
+   * empty while the warehouse queries ran again.
+   */
+  const afterTheTreeIsStale = async (event: () => void) => {
+    streamMeasureBreakdown.mockImplementation((_p, _e, _k, _m, onEvent, onClose) => {
+      queueMicrotask(() => {
+        onEvent(init);
+        onEvent({ kind: "value", node_id: "store.revenue", value: "10", unvalued_reason: null });
+        onEvent({ kind: "done" });
+        onClose();
+      });
+    });
+    const { result } = render();
+    await waitFor(() => expect(result.current.data?.nodes[0].value).toBe("10"));
+    expect(streamMeasureBreakdown).toHaveBeenCalledTimes(1);
+
+    const later = Date.now() + 61_000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    try {
+      act(event);
+      await settled();
+    } finally {
+      vi.mocked(Date.now).mockRestore();
+    }
+    return result;
+  };
+
+  it("keeps the values it streamed when the window regains focus", async () => {
+    try {
+      const result = await afterTheTreeIsStale(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      expect(streamMeasureBreakdown).toHaveBeenCalledTimes(1);
+      expect(result.current.data?.nodes[0].value).toBe("10");
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  it("keeps the values it streamed when the network comes back", async () => {
+    const result = await afterTheTreeIsStale(() => {
+      onlineManager.setOnline(false);
+      onlineManager.setOnline(true);
+    });
+    expect(streamMeasureBreakdown).toHaveBeenCalledTimes(1);
+    expect(result.current.data?.nodes[0].value).toBe("10");
+  });
 });
 
 describe("useWmFilterCounts", () => {
@@ -131,14 +204,6 @@ describe("useWmFilterCounts", () => {
 });
 
 describe("useWmInstanceDetail", () => {
-  /** One query cache for the whole render, as the app has one for the whole page. */
-  const sharedCache = () => {
-    const client = new QueryClient();
-    return ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-  };
-
   /** The page (measure chips on the cards) and the detail panel, on one instance. */
   const renderBothConsumers = () =>
     renderHook(

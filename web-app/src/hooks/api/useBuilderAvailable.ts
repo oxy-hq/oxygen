@@ -4,8 +4,8 @@ import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { BuilderService } from "@/services/api";
 
 /**
- * Hook to check if the builder agent is available.
- * Supports both legacy path-based agents and the new built-in copilot.
+ * Hook to check if the builder agent is available — the built-in copilot, the only
+ * builder there is (the path-based one was removed).
  * Uses React Query so all call sites share a single cached request.
  */
 export default function useBuilderAvailable() {
@@ -20,9 +20,8 @@ export default function useBuilderAvailable() {
   });
 
   const isAvailable = data?.available ?? false;
-  const builderPath = data?.builder_path ?? "";
   const isBuiltin = data?.builtin ?? false;
   const builderModel = data?.model;
 
-  return { isAvailable, isLoading, isError, builderPath, isBuiltin, builderModel };
+  return { isAvailable, isLoading, isError, isBuiltin, builderModel };
 }

@@ -5,14 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/libs/duckdb", () => ({ getDuckDB: vi.fn() }));
 vi.mock("@/services/api/axios", () => ({ apiClient: {} }));
 
+import { getDuckDB } from "@/libs/duckdb";
 import {
   cellText,
   formatValue,
+  getArrowColumnKeys,
+  getArrowColumnValues,
   getArrowExportText,
   getArrowResultCell,
-  getArrowValueWithType,
   inferColumnFormat,
-  isNumericType
+  isNumericType,
+  runSqlInDuckDB
 } from "./utils";
 
 // Query results are built by the Arrow release duckdb-wasm depends on, which is
@@ -97,10 +100,41 @@ describe.each([
       expect(formatValue("42.5", "percent")).toBe("42.5%");
       expect(formatValue(null, "currency")).toBe("");
     });
+
+    it("prints a number with no format as the number it is, not rounded to two places", () => {
+      // A pie slice's tooltip, when the value column has no format.
+      expect(formatValue(0.004)).toBe("0.004");
+      expect(formatValue("0.123456")).toBe("0.123456");
+      expect(formatValue(1234)).toBe("1234");
+      // A declared format still rounds as it says.
+      expect(formatValue(0.004, "number")).toBe("0");
+    });
   });
 
-  describe("getArrowValueWithType", () => {
-    it("passes a NULL through whatever the column type", () => {
+  describe("a chart's column", () => {
+    it("reads a number as the value the column holds, for a chart to plot", () => {
+      const table = new arrow.Table({
+        tiny: arrow.makeVector(new Float64Array([0.004])),
+        ratio: arrow.makeVector(new Float64Array([0.123456])),
+        tenth: arrow.makeVector(new Float32Array([0.1])),
+        rate: decimals([1234567n], 6),
+        small: decimals([4n], 3),
+        count: arrow.makeVector(new Int32Array([42]))
+      });
+      const value = (column: string) => getArrowColumnValues(table, column)[0];
+      // ECharts reads each as the number it spells. 0.004 used to be "0.00",
+      // so the chart drew it as 0; a decimal of 0.004 the same.
+      expect(value("tiny")).toBe("0.004");
+      expect(value("ratio")).toBe("0.123456");
+      expect(value("tenth")).toBe("0.1");
+      expect(value("rate")).toBe("1.234567");
+      expect(value("small")).toBe("0.004");
+      expect(value("count")).toBe("42");
+    });
+  });
+
+  describe("a NULL cell", () => {
+    it("passes through getArrowResultCell whatever the column type", () => {
       const { row, typeOf } = firstRow({
         amount: arrow.makeVector(
           arrow.makeData({
@@ -118,12 +152,12 @@ describe.each([
       });
       // A NULL text cell already came through as null: the table shows it empty.
       expect(row.label).toBeNull();
-      expect(getArrowValueWithType(row.label, typeOf("label") as ownArrow.DataType)).toBeNull();
+      expect(getArrowResultCell(row.label, typeOf("label") as ownArrow.DataType)).toBeNull();
 
       // A NULL decimal used to throw, and a NULL date or time read "Invalid Date".
       for (const column of ["amount", "day", "at", "time"]) {
         expect(row[column]).toBeNull();
-        expect(getArrowValueWithType(row[column], typeOf(column) as ownArrow.DataType)).toBeNull();
+        expect(getArrowResultCell(row[column], typeOf(column) as ownArrow.DataType)).toBeNull();
       }
     });
   });
@@ -163,7 +197,17 @@ describe.each([
       // A calendar word after a period qualifier is the period the money is for.
       "revenue_last_month",
       "sales_per_day",
-      "prior_year_revenue"
+      "prior_year_revenue",
+      // camelCase and PascalCase names are split into words like snake_case ones.
+      "totalRevenue",
+      "TotalSales",
+      "avgOrderValueUSD",
+      // An amount of a margin or a discount is money.
+      "margin_amount",
+      "discount_usd",
+      "discountedPrice",
+      // A count of orders is no money; money from orders is.
+      "orders_revenue"
     ])("reads %s as an amount of money", (name) => {
       expect(inferColumnFormat(name, float)).toBe("currency");
     });
@@ -195,6 +239,21 @@ describe.each([
       // calendar parts
       "payment_year",
       "sales_month",
+      // a margin or a discount, which is usually a ratio: 0.25 is not $0.25
+      "profit_margin",
+      "gross_margin",
+      "margin",
+      "total_discount",
+      "avgDiscount",
+      // a count of the things a monetary word describes
+      "sales_orders",
+      "sales_reps",
+      "payment_transactions",
+      "salesCalls",
+      // camelCase names are read by the same rules
+      "paymentId",
+      "discountCount",
+      "revenuePct",
       // no monetary word at all
       "holiday_flag",
       "oxymart__store"
@@ -270,6 +329,35 @@ describe.each([
       expect(cell("large")).toBe("1000000000000000000.25");
     });
 
+    it("shows a timestamp's seconds, and its milliseconds when it has any, as an export does", () => {
+      const cell = cellOf({
+        at: arrow.vectorFromArray(
+          [new Date("2024-03-05T12:34:56Z")],
+          new arrow.TimestampMicrosecond()
+        ),
+        precise: arrow.vectorFromArray(
+          [new Date("2024-03-05T12:34:56.789Z")],
+          new arrow.TimestampMillisecond()
+        ),
+        local: arrow.vectorFromArray(
+          [new Date("2024-03-05T12:34:56Z")],
+          new arrow.TimestampMillisecond("America/New_York")
+        ),
+        snowflake: arrow.vectorFromArray(
+          [{ epoch: 1709642096n, fraction: 789_000_000 }],
+          new arrow.Struct([
+            new arrow.Field("epoch", new arrow.Int64()),
+            new arrow.Field("fraction", new arrow.Int32())
+          ])
+        )
+      });
+      // Each used to stop at the minute, "2024-03-05 12:34".
+      expect(cell("at")).toBe("2024-03-05 12:34:56");
+      expect(cell("precise")).toBe("2024-03-05 12:34:56.789");
+      expect(cell("local")).toBe("2024-03-05 07:34:56");
+      expect(cell("snowflake")).toBe("2024-03-05 12:34:56.789");
+    });
+
     it("reads every other cell as before", () => {
       const cell = cellOf({
         count: arrow.makeVector(new Int32Array([42])),
@@ -286,15 +374,184 @@ describe.each([
     });
   });
 
+  describe("a 128-bit integer: DuckDB's HUGEINT, and the SUM of an integer column", () => {
+    // DuckDB hands both over as DECIMAL(38, 0): each cell is four 32-bit words.
+    const above32Bits = 5_000_000_000n;
+    const sums = () => decimals([above32Bits, -above32Bits, -(2n ** 100n) - 7n], 0);
+
+    it("reads in a table, a chart and an export as every digit it has", () => {
+      const table = new arrow.Table({ total: sums() });
+      const type = table.schema.fields[0].type as ownArrow.DataType;
+      const cells = (table.toArray() as Record<string, unknown>[]).map((row) => row.total);
+
+      const whole = ["5000000000", "-5000000000", "-1267650600228229401496703205383"];
+      expect(cells.map((cell) => getArrowResultCell(cell, type))).toEqual(whole);
+      expect(getArrowColumnValues(table, "total")).toEqual(whole);
+      expect(cells.map((cell) => getArrowExportText(cell, type))).toEqual(whole);
+    });
+
+    it("is written whole, and a decimal at its scale, when the app re-runs a task in the browser", async () => {
+      const table = new arrow.Table({ total: sums(), amount: decimals([1234n, -5n, 0n], 2) });
+      vi.mocked(getDuckDB).mockResolvedValue({
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve(table), close: () => Promise.resolve() })
+      } as unknown as Awaited<ReturnType<typeof getDuckDB>>);
+
+      const rows = JSON.parse(await runSqlInDuckDB("select 1")) as Record<string, number>[];
+
+      // The lowest word alone used to be written: 705032704 for 5000000000, and
+      // a decimal's unscaled digits, 1234 for 12.34. A JSON number is a double,
+      // so a value past 2^53 keeps a double's precision and no more.
+      expect(rows).toEqual([
+        { total: 5_000_000_000, amount: 12.34 },
+        { total: -5_000_000_000, amount: -0.05 },
+        { total: -(2 ** 100) - 7, amount: 0 }
+      ]);
+    });
+  });
+
+  describe("a task the app re-runs in the browser", () => {
+    /** What `runSqlInDuckDB` writes when DuckDB answers with `table`. */
+    const writtenFor = async (table: ownArrow.Table) => {
+      vi.mocked(getDuckDB).mockResolvedValue({
+        connect: () =>
+          Promise.resolve({ query: () => Promise.resolve(table), close: () => Promise.resolve() })
+      } as unknown as Awaited<ReturnType<typeof getDuckDB>>);
+      return JSON.parse(await runSqlInDuckDB("select 1")) as Record<string, unknown>[];
+    };
+
+    it("writes a date or a time as the table shows it, so that it is read back as one", async () => {
+      const rows = await writtenFor(
+        new arrow.Table({
+          day: arrow.vectorFromArray([new Date("2024-03-05T00:00:00Z")], new arrow.DateDay()),
+          at: arrow.vectorFromArray(
+            [new Date("2024-03-05T12:34:56.789Z")],
+            new arrow.TimestampMicrosecond()
+          ),
+          whole: arrow.vectorFromArray(
+            [new Date("2024-03-05T12:34:56Z")],
+            new arrow.TimestampMillisecond()
+          ),
+          time: arrow.vectorFromArray([45_296_000], new arrow.TimeMillisecond())
+        })
+      );
+
+      // Each used to be written as a number (1709596800000 for the day), which
+      // `read_json_auto` reads back as a BIGINT: the column was a date no more.
+      expect(rows).toEqual([
+        {
+          day: "2024-03-05",
+          at: "2024-03-05 12:34:56.789",
+          whole: "2024-03-05 12:34:56",
+          time: "12:34:56"
+        }
+      ]);
+    });
+
+    it("writes a moment with a time zone as its instant, not as the time on a clock there", async () => {
+      const rows = await writtenFor(
+        new arrow.Table({
+          utc: arrow.vectorFromArray(
+            [new Date("2024-03-05T12:34:56.789Z")],
+            new arrow.TimestampMicrosecond("UTC")
+          ),
+          local: arrow.vectorFromArray(
+            [new Date("2024-03-05T12:34:56Z")],
+            new arrow.TimestampMillisecond("America/New_York")
+          )
+        })
+      );
+
+      // The table shows the second as 07:34:56, which says nothing of New York.
+      expect(rows).toEqual([
+        { utc: "2024-03-05T12:34:56.789Z", local: "2024-03-05T12:34:56.000Z" }
+      ]);
+    });
+
+    it("refuses a column it cannot write as it is, rather than write its first byte", async () => {
+      const blobs = new arrow.Table({
+        id: arrow.makeVector(new Int32Array([1])),
+        payload: arrow.vectorFromArray([new Uint8Array([7, 8, 9])], new arrow.Binary())
+      });
+
+      // A BLOB was written as 7. The app runs the task on the server instead.
+      await expect(writtenFor(blobs)).rejects.toThrow(/"payload"/);
+    });
+  });
+
+  describe("a chart's column of moments", () => {
+    const moments = (...at: (string | null)[]) =>
+      new arrow.Table({
+        at: arrow.vectorFromArray(
+          at.map((value) => (value === null ? null : new Date(value))),
+          new arrow.TimestampMillisecond()
+        )
+      });
+
+    it("is labelled to the precision its values need, the same for every one", () => {
+      expect(
+        getArrowColumnValues(moments("2024-03-05T12:34:00Z", "2024-03-05T12:35:00Z"), "at")
+      ).toEqual(["2024-03-05 12:34", "2024-03-05 12:35"]);
+      expect(
+        getArrowColumnValues(moments("2024-03-05T12:34:00Z", "2024-03-05T12:34:30Z", null), "at")
+      ).toEqual(["2024-03-05 12:34:00", "2024-03-05 12:34:30", null]);
+      expect(
+        getArrowColumnValues(moments("2024-03-05T12:34:56Z", "2024-03-05T12:34:56.789Z"), "at")
+      ).toEqual(["2024-03-05 12:34:56.000", "2024-03-05 12:34:56.789"]);
+    });
+
+    it("is labelled to the precision of a Snowflake timestamp's fraction", () => {
+      const table = new arrow.Table({
+        at: arrow.vectorFromArray(
+          [
+            { epoch: 1709642040n, fraction: 0 },
+            { epoch: 1709642096n, fraction: 0 }
+          ],
+          new arrow.Struct([
+            new arrow.Field("epoch", new arrow.Int64()),
+            new arrow.Field("fraction", new arrow.Int32())
+          ])
+        )
+      });
+      expect(getArrowColumnValues(table, "at")).toEqual([
+        "2024-03-05 12:34:00",
+        "2024-03-05 12:34:56"
+      ]);
+    });
+
+    it("is keyed by each moment's exact instant, whatever the others need", () => {
+      // A series holding only whole minutes is matched to an axis that has seconds.
+      expect(getArrowColumnKeys(moments("2024-03-05T12:34:00Z"), "at")).toEqual([
+        "2024-03-05T12:34:00.000Z"
+      ]);
+      expect(
+        getArrowColumnKeys(moments("2024-03-05T12:34:00Z", "2024-03-05T12:34:56.789Z"), "at")
+      ).toEqual(["2024-03-05T12:34:00.000Z", "2024-03-05T12:34:56.789Z"]);
+    });
+
+    it("keys two moments apart that read the same on a clock in their zone", () => {
+      // 01:30 in New York, before and after the clocks go back.
+      const table = new arrow.Table({
+        at: arrow.vectorFromArray(
+          [new Date("2024-11-03T05:30:00Z"), new Date("2024-11-03T06:30:00Z")],
+          new arrow.TimestampMillisecond("America/New_York")
+        )
+      });
+      expect(getArrowColumnValues(table, "at")).toEqual(["2024-11-03 01:30", "2024-11-03 01:30"]);
+      expect(getArrowColumnKeys(table, "at")).toEqual([
+        "2024-11-03T05:30:00.000Z",
+        "2024-11-03T06:30:00.000Z"
+      ]);
+    });
+  });
+
   describe("getArrowExportText", () => {
     it("writes a decimal with its scale and every digit", () => {
       const { row, typeOf } = firstRow({ rate: decimals([1234567n, -5n], 6) });
       const type = typeOf("rate");
       expect(getArrowExportText(row.rate, type)).toBe("1.234567");
-      // The result table shows the same digits; a chart series and an app
-      // table's unformatted column round the cell to two places.
+      // The result table and a chart read the same digits.
       expect(getArrowResultCell(row.rate, type as ownArrow.DataType)).toBe("1.234567");
-      expect(getArrowValueWithType(row.rate, type as ownArrow.DataType)).toBe("1.23");
     });
 
     it("pads a decimal smaller than one and keeps its sign", () => {

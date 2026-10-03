@@ -6,9 +6,15 @@ import { cn } from "@/libs/shadcn/utils";
 interface BuilderDelegationCardProps {
   item: BuilderDelegationItem;
   onSelect: (item: SelectableItem) => void;
+  /** Whether the delegation's panel is open; undefined when the host tracks no selection. */
+  pressed?: boolean;
 }
 
-export default function BuilderDelegationCard({ item, onSelect }: BuilderDelegationCardProps) {
+export default function BuilderDelegationCard({
+  item,
+  onSelect,
+  pressed
+}: BuilderDelegationCardProps) {
   const isRunning = item.status === "running";
   const isDone = item.status === "done";
 
@@ -45,6 +51,7 @@ export default function BuilderDelegationCard({ item, onSelect }: BuilderDelegat
       {/* View details button */}
       <button
         type='button'
+        aria-pressed={pressed}
         onClick={() => onSelect(item)}
         className='flex items-center gap-1 text-primary text-xs hover:underline'
         data-testid='view-details-button'

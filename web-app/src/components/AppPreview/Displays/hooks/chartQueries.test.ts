@@ -16,16 +16,18 @@ function makeConnection(queryResult: object = {}, prepareResult: object = {}) {
   return { connection: { query, prepare }, query, prepare, stmtQuery };
 }
 
-// Override getArrowColumnValues to just return what we hand back from the mock.
+// Override the column readers to just return what we hand back from the mock.
+const columnValues = vi.hoisted(() => (_result: unknown, col: string) => {
+  if (col === "x") return ["Mon", "Tue"];
+  if (col === "y") return [100, 200];
+  if (col === "series") return ["A", "B"];
+  if (col === "name") return ["Cat A", "Cat B"];
+  if (col === "value") return [10, 20];
+  return [];
+});
 vi.mock("../utils", () => ({
-  getArrowColumnValues: (_result: unknown, col: string) => {
-    if (col === "x") return ["Mon", "Tue"];
-    if (col === "y") return [100, 200];
-    if (col === "series") return ["A", "B"];
-    if (col === "name") return ["Cat A", "Cat B"];
-    if (col === "value") return [10, 20];
-    return [];
-  }
+  getArrowColumnValues: columnValues,
+  getArrowColumnKeys: columnValues
 }));
 
 // ── regression: column names containing whitespace ────────────────────────────

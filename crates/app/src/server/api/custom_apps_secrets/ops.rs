@@ -14,7 +14,7 @@
 use axum::Json;
 use axum::http::StatusCode;
 use entity::apps;
-use oxy::service::secret_manager::SecretManagerService;
+use oxy::service::secret_manager::{SecretManagerService, SecretWrite};
 use oxy_app_core::audit;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::types::AuthenticatedUser;
@@ -97,7 +97,7 @@ pub(super) async fn set(
         ));
     }
 
-    SecretManagerService::new(app.project_id)
+    let write = SecretManagerService::new(app.project_id)
         .set_app_secret_in(
             db,
             app.id,
@@ -122,7 +122,13 @@ pub(super) async fn set(
         "app secret set"
     );
     audit_write(db, app, environment, "custom_app.secret.set", key, actor).await;
-    Ok(StatusCode::NO_CONTENT)
+    // 201 for a key the app did not have, 204 for a rotation: the write is an
+    // upsert, and a client that has to say which one happened ("created" or
+    // "updated") cannot tell from a 204 alone.
+    Ok(match write {
+        SecretWrite::Created => StatusCode::CREATED,
+        SecretWrite::Updated => StatusCode::NO_CONTENT,
+    })
 }
 
 pub(super) async fn delete(

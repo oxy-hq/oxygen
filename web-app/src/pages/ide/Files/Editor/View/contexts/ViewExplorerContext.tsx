@@ -17,7 +17,6 @@ type ViewExplorerContextType = {
   viewData: ViewData | null;
   viewError: Error | null;
   viewLoading: boolean;
-  refetchViewDetails: () => void;
 };
 
 const ViewExplorerContext = createContext<ViewExplorerContextType | null>(null);
@@ -29,12 +28,7 @@ const ViewExplorerProviderInner = ({
   children: ReactNode;
   pathb64: string;
 }) => {
-  const {
-    data: viewDetails,
-    isLoading: viewLoading,
-    error: viewError,
-    refetch: refetchViewDetails
-  } = useViewDetails(pathb64);
+  const { data: viewDetails, isLoading: viewLoading, error: viewError } = useViewDetails(pathb64);
 
   const viewData = useMemo<ViewData | null>(() => {
     if (!viewDetails) return null;
@@ -70,22 +64,10 @@ const ViewExplorerProviderInner = ({
   }, [viewData]);
 
   return (
-    <ViewExplorerContext.Provider
-      value={{
-        viewData,
-        viewError,
-        viewLoading,
-        // TanStack's `refetch` resolves with the error rather than rejecting; a failed
-        // reload surfaces as `viewError`.
-        refetchViewDetails: () => {
-          void refetchViewDetails();
-        }
-      }}
-    >
+    <ViewExplorerContext.Provider value={{ viewData, viewError, viewLoading }}>
       <SemanticExplorerProvider
         dataLoading={viewLoading}
         loadingError={viewError?.message}
-        refetchData={refetchViewDetails}
         availableDimensions={availableDimensions}
         canExecuteQuery={canExecuteQuery}
         availableMeasures={availableMeasures}

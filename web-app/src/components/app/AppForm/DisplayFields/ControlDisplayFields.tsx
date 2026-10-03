@@ -233,10 +233,28 @@ export const ControlDisplayFields: React.FC<ControlDisplayFieldsProps> = ({ inde
           {/* Default value */}
           <div className='space-y-2'>
             <Label htmlFor={`display.${index}.default`}>Default Value</Label>
-            <Input
-              id={`display.${index}.default`}
-              placeholder='e.g. All'
-              {...register(`display.${index}.default`)}
+            {/* Controlled rather than registered: a registered input writes ""
+                for a control that has no default, and `default: ""` renders as
+                '' where a missing default renders as none. Cleared means none,
+                so "" reaches the YAML only when the file already said so. */}
+            <Controller
+              name={fp(`display.${index}.default`)}
+              control={control}
+              render={({ field }) => (
+                <Input
+                  id={`display.${index}.default`}
+                  placeholder='e.g. All'
+                  value={
+                    typeof field.value === "string" || typeof field.value === "number"
+                      ? String(field.value)
+                      : ""
+                  }
+                  onChange={(e) =>
+                    field.onChange(e.target.value === "" ? undefined : e.target.value)
+                  }
+                  onBlur={field.onBlur}
+                />
+              )}
             />
           </div>
         </>
@@ -270,7 +288,7 @@ export const ControlDisplayFields: React.FC<ControlDisplayFieldsProps> = ({ inde
             render={({ field }) => (
               <DateValueInput
                 value={field.value as string | undefined}
-                onChange={(v) => field.onChange(v ?? undefined)}
+                onChange={(v) => field.onChange(v || undefined)}
                 placeholder='Pick a default date'
               />
             )}

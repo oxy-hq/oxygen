@@ -147,6 +147,15 @@ impl schemars::JsonSchema for ManagedSecret {
     }
 }
 
+/// What an app-secret write did: stored a key the app did not have, or replaced
+/// the value of one it did. The write is an upsert, and only the caller can say
+/// which happened — so it reports it rather than leaving the client to guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretWrite {
+    Created,
+    Updated,
+}
+
 #[derive(Debug, Clone)]
 pub struct SecretManagerService {
     encryption_key: [u8; 32],
@@ -574,7 +583,7 @@ impl SecretManagerService {
         key: &str,
         value: &str,
         actor: Uuid,
-    ) -> Result<(), OxyError> {
+    ) -> Result<SecretWrite, OxyError> {
         self.set_app_secret_in(db, app_id, None, key, value, actor)
             .await
     }
@@ -602,7 +611,7 @@ impl SecretManagerService {
         key: &str,
         value: &str,
         actor: Uuid,
-    ) -> Result<(), OxyError> {
+    ) -> Result<SecretWrite, OxyError> {
         // Validate only the caller's key (and environment); the prefix is
         // trusted/system-built.
         Self::validate_secret_name(key)?;
@@ -641,7 +650,7 @@ impl SecretManagerService {
             .await
             .map_err(|e| OxyError::Database(e.to_string()))?;
 
-        match existing {
+        let write = match existing {
             Some(row) => {
                 let mut model: SecretActiveModel = row.into();
                 model.encrypted_value = Set(encrypted);
@@ -651,6 +660,7 @@ impl SecretManagerService {
                     .update(&txn)
                     .await
                     .map_err(|e| OxyError::Database(e.to_string()))?;
+                SecretWrite::Updated
             }
             None => {
                 let model = SecretActiveModel {
@@ -669,14 +679,15 @@ impl SecretManagerService {
                     .insert(&txn)
                     .await
                     .map_err(|e| OxyError::Database(e.to_string()))?;
+                SecretWrite::Created
             }
-        }
+        };
 
         txn.commit()
             .await
             .map_err(|e| OxyError::Database(e.to_string()))?;
         self.invalidate_cache(&name).await;
-        Ok(())
+        Ok(write)
     }
 
     /// Stable 64-bit key for `pg_advisory_xact_lock`, derived from the

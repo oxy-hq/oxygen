@@ -95,6 +95,23 @@ describe("ConnectionItem", () => {
     expect(btn.className).not.toContain("opacity-0");
   });
 
+  // A <button> inside a <button> is invalid HTML: browsers and assistive tech
+  // disagree about which one a click or a name belongs to.
+  it("refresh button is not nested inside the row button", () => {
+    renderItem();
+    const row = screen.getByRole("button", { name: /my-postgres/ });
+    const refresh = screen.getByRole("button", { name: /refresh schema/i });
+    expect(row).not.toContainElement(refresh);
+    expect(row).not.toHaveAccessibleName(/refresh schema/i);
+  });
+
+  it("refreshing does not expand or collapse the row", async () => {
+    mockSchemaState = { ...mockSchemaState, data: mockSchema };
+    renderItem();
+    await userEvent.click(screen.getByRole("button", { name: /refresh schema/i }));
+    expect(screen.queryByText("users")).not.toBeInTheDocument();
+  });
+
   it("schema content is not rendered when collapsed", () => {
     mockSchemaState = { ...mockSchemaState, data: mockSchema };
     renderItem();

@@ -337,11 +337,12 @@ jobs:
       - name: Run pnpm install
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      # The SDK's own tests are invisible to every gate it has: `tsconfig.json`
-      # excludes `**/*.test.ts`, `tsdown` builds from that same config, vitest
-      # transpiles without checking, and no CI workflow but `sdk-publish` runs
-      # this package at all. A checked-in fixture stopped satisfying its own
-      # interface here and nothing reported it. Same ratchet shape as above.
+      # The SDK's own tests had no gate: vitest transpiles without checking, and
+      # no CI workflow but `sdk-publish` ran this package's typecheck at all. (Its
+      # `tsconfig.json` has included test files since #3016 dropped the
+      # `**/*.test.ts` exclusion, so `tsc` does see them — nothing ran it.) A
+      # checked-in fixture stopped satisfying its own interface here and nothing
+      # reported it. Same ratchet shape as above.
       - name: Typecheck SDK tests (ratchet)
         env:
           # See the web-app ratchet for what this pattern buys.

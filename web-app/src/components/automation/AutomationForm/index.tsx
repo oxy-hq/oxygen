@@ -9,7 +9,7 @@ import { FieldError } from "@/components/ui/shadcn/field";
 import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import { Textarea } from "@/components/ui/shadcn/textarea";
-import { cleanObject } from "@/utils/formDataCleaner";
+import { cleanAutomationFormData } from "./cleanFormData";
 import { RetrievalForm } from "./RetrievalForm";
 import { TasksForm } from "./TasksForm";
 import { VariablesForm } from "./VariablesForm";
@@ -55,10 +55,6 @@ interface AutomationFormProps {
   data?: Partial<AutomationFormData>;
   onChange?: (data: Partial<AutomationFormData>) => void;
 }
-
-const cleanFormData = (data: Partial<AutomationFormData>): Partial<AutomationFormData> => {
-  return (cleanObject(data as Record<string, unknown>) as Partial<AutomationFormData>) || {};
-};
 
 const getDefaultData = (data?: Partial<AutomationFormData>) => {
   if (!data) {
@@ -130,7 +126,7 @@ export const AutomationForm: React.FC<AutomationFormProps> = ({ data, onChange }
       },
       callback: ({ values, isDirty }) => {
         if (isDirty) {
-          const cleaned = cleanFormData(values as Partial<AutomationFormData>);
+          const cleaned = cleanAutomationFormData(values as Partial<AutomationFormData>);
           onChange?.(cleaned);
         }
       }

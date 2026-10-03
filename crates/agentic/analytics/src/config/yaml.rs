@@ -167,9 +167,15 @@ pub struct AgentConfig {
 
     /// Validation rule configuration.
     ///
-    /// When absent, all built-in rules run with their default parameters.
-    /// Use this section to disable specific rules or tune parameters such as
-    /// the outlier detection threshold:
+    /// When absent, the 15 default rules run with their default parameters
+    /// ([`ValidationConfig::default_all_rules`]). When present, it **replaces**
+    /// that set rather than adjusting it: only the rules it lists, and does not
+    /// mark `enabled: false`, run. A stage it lists no rules for is not checked
+    /// at all, and an empty section (`validation: {}`) runs no rules. To switch
+    /// off one rule or tune its parameters, list every rule that should still
+    /// run.
+    /// This, for example, runs outlier detection with a tighter threshold and
+    /// nothing else:
     ///
     /// ```yaml
     /// validation:

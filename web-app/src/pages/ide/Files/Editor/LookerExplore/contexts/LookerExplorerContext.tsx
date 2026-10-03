@@ -267,7 +267,6 @@ export const LookerExplorerProvider = ({
       loading: isLoading || isExecuting || isCompiling,
       sqlLoading: isCompiling,
       executeLoading: isExecuting,
-      refetchData: undefined,
       selectedDimensions,
       selectedMeasures,
       toggleDimension,

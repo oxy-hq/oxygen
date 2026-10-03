@@ -265,6 +265,7 @@ export const UnifiedSecretsTable: React.FC = () => {
           onOpenChange={(open) => !open && setDeleteSecret(null)}
           secret={deleteSecret}
           onConfirm={handleDelete}
+          isDeleting={deleteSecretMutation.isPending}
         />
       )}
     </>

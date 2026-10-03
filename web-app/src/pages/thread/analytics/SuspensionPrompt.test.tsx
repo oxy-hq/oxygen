@@ -45,12 +45,10 @@ const q = (prompt: string, suggestions: string[] = []): HumanInputQuestion => ({
 
 const textbox = () => screen.getByRole<HTMLTextAreaElement>("textbox");
 
-/** The round button under the textarea. It carries no label, only its arrow icon. */
-const actionButton = (icon: "arrow-right" | "arrow-up") => {
-  const button = document.querySelector(`.lucide-${icon}`)?.closest("button");
-  if (!button) throw new Error(`no action button showing ${icon}`);
-  return button;
-};
+/** The round button under the textarea: it moves on until every question has an answer. */
+const nextButton = () =>
+  screen.getByRole<HTMLButtonElement>("button", { name: "Next unanswered question" });
+const sendButton = () => screen.getByRole<HTMLButtonElement>("button", { name: /^Send answers?$/ });
 
 describe("SuspensionPrompt — input display logic", () => {
   it("renders the question prompt", () => {
@@ -158,10 +156,10 @@ describe("SuspensionPrompt — input display logic", () => {
       <SuspensionPrompt questions={[q("Q1"), q("Q2")]} onAnswer={onAnswer} isAnswering={false} />
     );
     // Nothing typed yet: there is nothing to move on from.
-    expect(actionButton("arrow-right").disabled).toBe(true);
+    expect(nextButton().disabled).toBe(true);
 
     fireEvent.change(textbox(), { target: { value: "Answer 1" } });
-    fireEvent.click(actionButton("arrow-right"));
+    fireEvent.click(nextButton());
 
     expect(onAnswer).not.toHaveBeenCalled();
     expect(screen.getByText("Q2")).toBeTruthy();
@@ -179,7 +177,7 @@ describe("SuspensionPrompt — input display logic", () => {
 
     fireEvent.change(textbox(), { target: { value: "Answer 2" } });
     // Every question is answered, so the button turns from "next" into "send".
-    fireEvent.click(actionButton("arrow-up"));
+    fireEvent.click(sendButton());
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer).toHaveBeenCalledWith("Q: Q1\nA: Answer 1\n\nQ: Q2\nA: Answer 2");
   });
@@ -190,7 +188,7 @@ describe("SuspensionPrompt — input display logic", () => {
     );
     expect(textbox().disabled).toBe(true);
     expect(screen.getByText<HTMLButtonElement>("chip").disabled).toBe(true);
-    expect(actionButton("arrow-up").disabled).toBe(true);
+    expect(sendButton().disabled).toBe(true);
   });
 
   it("submits on Enter for a single question", () => {

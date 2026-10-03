@@ -16,13 +16,16 @@ interface DeleteSecretDialogProps {
   onOpenChange: (open: boolean) => void;
   secret: Secret | null;
   onConfirm: () => void;
+  /** The delete is in flight: a second click would send a second request. */
+  isDeleting?: boolean;
 }
 
 export const DeleteSecretDialog: React.FC<DeleteSecretDialogProps> = ({
   open,
   onOpenChange,
   secret,
-  onConfirm
+  onConfirm,
+  isDeleting = false
 }) => {
   if (!secret) {
     return null;
@@ -71,7 +74,7 @@ export const DeleteSecretDialog: React.FC<DeleteSecretDialogProps> = ({
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant='destructive' onClick={onConfirm}>
+          <Button variant='destructive' onClick={onConfirm} disabled={isDeleting}>
             Delete Secret
           </Button>
         </DialogFooter>

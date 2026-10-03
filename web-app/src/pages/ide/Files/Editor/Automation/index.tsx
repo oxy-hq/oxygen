@@ -2,11 +2,7 @@ import { debounce } from "lodash";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import YAML from "yaml";
-import {
-  AutomationForm,
-  type AutomationFormData,
-  type TaskFormData
-} from "@/components/automation/AutomationForm";
+import { AutomationForm, type AutomationFormData } from "@/components/automation/AutomationForm";
 import { useFileEditorContext } from "@/components/FileEditor/useFileEditorContext";
 import { Automation } from "@/pages/automation";
 import { useFilesContext } from "../../FilesContext";
@@ -16,6 +12,7 @@ import { useEditorContext } from "../contexts/useEditorContext";
 import { usePreviewRefresh } from "../usePreviewRefresh";
 import ModeSwitcher from "./components/ModeSwitcher";
 import { AutomationViewMode } from "./components/types";
+import { formDataToYaml, yamlToFormData } from "./formYaml";
 
 const AutomationEditor = () => {
   const { pathb64, gitEnabled } = useEditorContext();
@@ -54,71 +51,32 @@ const AutomationEditor = () => {
 };
 export default AutomationEditor;
 
-// Convert filters from YAML map {key: value} to form array [{key, value}]
-const filtersMapToArray = (filters: unknown): Array<{ key: string; value: string }> | undefined => {
-  if (!filters || typeof filters !== "object" || Array.isArray(filters)) return undefined;
-  return Object.entries(filters as Record<string, string>).map(([key, value]) => ({
-    key,
-    value
-  }));
-};
-
-// Convert filters from form array [{key, value}] to YAML map {key: value}
-const filtersArrayToMap = (filters: unknown): Record<string, string> | undefined => {
-  if (!Array.isArray(filters) || filters.length === 0) return undefined;
-  const map: Record<string, string> = {};
-  for (const f of filters as Array<{ key?: string; value?: string }>) {
-    if (f.key) map[f.key] = f.value ?? "";
-  }
-  return Object.keys(map).length > 0 ? map : undefined;
-};
-
-const transformTasksForForm = (tasks: TaskFormData[]): TaskFormData[] =>
-  tasks.map((task) => {
-    const converted = filtersMapToArray(task.filters);
-    return converted !== undefined ? { ...task, filters: converted } : task;
-  });
-
-const transformTasksForYaml = (tasks: TaskFormData[]): TaskFormData[] =>
-  tasks.map((task) => {
-    const converted = filtersArrayToMap(task.filters);
-    return { ...task, filters: converted };
-  });
-
 const AutomationFormWrapper = () => {
   const { state, actions } = useFileEditorContext();
 
   const content = state.content;
 
-  const data = useMemo(() => {
+  const parsed = useMemo(() => {
     try {
       if (!content) return undefined;
-      const parsed = YAML.parse(content) as Partial<AutomationFormData>;
-      return {
-        ...parsed,
-        tasks: Array.isArray(parsed.tasks) ? transformTasksForForm(parsed.tasks) : parsed.tasks,
-        variables:
-          parsed.variables && typeof parsed.variables === "object"
-            ? JSON.stringify(parsed.variables, null, 2)
-            : parsed.variables?.toString() || ""
-      };
+      // A file of only comments parses to null; the form still opens on it.
+      return (YAML.parse(content) ?? {}) as Record<string, unknown>;
     } catch (error) {
       console.error("Failed to parse YAML content to form data:", error);
       return undefined;
     }
   }, [content]);
 
+  const data = useMemo(
+    () => (parsed ? yamlToFormData(parsed as Partial<AutomationFormData>) : undefined),
+    [parsed]
+  );
+
   const onChange = useMemo(
     () =>
       debounce((formData: AutomationFormData) => {
         try {
-          const prepared = {
-            ...formData,
-            tasks: Array.isArray(formData.tasks)
-              ? transformTasksForYaml(formData.tasks)
-              : formData.tasks
-          };
-          const yamlContent = YAML.stringify(prepared, {
+          const yamlContent = YAML.stringify(formDataToYaml(formData, parsed), {
             indent: 2,
             lineWidth: 0
           });
@@ -127,7 +85,7 @@ const AutomationFormWrapper = () => {
           console.error("Failed to serialize form data to YAML:", error);
         }
       }, 500),
-    [actions]
+    [actions, parsed]
   );
 
   if (!data) return null;

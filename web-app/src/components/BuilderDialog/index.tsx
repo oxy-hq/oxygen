@@ -66,12 +66,7 @@ export function BuilderDialog() {
     };
   }, []);
 
-  const {
-    isAvailable,
-    isLoading: isCheckingBuilder,
-    isBuiltin,
-    builderPath
-  } = useBuilderAvailable();
+  const { isAvailable, isLoading: isCheckingBuilder, isBuiltin } = useBuilderAvailable();
 
   useEffect(() => {
     if (isOpen && !isCheckingBuilder && !isBuiltin) {
@@ -250,23 +245,14 @@ export function BuilderDialog() {
     for (const [displayName, filePath] of mentions) {
       input = input.replaceAll(`@${displayName}`, `<@${filePath}|${displayName}>`);
     }
-    const title = getShortTitle(message);
-
-    if (isBuiltin) {
-      createThread({
-        title,
-        source: "__builder__",
-        source_type: "analytics",
-        input
-      });
-    } else {
-      createThread({
-        title,
-        source: builderPath,
-        source_type: "task",
-        input
-      });
-    }
+    // Available means the built-in builder with a model (check_builder_availability), and
+    // its threads are analytics threads run by `__builder__`.
+    createThread({
+      title: getShortTitle(message),
+      source: "__builder__",
+      source_type: "analytics",
+      input
+    });
   };
 
   const handleOpenChange = (open: boolean) => {

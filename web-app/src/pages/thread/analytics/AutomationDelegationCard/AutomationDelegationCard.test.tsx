@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AutomationItem } from "@/hooks/analyticsSteps";
@@ -52,6 +52,21 @@ describe("AutomationDelegationCard", () => {
     const btn = container.querySelector("[data-testid='view-details-button']") as HTMLElement;
     fireEvent.click(btn);
     expect(handler).toHaveBeenCalledWith(item);
+  });
+
+  it("says on View details whether the run's panel is open, when told", () => {
+    const { container, rerender } = render(
+      <AutomationDelegationCard item={makeItem()} onSelect={vi.fn()} pressed={true} />
+    );
+    const btn = within(container).getByTestId("view-details-button");
+    expect(btn).toHaveAttribute("aria-pressed", "true");
+
+    rerender(<AutomationDelegationCard item={makeItem()} onSelect={vi.fn()} pressed={false} />);
+    expect(btn).toHaveAttribute("aria-pressed", "false");
+
+    // A host that tracks no selection claims no state.
+    rerender(<AutomationDelegationCard item={makeItem()} onSelect={vi.fn()} />);
+    expect(btn).not.toHaveAttribute("aria-pressed");
   });
 
   it("shows spinner when streaming", () => {

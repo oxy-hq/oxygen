@@ -17,6 +17,14 @@ import type {
 } from "@/types/apps";
 import { apiClient } from "./axios";
 
+/** What setting an app secret did: stored a key the app did not have, or
+ *  replaced the value of one it did. */
+export type AppSecretWrite = "created" | "updated";
+
+/** The set endpoint is an upsert and says which in its status: 201 for a new
+ *  key, 204 for a replaced value. */
+const appSecretWrite = (status: number): AppSecretWrite => (status === 201 ? "created" : "updated");
+
 /**
  * Customer-apps registry — gated by OXY_GLOBAL_ADMINS on the server. CRUD is
  * uuid-keyed (internal callers always know the uuid); sync uses the pretty
@@ -203,8 +211,9 @@ export const CustomAppsService = {
 
   /** Create or rotate one key. The only write path there is — the project
    *  secrets API rejects the `/` in an app-scoped name. */
-  async setSecret(id: string, key: string, value: string): Promise<void> {
-    await apiClient.post(`/customer-apps/${id}/secrets`, { key, value });
+  async setSecret(id: string, key: string, value: string): Promise<AppSecretWrite> {
+    const response = await apiClient.post(`/customer-apps/${id}/secrets`, { key, value });
+    return appSecretWrite(response.status);
   },
 
   async deleteSecret(id: string, key: string): Promise<void> {
@@ -221,8 +230,12 @@ export const CustomAppsService = {
     appId: string,
     key: string,
     value: string
-  ): Promise<void> {
-    await apiClient.post(`/${workspaceId}/custom-apps/${appId}/secrets`, { key, value });
+  ): Promise<AppSecretWrite> {
+    const response = await apiClient.post(`/${workspaceId}/custom-apps/${appId}/secrets`, {
+      key,
+      value
+    });
+    return appSecretWrite(response.status);
   },
 
   /** Read one value back. Deliberately not a query — a decrypted secret should

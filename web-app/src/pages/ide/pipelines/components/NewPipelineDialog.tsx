@@ -19,6 +19,7 @@ import useDatabases from "@/hooks/api/databases/useDatabases";
 import useCreateFile from "@/hooks/api/files/useCreateFile";
 import useSaveFile from "@/hooks/api/files/useSaveFile";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { apiErrorMessage } from "@/libs/apiError";
 import { encodeBase64 } from "@/libs/encoding";
 import { cn } from "@/libs/shadcn/utils";
 import ROUTES from "@/libs/utils/routes";
@@ -152,6 +153,9 @@ const NewPipelineDialog: React.FC<NewPipelineDialogProps> = ({
     }
 
     setCreating(true);
+    // A secret that fails to store is reported by `useCreateSecret` ("Failed to
+    // create secret"); only a failure after that is the dialog's to report.
+    let secretsStored = false;
     try {
       const trimmed = name.trim();
 
@@ -166,6 +170,7 @@ const NewPipelineDialog: React.FC<NewPipelineDialogProps> = ({
       // QuickBooks secrets (client secret + rotating refresh token) are
       // stored by the OAuth Connect flow (authorize + callback upserts), so
       // there's nothing to create here.
+      secretsStored = true;
 
       const path = `pipelines/${trimmed}.airway.yml`;
       const pathb64 = encodeBase64(path);
@@ -193,9 +198,11 @@ const NewPipelineDialog: React.FC<NewPipelineDialogProps> = ({
       // Open the YAML editor so the user fills in credentials/endpoints.
       navigate(ROUTES.ORG(orgSlug).WORKSPACE(project.id).IDE.FILES.FILE(pathb64));
     } catch (err) {
-      toast.error("Failed to create pipeline", {
-        description: err instanceof Error ? err.message : "There was a problem creating the file."
-      });
+      if (secretsStored) {
+        toast.error("Failed to create pipeline", {
+          description: apiErrorMessage(err, "There was a problem creating the file.")
+        });
+      }
       console.error("create pipeline failed:", err);
     } finally {
       setCreating(false);

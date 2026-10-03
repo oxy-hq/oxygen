@@ -14,9 +14,28 @@ import {
 const elk = new ELK();
 
 export const createElkLayout = async (nodes: Node[], edges: Edge[]): Promise<Node[]> => {
+  warnOfDanglingEdges(nodes, edges);
   const elkGraph = createElkGraph(nodes, edges);
   const layout = await elk.layout(elkGraph);
   return extractLayoutedNodes(layout, nodes);
+};
+
+/**
+ * `buildElkNodes` lays out an edge only where both its ends are, so an edge to a
+ * node that does not exist is left out: ELK would reject the whole graph over
+ * it. Such an edge is a bug in whatever built the graph, and left out silently
+ * one hid the conditional branches' broken edges for months. Say so, once.
+ */
+const warnOfDanglingEdges = (nodes: Node[], edges: Edge[]) => {
+  const ids = new Set(nodes.map((node) => node.id));
+  const dangling = edges
+    .filter((edge) => !ids.has(edge.source) || !ids.has(edge.target))
+    .map((edge) => edge.id);
+  if (dangling.length === 0) return;
+  console.warn(
+    `Automation diagram: left out ${dangling.length} edge(s) to a node that does not exist: ` +
+      dangling.join(", ")
+  );
 };
 
 const createElkGraph = (nodes: Node[], edges: Edge[]) => {

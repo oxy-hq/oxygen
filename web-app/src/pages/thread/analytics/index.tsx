@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode, RefObject } from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DisplayBlock } from "@/components/AppPreview/Displays";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BuilderMessageInput from "@/components/BuilderMessageInput";
 import ThinkingModeMenu from "@/components/Chat/ChatPanel/ThinkingModeMenu";
 import Markdown from "@/components/Markdown";
@@ -49,11 +48,11 @@ import type {
 } from "@/services/api/analytics";
 import { AnalyticsService } from "@/services/api/analytics";
 import { consumePendingThinkingMode } from "@/stores/analyticsThinkingMode";
-import type { DataContainer, Display } from "@/types/app";
 import type { ThreadItem } from "@/types/chat";
 import AcceptedChangePills from "./AcceptedChangePills";
 import AnalyticsArtifactSidebar from "./AnalyticsArtifactSidebar";
 import AnalyticsReasoningTrace from "./AnalyticsReasoningTrace";
+import { AnalyticsDisplayBlockItem } from "./analyticsArtifactHelpers";
 import BuilderActivityPanel from "./BuilderActivityPanel";
 import BuilderDelegationPanel from "./BuilderDelegationPanel";
 import { parseFileChange } from "./FileChangeDiff";
@@ -62,79 +61,17 @@ import Header from "./Header";
 import MessageInputShell from "./MessageInputShell";
 import SuspensionPrompt from "./SuspensionPrompt";
 
-/** The fixed key used as the data reference inside agentic Display configs. */
-const AGENTIC_DATA_KEY = "__agentic_result__";
-
 /** Answer text the backend interprets as an approval for proposed changes. */
 const ACCEPT_ANSWER = "Accept";
 
 /**
- * Convert an AnalyticsDisplayBlock into a (Display, DataContainer) pair
- * compatible with the existing <DisplayBlock> component.
- *
- * The inline columns+rows are converted to row-oriented JSON objects and
- * embedded as `TableData.json` under AGENTIC_DATA_KEY, matching the format
- * expected by registerFromTableData → DuckDB WASM.
+ * A trace artifact open in the sidebar and the run it came from. Trace item ids restart
+ * at 0 in every run, so the run id is what tells two runs' pills apart.
  */
-function toDisplayProps(
-  block: AnalyticsDisplayBlock,
-  index: number,
-  runId: string
-): { display: Display; data: DataContainer } {
-  const { config, columns, rows } = block;
+type ArtifactSelection = { runId: string; item: ArtifactItem | SqlItem | AutomationItem };
 
-  // Row-oriented JSON: [{col1: val1, col2: val2}, ...]
-  const json = JSON.stringify(
-    rows.map((row) => Object.fromEntries(columns.map((col, i) => [col, row[i]])))
-  );
-  const dataKey = `${AGENTIC_DATA_KEY}_${runId}_${index}`;
-  const data: DataContainer = { [dataKey]: { file_path: dataKey, json } };
-
-  let display: Display;
-  const ct = config.chart_type;
-  if (ct === "line_chart") {
-    display = {
-      type: "line_chart",
-      x: config.x ?? columns[0] ?? "",
-      y: config.y ?? columns[1] ?? "",
-      data: dataKey,
-      series: config.series,
-      title: config.title,
-      xAxisTitle: config.x_axis_label,
-      yAxisTitle: config.y_axis_label
-    };
-  } else if (ct === "bar_chart") {
-    display = {
-      type: "bar_chart",
-      x: config.x ?? columns[0] ?? "",
-      y: config.y ?? columns[1] ?? "",
-      data: dataKey,
-      series: config.series,
-      title: config.title
-    };
-  } else if (ct === "pie_chart") {
-    display = {
-      type: "pie_chart",
-      name: config.name ?? columns[0] ?? "",
-      value: config.value ?? columns[1] ?? "",
-      data: dataKey,
-      title: config.title
-    };
-  } else {
-    // table or unknown — fall back to table
-    display = { type: "table", data: dataKey, title: config.title };
-  }
-
-  return { display, data };
-}
-
-/** Stable wrapper so parent re-renders don't recreate display/data objects. */
-const AnalyticsDisplayBlockItem = memo(
-  ({ block, index, runId }: { block: AnalyticsDisplayBlock; index: number; runId: string }) => {
-    const { display, data } = toDisplayProps(block, index, runId);
-    return <DisplayBlock display={display} data={data} />;
-  }
-);
+/** For a run entry with no events yet: its trace has no pills to pick. */
+const NO_PILLS = () => undefined;
 
 interface Props {
   thread: ThreadItem;
@@ -186,6 +123,8 @@ interface RunEntryProps {
   isRunning: boolean;
   isBuilder?: boolean;
   onSelectArtifact: (item: SelectableItem) => void;
+  /** Whether this run's trace item is the one on screen — its pill's pressed state. */
+  isSelected?: (item: SelectableItem) => boolean;
   acceptedChanges?: BuilderFileChange[];
   onSelectChange?: (change: BuilderFileChange) => void;
   selectedChangeId?: string;
@@ -198,6 +137,7 @@ const RunEntry = ({
   isRunning,
   isBuilder,
   onSelectArtifact,
+  isSelected,
   acceptedChanges,
   onSelectChange,
   selectedChangeId,
@@ -213,6 +153,7 @@ const RunEntry = ({
           events={events}
           isRunning={isRunning}
           onSelectArtifact={onSelectArtifact}
+          isSelected={isSelected}
         />
       </div>
     )}
@@ -232,16 +173,14 @@ const RunEntry = ({
 const PastRunEntry = ({
   run,
   onSelectArtifact,
+  isSelected,
   onSelectChange,
   selectedChangeId,
   capturedChanges
 }: {
   run: AnalyticsRunSummary;
-  onSelectArtifact: (
-    item: SelectableItem,
-    blocks: AnalyticsDisplayBlock[],
-    runEvents: SseEvent[]
-  ) => void;
+  onSelectArtifact: (item: SelectableItem, runId: string, blocks: AnalyticsDisplayBlock[]) => void;
+  isSelected: (runId: string, item: SelectableItem) => boolean;
   onSelectChange?: (change: BuilderFileChange) => void;
   selectedChangeId?: string;
   capturedChanges?: BuilderFileChange[];
@@ -304,7 +243,8 @@ const PastRunEntry = ({
       events={run.ui_events ?? []}
       isRunning={false}
       isBuilder={isBuilder}
-      onSelectArtifact={(item) => onSelectArtifact(item, runBlocks, runSseEvents)}
+      onSelectArtifact={(item) => onSelectArtifact(item, run.run_id, runBlocks)}
+      isSelected={(item) => isSelected(run.run_id, item)}
       acceptedChanges={acceptedChanges}
       onSelectChange={onSelectChange}
       selectedChangeId={selectedChangeId}
@@ -347,10 +287,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [followUpQuestion, setFollowUpQuestion] = useState("");
-  const [selectedArtifact, setSelectedArtifact] = useState<
-    ArtifactItem | SqlItem | AutomationItem | null
-  >(null);
-  const [selectedRunEvents, setSelectedRunEvents] = useState<SseEvent[]>([]);
+  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactSelection | null>(null);
   const [activeQuestion, setActiveQuestion] = useState<string | null>(null);
   const [builderPanelOpen, setBuilderPanelOpen] = useState(false);
   const [changeDecisions, setChangeDecisions] = useState<Map<number, "accepted" | "rejected">>(
@@ -426,13 +363,11 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
   }, [latestRun, state.tag, reconnect]);
 
   // When a run reaches a terminal state, invalidate allRuns so the completed run
-  // appears with its ui_events on the next render. Also freeze the SSE events so
-  // the sidebar keeps its state after reset() clears the run from memory.
+  // appears with its ui_events on the next render.
   const isTerminal = state.tag === "done" || state.tag === "failed" || state.tag === "cancelled";
   useEffect(() => {
     if (!isTerminal) return;
     const s = stateRef.current;
-    if ("events" in s) setSelectedRunEvents(s.events);
     // Capture accepted changes before streamingEvents clears on reset(), so
     // PastRunEntry can still show pills after the live→history transition.
     if ("runId" in s && s.runId) {
@@ -495,17 +430,10 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
     if (state.tag === "idle") setActiveQuestion(null);
   }, [state.tag]);
 
-  // Reset run state and sidebar selection when navigating to a different thread.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on thread change
-  useEffect(() => {
-    reset();
-    setSelectedArtifact(null);
-    setSelectedRunEvents([]);
-    hasSyncedThinkingMode.current = false;
-  }, [thread.id]);
-
   // Restore the thinking mode from the most recent run once the run list loads.
   // Only syncs once per thread so the user's in-session selection isn't overridden.
+  // Once per mount is once per thread: the thread page keys this component by thread
+  // id, so another thread is a fresh mount and nothing here resets on a thread change.
   useEffect(() => {
     if (hasSyncedThinkingMode.current || isLookingUp || isFetchingRuns) return;
     hasSyncedThinkingMode.current = true;
@@ -686,23 +614,51 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
     }
   }, [liveAcceptedChanges, selectedFileChange]);
 
+  // The events of the run the open artifact came from: the live stream while that run is
+  // the live one, else the run list's copy. Another run's events would show that run's
+  // chart (event seqs restart in every run) and its automation step statuses.
+  const selectedRunEvents = useMemo((): SseEvent[] => {
+    if (!selectedArtifact) return [];
+    if ("events" in state && state.runId === selectedArtifact.runId) return state.events;
+    const run = allRuns.find((r) => r.run_id === selectedArtifact.runId);
+    return run?.ui_events?.map(uiBlockToSseEvent) ?? [];
+  }, [selectedArtifact, state, allRuns]);
+
+  // Selecting a delegation or a file change clears the artifact, so the builder panel is
+  // the only one that can cover it.
+  const artifactShown = selectedArtifact !== null && !(isBuilder && builderPanelOpen);
+
+  // Whether a trace item's panel is the one on screen: the pill's pressed state, and what
+  // a click on it reverses. A delegation's panel is never covered; an artifact the builder
+  // panel covers reads as not on screen, so its pill brings it back rather than closing it.
+  const isOnScreen = useCallback(
+    (runId: string, item: SelectableItem) =>
+      item.kind === "builder_delegation"
+        ? selectedDelegation?.childRunId === item.childRunId
+        : artifactShown &&
+          selectedArtifact?.runId === runId &&
+          selectedArtifact.item.id === item.id,
+    [selectedDelegation, artifactShown, selectedArtifact]
+  );
+
+  // Re-clicking the pill of what is on screen closes it, as a file-change pill does.
   const handleSelectArtifact = useCallback(
-    (item: SelectableItem, blocks: AnalyticsDisplayBlock[] = [], runEvents: SseEvent[] = []) => {
+    (item: SelectableItem, runId: string, blocks: AnalyticsDisplayBlock[] = []) => {
+      const isOpen = isOnScreen(runId, item);
       if (item.kind === "builder_delegation") {
-        setSelectedDelegation(item);
+        setSelectedDelegation(isOpen ? null : item);
         setSelectedArtifact(null);
         setSelectedFileChange(null);
         setBuilderPanelOpen(false);
         return;
       }
       setSelectedDelegation(null);
-      setSelectedArtifact(item);
+      setSelectedArtifact(isOpen ? null : { runId, item });
       setSelectedDisplayBlocks(blocks);
       setSelectedFileChange(null);
       setBuilderPanelOpen(false);
-      if (runEvents.length > 0) setSelectedRunEvents(runEvents);
     },
-    []
+    [isOnScreen]
   );
 
   return (
@@ -739,6 +695,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     key={run.run_id}
                     run={run}
                     onSelectArtifact={handleSelectArtifact}
+                    isSelected={isOnScreen}
                     onSelectChange={handleSelectFileChange}
                     selectedChangeId={selectedFileChange?.id}
                     capturedChanges={capturedRunChanges.get(run.run_id)}
@@ -750,7 +707,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     question={question}
                     events={[]}
                     isRunning={true}
-                    onSelectArtifact={handleSelectArtifact}
+                    onSelectArtifact={NO_PILLS}
                   />
                 )}
 
@@ -759,7 +716,7 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     question={question}
                     events={[]}
                     isRunning={false}
-                    onSelectArtifact={handleSelectArtifact}
+                    onSelectArtifact={NO_PILLS}
                   >
                     <ErrorAlert
                       title="The Builder Agent didn't start"
@@ -779,8 +736,13 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
                     isRunning={isStreaming}
                     isBuilder={isBuilder}
                     onSelectArtifact={(item) =>
-                      handleSelectArtifact(item, state.tag === "done" ? state.displayBlocks : [])
+                      handleSelectArtifact(
+                        item,
+                        currentRunId ?? "",
+                        state.tag === "done" ? state.displayBlocks : []
+                      )
                     }
+                    isSelected={(item) => isOnScreen(currentRunId ?? "", item)}
                     acceptedChanges={liveAcceptedChanges}
                     onSelectChange={handleSelectFileChange}
                     selectedChangeId={selectedFileChange?.id}
@@ -933,10 +895,10 @@ const AnalyticsThread = ({ thread, hideHeader }: Props) => {
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={20} maxSize={70}>
                 <AnalyticsArtifactSidebar
-                  item={selectedArtifact}
+                  item={selectedArtifact.item}
                   displayBlocks={selectedDisplayBlocks}
-                  runEvents={"events" in state ? state.events : selectedRunEvents}
-                  isRunning={isStreaming}
+                  runEvents={selectedRunEvents}
+                  isRunning={isStreaming && selectedArtifact.runId === currentRunId}
                   onClose={() => setSelectedArtifact(null)}
                 />
               </ResizablePanel>

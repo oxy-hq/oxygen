@@ -149,6 +149,8 @@ interface ArtifactPillProps {
   isPreagg?: boolean;
   onClick: () => void;
   variant?: "default" | "builder";
+  /** Whether the pill's panel is open; undefined when the host tracks no selection. */
+  pressed?: boolean;
 }
 
 const ArtifactPill = ({
@@ -158,7 +160,8 @@ const ArtifactPill = ({
   verifiedTooltip = VERIFIED_TOOLTIP,
   isPreagg,
   onClick,
-  variant = "default"
+  variant = "default",
+  pressed
 }: ArtifactPillProps) => {
   const pill = (
     <button
@@ -167,13 +170,12 @@ const ArtifactPill = ({
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "")}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
+      aria-pressed={pressed}
+      onClick={onClick}
       className={cn(
         verified ? VERIFIED_PILL_CLASS : PILL_CLASS,
-        variant === "builder" && "text-oxy-blue-600 hover:text-oxy-blue-700"
+        variant === "builder" && "text-oxy-blue-600 hover:text-oxy-blue-700",
+        pressed && "bg-primary/10 text-primary hover:text-primary"
       )}
     >
       <Icon className='h-3 w-3 shrink-0' />
@@ -717,18 +719,20 @@ function getToolDisplay(item: ArtifactItem): ToolDisplay {
   }
 }
 
-const ArtifactChild = ({
-  item,
-  onSelect
-}: {
-  item: ArtifactItem;
+/** An expanded step's row for an item a pill also opens; same toggle, same pressed state. */
+type ChildRowProps<T> = {
+  item: T;
   onSelect: (item: SelectableItem) => void;
-}) => {
+  pressed?: boolean;
+};
+
+const ArtifactChild = ({ item, onSelect, pressed }: ChildRowProps<ArtifactItem>) => {
   const { Icon, label, preview, isError } = getToolDisplay(item);
 
   return (
     <button
       type='button'
+      aria-pressed={pressed}
       onClick={() => onSelect(item)}
       className='flex w-full items-center gap-1.5 py-0.5 text-left transition-opacity hover:opacity-70'
     >
@@ -760,13 +764,7 @@ const ArtifactChild = ({
   );
 };
 
-const SqlChild = ({
-  item,
-  onSelect
-}: {
-  item: SqlItem;
-  onSelect: (item: SelectableItem) => void;
-}) => {
+const SqlChild = ({ item, onSelect, pressed }: ChildRowProps<SqlItem>) => {
   const isSemantic = item.source === "semantic";
   const isVerifiedSqlFile = item.source === "verified_sql";
   const verified = isSemantic || isVerifiedSqlFile;
@@ -776,6 +774,7 @@ const SqlChild = ({
   return (
     <button
       type='button'
+      aria-pressed={pressed}
       onClick={() => onSelect(item)}
       className='flex w-full items-center gap-1.5 py-0.5 text-left transition-opacity hover:opacity-70'
     >
@@ -820,15 +819,10 @@ const SqlChild = ({
   );
 };
 
-const AutomationChild = ({
-  item,
-  onSelect
-}: {
-  item: AutomationItem;
-  onSelect: (item: SelectableItem) => void;
-}) => (
+const AutomationChild = ({ item, onSelect, pressed }: ChildRowProps<AutomationItem>) => (
   <button
     type='button'
+    aria-pressed={pressed}
     onClick={() => onSelect(item)}
     className='flex w-full items-center gap-1.5 py-0.5 text-left transition-opacity hover:opacity-70'
   >
@@ -903,12 +897,20 @@ function collectPills(items: TraceItem[]): PillInfo[] {
 interface AnalyticsStepRowProps {
   step: AnalyticsStep;
   onSelectArtifact: (item: SelectableItem) => void;
+  /** Whether an item's panel is open, for hosts where picking an item toggles its panel;
+   *  shown as the pressed state of its pill and row. Omitted, they carry no state. */
+  isSelected?: (item: SelectableItem) => boolean;
   /** When true, render without the bordered/bg card styling so the row blends
    *  into a flat container (used by the onboarding BuildJobsPanel). */
   flat?: boolean;
 }
 
-const AnalyticsStepRow = ({ step, onSelectArtifact, flat = false }: AnalyticsStepRowProps) => {
+const AnalyticsStepRow = ({
+  step,
+  onSelectArtifact,
+  isSelected,
+  flat = false
+}: AnalyticsStepRowProps) => {
   const [expanded, setExpanded] = useState(step.isStreaming);
   const colors = stepColors(step.label);
   const isRunning = step.isStreaming;
@@ -918,83 +920,90 @@ const AnalyticsStepRow = ({ step, onSelectArtifact, flat = false }: AnalyticsSte
 
   return (
     <div>
-      <button
-        type='button'
-        onClick={() => setExpanded((v) => !v)}
-        className='w-full cursor-pointer text-left'
+      {/* The header's toggle and the pills are siblings, never nested: a button inside a
+          button is invalid HTML, and assistive tech reads the pair as one control. */}
+      <div
+        className={cn(
+          "transition-all duration-200",
+          !flat &&
+            cn(
+              "rounded-md border",
+              isRunning
+                ? cn("border-l-2", colors.border, "bg-secondary/80")
+                : "border-transparent hover:bg-muted dark:hover:bg-muted/50"
+            )
+        )}
       >
-        <div
+        <button
+          type='button'
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
           className={cn(
-            "transition-all duration-200",
-            flat
-              ? "py-0.5"
-              : cn(
-                  "cursor-pointer rounded-md border px-3 py-1.5",
-                  isRunning
-                    ? cn("border-l-2", colors.border, "bg-secondary/80")
-                    : "border-transparent hover:bg-muted dark:hover:bg-muted/50"
-                )
+            "flex w-full cursor-pointer items-center gap-2 text-left",
+            flat ? cn("pt-0.5", pills.length > 0 ? "pb-1.5" : "pb-0.5") : "px-3 py-1.5"
           )}
         >
-          <div className='flex items-center gap-2'>
-            <div
-              className={cn(
-                "h-1.5 w-1.5 shrink-0 rounded-full transition-all duration-200",
-                colors.dot,
-                isRunning && "animate-pulse",
-                !isRunning && "opacity-30"
-              )}
-            />
-            <div className='flex min-w-0 flex-1 flex-col'>
-              <span
-                className={cn(
-                  "break-words text-sm transition-colors duration-200",
-                  isRunning ? "text-foreground" : "text-muted-foreground"
-                )}
-              >
-                {step.summary || step.label}
-              </span>
-            </div>
-            {isRunning && <Loader2 className='h-3 w-3 shrink-0 animate-spin text-info' />}
-            {isDone && <Check className='h-3 w-3 shrink-0 text-status-success-text' />}
-            {hasError && (
-              <span className='shrink-0 font-medium text-destructive text-xs'>Error</span>
+          <div
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full transition-all duration-200",
+              colors.dot,
+              isRunning && "animate-pulse",
+              !isRunning && "opacity-30"
             )}
-            {isDone && step.llmUsage && (
-              <Tooltip>
-                <TooltipTrigger asChild onClick={(e) => e.stopPropagation()}>
-                  <Info className='h-3 w-3 shrink-0 cursor-pointer text-muted-foreground/50 hover:text-muted-foreground' />
-                </TooltipTrigger>
-                <TooltipContent side='left' className='max-w-xs'>
-                  <LlmUsageTooltip usage={step.llmUsage} />
-                </TooltipContent>
-              </Tooltip>
-            )}
-            <ChevronRight
+          />
+          <div className='flex min-w-0 flex-1 flex-col'>
+            <span
               className={cn(
-                "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-                expanded && "rotate-90"
+                "break-words text-sm transition-colors duration-200",
+                isRunning ? "text-foreground" : "text-muted-foreground"
               )}
-            />
+            >
+              {step.summary || step.label}
+            </span>
           </div>
-          {pills.length > 0 && (
-            <div className='mt-1.5 flex flex-wrap items-center gap-1 pl-3.5'>
-              {pills.map((pill) => (
-                <ArtifactPill
-                  key={pill.id}
-                  icon={pill.icon}
-                  label={pill.label}
-                  verified={pill.verified}
-                  verifiedTooltip={pill.verifiedTooltip}
-                  isPreagg={pill.isPreagg}
-                  onClick={() => onSelectArtifact(pill.item)}
-                  variant={pill.variant}
-                />
-              ))}
-            </div>
+          {isRunning && <Loader2 className='h-3 w-3 shrink-0 animate-spin text-info' />}
+          {isDone && <Check className='h-3 w-3 shrink-0 text-status-success-text' />}
+          {hasError && <span className='shrink-0 font-medium text-destructive text-xs'>Error</span>}
+          {isDone && step.llmUsage && (
+            <Tooltip>
+              <TooltipTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <Info className='h-3 w-3 shrink-0 cursor-pointer text-muted-foreground/50 hover:text-muted-foreground' />
+              </TooltipTrigger>
+              <TooltipContent side='left' className='max-w-xs'>
+                <LlmUsageTooltip usage={step.llmUsage} />
+              </TooltipContent>
+            </Tooltip>
           )}
-        </div>
-      </button>
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-90"
+            )}
+          />
+        </button>
+        {pills.length > 0 && (
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-1 pl-3.5",
+              flat ? "pb-0.5" : "mx-3 mb-1.5"
+            )}
+          >
+            {pills.map((pill) => (
+              <ArtifactPill
+                key={pill.id}
+                icon={pill.icon}
+                label={pill.label}
+                verified={pill.verified}
+                verifiedTooltip={pill.verifiedTooltip}
+                isPreagg={pill.isPreagg}
+                onClick={() => onSelectArtifact(pill.item)}
+                variant={pill.variant}
+                pressed={isSelected?.(pill.item)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <div
         className={cn(
@@ -1008,18 +1017,47 @@ const AnalyticsStepRow = ({ step, onSelectArtifact, flat = false }: AnalyticsSte
               if (item.kind === "thinking")
                 return <ThinkingChild key={item.id} item={item} border={colors.border} />;
               if (item.kind === "artifact")
-                return <ArtifactChild key={item.id} item={item} onSelect={onSelectArtifact} />;
+                return (
+                  <ArtifactChild
+                    key={item.id}
+                    item={item}
+                    onSelect={onSelectArtifact}
+                    pressed={isSelected?.(item)}
+                  />
+                );
               if (item.kind === "sql")
-                return <SqlChild key={item.id} item={item} onSelect={onSelectArtifact} />;
+                return (
+                  <SqlChild
+                    key={item.id}
+                    item={item}
+                    onSelect={onSelectArtifact}
+                    pressed={isSelected?.(item)}
+                  />
+                );
               if (item.kind === "automation")
                 return item.isStreaming ? (
-                  <AutomationDelegationCard key={item.id} item={item} onSelect={onSelectArtifact} />
+                  <AutomationDelegationCard
+                    key={item.id}
+                    item={item}
+                    onSelect={onSelectArtifact}
+                    pressed={isSelected?.(item)}
+                  />
                 ) : (
-                  <AutomationChild key={item.id} item={item} onSelect={onSelectArtifact} />
+                  <AutomationChild
+                    key={item.id}
+                    item={item}
+                    onSelect={onSelectArtifact}
+                    pressed={isSelected?.(item)}
+                  />
                 );
               if (item.kind === "builder_delegation")
                 return (
-                  <BuilderDelegationCard key={item.id} item={item} onSelect={onSelectArtifact} />
+                  <BuilderDelegationCard
+                    key={item.id}
+                    item={item}
+                    onSelect={onSelectArtifact}
+                    pressed={isSelected?.(item)}
+                  />
                 );
               return <TextChild key={item.id} item={item} />;
             })}

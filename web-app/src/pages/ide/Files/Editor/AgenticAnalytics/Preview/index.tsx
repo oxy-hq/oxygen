@@ -1,22 +1,18 @@
 import { cx } from "class-variance-authority";
 import { ArrowUp, Loader2 } from "lucide-react";
-import { memo, useEffect, useState } from "react";
-import { DisplayBlock } from "@/components/AppPreview/Displays";
+import { useEffect, useState } from "react";
 import Markdown from "@/components/Markdown";
 import EmptyState from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/shadcn/button";
 import { Textarea } from "@/components/ui/shadcn/textarea";
 import type { SelectableItem } from "@/hooks/analyticsSteps";
-import {
-  type AnalyticsDisplayBlock,
-  sseEventToUiBlock,
-  useAnalyticsRun
-} from "@/hooks/useAnalyticsRun";
+import { sseEventToUiBlock, useAnalyticsRun } from "@/hooks/useAnalyticsRun";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { useEnterSubmit } from "@/hooks/useEnterSubmit";
 import { decodeBase64 } from "@/libs/encoding";
 import AnalyticsArtifactSidebar from "@/pages/thread/analytics/AnalyticsArtifactSidebar";
 import AnalyticsReasoningTrace from "@/pages/thread/analytics/AnalyticsReasoningTrace";
+import { AnalyticsDisplayBlockItem } from "@/pages/thread/analytics/analyticsArtifactHelpers";
 import SuspensionPrompt from "@/pages/thread/analytics/SuspensionPrompt";
 import type { UiBlock } from "@/services/api/analytics";
 
@@ -39,57 +35,6 @@ export const getAgentDisplayName = (filePath: string): string =>
     .split("/")
     .at(-1)
     ?.replace(/\.agentic\.(yml|yaml)$/i, "") ?? filePath;
-
-const toDisplayProps = (block: AnalyticsDisplayBlock, index: number, runId: string) => {
-  const { config, columns, rows } = block;
-  const AGENTIC_DATA_KEY = "__agentic_result__";
-  const dataKey = `${AGENTIC_DATA_KEY}_${runId}_${index}`;
-  const json = JSON.stringify(
-    rows.map((row) => Object.fromEntries(columns.map((col, i) => [col, row[i]])))
-  );
-  const data = { [dataKey]: { file_path: dataKey, json } };
-
-  let display: Parameters<typeof DisplayBlock>[0]["display"];
-  const ct = config.chart_type;
-  if (ct === "line_chart") {
-    display = {
-      type: "line_chart",
-      x: config.x ?? columns[0] ?? "",
-      y: config.y ?? columns[1] ?? "",
-      data: dataKey,
-      series: config.series,
-      title: config.title
-    };
-  } else if (ct === "bar_chart") {
-    display = {
-      type: "bar_chart",
-      x: config.x ?? columns[0] ?? "",
-      y: config.y ?? columns[1] ?? "",
-      data: dataKey,
-      series: config.series,
-      title: config.title
-    };
-  } else if (ct === "pie_chart") {
-    display = {
-      type: "pie_chart",
-      name: config.name ?? columns[0] ?? "",
-      value: config.value ?? columns[1] ?? "",
-      data: dataKey,
-      title: config.title
-    };
-  } else {
-    display = { type: "table", data: dataKey, title: config.title };
-  }
-
-  return { display, data };
-};
-
-const AnalyticsDisplayBlockItem = memo(
-  ({ block, index, runId }: { block: AnalyticsDisplayBlock; index: number; runId: string }) => {
-    const { display, data } = toDisplayProps(block, index, runId);
-    return <DisplayBlock display={display} data={data} />;
-  }
-);
 
 interface AgenticAnalyticsPreviewProps {
   pathb64: string;

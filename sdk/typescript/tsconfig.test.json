@@ -1,11 +1,15 @@
-// Test files under `src/`, which the package's own `typecheck` cannot see.
+// The test files under `src/`, checked against the types they exercise.
 //
-// `tsconfig.json` excludes `**/*.test.ts`, `tsdown` builds from the same
-// config, and vitest transpiles without checking — so a checked-in fixture
-// could stop satisfying the interface it is typed against and every gate
-// stayed green. That is not hypothetical: widening `MetricNode.drillable` to
-// required left `custom-app/world-node.test.ts` with four TS2741s and nothing
-// reported them.
+// `tsconfig.json` includes `src/**/*` with no test exclusion (it dropped its
+// `**/*.test.ts` one in #3016), so the package's own `typecheck` sees these
+// files too. What was missing was a gate: vitest transpiles without checking
+// and no CI job ran this package's typecheck, so a checked-in fixture could
+// stop satisfying the interface it is typed against and every gate stayed
+// green. That is not hypothetical: widening `MetricNode.drillable` to required
+// left `custom-app/world-node.test.ts` with four TS2741s and nothing reported
+// them. CI's ratchet runs `typecheck:tests` on this config and counts the test
+// files it resolves against a floor; the `exclude` below is this config's own,
+// so a test exclusion added back to `tsconfig.json` cannot narrow it.
 //
 // Same compiler options as the package: a fixture that type-checks under
 // looser rules than the types it exercises is not checking the same types.

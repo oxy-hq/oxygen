@@ -153,13 +153,7 @@ impl Coordinator {
         let seq = target_node.next_seq;
         target_node.next_seq += 1;
         let run_id = target_node.run_id.clone();
-        let payload = json!({
-            "task_id": task_id,
-            "attempt": attempt,
-            "spec_kind": spec_kind,
-            "step_name": step_name,
-            "error": error,
-        });
+        let payload = task_failed_payload(task_id, attempt, spec_kind, step_name, error);
         if let Err(e) = crud::insert_event(
             &self.db,
             &run_id,
@@ -370,6 +364,28 @@ impl Coordinator {
     }
 }
 
+/// The `task_failed` payload. `ts` is its emit time, in the field and format
+/// (`Utc::now().to_rfc3339()`) the airway worker stamps on its own events: an
+/// airway run that fails before its worker emits anything (secrets, connector
+/// or destination resolution) has this as its only failure event, and the run
+/// timeline reads `ts` to place it.
+fn task_failed_payload(
+    task_id: &str,
+    attempt: u32,
+    spec_kind: Option<String>,
+    step_name: Option<String>,
+    error: &str,
+) -> Value {
+    json!({
+        "task_id": task_id,
+        "attempt": attempt,
+        "spec_kind": spec_kind,
+        "step_name": step_name,
+        "error": error,
+        "ts": chrono::Utc::now().to_rfc3339(),
+    })
+}
+
 /// Pull `step_config["name"]` off a `TaskSpec::AutomationStep` so
 /// `task_failed` can carry the failing step's name. Returns `None` for
 /// every other spec variant — there's no single step name for
@@ -384,5 +400,33 @@ fn automation_step_name(spec: &TaskSpec) -> Option<String> {
             .map(|s| s.to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An airway run that fails before its worker emits anything has
+    /// `task_failed` as its only failure event, and the run timeline reads
+    /// `ts` off it, as it does off the worker's own events.
+    #[test]
+    fn task_failed_is_stamped_with_its_emit_time() {
+        let payload = task_failed_payload(
+            "t-1",
+            2,
+            Some("airway".to_string()),
+            None,
+            "secret not found",
+        );
+        assert_eq!(payload["task_id"], json!("t-1"));
+        assert_eq!(payload["attempt"], json!(2));
+        assert_eq!(payload["spec_kind"], json!("airway"));
+        assert_eq!(payload["step_name"], Value::Null);
+        assert_eq!(payload["error"], json!("secret not found"));
+        let ts = payload["ts"]
+            .as_str()
+            .expect("payload carries a `ts` string");
+        chrono::DateTime::parse_from_rfc3339(ts).expect("`ts` is RFC 3339");
     }
 }

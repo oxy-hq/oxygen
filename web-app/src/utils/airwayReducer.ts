@@ -182,14 +182,6 @@ function upsertChild(view: AirwayRunView, parent: string, table: string): Resour
   return row;
 }
 
-/**
- * Emit timestamp (ISO) the worker stamps on every airway event
- * payload. Read structurally so we don't have to widen all ~20
- * payload variants. Stable across replay (set server-side at emit),
- * so timestamp capture keeps the reducer pure/idempotent.
- */
-const evTs = (e: AirwayEvent): string | undefined => (e.payload as { ts?: string }).ts;
-
 function markResourceFailed(view: AirwayRunView, table: string, error: string): void {
   const row = upsertResource(view, table);
   row.status = "error";
@@ -225,7 +217,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.loadId = ev.payload.load_id;
         view.phase.extract = "active";
         view.status = "running";
-        view.startedAt ??= evTs(ev);
+        view.startedAt ??= ev.payload.ts;
         break;
       }
       case "pipeline_plan": {
@@ -255,7 +247,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.pipelineName = ev.payload.pipeline_name;
         view.phase.extract = "active";
         const row = upsertResource(view, ev.payload.table);
-        row.extractStartedAt ??= evTs(ev);
+        row.extractStartedAt ??= ev.payload.ts;
         // Show the resource as in-flight immediately. Don't downgrade a
         // row that already advanced (a fast resource may complete
         // before every up-front extract_started is reduced).
@@ -275,7 +267,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.pipelineName = ev.payload.pipeline_name;
         const row = upsertResource(view, ev.payload.table);
         row.rowsExtracted = ev.payload.rows_extracted;
-        row.extractEndedAt ??= evTs(ev);
+        row.extractEndedAt ??= ev.payload.ts;
         // Extracted but not yet normalized — still in flight overall.
         if (row.status === "pending" || row.status === "extracting") {
           row.status = "extracting";
@@ -286,7 +278,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.phase.extract = "done";
         view.phase.normalize = "active";
         const row = upsertResource(view, ev.payload.table);
-        row.normalizeStartedAt ??= evTs(ev);
+        row.normalizeStartedAt ??= ev.payload.ts;
         if (row.status !== "error" && row.status !== "done") {
           row.status = "normalizing";
         }
@@ -295,7 +287,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
       case "normalize_completed": {
         const row = upsertResource(view, ev.payload.table);
         row.rowsNormalized = ev.payload.rows_normalized;
-        row.normalizeEndedAt ??= evTs(ev);
+        row.normalizeEndedAt ??= ev.payload.ts;
         row.status = "normalizing";
         view.phase.extract = "done";
         view.phase.normalize = "active";
@@ -325,7 +317,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.phase.normalize = "done";
         view.phase.load = "active";
         const row = upsertResource(view, ev.payload.table);
-        row.loadStartedAt ??= evTs(ev);
+        row.loadStartedAt ??= ev.payload.ts;
         if (row.status !== "error" && row.status !== "done") {
           row.status = "loading";
         }
@@ -347,7 +339,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
       case "table_loaded": {
         const row = upsertResource(view, ev.payload.table);
         row.rowsLoaded = ev.payload.rows;
-        row.loadEndedAt ??= evTs(ev);
+        row.loadEndedAt ??= ev.payload.ts;
         if (row.status !== "error") row.status = "done";
         break;
       }
@@ -366,7 +358,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         view.phase.load = "done";
         view.status = view.failedResources.length > 0 ? "completed_with_errors" : "done";
         view.durationMs = ev.payload.duration_ms;
-        view.endedAt ??= evTs(ev);
+        view.endedAt ??= ev.payload.ts;
         break;
       }
       case "resource_failed": {
@@ -378,12 +370,12 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
         break;
       }
       case "pipeline_error": {
-        markRunFailed(view, ev.payload.error, evTs(ev));
+        markRunFailed(view, ev.payload.error, ev.payload.ts);
         break;
       }
       case "cancelled": {
         view.status = "cancelled";
-        view.endedAt ??= evTs(ev);
+        view.endedAt ??= ev.payload.ts;
         break;
       }
       // Coordinator failed the task before the engine ran (secrets /
@@ -391,7 +383,7 @@ export function reduceAirwayEvents(events: AirwayEvent[]): AirwayRunView {
       // No engine `pipeline_error` is emitted on this path, so without
       // this the run page stays blank on a pre-processing failure.
       case "task_failed": {
-        markRunFailed(view, ev.payload.error, evTs(ev));
+        markRunFailed(view, ev.payload.error, ev.payload.ts);
         break;
       }
     }

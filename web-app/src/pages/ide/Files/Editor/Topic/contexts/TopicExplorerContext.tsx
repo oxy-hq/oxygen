@@ -18,7 +18,6 @@ type TopicExplorerContextType = {
   viewsWithData: ViewWithData[];
   topicLoading: boolean;
   loadingTopicError: string | undefined;
-  refetchTopicDetails: () => void;
 };
 
 const TopicExplorerContext = createContext<TopicExplorerContextType | null>(null);
@@ -33,8 +32,7 @@ const TopicExplorerProviderInner = ({
   const {
     data: topicDetails,
     isLoading: topicLoading,
-    error: loadingTopicError,
-    refetch: refetchTopicDetails
+    error: loadingTopicError
   } = useTopicDetails(pathb64);
 
   const viewsWithData = useMemo<ViewWithData[]>(() => {
@@ -88,14 +86,9 @@ const TopicExplorerProviderInner = ({
       topicData,
       viewsWithData,
       topicLoading,
-      loadingTopicError: loadingTopicError?.message,
-      // TanStack's `refetch` resolves with the error rather than rejecting; a failed
-      // reload surfaces as `loadingTopicError`.
-      refetchTopicDetails: () => {
-        void refetchTopicDetails();
-      }
+      loadingTopicError: loadingTopicError?.message
     }),
-    [topicData, viewsWithData, topicLoading, loadingTopicError, refetchTopicDetails]
+    [topicData, viewsWithData, topicLoading, loadingTopicError]
   );
 
   return (

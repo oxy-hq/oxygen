@@ -280,25 +280,24 @@ function createScope() {
     const step = stack.pop();
     if (!step) return;
     step.isStreaming = false;
+    // `retry` and `backtracked` are a stage that errored and was recovered by diagnose:
+    // the run goes on, to the same stage or an earlier one (agentic-core run_loop.rs).
+    // Only `failed` ends it.
     if (outcome === "suspended") {
       step.suspended = true;
-    } else if (outcome !== "advanced" && outcome !== "retry") {
+    } else if (outcome !== "advanced" && outcome !== "retry" && outcome !== "backtracked") {
       step.error = "Step failed";
     }
     if (metadata && !Array.isArray(metadata)) step.metadata = metadata;
     // Route completed step: if inside a card, push to card.steps; else to result.
+    // Routing is by sub_spec_index alone — the backend tags every step a fan-out
+    // sub-spec runs, so an untagged step is an outer one even while a card is open.
     if (subSpecIndex != null) {
       const entry = activeCards.get(subSpecIndex);
       if (entry) {
         entry.card.steps.push(step);
         return;
       }
-    }
-    // Legacy serial path: single currentCard
-    if (activeCards.size === 0 && savedOuterSteps) {
-      // We're in a serial fan-out (no sub_spec_index routing)
-      // This shouldn't happen in the new concurrent model,
-      // but keep backward compat.
     }
     result.push(step);
   };
@@ -718,7 +717,7 @@ export function buildAnalyticsSteps(events: UiBlock[]): StepOrGroup[] {
         const a = scope.findLastStreaming<ArtifactItem>("artifact", ssi);
         if (a) {
           a.toolOutput = JSON.stringify(ev.payload.output ?? "");
-          a.isError = (ev.payload as { is_error?: boolean }).is_error === true;
+          a.isError = ev.payload.is_error === true;
           a.durationMs = ev.payload.duration_ms;
           a.isStreaming = false;
         }

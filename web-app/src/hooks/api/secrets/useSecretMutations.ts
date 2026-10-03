@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
+import { apiErrorMessage } from "@/libs/apiError";
 import { SecretService } from "@/services/secretService";
 import type {
   CreateSecretRequest,
@@ -13,7 +14,8 @@ import queryKeys from "../queryKey";
 /**
  * Creates one secret and says so. A caller that creates several for one submit
  * passes `toastOnSuccess: false` and reports them together, so the user gets one
- * toast for one action; a failure is always reported here.
+ * toast for one action; a failure is always reported here, naming the secret
+ * and saying why in the server's words ("Secret with name 'X' already exists").
  */
 export const useCreateSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: boolean } = {}) => {
   const queryClient = useQueryClient();
@@ -28,9 +30,13 @@ export const useCreateSecret = ({ toastOnSuccess = true }: { toastOnSuccess?: bo
       });
       if (toastOnSuccess) toast.success("Secret created successfully");
     },
-    onError: (error) => {
+    onError: (error, request) => {
       console.error("Failed to create secret:", error);
-      toast.error("Failed to create secret");
+      // With no reason from the server, axios's own message ("Request failed
+      // with status code 502", "Network Error") is the one there is.
+      toast.error(`Failed to create secret ${request.name}`, {
+        description: apiErrorMessage(error, error.message)
+      });
     }
   });
 };

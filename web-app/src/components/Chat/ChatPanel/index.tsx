@@ -64,8 +64,7 @@ const ChatPanel = ({
   const {
     isAvailable: isBuilderAvailable,
     isLoading: isCheckingBuilder,
-    isBuiltin,
-    builderPath
+    isBuiltin
   } = useBuilderAvailable();
 
   const { mutate: createThread, isPending } = useThreadMutation((data) => {
@@ -267,22 +266,15 @@ const ChatPanel = ({
         });
         break;
       case "build":
+        // Available means the built-in builder with a model (check_builder_availability),
+        // and its threads are analytics threads run by `__builder__`.
         if (isBuilderAvailable) {
-          if (isBuiltin) {
-            createThread({
-              title: title,
-              source: "__builder__",
-              source_type: "analytics",
-              input
-            });
-          } else {
-            createThread({
-              title: title,
-              source: builderPath,
-              source_type: "task",
-              input
-            });
-          }
+          createThread({
+            title: title,
+            source: "__builder__",
+            source_type: "analytics",
+            input
+          });
         }
         break;
       case "workflow":

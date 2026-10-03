@@ -1,4 +1,4 @@
-import { DataType, type Float, Precision, Struct, type Timestamp } from "apache-arrow";
+import { DataType, type Float, Precision, Struct, Type } from "apache-arrow";
 
 // Minimal structural interface for Apache Arrow Table/Schema so that the
 // version bundled by @duckdb/duckdb-wasm (v17) and our own (v21) are both
@@ -25,61 +25,99 @@ import { apiClient } from "@/services/api/axios";
 import type { DataContainer, DisplayFormat } from "@/types/app";
 
 const getArrowValue = (value: unknown): number | string | unknown => {
-  if (value instanceof Uint32Array) return formatNumber(value[0]);
-  if (value instanceof Float32Array) return formatNumber(value[0]);
-  if (value instanceof Float64Array) return formatNumber(value[0]);
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  if (typeof value === "number") {
-    return formatNumber(value);
-  }
+  if (value instanceof Uint32Array) return String(wordsToBigInt(value));
+  if (value instanceof Float32Array) return singlePrecisionText(value[0]);
+  if (value instanceof Float64Array) return String(value[0]);
+  if (typeof value === "bigint" || typeof value === "number") return String(value);
   return value;
 };
 
+const columnCells = (table: ArrowTable, columnName: string): unknown[] =>
+  table.toArray().map((row: unknown) => (row as Record<string, unknown>)[columnName]);
+
+/**
+ * A chart's column, each cell as it is labelled: on the x axis, as a series'
+ * name or a pie slice's, and as the value plotted. A number is the text of the
+ * value the column holds, which is what ECharts plots: a decimal keeps the
+ * digits of its declared scale and a float is not rounded, so 0.004 is plotted
+ * at 0.004, not at "0.00". Moments are labelled to the precision the column
+ * needs: to the minute, unless one has seconds, or milliseconds.
+ *
+ * A number stays plain text, without thousands separators: ECharts reads a
+ * numeric string back as a number only when it is one (`"43,149,473.45"` is
+ * not, and blanks the axis and the line). Formatting with commas and `$`
+ * belongs to the labels (`formatValue`, the chart's tooltip formatter).
+ *
+ * Two moments can share a label only when they are equal. To match a series'
+ * points to the axis, use `getArrowColumnKeys`: a series holding only whole
+ * minutes is labelled to the minute while the axis it goes on has seconds.
+ */
 export const getArrowColumnValues = (table: ArrowTable, columnName: string) => {
   const fieldType = getArrowFieldType(columnName, table.schema);
-  return table.toArray().map((row: unknown) => {
-    const value = (row as Record<string, unknown>)[columnName];
-    if (!fieldType) {
-      return getArrowValue(value);
-    }
-    return getArrowValueWithType(value, fieldType);
+  const cells = columnCells(table, columnName);
+  if (!fieldType) return cells.map(getArrowValue);
+  const momentFormat = momentLabelFormat(cells, fieldType);
+  return cells.map((value) =>
+    momentFormat && value !== null && value !== undefined
+      ? momentText(value, fieldType, momentFormat)
+      : getArrowResultCell(value, fieldType)
+  );
+};
+
+/**
+ * A chart's column, each cell as the full value it holds, so that two cells
+ * share a key only when they are equal: what a series' points are matched to
+ * the x axis by, and what a series' rows are selected by. A moment's key is its
+ * instant in UTC (`2024-03-05T12:34:56.000Z`), which DuckDB reads as that
+ * instant whatever its own time zone, for a TIMESTAMP column and for one WITH
+ * TIME ZONE. The clock time in the column's zone, which its label shows, is not
+ * one: 01:30 comes twice the night New York's clocks go back. Every other cell
+ * is keyed by `getArrowResultCell`'s text.
+ */
+export const getArrowColumnKeys = (table: ArrowTable, columnName: string) => {
+  const fieldType = getArrowFieldType(columnName, table.schema);
+  return columnCells(table, columnName).map((value) => {
+    if (!fieldType) return getArrowValue(value);
+    const millis = momentMillis(value, fieldType);
+    return millis === null ? getArrowResultCell(value, fieldType) : instantText(millis);
   });
 };
 
 /**
- * One Arrow cell for a chart series or an app table's unformatted column: a
- * date reads as a date, and a number is rounded to two places (`formatNumber`).
- * A query-result table shows the value itself: `getArrowResultCell`.
+ * One Arrow cell as the value it holds: what a table shows (a query result, or
+ * an app table's column with no format) and what a chart plots. A number is the
+ * value the column holds: a decimal keeps every digit of its declared scale and
+ * a float is not rounded (0.004 is not "0.00", 0.123456 is not "0.12"), nor
+ * padded (1.5 is not "1.50"). A date reads as a date, and a timestamp keeps its
+ * seconds, and its milliseconds when it has any, as the CSV export does
+ * (12:34:56 is not "12:34").
  */
-export const getArrowValueWithType = (
-  value: unknown,
-  type: DataType
-): number | string | unknown => {
+export const getArrowResultCell = (value: unknown, type: DataType): unknown => {
   // A NULL cell stays null whatever its column type, for the caller to show as
   // it shows any other NULL. The readers below expect a value: a NULL decimal
   // throws in them and a NULL date reads "Invalid Date".
   if (value === null || value === undefined) return value;
-  if (DataType.isDate(type)) {
-    return formatDate(value as number);
-  }
-  if (DataType.isTimestamp(type)) {
-    return formatDateTime(value as number, (type as Timestamp)?.timezone);
-  }
-  if (DataType.isTime(type)) {
-    return formatTime(value as number);
-  }
-  // in the BE we are using snowflake-rs library which doesn't return field metadata
-  // so there is no way to know if a field is snowflake timestamp or not
-  // except checking the structure of the value itself
-  if (isSnowflakeTimestamp(value, type)) {
-    return formatSnowflakeTimestamp(value as { epoch: number; fraction: number });
-  }
-  if (DataType.isDecimal(type)) {
-    return formatNumber(parseFloat(decimalText(value, type.scale)));
-  }
+  if (DataType.isDate(type)) return formatDate(value as number);
+  if (DataType.isTime(type)) return formatTime(value as number);
+  const moment = fullTimestampText(value, type);
+  if (moment !== null) return moment;
+  if (DataType.isDecimal(type)) return decimalText(value, type.scale);
+  if (DataType.isFloat(type) && typeof value === "number") return floatText(value, type);
   return getArrowValue(value);
+};
+
+/**
+ * The signed integer a run of little-endian 32-bit words holds, in two's
+ * complement: a DECIMAL cell's unscaled value. DuckDB hands over a HUGEINT, and
+ * the SUM of an integer column, as DECIMAL(38, 0), so this is also how those
+ * are read: whole, where the first word alone is the value modulo 2^32.
+ */
+const wordsToBigInt = (words: Uint32Array): bigint => {
+  let value = 0n;
+  for (let index = words.length - 1; index >= 0; index--) {
+    value = (value << 32n) | BigInt(words[index]);
+  }
+  return BigInt.asIntN(words.length * 32, value);
 };
 
 /**
@@ -87,11 +125,13 @@ export const getArrowValueWithType = (
  * holds only the unscaled integer (123456); the scale is on the column's type.
  */
 const decimalText = (value: unknown, scale: number): string => {
-  // BigNum.valueOf() / Number(bigNum) throws "is not safe to convert to a number"
-  // when the internal 128-bit integer exceeds Number.MAX_SAFE_INTEGER.
-  // Call .toString() directly (which invokes bigNumToString, not bigNumToNumber)
-  // to get the raw integer digits, then manually insert the decimal point.
-  const rawStr = (value as { toString(): string }).toString();
+  // The cell is its words (a Uint32Array that Arrow's BigNum extends), read whole
+  // here: BigNum.valueOf() / Number(bigNum) throws past Number.MAX_SAFE_INTEGER.
+  // Anything else that stands for a decimal prints its own digits.
+  const rawStr =
+    value instanceof Uint32Array
+      ? String(wordsToBigInt(value))
+      : (value as { toString(): string }).toString();
   if (!scale) return rawStr;
   const isNeg = rawStr.startsWith("-");
   const digits = isNeg ? rawStr.slice(1) : rawStr;
@@ -106,8 +146,11 @@ const decimalText = (value: unknown, scale: number): string => {
  * 0.10000000149011612: those extra digits are not in the column, so the
  * shortest decimal that is still the same single-precision value is printed.
  */
-const floatText = (value: number, type: Float): string => {
-  if (type.precision !== Precision.SINGLE || !Number.isFinite(value)) return String(value);
+const floatText = (value: number, type: Float): string =>
+  type.precision === Precision.SINGLE ? singlePrecisionText(value) : String(value);
+
+const singlePrecisionText = (value: number): string => {
+  if (!Number.isFinite(value)) return String(value);
   // Nine significant digits always identify a single-precision value.
   for (let digits = 1; digits <= 9; digits++) {
     const rounded = Number(value.toPrecision(digits));
@@ -116,50 +159,69 @@ const floatText = (value: number, type: Float): string => {
   return String(value);
 };
 
+const MINUTE_FORMAT = "YYYY-MM-DD HH:mm";
+const SECOND_FORMAT = "YYYY-MM-DD HH:mm:ss";
+const MILLISECOND_FORMAT = "YYYY-MM-DD HH:mm:ss.SSS";
+const withoutZeroMillis = (timestamp: string) => timestamp.replace(/\.000$/, "");
+
+/** The instant `millis` since the epoch stands for, in UTC: `2024-03-05T12:34:56.789Z`. */
+const instantText = (millis: number) => dayjs.utc(millis).format("YYYY-MM-DDTHH:mm:ss.SSS[Z]");
+
 /**
- * One Arrow cell of a query-result table. A result table reports the data, so a
- * number is the value the column holds: a decimal keeps every digit of its
- * declared scale and a float is not rounded (0.004 is not "0.00", 0.123456 is
- * not "0.12"), nor padded (1.5 is not "1.50"). Everything else reads as
- * `getArrowValueWithType` reads it.
+ * The milliseconds since the epoch a timestamp cell, or a Snowflake one, stands
+ * for; null for any other cell.
  */
-export const getArrowResultCell = (value: unknown, type: DataType): unknown => {
-  if (value === null || value === undefined) return value;
-  if (DataType.isDecimal(type)) return decimalText(value, type.scale);
-  if (DataType.isFloat(type) && typeof value === "number") return floatText(value, type);
-  return getArrowValueWithType(value, type);
+const momentMillis = (value: unknown, type: DataType): number | null => {
+  if (value === null || value === undefined) return null;
+  if (DataType.isTimestamp(type)) return value as number;
+  // in the BE we are using snowflake-rs library which doesn't return field metadata
+  // so there is no way to know if a field is snowflake timestamp or not
+  // except checking the structure of the value itself
+  if (isSnowflakeTimestamp(value, type)) return snowflakeMillis(value as SnowflakeTimestamp);
+  return null;
 };
 
-// A timestamp in an export keeps its seconds, and its milliseconds when it has any.
-const EXPORT_TIMESTAMP_FORMAT = "YYYY-MM-DD HH:mm:ss.SSS";
-const withoutZeroMillis = (timestamp: string) => timestamp.replace(/\.000$/, "");
+/** A timestamp cell, or a Snowflake one, in `format`. */
+const momentText = (value: unknown, type: DataType, format: string): string =>
+  DataType.isTimestamp(type)
+    ? formatDateTime(value as number, type.timezone, format)
+    : dayjs.utc(snowflakeMillis(value as SnowflakeTimestamp)).format(format);
+
+/** A timestamp cell to the second, or a Snowflake one; null for any other cell. */
+const fullTimestampText = (value: unknown, type: DataType): string | null =>
+  momentMillis(value, type) === null
+    ? null
+    : withoutZeroMillis(momentText(value, type, MILLISECOND_FORMAT));
+
+/**
+ * The one format that shows every moment of a column to the precision it has:
+ * to the minute, or to the second when one has seconds, or to the millisecond
+ * when one has those. Null for a column that holds no moment.
+ */
+const momentLabelFormat = (cells: unknown[], type: DataType): string | null => {
+  let format: string | null = null;
+  for (const value of cells) {
+    const millis = momentMillis(value, type);
+    if (millis === null) continue;
+    if (millis % 1000 !== 0) return MILLISECOND_FORMAT;
+    if (millis % 60_000 !== 0) format = SECOND_FORMAT;
+    else format ??= MINUTE_FORMAT;
+  }
+  return format;
+};
 
 /**
  * Text for one Arrow cell in an export. It reads the cell the way the result
- * table does (a decimal keeps every digit, a float its own precision, a date
- * or timestamp is a date, not its epoch), and a timestamp keeps the seconds the
- * table leaves out.
+ * table does: a decimal keeps every digit, a float its own precision, a date
+ * or timestamp is a date, not its epoch, and a timestamp keeps its seconds.
  */
 export const getArrowExportText = (value: unknown, type?: DataType): string => {
   if (value === null || value === undefined || !type) return cellText(value);
   if (DataType.isDecimal(type)) return decimalText(value, type.scale);
   if (DataType.isFloat(type) && typeof value === "number") return floatText(value, type);
   if (DataType.isDate(type)) return formatDate(value as number);
-  if (DataType.isTimestamp(type)) {
-    return withoutZeroMillis(
-      formatDateTime(value as number, type.timezone, EXPORT_TIMESTAMP_FORMAT)
-    );
-  }
   if (DataType.isTime(type)) return formatTime(value as number);
-  if (isSnowflakeTimestamp(value, type)) {
-    return withoutZeroMillis(
-      formatSnowflakeTimestamp(
-        value as { epoch: number; fraction: number },
-        EXPORT_TIMESTAMP_FORMAT
-      )
-    );
-  }
-  return cellText(value);
+  return fullTimestampText(value, type) ?? cellText(value);
 };
 
 function isSnowflakeTimestamp(value: unknown, type: DataType): boolean {
@@ -172,28 +234,19 @@ function isSnowflakeTimestamp(value: unknown, type: DataType): boolean {
   );
 }
 
-function formatSnowflakeTimestamp(
-  value: {
-    epoch: number | bigint;
-    fraction: number | bigint;
-  },
-  format = "YYYY-MM-DD HH:mm"
-): string {
+type SnowflakeTimestamp = { epoch: number | bigint; fraction: number | bigint };
+
+function snowflakeMillis(value: SnowflakeTimestamp): number {
   const epoch = typeof value.epoch === "bigint" ? Number(value.epoch) : value.epoch;
   const fraction = typeof value.fraction === "bigint" ? Number(value.fraction) : value.fraction;
-  const milliseconds = epoch * 1000 + Math.floor(fraction / 1_000_000);
-  return dayjs.utc(milliseconds).format(format);
+  return epoch * 1000 + Math.floor(fraction / 1_000_000);
 }
 
 function formatDate(value: number | string): string {
   return dayjs.utc(value).format("YYYY-MM-DD");
 }
 
-function formatDateTime(
-  value: number | string,
-  tz?: string | null,
-  format = "YYYY-MM-DD HH:mm"
-): string {
+function formatDateTime(value: number | string, tz: string | null | undefined, format: string) {
   if (tz) return dayjs(value).tz(tz).format(format);
   return dayjs.utc(value).format(format);
 }
@@ -210,24 +263,9 @@ function formatTime(value: number | bigint | string): string {
   return dayjs.utc(value).format("HH:mm:ss");
 }
 
-// NOTE: This function is on the data-extraction path — `getArrowValue` calls
-// it on every cell value pulled out of an Arrow table, including the series
-// data fed into ECharts. Its return value is consumed by ECharts on a
-// `type: "value"` axis, which coerces numeric *strings* back to numbers only
-// when they contain pure digits. Adding locale-aware thousands separators
-// here breaks that coercion (`"43,149,473.45"` is no longer parseable) and
-// blanks the y-axis and line. Human-friendly formatting with commas /
-// dollar signs lives at the render layer (`formatValue`, chart tooltip
-// formatter, table cells).
-//
-// It rounds, so it is not for a query-result table: see `getArrowResultCell`.
-function formatNumber(num: number) {
-  return num % 1 === 0 ? num.toString() : num.toFixed(2);
-}
-
 /**
  * Monetary column-name detection. When a numeric column's name contains any of
- * these word parts (split on non-alphanumerics), and none that says otherwise
+ * these words (see `inferColumnFormat` for the split), and none that says otherwise
  * (see `inferColumnFormat`), the value is formatted as currency even if the
  * app.yml didn't declare a `format` hint. Keeps existing dashboards legible
  * without requiring regeneration.
@@ -244,8 +282,6 @@ const MONETARY_KEYWORDS: ReadonlySet<string> = new Set([
   "spending",
   "profit",
   "profits",
-  "margin",
-  "margins",
   "gmv",
   "arr",
   "mrr",
@@ -263,8 +299,6 @@ const MONETARY_KEYWORDS: ReadonlySet<string> = new Set([
   "amounts",
   "fee",
   "fees",
-  "discount",
-  "discounts",
   "balance",
   "balances",
   "income",
@@ -320,6 +354,39 @@ const NON_MONETARY_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Nouns that, named after the money word, are what the number is instead:
+ * `profit_margin` is a margin and `sales_orders` a count of orders. Money named
+ * after one of them is still money (`margin_amount`, `orders_revenue`).
+ *
+ * A margin or a discount is usually a ratio (`profit_margin` 0.25 is 25%, not
+ * $0.25), and the name is all there is to go by. Read as a ratio, a margin that
+ * is in dollars only loses its `$`; read as money, every ratio is misstated.
+ * So neither word says money on its own, and `gross_margin` is a plain number.
+ */
+const NOT_AN_AMOUNT: ReadonlySet<string> = new Set([
+  "margin",
+  "margins",
+  "discount",
+  "discounts",
+  // things counted
+  "orders",
+  "transactions",
+  "invoices",
+  "customers",
+  "users",
+  "accounts",
+  "visits",
+  "sessions",
+  "calls",
+  "deals",
+  "leads",
+  "reps",
+  "items",
+  "products",
+  "tickets"
+]);
+
+/**
  * Calendar parts. As the last word of a name one says what the number is
  * (`payment_year` is 2024), unless the word before it makes it the period the
  * money is for (`revenue_last_month`, `sales_per_day`).
@@ -363,9 +430,10 @@ export const isNumericType = (type: DataType | undefined): boolean =>
  * `$` on an id, a count or a percentage misstates the data.
  *
  *   `oxymart__total_weekly_sales` → `"currency"` (matches `sales`)
- *   `product_price`               → `"currency"` (matches `price`)
+ *   `product_price`, `totalRevenue` → `"currency"` (camelCase is words too)
  *   `revenue_last_month`          → `"currency"` (the month is the period)
- *   `payment_id`, `discount_count`, `revenue_pct`, `payment_year` → `undefined`
+ *   `payment_id`, `revenue_pct`, `payment_year`, `paymentId`      → `undefined`
+ *   `profit_margin`, `sales_orders` (a margin, a count of orders) → `undefined`
  *   `payment_date` (a date), `discount_code` (text)               → `undefined`
  *   `oxymart__store`, `holiday_flag`                              → `undefined`
  */
@@ -374,15 +442,22 @@ export function inferColumnFormat(
   type: DataType | undefined
 ): DisplayFormat | undefined {
   if (!columnName || !isNumericType(type)) return undefined;
-  // Split on any non-alphanumeric separator so `oxymart__total_weekly_sales`
-  // becomes `["oxymart", "total", "weekly", "sales"]` and each word is checked
-  // on its own.
+  // Split into words so each is checked on its own: on any non-alphanumeric
+  // separator (`oxymart__total_weekly_sales` is oxymart, total, weekly, sales),
+  // and where a capital starts one (`avgOrderValueUSD` is avg, order, value, usd).
   const words = columnName
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  if (!words.some((word) => MONETARY_KEYWORDS.has(word))) return undefined;
+  let lastMonetary = -1;
+  words.forEach((word, index) => {
+    if (MONETARY_KEYWORDS.has(word)) lastMonetary = index;
+  });
+  if (lastMonetary < 0) return undefined;
   if (words.some((word) => NON_MONETARY_WORDS.has(word))) return undefined;
+  if (words.slice(lastMonetary + 1).some((word) => NOT_AN_AMOUNT.has(word))) return undefined;
   const namesCalendarPart =
     CALENDAR_PARTS.has(words[words.length - 1]) &&
     !(words.length > 1 && PERIOD_QUALIFIERS.has(words[words.length - 2]));
@@ -439,10 +514,10 @@ export const cellText = (value: unknown): string => {
  * - `currency` → `$301,397,792.46` (compact: `$301M`)
  * - `percent`  → `12.50%` (input is already a percentage, 0–100)
  * - `number`   → `1,234,567` (compact: `1.2M`)
+ * - none       → the number itself, unrounded: `0.004`, not `0.00`
  *
  * Returns a passthrough string conversion when the value is not a finite
- * number or when `format` is undefined, so callers can pipe every cell value
- * through the same helper.
+ * number, so callers can pipe every cell value through the same helper.
  *
  * A raw Arrow DECIMAL cell is only its unscaled integer, so pass the column's
  * `type` with it: without the scale it cannot be read as a number, and prints
@@ -471,9 +546,7 @@ export function formatValue(
     return cellText(value);
   }
 
-  if (!format) {
-    return formatNumber(num);
-  }
+  if (!format) return String(num);
 
   const formatter = getFormatter(format, compact);
   return format === "percent" ? formatter.format(num / 100) : formatter.format(num);
@@ -737,6 +810,40 @@ export function renderJinja(template: string, controls: Record<string, unknown>)
 }
 
 /**
+ * One cell of a task run in the browser, as the JSON that `read_json_auto`
+ * reads back as the type the cell had: the result is registered from it.
+ *
+ * - A number is a JSON number, which is a double. A DECIMAL cell (and with it a
+ *   HUGEINT, or the SUM of an integer column) is its unscaled 128-bit integer,
+ *   read whole and at the column's scale.
+ * - A date, a time and a timestamp are text, as the table shows them, which
+ *   `read_json_auto` reads as a date or a timestamp again. As a number (epoch
+ *   milliseconds) a date came back as a BIGINT. A timestamp with a time zone is
+ *   its instant in UTC: the clock time in its zone does not say which instant.
+ * - Any other cell held in a typed array (a BLOB's bytes, an INTERVAL's parts)
+ *   has no JSON that reads back as what it was, so the run refuses it, naming
+ *   the column. The app then runs its tasks on the server, which can.
+ */
+const jsonCell = (value: unknown, type: DataType, column: string): unknown => {
+  if (value === null || value === undefined) return value;
+  if (DataType.isDecimal(type)) return Number(decimalText(value, type.scale));
+  if (DataType.isDate(type)) return formatDate(value as number);
+  if (DataType.isTime(type)) return formatTime(value as number);
+  if (DataType.isTimestamp(type)) {
+    return type.timezone ? instantText(value as number) : fullTimestampText(value, type);
+  }
+  // Arrow Int64 / BigInt → Number (values within JS safe-integer range are exact)
+  if (typeof value === "bigint") return Number(value);
+  if (ArrayBuffer.isView(value)) {
+    throw new Error(
+      `Column "${column}" holds ${Type[type.typeId]} values, which a task run in the browser ` +
+        "cannot pass on as they are"
+    );
+  }
+  return value;
+};
+
+/**
  * Run a (Jinja-rendered) SQL query in DuckDB WASM and serialize the result
  * as a JSON string compatible with read_json_auto / registerFromTableData.
  */
@@ -750,25 +857,13 @@ export async function runSqlInDuckDB(sql: string): Promise<string> {
     await conn.close();
   }
 
-  // Convert Arrow Table to plain JSON array, ensuring all numeric Arrow types
-  // become plain JS numbers so JSON.stringify produces numeric literals and
-  // read_json_auto infers the correct column type (not VARCHAR).
   const rows = result.toArray().map((row) => {
     const obj: Record<string, unknown> = {};
     for (const field of result.schema.fields) {
-      const val = (row as Record<string, unknown>)[field.name];
-      if (typeof val === "bigint") {
-        // Arrow Int64 / BigInt → Number (values within JS safe-integer range are exact)
-        obj[field.name] = Number(val);
-      } else if (ArrayBuffer.isView(val) && !(val instanceof DataView)) {
-        // TypedArray — DuckDB WASM represents HUGEINT as Uint32Array(4) in Arrow.
-        // Extract the scalar from index 0 (lowest 32-bit word, sufficient for typical
-        // COUNT/SUM results < 2^32; larger values accept the same precision loss that
-        // the existing chart-display path already accepts).
-        obj[field.name] = Number((val as unknown as ArrayLike<number | bigint>)[0]);
-      } else {
-        obj[field.name] = val;
-      }
+      // duckdb-wasm types its result with its own, older Arrow release, whose
+      // DataType this one's type guards do not accept: the same type, read as ours.
+      const type = field.type as unknown as DataType;
+      obj[field.name] = jsonCell((row as Record<string, unknown>)[field.name], type, field.name);
     }
     return obj;
   });

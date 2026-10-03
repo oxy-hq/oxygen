@@ -141,7 +141,14 @@ export default function AppPreview({ appPath64, runButton = true, autoRun = true
           });
           setParamData(result);
         }
-      } catch {
+      } catch (error) {
+        // The server runs the tasks instead, and its results are shown: say why,
+        // or a run that keeps falling back (a template the browser cannot render,
+        // a column it cannot pass on) is invisible.
+        console.warn(
+          "Running the app's tasks in the browser failed; running them on the server:",
+          error
+        );
         if (gen === clientGenRef.current) {
           setForcedServerMode(true);
           runApp({

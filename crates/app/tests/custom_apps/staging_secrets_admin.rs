@@ -84,6 +84,17 @@ async fn staff_set_a_staging_secret_that_a_tenant_admin_cannot() {
     )
     .await
     .expect("staff set staging");
+    // A key the environment did not have: created, and the status says so.
+    assert_eq!(status, StatusCode::CREATED);
+    let status = admin_set(
+        Path(app),
+        staff(),
+        None,
+        request("QB_TOKEN", "stg", Some("staging")),
+    )
+    .await
+    .expect("staff rotate staging");
+    // The same key again replaces the value: a rotation, not a second key.
     assert_eq!(status, StatusCode::NO_CONTENT);
     admin_set(Path(app), staff(), None, request("QB_TOKEN", "prod", None))
         .await
@@ -279,7 +290,7 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
     )
     .await
     .expect("staff set the sandbox's value");
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::CREATED);
     for (name, expected) in [
         (format!("apps/{app}/dev-a1/QB_TOKEN"), Some("a1")),
         (format!("apps/{app}/staging/QB_TOKEN"), Some("stg")),

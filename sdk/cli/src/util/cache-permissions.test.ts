@@ -69,6 +69,12 @@ function run(
         PATH: pathPrefix ? `${pathPrefix}:${process.env.PATH ?? ""}` : process.env.PATH,
         OXYC_CACHE_DIR: cacheDir,
         OXY_CREDENTIALS_PATH: join(cacheDir, "__no_creds__.json"),
+        // `repos` otherwise scans the real home directory for checkouts and
+        // runs `git remote get-url` in each one: seconds on a developer's
+        // machine (past the 5s test timeout under load), nothing on CI's empty
+        // home. A root that does not exist makes both the same, and the scan
+        // still writes `repos.json`, whose mode is what is asserted here.
+        OXYC_REPO_ROOTS: join(cacheDir, "__no_repo_roots__"),
         OXY_TOKEN: "cache-permissions-test",
         NO_COLOR: "1"
       }

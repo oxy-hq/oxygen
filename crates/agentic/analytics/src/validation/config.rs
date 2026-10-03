@@ -38,7 +38,11 @@
 //! ```
 //!
 //! When the `validation:` key is absent from the YAML, [`ValidationConfig::default_all_rules`]
-//! is used, which enables all built-in rules with their default parameters.
+//! is used: the 15 default rules (every registered rule except `shape_match` and
+//! `timeseries_date_check`) with their default parameters. When the key is present it
+//! replaces that set — only the rules it lists run, and a stage with no entries runs
+//! none. The example above lists two rules that are not in the default set and omits
+//! five that are.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -194,10 +198,11 @@ impl Default for DuplicateRowCheckParams {
 // ValidationConfig helpers
 
 impl ValidationConfig {
-    /// Build the default configuration with all 14 built-in rules enabled
-    /// using their default parameters.
+    /// Build the default configuration: 15 of the 17 registered rules, enabled,
+    /// with their default parameters. `shape_match` and `timeseries_date_check`
+    /// are registered but not in it.
     ///
-    /// Used by [`Validator::default`](crate::validation::validator::Validator::default)
+    /// Used by [`Validator::default_validator`](crate::validation::validator::Validator::default_validator)
     /// when no `validation:` section is present in the agent YAML.
     pub fn default_all_rules() -> Self {
         let null = serde_json::Value::Null;

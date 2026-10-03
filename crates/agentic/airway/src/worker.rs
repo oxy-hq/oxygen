@@ -310,15 +310,10 @@ async fn drive(
             }
         }
         Err(err) => {
-            if !saw_error.load(Ordering::Relaxed) {
-                let domain = AirwayEvent::PipelineError {
-                    pipeline_name,
-                    load_id: None,
-                    error: err.to_string(),
-                };
-                if let Ok(value) = serde_json::to_value(&domain) {
-                    let _ = event_tx.send(("pipeline_error".to_string(), value)).await;
-                }
+            if !saw_error.load(Ordering::Relaxed)
+                && let Some(value) = fallback_pipeline_error(pipeline_name, err.to_string())
+            {
+                let _ = event_tx.send(("pipeline_error".to_string(), value)).await;
             }
             TaskOutcome::Failed(err.to_string())
         }
@@ -487,24 +482,8 @@ impl AirappEventHandler for EventForwarder {
         let domain = AirwayEvent::from_engine(event, Some(&self.declared_contracts));
         match serde_json::to_value(&domain) {
             Ok(mut value) => {
-                // Stamp emit time once, here (this handler fires when
-                // the engine emits). It's persisted in the event
-                // payload, so replay returns the same value — the
-                // frontend reducer stays pure/idempotent and can build
-                // a real time-axis run timeline. Injected at the
-                // envelope level so all variants get it without
-                // touching every `AirwayEvent` struct.
-                if let Value::Object(map) = &mut value {
-                    map.insert("ts".into(), Value::String(Utc::now().to_rfc3339()));
-                } else {
-                    // Every `AirwayEvent` variant is `#[serde(tag=...)]`
-                    // so serializes as an object. If a future variant
-                    // breaks that, the `ts` stamp (and the timeline)
-                    // silently degrade — surface it instead of hiding
-                    // behind the `unwrap_or("airway_event")` fallback.
-                    debug_assert!(false, "AirwayEvent serialized as non-object: {value}");
-                    warn!(value = %value, "AirwayEvent serialized as non-object; `ts` not stamped");
-                }
+                // Stamped here because this handler fires when the engine emits.
+                stamp_emit_time(&mut value);
                 let event_type = value
                     .get("event_type")
                     .and_then(Value::as_str)
@@ -527,6 +506,43 @@ impl AirappEventHandler for EventForwarder {
         }
         Ok(())
     }
+}
+
+/// Stamp `ts`, the emit time, onto a serialized [`AirwayEvent`] payload.
+///
+/// Every event this worker puts on the stream goes through here: the engine's,
+/// via [`EventForwarder`], and the `pipeline_error` [`drive`] sends itself (see
+/// [`fallback_pipeline_error`]). It's persisted in the event payload, so replay
+/// returns the same value — the frontend reducer stays pure/idempotent and can
+/// build a real time-axis run timeline. Injected at the envelope level so all
+/// variants get it without touching every `AirwayEvent` struct.
+fn stamp_emit_time(value: &mut Value) {
+    if let Value::Object(map) = value {
+        map.insert("ts".into(), Value::String(Utc::now().to_rfc3339()));
+    } else {
+        // Every `AirwayEvent` variant is `#[serde(tag=...)]` so serializes as
+        // an object. If a future variant breaks that, the `ts` stamp (and the
+        // timeline) silently degrade — surface it instead of hiding behind the
+        // `unwrap_or("airway_event")` fallback.
+        debug_assert!(false, "AirwayEvent serialized as non-object: {value}");
+        warn!(value = %value, "AirwayEvent serialized as non-object; `ts` not stamped");
+    }
+}
+
+/// The `pipeline_error` [`drive`] emits for a failure the engine never
+/// reported — connector/destination build, secret resolution, state store —
+/// so the stream carries a cause. Stamped like a forwarded engine event: it
+/// ends the run, and without `ts` the run timeline stopped at whatever event
+/// was stamped last.
+fn fallback_pipeline_error(pipeline_name: String, error: String) -> Option<Value> {
+    let domain = AirwayEvent::PipelineError {
+        pipeline_name,
+        load_id: None,
+        error,
+    };
+    let mut value = serde_json::to_value(&domain).ok()?;
+    stamp_emit_time(&mut value);
+    Some(value)
 }
 
 #[cfg(test)]
@@ -621,6 +637,44 @@ mod tests {
         // `opaque` (which is what `contract_for` would have handed back).
         assert_eq!(payload["contracts"][1]["resource"], json!("users"));
         assert_eq!(payload["contracts"][1]["mutability"], json!("undeclared"));
+    }
+
+    /// `ts` must parse as an RFC 3339 instant: the run timeline reads it as one.
+    fn assert_stamped(payload: &Value) {
+        let ts = payload["ts"]
+            .as_str()
+            .expect("payload carries a `ts` string");
+        chrono::DateTime::parse_from_rfc3339(ts).expect("`ts` is RFC 3339");
+    }
+
+    #[tokio::test]
+    async fn forwarder_stamps_emit_time() {
+        let (tx, mut rx) = mpsc::channel::<(String, Value)>(4);
+        let (forwarder, _saw_error) = forwarder(tx);
+        forwarder
+            .handle_event(PipelineEvent::LoadStarted {
+                pipeline_name: "p".into(),
+                load_id: "l".into(),
+            })
+            .await
+            .expect("forward");
+        let (_, payload) = rx.recv().await.expect("event");
+        assert_stamped(&payload);
+    }
+
+    /// A run that fails before the engine reports anything (connector or
+    /// destination build, secrets, state store) gets its only failure event
+    /// from `drive`, not the forwarder. Unstamped, the run timeline had no end
+    /// for it and stopped at the last stamped event.
+    #[test]
+    fn fallback_pipeline_error_is_stamped_like_an_engine_event() {
+        let payload = fallback_pipeline_error("p".into(), "no such secret".into())
+            .expect("the fallback serializes");
+        assert_eq!(payload["event_type"], json!("pipeline_error"));
+        assert_eq!(payload["pipeline_name"], json!("p"));
+        assert_eq!(payload["load_id"], Value::Null);
+        assert_eq!(payload["error"], json!("no such secret"));
+        assert_stamped(&payload);
     }
 
     #[tokio::test]

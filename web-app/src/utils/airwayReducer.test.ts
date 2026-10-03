@@ -552,10 +552,8 @@ describe("reduceAirwayEvents", () => {
   });
 
   it("captures per-phase timestamps from event `ts` and stays idempotent", () => {
-    // The worker stamps every payload with `ts`; the reducer records
-    // per-resource phase times for the run-timeline Gantt.
-    // `ts` is not on the `AirwayEvent` payload types (the reducer reads it as
-    // an untyped extra), so it is added on top of the event's own type here.
+    // The worker stamps every engine event's payload with `ts`; the reducer
+    // records per-resource phase times for the run-timeline Gantt.
     const withTs = <E extends AirwayEvent>(e: E, ts: string): E => ({
       ...e,
       payload: { ...e.payload, ts }
@@ -596,5 +594,14 @@ describe("reduceAirwayEvents", () => {
 
     // Pure/idempotent: re-reducing the same prefix yields the same view.
     expect(reduceAirwayEvents([...stream])).toEqual(v);
+  });
+
+  it("reads `ts` as a typed field of the payload", () => {
+    // Part of every payload type, so a stamped event is a plain `AirwayEvent`.
+    const cancelled: AirwayEvent = {
+      type: "cancelled",
+      payload: { pipeline_name: PIPE, load_id: LOAD, ts: "2026-05-17T00:00:11.000Z" }
+    };
+    expect(reduceAirwayEvents([loadStarted(), cancelled]).endedAt).toBe("2026-05-17T00:00:11.000Z");
   });
 });

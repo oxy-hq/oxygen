@@ -18,9 +18,10 @@ import useAutoCollapse from "./useAutoCollapse";
 interface FanOutGroupRowProps {
   group: FanOutGroup;
   onSelectArtifact: (item: SelectableItem) => void;
+  isSelected?: (item: SelectableItem) => boolean;
 }
 
-const FanOutGroupRow = ({ group, onSelectArtifact }: FanOutGroupRowProps) => {
+const FanOutGroupRow = ({ group, onSelectArtifact, isSelected }: FanOutGroupRowProps) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const safeIndex = Math.min(activeIndex, Math.max(0, group.cards.length - 1));
   const activeCard = group.cards[safeIndex];
@@ -66,7 +67,12 @@ const FanOutGroupRow = ({ group, onSelectArtifact }: FanOutGroupRowProps) => {
           activeCard.steps.length > 0 ? (
             <div className='space-y-1'>
               {activeCard.steps.map((step) => (
-                <AnalyticsStepRow key={step.id} step={step} onSelectArtifact={onSelectArtifact} />
+                <AnalyticsStepRow
+                  key={step.id}
+                  step={step}
+                  onSelectArtifact={onSelectArtifact}
+                  isSelected={isSelected}
+                />
               ))}
             </div>
           ) : (
@@ -193,6 +199,9 @@ interface AnalyticsReasoningTraceProps {
   events: UiBlock[];
   isRunning: boolean;
   onSelectArtifact: (item: SelectableItem) => void;
+  /** Whether an item's panel is open, for hosts where picking an item toggles its panel;
+   *  shown as the pressed state of its pill. Omitted, the pills carry no state. */
+  isSelected?: (item: SelectableItem) => boolean;
   defaultCollapsed?: boolean;
   /** Override the displayed duration (wall-clock ms) instead of summing individual LLM durations.
    *  Useful when events are aggregated from multiple parallel runs. */
@@ -205,6 +214,7 @@ const AnalyticsReasoningTrace = ({
   events,
   isRunning,
   onSelectArtifact,
+  isSelected,
   defaultCollapsed = false,
   wallClockMs,
   flat = false
@@ -255,12 +265,18 @@ const AnalyticsReasoningTrace = ({
         <div className='space-y-1.5'>
           {items.map((item) =>
             item.kind === "fan_out" ? (
-              <FanOutGroupRow key={item.id} group={item} onSelectArtifact={onSelectArtifact} />
+              <FanOutGroupRow
+                key={item.id}
+                group={item}
+                onSelectArtifact={onSelectArtifact}
+                isSelected={isSelected}
+              />
             ) : (
               <AnalyticsStepRow
                 key={item.id}
                 step={item as AnalyticsStep}
                 onSelectArtifact={onSelectArtifact}
+                isSelected={isSelected}
                 flat={flat}
               />
             )

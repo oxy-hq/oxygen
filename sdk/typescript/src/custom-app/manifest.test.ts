@@ -39,10 +39,9 @@ function injectRuntime(orgSlug = "test-org", slug = "test-app"): void {
     branch: "main",
     apiBaseUrl: ""
   };
-  // readInjectedConfig checks `window.__OXY_APP__`. In the vitest node
-  // environment `window` is not defined, so we shim it here. This is
-  // safe because the shim is reset between tests via _resetCache.
-  (globalThis as Record<string, unknown>).__OXY_APP__ = config;
+  // readInjectedAppConfig reads `window.__OXY_APP__` and nothing else. In the
+  // vitest node environment `window` is not defined, so we shim it here. This
+  // is safe because the shim is reset between tests via _resetCache.
   if (typeof window === "undefined") {
     (globalThis as Record<string, unknown>).window = { __OXY_APP__: config };
   } else {
@@ -229,9 +228,8 @@ describe("parseOxyAppManifest — unsupported version", () => {
 describe("v2 manifest accepts identity-only fields", () => {
   beforeEach(() => {
     _resetCustomAppManifestCacheForTest();
-    delete (globalThis as { __OXY_APP__?: unknown }).__OXY_APP__;
     if (typeof window !== "undefined") {
-      delete (window as { __OXY_APP__?: unknown }).__OXY_APP__;
+      delete window.__OXY_APP__;
     }
   });
 
@@ -280,23 +278,24 @@ describe("v2 manifest accepts identity-only fields", () => {
 describe("identity precedence (injection > manifest)", () => {
   beforeEach(() => {
     _resetCustomAppManifestCacheForTest();
-    // Clear both the global and the window shim set by the outer injectRuntime()
-    delete (globalThis as { __OXY_APP__?: unknown }).__OXY_APP__;
+    // Clear the injection the outer injectRuntime() left on the window shim
     if (typeof window !== "undefined") {
-      delete (window as { __OXY_APP__?: unknown }).__OXY_APP__;
+      delete window.__OXY_APP__;
     }
   });
 
   it("uses injected projectId when both injection and manifest are present", async () => {
-    const config = {
-      orgSlug: "acme",
+    const config: OxyInjectedAppConfig = {
+      appId: "app-uuid",
       slug: "demo",
+      orgId: "org-uuid",
+      orgSlug: "acme",
       projectId: "11111111-1111-1111-1111-111111111111",
+      branch: "main",
       apiBaseUrl: ""
     };
-    (globalThis as { __OXY_APP__?: unknown }).__OXY_APP__ = config;
     if (typeof window !== "undefined") {
-      (window as { __OXY_APP__?: unknown }).__OXY_APP__ = config;
+      window.__OXY_APP__ = config;
     }
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

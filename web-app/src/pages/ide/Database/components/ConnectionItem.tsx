@@ -17,8 +17,12 @@ import {
   SnowflakeIcon
 } from "@/components/icons";
 import DomoIcon from "@/components/icons/Domoicon";
-import { Button } from "@/components/ui/shadcn/button";
-import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/shadcn/sidebar";
+import {
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem
+} from "@/components/ui/shadcn/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import useDatabaseSchema from "@/hooks/api/databases/useDatabaseSchema";
 import { cn } from "@/libs/shadcn/utils";
 import type { DatabaseInfo } from "@/types/database";
@@ -69,8 +73,7 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ database }) => {
     isFetching
   } = useDatabaseSchema(database.name, isOpen);
 
-  const handleRefresh = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleRefresh = () => {
     refetch();
   };
 
@@ -92,18 +95,22 @@ export const ConnectionItem: React.FC<ConnectionItemProps> = ({ database }) => {
             aria-label='Schema fetch failed'
           />
         )}
-
-        <Button
-          variant='ghost'
-          size='icon'
-          onClick={handleRefresh}
-          disabled={isFetching}
-          tooltip='Refresh Schema'
-          aria-label='Refresh Schema'
-        >
-          <RotateCw className={cn(isFetching && "animate-spin")} />
-        </Button>
       </SidebarMenuButton>
+
+      {/* A sibling of the row button, not a child: a button inside a button is invalid. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <SidebarMenuAction
+            onClick={handleRefresh}
+            disabled={isFetching}
+            aria-label='Refresh Schema'
+            className='disabled:opacity-20'
+          >
+            <RotateCw className={cn(isFetching && "animate-spin")} />
+          </SidebarMenuAction>
+        </TooltipTrigger>
+        <TooltipContent>Refresh Schema</TooltipContent>
+      </Tooltip>
 
       {isOpen && (
         <ConnectionSchemaContent

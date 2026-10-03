@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/shadcn/sidebar";
 import type useBuilderAvailable from "@/hooks/api/useBuilderAvailable";
 import type { SseEvent, UseAnalyticsRunResult } from "@/hooks/useAnalyticsRun";
+import { sseEventToUiBlock } from "@/hooks/useAnalyticsRun";
 import type { AnalyticsRunSummary, ChartConfig } from "@/services/api/analytics";
 import { setPendingThinkingMode } from "@/stores/analyticsThinkingMode";
 import type { ThreadItem } from "@/types/chat";
@@ -75,6 +76,18 @@ vi.mock("@/components/ui/shadcn/resizable", () => ({
 
 vi.mock("./Header", () => ({ default: () => <div data-testid='thread-header' /> }));
 vi.mock("./SuspensionPrompt", () => ({ default: () => null }));
+// The file preview mounts the IDE editors and the delegation panel fetches the child
+// run; stand in with what each was opened for.
+vi.mock("./FilePreviewPanel", () => ({
+  default: ({ change }: { change: { filePath: string } }) => (
+    <div data-testid='file-preview'>{change.filePath}</div>
+  )
+}));
+vi.mock("./BuilderDelegationPanel", () => ({
+  default: ({ childRunId }: { childRunId: string }) => (
+    <div data-testid='delegation-panel'>{childRunId}</div>
+  )
+}));
 vi.mock("@/components/Messages/UserMessage", () => ({
   default: ({ content }: { content: string }) => <div data-testid='user-message'>{content}</div>
 }));
@@ -186,7 +199,6 @@ const builderAvailability = (
   isAvailable: true,
   isLoading: false,
   isError: false,
-  builderPath: "",
   isBuiltin: true,
   builderModel: undefined,
   ...overrides
@@ -344,6 +356,26 @@ describe("AnalyticsThread — automation run panel", () => {
     expect(header?.textContent).not.toContain("Running…");
   });
 
+  it("does not show a finished run's automation as running while another run streams", () => {
+    const pastEvents = [
+      ...automationStarted("past_proc", [{ name: "step_a", task_type: "execute_sql" }]),
+      sseEv("subrun_step_completed", { step: "step_a", success: true }),
+      sseEv("subrun_completed", { subrun_name: "past_proc", success: true }),
+      sseEv("input_resolved", { answer: "done" })
+    ];
+    mockUseQuery.mockReturnValue({
+      data: [pastRun({ ui_events: pastEvents.map(sseEventToUiBlock) })],
+      isLoading: false,
+      isFetching: false
+    });
+    mockUseAnalyticsRun.mockReturnValue(runningWith([sseEv("step_start", { label: "Solving" })]));
+    renderThread();
+    selectInTrace("past_proc");
+    const run = panel("past_proc");
+    expect(run.getByText("Done")).toBeInTheDocument();
+    expect(run.queryByText("Running…")).toBeNull();
+  });
+
   it("closes from the panel's close button and stays closed on the next render", () => {
     mockUseAnalyticsRun.mockReturnValue(
       runningWith(automationStarted("my_proc", [{ name: "step_a", task_type: "execute_sql" }]))
@@ -361,54 +393,274 @@ describe("AnalyticsThread — automation run panel", () => {
   });
 });
 
-// ── Thread switching ──────────────────────────────────────────────────────────
+// ── Opening a thread ──────────────────────────────────────────────────────────
+//
+// The thread page keys AnalyticsThread by thread id (pages/thread/index.tsx), so
+// another thread is a fresh mount, never a prop change on a mounted one.
 
-describe("AnalyticsThread — thread switching", () => {
+describe("AnalyticsThread — opening a thread", () => {
   const THREAD_2: ThreadItem = { ...THREAD, id: "thread-2" };
 
-  it("calls reset when thread.id changes while a run is active", () => {
+  it("resumes a suspended run without tearing down the stream it just opened", () => {
+    const reconnect = vi.fn();
     const reset = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(
-      makeResult({ state: { tag: "running", runId: "run-1", events: [] }, reset })
-    );
-    const { rerender } = renderThread();
-    // Mounting resets too; only the switch is under test.
-    reset.mockClear();
-
-    rerender(<AnalyticsThread thread={THREAD_2} />);
-    expect(reset).toHaveBeenCalledTimes(1);
+    mockUseAnalyticsRun.mockReturnValue(makeResult({ reconnect, reset }));
+    mockUseQuery.mockReturnValue({
+      data: [pastRun({ status: "suspended" })],
+      isLoading: false,
+      isFetching: false
+    });
+    renderThread();
+    expect(reconnect).toHaveBeenCalledWith("r1", "suspended");
+    // A reset aborts that stream, and nothing reopens it while the cached run list
+    // stays the same — the suspension prompt would never appear.
+    expect(reset).not.toHaveBeenCalled();
   });
 
-  it("calls reset when thread.id changes while state is idle", () => {
+  it("does not reset the run on a re-render", () => {
     const reset = vi.fn();
     mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
     const { rerender } = renderThread();
-    reset.mockClear();
-
-    rerender(<AnalyticsThread thread={THREAD_2} />);
-    expect(reset).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not call reset on re-render with the same thread.id", () => {
-    const reset = vi.fn();
-    mockUseAnalyticsRun.mockReturnValue(makeResult({ reset }));
-    const { rerender } = renderThread();
-    reset.mockClear();
-
     rerender(<AnalyticsThread thread={{ ...THREAD }} />);
     expect(reset).not.toHaveBeenCalled();
   });
 
-  it("closes the open panel when the thread changes", () => {
+  it("opens another thread with no panel open", () => {
     mockUseAnalyticsRun.mockReturnValue(
       runningWith(automationStarted("my_proc", [{ name: "step_a", task_type: "execute_sql" }]))
     );
-    const { rerender } = renderThread();
+    const { rerender } = render(<AnalyticsThread key={THREAD.id} thread={THREAD} />, {
+      wrapper: SidebarProvider
+    });
     selectInTrace("my_proc");
     expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
 
-    rerender(<AnalyticsThread thread={THREAD_2} />);
+    rerender(<AnalyticsThread key={THREAD_2.id} thread={THREAD_2} />);
     expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
+  });
+});
+
+// ── Re-clicking an open pill ──────────────────────────────────────────────────
+
+/** A finished builder run that wrote one file, so the run shows that file's pill. */
+const pastBuilderRunWriting = (filePath: string): AnalyticsRunSummary =>
+  pastRun({
+    agent_id: "__builder__",
+    ui_events: [
+      sseEventToUiBlock(
+        sseEv("file_changed", {
+          file_path: filePath,
+          description: "",
+          new_content: "",
+          old_content: "",
+          is_deletion: false
+        })
+      )
+    ]
+  });
+
+describe("AnalyticsThread — re-clicking an open pill closes it", () => {
+  const step = (name: string) => [{ name, task_type: "execute_sql" }];
+
+  it("closes an artifact's panel when its trace pill is clicked again", () => {
+    mockUseAnalyticsRun.mockReturnValue(runningWith(automationStarted("my_proc", step("a"))));
+    renderThread();
+    selectInTrace("my_proc");
+    expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
+
+    selectInTrace("my_proc");
+    expect(screen.queryByRole("heading", { name: "my_proc" })).toBeNull();
+  });
+
+  it("closes a file preview when its file-change pill is clicked again", () => {
+    mockUseQuery.mockReturnValue({
+      data: [pastBuilderRunWriting("models/orders.view.yml")],
+      isLoading: false,
+      isFetching: false
+    });
+    renderThread(BUILDER_THREAD);
+    const filePill = screen.getByRole("button", { name: "orders" });
+    fireEvent.click(filePill);
+    expect(screen.getByTestId("file-preview").textContent).toBe("models/orders.view.yml");
+
+    fireEvent.click(filePill);
+    expect(screen.queryByTestId("file-preview")).toBeNull();
+  });
+
+  it("closes a builder delegation's panel when its pill is clicked again", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        sseEv("step_start", { label: "Solving" }),
+        sseEv("delegation_started", {
+          child_task_id: "child-1",
+          target: "agent:__builder__",
+          request: "add a view"
+        })
+      ])
+    );
+    renderThread();
+    selectInTrace("Building");
+    expect(screen.getByTestId("delegation-panel").textContent).toBe("child-1");
+
+    selectInTrace("Building");
+    expect(screen.queryByTestId("delegation-panel")).toBeNull();
+  });
+
+  it("switches runs, not closes, when another run's pill sits at the same place", () => {
+    // Trace item ids restart at 0 in every run, so two runs with the same shape
+    // produce pills with the same id.
+    const pastEvents = automationStarted("my_proc", step("past_step")).map(sseEventToUiBlock);
+    counter = 0;
+    mockUseQuery.mockReturnValue({
+      data: [pastRun({ ui_events: pastEvents })],
+      isLoading: false,
+      isFetching: false
+    });
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith(automationStarted("my_proc", step("live_step")))
+    );
+    renderThread();
+
+    selectInTrace("my_proc", 0);
+    expect(panel("my_proc").getByText("past_step")).toBeInTheDocument();
+
+    selectInTrace("my_proc", 1);
+    expect(panel("my_proc").getByText("live_step")).toBeInTheDocument();
+  });
+
+  it("brings back an artifact the builder panel covered instead of closing it", () => {
+    const events = [
+      sseEv("step_start", { label: "Solving" }),
+      sseEv("tool_call", { name: "render_chart", input: { chart_type: "bar_chart" } })
+    ];
+    mockUseAnalyticsRun.mockReturnValue(runningWith(events));
+    const { rerender } = renderThread(BUILDER_THREAD);
+    selectInTrace("Render Chart");
+    expect(screen.getByRole("heading", { name: "Render Chart" })).toBeInTheDocument();
+
+    // A proposed file change opens the builder panel over the artifact.
+    const fileChange = JSON.stringify({ type: "edit_file", file_path: "a.view.yml" });
+    mockUseAnalyticsRun.mockReturnValue(
+      makeResult({
+        state: {
+          tag: "suspended",
+          runId: "run-1",
+          events,
+          questions: [{ prompt: fileChange, suggestions: [] }]
+        }
+      })
+    );
+    rerender(<AnalyticsThread thread={BUILDER_THREAD} />);
+    expect(screen.queryByRole("heading", { name: "Render Chart" })).toBeNull();
+    // Selected but not on screen reads as not pressed.
+    expect(pills("Render Chart")[0]).toHaveAttribute("aria-pressed", "false");
+
+    selectInTrace("Render Chart");
+    expect(screen.getByRole("heading", { name: "Render Chart" })).toBeInTheDocument();
+    expect(pills("Render Chart")[0]).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+// ── Pressed state ─────────────────────────────────────────────────────────────
+
+describe("AnalyticsThread — a pill says whether its panel is open", () => {
+  it("presses the trace pill of the open artifact, and only that one", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        sseEv("step_start", { label: "Interpreting" }),
+        sseEv("tool_call", { name: "render_chart", input: { chart_type: "bar_chart" } }),
+        sseEv("tool_call", { name: "render_chart", input: { chart_type: "line_chart" } })
+      ])
+    );
+    renderThread();
+    expect(pills("Render Chart").map((p) => p.getAttribute("aria-pressed"))).toEqual([
+      "false",
+      "false"
+    ]);
+
+    selectInTrace("Render Chart", 1);
+    expect(pills("Render Chart").map((p) => p.getAttribute("aria-pressed"))).toEqual([
+      "false",
+      "true"
+    ]);
+
+    selectInTrace("Render Chart", 1);
+    expect(pills("Render Chart")[1]).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("presses a builder delegation's pill while its panel is open", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        sseEv("step_start", { label: "Solving" }),
+        sseEv("delegation_started", {
+          child_task_id: "child-1",
+          target: "agent:__builder__",
+          request: "add a view"
+        })
+      ])
+    );
+    renderThread();
+    expect(pills("Building")[0]).toHaveAttribute("aria-pressed", "false");
+    selectInTrace("Building");
+    expect(pills("Building")[0]).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("presses a builder delegation card's View details while its panel is open", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([
+        sseEv("step_start", { label: "Solving" }),
+        sseEv("delegation_started", {
+          child_task_id: "child-1",
+          target: "agent:__builder__",
+          request: "add a view"
+        })
+      ])
+    );
+    renderThread();
+    const viewDetails = () =>
+      within(screen.getByTestId("builder-delegation-card")).getByTestId("view-details-button");
+    expect(viewDetails()).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(viewDetails());
+    expect(screen.getByTestId("delegation-panel")).toBeInTheDocument();
+    expect(viewDetails()).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(viewDetails());
+    expect(screen.queryByTestId("delegation-panel")).toBeNull();
+    expect(viewDetails()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("presses a running automation card's View details while its run is open", () => {
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith(automationStarted("my_proc", [{ name: "step_a", task_type: "execute_sql" }]))
+    );
+    renderThread();
+    const viewDetails = () =>
+      within(screen.getByTestId("automation-delegation-card")).getByTestId("view-details-button");
+    expect(viewDetails()).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(viewDetails());
+    expect(screen.getByRole("heading", { name: "my_proc" })).toBeInTheDocument();
+    expect(viewDetails()).toHaveAttribute("aria-pressed", "true");
+    // The pill for the same automation says the same.
+    expect(pills("my_proc")[0]).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("presses a file-change pill while its file preview is open", () => {
+    mockUseQuery.mockReturnValue({
+      data: [pastBuilderRunWriting("models/orders.view.yml")],
+      isLoading: false,
+      isFetching: false
+    });
+    renderThread(BUILDER_THREAD);
+    const filePill = screen.getByRole("button", { name: "orders" });
+    expect(filePill).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(filePill);
+    expect(filePill).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(filePill);
+    expect(filePill).toHaveAttribute("aria-pressed", "false");
   });
 });
 
@@ -669,5 +921,25 @@ describe("AnalyticsThread — chart panel", () => {
     const rendered = panel("Render Chart").getByTestId("display-block");
     expect(rendered.dataset.chartType).toBe("line_chart");
     expect(rendered.textContent).toBe("Sales");
+  });
+
+  it("shows a past run's chart, not the live run's, while another run streams", () => {
+    const past = chartRendered(BAR, [["Jan", 100]]);
+    const pastEvents = [sseEv("step_start", { label: "Interpreting" }), ...past.events];
+    // Event seqs restart in every run, so both render_chart calls carry the same seq.
+    counter = 0;
+    const live = chartRendered(LINE, [["2024-01", 500]]);
+    mockUseQuery.mockReturnValue({
+      data: [pastRun({ ui_events: pastEvents.map(sseEventToUiBlock) })],
+      isLoading: false,
+      isFetching: false
+    });
+    mockUseAnalyticsRun.mockReturnValue(
+      runningWith([sseEv("step_start", { label: "Interpreting" }), ...live.events])
+    );
+    renderThread();
+
+    selectInTrace("Render Chart", 0);
+    expect(panel("Render Chart").getByTestId("display-block").textContent).toBe("Revenue");
   });
 });

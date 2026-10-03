@@ -20,7 +20,9 @@ import {
 import { THINKING_OPTIONS, VENDOR_OPTIONS } from "./constants";
 import type { AgenticFormData } from "./index";
 
-const ThinkingSelect = ({ name }: { name: string }) => {
+/** `name` doubles as the trigger's id, so a `<Label htmlFor={name}>` names it; `label`
+ *  replaces that name where the visible label alone is ambiguous. */
+const ThinkingSelect = ({ name, label }: { name: string; label?: string }) => {
   const { control } = useFormContext<AgenticFormData>();
   return (
     <Controller
@@ -29,7 +31,7 @@ const ThinkingSelect = ({ name }: { name: string }) => {
       render={({ field }) => (
         <div className='flex items-center gap-1'>
           <Select onValueChange={field.onChange} value={(field.value as string | undefined) ?? ""}>
-            <SelectTrigger className='flex-1'>
+            <SelectTrigger id={name} aria-label={label} className='flex-1'>
               <SelectValue placeholder='Select thinking mode' />
             </SelectTrigger>
             <SelectContent>
@@ -47,6 +49,7 @@ const ThinkingSelect = ({ name }: { name: string }) => {
               size='sm'
               className='px-2'
               onClick={() => field.onChange(undefined)}
+              aria-label={`Clear ${(label ?? "thinking mode").toLowerCase()}`}
             >
               <X className='h-4 w-4' />
             </Button>
@@ -81,12 +84,12 @@ export const LlmConfigForm: React.FC = () => {
         {/* vendor — hidden when ref is set */}
         {!ref && (
           <div className='space-y-2'>
-            <Label>Vendor</Label>
+            <Label htmlFor='llm.vendor'>Vendor</Label>
             <Controller
               name='llm.vendor'
               render={({ field }) => (
                 <Select onValueChange={field.onChange} value={field.value ?? ""}>
-                  <SelectTrigger>
+                  <SelectTrigger id='llm.vendor'>
                     <SelectValue placeholder='Select vendor (default: anthropic)' />
                   </SelectTrigger>
                   <SelectContent>
@@ -157,7 +160,7 @@ export const LlmConfigForm: React.FC = () => {
 
         {/* thinking */}
         <div className='space-y-2'>
-          <Label>Thinking Mode</Label>
+          <Label htmlFor='llm.thinking'>Thinking Mode</Label>
           <ThinkingSelect name='llm.thinking' />
           <p className='text-muted-foreground text-sm'>
             Applied to every pipeline state. Per-state overrides take precedence.
@@ -172,21 +175,25 @@ export const LlmConfigForm: React.FC = () => {
           </Button>
         ) : (
           <Collapsible defaultOpen>
-            <CollapsibleTrigger className='flex w-full items-center justify-between'>
-              <span className='font-medium text-sm'>Extended Thinking</span>
+            {/* The remove control sits beside the trigger, not in it: a button inside a
+                button is invalid. */}
+            <div className='flex w-full items-center justify-between'>
+              <CollapsibleTrigger className='flex flex-1 items-center self-stretch'>
+                <span className='font-medium text-sm'>Extended Thinking</span>
+              </CollapsibleTrigger>
               <Button
                 type='button'
                 variant='ghost'
                 size='sm'
-                onClick={(e) => {
-                  e.stopPropagation();
+                aria-label='Remove extended thinking'
+                onClick={() => {
                   setValue("llm.extended_thinking", undefined, { shouldDirty: true });
                   setShowExtended(false);
                 }}
               >
                 <Trash2 className='h-4 w-4' />
               </Button>
-            </CollapsibleTrigger>
+            </div>
             <CollapsibleContent className='mt-3 space-y-3 pl-4'>
               <p className='text-muted-foreground text-sm'>
                 Alternative model + thinking config activated via the UI toggle for deeper
@@ -196,13 +203,17 @@ export const LlmConfigForm: React.FC = () => {
                 <Label htmlFor='llm.extended_thinking.model'>Model</Label>
                 <Input
                   id='llm.extended_thinking.model'
+                  aria-label='Extended thinking model'
                   placeholder='e.g., claude-opus-4-6'
                   {...register("llm.extended_thinking.model")}
                 />
               </div>
               <div className='space-y-2'>
-                <Label>Thinking Mode</Label>
-                <ThinkingSelect name='llm.extended_thinking.thinking' />
+                <Label htmlFor='llm.extended_thinking.thinking'>Thinking Mode</Label>
+                <ThinkingSelect
+                  name='llm.extended_thinking.thinking'
+                  label='Extended thinking mode'
+                />
               </div>
             </CollapsibleContent>
           </Collapsible>

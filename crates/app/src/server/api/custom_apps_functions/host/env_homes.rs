@@ -180,6 +180,9 @@ impl ProjectFunctionHost {
                 self.actor,
             )
             .await
+            // `ctx.secrets.set` resolves to nothing either way: whether the write
+            // created or rotated the key only sets the HTTP route's status code.
+            .map(|_write| ())
             .map_err(|e| format!("ctx.secrets.set failed: {e}"))
     }
 

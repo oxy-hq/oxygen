@@ -22,6 +22,12 @@ export const VENDOR_OPTIONS = [
   { value: "openai_compat", label: "OpenAI-compatible (Ollama, vLLM, …)" }
 ] as const;
 
+/** `VendorKind` in `crates/agentic/analytics/src/config/yaml.rs`. */
+export const SEMANTIC_ENGINE_VENDORS = [
+  { value: "cube", label: "Cube" },
+  { value: "looker", label: "Looker" }
+] as const;
+
 export const STATE_NAMES = [
   "clarifying",
   "specifying",

@@ -109,7 +109,7 @@ it("exports each cell as the value the table shows, not the raw Arrow cell", asy
   // On screen: scaled and readable, each number the value the column holds.
   expect(await screen.findByTitle("1234.50")).toBeTruthy();
   expect(screen.getByTitle("2024-03-05")).toBeTruthy();
-  expect(screen.getByTitle("2024-03-05 12:34")).toBeTruthy();
+  expect(screen.getByTitle("2024-03-05 12:34:56")).toBeTruthy();
   expect(screen.getByTitle("0.123456")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "CSV" }));
@@ -118,7 +118,7 @@ it("exports each cell as the value the table shows, not the raw Arrow cell", asy
     return downloaded;
   });
 
-  // In the file: the same values, and the seconds the table leaves out.
+  // In the file: the same values.
   expect(await csv.text()).toBe(
     [
       "amount,day,at,ratio,label",
@@ -154,6 +154,21 @@ it("shows a number as the value it is, not rounded to two decimal places", async
     // 0.004 and 0.000004 used to read "0.00", and 1.5 "1.50".
     ...["0.000004", "0.004", "1.5", "7"]
   ]);
+});
+
+it("shows a timestamp to the second, and to the millisecond when it has any", async () => {
+  queryResult.table = new Table({
+    at: vectorFromArray(
+      [new Date("2024-03-05T12:34:56Z"), new Date("2024-03-05T12:34:56.789Z")],
+      new TimestampMillisecond()
+    )
+  });
+
+  render(<VirtualizedTable filePath='result.parquet' />);
+
+  // Both used to read "2024-03-05 12:34", as if they were the same moment.
+  expect(await screen.findByTitle("2024-03-05 12:34:56")).toBeTruthy();
+  expect(screen.getByTitle("2024-03-05 12:34:56.789")).toBeTruthy();
 });
 
 it("shows a NULL as an empty cell, whatever its column type", async () => {

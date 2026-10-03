@@ -22,21 +22,26 @@ const KEY_PATTERN = /^[A-Za-z0-9_.-]+$/;
  * before, and still does not exist on the project-secrets API, which rejects the
  * `/` in an app-scoped name.
  *
- * Rotating locks the key field: an editable name on a rotation reads as "rename
- * this secret", which is not what saving would do — it would write a second key
- * and leave the first one live.
+ * Opened from a row, the key field is locked. On a rotation an editable name
+ * reads as "rename this secret", which is not what saving would do — it would
+ * write a second key and leave the first one live; on a missing key, another
+ * name would not satisfy the declaration the row is for.
  */
 export const SetSecretDialog = ({
   appId,
   secretKey,
+  stored,
   onClose
 }: {
   appId: string;
-  /** `null` = closed. `""` = adding a new key. A name = rotating that key. */
+  /** `null` = closed. `""` = adding a new key. A name = that row's key. */
   secretKey: string | null;
+  /** The row's key already has a value, so saving replaces it. */
+  stored: boolean;
   onClose: () => void;
 }) => {
-  const rotating = !!secretKey;
+  const fromRow = !!secretKey;
+  const rotating = fromRow && stored;
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
   const set = useSetAppSecret(appId);
@@ -61,8 +66,11 @@ export const SetSecretDialog = ({
     set.mutate(
       { key, value },
       {
-        onSuccess: () => {
-          toast.success(rotating ? `Rotated ${key}.` : `Set ${key}.`);
+        // From the server's answer, not from how the dialog opened: a Missing
+        // row's button opens it on a key nothing stores yet, and Add secret
+        // accepts a name that is already stored.
+        onSuccess: (write) => {
+          toast.success(write === "updated" ? `Rotated ${key}.` : `Set ${key}.`);
           onClose();
         },
         // The server rejects a bad key by name; show what it said rather than a
@@ -78,7 +86,7 @@ export const SetSecretDialog = ({
       <DialogContent className='sm:max-w-[425px]' data-testid='admin-app-secret-dialog'>
         <DialogHeader>
           <DialogTitle className='text-sm'>
-            {rotating ? `Rotate ${secretKey}` : "Add secret"}
+            {rotating ? `Rotate ${secretKey}` : fromRow ? `Set ${secretKey}` : "Add secret"}
           </DialogTitle>
           <DialogDescription className='text-xs'>
             Stored for this app only. Functions read it as <code>ctx.env.{key || "KEY"}</code> on
@@ -94,7 +102,7 @@ export const SetSecretDialog = ({
             <Input
               id='app-secret-key'
               value={key}
-              disabled={rotating}
+              disabled={fromRow}
               onChange={(e) => setKey(e.target.value.trim())}
               placeholder='STRIPE_API_KEY'
               className='font-mono text-xs'
