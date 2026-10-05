@@ -352,13 +352,16 @@ fn manifest_from_prefetched(
 
 // ── Channel selection ────────────────────────────────────────────────────────
 
+/// `on_staging` is the caller's whole staging decision — a request on the app's
+/// staging host from a viewer who may open it (`may_open_non_production`).
+/// Everywhere else the published channel answers, or the draft for an app that
+/// was never published.
 pub(super) fn pick_channel_for(
     app: &apps::Model,
-    is_staff: bool,
-    cookie_wants_draft: bool,
+    on_staging: bool,
 ) -> super::custom_apps_sync::Channel {
     use super::custom_apps_sync::Channel;
-    if is_staff && cookie_wants_draft {
+    if on_staging {
         return Channel::Draft;
     }
     if app.published_at.is_some() {

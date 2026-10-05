@@ -15,21 +15,26 @@
 //!
 //! Production notes nothing, so a production invocation's flush finds the
 //! buffer empty and closes it without spawning anything.
+//!
+//! The row itself is built by the one `app.staging.held` writer,
+//! [`custom_apps_staging_held::record_held`], which the console's held list
+//! reads back; this log decides only *when* it is written.
 
 use std::sync::Arc;
 
-use oxy_app_core::audit::AuditEntry;
 use sea_orm::DatabaseConnection;
 use sentry::SentryFutureExt;
 use uuid::Uuid;
 
-use super::super::data_audit::{self, InvocationIdentity, WriteBuffer, WriteRecord};
+use super::super::data_audit::{InvocationIdentity, WriteBuffer, WriteRecord};
+use crate::server::api::custom_apps_staging_held::{self, HeldActor, HeldRow};
 
 /// Everything a held row is written from, cloneable onto a task.
 #[derive(Clone)]
 struct RowWriter {
     db: DatabaseConnection,
     identity: InvocationIdentity,
+    app_id: Uuid,
     org_id: Uuid,
     project_id: Uuid,
     environment: String,
@@ -43,16 +48,28 @@ struct RowWriter {
 }
 
 impl RowWriter {
-    fn entry(&self, held: &[WriteRecord], trace_id: Option<&str>) -> AuditEntry {
-        data_audit::entry(
-            data_audit::ACTION_STAGING_HELD,
-            &self.identity,
-            self.org_id,
-            self.project_id,
-            held,
+    fn row(&self, writes: Vec<WriteRecord>, trace_id: Option<String>) -> HeldRow {
+        let id = &self.identity;
+        HeldRow {
+            app_id: self.app_id,
+            app_slug: id.app_slug.clone(),
+            org_id: self.org_id,
+            project_id: self.project_id,
+            environment: self.environment.clone(),
+            actor: match id.user_id {
+                Some(user) => HeldActor::User {
+                    id: user,
+                    email: id.user_email.clone(),
+                },
+                None => HeldActor::System,
+            },
+            function_or_surface: id.function_name.clone(),
+            mode: id.mode.clone(),
+            request_id: id.request_id,
+            writes,
+            invocation_id: Some(id.invocation_id),
             trace_id,
-        )
-        .environment(self.environment.clone())
+        }
     }
 
     /// Write `held` as one row from a task of its own, and wait for it. The
@@ -64,8 +81,8 @@ impl RowWriter {
         let writer = self.clone();
         let task = tokio::spawn(
             async move {
-                let entry = writer.entry(&held, trace_id.as_deref());
-                oxy_app_core::audit::record_best_effort(&writer.db, entry).await;
+                let row = writer.row(held, trace_id);
+                custom_apps_staging_held::record_held(&writer.db, row).await;
             }
             // Outlives the invocation's request hub, so it carries that hub.
             .bind_hub(sentry::Hub::current()),
@@ -83,6 +100,7 @@ impl HeldLog {
     pub(super) fn new(
         db: DatabaseConnection,
         identity: InvocationIdentity,
+        app_id: Uuid,
         org_id: Uuid,
         project_id: Uuid,
         environment: String,
@@ -92,6 +110,7 @@ impl HeldLog {
             writer: RowWriter {
                 db,
                 identity,
+                app_id,
                 org_id,
                 project_id,
                 environment,
@@ -124,11 +143,8 @@ impl HeldLog {
         let task = tokio::spawn(
             async move {
                 let held = log.buffer.lock().await.drain();
-                if held.is_empty() {
-                    return;
-                }
-                let entry = log.writer.entry(&held, trace_id.as_deref());
-                oxy_app_core::audit::record_best_effort(&log.writer.db, entry).await;
+                let row = log.writer.row(held, trace_id);
+                custom_apps_staging_held::record_held(&log.writer.db, row).await;
             }
             .bind_hub(sentry::Hub::current()),
         );
@@ -150,10 +166,10 @@ impl Drop for HeldLog {
             );
             return;
         };
-        let entry = self.writer.entry(&held, None);
+        let row = self.writer.row(held, None);
         let db = self.writer.db.clone();
         handle.spawn(
-            async move { oxy_app_core::audit::record_best_effort(&db, entry).await }
+            async move { custom_apps_staging_held::record_held(&db, row).await }
                 // The invocation's hub, captured when the log was made (see
                 // `RowWriter::hub`), not whatever is current where it drops.
                 .bind_hub(Arc::clone(&self.writer.hub)),

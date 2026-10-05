@@ -43,7 +43,7 @@
 //!     own declared checks* adds nothing. It would stop being true the moment
 //!     this admitted any function of the app.
 //!   - everything else (DELETE/unpublish, PATCH/update, create, rollback,
-//!     `POST /{id}/secrets`, preview-draft, and every non-customer-apps path)
+//!     `POST /{id}/secrets`, and every non-customer-apps path)
 //!     → `403`.
 //!
 //! Runs immediately after `auth_middleware` (which sets the marker). NOTE:
@@ -124,7 +124,7 @@ fn is_allowed(method: &Method, path: &str) -> bool {
         // cannot tell a check from any other function.
         Method::POST => is_publish_route(path) || is_function_run_route(path),
         // DELETE (delete/unpublish), PATCH (update), and any other POST
-        // (create, rollback, api-key mint, preview-draft) are out of scope.
+        // (create, rollback, api-key mint) are out of scope.
         _ => false,
     }
 }
@@ -279,7 +279,6 @@ mod tests {
             &Method::POST,
             "/customer-apps/3f2504e0/rollback"
         ));
-        assert!(!is_allowed(&Method::POST, "/customer-apps/preview-draft"));
     }
 
     #[test]

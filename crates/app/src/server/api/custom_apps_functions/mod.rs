@@ -31,7 +31,7 @@ mod cli_capabilities_drift;
 /// The audit record for every data-plane write a function makes (session
 /// tag, statement trailer, `audit_events` row).
 #[cfg(feature = "custom-app-functions")]
-mod data_audit;
+pub(crate) mod data_audit;
 /// What each host op may do in the environment a function runs in: one
 /// exhaustive decision per `HostOp` (production allows all; staging holds
 /// every write).
@@ -87,6 +87,9 @@ mod upsert_support;
 /// `failure_signal` reads a host from it in every configuration, and the gated
 /// `host_call_attrs` hands the same parser to `runtime`'s fetch spans.
 mod url_shape;
+/// The shape of an audited write (`WriteRecord`, its actor and target) —
+/// ungated, so the staging held-call log builds without the V8 feature.
+pub(crate) mod write_record;
 
 /// Named so `ProjectFunctionHost::new` can be called from outside the crate —
 /// the engine-backed tests in `tests/custom_apps/` build a real host.

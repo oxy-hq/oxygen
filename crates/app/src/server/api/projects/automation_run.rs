@@ -28,6 +28,15 @@
 //! cancel flag on the run, which the driver polls and turns into a stop.
 //! The first terminal state wins ([`settle`]): a result that lands after
 //! the cancel is discarded.
+//!
+//! Staging ([`staging_hold`]): the environment guard lets this route's
+//! `POST` through on a custom app's staging host
+//! (`custom_app_env_request::is_staging_write`), same as it lets an
+//! agent ask through — but unlike an ask, an automation run never runs held.
+//! `start_automation_run` refuses it outright with `409 held_in_staging`,
+//! logged as one `app.staging.held` row for a caller who may open this app's
+//! staging; a caller who may not gets the same `404 EnvironmentRefused` a
+//! staging ask refuses with. Production is unaffected.
 
 pub mod executor;
 mod settle;
@@ -50,10 +59,109 @@ use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
 use oxy::config::ConfigManager;
+use oxy_app_core::custom_app_env_request::request_environment;
+use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_auth::types::AuthenticatedUser;
+use sea_orm::DatabaseConnection;
 
+use crate::server::api::custom_apps_env_resolve::may_open_non_production;
+use crate::server::api::custom_apps_functions::write_record::WriteRecord;
 use crate::server::api::custom_apps_gates::{check_custom_app_gates, parse_versioned_body};
+use crate::server::api::custom_apps_staging_held::{HeldActor, HeldRow, record_held};
+use crate::server::api::custom_apps_staging_pin::request::find_app;
+use crate::server::api::projects::agent_ask_staging::{ask_app_ref, refused};
 use crate::server::router::AppState;
 use sea_orm::ExprTrait;
+
+/// The surface an automation run's held row is listed under, and its `mode`.
+const AUTOMATION_SURFACE: &str = "automation";
+
+/// `409 held_in_staging`: a custom app's staging may not start an automation
+/// run at all (unlike an ask, nothing runs held). The body names the surface
+/// so a bundle can tell this apart from every other refusal.
+fn held_in_staging() -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({
+            "error": "held_in_staging",
+            "surface": AUTOMATION_SURFACE,
+            "what": "starting an automation run from an app's staging",
+        })),
+    )
+        .into_response()
+}
+
+/// The held write an automation run would have made, as the audit shape:
+/// never a table, since nothing ran.
+fn automation_write(automation_id: &str) -> WriteRecord {
+    WriteRecord {
+        plane: "automation",
+        namespace: automation_id.to_string(),
+        verb: "RUN".to_string(),
+        table: String::new(),
+        rows: None,
+        statements: 1,
+        op: None,
+        note: None,
+    }
+}
+
+/// What a staging host's automation-run request answers, before anything is
+/// looked up or written: `Ok(())` in production (unchanged), else `Err` —
+/// `409` logged as one `app.staging.held` row for a caller who may open this
+/// app's staging, else the same `404 EnvironmentRefused` a staging ask
+/// refuses with. Fail closed: a lookup miss is a refusal, never a run.
+async fn staging_hold(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    user: &AuthenticatedUser,
+    project_id: Uuid,
+    automation_id: &str,
+) -> Result<(), Response> {
+    let refusal = || refused(&AppEnvironment::Staging, "an automation run");
+    let environment = request_environment(headers).map_err(|e| e.into_response())?;
+    match environment {
+        AppEnvironment::Production => return Ok(()),
+        AppEnvironment::Staging => {}
+        other => return Err(refused(&other, "an automation run")),
+    }
+    let app = match ask_app_ref(headers) {
+        Some(r) => find_app(db, &r).await,
+        None => None,
+    };
+    let Some(app) = app else {
+        return Err(refusal());
+    };
+    if app.project_id != project_id {
+        return Err(refusal());
+    }
+    let email = user.email.as_deref().unwrap_or("");
+    if !may_open_non_production(db, user.id, email, &app).await {
+        return Err(refusal());
+    }
+    record_held(
+        db,
+        HeldRow {
+            app_id: app.id,
+            app_slug: app.slug.clone(),
+            org_id: app.org_id,
+            project_id,
+            environment: AppEnvironment::Staging.name(),
+            actor: HeldActor::User {
+                id: user.id,
+                email: user.email.clone(),
+            },
+            function_or_surface: AUTOMATION_SURFACE.to_string(),
+            mode: AUTOMATION_SURFACE.to_string(),
+            request_id: None,
+            writes: vec![automation_write(automation_id)],
+            invocation_id: None,
+            trace_id: None,
+        },
+    )
+    .await;
+    Err(held_in_staging())
+}
 
 #[derive(Serialize)]
 struct ApiErr {
@@ -166,6 +274,17 @@ pub async fn start_automation_run(
         Ok(c) => c,
         Err(resp) => return resp,
     };
+    if let Err(resp) = staging_hold(
+        &gates_ctx.db,
+        &headers,
+        &gates_ctx.user,
+        project_id,
+        &automation_id,
+    )
+    .await
+    {
+        return resp;
+    }
     let req: AutomationRunRequest = match parse_versioned_body(&body) {
         Ok(r) => r,
         Err(resp) => return resp,

@@ -25,10 +25,18 @@
 //! without being parsed, and deep-but-checkable SQL is parsed and classified
 //! on a stack that holds it.
 //!
+//! **Settings are writes.** A call to `set_config` — in any schema, any
+//! casing, as a scalar or in `FROM` — is a `Write` (`SET_CONFIG`), as are the
+//! built-ins that run SQL handed to them as text (`query_to_xml*`, `ts_stat`,
+//! `ts_rewrite`), which could call it unseen. On Postgres the connector
+//! backstop makes the session read-only, and `set_config` is how a read would
+//! switch it back.
+//!
 //! **Known limit.** A read that calls a function with side effects
 //! (`SELECT my_proc()`) classifies as a read; the parser cannot see inside the
 //! function. That is why the connector backstop is not the only fence a preview
-//! relies on for a warehouse that allows such functions.
+//! relies on for a warehouse that allows such functions: on Postgres the
+//! session itself is read-only (`hold::pg`).
 
 use std::ops::ControlFlow;
 
@@ -36,8 +44,8 @@ use agentic_connector::SqlDialect;
 use airhouse::sql_parse::with_parsed;
 use airhouse::sql_rules::is_read_only;
 use sqlparser::ast::{
-    CopySource, Delete, FromTable, Query, SetExpr, Statement, TableFactor, TableObject, Visit,
-    Visitor,
+    CopySource, Delete, Expr, FromTable, ObjectName, Query, SetExpr, Statement, TableFactor,
+    TableObject, Visit, Visitor,
 };
 use sqlparser::dialect::{
     BigQueryDialect, ClickHouseDialect, Dialect, DuckDbDialect, GenericDialect, PostgreSqlDialect,
@@ -151,6 +159,18 @@ impl Visitor for WriteFinder {
         ControlFlow::Break(())
     }
 
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
+        match expr {
+            Expr::Function(f) => self.settings_call(&f.name),
+            _ => ControlFlow::Continue(()),
+        }
+    }
+
+    /// `SELECT * FROM set_config(…)`: a table function is a relation.
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<()> {
+        self.settings_call(relation)
+    }
+
     fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<()> {
         match select_into(&query.body) {
             Some(target) => {
@@ -160,6 +180,36 @@ impl Visitor for WriteFinder {
             None => ControlFlow::Continue(()),
         }
     }
+}
+
+impl WriteFinder {
+    fn settings_call(&mut self, name: &ObjectName) -> ControlFlow<()> {
+        if !changes_settings(name) {
+            return ControlFlow::Continue(());
+        }
+        self.write = Some(("SET_CONFIG".to_string(), Vec::new()));
+        ControlFlow::Break(())
+    }
+}
+
+/// Built-ins that run SQL given to them as a string, which nothing here reads
+/// into (the same list `ctx.oltp`'s fence holds).
+const SQL_TEXT_FUNCTIONS: &[&str] = &["ts_stat", "ts_rewrite"];
+
+/// Whether calling `name` can change a session setting: `set_config`, or a
+/// built-in that runs SQL text ([`SQL_TEXT_FUNCTIONS`], `query_to_xml*`).
+/// Compared on the last part of the name, unquoted and case-folded, so
+/// `PG_CATALOG."set_config"` is caught (a quoted spelling Postgres would not
+/// resolve is held too: fail closed).
+fn changes_settings(name: &ObjectName) -> bool {
+    let rendered = name.to_string();
+    let last = rendered.rsplit('.').next().unwrap_or(&rendered);
+    let last = last
+        .trim_matches(|c| c == '"' || c == '`')
+        .to_ascii_lowercase();
+    last == "set_config"
+        || last.starts_with("query_to_xml")
+        || SQL_TEXT_FUNCTIONS.contains(&last.as_str())
 }
 
 /// `SELECT … INTO t` creates `t`. Nested queries are visited on their own.

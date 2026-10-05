@@ -274,3 +274,37 @@ fn a_deep_or_chain_is_held_or_classified_never_aborts() {
     let deep = on_a_tokio_sized_stack(move || classify(SqlDialect::Postgres, &deep));
     assert_eq!(deep, vec![StatementKind::Read]);
 }
+
+/// `set_config` is how a read would switch a read-only Postgres session back
+/// (`hold::pg`), so a call to it is a write in any schema or casing, as a
+/// scalar or in `FROM`, and so is a built-in that runs SQL text unseen.
+#[test]
+fn set_config_is_a_write_however_it_is_spelled() {
+    for sql in [
+        "SELECT set_config('default_transaction_read_only', 'off', false)",
+        "SELECT PG_CATALOG.SET_CONFIG('a', 'b', true) AS x",
+        "select \"pg_catalog\".\"set_config\"('a', 'b', true)",
+        "SELECT * FROM set_config('a', 'b', false)",
+        "SELECT 1 FROM t WHERE (SELECT set_config('a', 'b', false)) IS NOT NULL",
+        "WITH s AS (SELECT set_config('a', 'b', false)) SELECT * FROM s",
+        "SELECT query_to_xml('select set_config(''a'', ''b'', false)', true, false, '')",
+        "SELECT * FROM ts_stat('select 1')",
+    ] {
+        assert_eq!(
+            classify(SqlDialect::Postgres, sql),
+            vec![write("SET_CONFIG", &[])],
+            "{sql}"
+        );
+    }
+    for sql in [
+        "SELECT current_setting('default_transaction_read_only')",
+        "SELECT 'set_config(' AS note",
+        "SELECT set_configuration FROM t",
+    ] {
+        assert_eq!(
+            classify(SqlDialect::Postgres, sql),
+            vec![StatementKind::Read],
+            "{sql}"
+        );
+    }
+}

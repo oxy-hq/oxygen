@@ -1,5 +1,6 @@
-//! What an [`OxyProjectContext`] built for a workspace-preview request does
-//! instead of writing (`server::previews::request_hold`).
+//! What an [`OxyProjectContext`] built for a held request — a workspace
+//! preview, or a custom app's staging ask — does instead of writing
+//! (`server::previews::request_hold`).
 //!
 //! The context is the platform every request-path run executes on — a chat
 //! run and the children it drives, a data app's tasks, the metric-tree tools —
@@ -23,13 +24,24 @@ use std::sync::Arc;
 use agentic_connector::DatabaseConnector;
 
 use super::OxyProjectContext;
-use crate::server::previews::request_hold;
+use crate::server::previews::request_hold::{self, HoldScope};
 
 impl OxyProjectContext {
-    /// Whether this context holds every write: it was built for a
-    /// workspace-preview request, or is being used inside one.
+    /// Whether this context holds every write: it was built for a held
+    /// request, or is being used inside one.
     pub fn holds_writes(&self) -> bool {
-        self.holds_writes || request_hold::active()
+        self.hold.is_some() || request_hold::active()
+    }
+
+    /// The hold this context writes under — the one it was built in, else the
+    /// current task's — or `None` when it holds nothing.
+    pub fn hold_scope(&self) -> Option<HoldScope> {
+        self.hold.clone().or_else(request_hold::current)
+    }
+
+    /// The hold's wording for a refusal, defaulting to a workspace preview's.
+    pub(super) fn hold_wording(&self) -> HoldScope {
+        self.hold_scope().unwrap_or_default()
     }
 
     /// `conn` for `database`, held when this context holds writes.
@@ -38,7 +50,11 @@ impl OxyProjectContext {
         conn: Arc<dyn DatabaseConnector>,
         database: &str,
     ) -> Arc<dyn DatabaseConnector> {
-        request_hold::hold_if(self.holds_writes(), conn, database)
+        let session = crate::server::previews::hold::Session::of(
+            &self.workspace_manager.config_manager,
+            database,
+        );
+        request_hold::hold_in(self.hold_scope().as_ref(), conn, database, session)
     }
 
     /// The connector a held context hands the pipeline for `db_name` — every

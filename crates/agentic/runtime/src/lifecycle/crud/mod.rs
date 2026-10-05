@@ -38,7 +38,9 @@ pub use runs::{
 };
 pub use suspension::{get_suspension, get_suspension_with_start, upsert_suspension};
 pub use undriven::fail_undriven_run;
-pub use visibility::{RUN_ENVIRONMENT_KEY, customer_run_sql, get_run_in_workspace};
+pub use visibility::{
+    PREVIEW_STAMP_KEY, RUN_ENVIRONMENT_KEY, customer_run_sql, get_run_in_workspace,
+};
 
 pub fn now() -> chrono::DateTime<chrono::FixedOffset> {
     chrono::Utc::now().fixed_offset()

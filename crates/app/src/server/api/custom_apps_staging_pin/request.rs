@@ -13,15 +13,14 @@
 //! 3. the `Host` of a custom-app subdomain (`<org>--<slug>.customer-apps.…`).
 //!
 //! Then the gates, all required: the app was published from THIS workspace,
-//! the request is a non-production request, and the caller may open
-//! non-production. Such a request is one addressed to a **non-production
-//! environment** of the app — its staging host, a sandbox's host, or either
-//! named by `X-Oxy-App-Env` on a bearer request (the caller must pass
-//! `may_open_non_production`, the rule that serves them that environment's
-//! HTML) — or one carrying the **preview cookie** (the caller must have
-//! platform `DevelopApps` reach for the app's org — the decision
-//! `custom_apps_serve` makes to serve the draft bundle). Any miss is "no pin":
-//! the request reads the promoted revision, as it did before staging existed.
+//! the request is addressed to a **non-production environment** of the app —
+//! its staging host, a sandbox's host, or either named by `X-Oxy-App-Env` on a
+//! bearer request — and the caller may open non-production
+//! (`may_open_non_production`, the rule that serves them that environment's
+//! HTML). Any miss is "no pin": the request reads the promoted revision, as it
+//! did before staging existed. The staff-only `oxy_preview_draft` cookie that
+//! once made a production-host request a staging one is retired — a request
+//! still carrying it reads the live revision like any other.
 //!
 //! **A spoofed header is not an authz hole.** It can only choose among apps of
 //! the request's own workspace that the caller can already develop — whose
@@ -53,21 +52,16 @@ pub(crate) enum AppRef {
 }
 
 /// The pin a non-production data-plane request should read, or `None` for
-/// every other request. Cheap for a production request with no preview cookie
-/// (no DB work).
+/// every other request. Cheap for a production request (no DB work).
 ///
-/// Two entrances, each with its own reach rule and its own build:
-///
-/// - **a non-production environment** — the staging host
-///   (`staging--<org>--<slug>.…`, environments design §3.2), a sandbox's host
-///   (`dev-<handle>--<org>--<slug>.…`), or either named by `X-Oxy-App-Env` on
-///   a bearer or API-key request: the viewer must be allowed to open
-///   non-production (`may_open_non_production`, the rule that serves them that
-///   environment's HTML), and the pin is read from the build **that
-///   environment** serves. A sandbox whose build pins nothing reads the
-///   promoted model; it never borrows staging's pin;
-/// - **the preview cookie** on a production request: `DevelopApps` reach, and
-///   the app's draft build — which the staging row mirrors, so the same build.
+/// A non-production request is one addressed to the staging host
+/// (`staging--<org>--<slug>.…`, environments design §3.2), a sandbox's host
+/// (`dev-<handle>--<org>--<slug>.…`), or either named by `X-Oxy-App-Env` on a
+/// bearer or API-key request — never a cookie. The viewer must be allowed to
+/// open non-production (`may_open_non_production`, the rule that serves them
+/// that environment's HTML), and the pin is read from the build **that
+/// environment** serves. A sandbox whose build pins nothing reads the promoted
+/// model; it never borrows staging's pin.
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
@@ -77,20 +71,12 @@ pub async fn staging_pin_for_data_request(
 ) -> Option<Uuid> {
     let non_production = oxy_app_core::custom_app_env_request::request_environment(headers)
         .ok()
-        .filter(|environment| *environment != AppEnvironment::Production);
-    if non_production.is_none()
-        && !crate::server::api::custom_apps_preview::wants_draft_preview(headers)
-    {
-        return None;
-    }
+        .filter(|environment| *environment != AppEnvironment::Production)?;
     let app = find_app(db, &app_ref(headers)?).await?;
     if app.project_id != project_id {
         return None;
     }
-    let build_id = match non_production {
-        Some(environment) => environment_build(db, user_id, user_email, &app, &environment).await?,
-        None => draft_preview_build(db, user_email, &app).await?,
-    };
+    let build_id = environment_build(db, user_id, user_email, &app, &non_production).await?;
     super::pinned_revision_for(db, build_id).await
 }
 
@@ -115,26 +101,6 @@ async fn environment_build(
         .build_id
 }
 
-/// The draft build, for a caller with `DevelopApps` reach over the app's org —
-/// the decision `custom_apps_serve` makes to serve the draft bundle.
-async fn draft_preview_build(
-    db: &DatabaseConnection,
-    user_email: &str,
-    app: &entity::apps::Model,
-) -> Option<Uuid> {
-    let reaches = oxy_server_authz::globals::platform_reaches(
-        db,
-        user_email,
-        oxy_authz::Cap::DevelopApps,
-        app.org_id,
-    )
-    .await;
-    if !reaches {
-        return None;
-    }
-    app.draft_build_id
-}
-
 /// Name the app from the request, in the documented order.
 pub(crate) fn app_ref(headers: &HeaderMap) -> Option<AppRef> {
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
@@ -150,6 +116,68 @@ pub(crate) fn app_ref(headers: &HeaderMap) -> Option<AppRef> {
         org: parsed.org_slug,
         app: parsed.app_slug,
     })
+}
+
+/// The app a staging write names. The `Host` wins when it is an app host: a
+/// staging page's `x-oxy-app` header cannot relabel its write as another
+/// app's. Off an app host (an explicit `x-oxy-environment`), the documented
+/// order. The agent ask, the automation run and the bundle's chat history all
+/// name their app this way.
+pub(crate) fn staging_app_ref(headers: &HeaderMap) -> Option<AppRef> {
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .and_then(oxy_app_core::custom_apps_host_dispatch::parse_app_host);
+    match host {
+        Some(h) => Some(AppRef::Slugs {
+            org: h.org_slug,
+            app: h.app_slug,
+        }),
+        None => app_ref(headers),
+    }
+}
+
+/// The app a staging request names ([`staging_app_ref`]), when it was
+/// published from `project_id` and the caller may open its staging. `None` on
+/// any miss, a lookup error included.
+pub(crate) async fn staging_app_for(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    user_email: &str,
+    project_id: Uuid,
+) -> Option<entity::apps::Model> {
+    use crate::server::api::custom_apps_env_resolve::may_open_non_production;
+    let app = find_app(db, &staging_app_ref(headers)?).await?;
+    if app.project_id != project_id {
+        return None;
+    }
+    may_open_non_production(db, user_id, user_email, &app)
+        .await
+        .then_some(app)
+}
+
+/// `404 EnvironmentRefused`: a surface outside production that this caller
+/// may not reach. A 404, as for an app that does not exist, so it confirms
+/// nothing. `what` names the surface (`"an agent ask"`, `"an automation
+/// run"`) for the message.
+pub(crate) fn environment_refused(
+    environment: &AppEnvironment,
+    what: &str,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(serde_json::json!({
+            "error": "EnvironmentRefused",
+            "environment": environment.name(),
+            "message": format!(
+                "{what} in the {environment} environment runs only for a developer who \
+                 may open this app's {environment}"
+            ),
+        })),
+    )
+        .into_response()
 }
 
 /// `https://host/customer-apps/<org>/<slug>/…` → slugs;
@@ -181,7 +209,7 @@ fn app_ref_from_referer(referer: &str) -> Option<AppRef> {
     })
 }
 
-async fn find_app(db: &DatabaseConnection, r: &AppRef) -> Option<entity::apps::Model> {
+pub(crate) async fn find_app(db: &DatabaseConnection, r: &AppRef) -> Option<entity::apps::Model> {
     let found = match r {
         AppRef::Id(id) => entity::apps::Entity::find_by_id(*id).one(db).await,
         AppRef::Slugs { org, app } | AppRef::OrgHostSlug { org, app } => {

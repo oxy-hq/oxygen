@@ -77,14 +77,14 @@ pub(super) const SQL_TEXT_PREFIXES: &[&str] = &["query_to_xml"];
 pub fn admit_oltp_statement(sql: &str) -> Result<(), HeldStatement> {
     let kinds = classify(SqlDialect::Postgres, sql);
     match kinds.as_slice() {
-        [StatementKind::Read] => match side_effect(&PostgreSqlDialect {}, sql) {
-            None => Ok(()),
-            Some(why) => Err(HeldStatement {
-                verb: "SELECT".to_string(),
-                table: String::new(),
-                why,
-            }),
-        },
+        [StatementKind::Read] => held_for_a_read(sql),
+        // The shared classifier also names `set_config` and the SQL-text
+        // built-ins a write by name (`sql_kind::changes_settings`, shared
+        // with the holding connector). Route them through this module's own
+        // name-specific message instead of the generic `is a SET_CONFIG` a
+        // real write gets — `side_effect` below already lists every one of
+        // these names, so it always finds why.
+        [StatementKind::Write { verb, .. }] if verb == "SET_CONFIG" => held_for_a_read(sql),
         [StatementKind::Write { verb, targets }] => Err(HeldStatement {
             verb: verb.clone(),
             table: targets.first().cloned().unwrap_or_default(),
@@ -99,6 +99,18 @@ pub fn admit_oltp_statement(sql: &str) -> Result<(), HeldStatement> {
             verb: "MULTIPLE".to_string(),
             table: String::new(),
             why: format!("is {} statements in one string", many.len()),
+        }),
+    }
+}
+
+/// `sql` admitted as a read, or held for the function it calls.
+fn held_for_a_read(sql: &str) -> Result<(), HeldStatement> {
+    match side_effect(&PostgreSqlDialect {}, sql) {
+        None => Ok(()),
+        Some(why) => Err(HeldStatement {
+            verb: "SELECT".to_string(),
+            table: String::new(),
+            why,
         }),
     }
 }

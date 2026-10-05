@@ -13,6 +13,11 @@
 //! every read by id, the live snapshot and the recovery stats. A production
 //! `app_function` run carries no environment and stays visible everywhere.
 //!
+//! A preview-pinned run — an agent ask from a custom app's staging host —
+//! carries `metadata.workspace_preview`. It is staff's, so it is hidden from
+//! the feed and the queue health, but it is read by id (its stream and cancel
+//! are the workspace's own ask routes), so every other read still finds it.
+//!
 //! The queue health a workspace's members read (`get_queue_stats`) is the
 //! feed's rule again: a staff run's task is neither counted nor listed, in any
 //! queue state — a dead sandbox check is not the tenant's dead job, and the
@@ -33,6 +38,8 @@ struct Seeded {
     customer: String,
     unlabelled: String,
     preview: String,
+    /// A custom app's staging ask: stamped `workspace_preview`, no environment.
+    staging_ask: String,
     /// A production `app_function` run: Run now, no environment stamped.
     production_fn: String,
     /// An `app_function` run that names production outright.
@@ -51,6 +58,7 @@ async fn seed(db: &DatabaseConnection) -> Seeded {
         customer: format!("feed-{}", Uuid::new_v4()),
         unlabelled: format!("feed-{}", Uuid::new_v4()),
         preview: format!("feed-{}", Uuid::new_v4()),
+        staging_ask: format!("feed-{}", Uuid::new_v4()),
         production_fn: format!("feed-{}", Uuid::new_v4()),
         named_production_fn: format!("feed-{}", Uuid::new_v4()),
         staging_check: format!("feed-{}", Uuid::new_v4()),
@@ -65,6 +73,13 @@ async fn seed(db: &DatabaseConnection) -> Seeded {
         ),
         (&s.unlabelled, "workflow", None),
         (&s.preview, "workflow", Some(preview)),
+        (
+            &s.staging_ask,
+            "analytics",
+            Some(json!({
+                crud::PREVIEW_STAMP_KEY: { "revision_id": null, "app_id": Uuid::new_v4() }
+            })),
+        ),
         (
             &s.production_fn,
             "app_function",
@@ -114,10 +129,11 @@ fn expected(s: &Seeded) -> Vec<String> {
 }
 
 /// What a read that is not the feed returns: the feed, plus the preview dry
-/// run its staffer watches by id.
+/// run its staffer watches by id and the staging ask its stream reads by id.
 fn expected_outside_the_feed(s: &Seeded) -> Vec<String> {
     let mut want = expected(s);
     want.push(s.preview.clone());
+    want.push(s.staging_ask.clone());
     want.sort();
     want
 }
@@ -146,6 +162,7 @@ async fn list_runs_filtered_hides_preview_runs() {
         assert_eq!(total, 4, "include_system={include_system}");
         let got = ids(runs);
         assert!(!got.contains(&s.preview), "preview run leaked: {got:?}");
+        assert!(!got.contains(&s.staging_ask), "staging ask leaked: {got:?}");
         assert_no_check_run(&s, &got, "list_runs_filtered");
         assert_eq!(got, expected(&s), "include_system={include_system}");
     }
@@ -161,6 +178,7 @@ async fn list_active_runs_hides_preview_runs() {
             .expect("list_active_runs");
         let got = ids(runs);
         assert!(!got.contains(&s.preview), "preview run leaked: {got:?}");
+        assert!(!got.contains(&s.staging_ask), "staging ask leaked: {got:?}");
         assert_no_check_run(&s, &got, "list_active_runs");
         assert_eq!(got, expected(&s), "include_system={include_system}");
     }
@@ -291,6 +309,7 @@ async fn queue_health_neither_counts_nor_lists_a_staff_runs_task() {
         (&s.production_fn, &s.staging_check),
         (&s.named_production_fn, &s.sandbox_check),
         (&s.customer, &s.preview),
+        (&s.unlabelled, &s.staging_ask),
     ] {
         for status in ["queued", "claimed", "dead"] {
             task_in(&db, production, status).await;
@@ -303,13 +322,14 @@ async fn queue_health_neither_counts_nor_lists_a_staff_runs_task() {
         .expect("get_queue_stats");
     assert_eq!(
         (stats.queued, stats.claimed, stats.dead),
-        (3, 3, 3),
+        (4, 4, 4),
         "one task per production run in each state, and none of staff's"
     );
     let mut want = vec![
         s.production_fn.clone(),
         s.named_production_fn.clone(),
         s.customer.clone(),
+        s.unlabelled.clone(),
     ];
     want.sort();
     for (listed, tasks) in [("stale", stats.stale_tasks), ("dead", stats.dead_tasks)] {

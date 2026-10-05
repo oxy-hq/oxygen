@@ -589,15 +589,8 @@ pub(crate) async fn serve_pretty(
     let response = async {
         match source {
             AppSource::S3 => {
-                let (build_pk, label) = build_to_serve(
-                    &db,
-                    &headers,
-                    user.email.as_deref().unwrap_or(""),
-                    &app,
-                    &environment,
-                    &environments,
-                )
-                .await;
+                let (build_pk, label) =
+                    build_to_serve(&db, &app, &environment, &environments).await;
                 match build_pk {
                     Some(build_pk) => {
                         // The runtime config was built ~100 lines above, before the
@@ -776,20 +769,18 @@ pub(crate) async fn serve_pretty(
 
 /// The build this request serves, and a label for the log when there is none.
 ///
-/// **Production** is today's channel decision, unchanged: the published build,
-/// the staging (draft) build for a staff member carrying the preview cookie, and
-/// the staging build for an app never promoted. The preview cookie keeps its
-/// draft-HTML-only meaning on the production host (design §3.2) until staging
-/// hosts retire it.
+/// **Production** serves the published build, or the staging (draft) build for
+/// an app never promoted — there is nothing else to show. It never serves a
+/// draft on request: the draft is the staging environment's, and it is read on
+/// the staging host only. (The staff-only `oxy_preview_draft` cookie that once
+/// flipped production to the draft is retired; a request still carrying one is
+/// served exactly what everyone else is.)
 ///
-/// **Any other environment** serves its own build, and nothing else: the
-/// preview cookie means nothing there, and a staging host never falls back to
-/// production's build. A sandbox's is read from its own row, uncached
-/// ([`sandbox_build`]).
+/// **Any other environment** serves its own build, and nothing else: a staging
+/// host never falls back to production's build. A sandbox's is read from its
+/// own row, uncached ([`sandbox_build`]).
 async fn build_to_serve(
     db: &DatabaseConnection,
-    headers: &HeaderMap,
-    email: &str,
     app: &entity::apps::Model,
     environment: &AppEnvironment,
     environments: &EnvironmentBuilds,
@@ -806,23 +797,7 @@ async fn build_to_serve(
             format!("the {environment} environment"),
         );
     }
-    // The customer URL accepts no view modifier. Draft mode lives on a
-    // staff-only HttpOnly cookie set via `POST /api/customer-apps/preview-draft`.
-    // Customer's browser never carries this cookie; even if a customer forged
-    // it, the standing check below denies them draft access.
-    let cookie_wants_draft = super::custom_apps_preview::wants_draft_preview(headers);
-    // Fail-closed inside the one reader: a lookup error reports no standing.
-    // Scoped to THIS app's org: a grant bounded elsewhere must not unlock the
-    // draft channel here. `is_staff()` would, and is now true for every role.
-    let is_staff = cookie_wants_draft
-        && oxy_server_authz::globals::platform_reaches(
-            db,
-            email,
-            oxy_authz::Cap::DevelopApps,
-            app.org_id,
-        )
-        .await;
-    let channel = resolve_channel(is_staff, app.published_at.is_some());
+    let channel = resolve_channel(app.published_at.is_some());
     use super::custom_apps_sync::Channel;
     let build = match channel {
         Channel::Draft => environments.staging,
@@ -990,13 +965,7 @@ async fn manifest_icons_for(
     // `resolve_channel` rather than a hardcoded `Published`: an app that has
     // never published resolves `NotFound` on the published channel and loses its
     // mark entirely, which is the case that actually bites.
-    //
-    // The staff-draft-preview half is deliberately NOT honoured here. It would
-    // cost a `platform_reaches` round trip on this route, and the response is
-    // `max-age=300` — so a staff member previewing a draft icon change would see
-    // a stale manifest for up to five minutes regardless. The authz call buys
-    // nothing the cache does not immediately undo.
-    let channel = resolve_channel(false, app.published_at.is_some());
+    let channel = resolve_channel(app.published_at.is_some());
 
     // A manifest that fails to resolve costs the app its branding on the home
     // screen, never its installability — but it is logged, because "why is my

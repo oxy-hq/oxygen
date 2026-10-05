@@ -1,24 +1,27 @@
 //! Which runs a workspace's own members are shown.
 //!
-//! A run row belongs to a workspace, but two kinds of run in it are Oxy
+//! A run row belongs to a workspace, but three kinds of run in it are Oxy
 //! staff's work rather than the customer's, and each is told apart by what
 //! its seeder stamped on `metadata`:
 //!
 //! - a **workspace preview's dry run** — a staffer running an unmerged
 //!   branch — carries `trigger = "preview"`;
+//! - a **preview-pinned run** — an agent ask from a custom app's staging
+//!   host, or any run started on a request pinned to a workspace preview —
+//!   carries [`PREVIEW_STAMP_KEY`] (agentic-pipeline's `preview_stamp`);
 //! - a **custom-app check run outside production** — a staffer running a
 //!   function in `staging` or a sandbox — carries [`RUN_ENVIRONMENT_KEY`]
 //!   naming that environment.
 //!
 //! Each rule is stated once, here, as SQL over `agentic_runs.metadata`; the
-//! queries compose them rather than restating them. Both keep a run with no
+//! queries compose them rather than restating them. All keep a run with no
 //! metadata, or without the key: an untagged run is the customer's.
 //!
-//! | Read | Preview dry run | Non-production check run |
-//! | ---- | --------------- | ------------------------ |
-//! | the run feed ([`in_customer_feed`]) | hidden | hidden |
-//! | what counts as the workspace's own work ([`customer_run_sql`]) | not counted | not counted |
-//! | anything else a member reads ([`in_production`]) | shown | hidden |
+//! | Read | Preview dry run | Preview-pinned run | Non-production check run |
+//! | ---- | --------------- | ------------------ | ------------------------ |
+//! | the run feed ([`in_customer_feed`]) | hidden | hidden | hidden |
+//! | what counts as the workspace's own work ([`customer_run_sql`]) | not counted | not counted | not counted |
+//! | anything else a member reads ([`in_production`]) | shown | shown | hidden |
 //!
 //! The first two rows are one predicate, [`customer_run_sql`]: the feed and
 //! `oxy-app`'s workspace health (a failed staff run says nothing about the
@@ -26,7 +29,10 @@
 //!
 //! The second row is narrower on purpose. A preview's dry run is watched
 //! through the workspace's own run routes by the staffer who started it, so
-//! by id it stays readable. A non-production check run is read back through
+//! by id it stays readable; so is a preview-pinned run, whose stream and
+//! cancel are the workspace's own ask routes. That is why the pinned run is
+//! told apart by its stamp and not given an `environment`: that key would
+//! hide it from those routes too. A non-production check run is read back through
 //! the app's staff routes (`crud::get_run`, unfiltered) and never these.
 
 use sea_orm::sea_query::{Expr, SimpleExpr};
@@ -39,6 +45,12 @@ use crate::lifecycle::entity::run;
 /// (`staging`, `dev-<handle>`). Absent on every production run: the seeder
 /// stamps it only for a named non-production environment.
 pub const RUN_ENVIRONMENT_KEY: &str = "environment";
+
+/// The `metadata` key a run started on a preview-pinned request carries —
+/// `{"workspace_preview": {"revision_id": …}}`, plus `"app_id"` for a custom
+/// app's staging ask. Agentic-pipeline's `preview_stamp` writes it under
+/// this name (its `RUN_STAMP` is this constant).
+pub const PREVIEW_STAMP_KEY: &str = "workspace_preview";
 
 /// What [`RUN_ENVIRONMENT_KEY`] would say for production, were it stamped —
 /// so a row that names production outright is still the customer's.
@@ -60,15 +72,17 @@ pub(super) fn in_production_sql() -> String {
     in_production_sql_for("")
 }
 
-/// SQL for "this run is the customer's own work": neither a preview's dry run
-/// nor a check run queued outside production. `alias` as in
-/// [`in_production_sql_for`].
+/// SQL for "this run is the customer's own work": not a preview's dry run,
+/// not a preview-pinned run, and not a check run queued outside production.
+/// `alias` as in [`in_production_sql_for`].
 ///
 /// `IS DISTINCT FROM` keeps runs with no metadata (a bare `<>` would drop
-/// them), and so does the `COALESCE`: an untagged run is the customer's.
+/// them), and so do the `IS NULL` and the `COALESCE`: an untagged run is the
+/// customer's.
 pub fn customer_run_sql(alias: &str) -> String {
     format!(
-        "({alias}metadata->>'trigger' IS DISTINCT FROM 'preview') AND ({})",
+        "({alias}metadata->>'trigger' IS DISTINCT FROM 'preview') AND \
+         ({alias}metadata->'{PREVIEW_STAMP_KEY}' IS NULL) AND ({})",
         in_production_sql_for(alias)
     )
 }
@@ -83,8 +97,8 @@ pub(super) fn in_production() -> SimpleExpr {
     Expr::cust(in_production_sql())
 }
 
-/// Keeps staff's runs out of the customer's run feed: a preview's dry run and
-/// a non-production check run.
+/// Keeps staff's runs out of the customer's run feed: a preview's dry run, a
+/// preview-pinned run, and a non-production check run.
 ///
 /// Unlike `SYSTEM_SOURCE_TYPES` they are hidden even with `include_system`:
 /// that toggle is the customer's own.
@@ -123,11 +137,12 @@ mod tests {
         );
     }
 
-    /// A read by id hides the check run and nothing else: the preview rule is
-    /// the feed's alone.
+    /// A read by id hides the check run and nothing else: both preview rules
+    /// are the feed's alone, so a staging ask's stream and cancel find it.
     #[test]
     fn the_preview_rule_belongs_to_the_feed_only() {
         assert!(!in_production_sql().contains("preview"));
+        assert!(!in_production_sql().contains(PREVIEW_STAMP_KEY));
     }
 
     /// The customer's-own-work rule is both staff rules, and an alias
@@ -138,11 +153,13 @@ mod tests {
         assert_eq!(
             customer_run_sql(""),
             "(metadata->>'trigger' IS DISTINCT FROM 'preview') AND \
+             (metadata->'workspace_preview' IS NULL) AND \
              (COALESCE(metadata->>'environment', 'production') = 'production')"
         );
         assert_eq!(
             customer_run_sql("r."),
             "(r.metadata->>'trigger' IS DISTINCT FROM 'preview') AND \
+             (r.metadata->'workspace_preview' IS NULL) AND \
              (COALESCE(r.metadata->>'environment', 'production') = 'production')"
         );
     }

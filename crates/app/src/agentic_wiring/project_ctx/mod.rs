@@ -105,10 +105,12 @@ pub struct OxyProjectContext {
     /// someone is editing in the IDE right now and an uncommitted edit must
     /// never page the on-call about a promoted revision that is fine.
     semantic_scan_required: bool,
-    /// Built for a workspace-preview request (`previews::request_hold`): every
-    /// write it would make is held. Captured at construction, so a run driven
-    /// on a spawned task keeps the answer the request had. See [`preview_hold`].
-    holds_writes: bool,
+    /// Built for a held request (`previews::request_hold`) — a workspace
+    /// preview, or a custom app's staging ask: every write it would make is
+    /// held. Captured at construction, with the hold's app and sink, so a run
+    /// driven on a spawned task keeps the answer the request had. See
+    /// [`preview_hold`].
+    hold: Option<crate::server::previews::request_hold::HoldScope>,
 }
 
 impl OxyProjectContext {
@@ -124,7 +126,7 @@ impl OxyProjectContext {
             db: None,
             semantic_scan: None,
             semantic_scan_required: false,
-            holds_writes: crate::server::previews::request_hold::active(),
+            hold: crate::server::previews::request_hold::current(),
         }
     }
 
@@ -397,8 +399,10 @@ where
 {
     let conn = build_unheld_connector(workspace_manager, db_name, subject, role).await?;
     let held = crate::server::previews::request_hold::active();
+    let session =
+        crate::server::previews::hold::Session::of(&workspace_manager.config_manager, db_name);
     Ok(crate::server::previews::request_hold::hold_if(
-        held, conn, db_name,
+        held, conn, db_name, session,
     ))
 }
 

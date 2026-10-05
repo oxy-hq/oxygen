@@ -183,9 +183,7 @@ impl WorkspaceContext for OxyProjectContext {
 
     async fn store_secret(&self, var_name: &str, value: &str) -> Result<(), String> {
         if self.holds_writes() {
-            return Err(crate::server::previews::request_hold::refusal(&format!(
-                "Secret `{var_name}`"
-            )));
+            return Err(self.hold_wording().refusal(&format!("Secret `{var_name}`")));
         }
         self.workspace_manager
             .secrets_manager
@@ -199,13 +197,13 @@ impl WorkspaceContext for OxyProjectContext {
     }
 
     /// Production sends every request; a context holding writes (a
-    /// workspace-preview request) sends only `GET`/`HEAD`. SQL needs no review
+    /// workspace-preview request or a staging ask) sends only `GET`/`HEAD`. SQL needs no review
     /// here: every connector such a context hands out refuses a write.
     async fn review_http(&self, method: &str, _url: &str) -> HttpReview {
         if !self.holds_writes() {
             return HttpReview::Proceed;
         }
-        crate::server::previews::request_hold::http_review(method)
+        self.hold_wording().http_review(method)
     }
 
     async fn get_integration(&self, name: &str) -> Result<IntegrationConfig, String> {

@@ -301,15 +301,12 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
                     "/{id}/activity/events",
                     get(crate::server::api::custom_apps_activity::get_events),
                 )
-                // Preview-draft cookie: flips this staff session into
-                // draft view on the customer URL. Replaces the
-                // (discoverable) `?view=draft` query param so the
-                // customer URL surface stays free of any "press here
-                // to flip" affordance. See `custom_apps_preview`.
+                // What the caller's own staging requests held, newest first —
+                // the console's staging banner. 404 unless oxy-authz lets the
+                // caller open the app's staging. See `custom_apps_staging_held`.
                 .route(
-                    "/preview-draft",
-                    post(crate::server::api::custom_apps_preview::enable_preview_draft)
-                        .delete(crate::server::api::custom_apps_preview::disable_preview_draft),
+                    "/{id}/staging/held",
+                    get(crate::server::api::custom_apps_staging_held::list_held),
                 )
                 // Template gallery for the Create-new dialog. No
                 // screenshot route yet — re-add when the first PNG

@@ -112,7 +112,7 @@ retries = 2
 # leaving them in `db-per-test` bounds them against each other and not at all
 # against the `agentic-runtime`/`agentic-pipeline` tests that own those rows.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=custom_apps) | binary(=airhouse) | binary(=platform)) & !test(/^(projects_query|local_mode_router|simulation_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=custom_apps) | binary(=airhouse) | binary(=platform)) & !test(/^(projects_query|local_mode_router|simulation_router|staging_preview_cookie_retired)::/)"
 test-group = "db-per-test"
 retries = 2
 
@@ -157,7 +157,8 @@ retries = 2
 #
 # Two routes in:
 #   * nine call `oxy::database::client::establish_connection()` directly;
-#   * `projects_query` and `local_mode_router` call `api_router(..)`, which
+#   * `projects_query`, `local_mode_router`, `simulation_router` and
+#     `custom_apps::staging_preview_cookie_retired` call `api_router(..)`, which
 #     reaches it through `new_agentic_state` and then runs `cleanup_stale_runs` —
 #     an unscoped UPDATE over `agentic_runs`. That one is a writer, and the rows
 #     it rewrites belong to the agentic-runtime/pipeline tests.
@@ -174,7 +175,7 @@ retries = 2
 # The real fix is porting these onto `common::fresh_db()`; see
 # `internal-docs/testing.md`. Until then they belong here.
 [[profile.default.overrides]]
-filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|projects_query|local_mode_router|simulation_router)::/)"
+filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform) | binary(=custom_apps)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|projects_query|local_mode_router|simulation_router|staging_preview_cookie_retired)::/)"
 test-group = "serial-db"
 retries = 2
 

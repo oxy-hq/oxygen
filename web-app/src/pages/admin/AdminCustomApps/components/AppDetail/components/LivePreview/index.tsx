@@ -3,6 +3,8 @@ import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
 import { resolveBundleUrl } from "../../../../resolveBundleUrl";
 import { fromPreviewPath, PREVIEW_NONCE_PARAM, toPreviewPath } from "../../appViewState";
+import { type DraftTarget, draftTarget, liveView, STAGING_FRAME_NOTE } from "../../draftTarget";
+import { StagingBanner } from "../../StagingBanner";
 import type { ChannelView, Device } from "../DetailToolbar";
 import { DebugPanel } from "./DebugPanel";
 import { applying, type DeepLinkHandoff, landed, report } from "./deepLinkHandoff";
@@ -37,10 +39,14 @@ export interface LivePreviewProps {
   /** Used purely to force a fresh iframe navigation; bumped when the
    *  caller wants to refetch (reload, channel toggle). */
   nonce: number;
-  /** Mirrors the toolbar's selected channel — only used as part of
-   *  the iframe `key` so a channel flip on the server (cookie toggle)
-   *  always lands a re-navigation, even if the nonce hasn't moved. */
+  /** The toolbar's selected channel. `published` frames the app's own URL;
+   *  `draft` frames the app's **staging host** (`draft`), never the production
+   *  URL. Also part of the iframe `key`, so a flip always remounts the frame. */
   channel: ChannelView;
+  /** Where Draft points (see `draftTarget.ts`). Defaults to what `app` itself
+   *  says, which for a registry-list row is "pending": only the detail response
+   *  carries `staging_url`. */
+  draft?: DraftTarget;
   /**
    * Where inside the app to point the preview, app-relative
    * (`/?vendor=ubereats`). Comes off the admin console's own query string, so
@@ -89,20 +95,49 @@ export const LivePreview = ({
   device,
   nonce,
   channel,
+  draft,
   path,
   onPathChange
 }: LivePreviewProps) => {
-  // resolveBundleUrl rewrites the host to the admin shell's own origin
-  // so cookies travel through Vite's /customer-apps proxy in dev (and
-  // is a no-op in production where admin + bundles share an origin).
-  // The nonce query param cache-busts the iframe — bumped on Reload,
-  // on channel flip, and on first mount — without changing the path.
-  const base = new URL(resolveBundleUrl(app.url)).pathname;
+  const target = channel === "draft" ? (draft ?? draftTarget(app)) : null;
+  // Published: resolveBundleUrl rewrites the host to the admin shell's own
+  // origin so cookies travel through Vite's /customer-apps proxy in dev (and is
+  // a no-op in production where admin + bundles share an origin).
+  // Draft: the staging host, as the server named it. It is another origin, so it
+  // is NOT rewritten — the shared `.oxygen-hq.com` session cookie is same-site
+  // and authenticates the frame — and the request log / preview history, which
+  // need a same-origin frame, report themselves unavailable.
+  // `null` when Draft has nowhere to point: the stage says why instead.
+  const frameBase =
+    target === null ? resolveBundleUrl(app.url) : target.kind === "staging" ? target.url : null;
+  const frame = frameBase ? new URL(frameBase) : null;
+  const base = frame?.pathname ?? "/";
+  const frameOrigin = frame?.origin ?? window.location.origin;
+  const onStaging = target?.kind === "staging";
+
+  // The frame-key changes on a channel flip or a reload, each a new document.
+  const frameKey = `${channel}-${nonce}`;
+  // The deep link a staging frame starts at. A cross-origin frame can't be
+  // steered once loaded (`applyPath` can't reach it), so the `?preview=` path
+  // goes into its first URL instead. Captured once per document: re-deriving it
+  // on every `path` change would swap `src` and reload the frame under the
+  // operator. A same-origin frame starts at the root and is steered on load.
+  const initialPath = useRef<{ key: string; path: string | null }>({ key: frameKey, path });
+  if (initialPath.current.key !== frameKey) initialPath.current = { key: frameKey, path };
+  const startPath = onStaging ? initialPath.current.path : null;
+
+  // The nonce query param cache-busts the iframe — bumped on Reload, on channel
+  // flip, and on first mount — without changing the path.
   const previewUrl = (() => {
-    const u = new URL(resolveBundleUrl(app.url));
+    if (!frameBase) return null;
+    const start = startPath ? fromPreviewPath(startPath, base, frameOrigin) : null;
+    const u = new URL(start ?? frameBase);
     u.searchParams.set(PREVIEW_NONCE_PARAM, String(nonce));
     return u.toString();
   })();
+  // Under the frame: why the console can't follow a staging frame, or that an
+  // unpromoted app's live URL takes real writes.
+  const frameNote = onStaging ? STAGING_FRAME_NOTE : target === null ? liveView(app).note : null;
 
   // Same-origin preview → instrument the iframe to capture its calls to oxy.
   const { entries, clear, handleLoad, available } = useOxyRequestLog();
@@ -129,7 +164,6 @@ export const LivePreview = ({
   // see the `key` on each `<iframe>`. That is a different document, so the
   // stack that described the old one has to go with it, and the deep link
   // becomes applicable again.
-  const frameKey = `${channel}-${nonce}`;
   const lastFrameKey = useRef(frameKey);
   const resetHistory = previewHistory.reset;
   useEffect(() => {
@@ -145,7 +179,7 @@ export const LivePreview = ({
   const applyPath = useCallback(
     (next: string) => {
       if (framePath.current === next) return;
-      const url = fromPreviewPath(next, base, window.location.origin);
+      const url = fromPreviewPath(next, base, frameOrigin);
       // `null` means the stored path did not resolve inside this app — a `..`
       // that climbed out of the bundle prefix. Ignore it rather than pointing
       // the frame at whatever it normalised to.
@@ -165,7 +199,7 @@ export const LivePreview = ({
       // normalise to a different string than the one applied.
       handoff.current = kind === "cross-document" ? applying(next) : landed();
     },
-    [base, goPreview]
+    [base, frameOrigin, goPreview]
   );
 
   const onIframeLoad = useCallback(
@@ -205,6 +239,10 @@ export const LivePreview = ({
     onPathChange(next);
   }, [previewUrlNow, base, onPathChange]);
 
+  // After every hook: the frame-key effect and the history hooks must run the
+  // same number of times whether or not there is a frame.
+  if (!previewUrl) return <DraftNotice target={target} />;
+
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
       {/* The app's own back/forward. The window's controls walk the ADMIN
@@ -214,6 +252,11 @@ export const LivePreview = ({
         history={previewHistory}
         path={previewUrlNow ? toPreviewPath(previewUrlNow, base) : null}
       />
+      {/* Only while the frame is actually the staging host — never over the
+          production/Live frame below, and never for a pending/unavailable
+          target (those never reach this return at all; see the early
+          `!previewUrl` exit above). */}
+      {onStaging && <StagingBanner appId={app.id} />}
       <div className='flex min-h-0 flex-1 flex-col'>
         {device === "desktop" ? (
           <DesktopFrame
@@ -234,6 +277,14 @@ export const LivePreview = ({
           />
         )}
       </div>
+      {frameNote && (
+        <p
+          className='shrink-0 border-t bg-muted/30 px-3 py-1 text-muted-foreground text-xs'
+          data-testid='admin-app-frame-note'
+        >
+          {frameNote}
+        </p>
+      )}
       <DebugPanel
         entries={entries}
         onClear={clear}
@@ -244,6 +295,27 @@ export const LivePreview = ({
     </div>
   );
 };
+
+/**
+ * The stage when Draft has nothing to frame. Says why in the same words as the
+ * disabled toolbar control, and never falls back to the production URL — that
+ * would show the published build under a "draft" label.
+ */
+const DraftNotice = ({ target }: { target: DraftTarget | null }) => (
+  <div
+    className='flex min-h-0 flex-1 items-center justify-center bg-muted/30 p-8'
+    data-testid='admin-app-draft-notice'
+  >
+    <div className='max-w-sm space-y-1.5 rounded-lg border bg-background p-4 text-center'>
+      <p className='font-medium text-sm'>
+        {target?.kind === "unavailable" ? "No staging view" : "Looking up the staging host…"}
+      </p>
+      {target?.kind === "unavailable" && (
+        <p className='text-muted-foreground text-xs'>{target.reason}</p>
+      )}
+    </div>
+  </div>
+);
 
 /**
  * Full-bleed desktop. No card, no border, no padding — just the
@@ -267,9 +339,9 @@ const DesktopFrame = ({
   <div className='min-h-0 flex-1 bg-background'>
     <iframe
       onLoad={(e) => onIframeLoad(e.currentTarget)}
-      // No `sandbox` attribute: this preview always loads from the
-      // same origin we ship the custom-app code from, and the app
-      // needs cookies + localStorage + same-origin fetch to function.
+      // No `sandbox` attribute: this preview loads the app's own URL or
+      // its staging host — code we ship — and the app needs cookies +
+      // localStorage + same-origin fetch to function.
       // The only sandbox tokens that'd let those through
       // (`allow-same-origin` + `allow-scripts`) are documented by the
       // HTML spec as "effectively no sandbox" — combining them lets

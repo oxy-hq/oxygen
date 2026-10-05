@@ -17,21 +17,7 @@
 /// switches this target off; the OTLP trace layer keeps it.
 pub(super) const HOST_CALL_TARGET: &str = "oxy::host_call";
 
-/// A token that can be a table or verb name, bounded — anything else (a
-/// 4 KB expression, an unquoted fragment) is not recorded at all. This is the
-/// guarantee "never the SQL" rests on: whatever reaches a span is one
-/// whitespace-delimited, identifier-shaped token of at most 64 chars, taken
-/// after [`strip_string_literals`] has removed standard single-quoted
-/// literals. It is not a dialect-aware lexer — a backslash-escaped quote or a
-/// double-quoted literal can still end a literal early — so the bound, not
-/// the stripping, is what holds.
-pub(super) fn identifier_like(token: &str) -> bool {
-    !token.is_empty()
-        && token.len() <= 64
-        && token
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '$' | '-'))
-}
+pub(super) use super::write_record::identifier_like;
 
 /// The first verb and the first table of a SQL text, for `db.operation.name`
 /// and `db.collection.name`. Best-effort on a whitespace scan — a CTE reads

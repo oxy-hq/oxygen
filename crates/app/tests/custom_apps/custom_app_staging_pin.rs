@@ -1,7 +1,7 @@
 //! Custom-app staging, semantic half (`internal-docs/customer-apps-staging.md`
 //! D4): a draft build pins a `staging` revision, and only a staging request —
-//! the app's staging host, or the preview cookie, from a caller who may open
-//! staging — reads it.
+//! the app's staging host, from a caller who may open staging — reads it. The
+//! retired `oxy_preview_draft` cookie pins nothing.
 //!
 //! The workspace has a promoted `main` revision carrying view `orders` at
 //! definition A, and a `staging` revision with the same view at definition B.
@@ -195,12 +195,27 @@ fn staging_headers(app: Uuid, cookie: bool) -> HeaderMap {
     let mut h = HeaderMap::new();
     h.insert(APP_HEADER, HeaderValue::from_str(&app.to_string()).unwrap());
     if cookie {
+        // The retired staff draft-preview cookie. Sent on purpose by the tests
+        // that prove it no longer makes a request a staging one.
         h.insert(
             "cookie",
             HeaderValue::from_static("oxy_session=x; oxy_preview_draft=1"),
         );
     }
     h
+}
+
+/// A data request on `host`, naming the app by header.
+fn on_host(app: Uuid, host: &str, cookie: bool) -> HeaderMap {
+    let mut h = staging_headers(app, cookie);
+    h.insert("host", HeaderValue::from_str(host).unwrap());
+    h
+}
+
+/// The app's staging host. Shortens the org slug so the label fits.
+async fn staging_host_of(db: &DatabaseConnection, app: Uuid) -> String {
+    let (org_slug, app_slug) = short_slugs(db, app).await;
+    format!("staging--{org_slug}--{app_slug}.customer-apps.oxygen-hq.com")
 }
 
 async fn view_table(workspace: Uuid) -> String {
@@ -227,9 +242,10 @@ async fn a_staging_request_reads_the_pinned_revision_and_live_reads_the_promoted
     let db = test_db().await;
     let w = seed_world(&db).await;
 
+    let host = staging_host_of(&db, w.app).await;
     let pin = staging_pin_for_data_request(
         &db,
-        &staging_headers(w.app, true),
+        &on_host(w.app, &host, false),
         Uuid::new_v4(),
         STAFF,
         w.workspace,
@@ -277,25 +293,26 @@ async fn a_staging_request_reads_the_pinned_revision_and_live_reads_the_promoted
     assert_eq!(current_revision(&db, w.workspace).await, Some(w.promoted));
 }
 
-/// Each of the three gates is required on its own.
+/// Each of the gates is required on its own, and the retired preview cookie is
+/// not one of them: on the production host it pins nothing, even for staff.
 #[tokio::test]
-async fn no_cookie_no_reach_or_another_workspace_means_no_pin() {
+async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
     let db = test_db().await;
     let w = seed_world(&db).await;
+    let host = staging_host_of(&db, w.app).await;
 
-    let no_cookie = staging_pin_for_data_request(
-        &db,
-        &staging_headers(w.app, false),
-        Uuid::new_v4(),
-        STAFF,
-        w.workspace,
-    )
-    .await;
-    assert_eq!(no_cookie, None, "the cookie is the trigger");
+    for headers in [staging_headers(w.app, false), staging_headers(w.app, true)] {
+        let pin =
+            staging_pin_for_data_request(&db, &headers, Uuid::new_v4(), STAFF, w.workspace).await;
+        assert_eq!(
+            pin, None,
+            "off the staging host, with or without oxy_preview_draft, reads the live revision"
+        );
+    }
 
     let member = staging_pin_for_data_request(
         &db,
-        &staging_headers(w.app, true),
+        &on_host(w.app, &host, true),
         Uuid::new_v4(),
         "customer@example.com",
         w.workspace,
@@ -303,13 +320,13 @@ async fn no_cookie_no_reach_or_another_workspace_means_no_pin() {
     .await;
     assert_eq!(
         member, None,
-        "a forged cookie without DevelopApps reach is ignored"
+        "staging without DevelopApps reach pins nothing"
     );
 
     let (_, other_ws) = seed_org_workspace(&db).await;
     let elsewhere = staging_pin_for_data_request(
         &db,
-        &staging_headers(w.app, true),
+        &on_host(w.app, &host, false),
         Uuid::new_v4(),
         STAFF,
         other_ws,
@@ -329,11 +346,7 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
     let db = test_db().await;
     let w = seed_world(&db).await;
     let (org_slug, app_slug) = short_slugs(&db, w.app).await;
-    let on = |host: &str| {
-        let mut h = staging_headers(w.app, false);
-        h.insert("host", HeaderValue::from_str(host).unwrap());
-        h
-    };
+    let on = |host: &str| on_host(w.app, host, false);
     let staging_host = format!("staging--{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
     let production_host = format!("{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
 

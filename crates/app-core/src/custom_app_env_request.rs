@@ -22,7 +22,12 @@
 //!   on an app host, so a staging bundle's direct calls — procedure runs, agent
 //!   asks, threads, events — reach the ordinary API, which has no environment
 //!   to isolate them into. Reads stay allowed, and so do the data plane's
-//!   read-only `POST`s ([`is_read_only_post`]).
+//!   read-only `POST`s ([`is_read_only_post`]). On the **staging** host three
+//!   named surfaces are let through as well ([`is_staging_write`]):
+//!   starting and cancelling an agent ask, which `start_ask` runs with every
+//!   data write held, and starting an automation run, which
+//!   `start_automation_run` refuses with a `409` logged as held rather than
+//!   running (`projects::automation_run::staging_hold`).
 //! - **A cookie-authenticated write whose `Origin` belongs to another
 //!   environment** answers 403. Every app host shares the `.oxygen-hq.com`
 //!   `SameSite=Lax` session cookie, so without this a staging page could post
@@ -235,6 +240,44 @@ pub fn is_read_only_post(path: &str) -> bool {
             .is_some_and(|op| !op.is_empty() && !op.contains('/'))
 }
 
+/// The writes a page on an app's **staging** host may make: start an ask
+/// (`POST /api/projects/{p}/agents/{agent}/asks`), cancel one
+/// (`POST /api/projects/{p}/agents/asks/{run}/cancel`), and start an
+/// automation run (`POST /api/projects/{p}/procedures/{procedure}/runs`,
+/// `router/public.rs`'s route for `start_automation_run`). Ask streams are a
+/// `GET`; an automation run's poll and cancel are not named here — they stay
+/// refused, same as every other write.
+///
+/// Not [`is_read_only_post`]: each writes a thread, message, run or run-row.
+/// They are allowed because the handler itself decides what happens next —
+/// `start_ask` runs its write held (`previews::request_hold`), refusing a
+/// caller who may not open staging; `start_automation_run` refuses every
+/// staging caller with a `409`, logged as held for one it may open
+/// (`projects::automation_run::staging_hold`). Staging only — a dev slot's
+/// write is refused like any other.
+pub fn is_staging_write(method: &Method, path: &str) -> bool {
+    if *method != Method::POST {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/projects/") else {
+        return false;
+    };
+    let segments: Vec<&str> = rest.split('/').collect();
+    let named = |s: &str| !s.is_empty();
+    match segments.as_slice() {
+        [project, "agents", agent, "asks"] => named(project) && named(agent),
+        [project, "agents", "asks", run, "cancel"] => named(project) && named(run),
+        [project, "procedures", procedure, "runs"] => named(project) && named(procedure),
+        _ => false,
+    }
+}
+
+/// Whether `guard` lets this `/api` write through in `environment`.
+fn write_allowed_in(environment: &AppEnvironment, method: &Method, path: &str) -> bool {
+    *environment == AppEnvironment::Production
+        || (*environment == AppEnvironment::Staging && is_staging_write(method, path))
+}
+
 fn is_api_path(path: &str) -> bool {
     path == "/api" || path.starts_with("/api/")
 }
@@ -269,7 +312,7 @@ pub fn guard(
 ) -> Result<AppEnvironment, Box<Response>> {
     let environment = request_environment(headers).map_err(|e| Box::new(e.into_response()))?;
     if is_api_path(path) && is_write_method(method) && !is_read_only_post(path) {
-        if environment != AppEnvironment::Production {
+        if !write_allowed_in(&environment, method, path) {
             return Err(Box::new(api_write_refused(&environment)));
         }
         check_origin(headers, &environment).map_err(|e| Box::new(e.into_response()))?;
@@ -533,6 +576,138 @@ mod tests {
         assert_eq!(
             status_of(Method::GET, "/api/projects/p1/threads", &bad_header),
             Some(StatusCode::BAD_REQUEST)
+        );
+    }
+
+    #[test]
+    fn a_staging_host_lets_the_ask_routes_through_and_nothing_else() {
+        let staging = headers(&[
+            ("host", STAGING_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        for path in [
+            "/api/projects/p1/agents/analyst/asks",
+            "/api/projects/p1/agents/asks/run-1/cancel",
+        ] {
+            assert_eq!(status_of(Method::POST, path, &staging), None, "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/projects/p1/threads"),
+            (Method::POST, "/api/customer-apps/a1/events"),
+            // Starting an automation run is named too (its own test below) —
+            // not this surface's.
+            (Method::PUT, "/api/projects/p1/agents/analyst/asks"),
+            (Method::DELETE, "/api/projects/p1/agents/asks/run-1/cancel"),
+            (Method::POST, "/api/projects/p1/agents/analyst/asks/extra"),
+            (Method::POST, "/api/projects/p1/agents//asks"),
+            (Method::POST, "/api/projects/p1/agents/asks/run-1"),
+            (Method::POST, "/api/projects/p1/agents/a/b/asks"),
+        ] {
+            assert_eq!(
+                status_of(method.clone(), path, &staging),
+                Some(StatusCode::FORBIDDEN),
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_staging_host_lets_the_automation_run_route_through_and_nothing_else() {
+        let staging = headers(&[
+            ("host", STAGING_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        assert_eq!(
+            status_of(
+                Method::POST,
+                "/api/projects/p1/procedures/weekly/runs",
+                &staging
+            ),
+            None
+        );
+        for (method, path) in [
+            // Wrong method on the right path — a GET is never a write, so it
+            // is never refused either; that is `is_write_method`'s job, not
+            // this matcher's, so PUT exercises this one.
+            (Method::PUT, "/api/projects/p1/procedures/weekly/runs"),
+            // Trailing slash.
+            (Method::POST, "/api/projects/p1/procedures/weekly/runs/"),
+            // Extra segment.
+            (
+                Method::POST,
+                "/api/projects/p1/procedures/weekly/runs/extra",
+            ),
+            // Empty procedure id.
+            (Method::POST, "/api/projects/p1/procedures//runs"),
+            // The poll and cancel routes are not named here.
+            (Method::POST, "/api/projects/p1/procedures/runs/run-1"),
+            (
+                Method::POST,
+                "/api/projects/p1/procedures/runs/run-1/cancel",
+            ),
+        ] {
+            assert_eq!(
+                status_of(method.clone(), path, &staging),
+                Some(StatusCode::FORBIDDEN),
+                "{method} {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dev_slot_automation_run_is_still_refused() {
+        let dev = headers(&[
+            ("host", "app.oxygen-hq.com"),
+            ("authorization", "Bearer t"),
+            (ENV_HEADER, "dev-luong"),
+        ]);
+        assert_eq!(
+            status_of(
+                Method::POST,
+                "/api/projects/p1/procedures/weekly/runs",
+                &dev
+            ),
+            Some(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn a_dev_slot_ask_is_still_refused() {
+        let dev = headers(&[
+            ("host", "app.oxygen-hq.com"),
+            ("authorization", "Bearer t"),
+            (ENV_HEADER, "dev-luong"),
+        ]);
+        assert_eq!(
+            status_of(Method::POST, "/api/projects/p1/agents/analyst/asks", &dev),
+            Some(StatusCode::FORBIDDEN)
+        );
+    }
+
+    /// The allowance is staging's own: it does not excuse the origin check, so
+    /// a staging page cannot start a production ask with the cookie.
+    #[test]
+    fn a_staging_page_cannot_start_a_production_ask_with_the_cookie() {
+        let from_staging = headers(&[
+            ("host", PROD_HOST),
+            ("cookie", "oxy_session=x"),
+            ("origin", &format!("https://{STAGING_HOST}")),
+        ]);
+        assert_eq!(
+            status_of(
+                Method::POST,
+                "/api/projects/p1/agents/analyst/asks",
+                &from_staging
+            ),
+            Some(StatusCode::FORBIDDEN)
+        );
+        let prod = headers(&[("host", PROD_HOST), ("cookie", "oxy_session=x")]);
+        assert_eq!(
+            status_of(Method::POST, "/api/projects/p1/agents/analyst/asks", &prod),
+            None,
+            "production asks are unchanged"
         );
     }
 }

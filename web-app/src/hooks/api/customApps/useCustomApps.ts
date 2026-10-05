@@ -84,6 +84,18 @@ export const useAdminApps = (pageSize = 50, options: { enabled?: boolean } = {})
   });
 
 /**
+ * One app's admin detail. The registry list omits `staging_url` (a query per row),
+ * so a surface that needs the staging host — the preview stage's Draft view —
+ * reads this instead of the registry row.
+ */
+export const useAdminApp = (id: string | undefined) =>
+  useQuery({
+    queryKey: queryKeys.customApps.detail(id ?? ""),
+    queryFn: () => CustomAppsService.get(id as string),
+    enabled: !!id
+  });
+
+/**
  * Diagnostic snapshot. Only fires when both slugs are present so the
  * hook is cheap to mount even on the list view. The 30s staleTime
  * keeps tab switches snappy without hiding fresh edits for long.
@@ -206,3 +218,47 @@ export const useAppActivityEventOccurrences = (
     enabled: !!appId && !!eventName,
     staleTime: 30_000
   });
+
+// ── Staging (held writes) ───────────────────────────────────────────────
+
+/**
+ * The caller's own held-write rows for `appId`'s staging, newest first.
+ *
+ * `enabled` is the console's own ruling, not a convenience default: the
+ * banner that reads this list must render only while the console is
+ * actually framing staging (channel `draft` AND the target resolved to the
+ * staging host), so the caller passes that exact condition through rather
+ * than this hook re-deriving it. Polling (`refetchInterval`) follows the
+ * same flag — once `enabled` goes false the interval stops instead of
+ * ticking in the background for a frame nobody is looking at — and stops
+ * for good on a 404, which no later poll can turn into a list.
+ *
+ * `retry: false` for the same reason as `useAppAvailability`: a 404 (the
+ * caller may not open this app's staging) is a state the banner renders,
+ * not a transient failure to retry behind a spinner.
+ */
+export const useStagingHeld = (appId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: queryKeys.customApps.stagingHeld(appId),
+    queryFn: () => CustomAppsService.listStagingHeld(appId, STAGING_HELD_LIMIT),
+    enabled,
+    refetchInterval: (query) =>
+      enabled && !isNotFound(query.state.error) ? STAGING_HELD_POLL_MS : false,
+    retry: false
+  });
+
+/**
+ * How many held rows the console asks for. The banner reads a list this
+ * long as possibly truncated ("N+ writes held"), so it must be the limit
+ * actually sent, not the server's default.
+ */
+export const STAGING_HELD_LIMIT = 100;
+
+const STAGING_HELD_POLL_MS = 10_000;
+
+/**
+ * A 404 is terminal for this list: the caller may not open the app's
+ * staging, and polling will not change that — so polling stops on it.
+ */
+export const isNotFound = (error: unknown): boolean =>
+  (error as { response?: { status?: number } } | null)?.response?.status === 404;

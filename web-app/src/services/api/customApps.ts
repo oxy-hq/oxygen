@@ -73,6 +73,17 @@ export const CustomAppsService = {
   },
 
   /**
+   * One app's admin detail (`GET /api/customer-apps/{id}`). The only response
+   * that carries `staging_url` — the list leaves it absent rather than pay an
+   * `app_environments` read per row — so the console's Draft view reads it
+   * from here.
+   */
+  async get(id: string): Promise<CustomApp> {
+    const response = await apiClient.get(`/customer-apps/${id}`);
+    return response.data;
+  },
+
+  /**
    * Workspace-scoped published list — the lighter `CustomAppSummary` shape
    * the HQ launcher + workspace rail render, hitting the workspace router's
    * `/{workspaceId}/custom-apps`. Distinct from the paged admin `list` above.
@@ -249,19 +260,6 @@ export const CustomAppsService = {
   },
 
   /**
-   * Flip this staff session into draft-preview mode. Sets an HttpOnly
-   * cookie that the serve + data-products handlers read to route to
-   * the draft channel. App-admin gated.
-   */
-  async enablePreviewDraft(): Promise<void> {
-    await apiClient.post("/customer-apps/preview-draft");
-  },
-
-  async disablePreviewDraft(): Promise<void> {
-    await apiClient.delete("/customer-apps/preview-draft");
-  },
-
-  /**
    * Diagnostic snapshot — what the server currently sees about the app's
    * bundle dir + resolved manifest + producer wiring. Powers the
    * Info tab in the admin detail pane.
@@ -335,6 +333,20 @@ export const CustomAppsService = {
       `/customer-apps/${id}/activity/events?days=${days}&limit=${limit}&event_name=${encodeURIComponent(eventName)}`
     );
     return (r.data?.rows ?? []) as EventOccurrenceRow[];
+  },
+
+  // ── Staging (held writes) ───────────────────────────────────────────────
+
+  /**
+   * The caller's own `app.staging.held` rows for this app, newest first
+   * (`GET /customer-apps/{id}/staging/held`). 404s for a caller who may not
+   * open the app's staging — same answer as an app that does not exist, so
+   * the console can't use this to probe standing it doesn't have.
+   */
+  async listStagingHeld(id: string, limit?: number): Promise<StagingHeldEntry[]> {
+    const suffix = limit != null ? `?limit=${limit}` : "";
+    const response = await apiClient.get(`/customer-apps/${id}/staging/held${suffix}`);
+    return response.data;
   }
 };
 
@@ -371,4 +383,23 @@ export interface EventOccurrenceRow {
   user_email: string;
   payload: Record<string, unknown>;
   occurred_at: string;
+}
+
+/** One `app.staging.held` row, as `custom_apps_staging_held::HeldEntry` serializes it. */
+export interface StagingHeldEntry {
+  at: string;
+  function: string;
+  writes: StagingHeldWrite[];
+}
+
+/** One held call within an entry. Unknown/missing fields read as empty on the
+ *  server, so an older row still lists — `op`/`note` stay optional here to
+ *  match. */
+export interface StagingHeldWrite {
+  plane: string;
+  namespace: string;
+  verb: string;
+  table: string;
+  op: string | null;
+  note: string | null;
 }

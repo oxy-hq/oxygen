@@ -37,6 +37,7 @@ use crate::agentic_wiring::project_ctx::build_connector_for_db;
 // in (`holds_writes`) rather than read from `request_hold::active()` there.
 use crate::server::api::metric_tree::OPPORTUNITY_MIN_SUPPORT;
 use crate::server::preagg_context::RollupFreshness;
+use crate::server::previews::hold::Session;
 use crate::server::previews::request_hold::hold_if;
 use oxy::config::{ReadOnly, WorkingCopy};
 
@@ -1071,7 +1072,10 @@ pub fn build_query_executor(
                     Some(user_id),
                     Some(role.clone()),
                 ))
-                .map(|conn| hold_if(holds_writes, conn, &database))
+                .map(|conn| {
+                    let session = Session::of(&workspace_manager.config_manager, &database);
+                    hold_if(holds_writes, conn, &database, session)
+                })
                 .map_err(|e| EngineError::QueryError(e.to_string()))?;
             tracing::info!(
                 target: "metric_tree.explain",
@@ -1276,7 +1280,10 @@ pub fn build_drill_query_executor(
                     Some(user_id),
                     Some(role.clone()),
                 ))
-                .map(|conn| hold_if(holds_writes, conn, &database))
+                .map(|conn| {
+                    let session = Session::of(&workspace_manager.config_manager, &database);
+                    hold_if(holds_writes, conn, &database, session)
+                })
                 .map_err(|e| EngineError::QueryError(e.to_string()))?;
             tracing::info!(
                 target: "metric_tree.explain",

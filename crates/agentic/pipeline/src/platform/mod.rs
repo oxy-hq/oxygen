@@ -257,6 +257,14 @@ pub trait ProjectContext: Send + Sync {
     fn is_workspace_preview(&self) -> bool {
         self.preview_scope().is_some()
     }
+
+    /// The custom app whose staging environment this platform holds writes
+    /// for — a workspace preview that is a custom app's staging ask. `None`
+    /// (the default) everywhere else. It only names the app in the run's
+    /// stamp ([`preview_stamp`]); [`Self::is_workspace_preview`] decides.
+    fn staging_app_id(&self) -> Option<uuid::Uuid> {
+        None
+    }
 }
 
 /// Thread-ownership lookup for transport-layer auth checks.

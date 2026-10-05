@@ -122,4 +122,10 @@ impl ProjectContext for PreviewPlatformContext {
     fn is_workspace_preview(&self) -> bool {
         true
     }
+
+    /// A workspace preview is never a custom app's staging ask — only
+    /// `OxyProjectContext` names an app here.
+    fn staging_app_id(&self) -> Option<uuid::Uuid> {
+        None
+    }
 }

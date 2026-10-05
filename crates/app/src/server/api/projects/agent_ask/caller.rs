@@ -165,6 +165,13 @@ impl RunPlatformResolver for CallerRunResolver {
         if !Arc::ptr_eq(&platform, &base) {
             return Ok(platform);
         }
+        // A staging ask carries the preview stamp, and recovery retires a
+        // stamped run at its stamp check. Building its caller context first
+        // would mint credentials only to discard them, and a context that no
+        // longer builds would keep the run from ever reaching that check.
+        if agentic_pipeline::platform::preview_stamp::is_stamped(root.metadata.as_ref()) {
+            return Ok(platform);
+        }
         match self.caller_platform(root).await {
             Ok(Some(context)) => Ok(Arc::new(context)),
             Ok(None) => Ok(platform),

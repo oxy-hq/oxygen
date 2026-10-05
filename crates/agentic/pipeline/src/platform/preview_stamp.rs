@@ -20,8 +20,13 @@ use sea_orm::DatabaseConnection;
 use super::PlatformContext;
 
 /// The key a stamped run carries in `agentic_runs.metadata`:
-/// `{"workspace_preview": {"revision_id": <the revision it read>}}`.
-pub const RUN_STAMP: &str = "workspace_preview";
+/// `{"workspace_preview": {"revision_id": <the revision it read>}}`, plus
+/// `"app_id"` for a custom app's staging ask. Recovery keys on the key's
+/// presence ([`is_stamped`]), never on what it holds — a staging ask's
+/// `revision_id` may be null.
+///
+/// The key is agentic-runtime's, whose run feed hides a stamped run by it.
+pub const RUN_STAMP: &str = agentic_runtime::crud::PREVIEW_STAMP_KEY;
 
 /// Why a stamped run is retired instead of driven.
 pub const INTERRUPTED: &str = "preview run interrupted; start it again from the preview";
@@ -41,9 +46,19 @@ pub fn stamp(platform: &dyn PlatformContext, metadata: &mut serde_json::Value) {
     if let Some(map) = metadata.as_object_mut() {
         map.insert(
             RUN_STAMP.to_string(),
-            serde_json::json!({ "revision_id": platform.compiled_revision() }),
+            stamp_body(platform.compiled_revision(), platform.staging_app_id()),
         );
     }
+}
+
+/// The stamp's value: the revision the run read, and the custom app when the
+/// run is a staging ask.
+fn stamp_body(revision_id: Option<uuid::Uuid>, app_id: Option<uuid::Uuid>) -> serde_json::Value {
+    let mut body = serde_json::json!({ "revision_id": revision_id });
+    if let Some(app_id) = app_id {
+        body["app_id"] = serde_json::json!(app_id);
+    }
+    body
 }
 
 /// Whether a run's `metadata` carries the stamp.
@@ -73,7 +88,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{RUN_STAMP, is_stamped, stamp};
+    use super::{RUN_STAMP, is_stamped, stamp, stamp_body};
     use crate::executor::preview_hold_tests::{PreviewAirwayPlatform, preview_scope};
     use crate::platform::PlatformContext;
 
@@ -106,6 +121,22 @@ mod tests {
         assert!(
             !is_stamped(Some(&dry_run)),
             "a dry run is recovered on its preview platform, not retired: {dry_run}"
+        );
+    }
+
+    /// A staging ask's stamp names its app; a workspace preview's is unchanged.
+    /// A null revision is still a stamp: recovery keys on presence.
+    #[test]
+    fn a_staging_ask_preview_stamp_names_its_app() {
+        let app = uuid::Uuid::new_v4();
+        let staging = stamp_body(None, Some(app));
+        assert_eq!(staging, json!({ "revision_id": null, "app_id": app }));
+        assert!(is_stamped(Some(&json!({ RUN_STAMP: staging }))));
+        let revision = uuid::Uuid::new_v4();
+        assert_eq!(
+            stamp_body(Some(revision), None),
+            json!({ "revision_id": revision }),
+            "a workspace preview's stamp carries no app"
         );
     }
 

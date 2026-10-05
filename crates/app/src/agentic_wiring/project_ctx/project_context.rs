@@ -237,9 +237,7 @@ impl ProjectContext for OxyProjectContext {
         // violates fk_secrets_created_by. self.subject is set by
         // build_project_context(user.id); nil only for subject-less cron.
         if self.holds_writes() {
-            return Err(crate::server::previews::request_hold::refusal(&format!(
-                "Secret `{var_name}`"
-            )));
+            return Err(self.hold_wording().refusal(&format!("Secret `{var_name}`")));
         }
         self.workspace_manager
             .secrets_manager
@@ -355,10 +353,16 @@ impl ProjectContext for OxyProjectContext {
         ))
     }
 
-    /// A context built for a workspace-preview request is a preview: the
-    /// pipeline builds it no automation runner, gives it no builder bridges,
-    /// and refuses its Airway steps. See [`super::preview_hold`].
+    /// A context built for a held request is a preview: the pipeline builds it
+    /// no automation runner, gives it no builder bridges, and refuses its
+    /// Airway steps. See [`super::preview_hold`].
     fn is_workspace_preview(&self) -> bool {
         self.holds_writes()
+    }
+
+    /// The custom app whose staging ask this context holds for, so its run is
+    /// stamped with the app.
+    fn staging_app_id(&self) -> Option<uuid::Uuid> {
+        self.hold_scope()?.app_id()
     }
 }

@@ -588,6 +588,8 @@ const customAppKeys = {
   all: () => ["customApps"] as const,
   manage: () => ["customApps", "manage"] as const,
   debug: (orgSlug: string, appSlug: string) => ["customApps", "debug", orgSlug, appSlug] as const,
+  /** One app's admin detail — the response that carries `staging_url`. */
+  detail: (id: string) => ["customApps", "detail", id] as const,
   builds: (id: string) => ["customApps", "builds", id] as const,
   functions: (id: string) => ["customApps", "functions", id] as const,
   functionInvocations: (id: string, name: string) =>
@@ -612,6 +614,9 @@ const customAppKeys = {
     ["customApps", "activity", id, "events", days, eventName] as const,
   // Workspace-scoped published list (HQ launcher + workspace rail).
   list: (workspaceId: string) => ["customApps", "list", workspaceId] as const,
+  /** The caller's own held-write rows for this app's staging, newest first —
+   *  polled while the console actually frames staging. */
+  stagingHeld: (id: string) => ["customApps", "stagingHeld", id] as const,
   // Storage: fleet rollup vs per-app live S3 listing (two sources, two keys).
   storageFleet: (sort: string) => ["customApps", "storage", "fleet", sort] as const,
   storageObjects: (id: string, prefix: string) =>

@@ -246,19 +246,15 @@ fn s3_object_key(rest: &str, accepts_html: bool) -> Option<String> {
     }
 }
 
-/// Channel resolution for S3-source serve:
-/// - staff with the preview-draft cookie set → draft
-/// - app has been published → published (default for both staff and customer)
+/// Channel resolution for S3-source serve on the **production** host:
+/// - app has been published → published (for staff and customer alike)
 /// - otherwise → draft (only staff reaches here; the auth gate blocked
 ///   customers on unpublished apps)
-pub(super) fn resolve_channel(
-    staff_wants_draft: bool,
-    is_published: bool,
-) -> crate::server::api::custom_apps_sync::Channel {
+///
+/// A draft of a published app is never served here: it is the staging
+/// environment's, served on the staging host (`build_to_serve`).
+pub(super) fn resolve_channel(is_published: bool) -> crate::server::api::custom_apps_sync::Channel {
     use crate::server::api::custom_apps_sync::Channel;
-    if staff_wants_draft {
-        return Channel::Draft;
-    }
     if is_published {
         Channel::Published
     } else {

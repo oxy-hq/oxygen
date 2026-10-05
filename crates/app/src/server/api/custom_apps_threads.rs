@@ -13,6 +13,11 @@
 //! FleetOk (deliberately not pinned in `role_manifest.rs`). Viewer-scoped
 //! (`user_id`), so `Cache-Control: private, no-store` and no shared cache
 //! (`oxy-customer-apps-perf`).
+//!
+//! Both read only the request's environment ([`request_thread_source`]): production threads on the production host, this app's
+//! staging threads on its staging host — a staging ask never surfaces in
+//! production's history. A dev slot, or a caller who may not open staging,
+//! gets the ask's `404 EnvironmentRefused`.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -26,9 +31,51 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::server::api::custom_apps_gates::check_custom_app_gates;
+use crate::server::api::custom_apps_staging_pin::request::{environment_refused, staging_app_for};
 use crate::server::router::AppState;
+use oxy_app_core::custom_app_env_request::request_environment;
+use oxy_app_core::custom_app_environment::AppEnvironment;
+use oxy_auth::types::AuthenticatedUser;
+use sea_orm::DatabaseConnection;
 
 const HISTORY_LIMIT: u64 = 40;
+
+/// The `threads.source` of a production custom-app ask.
+pub const PRODUCTION_THREAD_SOURCE: &str = "custom-app";
+
+/// The `threads.source` of an ask on `app_id`'s staging host. Scoped to the
+/// app, so one app's staging never reads another's. An unknown app (`None`)
+/// still yields a staging source, which no production read matches.
+pub fn staging_thread_source(app_id: Option<Uuid>) -> String {
+    format!(
+        "custom-app-staging:{}",
+        app_id.map(|a| a.to_string()).unwrap_or_default()
+    )
+}
+
+/// The `threads.source` this request's environment reads: production's on
+/// the production host, the named app's staging on its staging host. Anything
+/// else — a sandbox, an app that does not resolve, a caller who may not open
+/// staging — is the agent ask's own `404 EnvironmentRefused`.
+async fn request_thread_source(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+    user: &AuthenticatedUser,
+    project_id: Uuid,
+) -> Result<String, Response> {
+    let environment = request_environment(headers).map_err(|e| e.into_response())?;
+    match environment {
+        AppEnvironment::Production => Ok(PRODUCTION_THREAD_SOURCE.to_string()),
+        AppEnvironment::Staging => {
+            let email = user.email.as_deref().unwrap_or("");
+            staging_app_for(db, headers, user.id, email, project_id)
+                .await
+                .map(|app| staging_thread_source(Some(app.id)))
+                .ok_or_else(|| environment_refused(&environment, "chat history"))
+        }
+        other => Err(environment_refused(&other, "chat history")),
+    }
+}
 
 #[derive(Serialize)]
 struct ThreadSummary {
@@ -50,11 +97,17 @@ pub async fn list_threads(Path(project_id): Path<Uuid>, headers: HeaderMap) -> R
         Ok(c) => c,
         Err(r) => return r,
     };
+    // Only this environment's threads: production's on the production host,
+    // this app's staging threads on its staging host.
+    let source = match request_thread_source(&ctx.db, &headers, &ctx.user, project_id).await {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
 
     let rows = match Threads::find()
         .filter(threads::Column::UserId.eq(Some(ctx.user.id)))
         .filter(threads::Column::ProjectId.eq(project_id))
-        .filter(threads::Column::Source.eq("custom-app"))
+        .filter(threads::Column::Source.eq(source))
         .order_by_desc(threads::Column::CreatedAt)
         .limit(HISTORY_LIMIT)
         .all(&ctx.db)
@@ -107,6 +160,10 @@ pub async fn get_thread_transcript(
         Ok(c) => c,
         Err(r) => return r,
     };
+    let source = match request_thread_source(&ctx.db, &headers, &ctx.user, project_id).await {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
 
     // Ownership: the thread must belong to this viewer in this project.
     // A 404 (not 403) avoids confirming the existence of others' threads.
@@ -120,10 +177,12 @@ pub async fn get_thread_transcript(
     };
     // Source gate: transcript pairing below is positional (question i ↔
     // run i), which only holds for custom-app threads — main-app
-    // threads can have more messages than runs (clarification resume).
+    // threads can have more messages than runs (clarification resume). And
+    // only this environment's: a staging host never reads a production
+    // thread, nor the reverse (`thread_source`).
     if thread.project_id != project_id
         || thread.user_id != Some(ctx.user.id)
-        || thread.source != "custom-app"
+        || thread.source != source
     {
         return (StatusCode::NOT_FOUND, "thread not found").into_response();
     }

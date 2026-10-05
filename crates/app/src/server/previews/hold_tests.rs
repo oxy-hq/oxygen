@@ -256,7 +256,7 @@ fn every_sql_accepting_method_is_guarded() {
         };
         if signature.contains("sql: &str") {
             assert!(
-                body.contains("self.admit(sql)?"),
+                body.contains("self.admit(sql).await?"),
                 "`{name}` takes SQL but does not admit it first"
             );
         }

@@ -48,14 +48,14 @@ use crate::custom_app_functions_fixture::{
     seeded_tenant, serve_router,
 };
 
-const APP: &str = "env-1b";
+pub(crate) const APP: &str = "env-1b";
 const STAGING_BUILD: &str = "env-1b-staging";
 
-fn staging_host() -> String {
+pub(crate) fn staging_host() -> String {
     format!("staging--{ORG_SLUG}--{APP}.customer-apps.oxygen-hq.com")
 }
 
-fn production_host() -> String {
+pub(crate) fn production_host() -> String {
     format!("{ORG_SLUG}--{APP}.customer-apps.oxygen-hq.com")
 }
 
@@ -70,7 +70,7 @@ fn functions() -> Vec<FunctionSpec> {
 /// The app with a promoted build (production) and a newer one published
 /// without promote (staging). Returns (app_id, production build pk, staging
 /// build pk).
-async fn two_environments(t: &Tenant) -> (Uuid, Uuid, Uuid) {
+pub(crate) async fn two_environments(t: &Tenant) -> (Uuid, Uuid, Uuid) {
     let app_id = publish_app(t, APP, demo_workspace_id(), &functions())
         .await
         .app_id;
@@ -115,7 +115,7 @@ async fn two_environments(t: &Tenant) -> (Uuid, Uuid, Uuid) {
 
 /// Oxy staff: the Global Owner, the standing `OXY_OWNER` grants. nextest runs
 /// each test in its own process, so this reaches no other test.
-fn make_guest_staff() {
+pub(crate) fn make_guest_staff() {
     unsafe { std::env::set_var("OXY_OWNER", LOCAL_GUEST_EMAIL) };
 }
 

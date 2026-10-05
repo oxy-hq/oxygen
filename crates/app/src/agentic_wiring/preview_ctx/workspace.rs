@@ -15,7 +15,7 @@ use oxy::config::model::DatabaseType;
 use super::airhouse_writes::{PreviewAirhouse, Step};
 use super::{PreviewPlatformContext, airhouse, names};
 use crate::agentic_wiring::string_literal::string_literal_of;
-use crate::server::previews::hold::HoldingConnector;
+use crate::server::previews::hold::{HoldingConnector, Session};
 use crate::server::previews::sql_kind::{StatementKind, classify, first_non_read, is_all_read};
 
 impl PreviewPlatformContext {
@@ -37,7 +37,11 @@ impl PreviewPlatformContext {
                 return Ok(airhouse.connector());
             }
             let inner = self.pinned(self.raw_connector(&name)).await?;
-            Ok(Arc::new(HoldingConnector::new(inner, name.clone())) as Arc<dyn DatabaseConnector>)
+            let session = Session::for_type(&self.database_type(&name)?);
+            Ok(
+                Arc::new(HoldingConnector::new(inner, name.clone()).with_session(session))
+                    as Arc<dyn DatabaseConnector>,
+            )
         })
         .await
         .cloned()

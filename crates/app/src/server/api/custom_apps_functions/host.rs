@@ -299,6 +299,7 @@ impl ProjectFunctionHost {
             held: held_log::HeldLog::new(
                 db.clone(),
                 identity.clone(),
+                app_id,
                 org_id,
                 project_id,
                 policy.environment().name(),

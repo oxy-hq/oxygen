@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   ResizableHandle,
@@ -7,13 +6,14 @@ import {
   ResizablePanelGroup
 } from "@/components/ui/shadcn/resizable";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/shadcn/sheet";
+import { useAdminApp } from "@/hooks/api/customApps/useCustomApps";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { CustomAppsService } from "@/services/api/customApps";
 import type { CustomApp } from "@/types/apps";
 import { type ChannelView, DetailToolbar, type Device } from "./components/DetailToolbar";
 import { DockControls, DossierBody, DossierHeader } from "./components/Dossier";
 import { LivePreview } from "./components/LivePreview";
 import { DOCK_STORAGE_KEY, type DockMode, dossierWindowPath, reviveDockMode } from "./dock";
+import { defaultChannel, draftTarget } from "./draftTarget";
 import { useAppViewState } from "./useAppViewState";
 import { useDossierWindow } from "./useDossierWindow";
 import { usePersistentState } from "./usePersistentState";
@@ -34,6 +34,15 @@ import { usePersistentState } from "./usePersistentState";
  *
  * ## Where the state lives
  *
+ * **Draft is the staging host.** The channel is view state and nothing else:
+ * Published frames the app's URL, Draft frames `staging_url` from the app's detail
+ * response (the registry row this component is handed leaves it absent). With no
+ * staging host — local dev has no customer-apps zone — Draft is disabled and says
+ * so; it never falls back to the production URL. An app never promoted still has
+ * a live URL serving its only build, so Published stays enabled as **Live** and
+ * says its writes are real (`draftTarget.ts` owns all of these decisions). The staff `oxy_preview_draft`
+ * cookie this used to flip is retired.
+ *
  * Device, channel and the preview's own location are **query params**, because
  * they name a place an operator sends a colleague: "Bookkeeping, draft channel,
  * on mobile, showing the vendor screen". Back and Forward then walk those
@@ -47,13 +56,19 @@ import { usePersistentState } from "./usePersistentState";
  * The reload nonce stays local: it is an instruction, not a location. Encoding
  * it would mean a shared link forces a refetch, and Back would "un-reload".
  */
-export const AppDetail = ({ app }: { app: CustomApp }) => {
-  // Default to Draft when nothing has been published yet — otherwise the
-  // toolbar selects "Published" (disabled) and the iframe requests a published
-  // bundle that doesn't exist, hanging the preview. The default is passed in
-  // rather than baked into the reader, so "no ?channel" means the right thing
-  // per app instead of the same thing for every app.
-  const channelDefault: ChannelView = app.published_at ? "published" : "draft";
+export const AppDetail = ({ app: listed }: { app: CustomApp }) => {
+  // The detail response is the registry row plus `staging_url`. Until it lands
+  // the stage renders from the row, and Draft reads "pending".
+  const detailQuery = useAdminApp(listed.id);
+  const detail = detailQuery.data ?? null;
+  const app = detail ?? listed;
+  const draft = draftTarget(detail, detailQuery.isError);
+
+  // What "no ?channel" opens on is per app (`defaultChannel`): an unpromoted
+  // app opens on its staging host, or Live when it has none. The default is
+  // passed in rather than baked into the reader, so a bare URL means the right
+  // thing per app instead of the same thing for every app.
+  const channelDefault: ChannelView = defaultChannel(app, draft);
   const { view, patch: patchView } = useAppViewState(channelDefault);
   const { device, channel } = view;
 
@@ -64,7 +79,6 @@ export const AppDetail = ({ app }: { app: CustomApp }) => {
   );
   const onFnChange = useCallback((name: string | null) => patchView({ fn: name }), [patchView]);
 
-  const [channelBusy, setChannelBusy] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   // Wide = docked panel; narrow = overlay Sheet. Two bits of state so the
@@ -109,39 +123,12 @@ export const AppDetail = ({ app }: { app: CustomApp }) => {
     onDismiss: fallBackToSideColumn
   });
 
-  // Best-effort cookie cleanup. If staff toggle Draft and then close the
-  // admin tab, don't let the preview-draft cookie follow them to a later
-  // customer URL view in the same session.
-  useEffect(() => {
-    return () => {
-      void CustomAppsService.disablePreviewDraft().catch(() => {
-        // best-effort
-      });
-    };
-  }, []);
-
-  const handleChannelChange = async (next: ChannelView) => {
-    if (next === channel || channelBusy) return;
-    setChannelBusy(true);
-    try {
-      if (next === "draft") {
-        await CustomAppsService.enablePreviewDraft();
-      } else {
-        await CustomAppsService.disablePreviewDraft();
-      }
-      // The channel is a server-side cookie, so the URL records the operator's
-      // choice but does not *cause* it — a Back that returns to `?channel=draft`
-      // re-selects Draft in the toolbar without re-issuing the toggle. Worth
-      // knowing: the cookie is per-session, so a link opened by a colleague
-      // shows their channel until they flip it themselves.
-      patchView({ channel: next, preview: null });
-      setNonce((n) => n + 1);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to switch channel";
-      toast.error(msg);
-    } finally {
-      setChannelBusy(false);
-    }
+  // View state only: the URL records the choice and the frame follows it. A
+  // remount (nonce) lands the other build even when the path is unchanged.
+  const handleChannelChange = (next: ChannelView) => {
+    if (next === channel) return;
+    patchView({ channel: next, preview: null });
+    setNonce((n) => n + 1);
   };
 
   const preview = (
@@ -150,6 +137,7 @@ export const AppDetail = ({ app }: { app: CustomApp }) => {
         app={app}
         device={device}
         channel={channel}
+        draft={draft}
         nonce={nonce}
         path={view.preview}
         onPathChange={onPreviewPathChange}
@@ -178,13 +166,13 @@ export const AppDetail = ({ app }: { app: CustomApp }) => {
         tab='preview'
         device={device}
         channel={channel}
-        channelBusy={channelBusy}
+        draft={draft}
         showTabs={false}
         dossierOpen={dossierShown}
         onToggleDossier={toggleDossier}
         onTabChange={() => undefined}
         onDeviceChange={setDevice}
-        onChannelChange={(c) => void handleChannelChange(c)}
+        onChannelChange={handleChannelChange}
         onReload={() => setNonce((n) => n + 1)}
       />
 

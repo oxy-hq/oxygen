@@ -77,8 +77,9 @@ pub struct CustomAppContext {
     /// queries (e.g. agent lookup) so we don't pay for a second
     /// `establish_connection()` round-trip per request.
     pub db: DatabaseConnection,
-    /// Set only on a STAGING request (preview cookie + `DevelopApps` reach)
-    /// whose calling app's draft build pins a semantic revision — see
+    /// Set only on a STAGING request (the app's staging host, opened by a viewer
+    /// who may see staging) whose calling app's staging build pins a semantic
+    /// revision — see
     /// `custom_apps_staging_pin::request`. `None` for every live request.
     pub staging_pin: Option<Uuid>,
 }
@@ -377,7 +378,7 @@ pub async fn check_custom_app_gates(
     }
 
     // Staging: the staging build's semantic pin, for a request on the app's
-    // staging host or carrying the preview cookie, decided by the same reach
+    // staging host, decided by the same reach
     // rule that serves that viewer the staging bundle. After the access
     // decision, so it can only narrow WHICH revision an already authorized
     // request reads, never whether it may read.

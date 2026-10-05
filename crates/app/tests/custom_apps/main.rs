@@ -20,6 +20,7 @@
 //! | `staging_homes_differential` | the same warehouse write from staging and production lands on disjoint databases, through the real host: the mapped destination (and `ctx.tx`) vs production's; an unmapped database is held; the mapped name passes production's gate; a statement naming production's database or another is held on the mapped connection |
 //! | `staging_airhouse_sibling` | staging's `ctx.airhouse` appends and execs land in the sibling `app_<writer>__staging` on a connection scoped to it, never in the app's schema; its queries read production's |
 //! | `staging_airhouse_migrations` | staging's Airhouse migrations run in the sibling under their own ledger target, so promote still applies production's |
+//! | `staging_preview_cookie_retired` | the `oxy_preview_draft` cookie is retired: its routes are gone, the production host serves the published build to staff carrying it, and the draft is served on the staging host only (`serial-db`: drives `api_router`) |
 //! | `staging_publish_never_blocks` | a staging-only publish queues its sibling migration once and answers; the task's failure is its run's, never the publish's; a promote whose mapping cannot be checked still publishes with a warning; production's and the sibling's apply locks do not contend |
 //! | `staging_destination_guards` | the host re-checks a staging mapping on every write against the config as it is now, failing closed: production's host and user, any mapped production database, a chain, the workspace's own Airhouse, DuckDB to DuckDB, or an unresolvable host is refused (a chain held) and nothing is written |
 //! | `staging_destination_publish` | publish refuses a `nonProduction.destinations` mapping onto production's host and user (a heuristic), onto itself, onto the workspace's own Airhouse, or to an unconfigured database |
@@ -27,6 +28,10 @@
 //! | `staging_function_secrets` | staging `ctx.env` overlays production only for keys both the staging build and production's build mark `shared` (none for an app never promoted), `ctx.secrets.set` writes staging's path; a publish refuses `shared` on a key this build or production's writes or verifies webhooks with |
 //! | `nonprod_function_uploads` | a staging or sandbox function's `ctx.fetch` PUT to the upload URL its own invocation minted is sent, and is not in its held row; every other mutating fetch is still held — production's silo, another environment's, another app's, another host, a traversal, another bucket or query, another method, a URL an earlier invocation minted; production sends what it always sent. No V8: the real host, driven from Rust |
 //! | `staging_storage_limits` | a staging silo has its own cap, and its bytes never count toward the org quota that gates production's writes |
+//! | `custom_app_staging_held` | the console's held list returns a staging invoker its own `app.staging.held` rows (app and actor stamped), `[]` to another developer who may open staging, 404 to a caller who may not; production adds none; a row from before `app_id` was stamped is found by slug within the org |
+//! | `staging_agent_ask` | a staging-host agent ask (staff only, else 404 `EnvironmentRefused`) builds its platform inside the hold: held from the drive's spawned task, DDL through its connector is refused and listed in `…/staging/held` as `agent`, the run is stamped with the app and startup recovery retires it; production asks are unchanged (no hold, no stamp) |
+//! | `staging_agent_ask_handlers` | the real `start_ask` on the staging host refuses a non-staff caller (404 `EnvironmentRefused`) before writing a thread, and reaches the pipeline for staff (`agent_not_found`); the staging `cancel_ask` reaches only this app's stamped staging runs, production's is unchanged |
+//! | `staging_automation_run_handlers` | the real `start_automation_run` on the staging host answers `409 held_in_staging` before any run row and logs it held as `automation`; a non-staff caller gets the same `404 EnvironmentRefused` an ask refuses with; production starts the run unaffected |
 //! | `staging_secrets_admin` | the staff secrets surface sets, lists and deletes `apps/<id>/staging/<KEY>` for staff only (oxy-authz `AppNonProduction`), audited with the environment; a key is one segment; the tenant project-secrets routes never list or reach a staging row |
 //! | `staging_functions_oltp` | a staging function reads production's OLTP rows; `COMMIT`/`SET TRANSACTION READ WRITE` escapes, `set_config` (by name, `U&"…"`-escaped, or inside `query_to_xml` text) and multi-statement strings are held unsent; `READ ONLY` refuses a write inside an app-defined function |
 //! | `staging_functions_oltp_branch` | with the org's OLTP staging branch, every OLTP write op (a table checked against the policy), DDL, a savepoint and an app-defined writing function run on the branch and never production; `dblink`, server files, `COPY … PROGRAM` and `ALTER ROLE` are refused there and listed in the held row; production's and staging's `ctx.oltp` resolve disjoint databases; a branch row naming production is refused |
@@ -113,6 +118,7 @@ mod custom_app_platform_runtime;
 mod custom_app_procedure_run_attempts;
 mod custom_app_procedure_run_fixture;
 mod custom_app_procedure_run_queue;
+mod custom_app_staging_held;
 mod custom_app_staging_pin;
 mod custom_app_storage_routes;
 mod custom_app_visibility;
@@ -125,6 +131,7 @@ mod environment_scoped_keys;
 mod example_app_serving;
 mod function_failure_alerts;
 mod nonprod_function_uploads;
+mod preview_read_only_session;
 mod sandbox_environments;
 mod sandbox_isolation;
 mod sandbox_isolation_airhouse;
@@ -151,8 +158,11 @@ mod sandbox_teardown_task;
 mod seed_example_app;
 mod shape_zoo;
 mod shape_zoo_coverage;
+mod staging_agent_ask;
+mod staging_agent_ask_handlers;
 mod staging_airhouse_migrations;
 mod staging_airhouse_sibling;
+mod staging_automation_run_handlers;
 mod staging_branch_migrations;
 mod staging_branch_migrations_races;
 mod staging_destination_guards;
@@ -167,6 +177,7 @@ mod staging_functions_semantic;
 mod staging_homes_differential;
 mod staging_homes_fixture;
 mod staging_migration_tasks;
+mod staging_preview_cookie_retired;
 mod staging_publish_never_blocks;
 mod staging_secrets_admin;
 mod staging_storage_limits;

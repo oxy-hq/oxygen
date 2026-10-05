@@ -13,7 +13,8 @@
 //!   a promoted build's pin and the revision live actually reads.
 //!
 //! **The live channel ignores pins.** Nothing here is consulted for a request
-//! that is not a staging request (preview cookie + `DevelopApps` reach), so a
+//! that is not a staging request (the app's staging host, for a viewer who may
+//! open it), so a
 //! promoted build always reads `workspaces.current_revision_id` and promote
 //! stays a pointer move.
 

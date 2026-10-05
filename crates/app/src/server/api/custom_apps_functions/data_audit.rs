@@ -31,11 +31,14 @@
 
 use std::fmt::Write as _;
 
-use oxy_app_core::audit::{ActorType, AuditEntry};
+use oxy_app_core::audit::AuditEntry;
 use serde_json::json;
 use uuid::Uuid;
 
 use super::host_call_attrs::{QuerySummary, identifier_like};
+pub(crate) use super::write_record::{
+    WriteRecord, actor_entry, plane_for_dialect, with_first_target,
+};
 
 /// Who is running, as far as a write needs to be attributed. Built once per
 /// invocation from the run arguments; the host owns it for the isolate's life.
@@ -121,22 +124,6 @@ fn encode(value: &str) -> String {
         }
     }
     out
-}
-
-/// The plane a `ctx.tx()` destination belongs to, from its connector's
-/// dialect: Airhouse speaks DuckDB over pgwire, a plain Postgres destination
-/// is `postgres`, anything else is named by its dialect. `oltp` is reserved
-/// for the app's own silo, which only `ctx.oltp` reaches.
-pub(super) fn plane_for_dialect(dialect: agentic_connector::SqlDialect) -> &'static str {
-    use agentic_connector::SqlDialect as D;
-    match dialect {
-        D::DuckDb => "airhouse",
-        D::Postgres => "postgres",
-        D::Sqlite => "sqlite",
-        D::BigQuery => "bigquery",
-        D::Snowflake => "snowflake",
-        _ => "other",
-    }
 }
 
 /// Record what a statement touched on the current host-op span, once, from
@@ -254,46 +241,6 @@ pub(super) fn is_write_verb(verb: &str) -> bool {
     )
 }
 
-/// One write, as the audit row describes it.
-#[derive(Debug, Clone, serde::Serialize)]
-pub(super) struct WriteRecord {
-    /// `oltp` (the app's silo), `app_airhouse` (its own Airhouse schema),
-    /// `airhouse`, `postgres`, or another dialect name — see
-    /// [`plane_for_dialect`].
-    pub plane: &'static str,
-    /// The schema (OLTP) or database (Airhouse) the statement ran against.
-    pub namespace: String,
-    pub verb: String,
-    /// The table the summary found, or empty when the statement had none
-    /// that survived the identifier bound.
-    pub table: String,
-    /// Rows the statements reported, summed; `None` when the plane does not
-    /// report a count.
-    pub rows: Option<u64>,
-    /// How many statements this record stands for (coalesced).
-    pub statements: u64,
-    /// The host op a held call was (`storage.put`), on `app.staging.held`
-    /// rows only. Absent from every write row, which serializes as before.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub op: Option<&'static str>,
-    /// Why a held call could not run in its environment, when the fix is
-    /// the operator's — `ctx.oltp` in an org with no OLTP staging branch
-    /// (`env_policy::NO_BRANCH_NOTE`). On `app.staging.held` rows only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<&'static str>,
-}
-
-impl WriteRecord {
-    /// `oltp:app_orders.orders`, the audit row's `target_id`.
-    pub fn target(&self) -> String {
-        if self.table.is_empty() || !identifier_like(&self.table) {
-            format!("{}:{}", self.plane, self.namespace)
-        } else {
-            format!("{}:{}.{}", self.plane, self.namespace, self.table)
-        }
-    }
-}
-
 /// The hash-chained row for a committed write (or a committed transaction's
 /// writes). The actor is the verified user when a human called the route,
 /// otherwise the platform acting for the app.
@@ -305,25 +252,13 @@ pub(super) fn entry(
     writes: &[WriteRecord],
     trace_id: Option<&str>,
 ) -> AuditEntry {
-    let first = writes.first();
-    let mut e = match (identity.user_id, identity.user_email.as_deref()) {
-        (Some(uid), email) => AuditEntry::new(email.unwrap_or("unknown").to_string(), action)
-            .actor(uid, ActorType::User),
-        (None, _) => {
-            let mut e = AuditEntry::new(format!("system:app:{}", identity.app_slug), action);
-            e.actor_type = ActorType::System;
-            e
-        }
-    };
-    e = e.org(org_id).workspace(project_id);
-    if let Some(w) = first {
-        e = e.target(
-            format!("{}.table", w.plane),
-            w.target(),
-            format!("{} {}", w.verb, w.target()),
-        );
-    }
-    e.metadata(json!({
+    let user = identity
+        .user_id
+        .map(|uid| (uid, identity.user_email.as_deref()));
+    let e = actor_entry(action, user, &identity.app_slug)
+        .org(org_id)
+        .workspace(project_id);
+    with_first_target(e, writes).metadata(json!({
         "app_slug": identity.app_slug,
         "function": identity.function_name,
         "invocation_id": identity.invocation_id,
@@ -340,11 +275,6 @@ pub(super) const ACTION_OLTP_WRITE: &str = "app.oltp.write";
 pub(super) const ACTION_TX_COMMIT: &str = "app.tx.commit";
 pub(super) const ACTION_WAREHOUSE_WRITE: &str = "app.warehouse.write";
 pub(super) const ACTION_AIRHOUSE_WRITE: &str = "app.airhouse.write";
-/// What a non-production invocation would have written, and did not: every
-/// call its environment policy held or refused, one row per invocation, in
-/// the same shape as a write row — so "what would this staging run have done
-/// to production?" is one audit query. Never written in production.
-pub(super) const ACTION_STAGING_HELD: &str = "app.staging.held";
 
 /// The plane of a `ctx.airhouse` write: the app's own schema in its workspace's
 /// Airhouse, written as the app. Distinct from `airhouse`, which is a
@@ -363,6 +293,7 @@ pub(super) fn action_for(plane: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxy_app_core::audit::ActorType;
 
     fn identity(human: bool) -> InvocationIdentity {
         InvocationIdentity {

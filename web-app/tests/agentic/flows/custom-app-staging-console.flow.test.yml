@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# The console's staging banner (Task 3 of the custom-app staging-from-the-
+# console plan): while the preview stage frames an app's Draft channel AND
+# that channel resolved to the app's actual staging host, a banner reads
+# "Staging · live reads · writes held or isolated · {n} {writes} held", whose
+# count opens a popover listing what staging held
+# (`GET /api/customer-apps/{id}/staging/held`, Task 2).
+#
+# UNRECORDED — this flow is authored but not yet run/healed; Task 7 of the
+# same plan records it. Its selectors are the testids `StagingBanner.tsx`
+# renders (`admin-app-staging-banner`, `admin-app-staging-banner-count`,
+# `admin-app-staging-held-list`, `admin-app-staging-held-empty`), plus the
+# pre-existing `admin-app-channel-draft` toggle and the `apps-console-*`
+# testids the fleet console already carries. Whether the seeded `oxy-starter`
+# app (org `local`) carries a distinct `staging_url` at recording time is open
+# — if it does not, Task 7 should point this at (or seed) an app that does,
+# rather than loosen the assertions below to tolerate "no staging host" as a
+# pass.
+#
+# Backend: `--enterprise` (cloud) with OXY_OWNER set, same as
+# admin-custom-apps-tabs — the admin console requires the enterprise code
+# path + server-side OXY_OWNER gating. Do NOT use `--local`.
+
+name: custom-app staging console banner
+target: ide
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # navigate, open the app console, open Inspect, toggle Draft, open the
+  # held-writes popover, waits + judge
+  max_steps: 20
+
+setup:
+  - "goto:/admin/apps"
+
+cases:
+  - name: the Draft frame shows what staging held, and the popover lists it
+    tags: [admin, customer-apps, staging, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-customer-apps]"
+
+      - act: |
+          Open the "oxy-starter" app's console: find its row in the apps
+          table (search/filter by name if there's a search box) and click
+          into it.
+
+      - wait_for: "selector:[data-testid=apps-console]"
+
+      - act: |
+          In the Preview panel, click "Inspect"
+          ([data-testid=apps-console-preview-inspect]) to open the live
+          preview stage for this app.
+
+      - wait_for: "selector:[data-testid=admin-app-channel-draft]"
+
+      - act: |
+          Click the "Draft" channel control
+          ([data-testid=admin-app-channel-draft]) to switch the preview
+          stage to the app's staging host.
+
+      - wait_for: "selector:[data-testid=admin-app-staging-banner]"
+
+      - act: |
+          Click the held-writes count inside the staging banner
+          ([data-testid=admin-app-staging-banner-count]) to open its
+          popover.
+
+      - wait_for: "selector:[data-testid=admin-app-staging-held-list]"
+
+    expect:
+      - assert: selector [data-testid=admin-app-staging-banner] is visible
+      - assert: 'text "Staging · live reads · writes held or isolated ·" is visible'
+      - assert: selector [data-testid=admin-app-staging-held-list] is visible
+
+      - judge: |
+          The preview stage is on the Draft channel, framing the app's
+          staging host (a different origin than the app's production URL).
+          Above the frame, a banner reads "Staging · live reads · writes
+          held or isolated ·" followed by a held-write count ("0 writes
+          held", "1 write held", or "N writes held" — any of these is
+          correct, the count just has to agree with the plural rule: "1
+          write", never "1 writes"; anything else gets "writes"). Clicking
+          that count opened a popover. If the count was 0, the popover shows
+          the empty-state copy "Nothing held yet — writes staging can't
+          isolate appear here." If the count was greater than 0, the popover
+          lists rows of the form "<time> · <function> · <plane> <verb>
+          <namespace>.<table>", newest first.
+
+          Fail if: the banner is missing or shows over what is actually the
+          Published/Live frame rather than Draft; the plural rule is wrong
+          (e.g. "1 writes held"); the popover is empty of ANY content
+          (neither real rows nor the empty-state copy); or the page shows an
+          error instead of the preview stage.

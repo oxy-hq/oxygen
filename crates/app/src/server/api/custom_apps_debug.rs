@@ -39,8 +39,9 @@ struct DebugSnapshot {
     org_slug: String,
     app_slug: String,
     app: AppSnapshot,
-    /// The channel this request resolved to: `draft` for staff with the
-    /// preview cookie or an app never published, `published` otherwise.
+    /// The channel this request resolved to: `draft` on the app's staging host
+    /// for a viewer who may open staging, or for an app never published;
+    /// `published` otherwise.
     channel: &'static str,
     /// The build that channel points at (`app_builds.id`). `None` means the
     /// app has nothing to serve on this channel — the one bundle fault an
@@ -71,14 +72,21 @@ pub async fn get_debug(
     Path((org_slug, app_slug)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let AuthOutcome { app, is_staff, .. } =
-        match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
-            Ok(v) => v,
-            Err(status) => return status.into_response(),
-        };
-
-    let cookie_wants_draft = super::custom_apps_preview::wants_draft_preview(&headers);
-    let channel = pick_channel_for(&app, is_staff, cookie_wants_draft);
+    let AuthOutcome {
+        app,
+        user_id,
+        user_email,
+        ..
+    } = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
+        Ok(v) => v,
+        Err(status) => return status.into_response(),
+    };
+    let db = oxy::database::client::establish_connection().await;
+    let on_staging = match &db {
+        Ok(db) => on_staging_host(db, &headers, user_id, user_email.as_deref(), &app).await,
+        Err(_) => false,
+    };
+    let channel = pick_channel_for(&app, on_staging);
 
     let mut snap = DebugSnapshot {
         org_slug,
@@ -104,8 +112,8 @@ pub async fn get_debug(
         manifest_error: None,
     };
 
-    let manifest = match oxy::database::client::establish_connection().await {
-        Ok(db) => resolve_manifest(&db, &app, channel).await,
+    let manifest = match &db {
+        Ok(db) => resolve_manifest(db, &app, channel).await,
         Err(e) => Err(super::custom_apps_manifest::ManifestError::Io(
             e.to_string(),
         )),
@@ -123,4 +131,30 @@ pub async fn get_debug(
     }
 
     Json(snap).into_response()
+}
+
+/// Is this the app's staging host, opened by a viewer who may see staging? The
+/// draft is the staging environment's, so the snapshot reports it only there —
+/// the same decision that serves staging HTML. Fails closed: a lookup error is
+/// "not staging".
+async fn on_staging_host(
+    db: &sea_orm::DatabaseConnection,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    email: Option<&str>,
+    app: &entity::apps::Model,
+) -> bool {
+    use oxy_app_core::custom_app_environment::AppEnvironment;
+    let staging = matches!(
+        oxy_app_core::custom_app_env_request::request_environment(headers),
+        Ok(AppEnvironment::Staging)
+    );
+    staging
+        && super::custom_apps_env_resolve::may_open_non_production(
+            db,
+            user_id,
+            email.unwrap_or(""),
+            app,
+        )
+        .await
 }

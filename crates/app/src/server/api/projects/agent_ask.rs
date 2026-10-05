@@ -21,6 +21,7 @@
 //! verified-query routing, clarification suspension, knowledge cards,
 //! tool selection are all live in custom-app land too.
 
+use std::future::Future;
 use std::sync::Arc;
 
 use agentic_pipeline::PipelineBuilder;
@@ -30,6 +31,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use entity::{messages, organizations, threads};
+use futures::future::BoxFuture;
 use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait, Set};
 use sentry::SentryFutureExt;
 use serde::{Deserialize, Serialize};
@@ -37,13 +39,31 @@ use tokio::sync::{mpsc, watch};
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
+use super::agent_ask_staging::{ask_scope, thread_source};
 use crate::server::api::custom_apps_gates::{check_custom_app_gates, parse_versioned_body};
+use crate::server::previews::request_hold::scope_if;
 use crate::server::router::AppState;
 
 pub mod caller;
 mod cancel;
 
 pub use cancel::cancel_ask;
+
+/// `make()`'s future, built in this frame and moved to the heap.
+///
+/// The ask handlers run on a server worker's 2 MiB stack, and a debug build
+/// gives every future an `async fn` awaits its own slot in that fn's poll
+/// frame — twice over under `#[instrument]` and axum's handler wrapper. With
+/// the gates, the platform build and the pipeline start awaited in place,
+/// the handler's three frames came to ~1.3 MiB and a production ask aborted
+/// the server ("has overflowed its stack"). Built here instead, each leaves
+/// a pointer in the handler's future and nothing in its frames.
+fn boxed<'a, F>(make: impl FnOnce() -> F) -> BoxFuture<'a, F::Output>
+where
+    F: Future + Send + 'a,
+{
+    Box::pin(make())
+}
 
 /// Build the relative path to the thread view in the oxy web app.
 ///
@@ -176,10 +196,18 @@ pub async fn start_ask(
     body: axum::body::Bytes,
 ) -> Response {
     // 1. Gates.
-    let gates_ctx = match check_custom_app_gates(&headers, project_id).await {
+    let gates_ctx = match boxed(|| check_custom_app_gates(&headers, project_id)).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
+    // On the app's staging host: every write held, or refused outright.
+    let hold = match boxed(|| ask_scope(&gates_ctx.db, &headers, &gates_ctx.user, project_id)).await
+    {
+        Ok(hold) => hold,
+        Err(resp) => return resp,
+    };
+    // The history this ask belongs to: production's, or this app's staging.
+    let source = thread_source(hold.as_ref());
 
     // 2. Body.
     let req: AskRequest = match parse_versioned_body(&body) {
@@ -207,8 +235,9 @@ pub async fn start_ask(
     };
 
     // 4. Platform context (project-scoped). Pipeline needs an
-    //    Arc<dyn PlatformContext>.
-    let proj_ctx = match gates_ctx.build_project_context().await {
+    //    Arc<dyn PlatformContext>. Built inside a staging ask's hold, so it
+    //    captures it and keeps holding on the task the run is driven on.
+    let proj_ctx = match boxed(|| scope_if(hold.clone(), gates_ctx.build_project_context())).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -234,10 +263,15 @@ pub async fn start_ask(
             // pass any thread UUID and inject a message into — and pull prior
             // context out of — another user's/project's thread. A 404 (not
             // 403) mirrors `custom_apps_threads.rs::get_thread_transcript`
-            // and avoids confirming the existence of others' threads.
+            // and avoids confirming the existence of others' threads. The
+            // thread must also be this environment's (`thread_source`): a
+            // staging ask cannot append to a production thread, nor the
+            // reverse — the same 404.
             match threads::Entity::find_by_id(tid).one(&gates_ctx.db).await {
                 Ok(Some(t))
-                    if t.project_id == project_id && t.user_id == Some(gates_ctx.user.id) =>
+                    if t.project_id == project_id
+                        && t.user_id == Some(gates_ctx.user.id)
+                        && t.source == source =>
                 {
                     tid
                 }
@@ -257,7 +291,7 @@ pub async fn start_ask(
                 title: Set(title),
                 input: Set(req.question.clone()),
                 output: Set(String::new()),
-                source: Set("custom-app".to_string()),
+                source: Set(source),
                 source_type: Set("analytics".to_string()),
                 references: Set("[]".to_string()),
                 is_processing: Set(false),
@@ -316,8 +350,8 @@ pub async fn start_ask(
         )
         .analytics(&agent_id);
 
-    // 7. Start.
-    let started = match builder.start(&agentic_state.db).await {
+    // 7. Start — inside the hold too, so the run row is stamped.
+    let started = match boxed(|| scope_if(hold, builder.start(&agentic_state.db))).await {
         Ok(s) => s,
         Err(e) => {
             warn!(
@@ -382,7 +416,8 @@ pub async fn start_ask(
     let router = agentic_state.router.clone();
     let run_id_for_drive = run_id.clone();
     let platform_drive = platform.clone();
-    tokio::spawn(
+    // Built in `boxed`'s frame too: the drive's future is a large one.
+    tokio::spawn(boxed(|| {
         async move {
             agentic_pipeline::drive_with_coordinator(
                 started,
@@ -405,8 +440,8 @@ pub async fn start_ask(
         // and the warehouse errors answering it, and nothing under
         // `agentic_pipeline` has a `custom_apps` target for barrier 1 to read,
         // so the tag has to travel with it (`middlewares::sentry_surface`).
-        .bind_hub(sentry::Hub::current()),
-    );
+        .bind_hub(sentry::Hub::current())
+    }));
 
     // The thread is always provisioned now (§5), so return its id.
     let thread_id_str = thread_uuid.to_string();

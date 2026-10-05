@@ -27,6 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/
 import { cn } from "@/libs/shadcn/utils";
 import type { CustomApp } from "@/types/apps";
 import { resolveBundleUrl } from "../../../../resolveBundleUrl";
+import { type DraftTarget, liveView, NOT_PROMOTED_YET } from "../../draftTarget";
 import { ActAsOrgButton } from "./ActAsOrgButton";
 import { OpenStagingButton } from "./OpenStagingButton";
 import { OrgHomeButton } from "./OrgHomeButton";
@@ -40,7 +41,9 @@ export interface DetailToolbarProps {
   tab: DetailTab;
   device: Device;
   channel: ChannelView;
-  channelBusy: boolean;
+  /** Where Draft points. Anything but `staging` disables the Draft control, and
+   *  its tooltip says why (`draftTarget.ts`). */
+  draft: DraftTarget;
   onTabChange: (tab: DetailTab) => void;
   onDeviceChange: (device: Device) => void;
   onChannelChange: (channel: ChannelView) => void;
@@ -66,15 +69,23 @@ const DEVICE_LABELS: Record<Device, { icon: typeof Smartphone; label: string; si
 
 const CHANNEL_COPY: Record<ChannelView, { title: string; description: string; confirm: string }> = {
   draft: {
-    title: "Switch to draft preview?",
-    description: "Shows the latest CI build. Customers still see the published bundle.",
-    confirm: "Show draft"
+    title: "Switch to the staging build?",
+    description:
+      "Loads the app's staging host: the latest unpromoted build on real data, with its writes held or sent to staging copies. Customers still see the published bundle.",
+    confirm: "Show staging"
   },
   published: {
     title: "Switch back to published?",
     description: "Shows the bundle the customer currently sees.",
     confirm: "Show published"
   }
+};
+
+/** The Published entry for an app never promoted, which `liveView` relabels Live. */
+const LIVE_COPY = {
+  title: "Switch to the live URL?",
+  description: NOT_PROMOTED_YET,
+  confirm: "Show live"
 };
 
 /**
@@ -86,10 +97,12 @@ const CHANNEL_COPY: Record<ChannelView, { title: string; description: string; co
  *   [identity]  ·  [section nav]  ·  [contextual controls]
  *
  * Section nav (tabs) is the only stable middle element. Contextual
- * controls reflow per tab: device + reload are Preview-only; channel
- * toggle stays put because the underlying cookie is session-wide; Open
- * stays put because the URL is canonical no matter which section is
- * active.
+ * controls reflow per tab: device + reload are Preview-only; the channel
+ * toggle stays put; Open stays put because the URL is canonical no matter
+ * which section is active.
+ *
+ * The channel is view state only (`?channel=`): Published frames the app's
+ * URL, Draft frames its staging host. Nothing server-side flips.
  *
  * The URL isn't rendered inline — it'd dominate the row at any legible
  * size. Hover Open to read it; click to launch in a new tab.
@@ -99,7 +112,7 @@ export const DetailToolbar = ({
   tab,
   device,
   channel,
-  channelBusy,
+  draft,
   onTabChange,
   onDeviceChange,
   onChannelChange,
@@ -114,9 +127,16 @@ export const DetailToolbar = ({
   const [pendingChannel, setPendingChannel] = useState<ChannelView | null>(null);
 
   const ActiveDeviceIcon = DEVICE_LABELS[device].icon;
+  const live = liveView(app);
+  const pendingCopy =
+    pendingChannel === "published" && live.note
+      ? LIVE_COPY
+      : pendingChannel
+        ? CHANNEL_COPY[pendingChannel]
+        : null;
 
   const handleChannelClick = (next: ChannelView) => {
-    if (next === channel || channelBusy) return;
+    if (next === channel) return;
     setPendingChannel(next);
   };
 
@@ -216,52 +236,66 @@ export const DetailToolbar = ({
           </>
         )}
 
-        {/* Channel pills — visible on every tab because the underlying
-            cookie is session-wide. Clicking triggers a confirmation
-            dialog rather than flipping immediately, so a stray click
-            doesn't accidentally expose draft content. The active
+        {/* Channel pills. Clicking triggers a confirmation dialog rather
+            than flipping immediately, so a stray click doesn't swap the
+            stage to another build unannounced. The active
             segment takes the channel's tone (ok / warn) for peripheral
             recognition — spelled out as the `status-*` tokens `ADMIN_TONE`
             is built from, because a `data-[state=on]:` variant has to be a
             literal class for Tailwind to emit it; it cannot be composed
             from the constant at runtime.
 
-            Published segment is disabled when the app has never been
-            published — the cookie would do nothing, the iframe would
-            still 403 for non-app-admins. */}
+            Published is always enabled: for an app never promoted it reads
+            Live and says its writes are real (`liveView`). Draft is disabled
+            when there is no staging host to frame (`draftTarget`), and never
+            falls back to the production URL. */}
         <ToggleGroup
           type='single'
           value={channel}
           onValueChange={(v) => v && handleChannelClick(v as ChannelView)}
           size='sm'
           variant='outline'
-          disabled={channelBusy}
           aria-label='Bundle channel'
         >
           <Tooltip>
             <TooltipTrigger asChild>
               <ToggleGroupItem
                 value='published'
-                aria-label='Show published bundle'
-                disabled={!app.published_at}
+                aria-label={live.note ? "Show the live URL" : "Show published bundle"}
+                data-testid='admin-app-channel-published'
                 className='h-7 gap-1.5 px-2 data-[state=on]:bg-status-success-bg data-[state=on]:text-status-success-text'
               >
                 <Eye className='size-3.5' />
-                <span className='text-xs'>Published</span>
+                <span className='text-xs'>{live.label}</span>
               </ToggleGroupItem>
             </TooltipTrigger>
-            {!app.published_at && (
-              <TooltipContent>Publish the app to enable this view.</TooltipContent>
-            )}
+            {live.note && <TooltipContent className='max-w-xs'>{live.note}</TooltipContent>}
           </Tooltip>
-          <ToggleGroupItem
-            value='draft'
-            aria-label='Preview draft bundle'
-            className='h-7 gap-1.5 px-2 data-[state=on]:bg-status-warning-bg data-[state=on]:text-status-warning-text'
-          >
-            <EyeOff className='size-3.5' />
-            <span className='text-xs'>Draft</span>
-          </ToggleGroupItem>
+          <Tooltip>
+            {/* The span carries the tooltip: a disabled button fires no
+                pointer events, so the reason would otherwise never show. */}
+            <TooltipTrigger asChild>
+              <span>
+                <ToggleGroupItem
+                  value='draft'
+                  aria-label='Preview the staging build'
+                  disabled={draft.kind !== "staging"}
+                  data-testid='admin-app-channel-draft'
+                  className='h-7 gap-1.5 px-2 data-[state=on]:bg-status-warning-bg data-[state=on]:text-status-warning-text'
+                >
+                  <EyeOff className='size-3.5' />
+                  <span className='text-xs'>Draft</span>
+                </ToggleGroupItem>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className='max-w-xs'>
+              {draft.kind === "staging"
+                ? "Frames the staging host: the draft build, writes held."
+                : draft.kind === "unavailable"
+                  ? draft.reason
+                  : "Looking up the staging host…"}
+            </TooltipContent>
+          </Tooltip>
         </ToggleGroup>
 
         {onToggleDossier && (
@@ -329,32 +363,23 @@ export const DetailToolbar = ({
       <AlertDialog
         open={pendingChannel !== null}
         onOpenChange={(open) => {
-          if (!open && !channelBusy) setPendingChannel(null);
+          if (!open) setPendingChannel(null);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingChannel ? CHANNEL_COPY[pendingChannel].title : ""}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingChannel ? CHANNEL_COPY[pendingChannel].description : ""}
-            </AlertDialogDescription>
+            <AlertDialogTitle>{pendingCopy?.title ?? ""}</AlertDialogTitle>
+            <AlertDialogDescription>{pendingCopy?.description ?? ""}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={channelBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={channelBusy}
               onClick={(e) => {
                 e.preventDefault();
                 confirmChannelSwitch();
               }}
             >
-              {channelBusy
-                ? "Switching…"
-                : pendingChannel
-                  ? CHANNEL_COPY[pendingChannel].confirm
-                  : ""}
+              {pendingCopy?.confirm ?? ""}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
