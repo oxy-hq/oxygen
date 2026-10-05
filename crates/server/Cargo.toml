@@ -59,6 +59,11 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # `sentry::test::with_captured_events`, so the event filter below is pinned
 # against what sentry-tracing actually does rather than against a reading of it.
 sentry = { workspace = true, features = ["test"] }
+# `served_router_tests`: build `api_router` (ServeMode, its shutdown token) and
+# drive it with `oneshot`.
+oxy-app-core = { workspace = true }
+tokio-util = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

@@ -12,6 +12,8 @@
 extern crate oxy_app_dylib as _;
 
 mod logging;
+#[cfg(test)]
+mod served_router_tests;
 
 use std::process::exit;
 
@@ -116,6 +118,69 @@ fn api_seam_routes() -> SeamRouter {
 /// The sibling crates merged inside the `/{workspace_id}` nest.
 fn workspace_seam_routes() -> SeamRouter {
     oxy_api_tenancy::onboarding::workspace_routes().merge(oxy_api_source_upload::routes())
+}
+
+/// Every surface this composition root mounts, by seam. `cli` forwards it into
+/// `serve`'s `api_router`. A function rather than inline in `main` for the
+/// reason `api_seam_routes` is one: `served_router_tests` builds the router from
+/// the SAME value boot hands over, so "cloud mode serves `/orgs`" is checked
+/// against the real composition and not a copy of it.
+///
+/// Roles travel WITH the routes. `oxy-api-github` mounts a Postgres-only
+/// surface, so the FleetOk default is the truth and it declares nothing.
+/// Tenancy's onboarding clones a repository and scaffolds `config.yml` onto
+/// node-local disk, and its partner console's create-org scaffolds the new
+/// org's Default workspace — neither can take that default, and no type gate
+/// inside oxy-app can see across the crate line to stop them.
+/// `oxy-api-documents` is Postgres + presigned S3 everywhere but
+/// `POST /documents/ask`, which resolves an agent config out of the working
+/// copy, so it declares that one route.
+///
+/// `oxy-api-frontline` is Postgres-only too, but it declares its FleetOk
+/// explicitly: its routes left `route_fleet`, whose type gate stated that, and
+/// it is the one surface on the PUBLIC seam — PIN sign-in and the kiosk binding
+/// sit outside the auth stack by design.
+///
+/// Each seam is named for which side of the auth stack it lands on (see
+/// `SurfaceSeams`), so a route cannot change sides by argument order: `public`
+/// is the only one outside auth.
+///
+/// `oxy-api-source-upload` rides the workspace seam and declares its one route
+/// FleetOk: an S3 write that must not need the ide.
+fn surface_seams() -> SurfaceSeams {
+    SurfaceSeams {
+        api: SurfaceSeam {
+            routes: api_seam_routes(),
+            decls: oxy_api_tenancy::onboarding::route_roles()
+                .iter()
+                .chain(oxy_api_tenancy::partner_console::route_roles())
+                .chain(oxy_api_documents::route_roles())
+                .chain(oxy_api_frontline::route_roles())
+                .copied()
+                .collect(),
+        },
+        workspace: SurfaceSeam {
+            routes: workspace_seam_routes(),
+            decls: oxy_api_tenancy::onboarding::workspace_route_roles()
+                .iter()
+                .chain(oxy_api_source_upload::route_roles())
+                .copied()
+                .collect(),
+        },
+        public: SurfaceSeam {
+            routes: oxy_api_frontline::public_routes(),
+            decls: oxy_api_frontline::public_route_roles().to_vec(),
+        },
+        // The route table `/api/_catalog` serves, generated above oxy-app (see
+        // `oxy-route-catalog`). Passed, not global: a composition that dropped
+        // it would serve an empty catalog.
+        catalog: oxy_route_catalog::catalog(),
+        // Staff-console sections, each behind the capability it names.
+        admin: oxy_api_tenancy::admin_sections(),
+        // Operations the surfaces document, merged into the served OpenAPI
+        // document (`oxyc schema` reads it).
+        openapi: vec![oxy_api_tenancy::openapi()],
+    }
 }
 
 fn main() {
@@ -230,66 +295,7 @@ fn main() {
             // soft NOFILE of 256, which busy instances exhaust (EMFILE).
             raise_fd_limit();
 
-            // Surface crates mounted by this composition root. `oxy-api-github`
-            // is the first extracted sibling; more merge in as they're pulled
-            // out of oxy-app. `cli` forwards these into `serve`'s `api_router`,
-            // where they join the protected tree before the auth middleware.
-            // Roles travel WITH the routes. `oxy-api-github` mounts a
-            // Postgres-only surface, so the FleetOk default is the truth and it
-            // declares nothing. `oxy-api-onboarding` clones a repository and
-            // scaffolds `config.yml` onto node-local disk, and
-            // `oxy-api-partner-console`'s create-org scaffolds the new org's
-            // Default workspace — neither can take that default, and no type
-            // gate inside oxy-app can see across the crate line to stop them.
-            // `oxy-api-documents` is Postgres + presigned S3 everywhere but
-            // `POST /documents/ask`, which resolves an agent config out of the
-            // working copy, so it declares that one route.
-            //
-            // `oxy-api-frontline` is Postgres-only too, but it declares its
-            // FleetOk explicitly: its routes left `route_fleet`, whose type gate
-            // stated that, and it is the one surface on the PUBLIC seam — PIN
-            // sign-in and the kiosk binding sit outside the auth stack by design.
-            //
-            // Each seam is named for which side of the auth stack it lands on
-            // (see `SurfaceSeams`), so a route cannot change sides by argument
-            // order: `public` is the only one outside auth.
-            //
-            // `oxy-api-source-upload` rides the workspace seam and declares its
-            // one route FleetOk: an S3 write that must not need the ide.
-            let seams = SurfaceSeams {
-                api: SurfaceSeam {
-                    routes: api_seam_routes(),
-                    decls: oxy_api_tenancy::onboarding::route_roles()
-                        .iter()
-                        .chain(oxy_api_tenancy::partner_console::route_roles())
-                        .chain(oxy_api_documents::route_roles())
-                        .chain(oxy_api_frontline::route_roles())
-                        .copied()
-                        .collect(),
-                },
-                workspace: SurfaceSeam {
-                    routes: workspace_seam_routes(),
-                    decls: oxy_api_tenancy::onboarding::workspace_route_roles()
-                        .iter()
-                        .chain(oxy_api_source_upload::route_roles())
-                        .copied()
-                        .collect(),
-                },
-                public: SurfaceSeam {
-                    routes: oxy_api_frontline::public_routes(),
-                    decls: oxy_api_frontline::public_route_roles().to_vec(),
-                },
-                // The route table `/api/_catalog` serves, generated above
-                // oxy-app (see `oxy-route-catalog`). Passed, not global: a
-                // composition that dropped it would serve an empty catalog.
-                catalog: oxy_route_catalog::catalog(),
-                // Staff-console sections, each behind the capability it names.
-                admin: oxy_api_tenancy::admin_sections(),
-                // Operations the surfaces document, merged into the served
-                // OpenAPI document (`oxyc schema` reads it).
-                openapi: vec![oxy_api_tenancy::openapi()],
-            };
-            let exit_code = match cli(seams).await {
+            let exit_code = match cli(surface_seams()).await {
                 Ok(_) => 0,
                 Err(e) => {
                     tracing::error!(error = %e, "Application error");

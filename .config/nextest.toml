@@ -177,3 +177,14 @@ retries = 2
 filter = "kind(test) & package(=oxy-app) & (binary(=authz) | binary(=slack) | binary(=platform)) & test(/^(authz_loader_differential|org_invitations|admin_membership_audit|audit_append_only|slack_resolution|slack_oauth_state|slack_oauth_install|slack_uninstall|slack_user_links|slack_cross_org_collision|projects_query|local_mode_router|simulation_router)::/)"
 test-group = "serial-db"
 retries = 2
+
+# `oxy-server`'s `served_router_tests` build `api_router(..)` from the real
+# surface seams (whether cloud mode serves `/orgs` is only visible there), so
+# they are the same unscoped `cleanup_stale_runs` writer as `projects_query` and
+# `local_mode_router` above. Unit tests in a binary, which
+# `shared_db_registry.rs` (integration groups only) does not scan: this entry is
+# the only thing that serializes them.
+[[profile.default.overrides]]
+filter = "package(=oxy-server) & kind(bin) & test(/^served_router_tests::/)"
+test-group = "serial-db"
+retries = 2

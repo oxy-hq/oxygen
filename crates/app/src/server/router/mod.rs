@@ -516,30 +516,11 @@ mod router_split_tests {
         std::env::var("OXY_DATABASE_URL").is_err()
     }
 
-    #[tokio::test]
-    async fn local_router_does_not_expose_organizations() {
-        if db_unavailable() {
-            return;
-        }
-        let (router, _external_router, _preagg) = api_router(
-            ServeMode::Local,
-            false,
-            None,
-            std::path::PathBuf::new(),
-            tokio_util::sync::CancellationToken::new(),
-            false,
-            SurfaceSeams::empty(),
-        )
-        .await
-        .expect("router built");
-        let req = Request::builder().uri("/orgs").body(Body::empty()).unwrap();
-        let resp = router.oneshot(req).await.expect("oneshot");
-        assert_eq!(
-            resp.status(),
-            StatusCode::NOT_FOUND,
-            "local mode must not mount /orgs"
-        );
-    }
+    // `/orgs` is mounted by `oxy-server` through the api seam since #3460, so
+    // with `SurfaceSeams::empty()` it 404s in BOTH modes: the cloud "is mounted"
+    // check could only fail here and the local "is not" could only pass. The
+    // pair moved to `oxy-server`'s `served_router_tests`, which builds this
+    // router from the seams boot hands it.
 
     #[tokio::test]
     async fn local_router_serves_health() {
@@ -590,33 +571,6 @@ mod router_split_tests {
             "local mode must mount workspace routes under /{{workspace_id}}, got {} for {}",
             resp.status(),
             uri
-        );
-    }
-
-    #[tokio::test]
-    async fn cloud_router_still_has_organizations_mounted() {
-        if db_unavailable() {
-            return;
-        }
-        let (router, _external_router, _preagg) = api_router(
-            ServeMode::Cloud,
-            false,
-            None,
-            std::path::PathBuf::new(),
-            tokio_util::sync::CancellationToken::new(),
-            false,
-            SurfaceSeams::empty(),
-        )
-        .await
-        .expect("router built");
-        let req = Request::builder().uri("/orgs").body(Body::empty()).unwrap();
-        let resp = router.oneshot(req).await.expect("oneshot");
-        // Route is mounted → request reaches auth/handler, not the router's 404.
-        assert_ne!(
-            resp.status(),
-            StatusCode::NOT_FOUND,
-            "cloud mode must keep /orgs mounted, got {}",
-            resp.status()
         );
     }
 
