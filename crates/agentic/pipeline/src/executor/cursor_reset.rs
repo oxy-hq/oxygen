@@ -60,6 +60,14 @@ pub enum ResetCursorsError {
     /// The pipeline's YAML could not be resolved **on this node** — a
     /// compile-boundary blip, or a revision still compiling. → `503`.
     Unavailable(String),
+    /// The promoted revision does not serve this ref and this node holds no
+    /// working copy. → `503`, and never `400`: the ref may be perfectly good
+    /// and one compile away from resolving. It used to fall into
+    /// [`BadRequest`](Self::BadRequest) here while `/reset-schema` answered 503
+    /// for the same condition — harmless while both routes were pinned to a
+    /// node with a working copy, where the variant cannot occur, and wrong the
+    /// moment a diskless replica may serve them.
+    NotInRevision(String),
     /// The convergence judgement refused. → `409`.
     ///
     /// Carries every reason, because an operator deciding whether to `force`
@@ -90,7 +98,10 @@ pub enum ResetCursorsError {
 impl std::fmt::Display for ResetCursorsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadRequest(m) | Self::Internal(m) | Self::Unavailable(m) => f.write_str(m),
+            Self::BadRequest(m)
+            | Self::Internal(m)
+            | Self::Unavailable(m)
+            | Self::NotInRevision(m) => f.write_str(m),
             Self::Refused(refusals) => {
                 let reasons: Vec<String> = refusals.iter().map(ToString::to_string).collect();
                 write!(f, "cursor reset refused: {}", reasons.join("; "))
@@ -170,6 +181,39 @@ const CURSOR_RESET_LEASE_TTL_SECS: i64 = 60;
 /// would be described as a run.
 const CURSOR_RESET_HOLDER_PREFIX: &str = "cursor-reset:";
 
+/// What a cursor route answers when its pipeline's YAML could not be loaded.
+///
+/// A free function so the mapping is assertable without a database or a
+/// workspace — it is a disposition, and the one that was wrong: everything but
+/// `Unavailable` used to be `BadRequest`, `NotInRevision` included.
+fn cursor_error_for_load_failure(e: crate::pipeline_ref::PipelineRefError) -> ResetCursorsError {
+    use crate::pipeline_ref::PipelineRefError;
+    match e {
+        PipelineRefError::Unavailable(m) => ResetCursorsError::Unavailable(format!("airway: {m}")),
+        PipelineRefError::NotInRevision(m) => {
+            ResetCursorsError::NotInRevision(format!("airway: {m}"))
+        }
+        // The ref was rejected or its bytes are unreadable; no node will do
+        // better, so this one is the caller's to fix.
+        e @ (PipelineRefError::Invalid(_) | PipelineRefError::Io(_)) => {
+            ResetCursorsError::BadRequest(format!("airway: {e}"))
+        }
+    }
+}
+
+/// yaml → spec for both cursor routes, mirroring `reset_airway_schema`'s first
+/// lines. No `variables`: both target persisted state, keyed by the rendered
+/// `name`. Shared so listing and resetting cannot disagree about a ref — they
+/// did once, in the one way that mattered (`NotInRevision` read as a `400`),
+/// and the two loaders above differ only in whether they ask for a compile.
+fn parse_cursor_spec(
+    pipeline_ref: &str,
+    yaml: &str,
+) -> Result<agentic_airway::AirwayPipelineSpec, ResetCursorsError> {
+    agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(yaml, None)
+        .map_err(|e| ResetCursorsError::BadRequest(format!("airway: parse `{pipeline_ref}`: {e}")))
+}
+
 impl PipelineTaskExecutor {
     /// Clear this workspace's incremental cursors for `pipeline_ref`, leaving
     /// the stored schema and every landed row intact. A same-named pipeline in
@@ -192,23 +236,7 @@ impl PipelineTaskExecutor {
         scope: &CursorScope,
         force: bool,
     ) -> Result<ClearedCursors, ResetCursorsError> {
-        use ResetCursorsError::BadRequest;
-
-        // Resolve `pipeline_ref` → yaml → spec, mirroring `reset_airway_schema`'s
-        // first lines. No `variables`: a reset targets persisted state, keyed by
-        // the rendered `name`.
-        let yaml =
-            match crate::pipeline_ref::load_pipeline_yaml(self.platform.as_ref(), pipeline_ref)
-                .await
-            {
-                Ok(y) => y,
-                Err(crate::pipeline_ref::PipelineRefError::Unavailable(m)) => {
-                    return Err(ResetCursorsError::Unavailable(format!("airway: {m}")));
-                }
-                Err(e) => return Err(BadRequest(format!("airway: {e}"))),
-            };
-        let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
-            .map_err(|e| BadRequest(format!("airway: parse `{pipeline_ref}`: {e}")))?;
+        let spec = self.spec_for_cursor_reset(pipeline_ref).await?;
 
         let pipeline_name = spec.name.clone();
         let workspace_id = self.platform.workspace_id();
@@ -242,6 +270,41 @@ impl PipelineTaskExecutor {
                 .await;
         }
         result
+    }
+
+    /// The spec for the reset itself (`POST /reset-cursors`): a `NotInRevision`
+    /// asks the host for a compile, through `airway_request`, so the retry the
+    /// caller is told to make has something to wait for.
+    async fn spec_for_cursor_reset(
+        &self,
+        pipeline_ref: &str,
+    ) -> Result<agentic_airway::AirwayPipelineSpec, ResetCursorsError> {
+        let yaml = crate::airway_request::load_pipeline_yaml_for_request(
+            self.platform.as_ref(),
+            pipeline_ref,
+        )
+        .await
+        .map_err(cursor_error_for_load_failure)?;
+        parse_cursor_spec(pipeline_ref, &yaml)
+    }
+
+    /// The spec for the picker (`GET /resource-cursors`): the same load and the
+    /// same error mapping, with **no** compile request.
+    ///
+    /// A read repeats at the client's rate, not a person's — a React Query
+    /// fetch retries a 503 three times and refetches on focus — and every
+    /// self-heal compile that is taken mints a fresh revision. One revision
+    /// per retry is the storm; the reset's one-per-click is the ceiling. The
+    /// `503` + `NotInRevision` code is unchanged, so the picker still reads as
+    /// retryable and never as the caller's mistake.
+    async fn spec_for_cursor_read(
+        &self,
+        pipeline_ref: &str,
+    ) -> Result<agentic_airway::AirwayPipelineSpec, ResetCursorsError> {
+        let yaml = crate::pipeline_ref::load_pipeline_yaml(self.platform.as_ref(), pipeline_ref)
+            .await
+            .map_err(cursor_error_for_load_failure)?;
+        parse_cursor_spec(pipeline_ref, &yaml)
     }
 
     /// Load, judge, clear — under the lease [`reset_airway_cursors`] holds.
@@ -366,25 +429,15 @@ impl PipelineTaskExecutor {
     ///
     /// Errors mirror [`reset_airway_cursors`](Self::reset_airway_cursors)'s, so
     /// listing and resetting cannot disagree about an unresolvable
-    /// `pipeline_ref`.
+    /// `pipeline_ref` — except that this one, a read, never asks for a compile
+    /// (see [`Self::spec_for_cursor_read`]).
     pub async fn airway_resource_cursors(
         &self,
         pipeline_ref: &str,
     ) -> Result<Vec<String>, ResetCursorsError> {
-        use ResetCursorsError::{BadRequest, Internal};
+        use ResetCursorsError::Internal;
 
-        let yaml =
-            match crate::pipeline_ref::load_pipeline_yaml(self.platform.as_ref(), pipeline_ref)
-                .await
-            {
-                Ok(y) => y,
-                Err(crate::pipeline_ref::PipelineRefError::Unavailable(m)) => {
-                    return Err(ResetCursorsError::Unavailable(format!("airway: {m}")));
-                }
-                Err(e) => return Err(BadRequest(format!("airway: {e}"))),
-            };
-        let spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
-            .map_err(|e| BadRequest(format!("airway: parse `{pipeline_ref}`: {e}")))?;
+        let spec = self.spec_for_cursor_read(pipeline_ref).await?;
 
         // Reads the legacy name-keyed row where this workspace has none — so
         // the picker lists the cursors a reset would then clear — without
@@ -402,7 +455,45 @@ impl PipelineTaskExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::ResetCursorsError;
+    use super::{ResetCursorsError, cursor_error_for_load_failure};
+    use crate::pipeline_ref::PipelineRefError;
+
+    /// A ref the promoted revision does not serve is retryable on the cursor
+    /// routes, exactly as it is on `/reset-schema` and `/runs`.
+    ///
+    /// It was `BadRequest`. Nothing noticed while both routes were pinned to
+    /// the node with the working copy, where `NotInRevision` cannot be
+    /// produced; on a replica it told a caller their good ref was malformed.
+    #[test]
+    fn a_ref_the_revision_does_not_serve_is_retryable_not_a_bad_request() {
+        let e = cursor_error_for_load_failure(PipelineRefError::NotInRevision("gone".into()));
+        assert!(
+            matches!(&e, ResetCursorsError::NotInRevision(m) if m == "airway: gone"),
+            "got {e:?}"
+        );
+    }
+
+    #[test]
+    fn a_boundary_that_could_not_be_asked_is_unavailable() {
+        let e = cursor_error_for_load_failure(PipelineRefError::Unavailable("db blip".into()));
+        assert!(matches!(e, ResetCursorsError::Unavailable(_)), "got {e:?}");
+    }
+
+    /// The converse: a ref that is genuinely wrong must not become retryable,
+    /// or a typo would be retried forever.
+    #[test]
+    fn a_rejected_or_unreadable_ref_is_still_the_callers_mistake() {
+        for e in [
+            PipelineRefError::Invalid("pipeline_ref \"x\" not found".into()),
+            PipelineRefError::Io("permission denied".into()),
+        ] {
+            let mapped = cursor_error_for_load_failure(e);
+            assert!(
+                matches!(mapped, ResetCursorsError::BadRequest(_)),
+                "got {mapped:?}"
+            );
+        }
+    }
 
     /// The lease holder can be a run, another reset, or the acquire's
     /// contention sentinel, and the refusal must say which. An operator told

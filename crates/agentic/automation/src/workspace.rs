@@ -396,6 +396,26 @@ pub trait WorkspaceContext: Send + Sync {
         None
     }
 
+    /// Ask the host to compile and promote this workspace, because a caller
+    /// found a ref the promoted revision does not serve and this node holds no
+    /// working copy to read instead.
+    ///
+    /// Returns whether the host **took** the request — not whether a compile
+    /// ran. A host that queues compiles dedupes and backs off on its own, so
+    /// `true` means only "there is a compile queue and it has been told"; the
+    /// caller may then say "a compile has been requested" and nothing stronger.
+    ///
+    /// Only an interactive request may call this. A queue claim or a schedule
+    /// tick repeats on a timer, and a ref that is simply gone would then buy a
+    /// fresh revision on every repeat — see
+    /// `agentic_pipeline::airway_request`, which is the one caller.
+    ///
+    /// `false` — the default — is every host with no compile queue to ask: test
+    /// fakes, the CLI, a workspace preview.
+    async fn request_compile(&self) -> bool {
+        false
+    }
+
     /// Read a `.sql` file's body from the compile boundary, keyed by its
     /// workspace-relative path.
     ///

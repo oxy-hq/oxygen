@@ -526,6 +526,29 @@ const KNOWN_EVENTS = new Set<AirwayEventType>([
 // ── Service ────────────────────────────────────────────────────────────────
 
 export class AirwayService {
+  /**
+   * Which replica answers an `/agentic-airway` call is declared per route in
+   * `agentic_http::airway_router_roles` (Rust), not by this prefix:
+   *
+   *  - Any replica, Factory up or down: `startRun`, `backfillRun`, `cancelRun`,
+   *    `streamEvents`, `resetSchema`, `resetCursors`, `resourceCursors`,
+   *    `listRuns`, `coverage`, `listBackfillRanges`. They read and write
+   *    Postgres only; the pipeline spec comes from the compile boundary.
+   *  - Factory (IDE) only: `chunkedBackfill` and `resumeBackfill` (their drive
+   *    is an in-process task, and a serve replica runs no workers),
+   *    `discoverSourceTables` (authoring, dials a caller-supplied host), and
+   *    anything carrying `?branch=` — a draft only the Factory can read.
+   *
+   * On a replica with no working copy, a pipeline the promoted revision does
+   * not serve answers `503` + `Retry-After` with a plain-text body and
+   * `x-oxy-error-code: airway_needs_recompile` (a compile would resolve it;
+   * the body says whether one was requested) or `airway_unavailable` (the
+   * compile boundary could not be asked). Only the mutating calls ask for a
+   * compile, and the server declines for a few minutes after one succeeds;
+   * `resourceCursors` is a query React Query retries on its own, so it never
+   * asks. The start toast shows the body verbatim — when it names a compile it
+   * ends "retry shortly", and a person retries.
+   */
   private static base(projectId: string): string {
     return `/${projectId}/agentic-airway`;
   }
@@ -767,8 +790,9 @@ export class AirwayService {
   }
 
   static async listFiles(projectId: string): Promise<AirwayFile[]> {
-    // Served from the compile boundary at `/airway-pipelines` (FleetOk) so the
-    // list renders on a stateless serve replica; `/agentic-airway` is IdeOnly.
+    // Served from the compile boundary at `/airway-pipelines` (any replica) so
+    // the list renders with the Factory down. `/agentic-airway/files` is the
+    // legacy lister and stays Factory-only — see `base()` for the split.
     const { data } = await apiClient.get(`/${projectId}/airway-pipelines`);
     return data;
   }

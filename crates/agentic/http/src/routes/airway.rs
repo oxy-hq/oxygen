@@ -33,6 +33,18 @@
 //! the other half of the reverted option (b) (`7dc7148ed`) and is a
 //! materially larger change than the scope flip here. Do not "make it
 //! consistent" by adding a direct-drive back to `start_and_drive`.
+//!
+//! ## Which pod serves which route follows from that
+//!
+//! `crate::airway_router_roles` declares it per route. Whatever only reads and
+//! writes Postgres and resolves its pipeline through the compile boundary —
+//! start, single-window backfill, cancel, both resets, the event stream — is
+//! `FleetOk`: any replica answers it, so a pipeline can be started, stopped and
+//! reset while the Factory (`OXY_ROLE=ide`) is down. The chunked backfill pair
+//! stays `IdeOnly` because its drive is a detached task in the accepting
+//! process, and a `serve` replica runs no workers and keeps nothing alive past
+//! the request. On a replica a ref the boundary cannot supply answers a
+//! retryable `503` (`airway_not_servable`), never a `400`.
 
 use std::sync::Arc;
 
@@ -50,9 +62,8 @@ use serde::Serialize;
 use tokio::sync::{mpsc, watch};
 
 use agentic_pipeline::WorkflowWorkspaceContext;
-use agentic_pipeline::airway_run::{
-    AirwayRunError, StartAirwayRequest, list_airway_runs, start_airway_run,
-};
+use agentic_pipeline::airway_request::submit_airway_run;
+use agentic_pipeline::airway_run::{AirwayRunError, StartAirwayRequest, list_airway_runs};
 use agentic_pipeline::backfill::{
     ChunkGranularity, create_backfill_range, drive_backfill_range, enumerate_chunks,
     list_backfill_ranges, load_range_coverage, resume_backfill_range,
@@ -61,6 +72,9 @@ use agentic_pipeline::platform::PlatformContext;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use uuid::Uuid;
 
+use super::airway_not_servable::{
+    NotServable, reset_cursors_error_response, reset_schema_error_response,
+};
 use super::run_scope::ensure_run_access;
 use crate::state::AgenticState;
 
@@ -106,17 +120,6 @@ pub async fn list_runs_for_pipeline(
 
 // ── POST /agentic-airway/runs ──────────────────────────────────────────────
 
-/// `Retry-After` for every airway 503, in seconds.
-///
-/// Derived from the executor's defer cadence rather than restated: the two
-/// answer the same question ("when is it worth asking again?") for the same
-/// condition, and three hand-written `"5"`s across two routes and another crate
-/// is three places for one number to drift. That cadence has already moved once
-/// for reasons a route author would not see.
-fn airway_unavailable_retry_after() -> String {
-    agentic_pipeline::executor::AIRWAY_UNAVAILABLE_RETRY_SECS.to_string()
-}
-
 pub async fn create_airway_run(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -154,12 +157,17 @@ pub async fn create_airway_run(
 /// function's shape.** It used to be `Scoped` plus an out-of-band
 /// `spawn_airway_run_drive` on this very node, which meant a memory-heavy
 /// pipeline executed inside whichever pod served the submit — and airway
-/// submit routes are `IdeOnly`, so that was always the IDE singleton, the pod
-/// least able to afford it. `Global` hands the run to the durable queue, where
-/// the worker fleet claims it (`internal-docs/worker-fleet.md`). It also makes
-/// the run crash-recoverable for free: a dead claim is requeued by the reaper
-/// and resumed by another worker, where the old direct-drive stranded it at
-/// `running` forever.
+/// submit routes were `IdeOnly` then, so that was always the IDE singleton, the
+/// pod least able to afford it. `Global` hands the run to the durable queue,
+/// where the worker fleet claims it (`internal-docs/worker-fleet.md`). It also
+/// makes the run crash-recoverable for free: a dead claim is requeued by the
+/// reaper and resumed by another worker, where the old direct-drive stranded it
+/// at `running` forever.
+///
+/// It is also what lets these two routes be `FleetOk`: nothing below runs the
+/// pipeline, holds a file open, or outlives the request, so a `serve` replica
+/// with no working copy and no workers can accept the submit. Put a
+/// direct-drive back here and that stops being true.
 ///
 /// This ordering is load-bearing and was gotten wrong once. Going `Global`
 /// before `oxy worker` could drive runs is what had to be reverted in
@@ -184,14 +192,10 @@ async fn start_and_drive(
     // there because `spawn_airway_run_drive` consumed `platform`.
     let workspace_id = platform.workspace_id();
     let workspace: Arc<dyn WorkflowWorkspaceContext> = platform;
-    let run_id = match start_airway_run(
-        &state.db,
-        workspace.as_ref(),
-        request,
-        agentic_pipeline::TaskScope::Global,
-        workspace_id,
-    )
-    .await
+    // `submit_airway_run` is `start_airway_run` at `TaskScope::Global`, plus
+    // the one thing only an interactive submit does: ask for a compile when the
+    // promoted revision does not serve the ref.
+    let run_id = match submit_airway_run(&state.db, workspace.as_ref(), request, workspace_id).await
     {
         Ok(id) => id,
         Err(AirwayRunError::InvalidInput(msg)) | Err(AirwayRunError::Io(msg)) => {
@@ -199,18 +203,14 @@ async fn start_and_drive(
         }
         // 503 + Retry-After, not 400: the caller's ref may be perfectly good
         // and this node simply could not resolve it — a compile-boundary blip,
-        // or a revision mid-compile. Answering 400 tells a client to fix a
-        // request that is not broken, and tells a retrying scheduler to stop.
+        // or a ref not in the promoted revision on a replica with no working
+        // copy. Answering 400 tells a client to fix a request that is not
+        // broken, and tells a retrying scheduler to stop.
         Err(AirwayRunError::Unavailable(msg)) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(
-                    axum::http::header::RETRY_AFTER,
-                    airway_unavailable_retry_after(),
-                )],
-                msg,
-            )
-                .into_response();
+            return NotServable::Unavailable(msg).into_response();
+        }
+        Err(AirwayRunError::NotInRevision(msg)) => {
+            return NotServable::NeedsRecompile(msg).into_response();
         }
         Err(AirwayRunError::Airway(e)) => {
             // Spec parse / validation failure — caller's input problem.
@@ -255,6 +255,12 @@ async fn start_and_drive(
     // NOT local, nothing in this process ever rings that notifier — see
     // `stream_events`, which is why it polls on a timer rather than parking on
     // the notifier alone.
+    //
+    // None of this is load-bearing across pods, which is what lets the route
+    // be `FleetOk`: the registration lives in THIS process only, and the
+    // stream or cancel that follows may land on any other replica. Both work
+    // there with nothing registered — `stream_events` polls the event table,
+    // and `cancel_airway_run` writes the durable flag and reads the queue row.
     let (answer_tx, _answer_rx) = mpsc::channel::<String>(1);
     let (cancel_tx, _cancel_rx) = watch::channel(false);
     state.register(&run_id, answer_tx, cancel_tx);
@@ -366,6 +372,15 @@ pub struct ChunkedBackfillResponse {
 /// interrupted chunks — including recovering a mid-drive process restart — POST
 /// `/resume-backfill { range_id }`, which re-drives only the range's not-`done`
 /// chunks. Progress is read via `GET /coverage?range_id`.
+///
+/// **`IdeOnly`, and it has to be while the drive is what it is.** The
+/// `spawn_with_hub` below runs every chunk in this process (`TaskScope::Scoped`
+/// plus a co-located coordinator and worker, see `backfill::run_airway_window`)
+/// and is not a durable `TaskSpec`. A `serve` replica runs no workers, is sized
+/// for requests rather than a pipeline's memory, and is replaced on every
+/// deploy — the drive would die with the pod and leave a range that only a
+/// manual Resume continues. Making the range a queued task is what unpins this
+/// route; classifying it `FleetOk` first would just move the spawn.
 pub async fn chunked_backfill(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -454,6 +469,9 @@ pub struct ResumeBackfillRequest {
 /// from the range's checkpoints, at the range's stored concurrency). Returns the
 /// count it will re-run; the drive is detached like `chunked_backfill`, and
 /// progress is read via `GET /coverage?range_id=…`.
+///
+/// `IdeOnly` for the reason `chunked_backfill` gives: the same in-process,
+/// non-durable drive.
 pub async fn airway_resume(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
@@ -667,6 +685,12 @@ pub async fn cancel_airway_run(
 // Mirrors `/agentic-workflows/files`: lists `.airway.yml` pipeline
 // files as { path, path_b64 } so the Schedules UI target picker can be
 // populated for airway schedules.
+//
+// `IdeOnly`, as a legacy route rather than by need: the web app lists pipelines
+// from `GET /airway-pipelines` (oxy-app, `FleetOk`, compile-boundary-backed)
+// and nothing off the Factory calls this one. Its lister does have a compiled
+// arm, but a boundary fault on a node with no working copy surfaces below as a
+// 500 — fix that mapping before unpinning it.
 
 #[derive(Serialize)]
 pub struct AirwayFile {
@@ -728,6 +752,11 @@ pub async fn list_airway_files(
 // where the API tier's network reach differs from the worker tier.
 // Hardening (reject RFC1918 / link-local / 169.254.169.254 metadata IPs
 // + sanitise the error) is tracked separately, not done here.
+//
+// `IdeOnly`. It reads no disk, so that is a choice, and the unhardened dial
+// above is the reason for it: `FleetOk` would let every public replica make
+// that outbound connection, for a wizard whose only purpose is authoring a
+// `.airway.yml` — which needs the Factory's working copy anyway.
 
 #[derive(Deserialize)]
 pub struct DiscoverSourceRequest {
@@ -795,42 +824,18 @@ pub async fn reset_airway_schema(
     match executor.reset_airway_schema(&req.pipeline_ref).await {
         Ok(dropped_tables) => Json(ResetSchemaResponse { dropped_tables }).into_response(),
         Err(e) => {
-            use agentic_pipeline::executor::ResetSchemaError;
-            // Caller mistakes (bad ref / non-airhouse dest) → 400; a failed
-            // destination drop or state delete is server-side → 500.
-            // Status AND headers from one match, so the error→response mapping
-            // is stated once. Re-testing the mapped status afterwards to attach
-            // `Retry-After` split it across two places in one function.
-            let (status, retry_after) = match &e {
-                ResetSchemaError::BadRequest(_) => (StatusCode::BAD_REQUEST, None),
-                ResetSchemaError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
-                // Matches the start path's answer for the same condition: the
-                // request was fine, this node could not serve it yet — and half
-                // the reason 503 beats 400 here is telling the caller *when*.
-                ResetSchemaError::Unavailable(_) => (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Some(airway_unavailable_retry_after()),
-                ),
-            };
+            let error = e.to_string();
+            // Status, `Retry-After` and the error code from one mapping, shared
+            // with the cursor routes and matching the start path's answer for
+            // the same condition — see `airway_not_servable`.
+            let response = reset_schema_error_response(e);
             tracing::warn!(
-                error = %e,
+                %error,
                 pipeline_ref = %req.pipeline_ref,
-                status = status.as_u16(),
+                status = response.status().as_u16(),
                 "reset_airway_schema failed"
             );
-            // `Retry-After` on the 503, matching the start path. Half the reason
-            // 503 beats 400 for this condition is telling a retrying client
-            // *when*; a 503 without it leaves that to the client's guess, and
-            // the two airway routes would answer the same condition differently.
-            match retry_after {
-                Some(secs) => (
-                    status,
-                    [(axum::http::header::RETRY_AFTER, secs)],
-                    e.to_string(),
-                )
-                    .into_response(),
-                None => (status, e.to_string()).into_response(),
-            }
+            response
         }
     }
 }
@@ -847,9 +852,10 @@ pub async fn reset_airway_schema(
 // `not_held` — a silent no-op on the control that exists to be the safe
 // alternative to dropping every table.
 //
-// `IdeOnly` by inheritance through `airway_router_roles`' `/{*rest}` wildcard,
-// and correctly so: it resolves a `pipeline_ref`, which falls back to the
-// working copy when the compile boundary misses. No new declaration needed.
+// `FleetOk`, with `/reset-cursors`: the picker and the reset it feeds have to be
+// reachable from the same pods. It resolves a `pipeline_ref` through the
+// compile boundary and reads one state row; on a replica a ref the boundary
+// cannot supply answers a retryable 503 rather than reading a working copy.
 
 #[derive(Deserialize)]
 pub struct ResourceCursorsQuery {
@@ -871,45 +877,22 @@ pub async fn airway_resource_cursors(
     AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
     axum::extract::Query(q): axum::extract::Query<ResourceCursorsQuery>,
 ) -> Response {
-    use agentic_pipeline::executor::ResetCursorsError;
-
     let executor =
         agentic_pipeline::executor::PipelineTaskExecutor::bare(platform, state.db.clone());
     match executor.airway_resource_cursors(&q.pipeline_ref).await {
         Ok(resources) => Json(ResourceCursorsResponse { resources }).into_response(),
         Err(e) => {
+            let error = e.to_string();
             // The same mapping the two reset routes use, so a `pipeline_ref`
             // that 503s for the list cannot 400 for the reset that follows it.
-            let (status, retry_after) = match &e {
-                ResetCursorsError::BadRequest(_) => (StatusCode::BAD_REQUEST, None),
-                ResetCursorsError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
-                ResetCursorsError::Unavailable(_) => (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Some(airway_unavailable_retry_after()),
-                ),
-                // A read judges nothing and takes no lease, so these cannot
-                // happen today. Listed so a new variant breaks the build here;
-                // a 500 rather than a panic so a refactor that makes one
-                // reachable answers the request instead of dropping it.
-                ResetCursorsError::Refused(_) | ResetCursorsError::PipelineRunning { .. } => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, None)
-                }
-            };
+            let response = reset_cursors_error_response(e);
             tracing::warn!(
-                error = %e,
+                %error,
                 pipeline_ref = %q.pipeline_ref,
-                status = status.as_u16(),
+                status = response.status().as_u16(),
                 "airway_resource_cursors failed"
             );
-            match retry_after {
-                Some(secs) => (
-                    status,
-                    [(axum::http::header::RETRY_AFTER, secs)],
-                    e.to_string(),
-                )
-                    .into_response(),
-                None => (status, e.to_string()).into_response(),
-            }
+            response
         }
     }
 }
@@ -920,10 +903,10 @@ pub async fn airway_resource_cursors(
 // landed, so a resource can be re-pulled from an earlier `default_start`. The
 // non-destructive sibling of `/reset-schema`, which stays exactly as it is.
 //
-// `IdeOnly` by inheritance, and correctly so: it resolves a `pipeline_ref`,
-// which falls back to the working copy when the compile boundary misses. The
-// `/{*rest}` wildcard in `airway_router_roles` already says this, which is why
-// there is no new declaration.
+// `FleetOk`: it resolves a `pipeline_ref` through the compile boundary, takes
+// the pipeline's lease and rewrites one state row — Postgres throughout, so a
+// cursor can be rewound while the Factory is down. On a replica a ref the
+// boundary cannot supply answers a retryable 503, never a 400.
 //
 // Authed. This one refuses rather than destroys, but a cursor is still
 // production state.
@@ -1072,38 +1055,18 @@ pub async fn reset_airway_cursors(
                 .into_response()
         }
         Err(e) => {
-            // Same mapping as `/reset-schema`, including `Retry-After` on the
-            // 503, so the two reset routes cannot answer the same condition
-            // differently.
-            let (status, retry_after) = match &e {
-                ResetCursorsError::BadRequest(_) => (StatusCode::BAD_REQUEST, None),
-                ResetCursorsError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, None),
-                ResetCursorsError::Unavailable(_) => (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Some(airway_unavailable_retry_after()),
-                ),
-                // Handled above; listed so a new variant breaks the build here
-                // rather than falling into a status chosen for something else.
-                // A 500, not a panic, if the arms above are ever reordered.
-                ResetCursorsError::Refused(_) | ResetCursorsError::PipelineRunning { .. } => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, None)
-                }
-            };
+            let error = e.to_string();
+            // Same mapping as `/reset-schema`, including `Retry-After` and the
+            // error code on the 503, so the two reset routes cannot answer the
+            // same condition differently. The two 409s are handled above.
+            let response = reset_cursors_error_response(e);
             tracing::warn!(
-                error = %e,
+                %error,
                 pipeline_ref = %req.pipeline_ref,
-                status = status.as_u16(),
+                status = response.status().as_u16(),
                 "reset_airway_cursors failed"
             );
-            match retry_after {
-                Some(secs) => (
-                    status,
-                    [(axum::http::header::RETRY_AFTER, secs)],
-                    e.to_string(),
-                )
-                    .into_response(),
-                None => (status, e.to_string()).into_response(),
-            }
+            response
         }
     }
 }

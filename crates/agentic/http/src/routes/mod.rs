@@ -70,6 +70,7 @@ pub struct RunSummary {
 }
 
 pub mod airway;
+pub mod airway_not_servable;
 pub mod automation;
 pub mod run;
 mod run_scope;

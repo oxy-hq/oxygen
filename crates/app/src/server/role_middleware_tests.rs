@@ -215,6 +215,35 @@ mod branch_escalation {
             );
         }
     }
+
+    /// The airway control routes are `FleetOk`, and a replica cannot read a
+    /// draft branch — it would answer from the promoted revision and say
+    /// nothing. So the same route, asked about a branch, must still go to the
+    /// ide. Composed from the real classification and the escalation, which is
+    /// what `enforce_role` does with them.
+    #[test]
+    fn an_airway_request_naming_a_branch_still_goes_to_the_ide() {
+        install_roles();
+        let ws = "d9830be4-c6a4";
+        for (method, path) in [
+            ("POST", format!("/api/{ws}/agentic-airway/runs")),
+            ("POST", format!("/api/{ws}/agentic-airway/backfill")),
+            ("POST", format!("/api/{ws}/agentic-airway/reset-cursors")),
+            ("POST", format!("/api/{ws}/agentic-airway/reset-schema")),
+        ] {
+            let classified = classify(method, &path);
+            assert_eq!(
+                classified,
+                RouteRole::FleetOk,
+                "{method} {path}: precondition — served by any replica without a branch"
+            );
+            assert_eq!(
+                escalate_for_branch(classified, Some("branch=feature-x")),
+                RouteRole::IdeOnly,
+                "{method} {path}?branch= must reach the node that holds the draft"
+            );
+        }
+    }
 }
 
 /// Workspace previews on a serve replica: a `?branch=` fleet route carrying the

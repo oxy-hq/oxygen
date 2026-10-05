@@ -1177,7 +1177,11 @@ pub(crate) async fn resolve_effective_role(
 /// failed compile clears the in-flight dedup, so the very next request
 /// re-enqueues. Operators can still force an immediate compile via the admin
 /// "Run compile now". A const, not an env flag — keep the surface small.
-const LAZY_COMPILE_BACKOFF_SECS: i64 = 300;
+///
+/// Also the window `agentic_wiring::project_ctx::compile_cooldown` holds a
+/// request's compile request back after a *successful* compile — the same
+/// "not the same tree again sooner than this" judgement, read there.
+pub(crate) const LAZY_COMPILE_BACKOFF_SECS: i64 = 300;
 
 /// Ceiling for the self-heal backoff, however many compiles in a row failed.
 const LAZY_COMPILE_BACKOFF_MAX_SECS: i64 = 6 * 60 * 60;

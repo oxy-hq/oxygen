@@ -251,7 +251,8 @@ fn run_exec_and_chart_surface_stays_ide_only() {
 /// surfaces are carved out to FleetOk even though they sit under the IdeOnly
 /// `/analytics` `/agentic-workflows` `/agentic-airway` wildcards; the
 /// EXECUTION + live-stream + file-read endpoints right next to them stay
-/// IdeOnly.
+/// IdeOnly. (Airway's start, cancel and stream are not among those any more:
+/// its driver is the worker fleet — see `airway_control_routes_are_fleet_ok`.)
 #[test]
 fn agentic_run_history_reads_are_fleet_ok() {
     let ws = "d9830be4-c6a4";
@@ -297,13 +298,72 @@ fn agentic_run_history_reads_are_fleet_ok() {
             format!("/api/{ws}/agentic-workflows/runs/r-1/cancel"),
         ),
         ("GET", format!("/api/{ws}/agentic-workflows/files")), // workspace FS read
-        ("POST", format!("/api/{ws}/agentic-airway/runs")),    // start
-        ("GET", format!("/api/{ws}/agentic-airway/runs/r-1/events")), // live SSE
     ] {
         assert_eq!(
             classify(&method, &path),
             RouteRole::IdeOnly,
             "{method} {path} executes/streams/reads-FS — must stay IdeOnly"
+        );
+    }
+}
+
+/// Starting, stopping and resetting an Airway pipeline must not need the
+/// Factory. None of these handlers runs the pipeline or reads a working copy:
+/// start and single-window backfill enqueue a `Global` task the worker fleet
+/// drives, cancel writes a durable flag that fleet polls, the stream tails
+/// `agentic_run_events`, and the resets resolve the spec through the compile
+/// boundary and touch Postgres (plus the destination, over the network).
+///
+/// They sat under the `/agentic-airway` IdeOnly wildcard, so with the ide down
+/// nobody could start or reset a pipeline by hand — a second, unnecessary way
+/// for one pod to take ingestion with it.
+#[test]
+fn airway_control_routes_are_fleet_ok() {
+    let ws = "d9830be4-c6a4";
+    for (method, path) in [
+        ("POST", format!("/api/{ws}/agentic-airway/runs")), // start
+        ("POST", format!("/api/{ws}/agentic-airway/backfill")), // single window
+        ("POST", format!("/api/{ws}/agentic-airway/runs/r-1/cancel")),
+        ("GET", format!("/api/{ws}/agentic-airway/runs/r-1/events")),
+        ("POST", format!("/api/{ws}/agentic-airway/reset-schema")),
+        ("POST", format!("/api/{ws}/agentic-airway/reset-cursors")),
+        ("GET", format!("/api/{ws}/agentic-airway/resource-cursors")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path} needs no working copy and no in-process driver — \
+             it must be served by any replica"
+        );
+    }
+}
+
+/// What the un-pin above must NOT sweep along.
+///
+/// The chunked backfill pair drives every chunk inside the accepting process,
+/// in a detached task that is not a durable `TaskSpec`: on a `serve` replica —
+/// which runs no workers and is replaced on every deploy — that drive would die
+/// with the pod. They stay on the ide until the range is a queued task. The
+/// other two are authoring-only, and anything undeclared defaults to the ide.
+#[test]
+fn airway_in_process_and_authoring_routes_stay_ide_only() {
+    let ws = "d9830be4-c6a4";
+    for (method, path) in [
+        ("POST", format!("/api/{ws}/agentic-airway/chunked-backfill")),
+        ("POST", format!("/api/{ws}/agentic-airway/resume-backfill")),
+        ("GET", format!("/api/{ws}/agentic-airway/files")),
+        ("POST", format!("/api/{ws}/agentic-airway/sources/discover")),
+        // Not routes today. A route added under this mount without a
+        // declaration of its own must land here, not on the fleet.
+        ("POST", format!("/api/{ws}/agentic-airway/run")),
+        ("POST", format!("/api/{ws}/agentic-airway/runs/r-1/retry")),
+        // A declared path under a method it was not declared for.
+        ("DELETE", format!("/api/{ws}/agentic-airway/runs")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::IdeOnly,
+            "{method} {path} must stay IdeOnly"
         );
     }
 }
@@ -459,10 +519,11 @@ fn unknown_routes_default_to_fleet_ok() {
     assert_eq!(classify("POST", "/api/analytics/runs"), RouteRole::FleetOk);
     assert_eq!(classify("GET", "/health"), RouteRole::FleetOk);
     assert_eq!(classify("GET", "/healthz"), RouteRole::FleetOk);
-    // The agentic run/exec surface (/analytics, /agentic-workflows,
-    // /agentic-airway) is pinned to the ide for ephemeral-env tier 1 —
-    // subruns execute in-process where the run drives and touch the FS — so
-    // even the cross-process /events streams under it now classify IdeOnly.
+    // The agentic run/exec surface (/analytics, /agentic-workflows) is pinned
+    // to the ide for ephemeral-env tier 1 — subruns execute in-process where
+    // the run drives and touch the FS — so even the cross-process /events
+    // streams under it now classify IdeOnly. (/agentic-airway is queue-driven
+    // and declares its own roles: `airway_control_routes_are_fleet_ok`.)
     assert_eq!(
         classify("GET", "/api/d9830be4-c6a4/analytics/runs/abc/events"),
         RouteRole::IdeOnly
@@ -1204,7 +1265,11 @@ fn manifest_covers_state_touching_routes() {
         ("GET", format!("{ws}/analytics/runs/r1/events")),
         ("GET", format!("{ws}/agentic-workflows/files")),
         ("GET", format!("{ws}/agentic-workflows/runs/r1/events")),
-        ("GET", format!("{ws}/agentic-airway/runs/r1/events")),
+        // Airway's chunked backfill still drives in the accepting process.
+        // (Its `/runs/{id}/events` is NOT here: that stream tails Postgres on
+        // a timer because its driver is a worker in another process, so it has
+        // no process-local broadcaster to be pinned to.)
+        ("POST", format!("{ws}/agentic-airway/chunked-backfill")),
     ];
     for (method, path) in &ide_only {
         assert_eq!(
@@ -1216,10 +1281,13 @@ fn manifest_covers_state_touching_routes() {
     }
     // Counter-guard: routes that LOOK similar but are cross-process safe
     // must stay FleetOk, or we needlessly pin the chat data plane to the
-    // ide singleton. (The agentic run/exec surface — /analytics,
-    // /agentic-workflows, /agentic-airway — is now ide-pinned for tier 1;
-    // see the `ide_only` set above.)
+    // ide singleton. (The agentic run/exec surface — /analytics and
+    // /agentic-workflows — is ide-pinned for tier 1; see the `ide_only` set
+    // above. /agentic-airway's start, cancel and stream are queue-driven and
+    // belong on this side.)
     let fleet_ok = [
+        ("POST", format!("{ws}/agentic-airway/runs")),
+        ("GET", format!("{ws}/agentic-airway/runs/r1/events")),
         ("GET", format!("{ws}/world-model/cameras")),
         // parquet result cache — fleet-safe via the S3 read-through in
         // result_files::{store,get} (mirror on write, fetch on local miss).

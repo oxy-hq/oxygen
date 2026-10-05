@@ -58,7 +58,7 @@ async fn setup_db() -> DatabaseConnection {
 /// Seed an org + a **promoted** workspace (a `revisions` row set as
 /// `current_revision_id`) with no pipelines yet. Returns `(workspace_id,
 /// revision_id)`.
-async fn seed_promoted_workspace(db: &DatabaseConnection) -> (Uuid, Uuid) {
+pub(super) async fn seed_promoted_workspace(db: &DatabaseConnection) -> (Uuid, Uuid) {
     let now = chrono::Utc::now().fixed_offset();
 
     let org_id = Uuid::new_v4();
@@ -154,7 +154,12 @@ async fn seed_promoted_workspace(db: &DatabaseConnection) -> (Uuid, Uuid) {
 /// Insert one compiled `.airway.yml` row. `name` is the YAML `name:` field and
 /// deliberately differs from `file_path` — the mismatch that makes the choice
 /// of lookup column observable.
-async fn seed_pipeline(db: &DatabaseConnection, rev_id: Uuid, name: &str, file_path: &str) {
+pub(super) async fn seed_pipeline(
+    db: &DatabaseConnection,
+    rev_id: Uuid,
+    name: &str,
+    file_path: &str,
+) {
     airway_pipelines::ActiveModel {
         revision_id: ActiveValue::Set(rev_id),
         name: ActiveValue::Set(name.into()),
@@ -186,7 +191,7 @@ async fn seed_pipeline(db: &DatabaseConnection, rev_id: Uuid, name: &str, file_p
 
 /// An `OxyProjectContext` whose workspace path points at a directory that does
 /// NOT exist — a stateless durable worker that never cloned the repo.
-async fn worker_context_without_working_copy(
+pub(super) async fn worker_context_without_working_copy(
     db: &DatabaseConnection,
     ws_id: Uuid,
 ) -> (OxyProjectContext, PathBuf) {

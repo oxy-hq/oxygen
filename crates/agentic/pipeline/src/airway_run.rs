@@ -113,6 +113,20 @@ pub enum AirwayRunError {
     /// answer 503, not 400 (`agentic-http`'s airway route does).
     #[error("airway spec unavailable on this node: {0}")]
     Unavailable(String),
+    /// The promoted revision does not serve this ref, and this node holds no
+    /// working copy that could (`PipelineRefError::NotInRevision`).
+    ///
+    /// Retryable like [`Unavailable`](Self::Unavailable) — a compile promoting
+    /// the ref is the normal resolution — and kept apart from it because the
+    /// two want different things from a caller: `Unavailable` wants patience,
+    /// this wants a compile. Folded into one variant, a transport could not say
+    /// which, and an interactive submit could not ask for the compile that
+    /// would make its retry succeed (`airway_request::submit_airway_run`).
+    ///
+    /// Same display prefix as `Unavailable` on purpose: every caller that only
+    /// prints the error keeps the text it had while this was one variant.
+    #[error("airway spec unavailable on this node: {0}")]
+    NotInRevision(String),
     /// A run this caller wanted to (re)drive is already in flight.
     ///
     /// No longer raised by `start_airway_run`: submit coalesces onto a queued
@@ -181,12 +195,12 @@ pub async fn start_airway_run(
         .map_err(|e| match e {
             crate::pipeline_ref::PipelineRefError::Invalid(m) => AirwayRunError::InvalidInput(m),
             crate::pipeline_ref::PipelineRefError::Io(m) => AirwayRunError::Io(m),
-            // Both are "not this node's answer to give", which is what
-            // `Unavailable` means to a caller; they differ only in what the
-            // message can say, and `NotInRevision`'s says more.
-            crate::pipeline_ref::PipelineRefError::Unavailable(m)
-            | crate::pipeline_ref::PipelineRefError::NotInRevision(m) => {
-                AirwayRunError::Unavailable(m)
+            // Both are "not this node's answer to give" and both are
+            // retryable. Carried apart because only one of them is fixed by a
+            // compile — see `AirwayRunError::NotInRevision`.
+            crate::pipeline_ref::PipelineRefError::Unavailable(m) => AirwayRunError::Unavailable(m),
+            crate::pipeline_ref::PipelineRefError::NotInRevision(m) => {
+                AirwayRunError::NotInRevision(m)
             }
         })?;
     let spec = AirwayPipelineSpec::from_yaml_with_vars(&yaml, request.variables.as_ref())?;

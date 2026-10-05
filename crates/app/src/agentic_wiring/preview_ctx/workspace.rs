@@ -318,6 +318,13 @@ impl WorkspaceContext for PreviewPlatformContext {
         Some(self.scope.revision_id)
     }
 
+    /// `false`, never asked: a preview reads its staging revision and holds
+    /// writes, and a compile would mint and promote a `main` revision of the
+    /// workspace it is previewing.
+    async fn request_compile(&self) -> bool {
+        false
+    }
+
     async fn resolve_sql_file(&self, sql_ref: &str) -> Result<Option<String>, String> {
         self.pinned(self.inner.resolve_sql_file(sql_ref)).await
     }

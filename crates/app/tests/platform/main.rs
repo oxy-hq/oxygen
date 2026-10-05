@@ -50,6 +50,7 @@ mod common;
 
 mod admin_staff_scope;
 mod airway_compile_boundary;
+mod airway_fleet_control;
 mod anomaly_bulk_status;
 mod artifact_naming_agrees;
 mod build;

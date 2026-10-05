@@ -1007,7 +1007,11 @@ fn chunk_action_for_error(e: &AirwayRunError) -> ChunkFailureAction {
         // permanently red chunk that `rollup_range_status` folds into a failed
         // range, demanding an operator re-run for a condition that clears
         // itself in seconds.
-        AirwayRunError::Unavailable(m) => ChunkFailureAction {
+        //
+        // `NotInRevision` takes the same disposition it had while it was
+        // spelled `Unavailable`: a compile promoting the ref is its normal
+        // resolution, and the next pass picks the chunk up.
+        AirwayRunError::Unavailable(m) | AirwayRunError::NotInRevision(m) => ChunkFailureAction {
             status: "pending",
             disposition: ChunkDisposition::Deferred,
             note: format!("deferred: {m}"),
@@ -1787,6 +1791,18 @@ mod chunk_failure_action_tests {
     #[test]
     fn unavailable_leaves_the_chunk_pending_and_deferred() {
         let a = chunk_action_for_error(&AirwayRunError::Unavailable("compiling".into()));
+        assert_eq!(a.status, "pending");
+        assert_eq!(a.disposition, ChunkDisposition::Deferred);
+        assert!(a.note.starts_with("deferred: "), "note was {:?}", a.note);
+    }
+
+    /// `NotInRevision` used to arrive here spelled `Unavailable`. Splitting the
+    /// variant must not change what a chunk does with it: falling into the
+    /// catch-all would turn a ref one compile away from resolving into a
+    /// permanently red chunk.
+    #[test]
+    fn not_in_revision_keeps_the_deferred_disposition_it_had() {
+        let a = chunk_action_for_error(&AirwayRunError::NotInRevision("not promoted".into()));
         assert_eq!(a.status, "pending");
         assert_eq!(a.disposition, ChunkDisposition::Deferred);
         assert!(a.note.starts_with("deferred: "), "note was {:?}", a.note);

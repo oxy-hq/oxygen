@@ -27,6 +27,7 @@ use oxy_shared::errors::OxyError;
 // The three big trait impls live in sibling child modules; as `impl` blocks
 // they need no re-export — the trait impls are visible wherever the trait and
 // `OxyProjectContext` are in scope.
+mod compile_cooldown;
 mod function_context;
 mod monitor_scan;
 mod preview_hold;

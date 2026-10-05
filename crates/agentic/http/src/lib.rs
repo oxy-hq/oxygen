@@ -202,6 +202,15 @@ where
 }
 
 /// What each airway route needs. See [`router_roles`].
+///
+/// One declaration per route, each with its reason, so that starting, stopping
+/// and resetting a pipeline do not depend on the Factory (`OXY_ROLE=ide`) being
+/// up. The test for `FleetOk` is the same for all of them: the handler reads
+/// and writes Postgres only, resolves its `.airway.yml` through the compile
+/// boundary (`agentic_pipeline::pipeline_ref`), and leaves nothing running in
+/// this process when it returns. A request carrying `?branch=` never reaches a
+/// replica whatever is declared here — `oxy-app`'s `enforce_role` escalates it
+/// to the ide, the one node that can read a draft.
 pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
     use RouteRole::{FleetOk, IdeOnly};
     &[
@@ -222,8 +231,82 @@ pub fn airway_router_roles() -> &'static [RouteRoleDecl] {
             path: "/backfill-ranges",
             role: FleetOk,
         },
-        // Everything else starts, resumes or resets a pipeline, or reads its
-        // `.airway.yml` — all of which run where the working copy is.
+        // Start: validates the spec from the compile boundary and enqueues a
+        // `Global` task for the worker fleet; drives nothing here.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs",
+            role: FleetOk,
+        },
+        // Single-window backfill: the same enqueue with a window pinned on it.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/backfill",
+            role: FleetOk,
+        },
+        // Cancel: writes the durable cancel flag the driving worker polls, and
+        // decides the rest from the queue row — no in-process channel needed.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/cancel",
+            role: FleetOk,
+        },
+        // Event stream: tails `agentic_run_events` on a timer, because the
+        // driver is a worker in another process whichever pod serves this.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/runs/{id}/events",
+            role: FleetOk,
+        },
+        // Reset schema: spec from the compile boundary, state rows in
+        // Postgres, and a destination drop over the network — as a worker does.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/reset-schema",
+            role: FleetOk,
+        },
+        // Reset cursors: spec from the compile boundary, then the pipeline's
+        // lease and one state row.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/reset-cursors",
+            role: FleetOk,
+        },
+        // The names `/reset-cursors` accepts; must be reachable wherever it is.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/resource-cursors",
+            role: FleetOk,
+        },
+        // Chunked backfill and its resume drive every chunk in THIS process, in
+        // a detached task that is not a durable `TaskSpec`. A `serve` replica
+        // runs no workers and the drive would die with the pod.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/chunked-backfill",
+            role: IdeOnly,
+        },
+        RouteRoleDecl {
+            method: "POST",
+            path: "/resume-backfill",
+            role: IdeOnly,
+        },
+        // Legacy pipeline lister; the web app uses oxy-app's `FleetOk`
+        // `/airway-pipelines`, and this one 500s on a boundary fault off-disk.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/files",
+            role: IdeOnly,
+        },
+        // Authoring-only wizard call that dials a caller-supplied host; no
+        // reason to let every public replica make that connection.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/sources/discover",
+            role: IdeOnly,
+        },
+        // Anything not named above — a route added without a declaration —
+        // stays on the ide until someone states what it needs.
         RouteRoleDecl {
             method: "*",
             path: "/{*rest}",
@@ -284,6 +367,10 @@ where
         .route("/resource-cursors", get(routes::airway_resource_cursors))
         .layer(axum::Extension(state))
 }
+
+#[cfg(test)]
+#[path = "airway_role_tests.rs"]
+mod airway_role_tests;
 
 // The schedule routes were relocated to the `app` crate (§12 FU4b):
 // they require `WorkspaceAdmin` from `crate::api::middlewares::role_guards`

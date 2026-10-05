@@ -60,12 +60,20 @@ pub enum ResetSchemaError {
     /// `AirwayRunError::Unavailable` on the start path — this variant exists so
     /// the two paths do not disagree about the same condition inside one file.
     Unavailable(String),
+    /// The promoted revision does not serve this ref and this node holds no
+    /// working copy. → `503`, like [`Unavailable`](Self::Unavailable), and kept
+    /// apart for the reason `AirwayRunError::NotInRevision` gives: a compile is
+    /// what fixes it, and the transport has to be able to say so.
+    NotInRevision(String),
 }
 
 impl std::fmt::Display for ResetSchemaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadRequest(m) | Self::Internal(m) | Self::Unavailable(m) => f.write_str(m),
+            Self::BadRequest(m)
+            | Self::Internal(m)
+            | Self::Unavailable(m)
+            | Self::NotInRevision(m) => f.write_str(m),
         }
     }
 }
@@ -983,21 +991,28 @@ impl PipelineTaskExecutor {
         // No `variables` — a reset targets a pipeline's persisted state, keyed
         // by its rendered `name`. A bad ref / unparseable spec is caller input
         // → `BadRequest` (400).
-        let yaml =
-            match crate::pipeline_ref::load_pipeline_yaml(self.platform.as_ref(), pipeline_ref)
-                .await
-            {
-                Ok(y) => y,
-                // Both mean "this node cannot serve that ref", which is a 503
-                // and not the caller's mistake — `NotInRevision` would
-                // otherwise fall into the `BadRequest` catch-all below and
-                // tell the caller their perfectly good ref was malformed.
-                Err(crate::pipeline_ref::PipelineRefError::Unavailable(m))
-                | Err(crate::pipeline_ref::PipelineRefError::NotInRevision(m)) => {
-                    return Err(ResetSchemaError::Unavailable(format!("airway: {m}")));
-                }
-                Err(e) => return Err(BadRequest(format!("airway: {e}"))),
-            };
+        // A reset is only ever an interactive request, so it loads through
+        // `airway_request`, which asks for a compile when the promoted
+        // revision does not serve the ref.
+        let yaml = match crate::airway_request::load_pipeline_yaml_for_request(
+            self.platform.as_ref(),
+            pipeline_ref,
+        )
+        .await
+        {
+            Ok(y) => y,
+            // Both mean "this node cannot serve that ref", which is a 503 and
+            // not the caller's mistake — either would otherwise fall into the
+            // `BadRequest` catch-all below and tell the caller their perfectly
+            // good ref was malformed.
+            Err(crate::pipeline_ref::PipelineRefError::Unavailable(m)) => {
+                return Err(ResetSchemaError::Unavailable(format!("airway: {m}")));
+            }
+            Err(crate::pipeline_ref::PipelineRefError::NotInRevision(m)) => {
+                return Err(ResetSchemaError::NotInRevision(format!("airway: {m}")));
+            }
+            Err(e) => return Err(BadRequest(format!("airway: {e}"))),
+        };
         let mut spec = agentic_airway::AirwayPipelineSpec::from_yaml_with_vars(&yaml, None)
             .map_err(|e| BadRequest(format!("airway: parse `{pipeline_ref}`: {e}")))?;
 

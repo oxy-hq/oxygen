@@ -255,10 +255,16 @@ pub(crate) fn build_cors_layer() -> CorsLayer {
         // `x-oxy-preview` tells the frontend a response was served from a
         // workspace preview, and which revision; unreadable cross-origin
         // without this.
+        // `x-oxy-error-code` names *why* an airway route answered 503 on a
+        // replica with no working copy (`airway_needs_recompile` vs
+        // `airway_unavailable`); the body is prose for a person, the header is
+        // the field a client branches on, and it reads null cross-origin
+        // without this.
         .expose_headers([
             header::LINK,
             HeaderName::from_static(crate::server::api::middlewares::request_id::REQUEST_ID_HEADER),
             HeaderName::from_static(crate::server::previews::pin::RESPONSE_HEADER),
+            HeaderName::from_static(agentic_http::routes::airway_not_servable::HEADER_ERROR_CODE),
         ])
 }
 
@@ -859,5 +865,45 @@ mod cors_tests {
             ("host", "app.oxygen-hq.com"),
         ]);
         assert!(!is_allowed_origin(&headers));
+    }
+
+    /// The airway 503's reason rides a response header. A header a browser
+    /// cannot read cross-origin is a header that does not exist for the one
+    /// client that would branch on it, so the real layer must list it — not a
+    /// copy of the list, the layer.
+    #[tokio::test]
+    async fn airway_error_code_header_is_readable_cross_origin() {
+        use agentic_http::routes::airway_not_servable::HEADER_ERROR_CODE;
+        use axum::body::Body;
+        use axum::http::Request;
+        use axum::routing::get;
+        use tower::ServiceExt;
+
+        let router = Router::new()
+            .route("/", get(|| async { "" }))
+            .layer(build_cors_layer());
+        // The dev pair — the cross-origin caller this layer already admits.
+        let req = Request::builder()
+            .uri("/")
+            .header("origin", "http://localhost:5173")
+            .header("host", "localhost:3000")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("oneshot");
+
+        let exposed = resp
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .expect("the layer exposes response headers")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            exposed
+                .split(',')
+                .map(str::trim)
+                .any(|h| h == HEADER_ERROR_CODE),
+            "`{HEADER_ERROR_CODE}` is missing from Access-Control-Expose-Headers: {exposed}"
+        );
     }
 }

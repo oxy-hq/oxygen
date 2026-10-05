@@ -331,6 +331,47 @@ impl WorkspaceContext for OxyProjectContext {
         self.workspace_manager.config_manager.revision_id()
     }
 
+    /// Enqueue the same deduped, backed-off self-heal compile the workspace
+    /// middleware enqueues for a replica with no compiled config.
+    ///
+    /// `true` means the request was handed to that queue — not that a task was
+    /// inserted (an in-flight compile or a failure backoff suppresses it), and
+    /// not that one will run soon: only a node holding the working copy can
+    /// claim a compile, so with the ide down the task waits for it.
+    ///
+    /// `false` when there is no database handle to enqueue through (CLI,
+    /// tests); while holding writes, because a preview must not compile the
+    /// workspace it is previewing; and within the success cooldown
+    /// (`compile_cooldown`): a `main` compile that completed in the last five
+    /// minutes and still does not serve the ref will not be fixed by another
+    /// compile of the same tree, and the requests that arrive in that window
+    /// are retries, not people. That `false` is what keeps the `503` from
+    /// claiming a compile was requested when none was.
+    async fn request_compile(&self) -> bool {
+        if self.holds_writes() {
+            return false;
+        }
+        let Some(db) = self.db.as_ref() else {
+            return false;
+        };
+        let workspace_id = self.workspace_manager.workspace_id;
+        let latest = super::compile_cooldown::latest_main_revision(db, workspace_id).await;
+        if super::compile_cooldown::within_success_cooldown(
+            latest.as_ref(),
+            chrono::Utc::now().fixed_offset(),
+        ) {
+            tracing::debug!(
+                %workspace_id,
+                ?latest,
+                "compile request held: a main compile completed within the cooldown"
+            );
+            return false;
+        }
+        crate::server::api::middlewares::workspace_context::enqueue_lazy_compile(db, workspace_id)
+            .await;
+        true
+    }
+
     /// Serve a `.airway.yml` body from `airway_pipelines`. `Ok(None)` = "read
     /// the FS", which the caller (`pipeline_ref::load_pipeline_yaml`) then does
     /// under its containment guard; `Err` = "I could not look", which the
