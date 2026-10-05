@@ -49,6 +49,11 @@
 //! the assume-role check, the custom-app storage bucket and presigner, the
 //! project-context builder); `oxy-app` never depends back on it.
 
+// Laying out `ask`'s future takes 110 of rustc's default query depth of 128 at
+// opt-level 3 (measured in #3476), and the `--release` build that produces the
+// image takes more — a build PR CI never runs. Raised before it overflows there.
+#![recursion_limit = "256"]
+
 pub mod ask;
 pub mod ask_agent;
 pub mod ask_sessions;

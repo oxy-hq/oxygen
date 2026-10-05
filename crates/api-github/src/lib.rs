@@ -9,6 +9,11 @@
 //! (`org_middleware` + `subscription_guard`) is re-applied here, matching the
 //! original nesting inside oxy-app's `build_org_routes`.
 
+// Laying out `get_account`'s future takes 103 of rustc's default query depth of
+// 128 at opt-level 3 (measured in #3476), and the `--release` build that produces
+// the image takes more — a build PR CI never runs. Raised before it overflows there.
+#![recursion_limit = "256"]
+
 use axum::Router;
 use axum::middleware::from_fn;
 use axum::routing::{delete, get, post};

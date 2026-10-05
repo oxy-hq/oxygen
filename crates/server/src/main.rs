@@ -13,6 +13,8 @@ extern crate oxy_app_dylib as _;
 
 mod logging;
 #[cfg(test)]
+mod recursion_limit_guard;
+#[cfg(test)]
 mod served_router_tests;
 
 use std::process::exit;

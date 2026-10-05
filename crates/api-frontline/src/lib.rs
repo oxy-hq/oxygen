@@ -28,6 +28,11 @@
 //! line. Signing in has to survive the ide restarting: pinning login to the
 //! singleton would mean a deploy locks every store out of its own checklists.
 
+// Laying out `roster`'s future takes 114 of rustc's default query depth of 128
+// at opt-level 3 (measured in #3476), and the `--release` build that produces the
+// image takes more — a build PR CI never runs. Raised before it overflows there.
+#![recursion_limit = "256"]
+
 pub mod frontline;
 pub mod frontline_devices;
 pub mod frontline_kiosk_cookie;

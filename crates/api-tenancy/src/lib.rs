@@ -16,6 +16,11 @@
 //! workspace sections through `::admin` ([`admin_sections`]), and the
 //! documented operations through `::openapi` ([`openapi`]).
 
+// Laying out `create_org`'s future takes 103 of rustc's default query depth of
+// 128 at opt-level 3 (measured in #3476), and the `--release` build that produces
+// the image takes more — a build PR CI never runs. Raised before it overflows there.
+#![recursion_limit = "256"]
+
 pub mod admin;
 pub mod onboarding;
 pub mod org_logo;
