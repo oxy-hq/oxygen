@@ -1,41 +1,45 @@
 // Release showcase — design: internal-docs/release-showcase.md.
 //
-//   detect  --pr N --out DIR [--force]
-//                                Should this push capture? No boot, no model. Sets `action`:
-//                                capture | refresh (a stale comment to correct) | none.
-//   pr      --pr N --out DIR     Plan and capture on the booted instance; writes DIR/record.json.
-//   comment --pr N --out DIR     Post or refresh the PR's showcase comment from DIR/record.json.
 //   release --from A --to B --out DIR --channel C --thread-ts T
-//                                Replay each announced PR on the released build; post to the thread.
+//                                For each feature and fix the range shipped: plan, capture on the
+//                                booted (released) build, post to the thread. The one that runs
+//                                by itself — everything below is a preview someone asked for.
+//   detect  --pr N --out DIR     Has this PR anything to preview? No boot, no model. Sets `action`:
+//                                capture | refresh (a stale comment to correct) | none.
+//   pr      --pr N --out DIR     Plan and capture one PR on the booted instance; writes DIR/record.json.
+//   comment --pr N --out DIR     Post or refresh the PR's showcase comment from DIR/record.json.
 //
-// Spend is capped, hard: SHOWCASE_BUDGET_USD per PR run (default $0.50),
-// SHOWCASE_FEATURE_BUDGET_USD per feature at release ($0.10) inside
-// SHOWCASE_RELEASE_BUDGET_USD per release ($0.50). A run stops at its cap.
+// Spend is capped, hard: SHOWCASE_FEATURE_BUDGET_USD per PR at release ($0.50)
+// inside SHOWCASE_RELEASE_BUDGET_USD per release ($2.00), and
+// SHOWCASE_BUDGET_USD for a preview ($0.50). A run stops at its cap.
 //
 // Env: GITHUB_REPOSITORY, ANTHROPIC_API_KEY, OXY_BASE_URL (the SPA the browser
 // opens), OXY_BACKEND_URL (dev-login; defaults to OXY_BASE_URL),
-// OXY_DATABASE_URL, SLACK_BOT_TOKEN (release), GITHUB_RUN_ID / GITHUB_SERVER_URL,
-// GITHUB_OUTPUT / GITHUB_STEP_SUMMARY when on a runner.
+// OXY_DATABASE_URL, SLACK_BOT_TOKEN (release; unset is a dry run that posts
+// nothing), SHOWCASE_SOURCE_ROOT and SHOWCASE_EXAMPLES (the shipped commit's
+// web-app source and demo data; this checkout's when unset), GITHUB_RUN_ID /
+// GITHUB_SERVER_URL, GITHUB_OUTPUT / GITHUB_STEP_SUMMARY when on a runner.
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { createMeter } from "../agentic/runner/budget";
-import { detect, uiHash } from "./detect";
-import {
-  compareSubjects,
-  findShowcaseComment,
-  prDiff,
-  prFacts,
-  upsertShowcaseComment
-} from "./github";
+import { type CredentialName, credential, takeCredentials } from "./credentials";
+import { detect } from "./detect";
+import { compareSubjects, findShowcaseComment, prFacts, upsertShowcaseComment } from "./github";
 import { type PipelineEnv, showcasePr } from "./pipeline";
 import { parsePointer, readRecord, renderComment, writeRecord } from "./record";
-import { announcedPrs } from "./release";
+import { shippedPrs } from "./release";
 import { type ReleaseRow, type ReleaseTarget, releaseOne, summaryTable } from "./release-run";
 import type { RecordPointer, ShowcaseRecord } from "./types";
 
 function need(name: string): string {
   const v = process.env[name];
+  if (!v) throw new Error(`${name} is not set`);
+  return v;
+}
+
+function needCredential(name: CredentialName): string {
+  const v = credential(name);
   if (!v) throw new Error(`${name} is not set`);
   return v;
 }
@@ -66,7 +70,7 @@ function pipelineEnv(): PipelineEnv {
   const baseUrl = need("OXY_BASE_URL");
   return {
     repo: need("GITHUB_REPOSITORY"),
-    apiKey: need("ANTHROPIC_API_KEY"),
+    apiKey: needCredential("ANTHROPIC_API_KEY"),
     baseUrl,
     backendUrl: process.env.OXY_BACKEND_URL ?? baseUrl,
     databaseUrl: need("OXY_DATABASE_URL")
@@ -87,13 +91,10 @@ function blankRecord(pr: number, title: string, headSha: string): ShowcaseRecord
 }
 
 /**
- * The cheapest decision first. A push whose browser source and steer are
- * unchanged since the last record reuses it: re-planning the same diff buys
- * the same picture, or the same failure, at the same price. Only a failure
- * outside the plan — an API or judge error, a boot that broke — is worth
- * running again.
+ * The cheapest decision first: a preview of a PR the filter drops boots
+ * nothing. Someone asked for this run, so a candidate is always captured.
  */
-function cmdDetect(pr: number, out: string, force: boolean): void {
+function cmdDetect(pr: number, out: string): void {
   const repo = need("GITHUB_REPOSITORY");
   const facts = prFacts(repo, pr);
   const d = detect(facts);
@@ -102,12 +103,8 @@ function cmdDetect(pr: number, out: string, force: boolean): void {
   let action: "capture" | "refresh" | "none";
   let why: string;
   if (d.candidate) {
-    const hash = uiHash(prDiff(repo, pr), d.hint);
-    const worthAnotherTry =
-      prior?.retryable === true || (prior?.outcome === "failed" && (prior.spent_usd ?? 0) === 0);
-    const unchanged = prior?.ui_hash === hash && !worthAnotherTry;
-    action = unchanged && !force ? "none" : "capture";
-    why = action === "none" ? `unchanged since run ${prior?.run_id} (${prior?.outcome})` : d.type;
+    action = "capture";
+    why = d.type;
   } else if (prior && prior.outcome !== "not_candidate") {
     action = "refresh";
     why = d.reason;
@@ -158,10 +155,7 @@ function cmdComment(pr: number, out: string): void {
     artifact: record.screenshot ? `showcase-pr-${pr}` : "",
     head_sha: record.head_sha,
     outcome: record.outcome,
-    posted_in: prior?.posted_in,
-    ui_hash: record.ui_hash,
-    spent_usd: Number(record.cost_usd.toFixed(4)),
-    retryable: record.retryable
+    posted_in: prior?.posted_in
   };
   // A PR the filter drops gets no comment — unless one is already there and now stale.
   if (record.outcome === "not_candidate" && !previous) return;
@@ -175,7 +169,7 @@ async function cmdRelease(
   target: ReleaseTarget
 ): Promise<void> {
   const env = pipelineEnv();
-  const items = announcedPrs(compareSubjects(env.repo, from, to));
+  const items = shippedPrs(compareSubjects(env.repo, from, to));
   const rows: ReleaseRow[] = [];
   for (const item of items) {
     try {
@@ -186,13 +180,19 @@ async function cmdRelease(
     }
   }
   const table = rows.length ? summaryTable(rows) : "_No new features or fixes in this range._";
+  const pictured = rows.filter((r) => r.outcome === "captured").length;
+  const posted = target.slackToken
+    ? `${pictured} pictured in the thread.`
+    : `Dry run: ${pictured} captured, nothing posted — the media is in this run's artifact.`;
   summary(
-    `### Release showcase — ${from.slice(0, 7)}…${to.slice(0, 7)}\n\n${table}\n\n` +
+    `### Release showcase — ${from.slice(0, 7)}…${to.slice(0, 7)}\n\n${posted}\n\n${table}\n\n` +
       `Spent $${target.total.spentUsd.toFixed(3)} of a $${target.total.limitUsd.toFixed(2)} limit.`
   );
 }
 
 async function main(): Promise<void> {
+  // Before anything reads a PR: see credentials.ts.
+  takeCredentials();
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: {
@@ -201,15 +201,14 @@ async function main(): Promise<void> {
       from: { type: "string" },
       to: { type: "string" },
       channel: { type: "string" },
-      "thread-ts": { type: "string" },
-      force: { type: "boolean" }
+      "thread-ts": { type: "string" }
     }
   });
   const pr = Number(values.pr);
   const out = values.out ?? "showcase-out";
   switch (positionals[0]) {
     case "detect":
-      return cmdDetect(pr, out, values.force ?? false);
+      return cmdDetect(pr, out);
     case "pr":
       return cmdPr(pr, out);
     case "comment":
@@ -221,14 +220,14 @@ async function main(): Promise<void> {
       return cmdRelease(values.from, values.to, out, {
         channel: values.channel,
         threadTs: values["thread-ts"],
-        slackToken: process.env.SLACK_BOT_TOKEN || undefined,
+        slackToken: credential("SLACK_BOT_TOKEN"),
         runId: process.env.GITHUB_RUN_ID ?? "",
         runUrl: runUrl(),
-        featureBudgetUsd: budget("SHOWCASE_FEATURE_BUDGET_USD", 0.1),
-        total: createMeter(budget("SHOWCASE_RELEASE_BUDGET_USD", 0.5))
+        featureBudgetUsd: budget("SHOWCASE_FEATURE_BUDGET_USD", 0.5),
+        total: createMeter(budget("SHOWCASE_RELEASE_BUDGET_USD", 2))
       });
     default:
-      throw new Error("usage: cli.ts detect|pr|comment|release …");
+      throw new Error("usage: cli.ts release|detect|pr|comment …");
   }
 }
 

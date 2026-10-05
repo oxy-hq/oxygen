@@ -85,6 +85,13 @@ export interface CaseRunInputs {
   runAct: (input: ActStepInput) => Promise<RuntimeStepDebug>;
   /** Spend limit; the judge is checked against it before it runs and charged after. */
   meter?: CostMeter;
+  /**
+   * Runs once the steps are done, before the judge looks. A capture settles
+   * the page here: a replay has no model pausing between steps, and its judge
+   * was shown a dashboard still on "Loading app…" that the kept frame, taken a
+   * moment later, had finished.
+   */
+  beforeJudge?: (page: Page) => Promise<void>;
 }
 
 export async function executeCase(inputs: CaseRunInputs): Promise<CaseRunResult> {
@@ -130,6 +137,7 @@ export async function executeCase(inputs: CaseRunInputs): Promise<CaseRunResult>
         inputs.meter,
         judgeCalls * worstCaseUsd(flow.settings.judge_model, JUDGE_INPUT_BYTES, JUDGE_MAX_TOKENS)
       );
+      await inputs.beforeJudge?.(page);
       const judged = await evaluateExpectations(page, testCase.expect, {
         apiKey,
         model: flow.settings.judge_model

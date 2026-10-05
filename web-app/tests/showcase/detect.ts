@@ -1,7 +1,5 @@
 // The no-model filter in front of the planner: which PRs could have something
-// to show. Deterministic and cheap, so it runs before anything boots.
-
-import { createHash } from "node:crypto";
+// to show. Deterministic and free, so it runs before anything is paid for.
 
 export interface PrFacts {
   title: string;
@@ -41,25 +39,6 @@ export function showcaseHint(body: string): string | undefined {
   const end = rest.findIndex((l) => /^#{1,3}\s/.test(l.trim()));
   const text = (end < 0 ? rest : rest.slice(0, end)).join("\n").trim();
   return text || undefined;
-}
-
-/**
- * A fingerprint of what the showcase looks at: the diff of the browser source
- * and the author's steer. A push that changes neither — a backend fix, a test —
- * reuses the last record instead of paying for the same plan again.
- */
-export function uiHash(diff: string, hint: string | undefined): string {
-  const blocks = diff
-    .split(/^(?=diff --git )/m)
-    .filter((b) => isUiSource(/^diff --git a\/(\S+)/.exec(b)?.[1] ?? ""))
-    // Hunk headers carry line numbers that shift with unrelated edits above.
-    .map((b) => b.replace(/^index .*$/m, "").replace(/^@@.*@@/gm, "@@"))
-    .sort();
-  return createHash("sha256")
-    .update(blocks.join("\n"))
-    .update(`\n--hint--\n${hint ?? ""}`)
-    .digest("hex")
-    .slice(0, 16);
 }
 
 export function detect(pr: PrFacts): Detection {

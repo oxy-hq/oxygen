@@ -31,6 +31,7 @@ import {
   captureContextOptions,
   closeAndCollectVideo,
   openStartPage,
+  settle,
   takeFinalScreenshot
 } from "../capture-profile";
 import { executeCase, type RuntimeStepDebug } from "../case-runner";
@@ -157,6 +158,7 @@ async function runWithBrowser(browser: Browser, ctx: RuntimeContext): Promise<Ca
       testCase: ctx.testCase,
       apiKey: ctx.apiKey,
       meter: ctx.meter,
+      beforeJudge: ctx.capture ? settle : undefined,
       runAct: ({ prompt, stepIndex, step }) =>
         runActStep({
           client,

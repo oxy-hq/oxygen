@@ -14,6 +14,7 @@ import {
   worstCaseUsd
 } from "../agentic/runner/budget";
 import { computeCost } from "../agentic/runner/pricing";
+import { type DemoWorkspace, describeDemoWorkspace } from "./demo-workspace";
 import type { EntryHit } from "./imports";
 import { describeInventory, type Inventory, resolvePlaceholders } from "./inventory";
 import { SHOWCASE_ORG, type ShowcasePlan } from "./types";
@@ -28,6 +29,8 @@ export interface PlanInput {
   appRoutes: string;
   routeBuilders: string;
   inventory: Inventory;
+  /** What the Demo workspace holds, read from the examples it is seeded from. */
+  demo?: DemoWorkspace;
   /** A plan already tried on this instance, how its run ended, and the start page's accessibility tree. */
   previous?: { plan: ShowcasePlan; ended: string; startPage?: string };
 }
@@ -35,6 +38,8 @@ export interface PlanInput {
 const DIFF_BUDGET = 40_000;
 const MAX_STEPS = 6;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const RUN_TOKEN = "SHOWCASE_RUN";
 
 const PLAN_SCHEMA = {
   type: "object",
@@ -64,8 +69,8 @@ Decide the verdict first:
 
 For "show":
 - start_path: an absolute path. Workspace pages live at /<org_slug>/workspaces/<workspace>/..., and a workspace id is written as the placeholder {ws:<org_slug>/<workspace name>} — never a raw id. For the Demo workspace that is exactly /${SHOWCASE_ORG}/workspaces/{ws:${SHOWCASE_ORG}/Demo}/… (e.g. /${SHOWCASE_ORG}/workspaces/{ws:${SHOWCASE_ORG}/Demo}/automations). The URL builders' empty-org-slug branch is the legacy single-workspace mode; this instance is not that.
-- steps: at most ${MAX_STEPS}, each one plain action ("Click the Automations tab", "Type 'revenue' into the search box"). Click by visible label; no URLs, no ids, no CSS. Zero steps is right when the start page already shows the change. Stop at the FIRST screen where the change is visible — a new option shown in a list is the picture; do not go on to pick it and fill in what follows. Every extra step is one more place the run can fail. Prefer showing the change on data the seed already has. When a step submits a form, first fill every field the form requires — read the diff and the components for which ones; a submit button stays disabled otherwise.
-- The plan runs more than once on the same instance (recorded, then replayed on film, then again at release), so it must still work the second time. Anything a step creates gets \${SHOWCASE_RUN} in its name, written literally — "Type 'Front counter \${SHOWCASE_RUN}' into the Name field" — which becomes a fresh short code on every run. expect may use it too. Never depend on something that can only happen once.
+- steps: at most ${MAX_STEPS}, each one plain action ("Click the Automations tab", "Type 'revenue' into the search box"). Click by visible label; no URLs, no ids, no CSS. Zero steps is right when the start page already shows the change. Stop at the FIRST screen where the change is visible — a new option shown in a list is the picture; do not go on to pick it and fill in what follows. Every extra step is one more place the run can fail. Prefer showing the change on data the seed already has: when a step opens an agent, an automation, a data app or a database, name one the Demo workspace's contents list — never "the first one", which is whatever happens to sort first. When a step submits a form, first fill every field the form requires — read the diff and the components for which ones; a submit button stays disabled otherwise.
+- The plan can run more than once on the same instance (a video is driven, then replayed on film; a corrected plan follows a first try), so it must still work the second time. Anything a step creates gets \${SHOWCASE_RUN} in its name, written literally — "Type 'Front counter \${SHOWCASE_RUN}' into the Name field" — which becomes a fresh short code on every run. expect may use it too. Never depend on something that can only happen once.
 - expect: a short claim a judge can confirm at a glance from a screenshot — the one or two visible things new in this change, named by their on-screen text ("The Preview panel with Device sizes, Draft channel and Request log links"). No layout judgements (widths, columns, order), no claims that something is absent, at most two conditions: a true claim that is hard to see still gets rejected.
 - media: "video" only when the change is a behaviour you have to watch (an interaction, a transition, a sequence); otherwise "screenshot".
 - headline: one plain sentence for the channel, present tense, no jargon.
@@ -82,6 +87,7 @@ export function buildPlanPrompt(input: PlanInput): string {
         (e) => `- ${e.entry} (${e.file}) ← ${e.via.slice(1).join(" ← ") || "changed directly"}`
       )
     : ["- none found (the change may not be under a routed page)"];
+  const demo = input.demo ? describeDemoWorkspace(input.demo) : "";
   return [
     `# Pull request #${input.pr}: ${input.title}`,
     input.body.trim() || "(no description)",
@@ -90,6 +96,7 @@ export function buildPlanPrompt(input: PlanInput): string {
     ...entries,
     "## Seeded instance",
     describeInventory(input.inventory),
+    demo ? `## The Demo workspace's contents\n${demo}` : "",
     "## Route table (web-app/src/App.tsx)",
     "```tsx",
     input.appRoutes,
@@ -131,6 +138,17 @@ function previousAttempt(previous: NonNullable<PlanInput["previous"]>): string {
 
 export class PlanRejected extends Error {}
 
+/**
+ * The `${NAME}`s a plan carries other than `${SHOWCASE_RUN}`. The runner would
+ * expand each from the environment and type it into the page that gets filmed
+ * — and a plan is written by a model reading a PR's own text.
+ */
+export function foreignPlaceholders(plan: ShowcasePlan): string[] {
+  const text = [plan.start_path, plan.expect, plan.headline, ...plan.steps].join("\n");
+  const names = [...text.matchAll(PLACEHOLDER)].map((m) => m[1]);
+  return [...new Set(names)].filter((name) => name !== RUN_TOKEN);
+}
+
 /** Home, the admin console, or the showcase org — segment-bounded, so `/localhost` is not `/local`. */
 export function inCoreFlow(path: string): boolean {
   const bare = path.split(/[?#]/)[0];
@@ -160,6 +178,10 @@ export function validatePlan(plan: ShowcasePlan, inventory: Inventory): Showcase
     if (/https?:|\/workspaces\//.test(step) || UUID.test(step))
       fail(`step names a URL or id: "${step}"`);
   }
+  const foreign = foreignPlaceholders(plan);
+  if (foreign.length > 0) {
+    fail(`\${${RUN_TOKEN}} is the only placeholder a plan may use; remove \${${foreign[0]}}`);
+  }
   if (!plan.expect.trim()) fail("expect is empty");
   if (!plan.headline.trim()) fail("headline is empty");
   try {
@@ -183,14 +205,24 @@ export interface PlanResult {
   cost_usd: number;
 }
 
-async function ask(client: Anthropic, user: string, meter?: CostMeter): Promise<PlanResult> {
+/** The planner's client: just the one call, so a test can stand in for it. */
+export type PlanClient = Pick<Anthropic, "messages">;
+
+class PlanTruncated extends Error {}
+
+async function call(
+  client: PlanClient,
+  user: string,
+  effort: "medium" | "low",
+  meter?: CostMeter
+): Promise<PlanResult> {
   ensurePriced(meter, MODEL);
   reserve(meter, worstCaseUsd(MODEL, bytesOf(SYSTEM, user), PLAN_MAX_TOKENS));
   const res = await client.messages.parse({
     model: MODEL,
     max_tokens: PLAN_MAX_TOKENS,
     thinking: { type: "adaptive" },
-    output_config: { effort: "medium", format: jsonSchemaOutputFormat(PLAN_SCHEMA) },
+    output_config: { effort, format: jsonSchemaOutputFormat(PLAN_SCHEMA) },
     system: SYSTEM,
     messages: [{ role: "user", content: user }]
   });
@@ -202,21 +234,44 @@ async function ask(client: Anthropic, user: string, meter?: CostMeter): Promise<
   });
   charge(meter, cost_usd);
   if (res.stop_reason === "refusal") throw new Error("the planner declined this PR");
-  if (res.stop_reason === "max_tokens") throw new Error("the planner ran out of output tokens");
+  if (res.stop_reason === "max_tokens") {
+    throw new PlanTruncated("the planner ran out of output tokens");
+  }
   if (!res.parsed_output) throw new Error("the planner returned no parseable plan");
   return { plan: res.parsed_output as ShowcasePlan, model: MODEL, cost_usd };
+}
+
+/**
+ * One plan. On a PR that bundles many changes the model can spend the whole
+ * output allowance thinking and write no plan at all; that gets one more call
+ * with less thinking, rather than a bigger allowance every plan would reserve.
+ */
+async function ask(client: PlanClient, user: string, meter?: CostMeter): Promise<PlanResult> {
+  try {
+    return await call(client, user, "medium", meter);
+  } catch (err) {
+    if (!(err instanceof PlanTruncated)) throw err;
+    return call(client, user, "low", meter);
+  }
 }
 
 /**
  * Plan and validate, giving the model one chance to fix a plan that fails
  * validation. Every call is charged to `meter` and refused once it is spent.
  */
-export async function requestPlan(
+export function requestPlan(
   apiKey: string,
   input: PlanInput,
   meter?: CostMeter
 ): Promise<PlanResult> {
-  const client = new Anthropic({ apiKey });
+  return requestPlanWith(new Anthropic({ apiKey }), input, meter);
+}
+
+export async function requestPlanWith(
+  client: PlanClient,
+  input: PlanInput,
+  meter?: CostMeter
+): Promise<PlanResult> {
   const prompt = buildPlanPrompt(input);
   const first = await ask(client, prompt, meter);
   try {

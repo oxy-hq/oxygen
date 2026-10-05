@@ -64,13 +64,11 @@ export interface ShowcaseRecord {
   /** Everything this run spent, as the budget meter counted it. */
   cost_usd: number;
   captured_at: string;
-  /** `uiHash` of what the run looked at; an unchanged hash reuses this record. */
-  ui_hash?: string;
-  /** A fault outside the plan (an API error, a broken boot): the next push tries again. */
+  /** A fault outside the plan (an API error, a broken boot) — a corrected plan would not fix it. */
   retryable?: boolean;
 }
 
-/** Pointer the PR comment carries so a release can find the record later. */
+/** What the PR comment carries besides its text: where a preview's record is, and where the PR was pictured. */
 export interface RecordPointer {
   run_id: string;
   artifact: string;
@@ -78,9 +76,6 @@ export interface RecordPointer {
   outcome: Outcome;
   /** Slack thread timestamps this record was already posted into. */
   posted_in?: string[];
-  ui_hash?: string;
-  spent_usd?: number;
-  retryable?: boolean;
 }
 
 export const RECORD_FILE = "record.json";

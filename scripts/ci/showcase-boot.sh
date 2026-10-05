@@ -3,11 +3,13 @@
 # and write where it answers to $GITHUB_ENV: OXY_BASE_URL (what the browser
 # opens) and OXY_BACKEND_URL (where dev-login is asked).
 #
-#   showcase-boot.sh binary                      `oxy` on PATH — this PR's CI build, web-app embedded
-#   showcase-boot.sh image <ref>                 a published image, web-app embedded — a release
+#   showcase-boot.sh image <ref>                 a published image, web-app embedded — a release,
+#                                                which is where pictures are taken
 #   showcase-boot.sh image <ref> --spa-checkout  that image's API behind THIS checkout's web-app,
-#                                                built and served by `vite preview` — a PR that
-#                                                changed no Rust, so CI built no binary
+#                                                built and served by `vite preview` — a preview of
+#                                                one PR, run by hand
+#   showcase-boot.sh binary                      `oxy` on PATH, web-app embedded — a local build;
+#                                                no workflow uses it
 #   showcase-boot.sh stop                        stop whichever of the above is running, keep logs
 #
 # The shape is the custom-app canary's (ci.yaml): `oxy serve --enterprise`

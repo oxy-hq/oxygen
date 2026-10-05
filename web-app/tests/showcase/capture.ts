@@ -1,21 +1,30 @@
-// Turn a plan into media with the agentic runner, in two passes:
+// Turn a plan into media with the agentic runner.
 //
-//   record  the model drives each step under the capture profile (no video);
-//           every step's actions are written to the record's actions.json.
-//   replay  no model: the recording is replayed, slowed down and filmed, and
-//           the final screen is judged against the plan's `expect`.
+//   drive   the model follows the plan's steps; the screen it ends on is
+//           settled, judged against the plan's `expect`, and kept. For a
+//           screenshot plan that is the whole capture.
+//   replay  no model: what the drive recorded is replayed, slowed down and
+//           filmed, and the final screen is judged. Only a video plan needs
+//           it. (A plan with no steps is one such pass over its start page.)
 //
-// Every picture ever posted comes out of the replay pass — at review time and
-// at release — so they all come from the same code under the same profile.
-// A release starts at replay; only when that fails (the UI moved on) does it
-// re-record, and a picture the judge rejects is never kept.
+// A still does NOT wait on a replay. It used to: every capture recorded, then
+// had to replay before anything was kept. On real PRs that threw away pictures
+// the model had already reached and the judge had already passed — a replay
+// judged before a dashboard finished loading; a step whose click worked but
+// had no selector durable enough to record. That rule was there so a recording
+// made at review time would replay at release; a release that captures for
+// itself has no use for it. So the driven pass's judged frame is the picture,
+// and a replay that fails costs the video, never the still.
 //
-// Both passes run on one instance, so anything a plan creates is named with
-// ${SHOWCASE_RUN}: a fresh token per pass, recorded as the placeholder, so the
-// replay makes a new row instead of colliding with the one the record made.
+// A recording is only ever replayed by the run that made it, on the instance
+// it was made on.
+//
+// Passes share one instance, so anything a plan creates is named with
+// ${SHOWCASE_RUN}: a fresh token per pass, recorded as the placeholder, so a
+// replay makes a new row instead of colliding with the one the drive made.
 
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { CostMeter } from "../agentic/runner/budget";
 import type { CaptureProfile } from "../agentic/runner/capture-profile";
@@ -34,8 +43,6 @@ export interface CaptureInput {
   /** The record directory: actions.json lives here, media under media/. */
   dir: string;
   apiKey: string;
-  /** False: replay only. True: re-record when there is no recording or it no longer replays. */
-  allowModel: boolean;
   /** Every model turn and judge call is charged here; the run stops at its limit. */
   meter: CostMeter;
 }
@@ -53,7 +60,8 @@ export type CaptureResult =
       screenshot: string;
       video?: string;
       videoStartMs: number;
-      recorded: boolean;
+      /** How the picture was made, for the record's `reason`. */
+      how: string;
       cost_usd: number;
     }
   | ({ ok: false; cost_usd: number } & CaptureFailure);
@@ -71,16 +79,18 @@ const MAX_TURNS_PER_STEP = 6;
 // only — the judge still sees the page as it is.
 const HIDE_IN_SCREENSHOT =
   '[data-sonner-toast][data-type="error"] { visibility: hidden !important; }';
-// The seeded Demo workspace's id is a v5 UUID of a fixed name, the same on every
-// instance; any other id in a recorded URL was minted by one seed.
-const STABLE_ID = "70787bb2-e11b-5488-b2c3-02e60d5fc7d3";
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
-export function showcaseFlow(pr: number, plan: ShowcasePlan, runToken = ""): FlowTest {
+/** `recorded: false` is a drive nothing will replay: no step needs a selector durable enough to record. */
+export function showcaseFlow(
+  pr: number,
+  plan: ShowcasePlan,
+  runToken = "",
+  recorded = true
+): FlowTest {
   return {
     name: `showcase pr-${pr}`,
-    // The cache key hashes this string, so it must not depend on where the
-    // checkout lives — a recording made in PR CI replays at release.
+    // The cache key hashes this string; a name of its own keeps it off the
+    // suite's flows and off wherever the checkout happens to live.
     file: `showcase:pr-${pr}`,
     target: "any",
     settings: {
@@ -91,7 +101,7 @@ export function showcaseFlow(pr: number, plan: ShowcasePlan, runToken = ""): Flo
       // in six turns is exploring — one run that wandered cost $8 at 30.
       max_steps: MAX_TURNS_PER_STEP,
       trace: "never",
-      cache_actions: true,
+      cache_actions: recorded,
       backend_mode: "cloud"
     },
     setup: [],
@@ -121,10 +131,17 @@ function profile(dir: string, startPath: string, filmed: boolean): CaptureProfil
   };
 }
 
-async function runPass(input: CaptureInput, mode: "record" | "replay"): Promise<CaseRunResult> {
+/**
+ * `drive`: the model follows the steps and nothing is recorded. `record`: the
+ * same, and every step must leave a recording a replay can follow. `replay`:
+ * no model, filmed.
+ */
+type Pass = "drive" | "record" | "replay";
+
+async function runPass(input: CaptureInput, mode: Pass): Promise<CaseRunResult> {
   const token = randomBytes(4).toString("hex");
   process.env[RUN_TOKEN_VAR] = token;
-  const flow = showcaseFlow(input.pr, input.plan, token);
+  const flow = showcaseFlow(input.pr, input.plan, token, mode !== "drive");
   const filmed = mode === "replay";
   return bespokeRuntime.runCase({
     flow,
@@ -133,7 +150,9 @@ async function runPass(input: CaptureInput, mode: "record" | "replay"): Promise<
     debug: Boolean(process.env.DEBUG),
     headless: true,
     cachePath: join(input.dir, ACTIONS_FILE),
-    cacheMode: mode,
+    // Unset is the runner's plain mode: with `cache_actions` off, the model
+    // drives every step and a step it cannot record is not an error.
+    cacheMode: mode === "drive" ? undefined : mode,
     session: input.session,
     meter: input.meter,
     capture: profile(join(input.dir, filmed ? "media" : "record-pass"), input.startPath, filmed)
@@ -157,33 +176,7 @@ export function passFailure(result: CaseRunResult): CaptureFailure | undefined {
   return undefined;
 }
 
-/**
- * A recording must replay on another instance. Rewrite a navigation the model
- * made to an absolute URL down to its path (a PR run serves the app on another
- * port than a release), and refuse one that carries an id a seed minted.
- */
-export function portableRecording(actionsPath: string): string | undefined {
-  if (!existsSync(actionsPath)) return undefined;
-  const cache = JSON.parse(readFileSync(actionsPath, "utf-8")) as {
-    entries: Record<string, { actions: { tool: string; args: Record<string, unknown> }[] }>;
-  };
-  for (const entry of Object.values(cache.entries)) {
-    for (const action of entry.actions) {
-      const url = action.args.url;
-      if (action.tool !== "browser_navigate" || typeof url !== "string") continue;
-      const path = /^[a-z]+:\/\//i.test(url) ? url.replace(/^[a-z]+:\/\/[^/]+/i, "") || "/" : url;
-      const ids = (path.match(UUID) ?? []).filter((id) => id.toLowerCase() !== STABLE_ID);
-      if (ids.length > 0) {
-        return `the agent navigated by URL to an id this instance's seed minted (${path}) — it would not replay elsewhere`;
-      }
-      action.args.url = path;
-    }
-  }
-  writeFileSync(actionsPath, JSON.stringify(cache, null, 2));
-  return undefined;
-}
-
-async function attempt(input: CaptureInput, mode: "record" | "replay") {
+async function attempt(input: CaptureInput, mode: Pass) {
   try {
     const result = await runPass(input, mode);
     return { result, failure: passFailure(result), cost: result.cost_usd };
@@ -199,52 +192,74 @@ function budgetStop(input: CaptureInput, cost: number): CaptureResult | undefine
   return stopped ? { ok: false, outcome: "failed", reason: stopped, cost_usd: cost } : undefined;
 }
 
-export async function capture(input: CaptureInput): Promise<CaptureResult> {
-  let cost = 0;
-  const actions = join(input.dir, ACTIONS_FILE);
+/** The driven pass's judged frame, put where posted media lives. */
+function keepStill(input: CaptureInput, frame: string): string {
+  const media = join(input.dir, "media");
+  // A replay that failed may have left its own last frame and film there.
+  rmSync(media, { recursive: true, force: true });
+  mkdirSync(media, { recursive: true });
+  const still = join(media, "screenshot.png");
+  copyFileSync(frame, still);
+  return still;
+}
 
-  // No steps, nothing to record: the start page is the picture, and its one
-  // (filmed, judged) pass is the replay.
-  if (existsSync(actions) || input.plan.steps.length === 0) {
-    const replay = await attempt(input, "replay");
-    cost += replay.cost;
-    if (!replay.failure && replay.result?.capture) {
-      return { ok: true, ...replay.result.capture, recorded: false, cost_usd: cost };
-    }
-    const stop = budgetStop(input, cost);
-    if (stop) return stop;
-    // Re-record only a recording that broke. `rejected` means it replayed and
-    // the judge saw the wrong screen — the same plan re-recorded goes to the
-    // same place, so that is a planning problem, not a model-spend one.
-    const broke = replay.failure?.outcome !== "rejected";
-    if (!input.allowModel || !broke) {
-      return { ok: false, ...(replay.failure ?? noMedia()), cost_usd: cost };
-    }
-  } else if (!input.allowModel) {
-    return {
-      ok: false,
-      outcome: "failed",
-      reason: "there is no recording to replay",
-      cost_usd: cost
-    };
-  }
-
-  rmSync(actions, { force: true });
-  const record = await attempt(input, "record");
-  cost += record.cost;
-  if (record.failure)
-    return budgetStop(input, cost) ?? { ok: false, ...record.failure, cost_usd: cost };
-  const unportable = portableRecording(actions);
-  if (unportable) return { ok: false, outcome: "failed", reason: unportable, cost_usd: cost };
-
+/**
+ * Film what the drive just recorded. `filmed` is absent when the replay broke
+ * or its judge disagreed, and the caller keeps the still.
+ */
+async function film(input: CaptureInput) {
   const replay = await attempt(input, "replay");
-  cost += replay.cost;
-  if (replay.failure || !replay.result?.capture) {
+  const filmed = !replay.failure && replay.result?.capture ? replay.result.capture : undefined;
+  return {
+    cost: replay.cost,
+    filmed,
+    why: replay.failure?.reason ?? "the replay produced no media"
+  };
+}
+
+export async function capture(input: CaptureInput): Promise<CaptureResult> {
+  // Whatever a first plan recorded here is not this plan's.
+  rmSync(join(input.dir, ACTIONS_FILE), { force: true });
+
+  // No steps: the start page is the picture, and there is nothing for a model
+  // to do. One filmed, judged pass over it.
+  if (input.plan.steps.length === 0) {
+    const only = await attempt(input, "replay");
+    if (!only.failure && only.result?.capture) {
+      const how = "the start page shows it";
+      return { ok: true, ...only.result.capture, how, cost_usd: only.cost };
+    }
     return (
-      budgetStop(input, cost) ?? { ok: false, ...(replay.failure ?? noMedia()), cost_usd: cost }
+      budgetStop(input, only.cost) ?? {
+        ok: false,
+        ...(only.failure ?? noMedia()),
+        cost_usd: only.cost
+      }
     );
   }
-  return { ok: true, ...replay.result.capture, recorded: true, cost_usd: cost };
+
+  const wantVideo = input.plan.media === "video";
+  const driven = await attempt(input, wantVideo ? "record" : "drive");
+  let cost = driven.cost;
+  const frame = driven.result?.capture?.screenshot;
+  if (driven.failure || !frame) {
+    return (
+      budgetStop(input, cost) ?? { ok: false, ...(driven.failure ?? noMedia()), cost_usd: cost }
+    );
+  }
+  if (!wantVideo) {
+    const screenshot = keepStill(input, frame);
+    return { ok: true, screenshot, videoStartMs: 0, how: "driven and judged", cost_usd: cost };
+  }
+
+  const filming = await film(input);
+  cost += filming.cost;
+  if (filming.filmed) {
+    return { ok: true, ...filming.filmed, how: "driven, then replayed on film", cost_usd: cost };
+  }
+  const screenshot = keepStill(input, frame);
+  const how = `driven and judged; no video — ${filming.why}`;
+  return { ok: true, screenshot, videoStartMs: 0, how, cost_usd: cost };
 }
 
 function noMedia(): CaptureFailure {

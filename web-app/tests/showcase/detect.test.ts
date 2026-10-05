@@ -1,22 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitType, detect, isUiSource, showcaseHint, uiHash } from "./detect";
-
-const ui = (hunk: string) =>
-  `diff --git a/web-app/src/pages/A.tsx b/web-app/src/pages/A.tsx\nindex 1..2 100644\n${hunk}\n`;
-const rust = (hunk: string) =>
-  `diff --git a/crates/app/src/lib.rs b/crates/app/src/lib.rs\nindex 3..4 100644\n${hunk}\n`;
-
-describe("uiHash", () => {
-  const base = ui("@@ -10,3 +10,4 @@\n+<Badge />");
-  it("ignores everything but browser source, and the line numbers hunks start at", () => {
-    expect(uiHash(base + rust("@@ -1 +1 @@\n+fn a() {}"), undefined)).toBe(uiHash(base, undefined));
-    expect(uiHash(ui("@@ -90,3 +95,4 @@\n+<Badge />"), undefined)).toBe(uiHash(base, undefined));
-  });
-  it("changes when the screen code or the author's steer changes", () => {
-    expect(uiHash(ui("@@ -10,3 +10,4 @@\n+<Chip />"), undefined)).not.toBe(uiHash(base, undefined));
-    expect(uiHash(base, "Show the badge")).not.toBe(uiHash(base, undefined));
-  });
-});
+import { commitType, detect, isUiSource, showcaseHint } from "./detect";
 
 const base = {
   title: "feat: kiosk exit",

@@ -1,46 +1,36 @@
-name: Release showcase
+name: Release showcase (preview a PR)
 
-# What a PR will look like in the release announcement, decided while the PR
-# is open. Design and failure policy: internal-docs/release-showcase.md.
+# One PR's release picture, taken ahead of its release because someone asked:
+# to see what the thread will show, or to work out why a PR gets no picture.
+# Design and failure policy: internal-docs/release-showcase.md.
 #
-# Called from ci.yaml next to the custom-app canary, with the same boot:
-# the Postgres service, `oxy serve --enterprise`, then `oxy seed` for the demo
-# data and dev-login for the personas. Nothing here is opt-in: a no-model
-# filter drops PRs that cannot have a screen to show (a chore, a fix that
-# touched no web-app source), a planner reads the rest, the agentic runner
-# records the steps and replays them on film, and a judge must agree the final
-# screen shows the change before anything is kept.
+# Nothing starts this but a person. Pictures are taken by the release that
+# ships a PR (showcase-release.yaml), which plans and captures each one itself.
+# This ran on every PR push until 2026-10: in five days 106 runs started, 19
+# paid the model, and one produced a picture — of a PR that had not shipped.
 #
-# The output is a record — plan, recorded actions, screenshot, video — in the
-# `showcase-pr-<N>` artifact, and one PR comment that says what will be shown
-# and points `showcase-release.yaml` at the artifact when the PR ships.
+#   gh workflow run showcase.yaml -f pr=<N>
 #
-# Informational. It never gates a merge (`continue-on-error`), and every
-# outcome, including "nothing to show", lands in the comment and the summary.
+# It boots main's image with the PR's web-app built in front, seeds it, then: a
+# no-model filter drops a PR that cannot have a screen to show, a planner reads
+# the rest, the agentic runner follows the steps, and a judge must agree the
+# screen it ends on shows the change before anything is kept.
+#
+# The output is the `showcase-pr-<N>` artifact — plan, screenshot, video — and
+# one PR comment saying what was shown. It is for whoever asked: a release
+# reads none of it, and plans every PR itself. To carry a preview that looked
+# right into the release, say what to show in a `## Showcase` section of the
+# PR's description.
 #
 # Spend is capped hard: SHOWCASE_BUDGET_USD per run. Every model call must fit
 # its worst case in what is left before it is made, so a run stops AT the cap,
-# never past it. A push that changes no browser source and no `## Showcase`
-# steer reuses the last record and spends nothing.
+# never past it.
 
 on:
-  workflow_call:
-    inputs:
-      pr:
-        description: Pull request number.
-        type: number
-        required: true
-      has_binary:
-        description: ci.yaml's check job built `oxy-binary-ci` in this run (the PR changed Rust).
-        type: boolean
-        default: false
-    secrets:
-      ANTHROPIC_API_KEY:
-        required: true
   workflow_dispatch:
     inputs:
       pr:
-        description: Pull request number to re-capture, even if unchanged. Uses main's image; an open PR's web-app is built in front of it.
+        description: Pull request number to preview. Uses main's image; an open PR's web-app is built in front of it.
         type: number
         required: true
 
@@ -55,12 +45,9 @@ defaults:
 
 jobs:
   showcase:
-    name: Release showcase
+    name: Preview the showcase
     if: github.repository == 'oxy-hq/oxygen-internal'
-    # arm64: the `oxy-binary-ci` artifact is built there. The published image
-    # is multi-arch, so the no-binary path runs here too.
     runs-on: warp-ubuntu-latest-arm64-4x
-    continue-on-error: true
     timeout-minutes: 30
     concurrency:
       group: showcase-${{ inputs.pr }}
@@ -82,8 +69,6 @@ jobs:
       OXY_APP_EMAIL_LOCAL_TEST: "1"
       SHOWCASE_OUT: ${{ github.workspace }}/showcase-out
       SHOWCASE_BUDGET_USD: "0.50"
-      # By hand is a deliberate re-run: capture even when nothing changed.
-      FORCE: ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
     services:
       postgres:
         image: postgres:18-alpine
@@ -97,14 +82,13 @@ jobs:
           --health-cmd "pg_isready -U admin -d default" --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      # From ci.yaml the checkout is the PR's merge ref. By hand it is the same
-      # for an open PR — the PR on top of main — and the dispatched ref for a
-      # merged one, which already contains it. Never the PR's own head: a
-      # branch cut before this tooling existed has none of it to run.
-      # `inputs.pr` is typed a number, so the ref cannot carry anything else.
+      # An open PR is checked out as its merge ref — the PR on top of main —
+      # and a merged one as the dispatched ref, which already contains it.
+      # Never the PR's own head: a branch cut before this tooling existed has
+      # none of it to run. `inputs.pr` is typed a number, so the ref cannot
+      # carry anything else.
       - name: Pick the checkout
         id: ref
-        if: github.event_name == 'workflow_dispatch'
         run: |
           state="$(gh pr view "$PR" -R "$GITHUB_REPOSITORY" --json state --jq .state)"
           echo "PR #${PR} is ${state}"
@@ -127,15 +111,11 @@ jobs:
         run: node --import tsx tests/agentic/runner/selectors.browser-check.ts
 
       # No boot, no model. `action`: capture (boot and spend), refresh (only
-      # correct a stale comment), or none — most pushes stop here.
-      - name: Should this push capture?
+      # correct a stale comment), or none.
+      - name: Has this PR anything to show?
         id: detect
         working-directory: web-app
-        run: pnpm exec tsx tests/showcase/cli.ts detect --pr "$PR" --out "$SHOWCASE_OUT" ${FORCE:+"$FORCE"}
-
-      - name: Download oxy binary
-        if: steps.detect.outputs.action == 'capture' && inputs.has_binary
-        uses: ./.github/actions/download-oxy-binary
+        run: pnpm exec tsx tests/showcase/cli.ts detect --pr "$PR" --out "$SHOWCASE_OUT"
 
       - name: Install ffmpeg and psql
         if: steps.detect.outputs.action == 'capture'
@@ -148,19 +128,12 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
           fi
 
-      # With a binary, this PR's server and web-app are in it. Without one the
-      # PR changed no Rust, so main's image serves the API and this checkout's
-      # web-app is built in front of it.
+      # Main's image serves the API and this checkout's web-app is built in
+      # front of it. A PR's own Rust changes are therefore not in a preview —
+      # there is no build of them here — and are in the release's picture.
       - name: Boot and seed oxy
         if: steps.detect.outputs.action == 'capture'
-        env:
-          HAS_BINARY: ${{ inputs.has_binary }}
-        run: |
-          if [ "$HAS_BINARY" = "true" ]; then
-            scripts/ci/showcase-boot.sh binary
-          else
-            scripts/ci/showcase-boot.sh image ghcr.io/oxy-hq/oxygen:main-latest --spa-checkout
-          fi
+        run: scripts/ci/showcase-boot.sh image ghcr.io/oxy-hq/oxygen:main-latest --spa-checkout
 
       - name: Plan and capture
         id: capture
@@ -174,9 +147,7 @@ jobs:
         with:
           name: showcase-pr-${{ inputs.pr }}
           path: ${{ env.SHOWCASE_OUT }}/
-          # The release that ships this PR reads it; a PR can sit on staging
-          # for a while before prod, so keep it as long as the repo allows.
-          retention-days: 90
+          retention-days: 30
           if-no-files-found: error
 
       # After the upload: the comment's pointer names an artifact that exists.

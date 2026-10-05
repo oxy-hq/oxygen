@@ -1620,34 +1620,6 @@ jobs:
             sleep 3
           fi
 
-  # Beside the canary, booted the same way: what this PR will look like in the
-  # release announcement (internal-docs/release-showcase.md). Not a check — it
-  # comments on the PR and never fails the run. `web-app || oxy`, not just
-  # `web-app`: an author can steer a backend change onto the screen it surfaces
-  # in with a `## Showcase` section, and the filter inside decides the rest
-  # before anything boots. A skipped check job means no binary, not a failure:
-  # the workflow then serves main's image behind this checkout's web-app.
-  showcase:
-    name: Release showcase
-    needs: [changesets, cargo-check-and-test]
-    if: |
-      !cancelled() &&
-      github.repository == 'oxy-hq/oxygen-internal' &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.draft != true &&
-      !startsWith(github.head_ref, 'release/') &&
-      inputs.agentic_only != true &&
-      needs.changesets.result == 'success' &&
-      (needs.changesets.outputs.web-app == 'true' || needs.changesets.outputs.oxy == 'true') &&
-      (needs.cargo-check-and-test.result == 'success' ||
-       needs.cargo-check-and-test.result == 'skipped')
-    uses: ./.github/workflows/showcase.yaml
-    with:
-      pr: ${{ github.event.pull_request.number }}
-      has_binary: ${{ needs.cargo-check-and-test.result == 'success' }}
-    secrets:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-
   e2e-tests:
     name: E2E Tests (Playwright)
     needs: [changesets, cargo-check-and-test]

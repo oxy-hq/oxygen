@@ -12,19 +12,24 @@ name: Release showcase (prod)
 # POST /dispatches asks for. workflow_dispatch stays for a person re-posting a
 # release by hand; both arrive as the same five values.
 #
-# This boots THAT image — the build customers get — seeds it, and for each PR
-# the announcement lists, replays the recording its PR run left
-# (showcase.yaml), re-recording once if the UI has moved on and the feature's
-# cap allows. What the judge accepts is posted as a reply in the announcement's
-# thread; when the release replay fails, the picture taken at review time is
-# posted instead.
+# This boots THAT image — the build customers get — seeds it, and for each
+# feature and fix the release shipped: a no-model filter drops the ones with no
+# screen, a planner reads the rest and says what to show, the agentic runner
+# follows the steps, and a judge must agree the screen it ends on shows the
+# change. What it accepts is posted as a reply in the announcement's thread.
+# This is the only place a picture is taken: nothing runs when a PR is pushed,
+# and nothing a by-hand preview (showcase.yaml) left is read here.
 #
 # It can never delay or undo the announcement: that is already posted, and
-# every failure here ends as a row in this run's summary.
+# every PR here ends as a row in this run's summary saying what happened to it.
 #
-# A release only replays — plans are made, and paid for, at review time. Spend
-# is capped hard per feature (SHOWCASE_FEATURE_BUDGET_USD) inside a cap for the
-# whole release (SHOWCASE_RELEASE_BUDGET_USD); a replay is one judge call.
+# Spend is capped hard per PR (SHOWCASE_FEATURE_BUDGET_USD) inside a cap for
+# the whole release (SHOWCASE_RELEASE_BUDGET_USD), features before fixes. A PR
+# with no screen costs nothing; one the planner calls not visual costs cents.
+#
+# `dry_run` (by hand only) captures and posts nothing — no Slack reply, no PR
+# comment — and leaves the pictures in the run's artifact: what a release
+# would show, before it is one.
 
 on:
   # client_payload: image_tag, from_ref, to_ref, channel, thread_ts — the
@@ -53,6 +58,10 @@ on:
         description: The announcement's ts — replies go in its thread.
         type: string
         required: true
+      dry_run:
+        description: Capture, but post nothing to Slack or to the PRs. The pictures are in the run's artifact.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -89,10 +98,15 @@ jobs:
       MAGIC_LINK_LOCAL_TEST: "true"
       OXY_APP_EMAIL_LOCAL_TEST: "1"
       SHOWCASE_OUT: ${{ github.workspace }}/showcase-out
-      SHOWCASE_FEATURE_BUDGET_USD: "0.10"
-      SHOWCASE_RELEASE_BUDGET_USD: "0.50"
-      # The release's own demo data, not main's (see the second checkout).
+      # One PR: its plan, its capture, and one corrected plan when at least
+      # half is left. The release: about four real captures and the planner's
+      # "not visual" on everything else in a large release.
+      SHOWCASE_FEATURE_BUDGET_USD: "0.50"
+      SHOWCASE_RELEASE_BUDGET_USD: "2.00"
+      # The release's own demo data and web-app source, not main's (see the
+      # second checkout): the planner reads routes and screens as they shipped.
       SHOWCASE_EXAMPLES: ${{ github.workspace }}/release-src/examples
+      SHOWCASE_SOURCE_ROOT: ${{ github.workspace }}/release-src
       # `inputs` is empty on a repository_dispatch, so each falls through to
       # the payload.
       IMAGE_TAG: ${{ inputs.image_tag || github.event.client_payload.image_tag }}
@@ -125,11 +139,12 @@ jobs:
           [[ "$THREAD_TS" =~ ^[0-9]{10}\.[0-9]{6}$ ]] || fail "thread_ts is not a Slack ts"
 
       # Before anything is booted or paid for. A bot that cannot upload files
-      # replays every feature and then posts none of them: a green run under
+      # captures every feature and then posts none of them: a green run under
       # an empty thread. auth.test names the token's scopes in a header, so
       # the missing one is known up front — and this run goes red saying so.
       # No header at all proves nothing, and is let through.
       - name: Can the bot post pictures?
+        if: inputs.dry_run != true
         run: |
           fail() { echo "::error::$1"; echo "**Nothing was posted.** $1" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
           [ -n "${SLACK_BOT_TOKEN:-}" ] || fail "SLACK_BOT_TOKEN is not set for this repository."
@@ -145,18 +160,29 @@ jobs:
           fi
 
       # The tooling from the default branch, so a release cut before this
-      # workflow existed still gets it; the demo data from the release itself.
+      # workflow existed still gets it; the demo data and the web-app source
+      # the planner reads from the release itself.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.TO_REF }}
           path: release-src
-          sparse-checkout: examples
+          sparse-checkout: |
+            examples
+            web-app/src
 
       - name: Set up pnpm, Node, and Playwright
         uses: ./.github/actions/setup-web-app-test-env
         with:
           install-playwright: "true"
+
+      # Seconds, no server, no model: the agentic runner's selector reads must
+      # leave the model's aria-refs valid, and labelled inputs must record a
+      # durable selector. A runner that fails either records nothing it can
+      # replay, so this stops the job before a capture is paid for.
+      - name: Runner self-check (browser)
+        working-directory: web-app
+        run: node --import tsx tests/agentic/runner/selectors.browser-check.ts
 
       - name: Install ffmpeg and psql
         run: |
@@ -171,8 +197,15 @@ jobs:
       - name: Boot and seed the released image
         run: scripts/ci/showcase-boot.sh image "ghcr.io/oxy-hq/oxygen:${IMAGE_TAG}"
 
-      - name: Replay and post
+      # No token is a dry run to the CLI: it captures, says what it would have
+      # posted, and writes no PR comment. The CLI takes its credentials out of
+      # its own environment before it reads a PR (tests/showcase/credentials.ts):
+      # a step is model output over PR text, and the runner types any ${NAME} a
+      # step carries.
+      - name: Capture and post
         working-directory: web-app
+        env:
+          SLACK_BOT_TOKEN: ${{ inputs.dry_run != true && secrets.SLACK_BOT_TOKEN || '' }}
         run: |
           pnpm exec tsx tests/showcase/cli.ts release \
             --from "$FROM_REF" --to "$TO_REF" --out "$SHOWCASE_OUT" \

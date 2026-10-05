@@ -1,19 +1,29 @@
-// GitHub through the `gh` CLI (present on every runner, and authenticated by
-// GH_TOKEN there). Always `-R <repo>`: the cwd is not a reliable repo pointer.
+// GitHub through the `gh` CLI (present on every runner). Its token is handed to
+// each call rather than left in the environment — see credentials.ts. Always
+// `-R <repo>`: the cwd is not a reliable repo pointer.
 
 import { spawnSync } from "node:child_process";
+import { ghAuthEnv } from "./credentials";
 import type { PrFacts } from "./detect";
 import { COMMENT_MARKER } from "./record";
 
 function gh(args: string[], input?: string): string {
-  const res = spawnSync("gh", args, { encoding: "utf-8", input, maxBuffer: 256 * 1024 * 1024 });
+  const res = spawnSync("gh", args, {
+    encoding: "utf-8",
+    input,
+    maxBuffer: 256 * 1024 * 1024,
+    env: { ...process.env, ...ghAuthEnv() }
+  });
   if (res.status !== 0) {
     throw new Error(`gh ${args.slice(0, 3).join(" ")} failed: ${(res.stderr || "").trim()}`);
   }
   return res.stdout;
 }
 
-export function prFacts(repo: string, pr: number): PrFacts & { headSha: string } {
+/** What a PR is at the moment it is read: the filter's facts, and the commit they describe. */
+export type PrSnapshot = PrFacts & { headSha: string };
+
+export function prFacts(repo: string, pr: number): PrSnapshot {
   const view = JSON.parse(
     gh(["pr", "view", String(pr), "-R", repo, "--json", "title,body,labels,headRefOid"])
   ) as { title: string; body: string; labels: { name: string }[]; headRefOid: string };
@@ -64,19 +74,13 @@ function rawDiff(repo: string, pr: number): string {
   }
 }
 
-export function prLabels(repo: string, pr: number): string[] {
-  return gh(["pr", "view", String(pr), "-R", repo, "--json", "labels", "--jq", ".labels[].name"])
-    .split("\n")
-    .filter(Boolean);
-}
-
 export interface Comment {
   id: number;
   body: string;
 }
 
-// The comment a release reads its record from is the one CI wrote: a hand-posted
-// copy of the marker must not be able to point a release at another artifact.
+// The comment a release reads is the one CI wrote: a hand-posted copy of the
+// marker must not be able to tell a release a PR was already pictured.
 const COMMENT_AUTHOR = "github-actions[bot]";
 
 export function findShowcaseComment(repo: string, pr: number): Comment | undefined {
@@ -105,17 +109,6 @@ export function upsertShowcaseComment(repo: string, pr: number, body: string): v
   } else {
     gh(["api", "-X", "POST", `repos/${repo}/issues/${pr}/comments`, "--input", "-"], payload);
   }
-}
-
-export function updateComment(repo: string, id: number, body: string): void {
-  gh(
-    ["api", "-X", "PATCH", `repos/${repo}/issues/comments/${id}`, "--input", "-"],
-    JSON.stringify({ body })
-  );
-}
-
-export function downloadArtifact(repo: string, runId: string, name: string, dir: string): void {
-  gh(["run", "download", runId, "-R", repo, "-n", name, "-D", dir]);
 }
 
 /**
