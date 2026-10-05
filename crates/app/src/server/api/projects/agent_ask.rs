@@ -40,6 +40,11 @@ use uuid::Uuid;
 use crate::server::api::custom_apps_gates::{check_custom_app_gates, parse_versioned_body};
 use crate::server::router::AppState;
 
+pub mod caller;
+mod cancel;
+
+pub use cancel::cancel_ask;
+
 /// Build the relative path to the thread view in the oxy web app.
 ///
 /// Local mode (no org_id): `/threads/<thread_id>` — the web-app
@@ -295,11 +300,20 @@ pub async fn start_ask(
 
     // 6. Build the pipeline. Analytics domain only — builder is
     //    workspace-scoped and not exposed to bundles.
+    //
+    //    The caller is recorded on the run in the insert that creates it:
+    //    whatever drives this run later without this request (recovery, after
+    //    a restart) rebuilds the context from that record instead of running
+    //    it on its own subject-less platform — see `caller`.
     let builder = PipelineBuilder::new(platform.clone())
         .workspace_id(project_id)
         .question(&req.question)
         .schema_cache(Arc::clone(&agentic_state.schema_cache))
         .thread(thread_uuid)
+        .run_metadata(
+            caller::RUN_CALLER_KEY,
+            caller::RunCaller::of(&gates_ctx).to_metadata(),
+        )
         .analytics(&agent_id);
 
     // 7. Start.
@@ -335,12 +349,13 @@ pub async fn start_ask(
 
     // 7. Hook up answer + cancel channels.
     //
-    // `cancel_tx` is the live wire — `cancel_ask` (below) calls
-    // `RuntimeState::cancel_run`, which signals through this watch
-    // channel to abort the coordinator's drive loop on the same
-    // instance. Without registering it, the cancel endpoint would
-    // only stamp the DB row and the drive loop would keep burning
-    // LLM budget until natural completion.
+    // `cancel_tx` is the live wire — `cancel::cancel_ask` signals
+    // through this watch channel (`RuntimeState::cancel`) to abort the
+    // coordinator's drive loop on the same instance. Without
+    // registering it, the cancel endpoint would only stamp the DB row
+    // and the drive loop would keep burning LLM budget until natural
+    // completion. A cancel that lands on ANOTHER replica cannot reach
+    // it: this drive does not poll the durable flag (see `cancel`).
     //
     // `answer_tx` is registered but the custom-app surface
     // doesn't expose a `/answer` endpoint — clarification answers
@@ -404,62 +419,4 @@ pub async fn start_ask(
         thread_url,
     };
     (StatusCode::ACCEPTED, Json(resp)).into_response()
-}
-/// `POST /api/projects/{project_id}/agents/asks/{run_id}/cancel`
-///
-/// Stop an in-flight agent run. Idempotent. Returns 204 on success.
-/// `RuntimeState::cancel_run` handles both the live-run case
-/// (propagates through the cancel watch channel to the coordinator
-/// + pipeline drivers) and the stale case (marks `failed` in DB so
-/// pollers don't hang).
-#[instrument(skip_all, fields(project_id = %project_id, run_id = %run_id))]
-pub async fn cancel_ask(
-    State(app_state): State<AppState>,
-    Path((project_id, run_id)): Path<(Uuid, String)>,
-    headers: HeaderMap,
-) -> Response {
-    let _gates_ctx = match check_custom_app_gates(&headers, project_id).await {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
-    let agentic_state = match app_state.agentic_state.as_ref() {
-        Some(s) => s.clone(),
-        None => {
-            return err(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "agent runtime not configured in this deployment",
-            );
-        }
-    };
-
-    // The run is resolved WITHIN the project the gates admitted the caller
-    // to: another project's run, and a check run staff queued in this one
-    // outside production, are the same not-found as an id that names nothing.
-    // A member holding an id can neither confirm that run nor cancel it.
-    let found =
-        agentic_runtime::crud::get_run_in_workspace(&agentic_state.db, project_id, &run_id).await;
-    match found {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return err_with_code(
-                StatusCode::NOT_FOUND,
-                "run not found",
-                "agent_run_not_found",
-            );
-        }
-        Err(e) => {
-            error!(run_id = %run_id, error = %e, "cancel: run lookup failed");
-            return err(StatusCode::INTERNAL_SERVER_ERROR, "run lookup failed");
-        }
-    }
-
-    if let Err(e) = agentic_state
-        .runtime
-        .cancel_run(&agentic_state.db, &run_id)
-        .await
-    {
-        error!(run_id = %run_id, error = ?e, "cancel: cancel_run failed");
-        return err(StatusCode::INTERNAL_SERVER_ERROR, "cancel failed");
-    }
-    StatusCode::NO_CONTENT.into_response()
 }

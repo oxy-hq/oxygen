@@ -23,7 +23,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 
 use crate::agentic_wiring::{OxyProjectContext, build_builder_bridges};
 use crate::server::api::middlewares::workspace_context::PreaggCacheCtx;
-use crate::server::previews::runtime::PreviewRunResolver;
+use crate::server::api::projects::agent_ask::caller::CallerRunResolver;
 use crate::server::service::secret_manager::SecretManagerService;
 use oxy::config::WorkingCopy;
 use oxy_app_core::serve_mode::{LOCAL_WORKSPACE_ID, ServeMode};
@@ -600,7 +600,7 @@ async fn recover_local(
             db.clone(),
             runtime,
             platform,
-            PreviewRunResolver::shared(db),
+            CallerRunResolver::shared(db),
             bridges,
             schema_cache,
             builder_test_runner,
@@ -659,7 +659,7 @@ async fn recover_local(
             db.clone(),
             runtime,
             platform,
-            PreviewRunResolver::shared(db),
+            CallerRunResolver::shared(db),
             bridges,
             schema_cache,
             builder_test_runner,
@@ -743,7 +743,7 @@ async fn recover_all_workspaces(
                 db.clone(),
                 runtime.clone(),
                 platform,
-                PreviewRunResolver::shared(db),
+                CallerRunResolver::shared(db),
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
@@ -788,7 +788,7 @@ async fn recover_all_workspaces(
                 db.clone(),
                 runtime.clone(),
                 platform,
-                PreviewRunResolver::shared(db),
+                CallerRunResolver::shared(db),
                 bridges,
                 schema_cache.clone(),
                 builder_test_runner.clone(),
@@ -1430,8 +1430,9 @@ async fn drive_pending(
         db.clone(),
         runtime.clone(),
         platform,
-        // Preview-owned roots get the preview platform; everything else `platform`.
-        PreviewRunResolver::shared(db),
+        // Preview-owned roots get the preview platform, a custom-app ask its
+        // caller's context; everything else `platform`.
+        CallerRunResolver::shared(db),
         bridges,
         schema_cache.cloned(),
         builder_test_runner.cloned(),

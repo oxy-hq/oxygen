@@ -20,6 +20,7 @@ pub mod platform;
 pub mod recovery;
 pub mod retry;
 pub mod revert;
+mod run_metadata;
 pub mod scheduler;
 pub mod usage;
 
@@ -155,6 +156,9 @@ pub struct PipelineBuilder {
     /// path; CLI / eval default to the nil UUID (= `LOCAL_WORKSPACE_ID`,
     /// the single-workspace local serve mode's implicit id).
     workspace_id: Uuid,
+    /// Host keys merged into the run's `metadata` at insert — see
+    /// [`PipelineBuilder::run_metadata`].
+    run_metadata: serde_json::Map<String, serde_json::Value>,
 }
 
 enum Domain {
@@ -276,6 +280,7 @@ impl PipelineBuilder {
             builder_tool_allowlist: None,
             analytics_sql_mode: false,
             workspace_id: Uuid::nil(),
+            run_metadata: serde_json::Map::new(),
         }
     }
 
@@ -431,6 +436,20 @@ impl PipelineBuilder {
     /// Link to a conversation thread.
     pub fn thread(mut self, id: Uuid) -> Self {
         self.thread_id = Some(id);
+        self
+    }
+
+    /// Record a host key on the run's `metadata`, in the insert that creates
+    /// the run. For something a later driver needs and the pipeline has no
+    /// opinion about — the caller a custom-app ask runs as, which recovery
+    /// reads back to pick the run's platform.
+    ///
+    /// Never replaces a key the pipeline writes itself (`agent_id`,
+    /// `thinking_mode`, the preview stamp, the builder's own). Ignored when
+    /// the run row already exists ([`Self::existing_run`]): whoever inserted
+    /// that row owns its metadata.
+    pub fn run_metadata(mut self, key: &str, value: serde_json::Value) -> Self {
+        self.run_metadata.insert(key.to_string(), value);
         self
     }
 
@@ -602,6 +621,7 @@ impl PipelineBuilder {
             // A run started in a workspace preview is never picked up outside
             // one: recovery and a cold resume retire it instead.
             platform::preview_stamp::stamp(self.platform.as_ref(), &mut metadata);
+            run_metadata::merge(&mut metadata, &self.run_metadata);
             agentic_runtime::crud::insert_run(
                 db,
                 run_id,
@@ -989,6 +1009,7 @@ impl PipelineBuilder {
                     serde_json::Value::String(meta.key_var.clone()),
                 );
             }
+            run_metadata::merge(&mut metadata, &self.run_metadata);
             agentic_runtime::crud::insert_run(
                 db,
                 run_id,

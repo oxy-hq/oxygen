@@ -81,8 +81,8 @@ pub mod crud {
         update_task_status, upsert_suspension,
     };
     pub use crate::lifecycle::crud::{
-        DRIVER_LEASE_TTL_SECS, RUN_ENVIRONMENT_KEY, clear_run_error, customer_run_sql, now,
-        reset_run_for_retry, transition_run, user_facing_status,
+        DRIVER_LEASE_TTL_SECS, RUN_ENVIRONMENT_KEY, clear_run_error, customer_run_sql,
+        fail_undriven_run, now, reset_run_for_retry, transition_run, user_facing_status,
     };
     pub use crate::lifecycle::crud::{events, queries, runs, suspension};
     pub use crate::orchestrator::crud::{
