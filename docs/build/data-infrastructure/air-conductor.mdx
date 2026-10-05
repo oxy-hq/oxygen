@@ -1,0 +1,113 @@
+---
+title: "Air Conductor"
+sidebarTitle: "Air Conductor"
+description: "Oxygen's durable task engine, which queues background work in Postgres and runs it to completion through restarts and deploys"
+---
+
+**Air Conductor** is Oxygen's durable task engine. It runs the work that
+happens after a request returns, such as
+[Airway](/guide/build/data-infrastructure/airway) loads into
+[Airhouse](/guide/build/data-infrastructure/airhouse), automation runs, and
+scheduled agents, and it keeps that work going when a process stops partway
+through. Where [Airform](/guide/build/data-infrastructure/airform) shapes
+tables, Air Conductor decides when work runs and makes sure it finishes. It
+has three parts:
+
+- A **queue** in Oxygen's own Postgres database, where every piece of work is
+  written down before anything starts it.
+- **Workers**, which claim work from the queue and run it. They run inside
+  `oxy serve` by default, or as a separate fleet started with `oxy worker`.
+- A **scheduler**, which turns schedules, monitor scans, and pre-aggregation
+  refreshes into queued work when they come due.
+
+<Frame caption="Work is recorded in Postgres before any worker runs it, so a worker that stops never takes the work with it: another worker claims it, and the run continues from the steps already finished.">
+  <img src="../../images/air-conductor-figure-1.svg" alt="Air Conductor architecture. Triggers, such as Run now, a schedule coming due, or an automation step, enqueue work into a task queue that lives in Oxygen's Postgres database. The scheduler queues scheduled work, and each due time fires once even when several schedulers run. A Postgres notification wakes idle workers, with a 10-second poll as a backstop. Workers run either inside oxy serve or as a standalone fleet started with oxy worker. Each worker claims a task, sends a heartbeat while it runs, and records the result. The work they run includes Airway loads, automation steps, scheduled agents, and pre-aggregation refreshes. A highlighted loop shows recovery: if a worker stops, its claim expires and the task returns to the queue in about 90 seconds, and the run continues from the steps already finished." />
+</Frame>
+
+## Why it matters
+
+- **Work survives restarts.** A deploy, a crash, or a lost node never drops
+  queued work. Each run keeps a record of the steps it has finished, so after a
+  restart it continues from there instead of starting over.
+- **No extra service to run.** The queue lives in the same Postgres database
+  Oxygen already uses. To scale out, you add workers, with no message broker
+  to deploy alongside them.
+- **One engine for background work.** Airway runs,
+  [automations](/guide/build/automations), scheduled agents, pre-aggregation
+  refreshes, and scheduled [Oxy Functions](/guide/build/sdk/functions) all
+  queue and recover the same way.
+- **You can see it.** The **Orchestrator Dashboard** in Oxygen Factory lists
+  active and recent runs, shows each run's tree of steps, and can retry a run
+  that failed. It replaced the older Coordinator view.
+
+## How it runs
+
+- **In-process by default, a fleet when you need one.** `oxy serve` runs
+  workers inside the server process, so a single instance handles everything
+  on its own. To scale background work separately, start one or more
+  `oxy worker` processes against the same database and turn off in-process
+  workers on the serving tier with `--no-workers` (or `OXY_ROLE=serve`). Each
+  worker runs up to 32 tasks at once, which you can change with
+  `OXY_WORKER_MAX_INFLIGHT`.
+- **New work starts in milliseconds, or within 10 seconds.** A Postgres
+  notification wakes an idle worker as soon as work is queued. If the
+  notification is missed, workers find the work on their next poll, at most
+  10 seconds later. A connection pooler in transaction mode silently drops
+  these notifications, so if work keeps starting about 10 seconds late, check
+  the pooler before anything else.
+- **Two kinds of worker, switched on and off separately.** Queue workers run
+  work that is already queued. The scheduler decides when scheduled work is due
+  and queues it. The scheduler runs in every Oxygen process except a stateless
+  serving replica, and `OXY_INPROC_GLOBAL_WORKER=0` turns it off. Turning off
+  queue workers doesn't stop the scheduler, and turning off the scheduler
+  doesn't stop queue workers. If no process runs the scheduler, you can still
+  create and edit schedules, but none of them ever fires.
+- **Each scheduled time fires once.** Running the scheduler on several
+  instances is safe, because only one of them claims a given due time. If no
+  scheduler was running through several scheduled times, the schedule fires
+  once when one starts again, then continues from the next future time. It
+  does not replay every missed run.
+- **A stopped worker's work returns in about 90 seconds.** Workers send a
+  heartbeat while they run a task. If the heartbeats stop for 60 seconds, the
+  claim expires, and a check that runs every 30 seconds puts the task back in
+  the queue for another worker. A worker shutting down cleanly, as in a
+  deploy, hands its tasks back at once. A task whose worker dies three times
+  is marked dead instead of being tried again, so a task that crashes its
+  worker can't take down the fleet one worker at a time.
+- **Recovery can repeat a step.** A run continues from its last finished step,
+  so a step that was partway through when its worker stopped runs again from
+  the beginning. Write steps that call external APIs or write data so they are
+  safe to run twice. A run that still hasn't finished after four recoveries is
+  marked failed. Retrying it from the Orchestrator Dashboard starts it again
+  with a fresh count.
+- **Retries are opt-in.** Recovery, which happens when a worker stops, is not
+  the same as a retry, which happens when a task fails. The engine retries a
+  failed task only when the feature that queued it asked for retries. Otherwise
+  the run reports the error. A cancelled task is never retried, and cancelling
+  a run cancels its steps too.
+- **Waiting has a limit, except when it waits for a person.** A step waiting
+  for the work it started times out after 4 hours and finishes as
+  `timed_out`. A run waiting for a human answer waits as long as it takes, and
+  it keeps a worker slot the whole time.
+
+## Where it fits
+
+The engine sits underneath the features that start background work, and
+each of them adds its own rules on top. [Airway](/guide/build/data-infrastructure/airway/pipelines)
+allows one run per pipeline per workspace, and
+[automations](/guide/build/automations/task-types) run each task as a queued
+step, so a run interrupted partway through resumes at the step it was on. For which parts of a
+deployment stay up during a restart, see
+[High availability](/guide/manage/high-availability).
+
+<CardGroup cols={3}>
+  <Card title="Airway" icon="arrow-right-to-bracket" href="/guide/build/data-infrastructure/airway">
+    Pipelines that run as queued work
+  </Card>
+  <Card title="Automations" icon="gears" href="/guide/build/automations">
+    Multi-step runs that resume across restarts
+  </Card>
+  <Card title="High availability" icon="server" href="/guide/manage/high-availability">
+    How serving, workers, and Oxygen Factory are split
+  </Card>
+</CardGroup>

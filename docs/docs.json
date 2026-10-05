@@ -83,7 +83,8 @@
                   "build/data-infrastructure/airway/pipelines"
                 ]
               },
-              "build/data-infrastructure/airform"
+              "build/data-infrastructure/airform",
+              "build/data-infrastructure/air-conductor"
             ]
           },
           {

@@ -1,12 +1,12 @@
 ---
 title: "Data Infrastructure"
 sidebarTitle: "Overview"
-description: "The engines that get your data in and shape it: Airhouse, Airway, and Airform"
+description: "The engines that get your data in, shape it, and keep it running: Airhouse, Airway, Airform, and Air Conductor"
 ---
 
 Data Infrastructure is the foundation of Oxygen, getting your data in and
 shaping it into clean tables that your [World Model](/guide/build/world-model)
-and agents can query. Three engines do the work:
+and agents can query. Four engines do the work:
 
 - **Airway** *loads*: it extracts data from the systems a business already
   runs and loads it into the warehouse, moving only what changed.
@@ -16,6 +16,10 @@ and agents can query. Three engines do the work:
   no long-lived keys.
 - **Airform** *shapes*: it turns raw tables into clean, tested ones with
   version-controlled SQL models.
+- **Air Conductor** *runs*: it queues each step and runs it in order, so a
+  load, the SQL that shapes what it loaded, and the refresh of the model built
+  on top happen in sequence and finish even if a server restarts partway
+  through.
 
 <Frame caption="Data moves left to right, from your systems to the World Model, and every step along the way is a version-controlled file in the same workspace.">
   <img src="../../images/data-infrastructure-figure-1.svg" alt="Data Infrastructure as a left-to-right flow. Sources such as point-of-sale, accounting, databases, files, and public data are extracted by Airway pipelines, which run incrementally from a cursor and load raw tables into a warehouse, either Airhouse or your own. Airform's version-controlled SQL models shape the raw tables into clean, tested tables, which the World Model's semantic model queries for agents and custom apps. Custom apps also write their own facts back into the warehouse. A highlighted band notes that every pipeline, model, and metric is a version-controlled file in one workspace, deployed through Git." />
@@ -34,7 +38,7 @@ the agents and automations that use them. A change to how data is loaded,
 shaped, or measured is a single, reviewable change, and every number an agent
 reports traces back to definitions you can read.
 
-<CardGroup cols={3}>
+<CardGroup cols={2}>
   <Card title="Airway" icon="arrow-right-to-bracket" href="/guide/build/data-infrastructure/airway">
     Incremental ELT from the systems you already run.
   </Card>
@@ -43,5 +47,8 @@ reports traces back to definitions you can read.
   </Card>
   <Card title="Airform" icon="diagram-project" href="/guide/build/data-infrastructure/airform">
     Version-controlled SQL models that land clean, tested tables.
+  </Card>
+  <Card title="Air Conductor" icon="list-check" href="/guide/build/data-infrastructure/air-conductor">
+    The task engine that runs every load, step, and schedule to completion.
   </Card>
 </CardGroup>
