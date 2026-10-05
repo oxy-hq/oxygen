@@ -1301,6 +1301,17 @@ fn build_custom_task_registry(
         crate::server::simulation::SIMULATION_RUN_KIND,
         Arc::new(crate::server::simulation::SimulationTaskExecutor { db: db.clone() }),
     );
+    // A custom app's procedure run, queued by `POST …/procedures/{id}/runs`.
+    // It builds its own context from the caller the request authenticated —
+    // never from this driver's platform, which has no subject. A pod without
+    // it fails the task (unknown kind); the poll endpoint then closes the run.
+    {
+        use crate::server::api::projects::automation_run::{executor, task};
+        reg.register(
+            task::PROCEDURE_RUN_KIND,
+            Arc::new(executor::ProcedureRunExecutor { db: db.clone() }),
+        );
+    }
     // Same shape as health eval: one executor instance, workspace context
     // rebuilt fresh per task from `workspace_id` in the payload. See
     // `preagg_executor`'s module doc for why this replaced a single
@@ -2034,6 +2045,9 @@ async fn bootstrap_monitor_schedules(
         }
     }
 }
+
+#[cfg(test)]
+mod procedure_run_tests;
 
 #[cfg(test)]
 mod tests {

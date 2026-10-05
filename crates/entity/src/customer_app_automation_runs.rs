@@ -30,10 +30,26 @@ pub struct Model {
     pub result_outputs: Option<Json>,
     pub error_message: Option<String>,
     pub error_code: Option<String>,
-    /// Non-NULL when a cancel was requested; the spawned task reads
-    /// this on the next progress checkpoint and aborts.
+    /// Non-NULL when a cancel was requested; the driver polls the run's
+    /// durable cancel flag and stops, and a claim that finds this set does
+    /// not start.
     pub cancel_requested_at: Option<DateTimeWithTimeZone>,
+    /// When the run was accepted and queued (`status = 'running'` from here).
     pub started_at: DateTimeWithTimeZone,
+    /// Non-NULL once a driver began executing the first step. Stamped by one
+    /// atomic `UPDATE … WHERE execution_started_at IS NULL` right before the
+    /// runner starts, so a later attempt at the same run — after its driver
+    /// died or was replaced — finds it set and does not repeat steps that
+    /// already ran. Never served to the bundle; see
+    /// `m20261003_000001_automation_runs_execution_started_at`.
+    pub execution_started_at: Option<DateTimeWithTimeZone>,
+    /// The executing attempt's proof of life: set with the stamp above and
+    /// re-stamped on an interval until the run settles. A later attempt
+    /// closes the run as interrupted only once this is stale, and steps
+    /// aside while it is fresh. NULL beside a non-NULL stamp is a run begun
+    /// by a binary from before the column, read as last alive at the stamp.
+    /// Never served to the bundle.
+    pub execution_heartbeat_at: Option<DateTimeWithTimeZone>,
     pub completed_at: Option<DateTimeWithTimeZone>,
 }
 

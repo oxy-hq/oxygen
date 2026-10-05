@@ -11,19 +11,29 @@
 //! Pipeline: reuses
 //! `agentic_pipeline::automation_run::run_inline_automation_with_render_context`
 //! (the same path CLI `oxy run` and the MCP automation tool use). The
-//! automation runs in a spawned task; state lives in the
-//! `customer_app_procedure_runs` DB table (see
-//! `migration::m20260526_000001_create_customer_app_procedure_runs`)
-//! so server restarts don't drop in-flight runs from the bundle's
-//! point of view.
+//! handler does not run it: the start endpoint registers the run and
+//! enqueues one `TaskScope::Global` task ([`task`]), and a driver process
+//! — a worker-fleet pod, or this one under `OXY_ROLE=all` — claims and
+//! executes it ([`executor`]). A deploy or a restart of the pod that took
+//! the request no longer takes the run with it. A driver that dies mid-run
+//! has its claim requeued, and the attempt that next claims it finds the
+//! run already begun and closes it as `failed` /
+//! `automation_run_interrupted` rather than running its steps a second
+//! time — at most once per run; the user starts it again.
+//! State the bundle reads lives in the `customer_app_procedure_runs` DB
+//! table (see `migration::m20260526_000001_create_customer_app_procedure_runs`).
 //!
-//! Cancellation: the cancel endpoint stamps `cancel_requested_at` on
-//! the row AND aborts the JoinHandle in the in-process registry. The
-//! abort is the fast path (kills the spawn immediately); the DB
-//! stamp is the durable record for cross-instance / restart cases.
+//! Cancellation: the cancel endpoint closes the row as `cancelled` (so
+//! pollers see it at once, from any replica) and writes the durable
+//! cancel flag on the run, which the driver polls and turns into a stop.
+//! The first terminal state wins ([`settle`]): a result that lands after
+//! the cancel is discarded.
+
+pub mod executor;
+mod settle;
+pub mod task;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use agentic_automation::AutomationConfig;
 use agentic_pipeline::automation_run::AutomationRunError;
@@ -32,14 +42,10 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
-use dashmap::DashMap;
 use entity::customer_app_procedure_runs as proc_run;
-use entity::customer_app_procedure_runs::ActiveModel as ProcRunActiveModel;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
-use sentry::SentryFutureExt;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use tokio::task::JoinHandle;
 use tracing::{error, instrument, warn};
 use uuid::Uuid;
 
@@ -147,17 +153,6 @@ pub struct AutomationError {
 pub struct AutomationResult {
     pub summary: String,
     pub outputs: HashMap<String, JsonValue>,
-}
-
-/// In-process map of run_id → tokio JoinHandle. Used by the cancel
-/// endpoint to abort the spawned task immediately on the same
-/// instance. DB row's `cancel_requested_at` is the durable record;
-/// this is just the fast path. Cleaned up when the spawned task
-/// completes.
-fn join_handles() -> &'static DashMap<String, JoinHandle<()>> {
-    use std::sync::OnceLock;
-    static HANDLES: OnceLock<DashMap<String, JoinHandle<()>>> = OnceLock::new();
-    HANDLES.get_or_init(DashMap::new)
 }
 
 #[instrument(skip_all, fields(project_id = %project_id, automation_id = %automation_id))]
@@ -333,126 +328,37 @@ pub async fn start_automation_run(
         }
     };
 
-    let run_id = Uuid::new_v4();
-    let now = Utc::now().into();
-    let insert = ProcRunActiveModel {
-        id: ActiveValue::Set(run_id),
-        workspace_id: ActiveValue::Set(project_id),
-        procedure_id: ActiveValue::Set(automation_id.clone()),
-        status: ActiveValue::Set("running".to_string()),
-        params: ActiveValue::Set(req.params.clone()),
-        progress_step: ActiveValue::Set(None),
-        progress_percent: ActiveValue::Set(None),
-        result_summary: ActiveValue::Set(None),
-        result_outputs: ActiveValue::Set(None),
-        error_message: ActiveValue::Set(None),
-        error_code: ActiveValue::Set(None),
-        cancel_requested_at: ActiveValue::Set(None),
-        started_at: ActiveValue::Set(now),
-        completed_at: ActiveValue::Set(None),
+    // Register the run and hand it to the queue. Nothing is driven here: this
+    // replica may be gone before the automation's first step, and the run must
+    // not go with it. The task carries the automation resolved above and the
+    // caller the gate authenticated — see `task` for why both travel by value.
+    let queued = match task::ProcedureRunTask::for_request(
+        &gates_ctx,
+        &automation_id,
+        &automation_config,
+        req.params,
+    ) {
+        Ok(t) => t,
+        Err(e) => {
+            error!(error = %e, "automation run could not be encoded for the queue");
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not register automation run",
+            );
+        }
     };
-    if let Err(e) = insert.insert(&db).await {
-        error!(run_id = %run_id, error = %e, "automation run insert failed");
+    if let Err(e) = task::submit(&db, &queued).await {
+        error!(run_id = %queued.run_id, error = %e, "automation run insert failed");
         return err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "could not register automation run",
         );
     }
 
-    let render_context = req
-        .params
-        .as_ref()
-        .map(|p| serde_json::json!({ "params": p }));
-
-    let proj_ctx_run = proj_ctx;
-    let db_for_task = db.clone();
-    let run_id_str = run_id.to_string();
-    let run_id_for_task = run_id_str.clone();
-    let handle = tokio::spawn(
-        async move {
-            let workspace: Arc<dyn agentic_automation::WorkspaceContext> = Arc::new(proj_ctx_run);
-            let result = agentic_pipeline::automation_run::run_inline_automation_with_render_context(
-                workspace.as_ref(),
-                automation_config,
-                None,
-                render_context,
-                None,
-            )
-            .await;
-
-            // Was a cancel requested mid-run? Check the DB row before we
-            // record a result so a race between user-cancel + automation-
-            // completion lands on the right terminal state.
-            let cancel_seen = proc_run::Entity::find_by_id(run_id)
-                .one(&db_for_task)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|r| r.cancel_requested_at)
-                .is_some();
-
-            let update = match (cancel_seen, result) {
-                (true, _) => set_cancelled(run_id),
-                (false, Ok(outputs)) => set_done(run_id, outputs),
-                (false, Err(e)) => set_failed(run_id, &e),
-            };
-            if let Err(db_err) = update.update(&db_for_task).await {
-                error!(run_id = %run_id_for_task, error = %db_err, "automation run completion update failed");
-            }
-            join_handles().remove(&run_id_for_task);
-        }
-        // The run outlives the 202 this handler returns, so the request's
-        // hub is gone once the automation starts. Its tasks are
-        // tenant-authored and its failures carry their SQL and results;
-        // `agentic_pipeline`'s targets are not `custom_apps`, so barrier 1
-        // does not see them and the tag must travel
-        // (`middlewares::sentry_surface`).
-        .bind_hub(sentry::Hub::current()),
-    );
-    join_handles().insert(run_id_str.clone(), handle);
-
-    let resp = AutomationRunStartResponse { run_id: run_id_str };
-    (StatusCode::ACCEPTED, Json(resp)).into_response()
-}
-
-fn set_done(run_id: Uuid, outputs: HashMap<String, JsonValue>) -> ProcRunActiveModel {
-    let summary = if outputs.is_empty() {
-        "Automation completed.".to_string()
-    } else {
-        format!("Automation completed — {} task outputs.", outputs.len())
+    let resp = AutomationRunStartResponse {
+        run_id: queued.run_id.to_string(),
     };
-    let outputs_json = serde_json::to_value(&outputs).unwrap_or(JsonValue::Null);
-    ProcRunActiveModel {
-        id: ActiveValue::Set(run_id),
-        status: ActiveValue::Set("done".into()),
-        result_summary: ActiveValue::Set(Some(summary)),
-        result_outputs: ActiveValue::Set(Some(outputs_json)),
-        completed_at: ActiveValue::Set(Some(Utc::now().into())),
-        ..Default::default()
-    }
-}
-
-fn set_failed(run_id: Uuid, e: &AutomationRunError) -> ProcRunActiveModel {
-    let (code, message) = automation_error_to_code(e);
-    ProcRunActiveModel {
-        id: ActiveValue::Set(run_id),
-        status: ActiveValue::Set("failed".into()),
-        error_message: ActiveValue::Set(Some(message)),
-        error_code: ActiveValue::Set(Some(code.to_string())),
-        completed_at: ActiveValue::Set(Some(Utc::now().into())),
-        ..Default::default()
-    }
-}
-
-fn set_cancelled(run_id: Uuid) -> ProcRunActiveModel {
-    ProcRunActiveModel {
-        id: ActiveValue::Set(run_id),
-        status: ActiveValue::Set("cancelled".into()),
-        error_message: ActiveValue::Set(Some("cancelled by user".into())),
-        error_code: ActiveValue::Set(Some("automation_run_cancelled".into())),
-        completed_at: ActiveValue::Set(Some(Utc::now().into())),
-        ..Default::default()
-    }
+    (StatusCode::ACCEPTED, Json(resp)).into_response()
 }
 
 /// Best-effort categorization of automation-runner failures.
@@ -530,6 +436,11 @@ pub async fn poll_automation_run(
         );
     }
 
+    // A run its driver gave up on never gets a terminal write from that
+    // driver. Close it here rather than leave the bundle polling `running`
+    // until the two-hour sweep. One primary-key read, only while `running`.
+    let row = settle::reconcile_abandoned(&agentic_state.db, row).await;
+
     let resp = match row.status.as_str() {
         "running" => AutomationRunPollResponse::Running {
             progress: row.progress_step.as_ref().map(|step| ProgressFrame {
@@ -573,10 +484,11 @@ pub async fn poll_automation_run(
 
 /// `POST /api/projects/{project_id}/procedures/runs/{run_id}/cancel`
 ///
-/// Two-step cancel: stamp the DB row (durable; visible cross-instance,
-/// survives restart) AND abort the in-process JoinHandle (fast; kills
-/// the LLM call / SQL execution immediately on this instance). Returns
-/// 204 on success — pollers see the terminal state on next request.
+/// Two-step cancel: close the DB row as `cancelled` (durable; any replica
+/// can do it, and pollers see the terminal state on their next request)
+/// AND write the run's durable cancel flag, which the driver — usually in
+/// another process — polls and turns into a stop of the LLM call / SQL
+/// execution within a few seconds. Returns 204 on success.
 #[instrument(skip_all, fields(project_id = %project_id, run_id = %run_id))]
 pub async fn cancel_automation_run(
     State(app_state): State<AppState>,
@@ -630,57 +542,43 @@ pub async fn cancel_automation_run(
         return StatusCode::NO_CONTENT.into_response();
     }
 
-    // Stamp the durable cancel marker. The spawned task reads this
-    // after the automation returns; if the abort below kills it first,
-    // we still need a non-stale DB record so a future poll sees the
-    // right state.
+    // Stamp the cancel and close the row, in one statement.
     //
-    // Race: the spawned task can flip the row to `done` between the
-    // status check above and this stamp. Re-check inside an UPDATE
-    // … WHERE status = 'running' so we don't stamp a terminal row
-    // — the sweep filter at sweep_terminal_runs only acts on
-    // running rows, so a leftover cancel_requested_at on a `done`
-    // row would otherwise stick around until the 24h TTL eviction.
-    let stamp_res = proc_run::Entity::update_many()
-        .col_expr(
-            proc_run::Column::CancelRequestedAt,
-            sea_orm::sea_query::Expr::value(chrono::DateTime::<chrono::FixedOffset>::from(
-                Utc::now(),
-            )),
-        )
-        .filter(proc_run::Column::Id.eq(run_uuid))
-        .filter(proc_run::Column::Status.eq("running"))
-        .exec(&agentic_state.db)
-        .await;
-    match stamp_res {
-        Ok(out) if out.rows_affected == 0 => {
-            // Row reached terminal state between status read and
-            // stamp. The terminal row is the right answer; nothing
-            // more to do.
-            return StatusCode::NO_CONTENT.into_response();
-        }
-        Ok(_) => {}
+    // The driver is normally another process, so there is no handle here to
+    // abort. Closing the row now is what lets pollers see `cancelled` from
+    // whichever replica took this request, rather than `running` until the
+    // driver notices. It is safe against every race because a terminal write
+    // only ever moves a `running` row (`settle`): a driver that finishes a
+    // moment later finds the row closed and discards its result, and one that
+    // claims the task later finds it closed and does not start.
+    //
+    // Race: the driver can flip the row to `done` between the status check
+    // above and this write. The `WHERE status = 'running'` is what keeps this
+    // from stamping a terminal row — a leftover `cancel_requested_at` on a
+    // `done` row would otherwise stick around until the 24h TTL eviction.
+    let mut closing = settle::cancelled();
+    closing.cancel_requested_at = sea_orm::ActiveValue::Set(Some(Utc::now().into()));
+    match settle::close_running(&agentic_state.db, run_uuid, closing, settle::Guard::Running).await
+    {
+        // Row reached a terminal state between the status read and this
+        // write. The terminal row is the right answer; nothing more to do.
+        Ok(false) => return StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {}
         Err(e) => {
             warn!(run_id = %run_id, error = %e, "cancel: DB stamp failed");
         }
     }
 
-    // Fast path: abort the in-process spawn. Only works on the
-    // instance that started the run. The set_cancelled handler in
-    // the task completion path covers the cross-instance case — when
-    // an instance without the handle calls cancel, the stamp above
-    // is the only effect, and when the automation naturally finishes
-    // it observes cancel_requested_at and writes the cancelled row.
-    if let Some((_, handle)) = join_handles().remove(&run_id) {
-        handle.abort();
-        // Spawned task's drop path will write the cancelled row.
-        // But the task may not get a chance to run (abort) — write
-        // here too so pollers see the state immediately. Idempotent
-        // with whatever the task may eventually write because both
-        // write 'cancelled' + completed_at.
-        if let Err(e) = set_cancelled(run_uuid).update(&agentic_state.db).await {
-            warn!(run_id = %run_id, error = %e, "cancel: terminal update failed");
-        }
+    // Tell the driver to stop. `request_cancel` sets the durable flag on the
+    // run; the driver's cancel forwarder polls it and trips the task's cancel
+    // token, which drops the automation mid-step. Without it the row would
+    // read `cancelled` while the run burned LLM and warehouse budget to its
+    // natural end. A row with no queued twin (a run started before the queue
+    // existed) matches nothing here, and that is fine.
+    if let Err(e) =
+        agentic_runtime::crud::request_cancel(&agentic_state.db, &run_uuid.to_string()).await
+    {
+        warn!(run_id = %run_id, error = %e, "cancel: durable cancel flag failed");
     }
     StatusCode::NO_CONTENT.into_response()
 }
@@ -694,17 +592,19 @@ pub async fn cancel_automation_run(
 ///    after-the-fact get `automation_run_not_found` instead of a
 ///    stale `done`; aligns with the spec's TTL.
 ///
-/// 2. **Reconcile cross-instance cancels.** A row with
-///    `status = 'running'` AND `cancel_requested_at` set means the
-///    originating instance saw the stamp but either died before
-///    observing it or the cancel was issued on a different
-///    instance whose abort is a no-op here. Promote to `cancelled`
-///    once the stamp is older than the abort window.
+/// 2. **Reconcile stamp-only cancels.** The cancel endpoint closes
+///    the row itself, so a row with `status = 'running'` AND
+///    `cancel_requested_at` set was stamped by a replica still on a
+///    release that only stamped, and no driver has claimed the task
+///    since to honour it. Promote to `cancelled` once the stamp is
+///    older than the grace window.
 ///
 /// 3. **Mark stuck-running rows failed.** A row with
-///    `status = 'running'` and `started_at` older than 2 hours is
-///    almost certainly orphaned (originating instance crashed
-///    mid-run). Mark `failed` with a clear code.
+///    `status = 'running'` and `started_at` older than 2 hours has
+///    no driver that will finish it — a run from before the queue
+///    whose replica died, or one no driver ever claimed. Mark
+///    `failed` with a clear code. This is the backstop; a run its
+///    driver gave up on is closed sooner, by the poll endpoint.
 pub async fn sweep_terminal_runs(
     db: &sea_orm::DatabaseConnection,
 ) -> Result<SweepReport, sea_orm::DbErr> {
@@ -743,8 +643,10 @@ pub async fn sweep_terminal_runs(
     // 3. Stuck-running detection. 2-hour cutoff: longest legitimate
     //    automations run in minutes; anything `running` for 2 hours
     //    is orphaned. Guard against double-counting rows step 2 just
-    //    handled by requiring `cancel_requested_at IS NULL`.
-    let stuck_cutoff = Utc::now() - chrono::Duration::hours(2);
+    //    handled by requiring `cancel_requested_at IS NULL`. The cutoff is
+    //    named because an attempt stepping aside for a live one waits no
+    //    longer than this (`executor::admission`).
+    let stuck_cutoff = Utc::now() - chrono::Duration::seconds(settle::ORPHAN_SWEEP_AFTER_SECS);
     let stuck_failed = proc_run::Entity::update_many()
         .col_expr(proc_run::Column::Status, Expr::value("failed"))
         .col_expr(proc_run::Column::CompletedAt, Expr::value(now))

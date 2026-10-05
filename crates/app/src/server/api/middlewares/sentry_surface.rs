@@ -650,6 +650,12 @@ mod tests {
             .collect()
     }
 
+    /// The driver side of a custom app's procedure run. It passes no gate — the
+    /// request that did is long gone — so it is kept in the walk by name, like
+    /// the function job executor: it mints [`custom_app_hub`] for a run whose
+    /// automation is tenant-authored.
+    const PROCEDURE_RUN_EXECUTOR: &str = "src/server/api/projects/automation_run/executor.rs";
+
     /// The files the data-plane walk reads: every module whose production code
     /// calls one of `entry_points`, plus three kept in by name — the two places
     /// a hub is *made* rather than inherited from a request (the function
@@ -667,6 +673,7 @@ mod tests {
             .filter(|(relative, text)| {
                 let always_scanned = relative.starts_with("src/server/api/custom_apps_functions/")
                     || relative == "src/server/app_function_executor.rs"
+                    || relative == PROCEDURE_RUN_EXECUTOR
                     || relative == "src/server/api/custom_apps_publish.rs";
                 let production = production_text(text);
                 let reaches_the_gate = entry_points

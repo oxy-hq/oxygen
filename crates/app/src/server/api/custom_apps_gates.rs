@@ -94,9 +94,11 @@ impl CustomAppContext {
     /// compile-boundary read downstream (semantic scan, config) reads the
     /// branch's revision rather than the promoted one.
     pub async fn build_project_context(&self) -> Result<OxyProjectContext, Response> {
-        crate::server::api::custom_apps_staging_pin::with_staging_pin(
+        build_caller_context(
+            &self.workspace,
+            self.user.id,
+            self.project_id,
             self.staging_pin,
-            build_project_context(&self.workspace, self.user.id, self.project_id),
         )
         .await
     }
@@ -484,6 +486,30 @@ fn strip_version_field(body: &[u8]) -> Cow<'_, [u8]> {
 }
 
 use std::borrow::Cow;
+
+/// The context a custom-app caller's work runs with: `user_id` as its subject,
+/// no role, resolved at `staging_pin` when the request was a staging one.
+///
+/// One function for both places that build it — the request
+/// ([`CustomAppContext::build_project_context`]) and a driver executing work
+/// that request queued (`projects::automation_run::executor`). The driver has
+/// no request, so identity reaches it as these arguments; going through the
+/// same body is what keeps a queued run on the credentials the request would
+/// have used. A context with **no** subject is not a lesser version of this
+/// one: `airhouse_managed` mints a system Admin for it, where a subject with
+/// no role mints the caller's Reader.
+pub async fn build_caller_context(
+    workspace: &entity::workspaces::Model,
+    user_id: Uuid,
+    project_id: Uuid,
+    staging_pin: Option<Uuid>,
+) -> Result<OxyProjectContext, Response> {
+    crate::server::api::custom_apps_staging_pin::with_staging_pin(
+        staging_pin,
+        build_project_context(workspace, user_id, project_id),
+    )
+    .await
+}
 
 /// Build a `WorkspaceManager` + `OxyProjectContext` for the given
 /// workspace. Pulled out so handlers that need the project context
