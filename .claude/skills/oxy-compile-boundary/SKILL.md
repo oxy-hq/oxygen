@@ -5,9 +5,11 @@ description: Use when adding a new YAML entity type to Oxy (e.g. a new file exte
 
 # Compile every workspace artifact to Postgres
 
-Oxy's runtime no longer walks the workspace filesystem on customer-facing requests. PR #2460 (the compile boundary work) made every YAML entity addressable as a `*_definitions` row keyed by `revision_id`. The IDE Compile button promotes a revision and every read site serves from Postgres until the next compile. The boundary is always on — there are no feature flags; readers fall through to the filesystem on any miss.
+Oxy's runtime no longer walks the workspace filesystem on customer-facing requests. PR #2460 (the compile boundary work) made every YAML entity addressable as a `*_definitions` row keyed by `revision_id`. A compile promotes a revision and every read site serves from Postgres until the next compile. The boundary is always on — there are no feature flags; a reader falls through to the filesystem only on a node that owns the files.
 
-This skill is the rule for **anyone adding a new file type** the runtime needs to read. Skip this skill only when the read is genuinely IDE-only (file CRUD, git ops) or a one-time onboarding write.
+**Where this is going (decided 2026-10-05):** the server-side working copy is being removed. Compile becomes its own service that fetches a pushed commit; the filesystem fall-through disappears; the IDE goes. So "it is only read in the IDE" is no longer a reason to skip the boundary — a file the runtime needs and that is not compiled will have nowhere to be read from. Plan: `internal-docs/factory-retirement.md`.
+
+This skill is the rule for **anyone adding a new file type** the runtime needs to read.
 
 ## The contract: when you add a new `.foo.yml`
 
@@ -23,11 +25,11 @@ You owe **all five of these** before the feature ships. Skipping any one of them
 
 4. **Writer** — add a `CompiledRow::Foo(f) => foos.push(...)` arm in `crates/oxy-compile/src/writer.rs`, declare the `let mut foos = Vec::new()` near the top of the function, and add the bulk-insert call near the end. The order mirrors the existing kinds.
 
-5. **Reader + handler wiring** — add `resolve_foo` (and `list_foos` if applicable) to `crates/app/src/server/api/compiled_reader.rs`. They follow the `open_compiled_revision` → `find_by_id` shape. Then wire the runtime handler:
-   - If the handler accepts a string / struct: read the compiled row, deserialise from the JSONB definition, fall through to FS on miss.
-   - If the handler accepts a `Path` (e.g. an external library like `airlayer` or `oxy_metric_monitoring`): use the materialiser pattern in `crates/app/src/server/api/semantic_scan.rs` — write the Postgres bytes to a `tempfile::TempDir`, pass that path, hold the `TempDir` guard until the call returns.
+5. **Reader + handler wiring** — add the read to `ConfigManager` (`crates/core/src/config/manager.rs`), **not** to `compiled_reader.rs`. `ConfigManager` matches on the request's `Origin` once (the compiled revision, or the disk through `ConfigManager::disk()` on a node that owns files) and returns a typed `ArtifactError` instead of an empty list; handlers call it and never choose a backend. `crates/app/tests/platform/compiled_reader_is_not_a_back_door.rs` fails the build if a handler reaches `compiled_reader` directly, and `artifact_reads_reach_the_disk_through_one_door` (`crates/core/tests/config_manager_fs_boundary.rs`) does the same for a read that reaches the working copy outside `disk()`. Then wire the runtime handler:
+   - If the handler accepts a string / struct: ask `ConfigManager`, deserialise from the JSONB definition. "Not compiled yet" must answer **retryable** (503 + a lazy compile), distinct from not-found.
+   - If the handler accepts a `Path` (e.g. an external library like `airlayer` or `oxy_metric_monitoring`): use the materialiser in `crates/core/src/config/scan.rs` (called from `crates/app/src/server/api/semantic_scan.rs`) — it writes the compiled rows to a `tempfile::TempDir`, hands over that path, and you hold the guard until the call returns.
 
-`open_compiled_revision` already handles the branch carve-out + revision lookup for every reader — you do not need to re-implement it per-surface.
+The revision a request reads is resolved once by the workspace middleware and pinned for the whole request — you do not re-resolve it per surface. Full rules: `internal-docs/workspace-source.md`.
 
 ### S3 blob storage (semantic views / topics only)
 
@@ -37,12 +39,11 @@ If you add a new entity type whose definition routinely tops tens of KB (the way
 
 ## Why this matters
 
-The original FS read pattern was the dominant runtime cost at any meaningful workspace count. The IDE works on a singleton instance (FS-backed working copy); the customer-facing `oxy-serve` fleet must never read workspace files because those instances may not have them. Every new file type you skip the compile boundary on is a new failure mode under multi-instance.
+The original FS read pattern was the dominant runtime cost at any meaningful workspace count. Serve and worker pods mount no volume, so they must never read workspace files; the one pod that still has them (the Factory) is being retired. Every new file type you skip the compile boundary on is a new failure mode under multi-instance, and a new reason the Factory cannot be removed.
 
 ## What's NOT in scope
 
 Skip this contract only when:
-- The file is purely IDE-editor state (already on the singleton, fine).
 - The artifact is a generated build product (charts, parquet caches, custom-app bundles) — those belong in S3, not the compile boundary.
 - The read happens exactly once at server startup, not per-request (startup walks of `OXY_STATE_DIR` are fine).
 
@@ -62,6 +63,7 @@ A fallback that reads a filesystem which is not there must fail, not return noth
 - `oxy-scaling-design` — broader multi-instance context.
 - `oxy-task-spec-default` — long-running work goes on the worker fleet, not in handlers.
 - `internal-docs/compile-boundary.md` — operator runbook (flags, kill switch, read routing, code map).
-- The compile worker entry point: `crates/agentic/pipeline/src/compile_worker.rs`.
-- The hybrid reader: `crates/app/src/server/api/compiled_reader.rs`.
-- The materialiser pattern: `crates/app/src/server/api/semantic_scan.rs`.
+- `internal-docs/factory-retirement.md` — the plan to compile from git and remove the working copy; `internal-docs/workspace-source.md` — the rules for where a read may come from.
+- The compile worker entry point: `crates/app/src/server/compile_worker.rs`; the dispatcher: `crates/app/src/agentic_wiring/compile_dispatcher.rs`.
+- The one read door: `ConfigManager` in `crates/core/src/config/manager.rs`. `crates/app/src/server/api/compiled_reader.rs` only resolves which revision a request is pinned to; handlers do not call it.
+- The materialiser: `crates/core/src/config/scan.rs`, called from `crates/app/src/server/api/semantic_scan.rs`.
