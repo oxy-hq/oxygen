@@ -11,6 +11,10 @@
 //! Gated by `OXY_ANALYTICS_FLEET_UNPIN` (default off) at the middleware call
 //! site; this module is pure classification + the compile-boundary read.
 
+use std::num::NonZeroUsize;
+use std::sync::{Mutex, OnceLock};
+
+use lru::LruCache;
 use oxy::config::model::{Config, Database, DatabaseType, DuckDBOptions, SnowflakeAuthType};
 use uuid::Uuid;
 
@@ -72,6 +76,98 @@ fn database_is_serve_safe(db: &Database) -> bool {
 /// databases has nothing to execute against and is trivially serve-safe.
 fn config_is_serve_safe(config: &Config) -> bool {
     config.databases.iter().all(database_is_serve_safe)
+}
+
+/// What a pod with no working copy can do with a workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Servability {
+    /// Promoted, and every database is reachable without the working copy.
+    Anywhere,
+    /// Promoted, but a database lives in the working copy — a local DuckDB with
+    /// no S3 mirror, a key file. Waiting does not change that; only the pod
+    /// holding the checkout can query it.
+    NeedsWorkingCopy,
+    /// Nothing promoted: the only `config.yml` is the working copy's. A compile
+    /// changes that.
+    NotCompiled,
+    /// Promoted, but its config could not be read just now — a database blip.
+    /// Not a property of the workspace, so neither memoised nor fixed by a
+    /// compile; the next call asks again.
+    Unknown,
+}
+
+/// One live revision per invoked workspace plus a promote window's straggler,
+/// at ~100 bytes an entry and one config-row read a miss: 1024 overshoots cheaply.
+const REVISION_MEMO_CAP: usize = 1024;
+
+/// Serve-safety of a revision's config. A revision is immutable, so the answer
+/// holds for its lifetime and the hot path is one map read. An LRU, because
+/// every promote mints a new revision id and a superseded one is never asked
+/// about again.
+fn revision_safety_memo() -> &'static Mutex<LruCache<Uuid, bool>> {
+    static MEMO: OnceLock<Mutex<LruCache<Uuid, bool>>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        Mutex::new(LruCache::new(
+            NonZeroUsize::new(REVISION_MEMO_CAP).expect("REVISION_MEMO_CAP is non-zero"),
+        ))
+    })
+}
+
+/// [`workspace_is_serve_safe`] split into its refusals, for a caller that
+/// answers them differently: an uncompiled workspace is worth a compile and a
+/// retry, an unreadable config a retry alone, and one whose database is a file
+/// in the working copy neither.
+///
+/// Reads the revision a request would be pinned to
+/// (`compiled_reader::resolve_request_revision`, last-known-good walk included)
+/// rather than the bare promoted pointer, so it judges the config the caller
+/// is about to build from. A lookup that fails is `Unknown` and is not
+/// memoised: it cannot be proven safe, and a compile would not fix a database
+/// blip.
+pub async fn servability(workspace_id: Uuid) -> Servability {
+    use crate::server::api::compiled_reader;
+    let Some(revision_id) = compiled_reader::resolve_request_revision(workspace_id, None).await
+    else {
+        return Servability::NotCompiled;
+    };
+    let known = revision_safety_memo()
+        .lock()
+        .ok()
+        .and_then(|mut memo| memo.get(&revision_id).copied());
+    let safe = match known {
+        Some(safe) => safe,
+        None => match compiled_reader::resolve_workspace_config_at(revision_id).await {
+            Ok(value) => {
+                let safe = compiled_config_is_serve_safe(value);
+                if let Ok(mut memo) = revision_safety_memo().lock() {
+                    memo.put(revision_id, safe);
+                }
+                safe
+            }
+            Err(e) => {
+                tracing::warn!(
+                    workspace_id = %workspace_id, %revision_id, error = ?e,
+                    "serve_safety: compiled config lookup failed; servability unknown"
+                );
+                return Servability::Unknown;
+            }
+        },
+    };
+    if safe {
+        Servability::Anywhere
+    } else {
+        Servability::NeedsWorkingCopy
+    }
+}
+
+/// A revision with no config row compiled a workspace that has no `config.yml`:
+/// no databases, so nothing that could live in the working copy.
+fn compiled_config_is_serve_safe(value: Option<serde_json::Value>) -> bool {
+    match value.map(serde_json::from_value::<Config>) {
+        None => true,
+        Some(Ok(config)) => config_is_serve_safe(&config),
+        Some(Err(_)) => false,
+    }
 }
 
 /// True when the workspace's promoted compiled config has only serve-safe
@@ -137,6 +233,53 @@ mod tests {
             None
         );
         assert_eq!(analytics_workspace_id("/healthz"), None);
+    }
+
+    #[test]
+    fn a_revision_with_no_config_row_has_no_database_to_be_unsafe() {
+        assert!(compiled_config_is_serve_safe(None));
+    }
+
+    #[test]
+    fn a_compiled_config_is_judged_by_its_databases() {
+        // The shape a promoted revision's config row merges back into.
+        let remote = serde_json::json!({
+            "defaults": null,
+            "builder_agent": null,
+            "models": [],
+            "databases": [{ "name": "pg", "type": "postgres", "host": "db", "database": "d" }],
+        });
+        assert!(compiled_config_is_serve_safe(Some(remote)));
+        let local = serde_json::json!({
+            "defaults": null,
+            "builder_agent": null,
+            "models": [],
+            "databases": [{ "name": "local", "type": "duckdb", "dataset": ".db/" }],
+        });
+        assert!(
+            !compiled_config_is_serve_safe(Some(local)),
+            "a local DuckDB with no mirror lives in the working copy"
+        );
+    }
+
+    #[test]
+    fn the_revision_memo_forgets_the_least_recent_past_its_cap() {
+        // A revision id per promote, for the life of the process: unbounded,
+        // this grew one entry per revision ever asked about.
+        let mut memo = revision_safety_memo().lock().unwrap();
+        let first = Uuid::new_v4();
+        memo.put(first, true);
+        for _ in 0..REVISION_MEMO_CAP {
+            memo.put(Uuid::new_v4(), true);
+        }
+        assert_eq!(memo.len(), REVISION_MEMO_CAP);
+        assert!(memo.peek(&first).is_none(), "the oldest verdict is evicted");
+    }
+
+    #[test]
+    fn a_config_that_does_not_deserialise_is_not_proven_safe() {
+        let broken = serde_json::json!({ "databases": "not-an-array" });
+        assert!(!compiled_config_is_serve_safe(Some(broken)));
     }
 
     #[test]

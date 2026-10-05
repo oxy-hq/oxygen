@@ -36,6 +36,8 @@
 //! | `staging_functions_semantic` | a staging function reads its build's pinned model, and a rollup of the promoted model never answers it |
 //! | `staging_function_pager` | a failing staging function neither pages nor claims production's first-occurrence slot, end to end (both guards: `failure_page::observe` and `claim` itself) |
 //! | `custom_app_functions_e2e` | publish, route call, isolate, invocation row; success and throw |
+//! | `custom_app_functions_diskless` | a route call on a pod with the working copy deleted answers `ctx.semantic`, `ctx.query` and `ctx.warehouse.query` from the promoted revision with the fs-leak probe at zero; an uncompiled workspace there is a retryable 503 that queues a compile, and one whose database is a file in the checkout a 503 that queues none — neither runs the isolate |
+//! | `custom_app_functions_forwarded` | the same three workspaces with `OXY_IDE_UPSTREAM` naming a Factory bound in-process: the servable one runs here and the Factory sees nothing; the other two are replayed over a real hop — method, path, body and the caller's headers verbatim plus the loop guard — and the Factory's status, body and `served-by` come back under this replica's `forwarded-via`; the uncompiled one queues a compile, neither writes an invocation row. With `OXY_IDE_UPSTREAM` naming a closed port (a down Factory), the two answer the same 503s as with none configured — not the ide-down 502 |
 //! | `custom_app_functions_host_failures` | a caught paging host-call failure writes its fingerprint; a caught `not_found` does not |
 //! | `custom_app_functions_clickhouse` | `ctx.warehouse.insert` from the isolate onto real ClickHouse |
 //! | `custom_app_functions_manual_run` | admin Run now, queue, the production driver entry point and executor, run status; its children: a check run in a named environment and every refusal around one, the invocation listings and who may read which rows (a build only staging or a sandbox serves included), the held-write and run read-backs, the logs filter |
@@ -95,8 +97,10 @@ mod canary_coverage;
 mod custom_app_access_control;
 mod custom_app_activity_roles;
 mod custom_app_functions_clickhouse;
+mod custom_app_functions_diskless;
 mod custom_app_functions_e2e;
 mod custom_app_functions_fixture;
+mod custom_app_functions_forwarded;
 mod custom_app_functions_host_failures;
 mod custom_app_functions_manual_run;
 mod custom_app_functions_manual_run_guards;

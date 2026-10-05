@@ -48,7 +48,10 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "src/server/api/custom_apps_gates.rs",
-        "custom-app execution — classified IdeOnly, runs the working copy",
+        "the custom-app data plane and function context, which run outside \
+         workspace_context: boundary first, the path only for the fallback on a \
+         pod that holds the working copy. A pod that does not is handed the \
+         `workspaces.path` column as a label and never calls the resolver",
     ),
     (
         "src/integrations/slack/workspace.rs",

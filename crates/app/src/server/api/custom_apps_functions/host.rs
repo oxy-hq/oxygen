@@ -29,6 +29,7 @@ use agentic_connector::SqlTransaction;
 use agentic_connector::{SqlDialect, StringLiteral};
 
 mod airhouse_ops;
+mod config_source;
 mod destinations;
 mod env_guard;
 mod env_homes;
@@ -340,7 +341,10 @@ impl ProjectFunctionHost {
         } else if let Some(first) = cm.list_databases().first() {
             Ok(first.name.clone())
         } else {
-            Err("this project has no databases configured".to_string())
+            // Unknown here is not the same answer as configured-none.
+            Err(self
+                .databases_unknown_here()
+                .unwrap_or_else(|| "this project has no databases configured".to_string()))
         }
     }
 
@@ -348,6 +352,11 @@ impl ProjectFunctionHost {
     /// slow TLS/auth handshake during connector construction can't keep a
     /// detached isolate thread alive past the backstop.
     async fn connect(&self, db_name: &str) -> Result<Arc<dyn DatabaseConnector>, String> {
+        // A config this node could not read names no database at all, so the
+        // lookup below would report a configured one as missing.
+        if let Some(why) = self.databases_unknown_here() {
+            return Err(why);
+        }
         with_db_timeout("connect", async {
             self.proj_ctx
                 .build_connector_for(db_name)
@@ -492,9 +501,9 @@ impl ProjectFunctionHost {
         let cm = &self.proj_ctx.workspace_manager().config_manager;
         let databases = cm.list_databases();
         let Some(db) = databases.iter().find(|db| db.name == database) else {
-            return Err(format!(
-                "database '{database}' is not configured for this project"
-            ));
+            return Err(self.databases_unknown_here().unwrap_or_else(|| {
+                format!("database '{database}' is not configured for this project")
+            }));
         };
         destination_write_policy(
             database,

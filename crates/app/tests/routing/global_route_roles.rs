@@ -63,19 +63,21 @@ fn org_reads_stay_on_the_fleet() {
     }
 }
 
-/// One mount, two pods. `serve_dispatch` answers everything under
-/// `/customer-apps/{*path}`: bundle bytes from S3, which any replica serves, and
-/// `POST .../fn/<name>`, which executes an Oxy Function against the working
-/// copy. `custom_apps_serve::serve_dispatch_roles()` states the split; assert
-/// both halves, because a declaration that covered only one would look right.
+/// One mount, any pod. `serve_dispatch` answers everything under
+/// `/customer-apps/{*path}`: bundle bytes from S3, and `POST .../fn/<name>`,
+/// which executes an Oxy Function. The function half was IdeOnly while it read
+/// the working copy; it reads the promoted revision now, so a custom app's
+/// backend runs on whichever replica the request lands on.
+/// `custom_apps_serve::serve_dispatch_roles()` states both; assert both,
+/// because a declaration that covered only one would look right.
 #[test]
-fn a_custom_app_function_runs_on_the_ide_and_its_bundle_does_not() {
+fn a_custom_app_function_and_its_bundle_both_run_on_any_replica() {
     install_route_declarations_for_tests();
 
     assert_eq!(
         classify("POST", "/customer-apps/acme/dash/fn/send-report"),
-        RouteRole::IdeOnly,
-        "an Oxy Function executes against the working copy",
+        RouteRole::FleetOk,
+        "an Oxy Function reads its workspace through the compile boundary",
     );
     assert_eq!(
         classify("GET", "/customer-apps/acme/dash/index.html"),

@@ -56,7 +56,7 @@ pub const MAX_QUEUED_ENV: &str = "OXY_FUNCTION_MAX_QUEUED";
 /// 2026-09-11, leaving roughly 1.1 GiB of headroom. At the 128 MiB default heap
 /// ceiling that is ~8 isolates simultaneously at their *worst case*. Typical
 /// usage is far below the ceiling — mean init is 6 ms and p95 duration 637 ms,
-/// so invocations are short and rarely resident together — so 32 is deliberately
+/// so invocations are short and rarely resident together — so 64 is deliberately
 /// generous: it bounds the catastrophic case without binding on traffic that
 /// works today.
 ///
@@ -75,7 +75,7 @@ pub const MAX_QUEUED_ENV: &str = "OXY_FUNCTION_MAX_QUEUED";
 /// on the first busy shift, not gradually.
 ///
 /// The asymmetry that settles it: these ceilings are **not** what protects the
-/// box's memory. `32 × 128 MiB` is already 4 GiB against a 2 GiB cgroup, so the
+/// box's memory. `64 × 128 MiB` is already 8 GiB against a 2 GiB cgroup, so the
 /// global cap was never the binding memory protection — the per-isolate heap
 /// ceiling is, backed by invocations being short (mean init 6 ms, p95 637 ms).
 /// Loosening a *rejecting* ceiling therefore costs approximately nothing in

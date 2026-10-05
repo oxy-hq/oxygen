@@ -107,6 +107,7 @@ use axum::response::{IntoResponse, Response};
 use entity::prelude::AppFunctionInvocations;
 use entity::prelude::{AppBuilds, AppFunctions};
 use entity::{app_function_invocations, app_functions};
+use futures::future::BoxFuture;
 use oxy::database::client::establish_connection;
 use oxy_app_core::custom_app_env_request::{check_origin, request_environment};
 use oxy_app_core::custom_app_environment::AppEnvironment;
@@ -121,6 +122,7 @@ use uuid::Uuid;
 
 use super::custom_apps_auth::authenticate_and_authorize;
 use super::custom_apps_build_store;
+use crate::server::invocation_placement;
 
 // ── Manifest entry shape (subset relevant to invocation) ────────────────────
 
@@ -766,6 +768,13 @@ enum Acquire {
     Return(Box<Response>),
 }
 
+fn wants_refresh(uri: &axum::http::Uri) -> bool {
+    uri.query().is_some_and(|q| {
+        q.split('&')
+            .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
+    })
+}
+
 fn json_error(status: StatusCode, error: &str, message: &str) -> Response {
     (
         status,
@@ -982,16 +991,49 @@ async fn acquire_invocation(
 
 // ── Handler ──────────────────────────────────────────────────────────────
 
-/// Entry point called from `custom_apps_serve::serve_pretty` when `rest`
+/// Entry point called from `custom_apps_serve::serve_dispatch` when `rest`
 /// begins with `fn/`.
-pub async fn handle_function_request(
+///
+/// Boxed, by a plain `fn`, for the reason `invocation_placement::elsewhere`
+/// is. This is the largest future the custom-app route awaits (71 KB in a
+/// debug build). Awaited inline, it was reserved twice in `serve_dispatch`'s
+/// poll frame and set the size of `serve_dispatch`'s own future, which every
+/// frame above it reserves in turn, on every request to the route, bundle
+/// bytes included. Behind a box the dispatcher holds a pointer.
+pub fn handle_function_request<'a>(
+    org_slug: &'a str,
+    app_slug: &'a str,
+    function_name: &'a str,
+    method: Method,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+    query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
+    preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
+) -> BoxFuture<'a, Response> {
+    Box::pin(invoke_function(
+        org_slug,
+        app_slug,
+        function_name,
+        method,
+        uri,
+        headers,
+        body,
+        query_exec,
+        preagg,
+    ))
+}
+
+async fn invoke_function(
     org_slug: &str,
     app_slug: &str,
     function_name: &str,
     method: Method,
+    // The URI the outer stack routed on, kept whole: `?refresh` is read from
+    // it, and it is what a replica replays to the Factory (`invocation_placement`).
+    uri: axum::http::Uri,
     headers: HeaderMap,
     body: axum::body::Bytes,
-    refresh: bool,
     query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
     // Layer-1 preagg cache + renewal threshold, injected at the serve router.
     // Default (both `None`) means no rollup short-circuit, so `ctx.semantic`
@@ -1037,6 +1079,21 @@ pub async fn handle_function_request(
             );
         }
     };
+
+    // Any replica runs this — unless the workspace needs a working copy this
+    // pod does not hold, in which case the Factory does.
+    let arrived = invocation_placement::Arrived {
+        method: &method,
+        uri: &uri,
+        headers: &headers,
+        body: &body,
+    };
+    if let Some(response) = invocation_placement::elsewhere(&db, app.project_id, arrived).await {
+        return response;
+    }
+    // `?refresh` bypasses the opt-in function result cache (same convention as
+    // the /query endpoint).
+    let refresh = wants_refresh(&uri);
 
     let resolved = match resolve_function_environment(&db, &app, &environment).await {
         Ok(resolved) => resolved,

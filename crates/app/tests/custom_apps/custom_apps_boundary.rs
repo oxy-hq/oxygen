@@ -121,6 +121,20 @@ const ALLOWED_SEAMS: &[Seam] = &[
                custom-apps, which would make admin depend on it.",
     },
     Seam {
+        prefix: "crate::server::invocation_placement",
+        why: "which pod runs a route invocation. `/fn/<name>` is FleetOk, and the handler \
+               asks ONE question after it has authorized the caller: can this process run \
+               the function, or does the workspace need a working copy it does not hold \
+               (nothing compiled, or a database that is a file in the checkout)? The answer \
+               weighs only fleet facts — this process's role, the Factory upstream, the \
+               compile queue, `serve_safety` — so they stay behind this one module rather \
+               than being imported into the runtime one by one. It cannot move to the route \
+               layer: which workspace an invocation needs is not known until the app has \
+               been resolved and the caller authorized, and asking earlier would tell an \
+               anonymous caller whether a workspace is compiled. At a Functions-crate cut \
+               it becomes an injected port, like `FunctionQueryExecutor`.",
+    },
+    Seam {
         prefix: "crate::emails::app_emailer",
         why: "the app emailer behind `ctx.email.send` (SES, the per-send recipient cap, the \
                local-test preview). The function host always delivered through it — by an \

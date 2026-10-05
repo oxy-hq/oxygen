@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderMap, Request, StatusCode};
 use axum::routing::any;
 use chrono::Utc;
 use entity::prelude::{AppFunctionInvocations, Organizations};
@@ -246,10 +246,11 @@ pub(crate) fn serve_router() -> Router {
     )
 }
 
-/// One function call's response: its status, and its SSE frames as
+/// One function call's response: its status and headers, and its SSE frames as
 /// `(event, data)` alongside the raw stream for failure messages.
 pub(crate) struct FnCall {
     pub(crate) status: StatusCode,
+    pub(crate) headers: HeaderMap,
     pub(crate) frames: Vec<(String, Value)>,
     pub(crate) raw: String,
 }
@@ -298,12 +299,14 @@ pub(crate) async fn call_function_with(
     let request = request.body(Body::from(body.to_string())).expect("request");
     let response = serve_router().oneshot(request).await.expect("oneshot");
     let status = response.status();
+    let headers = response.headers().clone();
     let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)
         .await
         .expect("read body");
     let raw = String::from_utf8_lossy(&bytes).into_owned();
     FnCall {
         status,
+        headers,
         frames: parse_sse(&raw),
         raw,
     }

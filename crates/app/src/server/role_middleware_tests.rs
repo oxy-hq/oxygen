@@ -123,6 +123,55 @@ async fn fleet_ok_route_on_serve_replica_passes_through_nest() {
     unsafe { std::env::remove_var("OXY_ROLE") };
 }
 
+/// A `FleetOk` handler that forwarded from inside — `invocation_placement`,
+/// for a workspace the replica cannot serve — hands back the Factory's answer
+/// already stamped `forwarded-via`. The middleware's own stamp must then leave
+/// the Factory's `served-by` alone: the pair is the only trace of the hop.
+#[tokio::test]
+async fn a_response_a_handler_relayed_from_the_factory_keeps_the_factorys_served_by() {
+    install_roles();
+    unsafe { std::env::set_var("OXY_ROLE", "serve") };
+    crate::server::role_manifest::init_process_role_from_env();
+
+    let relaying = Router::new()
+        .route(
+            "/api/{workspace_id}/threads",
+            get(|| async {
+                let mut resp = "from the factory".into_response();
+                resp.headers_mut()
+                    .insert(HEADER_SERVED_BY, HeaderValue::from_static("ide@factory#1"));
+                stamp_forwarded_via(resp, Role::Serve)
+            }),
+        )
+        .layer(middleware::from_fn(enforce_role));
+    let resp = relaying
+        .oneshot(
+            HttpRequest::get("/api/some-uuid/threads")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(HEADER_SERVED_BY).unwrap(),
+        "ide@factory#1",
+        "the Factory answered; the replica's stamp must not claim it did"
+    );
+    assert!(
+        resp.headers()
+            .get(HEADER_FORWARDED_VIA)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("serve@"),
+        "the replica that relayed it is named"
+    );
+
+    unsafe { std::env::remove_var("OXY_ROLE") };
+}
+
 #[tokio::test]
 async fn health_probe_passes_on_every_role_including_worker() {
     install_roles();

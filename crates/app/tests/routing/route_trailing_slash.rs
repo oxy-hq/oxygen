@@ -76,17 +76,17 @@ async fn only_nest_service_serves_the_trailing_slash() {
 /// The last three routes that used to live in a hand-written table. None of
 /// them is a route in the protected router, so each found a different home:
 /// `/ide*` is a URL prefix the middleware owns (no handler exists — it is the
-/// SPA `fallback_service`), and the custom-app split is declared by the module
-/// whose one handler serves both sides.
+/// SPA `fallback_service`), and the custom-app routes are declared by the
+/// module whose one handler serves them.
 #[test]
 fn the_routes_that_have_no_mount_still_classify() {
     install_route_declarations_for_tests();
 
     // Bundle bytes come from S3; `POST .../fn/<name>` executes a function
-    // against the working copy. One handler, two pods.
+    // against the promoted revision. One handler, any pod.
     assert_eq!(
         classify("POST", "/customer-apps/acme/dash/fn/refresh"),
-        RouteRole::IdeOnly,
+        RouteRole::FleetOk,
     );
     assert_eq!(
         classify("GET", "/customer-apps/acme/dash/assets/main.js"),

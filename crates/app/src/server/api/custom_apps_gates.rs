@@ -517,48 +517,21 @@ pub(crate) async fn build_project_context_with_role(
     role: Option<entity::workspace_members::WorkspaceRole>,
 ) -> Result<OxyProjectContext, Response> {
     let branch_opt: Option<&str> = None;
-    // The nil-UUID local workspace is a synthetic row with no `path` —
-    // its directory is resolved from the server's cwd at request time
-    // (config.yml walk-up), same as `resolve_workspace_path` and the
-    // workspace middleware do. Only registered cloud workspaces carry a
-    // DB path, so going straight to the row 500s every bundle endpoint
-    // on a local-mode workspace.
-    let effective_path = if project_id.is_nil() {
-        match oxy::config::resolve_local_workspace_path() {
-            Ok(p) => p,
-            Err(e) => {
-                error!("local workspace path resolution failed: {e}");
-                return Err(err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "could not resolve workspace path",
-                ));
-            }
-        }
-    } else {
-        match effective_workspace_path(workspace, branch_opt).await {
-            Ok(p) => p,
-            Err(e) => {
-                error!("effective_workspace_path failed: {e}");
-                return Err(err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "could not resolve workspace path",
-                ));
-            }
-        }
-    };
     // Compile boundary first, filesystem second — the same order the workspace
     // middleware and the Slack entry point use.
     //
     // This went straight to the working copy, which is the reason nine
-    // `/api/projects/*` routes are pinned IdeOnly: the custom-app data plane
+    // `/api/projects/*` routes were pinned IdeOnly: the custom-app data plane
     // could only be served by the one pod holding a checkout. Reading the
-    // promoted revision here is what lets them run on a replica, so a custom app
-    // survives an ide restart instead of going down with it.
+    // promoted revision here is what lets them — and a function invocation —
+    // run on a replica, so a custom app survives an ide restart instead of
+    // going down with it.
     //
     // `Origin` is recorded, so every boundary read downstream resolves at the
     // revision picked here rather than deriving its own.
     let revision_id =
         crate::server::api::compiled_reader::resolve_request_revision(project_id, branch_opt).await;
+    let effective_path = context_root(workspace, project_id, branch_opt).await?;
     let init = WorkspaceBuilder::new(project_id)
         .with_working_copy(&effective_path, revision_id, oxy::config::OnMissing::Empty)
         .await;
@@ -611,6 +584,58 @@ pub(crate) async fn build_project_context_with_role(
     Ok(match role {
         Some(r) => ctx.with_role(r),
         None => ctx,
+    })
+}
+
+/// The root the context's manager is built around.
+///
+/// On a pod that holds the working copy this is the directory the fallback
+/// arms read. On one that does not (`serve`, `worker`) there is no directory:
+/// the `workspaces.path` column is carried as a LABEL, because a compiled
+/// `Config` comes back with `workspace_path` empty and the manager cannot be
+/// built without one. With a promoted revision nothing is read through it: the
+/// config, the semantic model and every artifact come from the boundary.
+///
+/// What still resolves against it and FAILS there, loudly, is a database that
+/// is itself a file in the checkout — a local DuckDB with no S3 mirror, a
+/// BigQuery key file (`DuckDB 'local': cannot resolve path '.db/'`). A
+/// function invocation is kept off a replica for such a workspace
+/// (`server::invocation_placement`); the `/api/projects/*` data plane is
+/// not, and answers with that error.
+///
+/// So that pod does not go through `effective_workspace_path`. That resolver
+/// is the working-copy door, and `workspace_fs_probe` counts every pass
+/// through it on a diskless process as a leak: one per request, for a route
+/// that reaches for no disk, which is how a real leak gets lost in the noise.
+async fn context_root(
+    workspace: &entity::workspaces::Model,
+    project_id: Uuid,
+    branch_opt: Option<&str>,
+) -> Result<std::path::PathBuf, Response> {
+    // The nil-UUID local workspace is a synthetic row with no `path` — its
+    // directory is resolved from the server's cwd at request time (config.yml
+    // walk-up), same as `resolve_workspace_path` and the workspace middleware
+    // do. Only registered cloud workspaces carry a DB path, so going straight
+    // to the row 500s every bundle endpoint on a local-mode workspace.
+    let resolved = if project_id.is_nil() {
+        oxy::config::resolve_local_workspace_path().map_err(|e| e.to_string())
+    } else if !oxy::workspace_fs_probe::process_owns_workspace_files() {
+        workspace
+            .path
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .ok_or_else(|| format!("workspace {} has no path configured", workspace.id))
+    } else {
+        effective_workspace_path(workspace, branch_opt)
+            .await
+            .map_err(|e| e.to_string())
+    };
+    resolved.map_err(|e| {
+        error!("workspace path resolution failed: {e}");
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not resolve workspace path",
+        )
     })
 }
 

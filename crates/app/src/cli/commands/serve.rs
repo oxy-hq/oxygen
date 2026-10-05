@@ -1714,6 +1714,58 @@ mod tests {
         );
     }
 
+    /// A function invocation is ONE route to the role manifest, however the
+    /// caller addressed it. The host rewrites sit in [`wrap_outer_service`],
+    /// outside the router `enforce_role` is layered on, so `classify` only ever
+    /// sees the canonical `/customer-apps/<org>/<app>/fn/<name>` — and that is
+    /// `FleetOk`. Were the rewrite to move inside, an app-subdomain call would
+    /// be classified as `/fn/orders`: today the default happens to agree, but
+    /// the declaration that says so would no longer be the one deciding.
+    ///
+    /// The org-subdomain shape (`/a/<slug>/fn/<name>`) needs a database to
+    /// resolve its org; `org_host_dispatch::rewrite_app_path` is unit-tested to
+    /// produce this same canonical path.
+    #[tokio::test]
+    async fn a_function_call_on_an_app_subdomain_is_classified_by_its_canonical_path() {
+        use crate::server::role_manifest::{RouteRole, classify};
+        crate::server::role_manifest::install_route_declarations_for_tests();
+
+        let routed = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        let seen = routed.clone();
+        let app = Router::new().route(
+            "/{*path}",
+            axum::routing::any(move |uri: axum::http::Uri| {
+                let seen = seen.clone();
+                async move {
+                    *seen.lock().expect("lock") = Some(uri.path().to_string());
+                    axum::http::StatusCode::OK
+                }
+            }),
+        );
+        let request = Request::builder()
+            .method("POST")
+            .uri("/fn/orders")
+            .header(
+                axum::http::header::HOST,
+                "acme--store.customer-apps.oxygen-hq.com",
+            )
+            .body(Body::empty())
+            .expect("request");
+        wrap_outer_service(app)
+            .oneshot(request)
+            .await
+            .expect("response");
+
+        let path = routed.lock().expect("lock").clone().expect("routed");
+        assert_eq!(path, "/customer-apps/acme/store/fn/orders");
+        assert_eq!(classify("POST", &path), RouteRole::FleetOk);
+        assert_eq!(
+            classify("POST", "/customer-apps/acme/store/fn/orders"),
+            RouteRole::FleetOk,
+            "the main-site shape is the same route"
+        );
+    }
+
     #[tokio::test]
     async fn custom_app_route_compresses_assets() {
         // A handler standing in for a JS asset response (>32 bytes so the

@@ -139,6 +139,14 @@ fn required_role_for(route_role: RouteRole) -> &'static str {
 }
 
 fn stamp(mut resp: Response<Body>, role: Role) -> Response<Body> {
+    // A handler that relayed this answer from the Factory from inside a
+    // `FleetOk` route (`invocation_placement`) has already stamped it with
+    // [`stamp_forwarded_via`]. Its `served-by` is the Factory's and stays:
+    // this replica did not serve it, and overwriting would make the hop
+    // invisible to anyone reading the headers.
+    if resp.headers().contains_key(HEADER_FORWARDED_VIA) {
+        return resp;
+    }
     let header = format!("{}@{}", role.as_str(), worker_id());
     if let Ok(v) = HeaderValue::from_str(&header) {
         resp.headers_mut().insert(HEADER_SERVED_BY, v);
@@ -146,7 +154,13 @@ fn stamp(mut resp: Response<Body>, role: Role) -> Response<Body> {
     resp
 }
 
-fn stamp_forwarded_via(mut resp: Response<Body>, role: Role) -> Response<Body> {
+/// The headers that say a replica relayed the Factory's answer: this process
+/// in `x-oxy-forwarded-via`, and — only when the Factory stamped none of its
+/// own — in `x-oxy-served-by` too. [`enforce_role`] applies it when it
+/// forwards an `IdeOnly` route; a handler that forwards from inside a
+/// `FleetOk` route applies the same, so the pair an operator reads a hop from
+/// (`forwarded-via: serve@…`, `served-by: ide@…`) holds on both paths.
+pub(crate) fn stamp_forwarded_via(mut resp: Response<Body>, role: Role) -> Response<Body> {
     let Ok(v) = HeaderValue::from_str(&format!("{}@{}", role.as_str(), worker_id())) else {
         return resp;
     };

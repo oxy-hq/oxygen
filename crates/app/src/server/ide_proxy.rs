@@ -123,17 +123,24 @@ fn client() -> &'static Client {
 /// True if this request was already forwarded once (loop guard). The caller
 /// must NOT forward such a request again.
 pub fn already_forwarded(req: &Request) -> bool {
-    req.headers().contains_key(HEADER_FORWARDED_BY)
+    forwarded_once(req.headers())
+}
+
+/// [`already_forwarded`] for a caller that has taken the request apart and
+/// holds only its headers.
+pub fn forwarded_once(headers: &HeaderMap) -> bool {
+    headers.contains_key(HEADER_FORWARDED_BY)
 }
 
 /// Reverse-proxy `req` to the ide upstream. `Ok(resp)` = the ide answered (any
 /// status). `Err(req)` = the ide could not be REACHED (connect / transport
 /// error); the request is handed BACK, rebuilt from its own parts so the
 /// extensions (path params, OriginalUri) survive — the caller can fall through
-/// to a local handler. Today [`forward_to_ide`] is the only caller and maps
-/// `Err` to the 502 — the hand-back exists for a caller that wants to serve a
-/// local fallback, which no route currently does (a read that must survive the
-/// ide is classified `FleetOk` and never reaches this proxy).
+/// to a local handler. [`forward_to_ide`] maps `Err` to the 502;
+/// `invocation_placement` maps it to the 503 its refusals carry, so a
+/// custom-app function call keeps its retry contract while the ide is down. No
+/// route serves a local fallback (a read that must survive the ide is
+/// classified `FleetOk` and never reaches this proxy).
 ///
 /// Preserves method, path, query, and auth headers; STREAMS both bodies
 /// (SSE-safe; the upstream's own per-route body limit is the only ceiling).
@@ -184,8 +191,8 @@ pub async fn forward_to_ide_opt(upstream_base: &str, req: Request) -> Result<Res
             tracing::warn!(%url, ?err, "ide_proxy: ide upstream unreachable");
             // Hand the request back rebuilt from its parts — the extensions
             // (path params, OriginalUri) ride along so a caller that falls
-            // through to a local handler keeps working. Body is empty (the
-            // only callers that use this are read-only GETs).
+            // through to a local handler keeps working. Body is empty: the
+            // stream was handed to reqwest.
             return Err(Request::from_parts(parts, Body::empty()));
         }
     };

@@ -95,17 +95,31 @@ pub(crate) use sources::serve_from_s3_build;
 /// bodies; functions are now its only use.)
 pub(crate) const FUNCTION_BODY_LIMIT: usize = 32 * 1024 * 1024;
 
-/// One route, two pods. `serve_dispatch` answers everything under
-/// `/customer-apps/{*path}`: bundle bytes from S3, which any replica can serve,
-/// and `POST .../fn/<name>`, which EXECUTES an Oxy Function against the working
-/// copy. A mount cannot state one role for both, so the module that owns the
-/// split states it — the same shape `agentic_http::router_roles()` uses.
+/// One route, any pod. `serve_dispatch` answers everything under
+/// `/customer-apps/{*path}`: bundle bytes from S3, and `POST .../fn/<name>`,
+/// which EXECUTES an Oxy Function. Both are `FleetOk`, so a custom app — its
+/// pages and its backend — does not depend on the Factory.
+///
+/// The function entry is stated on its own although the wildcard already
+/// covers it. It was `IdeOnly` while a function read `config.yml` and the
+/// semantic model off the working copy; both now come from the promoted
+/// revision (`custom_apps_gates::build_project_context_with_role`,
+/// `host/semantic_op.rs`). A literal entry outranks any broader pattern, so a
+/// future `IdeOnly` wildcard cannot silently put every app's backend back
+/// behind one pod. The invocations a replica cannot run — a workspace with
+/// nothing compiled, or one whose database is a file in the checkout — are
+/// replayed to the Factory by the handler itself
+/// (`server::invocation_placement`).
+///
+/// Declared here rather than at a mount because `/customer-apps/{*path}` sits
+/// on the outer router in `serve.rs`, outside `RoleRouter` — the same shape
+/// `agentic_http::router_roles()` uses.
 pub fn serve_dispatch_roles() -> &'static [RouteRoleDecl] {
     &[
         RouteRoleDecl {
             method: "*",
             path: "/customer-apps/{org}/{app}/fn/{name}",
-            role: RouteRole::IdeOnly,
+            role: RouteRole::FleetOk,
         },
         RouteRoleDecl {
             method: "*",
@@ -169,15 +183,6 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
             Ok(b) => b,
             Err(_) => return StatusCode::BAD_REQUEST.into_response(),
         };
-        // `?refresh` bypasses the opt-in function result cache (same convention
-        // as the /query endpoint).
-        let refresh = uri
-            .query()
-            .map(|q| {
-                q.split('&')
-                    .any(|kv| kv == "refresh" || kv.starts_with("refresh="))
-            })
-            .unwrap_or(false);
         // The function query executor is injected at the serve router (an
         // Extension layer) so this runtime never imports `projects::query`.
         // Absent only if the router wiring regressed — fail closed.
@@ -208,9 +213,9 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
             app_slug,
             function_name,
             method,
+            uri,
             headers,
             body_bytes,
-            refresh,
             query_exec,
             preagg,
         )
