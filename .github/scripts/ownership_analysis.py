@@ -77,6 +77,7 @@ AREAS = [
     ("crates/app/src/server/api/world_model_graph",       "World Model (backend)"),
     ("web-app/src/pages/ide/WorldModel",                  "World Model (UI)"),
     ("crates/metric-monitoring",                          "Metric tree & anomaly monitoring"),
+    ("crates/simulation",                                 "Metric-tree scenario simulation"),
     ("web-app/src/pages/ide/MetricTree",                  "Metric Tree (UI)"),
     ("web-app/src/pages/ide/SemanticLayer/AnomaliesInbox", "Anomalies Inbox (UI)"),
     ("crates/airform",                                    "Airform (modeling)"),
@@ -88,6 +89,10 @@ AREAS = [
     # components/. Two prefixes, one row.
     ("web-app/src/pages/airway",                          "Airway ELT (UI)"),
     ("web-app/src/components/airway",                     "Airway ELT (UI)"),
+    # Uploadable airway sources — extracted to a sibling crate 2026-10 (#3397);
+    # the old path keeps the feature history attributed.
+    ("crates/api-source-upload",                          "Source uploads"),
+    ("crates/app/src/server/api/source_upload.rs",        "Source uploads"),
     ("crates/agentic/runtime",                            "Agentic runtime / task queue"),
     ("crates/agentic/core",                               "Agentic FSM core"),
     ("crates/agentic/pipeline",                           "Agentic pipeline facade"),
@@ -107,17 +112,26 @@ AREAS = [
     ("crates/billing",                                    "Billing / Stripe"),
     ("crates/app/src/server/api/billing",                 "Billing (backend)"),
     ("web-app/src/pages/billing",                         "Billing (UI)"),
+    # Moved into oxy-api-tenancy 2026-10 (#3460); old prefix keeps the history.
+    ("crates/api-tenancy/src/organizations",              "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/organizations",           "Multi-tenancy / orgs"),
     ("crates/app/src/server/api/secrets.rs",              "Secrets"),
     # Frontline & crew ops (new 2026-09) — one area, four prefixes.
     ("crates/api-frontline",                              "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_admin.rs",      "Frontline & crew ops"),
     ("crates/app/src/server/api/frontline_grants.rs",     "Frontline & crew ops"),
+    # Pre-extraction paths of what moved into crates/api-frontline/ (#3390).
+    ("crates/app/src/server/api/frontline.rs",            "Frontline & crew ops"),
+    ("crates/app/src/server/api/frontline_devices.rs",    "Frontline & crew ops"),
+    ("crates/app/src/server/api/frontline_kiosk_cookie.rs", "Frontline & crew ops"),
+    ("crates/app/src/server/api/frontline_kiosk_mode.rs", "Frontline & crew ops"),
     ("web-app/src/components/settings/SettingsDialog/sections/organization/Crew",
                                                           "Frontline & crew ops"),
     ("web-app/src/pages/login",                           "Login & crew sign-in (UI)"),
     ("crates/app/src/server/api/work",                    "Work assignment graph"),
     ("crates/api-documents",                              "Document model (KB & compliance)"),
+    # Pre-extraction path (#3388) — without it the extraction reads as authorship.
+    ("crates/app/src/server/api/documents",               "Document model (KB & compliance)"),
     ("crates/app/src/server/api/chat",                    "Chat channels"),
     ("crates/app/src/server/api/notifications",           "Notifications & push"),
     ("crates/git",                                        "Git client / IDE git"),

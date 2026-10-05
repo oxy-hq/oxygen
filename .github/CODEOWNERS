@@ -180,6 +180,8 @@ crates/app/src/server/api/metrics.rs               @haitrr @NTtanh
 web-app/src/pages/ide/MetricTree/                  @haitrr @NTtanh
 web-app/src/pages/ide/SemanticLayer/AnomaliesInbox/  @haitrr @NTtanh
 internal-docs/anomaly-monitoring.md                @haitrr @NTtanh
+# Metric-tree scenario simulation (#2862) — Hai's, uncovered until 2026-10-05.
+crates/simulation/                                 @haitrr @NTtanh
 
 # Workspace health & reconciliation (override: carved out of admin/ above)
 crates/app/src/server/api/admin/workspace_health/  @haitrr @luong-komorebi
@@ -220,6 +222,9 @@ web-app/src/pages/airway/                          @hotay @nresh
 # (13 of its 14 commits are Tay's, incl. cursor reset #3268).
 web-app/src/components/airway/                     @hotay @nresh
 web-app/src/pages/quickbooks/                      @hotay @nresh
+# Uploadable airway sources — Tay's feature (#2942, #2992, #2998). Luong
+# extracted it into a sibling crate (#3397), so he backs up rather than owns.
+crates/api-source-upload/                          @hotay @luong-komorebi
 # Airway admission policy (override: carved out of admin/ above — Tay owns airway)
 crates/app/src/server/api/admin/airway_config/     @hotay @luong-komorebi
 
@@ -278,8 +283,9 @@ crates/billing/                                    @NTtanh @luong-komorebi
 crates/app/src/server/api/billing/                 @NTtanh @luong-komorebi
 web-app/src/pages/billing/                         @NTtanh @luong-komorebi
 
-# Multi-tenancy / multi-org foundation
-crates/app/src/server/api/organizations/           @NTtanh @luong-komorebi
+# Multi-tenancy / multi-org foundation. Moved into oxy-api-tenancy 2026-10-03
+# (#3460) — kept here, below the crates/api-tenancy/ rule, so this override wins.
+crates/api-tenancy/src/organizations/              @NTtanh @luong-komorebi
 
 # Secrets management
 crates/app/src/server/api/secrets.rs               @NTtanh @luong-komorebi
