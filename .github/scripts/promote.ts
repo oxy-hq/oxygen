@@ -168,12 +168,25 @@ export const PROD_VALUES =
 export const STAGING_VALUES =
   "oxy-workload/575455576647/us-west-2/oxy-dev/products/oxy/gitops/values/oxy-staging.yaml";
 /**
- * How recently the mirror's last `Public Release` on main must have failed for
- * this pass to say so. The reconciler keeps no state, so "say it once" is "say it
- * on the passes that start within this long of the failure": two, or three when
- * GitHub's cron runs late — never every 15 minutes for as long as it stays red.
+ * How long a broken build stays sayable: after main's build FIRST fails, and
+ * again from the start of each working day it is still failing (`buildAlert`).
+ * The reconciler keeps no state, and a broken build has no bump PR to remember
+ * on, so "say it once" is "say it on the passes that start inside this window".
+ *
+ * That is one pass, not the two or three a 15-minute cron suggests: over the 400
+ * scheduled passes of 2026-09-28 → 10-05 the gap between passes averaged 27
+ * minutes, and a 30-minute window in working hours held one pass 72% of the
+ * time, two 21%, none 7%. A window with no pass in it is said the next morning.
  */
 const BUILD_ALERT_MINUTES = 30;
+/**
+ * How long main's build may fail before it counts as staying broken, and is
+ * said again each working day. Past one build (~40-70 min), so a failure the
+ * next commit fixes is said once and never repeated.
+ */
+const BUILD_STALE_MINUTES = 120;
+/** A release run conclusion that means no image was built. `cancelled` is not here. */
+const BUILD_FAILED = new Set(["failure", "timed_out", "startup_failure"]);
 const INTERNAL = "oxy-hq/oxygen-internal";
 const API = "https://api.github.com";
 
@@ -754,47 +767,199 @@ async function pinnedAt(path: string, ref: string, token: Token): Promise<string
 interface ReleaseRun {
   conclusion: string | null;
   url: string;
+  /** When it was created: for a push, when the commit landed. */
+  from?: string | null;
+  /** When it finished. */
   at: string | null;
   sha: string;
+  /**
+   * Whether ghcr holds `main-<sha>`. Asked only of the green runs that could end
+   * a failing streak (`latestReleaseRuns`); absent means nobody asked.
+   */
+  built?: boolean;
+}
+
+/** One run as the Actions API lists it; only what is read. */
+interface ApiRun {
+  status: string | null;
+  conclusion: string | null;
+  html_url: string;
+  created_at?: string;
+  updated_at?: string;
+  head_sha: string;
+  head_branch: string | null;
 }
 
 /**
- * The mirror's most recent COMPLETED `Public Release` on main. Signing happens
- * there, and a signing failure publishes no `main-<sha>` — which the walk above
- * reads as "no image yet" and quietly skips, so the train sits on the last signed
- * build and nothing here would ever say the build is broken.
+ * The mirror's `Public Release` runs, newest first, with NO filter in the query:
+ * every branch and tag, finished or not. `mainReleaseRuns` does the choosing.
+ *
+ * It used to ask the server to: `…/runs?branch=main&status=completed&per_page=1`.
+ * Any of `branch`, `status`, `event`, `head_sha`, `actor` or `created` turns the
+ * listing into a search, and for this repository the search is sometimes a
+ * month behind. On 2026-10-05, sixty requests interleaved over two minutes:
+ * `status=completed` led with a green run from 2026-09-05 on 3 of 30, the old
+ * query on 1 of 15 — while main's newest run was a failure — and the unfiltered
+ * listing was right 15 times of 15. A pass that drew the stale answer read
+ * "last release run: success". A full page rather than one run because main
+ * shares the listing with release tags and runs in flight, and because one run
+ * cannot say how long the build has been failing.
  */
-async function latestReleaseRun(token: Token): Promise<ReleaseRun | null> {
+export const RELEASE_RUNS_PATH = `/repos/${MIRROR}/actions/workflows/public-release.yaml/runs?per_page=100`;
+
+/** The finished runs on main out of one page of the listing, in the order given. */
+export function mainReleaseRuns(listing: { workflow_runs?: ApiRun[] }): ReleaseRun[] {
+  return (listing.workflow_runs ?? [])
+    .filter((run) => run.head_branch === "main" && run.status === "completed")
+    .map((run) => ({
+      conclusion: run.conclusion,
+      url: run.html_url,
+      from: run.created_at ?? null,
+      at: run.updated_at ?? null,
+      sha: run.head_sha.slice(0, 7)
+    }));
+}
+
+/**
+ * Main's recent completed `Public Release` runs, or null when they could not be
+ * read. The image is built and signed there, and a failure publishes no
+ * `main-<sha>` — which the walk above reads as "no image yet" and quietly skips,
+ * so the train sits on the last built image and nothing else here would say so.
+ */
+async function latestReleaseRuns(token: Token): Promise<ReleaseRun[] | null> {
   try {
-    const { workflow_runs: runs } = await gh<{
-      workflow_runs: { conclusion: string | null; html_url: string; updated_at?: string; head_sha: string }[];
-    }>(
-      `/repos/${MIRROR}/actions/workflows/public-release.yaml/runs?branch=main&status=completed&per_page=1`,
-      { token }
-    );
-    const run = runs[0];
-    return run
-      ? { conclusion: run.conclusion, url: run.html_url, at: run.updated_at ?? null, sha: run.head_sha.slice(0, 7) }
-      : null;
-  } catch {
+    const runs = mainReleaseRuns(await gh<{ workflow_runs?: ApiRun[] }>(RELEASE_RUNS_PATH, { token }));
+    // Newest first, stopping at the first that built: one question on a healthy main.
+    for (const run of greensOverAFailure(runs)) {
+      run.built = (await imageDigest(run.sha, token)) !== null;
+      if (run.built) break;
+    }
+    return runs;
+  } catch (e) {
+    // Not fatal — the alert must not stop the promotion it sits beside — but not
+    // silent either: unread, a broken build is unreported for this pass.
+    console.error(`::warning::could not read the mirror's release runs: ${(e as Error).message}`);
     return null;
   }
 }
 
-/** Whether this pass should say the mirror's image build is broken. */
+/** A build that is failing, as the Slack message needs it. */
+export interface BrokenBuild {
+  /** The newest failed run: the one to open. */
+  sha: string;
+  url: string;
+  /** When the first commit that failed landed (or, unknown, when its run finished). ISO 8601. */
+  since: string | null;
+  /** How many runs in a row have failed, as far back as the page reaches. */
+  failures: number;
+  /** The daily "still failing" repeat, as opposed to the first report. */
+  stale: boolean;
+}
+
+const buildFailed = (run: ReleaseRun): boolean => BUILD_FAILED.has(run.conclusion ?? "");
+
+/**
+ * The green runs with a failure somewhere under them, newest first: the ones
+ * whose image is worth asking the registry for. A green `Public Release` is not
+ * proof of an image — a push that changes nothing shippable succeeds with every
+ * build job skipped — and in the three broken days of 2026-10-02 → 10-05 four
+ * such runs each made the newest run on main read "success".
+ */
+export function greensOverAFailure(runs: ReleaseRun[]): ReleaseRun[] {
+  return runs.slice(0, runs.findLastIndex(buildFailed) + 1).filter((r) => r.conclusion === "success");
+}
+
+/**
+ * The failures at the head of main's runs, newest first: every failed run since
+ * the last one that built an image. A cancelled or skipped run is no verdict
+ * either way and is passed over, and so is a green run the registry holds no
+ * image for.
+ */
+export function failingStreak(runs: ReleaseRun[]): ReleaseRun[] {
+  const built = (r: ReleaseRun) => r.conclusion === "success" && r.built !== false;
+  const verdicts = runs.filter((r) => built(r) || buildFailed(r));
+  const green = verdicts.findIndex(built);
+  return green === -1 ? verdicts : verdicts.slice(0, green);
+}
+
+/** Minutes since `window` opened on `at`'s local day, or null outside it. */
+function minutesIntoWindow(at: Date, window: Window): number | null {
+  if (!inWindow(at, window)) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: window.zone,
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false
+  }).formatToParts(at);
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return (part("hour") - window.fromHour) * 60 + part("minute");
+}
+
+/**
+ * Whether this pass should say main's image build is broken.
+ *
+ * What is judged is the run of failures since the last build that produced an
+ * image, not the newest run alone, and it is said twice over:
+ *
+ * * when it BEGINS — on the passes within [`BUILD_ALERT_MINUTES`] of the first
+ *   failure, at any hour. Timed from the first failure, so the ninth commit to
+ *   fail on a broken main is not nine alerts.
+ * * while it LASTS — once it has failed for [`BUILD_STALE_MINUTES`], again on the
+ *   passes in the first [`BUILD_ALERT_MINUTES`] of every working day
+ *   ([`TALK_WINDOW`]), with how long and how many.
+ *
+ * It used to judge the newest run alone. From 2026-10-02 07:04 UTC main built no
+ * image for three days, and that was posted fourteen times: once or twice for
+ * each of eleven commits that failed, every one as if it were the first, none
+ * saying how long. Between them it said nothing — 44 hours over a weekend read
+ * "already said" — and the build stayed broken.
+ *
+ * Failing runs are the signal, rather than the age of the newest image, because
+ * a commit may rightly have no image: a docs-only push starts no run and a
+ * CI-only one succeeds having built nothing. Read by image age alone, a quiet
+ * weekend that ended on a docs commit is a broken build.
+ */
 export function buildAlert(
-  run: ReleaseRun | null,
+  runs: ReleaseRun[] | null,
   { now }: { now: Date }
-): { alert: boolean; why: string } {
-  if (!run) return { alert: false, why: "no completed release run to judge" };
-  if (run.conclusion !== "failure")
-    return { alert: false, why: `last release run: ${run.conclusion ?? "unknown"}` };
-  const age = run.at ? (now.getTime() - new Date(run.at).getTime()) / 60000 : Infinity;
-  if (age > BUILD_ALERT_MINUTES)
-    return { alert: false, why: `release run for ${run.sha} failed ${Math.floor(age)}m ago; already said` };
+): { alert: boolean; why: string; broken: BrokenBuild | null } {
+  if (!runs) return { alert: false, why: "the release runs could not be read", broken: null };
+  const streak = failingStreak(runs);
+  const newest = streak[0];
+  const first = streak[streak.length - 1];
+  if (!newest || !first) {
+    const last = runs[0];
+    return {
+      alert: false,
+      why: last ? `last release run: ${last.conclusion ?? "unknown"}` : "no completed release run to judge",
+      broken: null
+    };
+  }
+  // Since the EARLIEST any of them finished, not since the oldest one did: a
+  // re-run of that one moves its finish time, and would begin the streak again.
+  const finished = streak.flatMap((r) => (r.at ? [new Date(r.at).getTime()] : []));
+  const age = finished.length ? (now.getTime() - Math.min(...finished)) / 60000 : Infinity;
+  const broken = { sha: newest.sha, url: newest.url, since: first.from ?? first.at, failures: streak.length };
+  const failing = `${streak.length} release run(s) in a row failed on main, newest ${newest.sha}`;
+  if (age <= BUILD_ALERT_MINUTES)
+    return {
+      alert: true,
+      why: `the mirror's Public Release for ${newest.sha} failed — no signed main-${newest.sha}, so the train cannot move past the last good build: ${newest.url}`,
+      broken: { ...broken, stale: false }
+    };
+  if (age < BUILD_STALE_MINUTES)
+    return { alert: false, why: `${failing}; said when it began, ${Math.floor(age)}m ago`, broken: null };
+  const opened = minutesIntoWindow(now, TALK_WINDOW);
+  if (opened === null || opened >= BUILD_ALERT_MINUTES)
+    return {
+      alert: false,
+      why: `${failing}; said at the start of each working day (Mon–Fri 09:00 Asia/Ho_Chi_Minh) until one succeeds`,
+      broken: null
+    };
   return {
     alert: true,
-    why: `the mirror's Public Release for ${run.sha} failed — no signed main-${run.sha}, so the train cannot move past the last good build: ${run.url}`
+    why: `${failing} — no image since ${broken.since ?? "an unknown time"}, so nothing merged since can deploy: ${newest.url}`,
+    broken: { ...broken, stale: true }
   };
 }
 
@@ -1131,8 +1296,7 @@ async function plan({
     candidatePin,
     stagingPin: (await pinnedAt(STAGING_VALUES, "main", infraToken)) ?? null
   });
-  const releaseRun = await latestReleaseRun(token);
-  const build = buildAlert(releaseRun, { now });
+  const build = buildAlert(await latestReleaseRuns(token), { now });
   const stagingServesCandidate = Boolean(candidate && staging?.sha === candidate.sha);
   const dispatch = shouldDispatchChecks(
     {
@@ -1200,8 +1364,9 @@ async function plan({
     buildBroken: build.alert,
     buildWhy: build.why,
     // The same facts as `buildWhy`, unflattened, so the Slack message can link
-    // the failed run instead of pasting a URL into a sentence.
-    buildRun: build.alert && releaseRun ? { sha: releaseRun.sha, url: releaseRun.url } : null,
+    // the failed run instead of pasting a URL into a sentence, and say how long
+    // it has been failing. Null unless this pass says it.
+    buildRun: build.broken,
     stagingServesCandidate,
     soakStartedAt: since ? since.toISOString() : null,
     checksDispatchedAt: dispatchedAt ? dispatchedAt.toISOString() : null,
@@ -1725,18 +1890,138 @@ function selfTest(): void {
   is("no PR proposes nothing", proposesCandidate(null, "abc1234", pin), false);
 
   // A broken mirror build is said out loud, a bounded number of times.
-  const t0 = new Date("2026-09-24T03:00:00Z");
-  const run = (conclusion: string | null, minutesAgo: number) => ({
+  const t0 = new Date("2026-09-24T03:00:00Z"); // Thu 10:00 in Ho Chi Minh
+  const runUrl = (sha: string) => `https://github.com/oxy-hq/oxygen/actions/runs/${sha}`;
+  const run = (conclusion: string | null, minutesAgo: number, sha = "abc1234", from = t0) => ({
     conclusion,
-    url: "https://github.com/oxy-hq/oxygen/actions/runs/1",
-    at: new Date(t0.getTime() - minutesAgo * 60000).toISOString(),
-    sha: "abc1234"
+    url: runUrl(sha),
+    at: new Date(from.getTime() - minutesAgo * 60000).toISOString(),
+    sha
   });
-  is("a release run that just failed is said", buildAlert(run("failure", 10), { now: t0 }).alert, true);
-  is("...and not again once the window has passed", buildAlert(run("failure", 45), { now: t0 }).alert, false);
-  is("a green release run is quiet", buildAlert(run("success", 5), { now: t0 }).alert, false);
-  is("a cancelled run is not a broken build", buildAlert(run("cancelled", 5), { now: t0 }).alert, false);
-  is("no run at all is not an alarm", buildAlert(null, { now: t0 }).alert, false);
+  is("a release run that just failed is said", buildAlert([run("failure", 10)], { now: t0 }).alert, true);
+  is("...and not again once the window has passed", buildAlert([run("failure", 45)], { now: t0 }).alert, false);
+  is("a green release run is quiet", buildAlert([run("success", 5)], { now: t0 }).alert, false);
+  is("a cancelled run is not a broken build", buildAlert([run("cancelled", 5)], { now: t0 }).alert, false);
+  is("a build that timed out built nothing either", buildAlert([run("timed_out", 10)], { now: t0 }).alert, true);
+  is("no run at all is not an alarm", buildAlert([], { now: t0 }).alert, false);
+  is("...nor is a listing that could not be read", buildAlert(null, { now: t0 }).alert, false);
+  is(
+    "the first failure after a green run is news",
+    buildAlert([run("failure", 5), run("success", 300)], { now: t0 }).broken?.stale,
+    false
+  );
+  is(
+    "...the next commit to fail on a main that is already broken is not",
+    buildAlert([run("failure", 5), run("failure", 300), run("success", 400)], { now: t0 }).alert,
+    false
+  );
+  is(
+    "...nor is the first failure of a streak, re-run and failing again",
+    buildAlert([run("failure", 300, "bbb2222"), run("failure", 5, "aaa1111"), run("success", 400)], { now: t0 }).alert,
+    false
+  );
+
+  // The mirror, answering by the shape of the question as it did on 2026-10-05:
+  // to a filtered query (a search) it led with a green run a month old, to the
+  // plain listing with main's real newest runs — one still building, and under
+  // it one that had just failed. Put `branch=main` or `status=completed` back in
+  // RELEASE_RUNS_PATH and the first of these fails.
+  const listed = (conclusion: string | null, minutesAgo: number, sha: string, head_branch = "main") => ({
+    status: conclusion ? "completed" : "in_progress",
+    conclusion,
+    html_url: runUrl(sha),
+    // Every run here took 40 minutes: pushed, then finished.
+    created_at: new Date(t0.getTime() - (minutesAgo + 40) * 60000).toISOString(),
+    updated_at: new Date(t0.getTime() - minutesAgo * 60000).toISOString(),
+    head_sha: sha.padEnd(40, "0"),
+    head_branch
+  });
+  const mirror = (path: string) => ({
+    workflow_runs: /[?&](actor|branch|check_suite_id|created|event|head_sha|status)=/.test(path)
+      ? [listed("success", 30 * 1440, "9e32349")]
+      : [listed(null, 2, "5d7a02b"), listed("failure", 10, "710ce4d"), listed("success", 200, "21b945b")]
+  });
+  const seen = buildAlert(mainReleaseRuns(mirror(RELEASE_RUNS_PATH)), { now: t0 });
+  is("the listing this script asks for shows the failed build", [seen.alert, seen.broken?.sha], [true, "710ce4d"]);
+  is(
+    "...broken since its commit landed, not since the build gave up 40 minutes later",
+    seen.broken?.since,
+    new Date(t0.getTime() - 50 * 60000).toISOString()
+  );
+  for (const filter of ["branch=main", "status=completed"])
+    is(
+      `...where the listing filtered by ${filter} answered with a month-old green run`,
+      buildAlert(mainReleaseRuns(mirror(`${RELEASE_RUNS_PATH}&${filter}`)), { now: t0 }).why,
+      "last release run: success"
+    );
+  is(
+    "main is picked out of the page here: a failed release tag is not a broken main",
+    buildAlert(
+      mainReleaseRuns({ workflow_runs: [listed("failure", 5, "7fdfa24", "0.6.0"), listed("success", 60, "21b945b")] }),
+      { now: t0 }
+    ).alert,
+    false
+  );
+  is(
+    "...and so are finished runs: one still building is not a verdict",
+    mainReleaseRuns(mirror(RELEASE_RUNS_PATH)).map((r) => r.sha),
+    ["710ce4d", "21b945b"]
+  );
+
+  // A build that STAYS broken is said again each working day. Thu 09:10 in Ho
+  // Chi Minh: three failures in a row, the first 41 hours ago.
+  const morning = new Date("2026-09-24T02:10:00Z");
+  const failing = [
+    run("failure", 60, "ccc3333", morning),
+    run("failure", 20 * 60, "bbb2222", morning),
+    run("failure", 41 * 60, "aaa1111", morning),
+    run("success", 50 * 60, "0000000", morning)
+  ];
+  const still = buildAlert(failing, { now: morning });
+  is("a build still failing when the working day opens is said again", still.alert, true);
+  is("...with the newest failure, how many in a row, and since when", still.broken, {
+    sha: "ccc3333",
+    url: runUrl("ccc3333"),
+    since: "2026-09-22T09:10:00.000Z",
+    failures: 3,
+    stale: true
+  });
+  is("...as a reason of its own", still.why.startsWith("3 release run(s) in a row failed on main, newest ccc3333 — no image since"), true);
+  is("...on the opening passes, not all day", buildAlert(failing, { now: new Date("2026-09-24T03:10:00Z") }).alert, false);
+  is("...and again the next working day", buildAlert(failing, { now: new Date("2026-09-25T02:10:00Z") }).alert, true);
+  is("...but not on a Saturday", buildAlert(failing, { now: new Date("2026-09-26T02:10:00Z") }).alert, false);
+  is(
+    "a cancelled run on top does not hide it",
+    buildAlert([run("cancelled", 5, "ddd4444", morning), ...failing], { now: morning }).broken?.failures,
+    3
+  );
+  is(
+    "one that began an hour ago is not yet staying broken",
+    buildAlert([run("failure", 60, "ccc3333", morning), run("success", 300, "0000000", morning)], { now: morning }).alert,
+    false
+  );
+  // A green run ends it only if it built an image; the registry is asked which.
+  const builtNothing = { ...run("success", 30, "eee5555", morning), built: false };
+  is(
+    "a green run that built nothing does not end the streak",
+    buildAlert([builtNothing, ...failing], { now: morning }).broken,
+    still.broken
+  );
+  is("...one that built an image does", buildAlert([{ ...builtNothing, built: true }, ...failing], { now: morning }).alert, false);
+  is(
+    "the registry is asked about the greens over a failure, and no others",
+    greensOverAFailure([builtNothing, ...failing]).map((r) => r.sha),
+    ["eee5555"]
+  );
+  is("...so a main with no failure asks nothing", greensOverAFailure([run("success", 5), run("cancelled", 9)]), []);
+  // A healthy build says nothing, at the opening or any other time.
+  const healthy = [run("success", 60, "ccc3333", morning), ...failing.slice(1)];
+  is("a build that has succeeded since is healthy", buildAlert(healthy, { now: morning }), {
+    alert: false,
+    why: "last release run: success",
+    broken: null
+  });
+  is("...and names no broken build for the message", failingStreak(healthy), []);
 
   // The values-file edit.
   is(

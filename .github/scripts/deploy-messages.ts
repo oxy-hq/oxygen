@@ -36,7 +36,7 @@
 import { readFile } from "node:fs/promises";
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { prodGate, SOAK_MINUTES, type ProdState } from "./promote.ts";
+import { prodGate, SOAK_MINUTES, type BrokenBuild, type ProdState } from "./promote.ts";
 
 const INTERNAL = "oxy-hq/oxygen-internal";
 const WINDOW_TEXT = "Mon–Thu, 09:00–17:00 Vietnam time";
@@ -317,6 +317,34 @@ export function buildBrokenMessage({ failed, lastGood, runUrl }: { failed: strin
   );
 }
 
+/**
+ * Builds have been failing for a while: the repeat of `buildBrokenMessage`, said
+ * each working morning until one succeeds. It leads with how long, because that
+ * is what the first message could not know and what makes this one worth reading.
+ */
+export function buildStillBrokenMessage({
+  failed,
+  failures,
+  since,
+  now,
+  runUrl
+}: {
+  failed: string;
+  failures: number;
+  since: string | null;
+  now: string;
+  runUrl: string | null;
+}): string {
+  const lasted = since ? ` for ${humanDuration((Date.parse(now) - Date.parse(since)) / 60000)}` : "";
+  const count = failures > 1 ? `${failures} builds in a row, the newest` : "build";
+  return lines(
+    `:red_circle: *Oxygen builds have been failing${lasted}* — ${count} \`${failed}\``,
+    `Customers keep the release they have: nothing merged since ${since ? slackTime(since) : "the first failure"} can reach them until a build succeeds.`,
+    "*What to do:* an engineer fixes the build. This is repeated every working morning until one succeeds.",
+    details([[runUrl, "the newest failed build"]])
+  );
+}
+
 // ── Reads ───────────────────────────────────────────────────────────────────
 
 interface Plan {
@@ -326,7 +354,7 @@ interface Plan {
   bumpPr: { number: number } | null;
   soakStartedAt: string | null;
   prod: { kind: string; why: string };
-  buildRun?: { sha: string; url: string } | null;
+  buildRun?: BrokenBuild | null;
 }
 
 /** The oxygen-internal commits between prod and the candidate, or null with a reason on stderr. */
@@ -499,6 +527,24 @@ function selfTest(): void {
   has("the ready message", ready, "*What to do:* an engineer merges <https://github.com/oxy-hq/infrastructure/pull/2139|release PR #2139>");
   const broken = buildBrokenMessage({ failed: "abc1234", lastGood: "b7f49d7", runUrl: "https://x/run" });
   has("a broken build", broken, "Nothing newer than build `b7f49d7` can be released until a build succeeds. Customers are not affected.");
+  const stillBroken = buildStillBrokenMessage({
+    failed: "710ce4d",
+    failures: 6,
+    since: "2026-10-03T16:19:24Z",
+    now: "2026-10-05T02:06:00Z",
+    runUrl: "https://x/run"
+  });
+  has("a build that stays broken", stillBroken, ":red_circle: *Oxygen builds have been failing for 34 hours* — 6 builds in a row, the newest `710ce4d`");
+  has("a build that stays broken", stillBroken, "Customers keep the release they have: nothing merged since <!date^1791044364^");
+  has("a build that stays broken", stillBroken, "*What to do:* an engineer fixes the build.");
+  has("a build that stays broken", stillBroken, "Details: <https://x/run|the newest failed build>");
+  for (const jargon of ["2026m", "mirror", "Public Release", "gate", "bump", "digest", "train", "main-"])
+    has("a build that stays broken", stillBroken.split("Details:")[0] ?? "", jargon, false);
+  has(
+    "...and one failure is not called a row",
+    buildStillBrokenMessage({ failed: "710ce4d", failures: 1, since: null, now: "2026-10-05T02:06:00Z", runUrl: null }),
+    "*Oxygen builds have been failing* — build `710ce4d`"
+  );
 
   // Naming the Sentry issues (the real ones that blocked 2026-09-28/29).
   const longTitle =
@@ -580,7 +626,12 @@ if (!invokedDirectly) {
     // For the PR comment: the list, only when Sentry is the reason.
     if (issues?.length && blockedBySentry(plan.prod.why)) console.log(issueList(issues, "markdown"));
   } else if (kind === "build-broken") {
-    console.log(buildBrokenMessage({ failed: plan.buildRun?.sha ?? "unknown", lastGood: plan.candidate?.sha ?? null, runUrl: plan.buildRun?.url ?? runUrl }));
+    const run = plan.buildRun;
+    console.log(
+      run?.stale
+        ? buildStillBrokenMessage({ failed: run.sha, failures: run.failures, since: run.since, now: plan.at, runUrl: run.url })
+        : buildBrokenMessage({ failed: run?.sha ?? "unknown", lastGood: plan.candidate?.sha ?? null, runUrl: run?.url ?? runUrl })
+    );
   } else {
     const facts = { ...(await factsFrom(plan, runUrl, process.env.INFRA_REPO || "oxy-hq/infrastructure")), issues };
     console.log(

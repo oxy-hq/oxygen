@@ -782,8 +782,9 @@ jobs:
       # A signing (or any) failure in the mirror's release run publishes no
       # `main-<sha>`, which the plan reads as "no image yet" — the train then sits
       # on the last signed build and every gate stays quietly green. Nobody reads
-      # the mirror's Actions tab, so it is said here, on the passes within
-      # BUILD_ALERT_MINUTES of the failure (see `buildAlert`).
+      # the mirror's Actions tab, so it is said here: when the build first fails,
+      # and again each working morning for as long as it keeps failing — with how
+      # long, and how many in a row (see `buildAlert`).
       - name: Say the mirror build is broken
         if: >-
           always() && vars.PROMOTE_ENABLED == 'true' &&

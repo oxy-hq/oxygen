@@ -631,6 +631,10 @@ jobs:
       # self-test is where every gate decision is pinned.
       - name: promote.ts self-test
         run: node .github/scripts/promote.ts --self-test
+      # The words the train posts. promote.yaml runs this too, but only on main:
+      # without it here, a message's assertions first run after they have merged.
+      - name: deploy-messages.ts self-test
+        run: node .github/scripts/deploy-messages.ts --self-test
       # The weekly DORA roll-up: its classifier and metrics, and the flags its
       # workflow passes.
       - name: deploy-metrics.ts self-test
