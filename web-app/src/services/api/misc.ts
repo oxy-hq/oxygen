@@ -13,12 +13,11 @@ export class ChartService {
 }
 
 export class ArtifactService {
-  static async getArtifact(projectId: string, branchName: string, id: string): Promise<Artifact> {
-    const response = await apiClient.get(`/${projectId}/artifacts/${id}`, {
-      params: {
-        branch: branchName
-      }
-    });
+  // No branch: an artifact is one Postgres row found by its id, the same on
+  // every branch. A `?branch=` here would buy nothing and send the read to the
+  // one node that owns the workspace files.
+  static async getArtifact(projectId: string, id: string): Promise<Artifact> {
+    const response = await apiClient.get(`/${projectId}/artifacts/${id}`);
     return response.data;
   }
 }

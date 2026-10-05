@@ -39,11 +39,11 @@ const ArtifactPanel = ({
     },
     [setSelectedArtifactIds]
   );
-  const { project, branchName } = useCurrentProjectBranch();
+  const { project } = useCurrentProjectBranch();
   const artifactQueries = useQueries({
     queries: selectedArtifactIds.map((id) => ({
-      queryKey: queryKeys.artifact.get(project.id, branchName, id),
-      queryFn: () => ArtifactService.getArtifact(project.id, branchName, id)
+      queryKey: queryKeys.artifact.get(project.id, id),
+      queryFn: () => ArtifactService.getArtifact(project.id, id)
     }))
   });
 

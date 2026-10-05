@@ -304,8 +304,7 @@ const workspaceKeys = {
 
 const artifactKeys = {
   all: ["artifact"] as const,
-  get: (projectId: string, branchName: string, id: string) =>
-    [...artifactKeys.all, "get", projectId, branchName, id] as const
+  get: (projectId: string, id: string) => [...artifactKeys.all, "get", projectId, id] as const
 };
 
 const contextGraphKeys = {

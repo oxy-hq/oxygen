@@ -30,21 +30,27 @@ export const useAirwayFiles = (): UseQueryResult<AirwayFile[]> => {
   });
 };
 
+const agenticOnly = (agents: AgentInfo[]): AgentInfo[] =>
+  agents.filter((a) => a.path.endsWith(".agentic.yml") || a.path.endsWith(".agentic.yaml"));
+
 /**
  * Agents the schedule dialog can target. Filters the workspace's agent
  * list to `.agentic.yml` / `.agentic.yaml` files — the analytics
  * pipeline `start_agent_run` resolves through `PipelineBuilder.analytics`,
  * which only loads agentic configs. Classic `.agent.yml` agents go
  * through a different runtime and aren't supported as schedule targets.
+ *
+ * The filter is a `select`, not part of the fetch: this shares its key with
+ * `useAgents`, which the top bar's clock keeps mounted beside the dialog. A
+ * second `queryFn` under one key would have each overwrite the other's list
+ * with its own shape.
  */
 export const useScheduleAgents = (): UseQueryResult<AgentInfo[]> => {
   const { project, branchName } = useCurrentProjectBranch();
   return useQuery({
-    queryKey: queryKeys.agent.list(project.id, branchName ?? ""),
-    queryFn: async () => {
-      const all = await AgentService.listAgents(project.id, branchName ?? "");
-      return all.filter((a) => a.path.endsWith(".agentic.yml") || a.path.endsWith(".agentic.yaml"));
-    }
+    queryKey: queryKeys.agent.list(project.id, branchName),
+    queryFn: () => AgentService.listAgents(project.id, branchName),
+    select: agenticOnly
   });
 };
 

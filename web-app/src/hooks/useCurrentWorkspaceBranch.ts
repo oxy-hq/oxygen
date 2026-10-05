@@ -56,6 +56,10 @@ export default function useCurrentWorkspaceBranch() {
     // ide singleton, even when the value is "main". That cancels the compile
     // boundary for /apps, /agents, /databases and friends in normal operation.
     //
+    // "The IDE" is narrower than the `/ide` route: the coordinator,
+    // observability and the camera fleet are mounted under it and are not
+    // inside (`BRANCH_INDEPENDENT_SECTIONS` in `pages/ide`).
+    //
     // Empty, not `undefined`: that is the server's existing contract for "no
     // branch" — `normalize_branch_hint` filters it to `None`
     // (`normalize_branch_hint_strips_empty` pins it) and `escalate_for_branch`
