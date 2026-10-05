@@ -172,11 +172,14 @@ pub(super) async fn close_running<C: ConnectionTrait>(
 /// terminal and never touch this table; without this the bundle would poll
 /// `running` until the two-hour sweep.
 ///
-/// A terminal `agentic_runs` status is not proof on its own, though. Every
-/// `oxy serve` boot runs `cleanup_stale_runs`, which fails a root run with no
-/// events and no *queued* entry — a run whose driver is still preparing it
-/// holds a *claimed* one, so the boot fails it under a live driver. So the run
-/// is closed only once nothing holds its task ([`task_is_held`]).
+/// A terminal `agentic_runs` status is not proof on its own, though, so the
+/// run is closed only once nothing holds its task either ([`task_is_held`]).
+/// What prompted the check is fixed at its source: `cleanup_stale_runs`, which
+/// every `oxy serve` boot runs, used to fail a zero-event root whose entry a
+/// driver had *claimed* — under that driver — and now spares it. The check
+/// stays as the second lock: a pod still on the older build writes that
+/// `failed` for the length of a rollout, and a close here cannot be taken
+/// back — the driver's result is discarded and the user runs the steps again.
 ///
 /// Returns the row to answer the poll with: re-read when this call (or anyone
 /// else) closed it, the caller's own otherwise. A row with no `agentic_runs`

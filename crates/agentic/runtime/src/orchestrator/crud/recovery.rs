@@ -106,6 +106,59 @@ pub async fn get_active_root_runs(db: &DatabaseConnection) -> Result<Vec<run::Mo
         .await
 }
 
+/// Reconcile the non-terminal `agentic_runs` rows at `oxy serve` boot
+/// (`oxy-app`'s `new_agentic_state`; `oxy worker` never calls it).
+///
+/// **Unscoped, and every serve pod runs it.** It was written for one process
+/// restarting, where whatever is non-terminal was orphaned by the process this
+/// one replaces. In a split fleet a boot says no such thing — a `serve` replica
+/// rolls while the `ide` and the workers keep driving — so every arm has to be
+/// read as "what does this do to a run a live peer holds":
+///
+/// - `waiting_on_child` / `waiting_on_children` → `failed`. Dormant: a
+///   coordinator waiting on children persists `delegating`, so no current run
+///   reaches this arm.
+/// - `awaiting_input` → left for the user.
+/// - a root with no events → `failed` ("run never started"), **unless its
+///   queue entry is still live** (`queued` or `claimed`); the reasoning is at
+///   that arm.
+/// - anything else → `needs_resume`, with a note for the UI.
+/// - then every child whose parent is terminal → `failed`.
+///
+/// # `needs_resume` on a run a live peer is driving
+///
+/// That arm has no liveness check, so a boot stamps runs that are in flight on
+/// another pod. It does not hand them to a second driver:
+///
+/// - **No selection reads `needs_resume` differently from `running`.**
+///   [`get_resumable_root_runs`], [`find_stuck_runs`] and
+///   [`find_pending_global_runs`] list both; [`find_stuck_automation_runs`]
+///   lists `running` and not `needs_resume`, so the stamp can only take a run
+///   *out* of it. Nothing becomes selectable that was not already.
+/// - **What keeps a second driver off is not the status.** A queue-driven run
+///   holds the driver lease — `recover_single_run` takes it and heartbeats it
+///   every third of [`DRIVER_LEASE_TTL_SECS`] — which all three selections
+///   exclude while fresh and `try_acquire_driver` refuses. A direct-driven run
+///   takes no lease but always has a `claimed` (or `queued` + `scope_owned`)
+///   entry in its tree, which [`find_stuck_runs`] excludes and
+///   [`find_pending_global_runs`] cannot match. [`get_resumable_root_runs`] has
+///   no queue predicate, which is why only a process that hosted those
+///   coordinators may run it (`StartupPass` in `oxy-app`) — and it lists
+///   `running` too, so that gate does not rest on this stamp either.
+/// - **The driver does not act on it.** Its coordinator keeps task state in
+///   memory, and its next `transition_run` overwrites the column.
+///
+/// What the stamp does cost a live run is cosmetic, and worth knowing when
+/// reading a row: the `error_message` note outlives the status — a
+/// `transition_run` that carries no error leaves it in place, and only a
+/// recovery claim clears it (`clear_run_error`) — and `updated_at` moves, which
+/// restarts [`find_stuck_runs`]' grace window and the
+/// [`StuckRun::unclaimed_secs`] clock. Sparing those runs is not the one-line
+/// check the zero-event arm gets: a run with events is held through its lease
+/// or through *any* entry of its task tree (an automation root's own entry is
+/// already `completed` while a child holds the claim — the reason
+/// [`find_stuck_automation_runs`] matches the whole tree), not through its own
+/// queue row.
 pub async fn cleanup_stale_runs(db: &DatabaseConnection) -> Result<u64, DbErr> {
     // Find all runs with non-terminal task_status.
     let stale_runs = run::Entity::find()
@@ -151,33 +204,45 @@ pub async fn cleanup_stale_runs(db: &DatabaseConnection) -> Result<u64, DbErr> {
 
         let event_count = get_max_seq(db, &r.id).await.unwrap_or(-1) + 1;
         if event_count == 0 && r.parent_run_id.is_none() {
-            // Root with zero events. Two sub-cases:
+            // Root with zero events. Whether it is an orphan is the queue's
+            // call, not this function's: the discriminator is the state of
+            // the run's own queue entry.
             //
-            // (a) A scheduler-seeded or run-now-seeded Global run that
-            //     hasn't been driven yet: its queue entry is still
-            //     `queued` with `scope_owned = false`, waiting for the
-            //     latency worker / periodic loop to pick it up. Force-
-            //     failing this is a regression — the run is valid pending
-            //     work, not an orphan.
+            // (a) `queued` — nobody has started it yet: a scheduler- or
+            //     run-now-seeded Global run waiting for the latency worker,
+            //     or a claim the reaper or a graceful shutdown handed back.
+            //     Valid pending work, not an orphan.
             //
-            // (b) Any other zero-event root with no queued entry: stale
-            //     placeholder from a request that died before enqueuing.
-            //     Safe to fail.
+            // (b) `claimed` — a driver holds it and has not emitted its
+            //     first event yet. Spared whatever the age of the claim's
+            //     heartbeat, deliberately. This runs unscoped at every
+            //     `oxy serve` boot, so the claim is as likely a worker's on
+            //     another pod as the previous process's, and nothing here
+            //     can tell which. The reaper can, and a dead claim is its
+            //     to settle (`reap_stale_tasks`): a heartbeat older than
+            //     `visibility_timeout_secs` sends the entry back to `queued`
+            //     — case (a) — or, with `max_claims` spent, to `dead` —
+            //     case (c). Testing the heartbeat here would be a second
+            //     copy of that rule, able only to disagree with it. And
+            //     failing the run would not release the claim: this writes
+            //     `agentic_runs` alone, so the reaper would go on to
+            //     re-queue a task whose run already reads `failed`.
             //
-            // The discriminator is whether a `queued` queue row exists
-            // for this run id.
-            let has_queued = crate::orchestrator::crud::queue::get_queue_entry(db, &r.id)
-                .await
-                .ok()
-                .flatten()
-                .map(|q| q.queue_status == "queued")
-                .unwrap_or(false);
-            if has_queued {
-                // Leave as-is; the recovery loop / latency worker will
-                // drive it on the next tick.
+            // (c) no entry, or a terminal one (`completed`, `failed`,
+            //     `cancelled`, `dead`) — nothing holds the run and nothing
+            //     is going to: a placeholder from a request that died
+            //     before enqueuing, or a task that ended without writing an
+            //     event. Safe to fail.
+            //
+            // A lookup that errors is none of these, so it propagates
+            // instead of failing a run on a guess.
+            let entry = crate::orchestrator::crud::queue::get_queue_entry(db, &r.id).await?;
+            if entry.is_some_and(|q| matches!(q.queue_status.as_str(), "queued" | "claimed")) {
+                // (a) / (b): leave as-is; whoever holds the entry, or
+                // claims it next, drives the run.
                 continue;
             }
-            // (b): never started AND no queued entry — fail it.
+            // (c): never started and nothing holds it — fail it.
             let update = run::ActiveModel {
                 id: Set(r.id.clone()),
                 task_status: Set(Some("failed".to_string())),

@@ -191,10 +191,14 @@ async fn a_closed_run_is_never_reopened_or_rewritten() {
 
 // ── The poll's reconcile: closes only what nothing holds ─────────────────────
 
-/// What `cleanup_stale_runs` writes at every `oxy serve` boot for a root run
-/// with no events and no `queued` entry (`agentic-runtime`,
-/// `orchestrator/crud/recovery.rs`). Written directly rather than by calling
-/// the sweep: the sweep is global, and lib tests share one database.
+/// What `cleanup_stale_runs` (`agentic-runtime`,
+/// `orchestrator/crud/recovery.rs`) writes at an `oxy serve` boot for a root
+/// run with no events that it takes for an orphan. Today that needs an absent
+/// or terminal queue entry; a build from before it spared `claimed` entries
+/// writes it under a live driver too, and that is the case the first test
+/// below keeps covered. Written directly rather than by calling the sweep: the
+/// sweep is global and lib tests share one database — and the current sweep no
+/// longer produces the claimed case at all.
 async fn fail_as_the_boot_sweep_does(db: &DatabaseConnection, run_id: Uuid) {
     use sea_orm::ConnectionTrait;
     db.execute_unprepared(&format!(
@@ -210,11 +214,13 @@ async fn poll(db: &DatabaseConnection, run_id: Uuid) -> proc_run::Model {
 }
 
 /// The review's sequence: a driver claims the run and is still preparing it
-/// (no events yet), a serve pod boots and fails the run under it. The poll
-/// must not close the row — the driver is about to run the steps, and a close
-/// here discards its result and sends the user to run them a second time.
-/// The same holds once the claim goes back to `queued` (a reaped or released
-/// claim): the next claimant settles the row itself.
+/// (no events yet), a serve pod boots and fails the run under it — a pod on a
+/// build from before the boot sweep spared a claimed entry; the current sweep
+/// leaves this run alone (`agentic-runtime`'s `stale_run_cleanup_test`). The
+/// poll must not close the row — the driver is about to run the steps, and a
+/// close here discards its result and sends the user to run them a second
+/// time. The same holds once the claim goes back to `queued` (a reaped or
+/// released claim): the next claimant settles the row itself.
 #[tokio::test]
 async fn a_run_failed_under_a_driver_that_holds_it_is_left_running() {
     const WORKER: &str = "settle-test-held";
@@ -229,8 +235,8 @@ async fn a_run_failed_under_a_driver_that_holds_it_is_left_running() {
         .expect("claim")
         .expect("the run's entry is claimable");
     assert_eq!(claimed.queue_status, "claimed");
-    // Claimed first: the boot sweep spares a `queued` entry, so what it fails
-    // in production is a claimed one.
+    // Claimed first: a `queued` entry has always been spared, so the run the
+    // older sweep failed under a live driver was a claimed one.
     fail_as_the_boot_sweep_does(&db, id).await;
 
     let polled = poll(&db, id).await;

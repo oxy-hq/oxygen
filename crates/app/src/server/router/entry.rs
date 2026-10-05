@@ -523,8 +523,15 @@ async fn new_agentic_state(
     let db = oxy::database::client::establish_connection()
         .await
         .map_err(|e| OxyError::RuntimeError(format!("db connect failed: {e}")))?;
-    if run_cleanup {
-        cleanup_stale_runs(&db).await.ok();
+    if run_cleanup && let Err(e) = cleanup_stale_runs(&db).await {
+        // Not fatal — a row the cleanup did not reach is simply left as it
+        // was, which is what every `oxy worker` boot leaves too. But the
+        // cleanup stops at its first failed read rather than fail a run on a
+        // guess, so a boot that stopped early has to say so.
+        tracing::warn!(
+            error = %e,
+            "startup stale-run cleanup stopped early; the rows it did not reach are unchanged"
+        );
     }
     let thread_owner: Arc<dyn agentic_pipeline::platform::ThreadOwnerLookup> =
         Arc::new(crate::agentic_wiring::OxyThreadOwnerLookup::new(db.clone()));
