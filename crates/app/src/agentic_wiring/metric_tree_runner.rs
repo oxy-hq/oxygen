@@ -961,7 +961,7 @@ pub fn build_query_executor(
     // into the closure alongside `engine`, which it is derived from.
     let live_rollups = {
         let views: Vec<&oxy_airlayer_compat::View> = engine.semantic_layer().views.iter().collect();
-        oxy_airlayer_compat::preagg::live_rollups(&views)
+        oxy_airlayer_compat::live_rollups_or_decline(&views)
     };
 
     let pool: std::sync::Mutex<std::collections::HashMap<String, Vec<Arc<dyn DatabaseConnector>>>> =
@@ -1162,7 +1162,7 @@ pub fn build_drill_query_executor(
     let live_rollups = {
         let layer = shared_layer.read().expect("shared layer poisoned");
         let views: Vec<&oxy_airlayer_compat::View> = layer.views.iter().collect();
-        oxy_airlayer_compat::preagg::live_rollups(&views)
+        oxy_airlayer_compat::live_rollups_or_decline(&views)
     };
 
     let pool: std::sync::Mutex<std::collections::HashMap<String, Vec<Arc<dyn DatabaseConnector>>>> =

@@ -298,7 +298,7 @@ fn compile_against(
 
     // Check local Parquet cache with freshness validation (Layer 1).
     let live: Vec<&oxy_airlayer_compat::View> = semantic_layer.views.iter().collect();
-    let live = oxy_airlayer_compat::preagg::live_rollups(&live);
+    let live = oxy_airlayer_compat::live_rollups_or_decline(&live);
     if let Some(preagg) = preagg
         && let Some(local) = try_resolve_preagg(preagg, &request, &sql, &database_name, Some(&live))
     {

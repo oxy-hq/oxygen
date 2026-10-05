@@ -658,9 +658,55 @@ aho-corasick = "1.1"
 #   * Nothing in the range touches timezone/DATE handling or pre-aggregation
 #     selection. Checked, because both have bitten this pin before.
 #
+# NOW AT abe99c2 — airlayer main, the merge of #119 (`004b41b`, plus the
+# doc-only `e4caf8a` and the doc-only #118). Still no tag newer than v0.4.0,
+# and abe99c2 is `origin/main` HEAD exactly; `f0bacc8` is an ancestor.
+#
+# Carried FOR: the experiments estimator (internal-docs/2026-09-30-experiments-
+# plan.md, "PR 0"), whose airlayer PR merges onto main and so inherits #119.
+# Landed on its own so the estimator's bump carries only the estimator.
+#
+#   * **An unresolvable rollup measure is refused, not dropped (#119).** A
+#     `pre_aggregations:` entry naming a measure its view does not declare used
+#     to resolve one measure short, under the hash of the shortened list. At
+#     `f0bacc8` only `generate_build_sql` caught it (it re-reads the block);
+#     every path that resolves without building — the live set, the promote
+#     tick, the rollups panel — took the shortened rollup at face value.
+#     `preagg::resolve_rollups`, `live_rollups` and `live_rollup_keys` now
+#     return `Result`. oxy's policy, per call-site class:
+#       - query path (analytics catalog, `compile_against`, both metric-tree
+#         executors) → `oxy_airlayer_compat::live_rollups_or_decline`: warn and
+#         return an EMPTY live set, declining every rollup, so the query answers
+#         from the warehouse. Unreachable in practice — each derives from an
+#         engine that already validated — but that is where it is decided.
+#       - rebuild cycle (`preagg_executor::resolve_cycle_rollups`) → the cycle
+#         fails, naming view/rollup/measure, before the ledger prune.
+#       - promote tick (`preagg_promote::rollup_hashes`) → the view contributes
+#         no hashes, at warn — same standing as a view that won't parse.
+#       - rollups panel (`api::preagg::declared_rollups`) → rows stay listed
+#         and carry a new additive `refused` field; the web-app does not render
+#         it yet.
+#
+#   * **The bigger behavioural change is at LOAD, and it is wider than the
+#     measure.** #119 also adds `SchemaValidator::validate_pre_aggregations`,
+#     which `SemanticEngine::from_semantic_layer` runs: a rollup naming an
+#     undeclared MEASURE, DIMENSION or TIME_DIMENSION (own-view prefix
+#     stripped; a cross-view prefix is refused) now refuses the whole ENGINE —
+#     every semantic query in that workspace, not just the rollup. Before, a
+#     bad member failed only that rollup's build. `oxy validate` catches it;
+#     `gate_semantic_write` catches it only as a working→broken regression
+#     (once a layer is broken it stops refusing cross-file errors, so the
+#     builder can repair). Nothing on the compile/promote path catches it, so
+#     a typo pushed straight to git is promoted and then takes the semantic
+#     model down. At this bump,
+#     `examples/`, pokehouse-oxy and hai-pokehouse-test declare no such rollup.
+#
+#   * **No rollup hash moves** for a rollup that resolved fully — only the
+#     refused shape changed — so `PREAGG_BUILDER_GENERATION` stays put.
+#
 # rev is a bare main commit; there is no tag on it (tags can be moved; the rev
 # cannot).
-airlayer = { git = "https://github.com/oxy-hq/airlayer", rev = "f0bacc8c3d0e3d23e6368bb70aa3a70a92116135" }
+airlayer = { git = "https://github.com/oxy-hq/airlayer", rev = "abe99c23c675ad75067f6119d9ab788d4c5dea36" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.

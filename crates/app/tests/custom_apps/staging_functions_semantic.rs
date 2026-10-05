@@ -170,6 +170,7 @@ fn write_rollup(workspace: Uuid, root: &std::path::Path) -> CacheDirGuard {
     let layer = oxy_airlayer_compat::load_layer_from_dir(root).expect("layer loads");
     let views: Vec<&oxy_airlayer_compat::View> = layer.views.iter().collect();
     let (_, hash) = oxy_airlayer_compat::preagg::live_rollups(&views)
+        .expect("fixture rollups resolve")
         .into_iter()
         .find(|(view, _)| view == "orders")
         .expect("the view declares a rollup");

@@ -235,6 +235,21 @@ async fn run_preagg_task(
         }
     };
 
+    // Resolved once, before anything reads or prunes against the declared set.
+    // A rollup that refuses to resolve fails the cycle here, naming itself: the
+    // layer-wide engine below would refuse the same layer anyway, but only
+    // after the ledger had been pruned against whatever the other views
+    // declared.
+    let resolved = match resolve_cycle_rollups(&views) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = outcome_tx
+                .send(TaskOutcome::Failed(format!("preagg: {e}")))
+                .await;
+            return;
+        }
+    };
+
     // The planner needs the WHOLE layer, even for a targeted rebuild of one
     // rollup: cross-view `parent:` chains and measures that reach through
     // another view only resolve against the full set. One engine is built from
@@ -261,11 +276,8 @@ async fn run_preagg_task(
     // — takes them. `preagg_ledger::prune` below drops the LEDGER entry either
     // way, which is a third thing again. The remaining gap is that second
     // case, and it is not this constant's problem.
-    let declared: std::collections::HashSet<String> = views
-        .iter()
-        .flat_map(|(view, _)| oxy_airlayer_compat::preagg::resolve_rollups(view))
-        .map(|r| r.hash)
-        .collect();
+    let declared: std::collections::HashSet<String> =
+        resolved.iter().flatten().map(|r| r.hash.clone()).collect();
     let built = built_rollup_hashes(&cache_dir);
 
     // Nothing else bounds the ledger: a hash that stops existing — a rollup
@@ -312,7 +324,11 @@ async fn run_preagg_task(
     let mut total_rollups: usize = 0;
     let mut skipped_no_key: usize = 0;
     let mut skipped_no_datasource: usize = 0;
-    for (view, database_name) in &views {
+    // `declared` above flattens all of `resolved`, while `zip` truncates
+    // silently: a length divergence would leave the generation sweep waiting
+    // on hashes no iteration here ever probes.
+    debug_assert_eq!(views.len(), resolved.len());
+    for ((view, database_name), view_rollups) in views.iter().zip(&resolved) {
         // A targeted rebuild touches one view; don't probe refresh keys (which
         // can mean a warehouse round-trip each) across the rest of the layer.
         if let Some(t) = &request.target
@@ -320,9 +336,10 @@ async fn run_preagg_task(
         {
             continue;
         }
-        let rollups: Vec<_> = oxy_airlayer_compat::preagg::resolve_rollups(view)
-            .into_iter()
+        let rollups: Vec<_> = view_rollups
+            .iter()
             .filter(|r| request.covers(&view.name, &r.name))
+            .cloned()
             .collect();
         if rollups.is_empty() {
             continue;
@@ -777,9 +794,35 @@ async fn load_views(
         .collect())
 }
 
+/// Every loaded view's rollups, index-aligned with `views`, or every refusal
+/// in one message — the failure exists to name what to fix.
+///
+/// airlayer refuses a rollup naming a measure its view does not declare rather
+/// than resolving it one measure short (#119). `load_views` does not validate,
+/// so this is where the cycle meets that refusal — and it fails the cycle
+/// rather than skipping the view, because the layer-wide engine every rollup is
+/// planned against refuses the same layer regardless.
+fn resolve_cycle_rollups(
+    views: &[(oxy_airlayer_compat::View, String)],
+) -> Result<Vec<Vec<oxy_airlayer_compat::preagg::RollupSpec>>, String> {
+    let mut resolved = Vec::with_capacity(views.len());
+    let mut refusals = Vec::new();
+    for (view, _) in views {
+        match oxy_airlayer_compat::preagg::resolve_rollups(view) {
+            Ok(rollups) => resolved.push(rollups),
+            Err(e) => refusals.push(e.to_string()),
+        }
+    }
+    if refusals.is_empty() {
+        Ok(resolved)
+    } else {
+        Err(refusals.join("; "))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PreaggCycleRequest, RollupTarget};
+    use super::{PreaggCycleRequest, RollupTarget, resolve_cycle_rollups};
 
     fn ws() -> uuid::Uuid {
         uuid::Uuid::nil()
@@ -840,5 +883,79 @@ mod tests {
         // Same rollup name on another view is a different rollup.
         assert!(!req.covers("order_items", "orders_by_month"));
         assert!(!req.covers("orders", "orders_summary"));
+    }
+
+    // ── Rollup resolution ─────────────────────────────────────────────────
+
+    fn loaded(yaml: &str) -> (oxy_airlayer_compat::View, String) {
+        let view = oxy_airlayer_compat::parse_view_yaml(yaml).expect("fixture view parses");
+        (view, "local".to_string())
+    }
+
+    const ORDERS: &str = r#"
+name: orders
+datasource: local
+table: orders.csv
+dimensions:
+  - name: status
+    type: string
+    expr: status
+measures:
+  - name: total_orders
+    type: count
+pre_aggregations:
+  - name: by_status
+    dimensions: [status]
+    measures: [total_orders]
+"#;
+
+    #[test]
+    fn a_healthy_layer_resolves_index_aligned_with_its_views() {
+        let resolved = resolve_cycle_rollups(&[loaded(ORDERS)]).expect("resolves");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0][0].name, "by_status");
+    }
+
+    /// Before airlayer #119, `total_orderz` was dropped at resolution and
+    /// `by_status` resolved one measure short: the sweep and ledger prune ran
+    /// against that shortened hash, and only the per-rollup build caught the
+    /// typo, after its refresh-key probe. The cycle now fails up front, and
+    /// the failure names what to fix.
+    #[test]
+    fn an_unresolvable_rollup_measure_fails_the_cycle_naming_it() {
+        let typo = ORDERS.replace(
+            "measures: [total_orders]",
+            "measures: [total_orders, total_orderz]",
+        );
+
+        let err = resolve_cycle_rollups(&[loaded(&typo)])
+            .expect_err("a rollup naming an undeclared measure must fail the cycle");
+
+        assert!(err.contains("orders"), "missing view: {err}");
+        assert!(err.contains("by_status"), "missing rollup: {err}");
+        assert!(err.contains("total_orderz"), "missing measure: {err}");
+    }
+
+    /// Every refusal in one message: the failure exists to name what to fix,
+    /// and reporting only the first costs a fix-and-rerun per typo.
+    #[test]
+    fn every_refused_rollup_is_named_not_just_the_first() {
+        let first = ORDERS.replace(
+            "measures: [total_orders]",
+            "measures: [total_orders, total_orderz]",
+        );
+        let second = ORDERS.replace("name: orders", "name: returns").replace(
+            "measures: [total_orders]",
+            "measures: [total_orders, total_returnz]",
+        );
+
+        let err = resolve_cycle_rollups(&[loaded(&first), loaded(ORDERS), loaded(&second)])
+            .expect_err("refused rollups must fail the cycle");
+
+        assert!(err.contains("total_orderz"), "first refusal missing: {err}");
+        assert!(
+            err.contains("total_returnz"),
+            "second refusal missing: {err}"
+        );
     }
 }

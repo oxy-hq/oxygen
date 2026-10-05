@@ -24,10 +24,12 @@ pub mod engine_cache;
 pub mod layer_cache;
 pub mod lever_conflicts;
 mod one_door_guard;
+pub mod rollup_liveness;
 
 pub use engine_cache::{EngineKey, LayerSource, SemanticEngineCache, dialect_fingerprint};
 pub use layer_cache::{LayerKey, SemanticLayerCache};
 pub use lever_conflicts::{LeverConflict, lever_conflicts, reject_lever_conflicts};
+pub use rollup_liveness::live_rollups_or_decline;
 
 use std::path::{Path, PathBuf};
 

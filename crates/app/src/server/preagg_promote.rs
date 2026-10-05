@@ -221,9 +221,11 @@ async fn declared_rollup_hashes(
 /// `airlayer::View` directly would skip the shim and read a view the rest of
 /// the product accepts as one declaring no rollups at all.
 ///
-/// A view that will not parse contributes nothing. The promote has already
-/// happened; a view the compiler let through and the shim rejects is a
-/// validation gap, not this tick's business, and the cycle will skip it too.
+/// A view that will not parse, or whose rollups airlayer refuses to resolve,
+/// contributes nothing. The promote has already happened; a view the compiler
+/// let through and the shim rejects is a validation gap, not this tick's
+/// business. The cycle fails on both — `load_views` propagates a parse error,
+/// and `resolve_cycle_rollups` names a refused rollup.
 fn rollup_hashes(file_path: &str, definition: &Value) -> Vec<String> {
     let yaml = match serde_json::to_string(definition) {
         Ok(y) => y,
@@ -233,10 +235,22 @@ fn rollup_hashes(file_path: &str, definition: &Value) -> Vec<String> {
         }
     };
     match oxy_airlayer_compat::parse_view_yaml(&yaml) {
-        Ok(view) => oxy_airlayer_compat::preagg::resolve_rollups(&view)
-            .into_iter()
-            .map(|r| r.hash)
-            .collect(),
+        Ok(view) => match oxy_airlayer_compat::preagg::resolve_rollups(&view) {
+            Ok(rollups) => rollups.into_iter().map(|r| r.hash).collect(),
+            // Same standing as a view that won't parse — the compile let it
+            // through, and the cycle is what reports it (it fails naming the
+            // rollup). Warn rather than debug: unlike a non-view definition,
+            // this one is a view whose rollups will never build.
+            Err(e) => {
+                tracing::warn!(
+                    target: "preagg",
+                    error = %e,
+                    file_path,
+                    "compiled view declares a rollup airlayer refuses; it contributes no hashes"
+                );
+                Vec::new()
+            }
+        },
         Err(e) => {
             tracing::debug!(
                 target: "preagg",
@@ -377,5 +391,22 @@ mod tests {
     #[test]
     fn an_unparseable_definition_contributes_no_hashes() {
         assert!(rollup_hashes("broken.view.yml", &json!({ "table": 7 })).is_empty());
+    }
+
+    /// `total_orderz` is not declared. Before airlayer #119 it was dropped and
+    /// the rollup hashed as if it listed `total_orders` alone — the same hash
+    /// as the correctly-spelled one-measure rollup, so the typo was invisible
+    /// here too. airlayer now refuses the rollup; the promote treats that like
+    /// a view that won't parse (a validation gap the cycle reports, not this
+    /// tick's business) and contributes nothing.
+    #[test]
+    fn an_unresolvable_rollup_measure_contributes_no_hashes() {
+        assert!(
+            rollup_hashes(
+                "orders.view.yml",
+                &orders(&["total_orders", "total_orderz"])
+            )
+            .is_empty()
+        );
     }
 }

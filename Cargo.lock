@@ -728,7 +728,7 @@ dependencies = [
 [[package]]
 name = "airlayer"
 version = "0.4.0"
-source = "git+https://github.com/oxy-hq/airlayer?rev=f0bacc8c3d0e3d23e6368bb70aa3a70a92116135#f0bacc8c3d0e3d23e6368bb70aa3a70a92116135"
+source = "git+https://github.com/oxy-hq/airlayer?rev=abe99c23c675ad75067f6119d9ab788d4c5dea36#abe99c23c675ad75067f6119d9ab788d4c5dea36"
 dependencies = [
  "anyhow",
  "chrono",
@@ -9274,6 +9274,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "thiserror 2.0.20",
+ "tracing",
  "uuid",
  "workspace-hack",
 ]

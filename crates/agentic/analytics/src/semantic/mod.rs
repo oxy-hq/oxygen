@@ -139,7 +139,7 @@ impl SemanticCatalog {
     pub fn live_rollups(&self) -> &oxy_airlayer_compat::preagg::LiveRollups {
         self.live_rollups.get_or_init(|| {
             let views: Vec<&oxy_airlayer_compat::View> = self.engine.views().iter().collect();
-            oxy_airlayer_compat::preagg::live_rollups(&views)
+            oxy_airlayer_compat::live_rollups_or_decline(&views)
         })
     }
 

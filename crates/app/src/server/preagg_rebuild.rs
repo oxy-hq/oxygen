@@ -313,7 +313,8 @@ fn plan_rollup_build(
     date_str: &str,
     dialect: &oxy_airlayer_compat::Dialect,
 ) -> Result<oxy_airlayer_compat::preagg::BuildPlan, String> {
-    let all_rollups = oxy_airlayer_compat::preagg::resolve_rollups(view);
+    let all_rollups =
+        oxy_airlayer_compat::preagg::resolve_rollups(view).map_err(|e| e.to_string())?;
     let freshness: Vec<oxy_airlayer_compat::preagg::RollupFreshness> = all_rollups
         .iter()
         .map(|r| oxy_airlayer_compat::preagg::RollupFreshness {

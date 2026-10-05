@@ -145,6 +145,7 @@ fn build_manifest_from(workspace: &ScratchWorkspace, yaml: &str) {
     let view = view(yaml);
     let rollups: Vec<oxy_airlayer_compat::preagg::LocalRollupEntry> =
         oxy_airlayer_compat::preagg::resolve_rollups(&view)
+            .expect("fixture rollups resolve")
             .into_iter()
             .map(|spec| {
                 let file = format!("{}__{}.parquet", view.name, spec.hash);

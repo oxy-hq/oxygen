@@ -86,6 +86,7 @@ measures:
 fn plan_orders_rollup(layer_views: Vec<oxy_airlayer_compat::View>) -> Result<usize, String> {
     let view = orders_view();
     let rollup = oxy_airlayer_compat::preagg::resolve_rollups(&view)
+        .expect("fixture rollups resolve")
         .into_iter()
         .find(|r| r.name == "orders_by_month")
         .expect("declared rollup resolves");
@@ -131,6 +132,7 @@ fn only_the_targeted_view_is_built_even_though_the_engine_sees_the_layer() {
     // resolution, but nothing of its own is built.
     let view = orders_view();
     let rollup = oxy_airlayer_compat::preagg::resolve_rollups(&view)
+        .expect("fixture rollups resolve")
         .into_iter()
         .find(|r| r.name == "orders_by_month")
         .expect("declared rollup resolves");
@@ -168,6 +170,7 @@ fn only_the_targeted_view_is_built_even_though_the_engine_sees_the_layer() {
 fn planned_entry(status_expr: &str) -> oxy_airlayer_compat::preagg::ManifestEntry {
     let view = orders_view_with_status_expr(status_expr);
     let rollup = oxy_airlayer_compat::preagg::resolve_rollups(&view)
+        .expect("fixture rollups resolve")
         .into_iter()
         .find(|r| r.name == "orders_by_month")
         .expect("declared rollup resolves");
@@ -384,6 +387,7 @@ fn planned_entries_for(
     let engine = build_layer_engine(vec![view.clone()], &oxy_airlayer_compat::Dialect::DuckDB)
         .expect("the layer validates");
     oxy_airlayer_compat::preagg::resolve_rollups(view)
+        .expect("fixture rollups resolve")
         .into_iter()
         .map(|rollup| {
             plan_rollup_build(

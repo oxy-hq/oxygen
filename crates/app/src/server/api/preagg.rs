@@ -111,6 +111,13 @@ pub struct PreaggRollupStatus {
     /// thing that moves after a zero-row rebuild, so a client waiting on
     /// `build_date` to change would wait forever.
     pub empty_since: Option<String>,
+    /// Why airlayer refused to resolve this rollup, when it did — a
+    /// `pre_aggregations:` entry naming a measure the view does not declare.
+    /// Such a rollup never builds and never serves; the row stays listed
+    /// because the panel shows what was declared, and this is the reason it
+    /// will read "not built" until the YAML is fixed. Absent on a healthy row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -365,14 +372,22 @@ pub(crate) fn declared_rollups(
             //
             // Skipped for a view that declares nothing — most of them, in a
             // layer of any size, and this runs on every status poll.
-            let hashes: HashMap<String, String> = if declared.is_empty() {
-                HashMap::new()
-            } else {
-                oxy_airlayer_compat::preagg::resolve_rollups(view)
-                    .into_iter()
-                    .map(|r| (r.name, r.hash))
-                    .collect()
-            };
+            //
+            // A refusal (a rollup naming a measure the view does not declare)
+            // refuses the whole view, so every row of it carries the reason and
+            // no hash — nothing built under any hash describes it.
+            let (hashes, refused): (HashMap<String, String>, Option<String>) =
+                if declared.is_empty() {
+                    (HashMap::new(), None)
+                } else {
+                    match oxy_airlayer_compat::preagg::resolve_rollups(view) {
+                        Ok(rollups) => (
+                            rollups.into_iter().map(|r| (r.name, r.hash)).collect(),
+                            None,
+                        ),
+                        Err(e) => (HashMap::new(), Some(e.to_string())),
+                    }
+                };
             declared.iter().map(move |rollup| {
                 // A rollup names its measures; the types live on the view's own
                 // measure definitions. Join them so a never-built rollup reads
@@ -436,6 +451,7 @@ pub(crate) fn declared_rollups(
                             .map(|at| at.as_str())
                             .and_then(normalize_manifest_timestamp)
                     },
+                    refused: refused.clone(),
                 }
             })
         })
@@ -566,6 +582,40 @@ pre_aggregations:
         assert!(rollups.iter().all(|r| !r.is_built && !r.has_parquet));
         assert_eq!(rollups[0].rollup_name, "orders_by_month");
         assert_eq!(rollups[1].rollup_name, "orders_summary");
+    }
+
+    /// Before airlayer #119 `total_orderz` was dropped and the row read like
+    /// any never-built rollup — nothing on the panel said it never would build.
+    /// airlayer now refuses the rollup; the panel keeps listing what was
+    /// declared and says why it is refused. A healthy row carries nothing.
+    #[test]
+    fn a_rollup_naming_an_undeclared_measure_is_listed_with_its_refusal() {
+        let typo = ORDERS_VIEW.replace(
+            "measures: [total_orders, total_order_value]",
+            "measures: [total_orders, total_orderz]",
+        );
+        let rollups =
+            declared_rollups(&layer_from_yaml(&[&typo]), &HashMap::new(), &HashMap::new());
+
+        assert_eq!(rollups.len(), 2, "declared rows stay listed");
+        assert!(rollups.iter().all(|r| !r.is_built));
+        let refused = rollups[0]
+            .refused
+            .as_deref()
+            .expect("row carries the refusal");
+        assert!(refused.contains("total_orderz"), "{refused}");
+
+        let healthy = declared_rollups(
+            &layer_from_yaml(&[ORDERS_VIEW]),
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(healthy.iter().all(|r| r.refused.is_none()));
+        let wire = serde_json::to_value(&healthy[0]).unwrap();
+        assert!(
+            wire.get("refused").is_none(),
+            "healthy wire shape unchanged"
+        );
     }
 
     #[test]
@@ -717,7 +767,9 @@ pre_aggregations:
         layer
             .views
             .iter()
-            .flat_map(oxy_airlayer_compat::preagg::resolve_rollups)
+            .flat_map(|v| {
+                oxy_airlayer_compat::preagg::resolve_rollups(v).expect("fixture rollups resolve")
+            })
             .find(|r| r.name == rollup)
             .expect("declared rollup resolves")
             .hash
@@ -994,6 +1046,7 @@ measures:
                 build_date: None,
                 refresh_key_checked_at: None,
                 empty_since: None,
+                refused: None,
             }],
         };
         let wire = serde_json::to_value(&response).unwrap();
