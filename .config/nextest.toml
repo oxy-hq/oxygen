@@ -188,3 +188,24 @@ retries = 2
 filter = "package(=oxy-server) & kind(bin) & test(/^served_router_tests::/)"
 test-group = "serial-db"
 retries = 2
+
+# `oxy-app`'s own unit tests hold the same caller: three of
+# `server::router::router_split_tests` build `api_router(..)` (the two local-mode
+# checks and the external router's fallback), so each runs the unscoped
+# `cleanup_stale_runs` against the shared `OXY_DATABASE_URL`. They were left
+# ungrouped when their `/orgs` siblings moved to `oxy-server`, free to rewrite
+# `agentic_runs` under the `agentic-runtime`/`agentic-pipeline` tests that own
+# those rows.
+#
+# The module, not the three names. `shared_db_registry.rs` scans integration
+# groups only, so nothing would notice a fourth `api_router(..)` test added
+# here; pinning the module keeps the rule true when that happens, at the cost of
+# serializing its two in-process tests, which run in milliseconds.
+#
+# Written without a parenthesised alternation on purpose: `shared_db_registry.rs`
+# reads the first `package(=oxy-app)` override carrying one as the list of
+# integration MODULES to check, and this is not that list.
+[[profile.default.overrides]]
+filter = "package(=oxy-app) & kind(lib) & test(/^server::router::router_split_tests::/)"
+test-group = "serial-db"
+retries = 2

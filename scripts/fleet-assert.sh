@@ -53,15 +53,19 @@
 # genuinely is not on them.
 #
 # ── The route table (scripts/fleet-routes.tsv) ──────────────────────────────
-# 224 routes come out of `oxy_app::server::router::route_declarations()` — see
-# that file's header for the exact regeneration recipe (a temporary #[test],
-# run once, deleted). This script does not hand-maintain a route list; it reads
-# that generated file, buckets every declared route (Now / Fixture / Destr /
+# Its rows are declaration tuples out of
+# `oxy_app::server::router::route_declarations()` — see that file's header for
+# the recipe (a temporary #[test], run once, deleted) and for how far the table
+# currently is from that function's output. This script does not hand-maintain
+# a route list; it reads that file, buckets every row (Now / Fixture / Destr /
 # Ext / Struct), and REPORTS coverage honestly: what ran, what a disposable
-# fixture created, and what was left out with a stated reason. If a new route
-# lands in route_declarations() and nobody regenerates fleet-routes.tsv, phase
-# 7 below prints it under "declared but not in the catalog" rather than
-# silently ignoring it.
+# fixture created, and what was left out with a stated reason.
+#
+# It reports coverage of the ROWS, not of the product: a route that lands in
+# route_declarations() without a row is invisible here. (This comment used to
+# promise a "declared but not in the catalog" listing; no phase ever printed
+# one.) What does hold the rows to the code is
+# `crates/app/tests/routing/fleet_routes_table.rs`.
 #
 set -uo pipefail
 
@@ -637,11 +641,11 @@ fi
 
 
 # ══ ROUTE CATALOG ═════════════════════════════════════════════════════════════
-# Load the 224-row generated inventory (method, path, role, bucket, notes).
-# This is the source of truth for "what routes exist" — the case table built
+# Load the route inventory (method, path, role, bucket, notes).
+# This is this script's list of "what routes exist" — the case table built
 # below is authored request RECIPES for a subset of them, cross-checked
-# against this file at report time so an uncovered declared route is always
-# visible, never silently dropped.
+# against this file at report time so an uncovered ROW is always visible,
+# never silently dropped. (A declared route with no row is not; see the top.)
 step "6. Load route catalog ($ROUTES_FILE)"
 [ -f "$ROUTES_FILE" ] || die "no route catalog at $ROUTES_FILE — see scripts/fleet-routes.tsv's header to regenerate"
 declare -a CAT_METHOD=() CAT_PATH=() CAT_ROLE=() CAT_BUCKET=() CAT_NOTES=()
@@ -1449,9 +1453,13 @@ else
   awc=$(req POST "${S1_BASE}/api/${WS}/agentic-airway/runs" "$awo" '{"pipeline_ref":"pipelines/sql_ingest.airway.yml"}')
   if [[ "$awc" =~ ^2 ]]; then
     ok "started airway run for sql_ingest: $awc (completion needs a reachable source DB — not asserted here, only that starting a real run reaches the handler)"
-    mark_covered "/api/{workspace_id}/agentic-airway/{*rest}"
+    # `POST /runs` has a row of its own since #3451 declared it; it used to be
+    # the one thing exercised behind the nest's `{*rest}` catch-all, which now
+    # has nothing behind it. Coverage is keyed by path, so this shares its mark
+    # with the `airway-runs` GET case below.
+    mark_covered "/api/{workspace_id}/agentic-airway/runs"
   else
-    skip "agentic-airway/runs (start, sql_ingest) returned $awc — agentic-airway/{*rest} left uncovered"
+    skip "agentic-airway/runs (start, sql_ingest) returned $awc — the start half of agentic-airway/runs left unexercised"
   fi
   rm -f "$awo"
 

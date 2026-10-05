@@ -16,75 +16,15 @@ fn db_unavailable() -> bool {
     std::env::var("OXY_DATABASE_URL").is_err()
 }
 
-#[tokio::test]
-async fn local_router_returns_404_for_organization_routes() {
-    if db_unavailable() {
-        return;
-    }
-    let (router, _external, _preagg) = api_router(
-        ServeMode::Local,
-        false,
-        None,
-        std::path::PathBuf::new(),
-        tokio_util::sync::CancellationToken::new(),
-        false,
-        oxy_app::server::router::SurfaceSeams::empty(),
-    )
-    .await
-    .expect("build router");
-    for path in [
-        "/organizations",
-        "/organizations/acme",
-        "/organizations/acme/members",
-        "/organizations/acme/invitations",
-    ] {
-        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
-        let resp = router
-            .clone()
-            .oneshot(req)
-            .await
-            .expect("oneshot succeeded");
-        assert_eq!(
-            resp.status(),
-            StatusCode::NOT_FOUND,
-            "{} should be absent in local mode, got {}",
-            path,
-            resp.status()
-        );
-    }
-}
-
-#[tokio::test]
-async fn local_router_returns_404_for_github_namespace_routes() {
-    if db_unavailable() {
-        return;
-    }
-    let (router, _external, _preagg) = api_router(
-        ServeMode::Local,
-        false,
-        None,
-        std::path::PathBuf::new(),
-        tokio_util::sync::CancellationToken::new(),
-        false,
-        oxy_app::server::router::SurfaceSeams::empty(),
-    )
-    .await
-    .expect("build router");
-    for path in ["/github/namespaces", "/github/namespaces/pat"] {
-        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
-        let resp = router
-            .clone()
-            .oneshot(req)
-            .await
-            .expect("oneshot succeeded");
-        assert_eq!(
-            resp.status(),
-            StatusCode::NOT_FOUND,
-            "{} should be absent in local mode",
-            path
-        );
-    }
-}
+// "Local mode serves no organization routes and no GitHub namespace routes"
+// used to be asserted here, and could not fail. The org tree and the GitHub
+// surface are mounted by `oxy-server` through the api seam, so a router built
+// with `SurfaceSeams::empty()` has neither in ANY mode — and the paths asked
+// for (`/organizations…`, `/github/namespaces…`) are ones no crate registers at
+// all; the real ones are `/orgs…` and `/orgs/{org_id}/github/namespaces…`.
+// Both directions — cloud mounts them, local drops them — are asserted on the
+// real paths in `oxy-server`'s `served_router_tests`, which builds this router
+// from the seams boot hands it.
 
 #[tokio::test]
 async fn local_router_has_public_liveness_route() {

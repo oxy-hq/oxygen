@@ -1,4 +1,5 @@
-# Generated file. DO NOT hand-edit rows -- regenerate the route set instead.
+# Route catalog for scripts/fleet-assert.sh. Do not invent rows -- method/path/role are
+# declaration tuples taken from the code (recipe below), and a test holds them to it.
 #
 # Columns: method, path, role, bucket, notes  (tab-separated)
 #
@@ -6,11 +7,23 @@
 #   oxy_app::server::router::route_declarations() (crates/app/src/server/router/mod.rs).
 # bucket/notes come from internal-docs/2026-08-25-fleet-http-route-coverage.md, whose
 # own methodology built this same list the same way (see that doc's Methodology
-# section) -- cross-checked here 1:1 against a fresh route_declarations() dump, 224/224
-# rows matched with zero unmatched on either side. Four rows are marked RESOLVED where
-# this task's investigation replaced the doc's 'Undetermined' verdict with a real answer
+# section) -- cross-checked 1:1 against a route_declarations() dump when it was built
+# (2026-08-25: 224/224 rows matched, zero unmatched on either side). Four rows are marked
+# RESOLVED where that investigation replaced the doc's 'Undetermined' verdict with a real answer
 # (two real bugs kept in bucket=Now so fleet-assert.sh asserts them and fails loudly;
 # two false alarms moved to bucket=Ext, see their notes).
+#
+# That match no longer holds, and the table is NOT complete. As of 2026-10-05
+# route_declarations() returns 303 routes and 203 of them have a row here; 32 rows name a
+# route oxy-app does not declare itself (the org, onboarding and source-upload trees moved
+# to the surface crates oxy-server mounts; a few workspace routes were removed or
+# re-nested). The agentic-airway rows were rebuilt from a fresh dump after #3451.
+#
+# What holds the rows to the code: crates/app/tests/routing/fleet_routes_table.rs fails
+#   when a row states a role other than the one declared for its method + path, when the
+#   agentic-airway rows are not exactly agentic_http::airway_router_roles(), or when a row
+#   is not five tab-separated columns. It does NOT fail when a route is added elsewhere
+#   without a row -- nothing does; fleet-assert.sh reports coverage of the rows it is given.
 #
 # To regenerate the method/path/role columns: add a temporary #[test] to
 #   crates/app/tests/routing/route_role_derivation.rs that calls
@@ -19,18 +32,30 @@
 #   cargo nextest run -p oxy-app --test routing -E 'test(zzz_dump...)'
 #   then delete the temporary test (git diff against the test file must come back
 #   empty). This is the exact recipe internal-docs/2026-08-25-fleet-http-route-coverage.md
-#   itself documents using, and the one this file's current 224 rows came from.
+#   itself documents using, and the one this file's rows came from.
 #
 # bucket values: Now (buildable today) | Fixture (needs a fixture, mostly uncovered
 #   here) | Destr (destructive; only disposable create/read/delete lifecycles are run)
 #   | Ext (not buildable -- needs an external system/credential absent from this fleet)
 #   | Struct (404 by construction -- a nest_all/nest_typed bare-prefix companion, not
-#   independently addressable; the real surface is the neighboring {*rest} row).
+#   independently addressable; the real surface is the neighboring {*rest} row. Also a
+#   {*rest} catch-all whose routes each have a row of their own, so nothing reaches it).
 *	/api/{workspace_id}/abort-rebase	ide-only	Fixture	only meaningful mid-conflict; needs a fixture that induces one
-*	/api/{workspace_id}/agentic-airway/{*rest}	ide-only	Fixture	`POST /runs` needs a real `pipeline_ref` — 5 exist (verified live via `airway-pipelines`); `sql_ingest`/`clickhouse_ingest`/`weather`/`toast_pos`/`ubereats` each need a real upstream credential to *complete*, so starting is Fixture-bucket, finishing may land in Ext depending which pipeline you pick
+*	/api/{workspace_id}/agentic-airway/{*rest}	ide-only	Struct	catch-all for an airway route added without a declaration — every route the router mounts today has a row of its own below, so no request reaches it
+POST	/api/{workspace_id}/agentic-airway/backfill	fleet-ok	Fixture	single-window backfill — needs a real `pipeline_ref` on a windowed source (toast / quickbooks / sp_api) and that source's credential to complete
 GET	/api/{workspace_id}/agentic-airway/backfill-ranges	fleet-ok	Fixture	needs a real `pipeline_ref`
-GET	/api/{workspace_id}/agentic-airway/coverage	fleet-ok	Fixture	same
+POST	/api/{workspace_id}/agentic-airway/chunked-backfill	ide-only	Fixture	needs a real `pipeline_ref` on a windowed source; drives every chunk in the accepting process, which is why it stays on the ide
+GET	/api/{workspace_id}/agentic-airway/coverage	fleet-ok	Fixture	needs a real `pipeline_ref`
+GET	/api/{workspace_id}/agentic-airway/files	ide-only	Now	legacy pipeline lister (the web app reads `airway-pipelines`) — a plain GET, not yet in this script's case table
+POST	/api/{workspace_id}/agentic-airway/reset-cursors	fleet-ok	Destr	clears saved cursors for a real pipeline — its next run re-pulls that history
+POST	/api/{workspace_id}/agentic-airway/reset-schema	fleet-ok	Destr	drops a real pipeline's destination tables and its state rows
+GET	/api/{workspace_id}/agentic-airway/resource-cursors	fleet-ok	Fixture	needs a real `pipeline_ref`
+POST	/api/{workspace_id}/agentic-airway/resume-backfill	ide-only	Fixture	needs an interrupted chunked backfill to resume
 GET	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Now	verified live: the `400` seen was only a missing-`pipeline_ref` error — buildable with any of the 5 real refs
+POST	/api/{workspace_id}/agentic-airway/runs	fleet-ok	Fixture	`POST /runs` needs a real `pipeline_ref` — 5 exist (verified live via `airway-pipelines`); `sql_ingest`/`clickhouse_ingest`/`weather`/`toast_pos`/`ubereats` each need a real upstream credential to *complete*, so starting is Fixture-bucket, finishing may land in Ext depending which pipeline you pick
+POST	/api/{workspace_id}/agentic-airway/runs/{id}/cancel	fleet-ok	Fixture	needs a real run id — start one first
+GET	/api/{workspace_id}/agentic-airway/runs/{id}/events	fleet-ok	Fixture	SSE; needs a real run id — start one first
+POST	/api/{workspace_id}/agentic-airway/sources/discover	ide-only	Ext	authoring wizard call that dials a caller-supplied source host — needs a reachable external database
 *	/api/{workspace_id}/agentic-automations/{*rest}	ide-only	Fixture	`POST /runs` needs a real `workflow_ref` — 23 automations exist; `/files` reads real automation files
 GET	/api/{workspace_id}/agentic-automations/runs	fleet-ok	Now	verified live: `400` = missing-param, not failure; buildable with a real `workflow_ref`
 GET	/api/{workspace_id}/agentic-automations/runs/{id}	fleet-ok	Fixture	needs a real run id — start one first
@@ -206,7 +231,7 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/worktrees	ide-only	Now	diagnostic read; zero entries is valid (no branch switch has happened)
 *	/api/{workspace_id}/world-model/cameras	fleet-ok	Ext	verified live `503`, `"unifi integration not configured for this workspace"`
 *	/api/{workspace_id}/world-model/competitors	fleet-ok	Fixture	`app-integrations` verified empty — needs a competitor-tracking integration configured, likely terminates in Ext without a real key
-*	/api/{workspace_id}/world-model/events	ide-only	Now	SSE; process-local broadcaster, connects and idles with no fixture data
+*	/api/{workspace_id}/world-model/events	fleet-ok	Now	SSE; every pod tails `world_model_events` onto its own bus, so any replica serves it — connects and idles with no fixture data
 *	/api/{workspace_id}/world-model/foot-traffic/current	fleet-ok	Fixture	same as competitors — no BestTime-style integration configured
 *	/api/{workspace_id}/world-model/foot-traffic/radar	fleet-ok	Fixture	same
 *	/api/{workspace_id}/world-model/weather/{layer}/{z}/{x}/{y}	fleet-ok	Fixture	same, tile proxy
