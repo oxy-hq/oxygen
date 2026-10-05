@@ -204,7 +204,7 @@ async fn recovery_uses_the_run_platform_resolver_for_every_root() {
         router(),
         Some(ws),
         None,
-        &[],
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_resolved_and_used(&db, "pending", &served, &refused, &r).await;
@@ -231,6 +231,7 @@ async fn recovery_uses_the_run_platform_resolver_for_every_root() {
         router(),
         Some(ws),
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_resolved_and_used(&db, "stranded", &served, &refused, &r).await;
@@ -249,6 +250,7 @@ async fn recovery_uses_the_run_platform_resolver_for_every_root() {
         router(),
         Some(ws),
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_resolved_and_used(&db, "startup", &served, &refused, &r).await;

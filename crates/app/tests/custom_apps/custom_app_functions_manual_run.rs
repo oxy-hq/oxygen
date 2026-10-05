@@ -24,7 +24,7 @@
 //! `CustomTaskRegistry`: production's `build_custom_task_registry` is private,
 //! and the source scan guards its registration instead. The loop around it is
 //! the test's too, so it does not cover the LISTEN/NOTIFY wake (it uses
-//! `noop_router()`), the per-role `excluded_source_types`, the per-workspace
+//! `noop_router()`), the per-role `drive_policy`, the per-workspace
 //! cloud tick (`tick_cloud`), a separate `oxy worker` fleet, or the scheduler.
 //!
 //! **Children.** `environment_checks` (a check run in a named app environment)
@@ -306,7 +306,7 @@ pub(crate) fn spawn_driver(
                 router.clone(),
                 Some(demo_workspace_id()),
                 Some(registry.clone()),
-                &[],
+                agentic_pipeline::recovery::DrivePolicy::ALL,
             )
             .await;
             tokio::time::sleep(Duration::from_millis(200)).await;

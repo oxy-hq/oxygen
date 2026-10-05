@@ -1449,6 +1449,7 @@ async fn test_recovery_processes_stuck_needs_resume_analytics_run() {
         Arc::new(agentic_runtime::router::NoopTaskRouter),
         None,
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
 

@@ -341,6 +341,17 @@ pub(crate) fn spawn_recovery(
     // instead of rebuilding WorkspaceManager every cycle.
     let ws_cache = super::workspace_cache::new_workspace_context_cache();
 
+    // Which Global runs THIS process drives. Decided ONCE, here, for the life
+    // of the process — role and env are both fixed at boot — and handed to
+    // every selection this process makes: the latency worker's probe and gate
+    // (every second), the periodic stranded tick (every `interval`) and the
+    // one-shot startup pass. What the boot log announces is what all of them
+    // apply; there is no second read for them to disagree through. The two
+    // passes that reap — the tick and the startup pass — cannot be left out:
+    // each re-queues a dead worker's claim and then selects the run it freed,
+    // so a gate that skipped either would hand that worker's run to this node.
+    let policy = super::drive_policy::drive_policy();
+
     // §12 FU4c latency worker — shared across local and cloud modes.
     // Drains `queued scope_owned=false` rows at sub-second latency
     // instead of waiting for the periodic loop's grace window.
@@ -350,6 +361,7 @@ pub(crate) fn spawn_recovery(
     // right cached `PlatformContext` via `ws_cache`; no need for one
     // worker per workspace.
     if inproc_global_worker_enabled() {
+        super::drive_policy::announce(policy);
         spawn_latency_worker(
             db.clone(),
             runtime.clone(),
@@ -361,6 +373,7 @@ pub(crate) fn spawn_recovery(
             shutdown.clone(),
             ws_cache.clone(),
             preagg.clone(),
+            policy,
         );
     } else if matches!(mode, ServeMode::Cloud) {
         // Reached only when the global driver was explicitly disabled
@@ -396,6 +409,7 @@ pub(crate) fn spawn_recovery(
                     false, // one-shot startup recovery: every coordinator is dead
                     ws_cache.clone(),
                     preagg.clone(),
+                    policy,
                 )
                 .await;
                 if recovered > 0 {
@@ -455,6 +469,7 @@ pub(crate) fn spawn_recovery(
                         true, // periodic tick: stranded runs only (never poach a live interactive run)
                         ws_cache.clone(),
                         preagg.clone(),
+                        policy,
                     )
                     .await;
                     if n > 0 {
@@ -495,6 +510,11 @@ pub(super) async fn run_recovery(
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
+    // Applied by both passes: the periodic tick's `recover_stranded_runs`
+    // gates everything it selects; the one-shot startup pass gates only the
+    // roots another node's latency worker can see (see
+    // `recover_active_runs`).
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     match mode {
         ServeMode::Local => {
@@ -508,6 +528,7 @@ pub(super) async fn run_recovery(
                 periodic,
                 ws_cache,
                 preagg,
+                policy,
             )
             .await
         }
@@ -522,6 +543,7 @@ pub(super) async fn run_recovery(
                 periodic,
                 ws_cache,
                 preagg,
+                policy,
             )
             .await
         }
@@ -544,6 +566,7 @@ async fn recover_local(
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
@@ -585,6 +608,7 @@ async fn recover_local(
             router,
             Some(LOCAL_WORKSPACE_ID),
             Some(build_custom_task_registry(db, &preagg)),
+            policy,
         )
         .await;
         // Periodic tick drives the cron scheduler, scoped to this
@@ -643,6 +667,7 @@ async fn recover_local(
             router,
             Some(LOCAL_WORKSPACE_ID),
             Some(build_custom_task_registry(db, &preagg)),
+            policy,
         )
         .await
     }
@@ -664,6 +689,7 @@ async fn recover_all_workspaces(
     periodic: bool,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     let workspaces = match entity::workspaces::Entity::find().all(db).await {
         Ok(ws) => ws,
@@ -725,6 +751,7 @@ async fn recover_all_workspaces(
                 router.clone(),
                 Some(ws.id),
                 Some(build_custom_task_registry(db, &preagg)),
+                policy,
             )
             .await;
             // Per-workspace scheduler tick (§12 FU4b). Each workspace
@@ -769,6 +796,7 @@ async fn recover_all_workspaces(
                 router.clone(),
                 Some(ws.id),
                 Some(build_custom_task_registry(db, &preagg)),
+                policy,
             )
             .await
         };
@@ -843,6 +871,10 @@ fn spawn_latency_worker(
     shutdown: tokio_util::sync::CancellationToken,
     ws_cache: Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: PreaggCacheCtx,
+    // The process's one `drive_policy()` value, decided and announced by
+    // `spawn_recovery`. Every tick is handed it; neither the probe nor the gate
+    // re-reads the environment.
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) {
     // Configurable for soak tuning; default 1s.
     let poll = match std::env::var("OXY_LATENCY_WORKER_INTERVAL_MS")
@@ -853,22 +885,6 @@ fn spawn_latency_worker(
         Some(ms) => std::time::Duration::from_millis(ms),
         None => std::time::Duration::from_millis(1000),
     };
-    // Say out loud what this node will refuse to drive. Both exclusions are
-    // silent-by-construction failures otherwise: work simply stops being
-    // picked up here, and the only other trace is a per-tick DEBUG line. The
-    // airway one in particular has a deployment prerequisite (a worker fleet
-    // must exist), so an operator who set the flag on a fleetless install
-    // needs to be able to find this in the boot log.
-    let excluded = excluded_source_types();
-    if !excluded.is_empty() {
-        tracing::info!(
-            target: "recovery",
-            role = crate::server::role_manifest::current_process_role().as_str(),
-            excluded = ?excluded,
-            "this node declines these run kinds at selection; another node must \
-             drive them or they stay queued"
-        );
-    }
     tracing::info!(
         target: "recovery",
         poll_ms = poll.as_millis() as u64,
@@ -903,6 +919,7 @@ fn spawn_latency_worker(
                                     &router,
                                     &ws_cache,
                                     &preagg,
+                                    policy,
                                 )
                                 .await
                             }
@@ -916,6 +933,7 @@ fn spawn_latency_worker(
                                     &router,
                                     &ws_cache,
                                     &preagg,
+                                    policy,
                                 )
                                 .await
                             }
@@ -974,6 +992,7 @@ async fn tick_local(
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     let Ok(cwd) = std::env::current_dir() else {
         return 0;
@@ -996,6 +1015,7 @@ async fn tick_local(
         router,
         Some(LOCAL_WORKSPACE_ID),
         preagg,
+        policy,
     )
     .await
 }
@@ -1031,6 +1051,7 @@ async fn tick_cloud(
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     ws_cache: &Arc<super::workspace_cache::WorkspaceContextCache>,
     preagg: &PreaggCacheCtx,
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     use std::collections::HashSet;
     let pending = match agentic_runtime::crud::find_pending_global_runs(db, None).await {
@@ -1048,7 +1069,7 @@ async fn tick_cloud(
     //
     // This filters only which workspaces are visited: `drive_pending` re-selects
     // per workspace, and that second selection is what feeds the driver lease.
-    // The real gate is the `exclude_source_types` argument threaded into
+    // The real gate is the `policy` argument threaded into
     // `recover_pending_global_runs`. An earlier revision had only this
     // partition and believed it sufficient — it is not, because a workspace
     // with a compile AND any other pending Global run still reached the drive.
@@ -1057,7 +1078,7 @@ async fn tick_cloud(
     //
     // `claim_task` has no `task_kind` predicate, so any eligible driver wins
     // any row — but a node may be unable (compile without a working copy) or
-    // unwanted (airway on the ide, see `excluded_source_types`) as its driver.
+    // unwanted (heavy work on the ide, see `drive_policy_for`) as its driver.
     // Failing after the claim makes success a coin flip on poll phase;
     // deferring after the claim is worse still, because only the lease-holder
     // may claim the row, so the deferring process re-selects its own work
@@ -1069,10 +1090,11 @@ async fn tick_cloud(
     // therefore selectable by the next eligible tick. That is the handoff the
     // other approaches only claimed.
     //
-    // Same set as the gate, from one function, for the reason spelled out on
-    // `excluded_source_types`: a probe that skips MORE than the gate silently
-    // hides drivable work.
-    let exclude = excluded_source_types();
+    // Same policy as the gate, and the same VALUE: `policy` is this tick's
+    // argument, passed on to `drive_pending`, and split here by the same
+    // `partition_drivable` the gate uses. A probe that skips MORE than the
+    // gate silently hides drivable work, so neither consults the policy for
+    // itself.
     // Kept whole for `retire_orphaned_runs` below. Retiring a run whose
     // workspace row is gone is a plain DB write that needs no workspace
     // context, so it is NOT a capability this node can lack — filtering it by
@@ -1092,15 +1114,13 @@ async fn tick_cloud(
     // trade is not obviously worth it, and this comment exists so the next
     // reader can make it deliberately rather than discover the gap.
     let all_pending = pending.clone();
-    let (pending, declined): (Vec<_>, Vec<_>) = pending
-        .into_iter()
-        .partition(|r| agentic_pipeline::recovery::may_drive(r.source_type.as_deref(), exclude));
+    let (pending, declined) = agentic_pipeline::recovery::partition_drivable(pending, policy);
     if !declined.is_empty() {
         tracing::debug!(
             target: "recovery",
             count = declined.len(),
             role = crate::server::role_manifest::current_process_role().as_str(),
-            excluded = ?exclude,
+            policy = ?policy,
             "latency worker: leaving runs this node declines for one that takes them"
         );
     }
@@ -1160,6 +1180,7 @@ async fn tick_cloud(
             router,
             Some(ws_id),
             preagg,
+            policy,
         )
         .await;
     }
@@ -1363,112 +1384,6 @@ fn build_custom_task_registry(
     Arc::new(reg)
 }
 
-/// Opt-in: make the `ide` singleton hand airway runs to the worker fleet
-/// instead of driving them itself. See [`excluded_source_types`].
-///
-/// Default **off**, and that default is the safety property, not laziness. An
-/// `ide` + `serve` deployment with no worker replicas has no other driver for
-/// a `Global` airway run, so switching this on there leaves pipelines sitting
-/// `queued` forever. Off by default means such a deployment behaves exactly as
-/// it does today; an operator who has a worker fleet turns it on and gets the
-/// placement they deployed the fleet for.
-pub(super) const IDE_DEFER_AIRWAY_ENV: &str = "OXY_IDE_DEFER_AIRWAY";
-
-fn ide_defers_airway() -> bool {
-    std::env::var(IDE_DEFER_AIRWAY_ENV)
-        .is_ok_and(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
-}
-
-/// The `source_type`s **this** process must decline at selection, for
-/// `recover_pending_global_runs`' `exclude_source_types`.
-///
-/// One function so the cheap probe-level skip in [`tick_cloud`] and the real
-/// gate inside `recover_pending_global_runs` cannot disagree. They filter at
-/// different layers on purpose (see the comment at the probe), but they must
-/// filter on the *same set*: a probe that skips less than the gate merely
-/// wastes a workspace visit, while a probe that skips **more** hides work the
-/// gate would have driven, and nothing fails — it just silently stops running.
-///
-/// The two exclusions are mirror images of each other:
-///
-/// - **`compile`** is declined by nodes that *cannot* run it. Compiles need a
-///   workspace working copy, which since #2822 is a property of the ROLE, not
-///   of what happens to be on disk.
-/// - **`airway`** is declined by the one node that *can*. Not a capability
-///   gate — a placement one. Airway submit routes are `IdeOnly`, so every
-///   interactive pipeline is enqueued by the IDE singleton, and its own
-///   latency worker polls the same queue on the same 300 ms tick as the
-///   fleet's. Left to race, the pod that just accepted the submit often wins
-///   and a memory-heavy pipeline executes in the pod least able to afford it —
-///   which is the whole thing Phase 2 exists to stop. Declining is what makes
-///   `TaskScope::Global` actually mean "somebody else runs this".
-///
-/// `Role::All` is deliberately excluded from the airway rule: that is the
-/// single-process deployment, where the ide *is* the fleet and deferring would
-/// strand the run with nobody to pick it up.
-///
-/// Returned as a `&'static [&'static str]` rather than a `Vec` so the callers
-/// stay allocation-free on a path that runs every 300 ms per workspace.
-///
-/// **Only the latency-worker path is gated, and that is deliberate — it is
-/// what keeps the airway rule from being able to strand a pipeline.**
-///
-/// `recover_stranded_runs` (the 30 s periodic tick) is NOT gated.
-/// `find_stuck_runs` excludes a run only for a `claimed` queue row or a
-/// `queued` one with `scope_owned = true`; a `queued` **Global** row is
-/// neither, so an airway run that no worker has claimed within
-/// `STRANDED_GRACE_SECS` becomes drivable by any eligible node — including the
-/// ide that just declined it.
-///
-/// That is not the gate leaking. The two paths cannot fight over a normal
-/// submit, because a worker's latency loop claims within ~300 ms and both the
-/// claim and the driver lease then exclude the run. What is left is exactly
-/// the case worth a fallback: *nobody took this for thirty seconds*. So
-/// `OXY_IDE_DEFER_AIRWAY=1` on a deployment whose worker fleet is missing or
-/// wedged degrades to slower placement, not a stall. Gating recovery too would
-/// convert a self-healing misconfiguration into permanently queued pipelines.
-///
-/// Pinned by `an_unclaimed_global_airway_run_falls_back_to_the_periodic_tick`
-/// in `agentic-runtime`'s integration suite, which exists because this reads
-/// exactly backwards from how it behaves.
-fn excluded_source_types() -> &'static [&'static str] {
-    exclusions_for(
-        crate::server::role_manifest::current_process_role(),
-        ide_defers_airway(),
-    )
-}
-
-/// The decision behind [`excluded_source_types`], as a pure function.
-///
-/// Split out because `PROCESS_ROLE` is a `OnceLock` — a process has exactly one
-/// role for its whole life, so a test cannot exercise the other three through
-/// the real reader. Same reason `agentic_pipeline::recovery::may_drive` is
-/// public: the test drives the predicate production uses instead of a copy that
-/// keeps passing after the call site stops applying it.
-pub(super) fn exclusions_for(
-    role: crate::server::role_manifest::Role,
-    defer_airway: bool,
-) -> &'static [&'static str] {
-    use crate::server::role_manifest::Role;
-    use agentic_runtime::coordinator::{AIRWAY_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
-    const NONE: &[&str] = &[];
-    const COMPILE_ONLY: &[&str] = &[COMPILE_SOURCE_TYPE];
-    const AIRWAY_ONLY: &[&str] = &[AIRWAY_SOURCE_TYPE];
-
-    match role {
-        // Matched on `Ide` specifically, NOT `process_can_compile()`, which is
-        // also true for `All`. `All` is the single-process deployment where the
-        // ide IS the fleet, so deferring there strands the run.
-        Role::Ide if defer_airway => AIRWAY_ONLY,
-        Role::Ide | Role::All => NONE,
-        // `Serve` reaches here only if something turned its driver on
-        // explicitly (`role_runs_inprocess_workers` is false for it); the
-        // compile exclusion is right for it either way, since it owns no
-        // working copy.
-        Role::Worker | Role::Serve => COMPILE_ONLY,
-    }
-}
-
 /// `recover_pending_global_runs` with the matching workspace filter.
 #[allow(clippy::too_many_arguments)]
 async fn drive_pending(
@@ -1487,6 +1402,7 @@ async fn drive_pending(
     router: &Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     preagg: &PreaggCacheCtx,
+    policy: agentic_pipeline::recovery::DrivePolicy,
 ) -> usize {
     let platform: Arc<dyn PlatformContext> = ctx.clone();
     let bridges: Option<BuilderBridges> = Some(build_builder_bridges(ctx));
@@ -1494,11 +1410,11 @@ async fn drive_pending(
     // `health_eval_workspace` Custom tasks) are drained, so inject the host's
     // Custom-kind executors here. Cheap to build per call (a few Arc clones).
     let custom_executors = Some(build_custom_task_registry(db, preagg));
-    // The real gate: checked inside `recover_pending_global_runs`, immediately
-    // before `try_acquire_driver`, so a declined run keeps `driver_id IS NULL`
-    // and stays selectable by a node that can take it. See
-    // `excluded_source_types` for what is excluded where, and why.
-    let exclude = excluded_source_types();
+    // The real gate: `policy` is checked inside `recover_pending_global_runs`,
+    // immediately before `try_acquire_driver`, so a declined run keeps
+    // `driver_id IS NULL` and stays selectable by a node that can take it. It
+    // is the caller's value, not a fresh read — see `drive_policy::drive_policy_for`
+    // for what is declined where, and why.
     agentic_pipeline::recovery::recover_pending_global_runs(
         db.clone(),
         runtime.clone(),
@@ -1512,7 +1428,7 @@ async fn drive_pending(
         router.clone(),
         workspace_id,
         custom_executors,
-        exclude,
+        policy,
     )
     .await
 }
@@ -2115,66 +2031,6 @@ async fn bootstrap_monitor_schedules(
                 error = %e,
                 "bootstrap: failed to create monitor_scan schedule"
             ),
-        }
-    }
-}
-
-#[cfg(test)]
-mod exclusion_tests {
-    use super::exclusions_for;
-    use crate::server::role_manifest::Role;
-    use agentic_runtime::coordinator::{AIRWAY_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
-
-    /// The placement rule Phase 2 exists for: with the flag on, the ide hands
-    /// airway to the fleet. Without this the `TaskScope::Global` flip is a
-    /// coin flip on poll phase — the ide's own latency worker polls the same
-    /// queue on the same tick as the fleet's and frequently wins, so the
-    /// pipeline keeps executing in the pod that accepted the submit.
-    #[test]
-    fn the_ide_defers_airway_only_when_asked() {
-        assert_eq!(exclusions_for(Role::Ide, true), &[AIRWAY_SOURCE_TYPE]);
-        assert!(exclusions_for(Role::Ide, false).is_empty());
-    }
-
-    /// The default that keeps a fleetless deployment working. An `ide` +
-    /// `serve` install with no worker replicas has no other driver for a
-    /// `Global` airway run, so an ide that deferred by default would leave
-    /// every pipeline `queued` forever.
-    #[test]
-    fn deferral_is_off_unless_the_env_var_is_set() {
-        // The reader, not the pure function — pins that the default is OFF.
-        // Uses whatever the ambient env is; the var is not set in CI.
-        assert!(
-            !super::ide_defers_airway(),
-            "OXY_IDE_DEFER_AIRWAY must default off"
-        );
-    }
-
-    /// `All` is the single-process deployment: the ide IS the fleet, so
-    /// deferring would strand the run with nobody to pick it up. It must never
-    /// defer, even with the flag on — which is why the match arm keys on
-    /// `Role::Ide` and not on `process_can_compile()`, a predicate that is
-    /// true for both.
-    #[test]
-    fn a_single_process_deployment_never_defers_airway() {
-        assert!(exclusions_for(Role::All, true).is_empty());
-        assert!(exclusions_for(Role::All, false).is_empty());
-    }
-
-    /// The pre-existing compile gate must survive the airway one. A worker
-    /// owns no working copy, so it declines compiles whatever the airway flag
-    /// says — and it must NEVER decline airway, since it is the node the
-    /// pipeline is being handed to.
-    #[test]
-    fn a_worker_declines_compiles_and_always_accepts_airway() {
-        for defer in [true, false] {
-            let ex = exclusions_for(Role::Worker, defer);
-            assert_eq!(ex, &[COMPILE_SOURCE_TYPE]);
-            assert!(
-                !ex.contains(&AIRWAY_SOURCE_TYPE),
-                "the worker is the airway destination; excluding it there \
-                 would leave the run queued with no eligible driver at all"
-            );
         }
     }
 }

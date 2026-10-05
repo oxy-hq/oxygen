@@ -738,6 +738,7 @@ resources:
         Arc::new(agentic_runtime::orchestrator::router::NoopTaskRouter),
         Some(workspace_id),
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
 

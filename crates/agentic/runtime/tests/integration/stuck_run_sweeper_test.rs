@@ -29,7 +29,7 @@ static TEST_CONTAINER: tokio::sync::OnceCell<
     std::sync::Arc<testcontainers::ContainerAsync<testcontainers_modules::postgres::Postgres>>,
 > = tokio::sync::OnceCell::const_new();
 
-async fn test_db() -> Option<DatabaseConnection> {
+pub(crate) async fn test_db() -> Option<DatabaseConnection> {
     let url = TEST_DB_URL
         .get_or_init(|| async {
             if let Ok(url) = std::env::var("OXY_DATABASE_URL") {
@@ -87,7 +87,7 @@ async fn test_db() -> Option<DatabaseConnection> {
 
 /// Shift `agentic_runs.updated_at` for `run_id` back by `secs` seconds so the
 /// sweeper's grace check treats the run as old enough to act on.
-async fn age_run(db: &DatabaseConnection, run_id: &str, secs: i64) {
+pub(crate) async fn age_run(db: &DatabaseConnection, run_id: &str, secs: i64) {
     use sea_orm::{ConnectionTrait, Statement};
     db.execute_raw(Statement::from_sql_and_values(
         sea_orm::DatabaseBackend::Postgres,
@@ -257,7 +257,7 @@ async fn sweeper_re_enqueues_automation_decision_idempotently() {
 // queue entry" (claimed/heart-beating), NOT task_status — which is exactly
 // why `get_resumable_root_runs` is wrong for the periodic path.
 
-async fn seed_run(db: &DatabaseConnection, source_type: &str) -> String {
+pub(crate) async fn seed_run(db: &DatabaseConnection, source_type: &str) -> String {
     let run_id = format!("{source_type}-stuck-{}", uuid::Uuid::new_v4());
     crud::insert_run(db, &run_id, "Q", None, source_type, None, uuid::Uuid::nil())
         .await
@@ -1099,11 +1099,12 @@ async fn a_globally_submitted_airway_run_is_selected_by_the_latency_worker() {
 /// live driver lease, any eligible node may drive it.
 ///
 /// That combination means precisely "no worker picked this up in 30 seconds",
-/// which is exactly when you want someone else to. It is what stops
-/// `OXY_IDE_DEFER_AIRWAY=1` on a fleet-less deployment from stranding
-/// pipelines forever: the ide declines at the latency worker, then drives it
-/// from the periodic tick a grace window later. The flag degrades to slower
-/// placement rather than a stall.
+/// which is exactly when you want someone else to. It is how the periodic
+/// tick sees a pipeline the fleet never took; whether a node then drives it is
+/// the placement gate's call (`DrivePolicy`, on `StuckRun::unclaimed_secs`),
+/// which lets a deferring ide take it once it has gone unclaimed for the
+/// grace. So `OXY_IDE_DEFER_AIRWAY=1` on a fleet-less deployment degrades to
+/// slower placement rather than a stall.
 ///
 /// Pinned because it is load-bearing in the opposite direction to how it
 /// reads. A future change that "tidied" the `NOT EXISTS` to exclude every

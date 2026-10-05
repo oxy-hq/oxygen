@@ -38,6 +38,60 @@ pub fn pending_global_status_sql() -> String {
         .join(", ")
 }
 
+/// The `agentic_task_queue` rows (aliased `alias`) that belong to run `r`: its
+/// own root task or any task in its tree (`<run_id>.<n>`).
+///
+/// The leading `split_part` equality is the planner's join key, not a filter:
+/// it is implied by the match after it (a task id equal to `r.id`, or `r.id`
+/// followed by `.`, starts with the same first dot-segment), so it changes no
+/// result. It exists because the match alone is an `OR` with a `LIKE` whose
+/// pattern is an outer-row expression — no index or hash can take that, and
+/// every selection here ran it as a join filter over each (run, queued row)
+/// pair. Given an equality, Postgres hashes or merges the two small sides
+/// instead: `find_pending_global_runs` against a prod-shaped queue went from
+/// 43 ms as a nested loop to 2.4 ms. (The equality is also stricter than the
+/// `LIKE` in one way, deliberately: a `_` in a run id is a `LIKE` wildcard and
+/// could match a different run's `<id>.<n>` row; the key cannot.)
+fn queue_rows_of_run(alias: &str) -> String {
+    format!(
+        "(split_part({alias}.task_id, '.', 1) = split_part(r.id, '.', 1) \
+          AND ({alias}.task_id = r.id OR {alias}.task_id LIKE r.id || '.%'))"
+    )
+}
+
+/// [`StuckRun::unclaimed_secs`] as a SELECT-list expression over run `r`.
+/// `ttl` is the placeholder bound to [`DRIVER_LEASE_TTL_SECS`].
+///
+/// `queued` is the alias of the run's joined `queued` Global queue rows, for a
+/// query that joins them and `GROUP BY r.id`. It is `None` for a selection
+/// whose own predicate rules such rows out (`find_stuck_automation_runs`'s
+/// `NOT EXISTS`): there the `MAX` would be NULL on every row and `GREATEST`
+/// would drop it anyway, so leaving the term out is the same clock without a
+/// join that can never match.
+///
+/// One definition on purpose: every selection that reports the number hands it
+/// to the same placement gate (or could), and a clock that ticked differently
+/// on two paths would make the gate's answer depend on which loop happened to
+/// select the run.
+///
+/// `GREATEST` skips NULLs, so a run with no lease on record — or, under a LEFT
+/// JOIN, no queued row — simply drops that term. The lease term is gated on
+/// `driver_id` because a cleanly released lease clears both columns while a
+/// dead driver leaves both set. Clamped at 0 so the cast to `u64` cannot wrap.
+fn unclaimed_secs_sql(queued: Option<&str>, ttl: &str) -> String {
+    let queued_term = queued
+        .map(|alias| format!("MAX({alias}.updated_at), "))
+        .unwrap_or_default();
+    format!(
+        "GREATEST(0, FLOOR(EXTRACT(EPOCH FROM now() - GREATEST( \
+             r.updated_at, \
+             {queued_term}\
+             CASE WHEN r.driver_id IS NOT NULL \
+                  THEN r.driver_heartbeat_at + make_interval(secs => {ttl}) END \
+         ))))::bigint AS unclaimed_secs"
+    )
+}
+
 /// Find root runs that are still active (not terminal) for restart recovery.
 pub async fn get_active_root_runs(db: &DatabaseConnection) -> Result<Vec<run::Model>, DbErr> {
     run::Entity::find()
@@ -251,6 +305,35 @@ pub struct StuckRun {
     /// re-selects it in the same process while the live heartbeat excludes
     /// every other node.
     pub source_type: Option<String>,
+    /// Whole seconds this run has been selectable with nobody taking it.
+    ///
+    /// Every selection that returns a `StuckRun` measures it with one SQL
+    /// definition (`unclaimed_secs_sql`): the two a placement gate sits behind
+    /// — [`find_pending_global_runs`] (the latency worker) and
+    /// [`find_stuck_runs`] (the periodic stranded tick) — and
+    /// [`find_stuck_automation_runs`], which feeds the automation sweeper. The
+    /// sweeper re-enqueues rather than drives and reads no policy, but its rows
+    /// carry the real number anyway, so handing them to a placement gate later
+    /// cannot misread a long-stranded run as one that just arrived.
+    ///
+    /// The clock restarts at the LATEST of three moments, so that any sign of
+    /// life postpones it rather than any sign of age advancing it:
+    ///
+    /// - the run row's `updated_at` (a status change — submit, `shutdown`,
+    ///   `needs_resume`);
+    /// - the newest `updated_at` among its `queued` Global queue rows (a
+    ///   release, a reaper re-queue, a deferral — each is a node handing the
+    ///   row back *now*, whatever the run's own age);
+    /// - the instant a dead driver's lease lapsed (`driver_heartbeat_at` +
+    ///   [`DRIVER_LEASE_TTL_SECS`]), since the run was not selectable before.
+    ///
+    /// A driver that prefers to leave a kind for another node reads this to
+    /// tell "just arrived, the fleet will take it" from "nobody has taken this"
+    /// — see `agentic_pipeline::recovery::may_drive`. Using the run's age alone
+    /// would call an hour-old pipeline whose worker just died "unclaimed for an
+    /// hour" and hand it to the deferring node in the same tick the fleet first
+    /// sees it.
+    pub unclaimed_secs: u64,
 }
 
 /// Find automation runs that are stranded: `task_status` is non-terminal but no
@@ -266,6 +349,12 @@ pub struct StuckRun {
 /// re-drive primitive), and a blanket sweep could false-positive on
 /// long-running LLM calls. Automation decisions are pure + `decision_version`
 /// gated, so a spurious re-enqueue is always safe.
+///
+/// **`unclaimed_secs`:** reported on the same clock as the other two
+/// selections (see [`StuckRun::unclaimed_secs`]). With no `queued` row by
+/// construction, it counts from the later of the run's `updated_at` and a dead
+/// driver's lease lapsing — what `find_stuck_runs` reports for a stranded run
+/// with no queue row.
 pub async fn find_stuck_automation_runs(
     db: &DatabaseConnection,
     grace_secs: u64,
@@ -278,28 +367,37 @@ pub async fn find_stuck_automation_runs(
         task_status: Option<String>,
         workspace_id: Uuid,
         source_type: Option<String>,
+        unclaimed_secs: i64,
     }
 
     // Active statuses from `get_active_root_runs` / `cleanup_stale_runs` — a
     // run in any of these is presumed "still supposed to be making progress".
     // We intentionally exclude `awaiting_input` (HITL suspension — driven by
     // a user action, not a queue row).
-    let sql = "\
-        SELECT r.id, r.task_status, r.workspace_id, r.source_type \
+    let queue_rows = queue_rows_of_run("q");
+    let unclaimed_secs = unclaimed_secs_sql(None, "$2");
+    let sql = format!(
+        "\
+        SELECT r.id, r.task_status, r.workspace_id, r.source_type, \
+               {unclaimed_secs} \
         FROM agentic_runs r \
         WHERE r.source_type = 'workflow' \
           AND r.task_status IN ('running', 'delegating', 'waiting_on_child', 'waiting_on_children') \
           AND r.updated_at < now() - ($1 || ' seconds')::interval \
           AND NOT EXISTS ( \
               SELECT 1 FROM agentic_task_queue q \
-              WHERE (q.task_id = r.id OR q.task_id LIKE r.id || '.%') \
+              WHERE {queue_rows} \
                 AND q.queue_status IN ('queued', 'claimed') \
-          )";
+          )"
+    );
 
     let rows = Row::find_by_statement(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         sql,
-        [(grace_secs as i64).into()],
+        [
+            (grace_secs as i64).into(),
+            (DRIVER_LEASE_TTL_SECS as i32).into(),
+        ],
     ))
     .all(db)
     .await?;
@@ -311,6 +409,8 @@ pub async fn find_stuck_automation_runs(
             task_status: r.task_status,
             workspace_id: r.workspace_id,
             source_type: r.source_type,
+            // Clamped to 0 in SQL, so the cast cannot wrap.
+            unclaimed_secs: r.unclaimed_secs as u64,
         })
         .collect())
 }
@@ -347,6 +447,14 @@ pub async fn find_stuck_automation_runs(
 /// cloud mode passes the per-iteration workspace_id so it doesn't try to
 /// drive workspace-B's run with workspace-A's `PlatformContext`; the
 /// startup pass + tests pass `None`.
+///
+/// **`unclaimed_secs`:** every row also reports how long it has been
+/// selectable with nobody taking it (see [`StuckRun::unclaimed_secs`]). It is
+/// a column, not a predicate: the selection is the one above, grace window
+/// included. The `queued` Global rows it is measured over are LEFT JOINed
+/// (a stranded run may have none — `needs_resume` after a crash), on the same
+/// keyed match as the `NOT EXISTS`, so the join is a hash over the queued set
+/// rather than a test of every (run, row) pair.
 pub async fn find_stuck_runs(
     db: &DatabaseConnection,
     grace_secs: u64,
@@ -360,6 +468,7 @@ pub async fn find_stuck_runs(
         task_status: Option<String>,
         workspace_id: Uuid,
         source_type: Option<String>,
+        unclaimed_secs: i64,
     }
 
     // The workspace filter is conditional, but every binding must be the
@@ -375,10 +484,20 @@ pub async fn find_stuck_runs(
     } else {
         ""
     };
+    let held_by_a_live_coordinator = queue_rows_of_run("q");
+    let queued_global = queue_rows_of_run("g");
+    let unclaimed_secs = unclaimed_secs_sql(Some("g"), "$2");
+    // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
+    // table's primary key, so Postgres treats them as functionally dependent.
     let sql = format!(
         "\
-        SELECT r.id, r.task_status, r.workspace_id, r.source_type \
+        SELECT r.id, r.task_status, r.workspace_id, r.source_type, \
+               {unclaimed_secs} \
         FROM agentic_runs r \
+        LEFT JOIN agentic_task_queue g \
+          ON {queued_global} \
+         AND g.queue_status = 'queued' \
+         AND g.scope_owned = false \
         WHERE r.source_type IN ('workflow', 'airway') \
           AND r.parent_run_id IS NULL \
           AND r.task_status IN ('running', 'delegating', 'waiting_on_child', 'waiting_on_children', 'needs_resume', 'shutdown') \
@@ -389,12 +508,13 @@ pub async fn find_stuck_runs(
           {workspace_clause} \
           AND NOT EXISTS ( \
               SELECT 1 FROM agentic_task_queue q \
-              WHERE (q.task_id = r.id OR q.task_id LIKE r.id || '.%') \
+              WHERE {held_by_a_live_coordinator} \
                 AND ( \
                   q.queue_status = 'claimed' \
                   OR (q.queue_status = 'queued' AND q.scope_owned = true) \
                 ) \
-          )"
+          ) \
+        GROUP BY r.id"
     );
 
     let rows = Row::find_by_statement(Statement::from_sql_and_values(
@@ -412,6 +532,8 @@ pub async fn find_stuck_runs(
             task_status: r.task_status,
             workspace_id: r.workspace_id,
             source_type: r.source_type,
+            // Clamped to 0 in SQL, so the cast cannot wrap.
+            unclaimed_secs: r.unclaimed_secs as u64,
         })
         .collect())
 }
@@ -442,6 +564,20 @@ pub async fn find_stuck_runs(
 /// caller (e.g. the cloud-mode latency worker) is responsible for
 /// grouping by `StuckRun.workspace_id` and routing each row to the
 /// correct cached `PlatformContext`.
+///
+/// **`unclaimed_secs`:** every row also reports how long it has been
+/// selectable with nobody taking it (see [`StuckRun::unclaimed_secs`] for the
+/// clock). It is a column, not a predicate — the selection is unchanged and
+/// still has no grace window.
+///
+/// **Shape:** an inner join to the run's `queued` Global rows plus `GROUP BY`,
+/// not `EXISTS` plus a scalar subquery. The two are the same set (a run is
+/// returned iff it has at least one such row, and `MAX` ranges over exactly
+/// those rows), but the scalar form re-scanned the queued set once per
+/// returned row — 100k buffers where the query had read 280. The join reads
+/// it once, and `queue_rows_of_run`'s key lets the planner merge or hash the
+/// two sides rather than test every pair. This runs every second on every
+/// node; the measurements are in `internal-docs/worker-fleet.md`.
 pub async fn find_pending_global_runs(
     db: &DatabaseConnection,
     workspace_id: Option<Uuid>,
@@ -454,6 +590,7 @@ pub async fn find_pending_global_runs(
         task_status: Option<String>,
         workspace_id: Uuid,
         source_type: Option<String>,
+        unclaimed_secs: i64,
     }
 
     let mut values: Vec<Value> = vec![(DRIVER_LEASE_TTL_SECS as i32).into()];
@@ -464,22 +601,26 @@ pub async fn find_pending_global_runs(
         ""
     };
     let statuses = pending_global_status_sql();
+    let queued_global = queue_rows_of_run("q");
+    let unclaimed_secs = unclaimed_secs_sql(Some("q"), "$1");
+    // `GROUP BY r.id` alone is enough for the other `r.*` columns: `id` is the
+    // table's primary key, so Postgres treats them as functionally dependent.
     let sql = format!(
         "\
-        SELECT r.id, r.task_status, r.workspace_id, r.source_type \
+        SELECT r.id, r.task_status, r.workspace_id, r.source_type, \
+               {unclaimed_secs} \
         FROM agentic_runs r \
+        JOIN agentic_task_queue q \
+          ON {queued_global} \
+         AND q.queue_status = 'queued' \
+         AND q.scope_owned = false \
         WHERE r.parent_run_id IS NULL \
           AND r.task_status IN ({statuses}) \
           AND (r.driver_id IS NULL \
                OR r.driver_heartbeat_at IS NULL \
                OR r.driver_heartbeat_at < now() - make_interval(secs => $1)) \
           {workspace_clause} \
-          AND EXISTS ( \
-              SELECT 1 FROM agentic_task_queue q \
-              WHERE (q.task_id = r.id OR q.task_id LIKE r.id || '.%') \
-                AND q.queue_status = 'queued' \
-                AND q.scope_owned = false \
-          )"
+        GROUP BY r.id"
     );
 
     let rows = Row::find_by_statement(Statement::from_sql_and_values(
@@ -496,6 +637,8 @@ pub async fn find_pending_global_runs(
             task_status: r.task_status,
             workspace_id: r.workspace_id,
             source_type: r.source_type,
+            // Clamped to 0 in SQL, so the cast cannot wrap.
+            unclaimed_secs: r.unclaimed_secs as u64,
         })
         .collect())
 }

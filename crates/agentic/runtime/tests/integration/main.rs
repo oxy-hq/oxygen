@@ -16,3 +16,4 @@ mod run_feed_test;
 mod stuck_run_sweeper_test;
 mod suspension_clock_test;
 mod tls_smoke_test;
+mod unclaimed_clock_test;

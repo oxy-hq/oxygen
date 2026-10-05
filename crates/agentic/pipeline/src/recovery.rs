@@ -17,6 +17,7 @@ use agentic_runtime::transport::DurableTransport;
 use agentic_runtime::worker::Worker;
 use sea_orm::DatabaseConnection;
 
+use crate::drive_policy::report_fallback_takes;
 use crate::executor::PipelineTaskExecutor;
 use crate::platform::preview::platform_for_root;
 use crate::platform::{BuilderBridges, PlatformContext, RunPlatformResolver};
@@ -112,6 +113,9 @@ fn log_recovery_failure(run_id: &str, err: &str, message: &'static str) {
 /// `run_platform` picks the platform each root is driven with (`platform` is
 /// the base it may hand back) — see [`crate::platform::preview`]. A root it
 /// cannot answer for is skipped, never driven with the base.
+///
+/// `policy` — see [`leave_queued_work_for_the_fleet`]: applied only to the
+/// roots another node's latency worker can see, never to the rest.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_active_runs(
     db: DatabaseConnection,
@@ -125,6 +129,7 @@ pub async fn recover_active_runs(
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
+    policy: DrivePolicy,
 ) -> usize {
     // Pre-pass: clean up stale queue entries from the previous server lifetime.
     // Tasks "claimed" by now-dead workers get re-queued or dead-lettered.
@@ -141,6 +146,7 @@ pub async fn recover_active_runs(
             return 0;
         }
     };
+    let roots = leave_queued_work_for_the_fleet(&db, roots, workspace_id, policy).await;
 
     if roots.is_empty() {
         return 0;
@@ -193,6 +199,79 @@ pub async fn recover_active_runs(
     recovered
 }
 
+/// The startup pass's share of the placement gate: drop from `roots` every run
+/// this process defers **and** another node's latency worker can see.
+///
+/// `get_resumable_root_runs` is not scoped to this process's own work: it
+/// selects every unleased active root in the workspace, and the reaper
+/// pre-pass has just re-queued every dead worker's claim. So a deferring `ide`
+/// that boots while an OOM-killed worker's pipeline is in that state would
+/// drive it here, ungated — the heavy run the flag exists to keep off this
+/// node, by the one selection the latency worker and the stranded tick do not
+/// share.
+///
+/// Only the roots [`find_pending_global_runs`] also selects are candidates,
+/// and that is what makes declining one safe: a run with a `queued` Global row
+/// and no live lease is exactly what every node's latency worker polls for, a
+/// worker takes it within a tick, and this node's own latency worker takes it
+/// after [`STRANDED_GRACE_SECS`] if none does. A root with no such row — an
+/// analytics or builder run this process was direct-driving when it died —
+/// has no other loop guaranteed to see it, so it stays here whatever its kind.
+///
+/// Fails open: if the pending set cannot be read, every root is kept, which is
+/// this pass's behaviour without a policy.
+///
+/// [`find_pending_global_runs`]: agentic_runtime::crud::find_pending_global_runs
+async fn leave_queued_work_for_the_fleet(
+    db: &DatabaseConnection,
+    mut roots: Vec<agentic_runtime::entity::run::Model>,
+    workspace_id: Option<uuid::Uuid>,
+    policy: DrivePolicy,
+) -> Vec<agentic_runtime::entity::run::Model> {
+    if roots.is_empty() || policy == DrivePolicy::ALL {
+        return roots;
+    }
+    let pending = match agentic_runtime::crud::find_pending_global_runs(db, workspace_id).await {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                target: "recovery",
+                error = %e,
+                "startup pass: could not read the pending Global set; resuming every root"
+            );
+            return roots;
+        }
+    };
+    let (drivable, declined) = partition_drivable(pending, policy);
+    // Only the roots this pass resumes: a pending run that is not a resumable
+    // root (`waiting_on_child`) is not driven here, and the latency worker
+    // reports it when it takes it.
+    {
+        let resumed: std::collections::HashSet<&str> =
+            roots.iter().map(|r| r.id.as_str()).collect();
+        let resumed: Vec<_> = drivable
+            .into_iter()
+            .filter(|r| resumed.contains(r.run_id.as_str()))
+            .collect();
+        report_fallback_takes(&resumed, policy, "startup pass");
+    }
+    if declined.is_empty() {
+        return roots;
+    }
+    let declined: std::collections::HashSet<String> =
+        declined.into_iter().map(|r| r.run_id).collect();
+    let before = roots.len();
+    roots.retain(|root| !declined.contains(&root.id));
+    if roots.len() < before {
+        tracing::info!(
+            target: "recovery",
+            count = before - roots.len(),
+            "startup pass: leaving queued runs this process defers for the worker fleet"
+        );
+    }
+    roots
+}
+
 /// Periodic global-driver entrypoint: drive **stranded** runs only.
 ///
 /// Unlike [`recover_active_runs`] (startup: every coordinator is dead, so
@@ -209,6 +288,21 @@ pub async fn recover_active_runs(
 /// foreign workspace's row with this context.
 ///
 /// `run_platform` — see [`recover_active_runs`].
+///
+/// `policy` — which run kinds this process drives (see [`DrivePolicy`]), the
+/// same value the latency worker applies. It has to be applied **here** too,
+/// because this pass is the one that reaps: the pre-pass below flips a dead
+/// worker's `claimed` row back to `queued`, and `find_stuck_runs` then selects
+/// that very run in the same call — a long pipeline's `updated_at` is already
+/// past the grace, and the worker that died was its lease-holder, so once that
+/// lease has lapsed nothing else excludes it. Ungated, an OOM-killed airway run
+/// landed on whichever node's tick reaped it, which under
+/// [`DrivePolicy::Only`] is exactly the node that was configured not to run
+/// it. The gate reads [`StuckRun::unclaimed_secs`](agentic_runtime::crud::StuckRun),
+/// whose clock restarts at the reaper's re-queue, so a deferring node leaves
+/// the run for the fleet for one grace and takes it only if nobody did.
+/// `Except` is a no-op on this path by construction (the selection is
+/// `workflow` + `airway`, never `compile`), so a worker's tick is unchanged.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_stranded_runs(
     db: DatabaseConnection,
@@ -222,11 +316,8 @@ pub async fn recover_stranded_runs(
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
+    policy: DrivePolicy,
 ) -> usize {
-    /// A run untouched for this long with no queue entry is genuinely
-    /// stranded (not a worker mid-commit between state write and enqueue).
-    const STRANDED_GRACE_SECS: u64 = 30;
-
     // Free entries claimed by workers that died — turns a crashed
     // interactive run into a stranded one this same pass.
     let transport = DurableTransport::with_router(db.clone(), router.clone(), None);
@@ -244,6 +335,17 @@ pub async fn recover_stranded_runs(
             return 0;
         }
     };
+    // Before the lease, like the latency worker: a declined run keeps
+    // `driver_id IS NULL` and the next node's tick selects it.
+    let (stuck, declined) = partition_drivable(stuck, policy);
+    if !declined.is_empty() {
+        tracing::debug!(
+            target: "recovery",
+            count = declined.len(),
+            "global loop: leaving stranded runs this process defers for a node that takes them"
+        );
+    }
+    report_fallback_takes(&stuck, policy, "global loop");
     if stuck.is_empty() {
         return 0;
     }
@@ -295,18 +397,10 @@ pub async fn recover_stranded_runs(
     recovered
 }
 
-/// May this process drive a run of this `source_type`?
-///
-/// Public and separate so the test suite exercises the predicate the driver
-/// actually uses, rather than a copy of it. A test that re-implements the rule
-/// it is checking passes just as happily when the production call site stops
-/// applying it — which is the failure mode this gate has already had twice, in
-/// two different layers.
-///
-/// A `None` source_type is drivable: absent is not excluded.
-pub fn may_drive(source_type: Option<&str>, exclude_source_types: &[&str]) -> bool {
-    !source_type.is_some_and(|t| exclude_source_types.contains(&t))
-}
+// The placement gate lives in `drive_policy`; re-exported so the path the
+// tests, the host and the docs already name (`recovery::may_drive`) is the
+// one definition.
+pub use crate::drive_policy::{DrivePolicy, STRANDED_GRACE_SECS, may_drive, partition_drivable};
 
 /// §12 FU4c latency-worker entrypoint. Drives runs that already have a
 /// `queued scope_owned = false` queue entry — freshly-seeded Global runs
@@ -324,12 +418,12 @@ pub fn may_drive(source_type: Option<&str>, exclude_source_types: &[&str]) -> bo
 /// the iteration's workspace id so it routes per-row to the right
 /// `PlatformContext`.
 ///
-/// `exclude_source_types` — run kinds this process must not drive, matched on
-/// `source_type`. Checked HERE rather than by the caller because this is where
+/// `policy` — which run kinds this process drives, matched on `source_type`
+/// (see [`DrivePolicy`]). Checked HERE rather than by the caller because this is where
 /// the driver lease is taken. A caller-side filter covers only the selection
 /// the caller made; this function re-selects per workspace, and it is that
 /// second selection which feeds `recover_single_run` → `try_acquire_driver`.
-/// Filtering upstream therefore misses any workspace holding excluded work
+/// Filtering upstream therefore misses any workspace holding declined work
 /// alongside work this process CAN drive — the common shape, since health,
 /// preagg and schedule ticks seed Global runs per workspace continuously.
 ///
@@ -339,7 +433,7 @@ pub fn may_drive(source_type: Option<&str>, exclude_source_types: &[&str]) -> bo
 /// lease-holder may claim the row, so it re-selects its own work while its
 /// heartbeat excludes everyone else. See [`may_drive`].
 ///
-/// `run_platform` — see [`recover_active_runs`]. Asked after the exclusion and
+/// `run_platform` — see [`recover_active_runs`]. Asked after the policy and
 /// before the lease, so a root it cannot answer for keeps `driver_id IS NULL`.
 #[allow(clippy::too_many_arguments)]
 pub async fn recover_pending_global_runs(
@@ -354,7 +448,7 @@ pub async fn recover_pending_global_runs(
     router: Arc<dyn agentic_runtime::router::TaskRouter>,
     workspace_id: Option<uuid::Uuid>,
     custom_executors: Option<Arc<agentic_runtime::worker::CustomTaskRegistry>>,
-    exclude_source_types: &[&str],
+    policy: DrivePolicy,
 ) -> usize {
     let pending = match agentic_runtime::crud::find_pending_global_runs(&db, workspace_id).await {
         Ok(p) => p,
@@ -370,9 +464,7 @@ pub async fn recover_pending_global_runs(
             return 0;
         }
     };
-    let (pending, declined): (Vec<_>, Vec<_>) = pending
-        .into_iter()
-        .partition(|s| may_drive(s.source_type.as_deref(), exclude_source_types));
+    let (pending, declined) = partition_drivable(pending, policy);
     if !declined.is_empty() {
         tracing::debug!(
             target: "recovery",
@@ -380,6 +472,7 @@ pub async fn recover_pending_global_runs(
             "latency loop: leaving runs this process cannot drive for a node that can"
         );
     }
+    report_fallback_takes(&pending, policy, "latency loop");
     if pending.is_empty() {
         return 0;
     }
@@ -1282,65 +1375,6 @@ fn spawn_virtual_worker(
             heartbeat_cancel.cancel();
         }
     });
-}
-
-#[cfg(test)]
-mod may_drive_tests {
-    use super::may_drive;
-
-    /// The gate itself. Two earlier attempts at this failed by being applied
-    /// in the wrong place rather than by computing the wrong answer, so this
-    /// pins the answer and the call site keeps the placement honest.
-    #[test]
-    fn excluded_kinds_are_declined_and_everything_else_is_driven() {
-        assert!(!may_drive(Some("compile"), &["compile"]));
-        assert!(may_drive(Some("airway"), &["compile"]));
-        assert!(may_drive(Some("workflow"), &["compile"]));
-    }
-
-    /// An empty exclusion list is the `oxy serve` / `all` case: drive
-    /// everything. Getting this wrong would strand every run on the node that
-    /// CAN do the work.
-    #[test]
-    fn an_empty_exclusion_list_drives_everything() {
-        assert!(may_drive(Some("compile"), &[]));
-        assert!(may_drive(None, &[]));
-    }
-
-    /// Absent is not excluded. A run row with a NULL `source_type` must still
-    /// be driven — silently dropping it would strand it forever, since nothing
-    /// else selects a run whose driver never claims it.
-    #[test]
-    fn a_missing_source_type_is_drivable() {
-        assert!(may_drive(None, &["compile"]));
-    }
-
-    /// The Phase 2 mirror image: the `ide` node declines `airway` so a worker
-    /// takes the pipeline instead of the pod that accepted the submit.
-    ///
-    /// Pinned separately from the compile case because the two exclusions have
-    /// opposite justifications — `compile` is a capability the decliner lacks,
-    /// `airway` is a placement preference by a node that is perfectly capable.
-    /// A future reader collapsing them into "things a node can't do" would
-    /// break the airway rule without failing the compile test.
-    #[test]
-    fn the_ide_declines_airway_but_still_drives_compiles() {
-        assert!(!may_drive(Some("airway"), &["airway"]));
-        assert!(may_drive(Some("compile"), &["airway"]));
-        assert!(may_drive(Some("workflow"), &["airway"]));
-        assert!(may_drive(Some("analytics"), &["airway"]));
-    }
-
-    /// The two gates are disjoint sets held by different roles, never both by
-    /// one process — but `may_drive` itself must not care, so that a future
-    /// role needing both is a one-line change at the call site rather than a
-    /// rewrite here.
-    #[test]
-    fn excluding_both_kinds_declines_both() {
-        assert!(!may_drive(Some("airway"), &["compile", "airway"]));
-        assert!(!may_drive(Some("compile"), &["compile", "airway"]));
-        assert!(may_drive(Some("workflow"), &["compile", "airway"]));
-    }
 }
 
 #[cfg(test)]

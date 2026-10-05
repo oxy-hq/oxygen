@@ -132,7 +132,7 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         router(),
         Some(s.ws),
         None,
-        &[],
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_retired_not_driven(&db, "pending", &s, &m).await;
@@ -158,6 +158,7 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         router(),
         Some(s.ws),
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_retired_not_driven(&db, "stranded", &s, &m).await;
@@ -176,6 +177,7 @@ async fn every_recovery_entry_point_retires_a_preview_run() {
         router(),
         Some(s.ws),
         None,
+        agentic_pipeline::recovery::DrivePolicy::ALL,
     )
     .await;
     assert_retired_not_driven(&db, "startup", &s, &m).await;

@@ -13,6 +13,7 @@ pub mod app_function_task;
 pub mod automation_run;
 pub mod backfill;
 mod db_transient;
+pub mod drive_policy;
 pub mod executor;
 pub mod pipeline_ref;
 pub mod platform;

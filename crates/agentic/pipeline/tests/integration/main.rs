@@ -17,6 +17,7 @@ mod automation_airway_admission_test;
 mod automation_cache_resume_test;
 mod automation_recovery_test;
 mod commit_decision_test;
+mod drive_policy_test;
 mod integration_tests;
 mod preview_airway_sample_test;
 mod preview_run_recovery_test;

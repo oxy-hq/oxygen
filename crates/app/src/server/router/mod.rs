@@ -9,6 +9,7 @@
 //! - [`seams`] — [`SurfaceSeams`], the named seams extracted surface crates mount through
 //! - [`openapi`] — the utoipa OpenAPI router used by Swagger UI
 
+mod drive_policy;
 mod entry;
 mod global;
 mod openapi;

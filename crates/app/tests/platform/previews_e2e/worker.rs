@@ -70,7 +70,7 @@ pub(super) async fn start(fx: &Fx) -> Worker {
                 Arc::new(agentic_runtime::router::NoopTaskRouter),
                 Some(ws),
                 Some(registry.clone()),
-                &[],
+                agentic_pipeline::recovery::DrivePolicy::ALL,
             )
             .await;
             oxy_app::server::previews::runs::sweep(&db).await;

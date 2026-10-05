@@ -137,7 +137,7 @@ pub(crate) async fn drive_with(
             Arc::new(agentic_runtime::router::NoopTaskRouter),
             Some(fx.ws),
             None,
-            &[],
+            agentic_pipeline::recovery::DrivePolicy::ALL,
         )
         .await;
         let run = agentic_runtime::crud::get_run(&fx.db, run_id)
