@@ -6,6 +6,11 @@
 //! `workspace_middleware` exactly as it did when it lived in oxy-app's
 //! `build_workspace_routes`.
 
+// Laying out `upload_report`'s future exceeds rustc's default query depth of
+// 128 in the `--release` build that produces the image — and only there: a
+// dev-profile build stays under it, so PR CI passes. rustc's own suggestion.
+#![recursion_limit = "256"]
+
 mod source_upload;
 
 use axum::Router;
