@@ -20,8 +20,10 @@
 //! is every row that mirrors `api_keys` — an `oxy_<hex>` key, and a token the
 //! legacy `/api/{workspace_id}/api-keys` endpoint minted.
 
-// `audit`, `dto` and `view` are shared with the org's side of the same tokens
-// (`api::org_api_access`): one wire shape and one lifecycle-event writer.
+// `audit`, `access_audit`, `dto` and `view` are shared with the org's side of
+// the same tokens (`api::org_api_access`): one wire shape and one
+// lifecycle-event writer.
+pub(crate) mod access_audit;
 pub(crate) mod audit;
 pub mod cli_login;
 pub(crate) mod dto;

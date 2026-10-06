@@ -1,4 +1,5 @@
 use super::*;
+use crate::server::api::user_tokens::system_audit::system_entry;
 use chrono::Utc;
 
 fn id(n: u128) -> Uuid {
@@ -138,18 +139,51 @@ fn a_legacy_rows_event_names_the_key_it_mirrors() {
     assert_eq!(metadata["api_key_id"], json!(id(1)));
 }
 
-#[test]
-fn the_access_summary_lists_live_grants_by_id() {
-    let narrowed = token(false);
-    let summary = access_summary(&narrowed, &[grant(10, false), grant(20, true)]);
-    assert_eq!(summary["all_access"], json!(false));
-    assert_eq!(summary["grants"].as_array().map(Vec::len), Some(1));
-    assert_eq!(summary["grants"][0]["org_id"], json!(id(10)));
-    assert_eq!(summary["grants"][0]["role_ceiling"], json!("admin"));
+fn rows(event: &Event<'_>, own: impl Fn(Option<Uuid>) -> Own) -> Vec<AuditEntry> {
+    let context = oxy_app_core::audit::AuditContext::default();
+    event.entries_with(|| system_entry(event.action, &context), own)
+}
 
-    // An all-access token's grants are not part of what it reaches.
-    let all = access_summary(&token(true), &[grant(10, false)]);
-    assert_eq!(all["grants"], json!([]));
+/// What `own` answers for a row is on that row and on no other: its detail
+/// over the row's metadata, its change as the row's before and after.
+#[test]
+fn what_a_row_owns_is_on_that_row_alone() {
+    let token = token(false);
+    let event = event(&token, vec![id(10), id(20)]);
+    let rows = rows(&event, |org| {
+        if org == Some(id(10)) {
+            Own {
+                detail: json!({ "here": "ten" }),
+                change: Some((json!({ "n": 1 }), json!({ "n": 2 }))),
+            }
+        } else {
+            Own::default()
+        }
+    });
+    assert_eq!(rows[0].metadata["here"], "ten");
+    assert_eq!(rows[0].before, Some(json!({ "n": 1 })));
+    assert_eq!(rows[0].after, Some(json!({ "n": 2 })));
+    assert!(rows[1].metadata.get("here").is_none());
+    assert!(rows[1].before.is_none() && rows[1].after.is_none());
+    // Still one event, and the shared detail is on both.
+    assert_eq!(rows[0].metadata["event_id"], rows[1].metadata["event_id"]);
+    assert!(rows.iter().all(|row| row.metadata["expires_at"].is_null()));
+}
+
+/// An event's own change is every row's, unless the row has one of its own.
+#[test]
+fn a_rows_change_replaces_the_events() {
+    let token = token(false);
+    let mut event = event(&token, vec![id(10), id(20)]);
+    event.change = Some((json!({ "at": "old" }), json!({ "at": "new" })));
+    let rows = rows(&event, |org| match org {
+        Some(org) if org == id(20) => Own::change(json!({ "own": 1 }), json!({ "own": 2 })),
+        _ => Own::default(),
+    });
+    assert_eq!(rows[0].before, Some(json!({ "at": "old" })));
+    assert_eq!(rows[0].after, Some(json!({ "at": "new" })));
+    assert_eq!(rows[1].before, Some(json!({ "own": 1 })));
+    assert_eq!(rows[1].after, Some(json!({ "own": 2 })));
 }
 
 #[test]

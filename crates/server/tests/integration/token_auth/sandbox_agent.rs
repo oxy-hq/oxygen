@@ -219,25 +219,41 @@ async fn the_mint_is_audited_on_the_chain_of_every_granted_apps_org() {
     let mut expected = vec![Some(fx.org_id), Some(other_org)];
     expected.sort();
     assert_eq!(orgs, expected, "one row per granted app's org");
-    for row in &rows {
+    // One event: the rows share an id.
+    assert_eq!(rows[0].metadata["event_id"], rows[1].metadata["event_id"]);
+
+    // Each org's row names its own app and grant, and nothing of the other
+    // org: not its id, not its app's id.
+    let sides = [(fx.org_id, app.id), (other_org, other_app.id)];
+    for ((org, own_app), (foreign_org, foreign_app)) in [(sides[0], sides[1]), (sides[1], sides[0])]
+    {
+        let row = rows
+            .iter()
+            .find(|row| row.org_id == Some(org))
+            .unwrap_or_else(|| panic!("a row on org {org}"));
         assert_eq!(row.actor_user_id, Some(fx.user.id), "audited as the minter");
         assert_eq!(row.target_id.as_deref(), Some(id.to_string().as_str()));
         assert_eq!(row.metadata["token_id"], json!(id));
         assert_eq!(row.metadata["token_kind"], "sandbox_agent");
-        let mut apps: Vec<String> = row.metadata["apps"]
-            .as_array()
-            .expect("the app ids")
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect();
-        apps.sort();
-        let mut want = vec![app.id.to_string(), other_app.id.to_string()];
-        want.sort();
-        assert_eq!(apps, want);
         assert!(row.metadata["expires_at"].is_string());
+        assert_eq!(row.metadata["platform"], json!(true));
+
+        assert_eq!(row.metadata["apps"], json!([own_app]));
+        let grants = row.metadata["grants"].as_array().expect("grants");
+        assert_eq!(grants.len(), 1, "{}", row.metadata);
+        assert_eq!(grants[0]["kind"], "app_sandbox");
+        assert_eq!(grants[0]["org_id"], json!(org));
+        assert_eq!(grants[0]["app_id"], json!(own_app));
+
+        // The row exactly as it is stored and chained.
+        let stored = serde_json::to_string(row).expect("serialise the row");
+        for leaked in [foreign_org.to_string(), foreign_app.to_string()] {
+            assert!(
+                !stored.contains(&leaked),
+                "the row on org {org} holds {leaked} of org {foreign_org}"
+            );
+        }
     }
-    // One event: the rows share an id.
-    assert_eq!(rows[0].metadata["event_id"], rows[1].metadata["event_id"]);
 }
 
 #[tokio::test]

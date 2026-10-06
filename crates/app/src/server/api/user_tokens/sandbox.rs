@@ -40,7 +40,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::audit::{self, Event};
+use super::access_audit::Access;
+use super::audit::{self, Event, Own};
 use super::error::TokenError;
 use super::service::{self, Minted};
 use super::{policy_cap, view};
@@ -110,6 +111,15 @@ impl Checked {
     pub(super) fn app_ids(&self) -> Vec<Uuid> {
         self.apps.iter().map(|app| app.id).collect()
     }
+
+    /// Each app with the org that owns it: what the token is granted.
+    fn granted(&self) -> Vec<GrantedApp> {
+        let granted = |app: &apps::Model| GrantedApp {
+            org_id: app.org_id,
+            app_id: app.id,
+        };
+        self.apps.iter().map(granted).collect()
+    }
 }
 
 /// Parse a mint and check who may mint it. `default_name` names the token when
@@ -141,7 +151,8 @@ pub(super) async fn within_policy(
 }
 
 /// Mint what `checked` asks for, as `actor`, with the lifecycle audit row in
-/// the same transaction — written to the chain of every granted app's org.
+/// the same transaction — written to the chain of every granted app's org,
+/// each row naming that org's apps only ([`mint_in`]).
 pub(super) async fn create(
     db: &DatabaseConnection,
     actor: &RequestActor,
@@ -152,29 +163,22 @@ pub(super) async fn create(
     let expires_at = checked.request.expires_at(Utc::now());
     within_policy(db, checked, expires_at).await?;
 
+    let granted = checked.granted();
     let txn = db.begin().await?;
     let minted = mint::create(
         &txn,
         NewSandboxToken {
             minter: actor.id,
             name: checked.request.name.clone(),
-            apps: checked
-                .apps
-                .iter()
-                .map(|app| GrantedApp {
-                    org_id: app.org_id,
-                    app_id: app.id,
-                })
-                .collect(),
+            apps: granted.clone(),
             expires_at,
             source,
         },
     )
     .await?;
     let stored = oxy_auth::token::personal::grants_for(&txn, &[minted.row.id]).await?;
-    let mut detail = audit::access_summary(&minted.row, &stored);
-    detail["expires_at"] = audit::rfc3339(minted.row.expires_at);
-    detail["apps"] = json!(checked.app_ids());
+    let access = Access::of(&minted.row, &stored);
+    let mut detail = json!({ "expires_at": audit::rfc3339(minted.row.expires_at) });
     if let (Value::Object(detail), Value::Object(extra)) = (&mut detail, extra) {
         detail.extend(extra);
     }
@@ -185,13 +189,26 @@ pub(super) async fn create(
         detail,
         change: None,
     }
-    .record(&txn, actor)
+    .record_with(&txn, actor, |org| mint_in(&access, &granted, org))
     .await?;
     txn.commit().await?;
     Ok(Minted {
         token: view::token(db, &minted.row, actor.label()).await?,
         secret: minted.secret,
     })
+}
+
+/// What the row of `org` says of a mint: the token's access there, and the
+/// apps of that org it names. An app of another org is on that org's row only.
+fn mint_in(access: &Access<'_>, apps: &[GrantedApp], org: Option<Uuid>) -> Own {
+    let here: Vec<Uuid> = apps
+        .iter()
+        .filter(|app| Some(app.org_id) == org)
+        .map(|app| app.app_id)
+        .collect();
+    let mut detail = access.in_org(org);
+    detail["apps"] = json!(here);
+    Own::detail(detail)
 }
 
 /// `POST /api/user/tokens` with `kind: "sandbox_agent"`.

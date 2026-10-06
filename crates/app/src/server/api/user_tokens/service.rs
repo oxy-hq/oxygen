@@ -26,6 +26,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use super::access_audit::{self, Access};
 use super::audit::{self, Event};
 use super::dto::TokenDto;
 use super::error::TokenError;
@@ -131,16 +132,15 @@ pub(super) async fn create(
     };
     let minted = personal::create(&txn, new).await?;
     let stored = personal::grants_for(&txn, &[minted.row.id]).await?;
-    let mut detail = audit::access_summary(&minted.row, &stored);
-    detail["expires_at"] = audit::rfc3339(minted.row.expires_at);
+    let access = Access::of(&minted.row, &stored);
     Event {
         action: audit::CREATED,
         token: &minted.row,
         orgs: reach_of(&txn, &minted.row).await?,
-        detail,
+        detail: json!({ "expires_at": audit::rfc3339(minted.row.expires_at) }),
         change: None,
     }
-    .record(&txn, actor)
+    .record_with(&txn, actor, access_audit::created(&access))
     .await?;
     txn.commit().await?;
     Ok(Minted {
@@ -202,7 +202,7 @@ async fn apply_edit(
     if !access_changed && stored.name == settings.name {
         return view::token(db, &row, actor.label()).await;
     }
-    let before = audit::access_summary(&row, existing);
+    let before = Access::of(&row, existing);
     let txn = db.begin().await?;
     let reached_before = reach_of(&txn, &row).await?;
     let updated = personal::update_settings(&txn, row, settings).await?;
@@ -210,14 +210,15 @@ async fn apply_edit(
     // A rename alone changes no reach, so it records no lifecycle event.
     if access_changed {
         let grants = personal::grants_for(&txn, &[updated.id]).await?;
+        let after = Access::of(&updated, &grants);
         Event {
             action: audit::GRANTS_CHANGED,
             token: &updated,
             orgs: audit::union(reached_before, reach_of(&txn, &updated).await?),
             detail: json!({}),
-            change: Some((before, audit::access_summary(&updated, &grants))),
+            change: None,
         }
-        .record(&txn, actor)
+        .record_with(&txn, actor, access_audit::changed(&before, &after))
         .await?;
     }
     txn.commit().await?;

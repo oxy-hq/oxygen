@@ -23,7 +23,7 @@ use sea_orm::ConnectionTrait;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::audit::{EXPIRED_SANDBOXES_QUEUED, Event};
+use super::audit::{EXPIRED_SANDBOXES_QUEUED, Event, Own};
 use super::error::TokenError;
 use super::system_audit::system_entry;
 
@@ -74,7 +74,7 @@ fn shared_detail(token: &api_tokens::Model, ended_at: DateTime<Utc>) -> Value {
 
 /// What the row of `org` alone says: the sandboxes queued of that org's apps.
 /// A row with no org lists none.
-fn own_detail(org: Option<Uuid>, queued: &[QueuedSandbox]) -> Value {
+fn own_detail(org: Option<Uuid>, queued: &[QueuedSandbox]) -> Own {
     let sandboxes: Vec<Value> = queued
         .iter()
         .filter(|sandbox| Some(sandbox.org_id) == org)
@@ -86,7 +86,7 @@ fn own_detail(org: Option<Uuid>, queued: &[QueuedSandbox]) -> Value {
             })
         })
         .collect();
-    json!({ "sandboxes": sandboxes })
+    Own::detail(json!({ "sandboxes": sandboxes }))
 }
 
 /// The event's rows, one per concerned org, each started from `base`.

@@ -48,6 +48,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::ManageTokens;
+use super::access_audit::{self, Access};
 use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
@@ -204,17 +205,19 @@ async fn mint(
         source: source::OXYC_LOGIN,
     };
     let minted = personal::create(&txn, new).await?;
-    let mut detail = audit::access_summary(&minted.row, &[]);
-    detail["expires_at"] = audit::rfc3339(minted.row.expires_at);
-    detail["hostname"] = json!(hostname);
+    // All access: the token holds no grant, so every row lists none.
+    let access = Access::of(&minted.row, &[]);
     Event {
         action: audit::CREATED,
         token: &minted.row,
         orgs: service::reach_of(&txn, &minted.row).await?,
-        detail,
+        detail: json!({
+            "expires_at": audit::rfc3339(minted.row.expires_at),
+            "hostname": hostname,
+        }),
         change: None,
     }
-    .record(&txn, actor)
+    .record_with(&txn, actor, access_audit::created(&access))
     .await?;
     txn.commit().await?;
 

@@ -16,6 +16,13 @@
 //! Written with `record_in_txn`, in the transaction that changes the token: the
 //! change and the row that says who made it commit together. Rows name the
 //! token by id and non-secret prefix — **never the secret**.
+//!
+//! **A row holds nothing of another org.** What is about the token alone (its
+//! flags, its expiry, where it was minted from) is on every row of the event.
+//! What belongs to one org (a grant, an app, a sandbox) is on that org's row
+//! only: an event with such detail is written through [`Event::record_with`],
+//! whose [`Own`] is asked once per row. `super::access_audit` builds the one
+//! for a token's grants.
 
 use chrono::{DateTime, FixedOffset};
 use entity::prelude::OrgMembers;
@@ -102,10 +109,37 @@ pub(crate) struct Event<'a> {
     /// Sorted, distinct — [`reach_orgs`]. For a service-account token, and for
     /// an org ending a token's reach, the one org concerned.
     pub orgs: Vec<Uuid>,
-    /// Event-specific metadata, merged over the common keys.
+    /// Event-specific metadata, merged over the common keys **on every row**:
+    /// only what is about the token, never what belongs to one org ([`Own`]).
     pub detail: Value,
-    /// `(before, after)` for an event that changes something.
+    /// `(before, after)` for an event that changes something, on every row.
     pub change: Option<(Value, Value)>,
+}
+
+/// What the row of one org alone says, for an event whose detail belongs to an
+/// org and must not be read on another's chain.
+#[derive(Debug, Default, PartialEq)]
+pub(crate) struct Own {
+    /// Merged over that row's metadata. Anything but an object adds nothing.
+    pub detail: Value,
+    /// That row's `(before, after)`, in place of the event's.
+    pub change: Option<(Value, Value)>,
+}
+
+impl Own {
+    pub(crate) fn detail(detail: Value) -> Self {
+        Self {
+            detail,
+            change: None,
+        }
+    }
+
+    pub(crate) fn change(before: Value, after: Value) -> Self {
+        Self {
+            detail: Value::Null,
+            change: Some((before, after)),
+        }
+    }
 }
 
 impl Event<'_> {
@@ -130,32 +164,30 @@ impl Event<'_> {
             .collect()
     }
 
-    fn entries(&self, actor: &RequestActor) -> Vec<AuditEntry> {
-        self.entries_from(|| AuditEntry::for_request(actor, self.action))
-    }
-
     /// The event's rows, each started from `base` — the request's actor, or
     /// for a row no request wrote, the system (`super::system_audit`).
     pub(crate) fn entries_from(&self, base: impl Fn() -> AuditEntry) -> Vec<AuditEntry> {
-        self.entries_with(base, |_| Value::Null)
+        self.entries_with(base, |_| Own::default())
     }
 
-    /// [`Self::entries_from`], with what `own` answers for a row's org merged
-    /// over that row's metadata alone. For an event whose detail belongs to
-    /// one org and must not be read on another's chain; the rows still share
-    /// one `event_id`. An `own` that answers no object changes nothing.
+    /// [`Self::entries_from`], with what `own` answers for a row's org on that
+    /// row alone: its detail merged over the row's metadata, its change as
+    /// the row's before and after. The rows still share one `event_id`. An
+    /// `own` that answers nothing leaves the row as [`Self::entries_from`]
+    /// writes it.
     pub(crate) fn entries_with(
         &self,
         base: impl Fn() -> AuditEntry,
-        own: impl Fn(Option<Uuid>) -> Value,
+        own: impl Fn(Option<Uuid>) -> Own,
     ) -> Vec<AuditEntry> {
         let shared = self.metadata(Uuid::new_v4());
         self.row_orgs()
             .into_iter()
             .map(|org| {
+                let Own { detail, change } = own(org);
                 let mut metadata = shared.clone();
-                if let (Value::Object(row), Value::Object(own)) = (&mut metadata, own(org)) {
-                    row.extend(own);
+                if let (Value::Object(row), Value::Object(detail)) = (&mut metadata, detail) {
+                    row.extend(detail);
                 }
                 let mut entry = base()
                     .target(
@@ -164,8 +196,8 @@ impl Event<'_> {
                         self.token.name.clone(),
                     )
                     .metadata(metadata);
-                if let Some((before, after)) = &self.change {
-                    entry = entry.change(before.clone(), after.clone());
+                if let Some((before, after)) = change.or_else(|| self.change.clone()) {
+                    entry = entry.change(before, after);
                 }
                 match org {
                     Some(org) => entry.org(org),
@@ -182,7 +214,19 @@ impl Event<'_> {
         txn: &C,
         actor: &RequestActor,
     ) -> Result<(), TokenError> {
-        for entry in self.entries(actor) {
+        self.record_with(txn, actor, |_| Own::default()).await
+    }
+
+    /// [`Self::record`], for an event that says something of one org: `own`
+    /// answers what each org's row alone holds ([`Self::entries_with`]).
+    pub(crate) async fn record_with<C: ConnectionTrait>(
+        &self,
+        txn: &C,
+        actor: &RequestActor,
+        own: impl Fn(Option<Uuid>) -> Own,
+    ) -> Result<(), TokenError> {
+        let base = || AuditEntry::for_request(actor, self.action);
+        for entry in self.entries_with(base, own) {
             audit::record_in_txn(txn, entry).await?;
         }
         Ok(())
@@ -203,33 +247,6 @@ pub(crate) async fn owner_orgs<C: ConnectionTrait>(
 
 pub(crate) fn rfc3339(at: Option<DateTime<FixedOffset>>) -> Value {
     at.map_or(Value::Null, |t| Value::String(t.to_rfc3339()))
-}
-
-/// What a token may reach, for `created` and the before/after of
-/// `grants_changed`: the flags and its live grants. Ids only.
-pub(crate) fn access_summary(
-    token: &api_tokens::Model,
-    grants: &[api_token_grants::Model],
-) -> Value {
-    let live: Vec<Value> = grants
-        .iter()
-        .filter(|g| g.revoked_at.is_none() && !token.all_access)
-        .map(|g| {
-            json!({
-                "kind": g.kind,
-                "org_id": g.org_id,
-                "workspace_id": g.workspace_id,
-                "role_ceiling": g.role_ceiling,
-                "app_id": g.app_id,
-            })
-        })
-        .collect();
-    json!({
-        "all_access": token.all_access,
-        "platform": token.platform,
-        "partner": token.partner,
-        "grants": live,
-    })
 }
 
 #[cfg(test)]

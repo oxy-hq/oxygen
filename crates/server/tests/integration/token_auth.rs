@@ -16,6 +16,7 @@ mod activity;
 mod app_admin_ceiling;
 mod assume_binding;
 mod audit_actions;
+mod audit_per_org;
 mod blocked_reach;
 mod cli_login;
 mod deactivated_owner;

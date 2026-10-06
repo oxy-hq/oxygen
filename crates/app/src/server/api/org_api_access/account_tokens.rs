@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::server::api::api_keys::activity::{ActivityResponse, last_used_at, token_activity};
+use crate::server::api::user_tokens::access_audit::Access;
 use crate::server::api::user_tokens::audit::{self as token_audit, Event};
 use crate::server::api::user_tokens::dto::TokenDto;
 use crate::server::api::user_tokens::error::TokenError;
@@ -177,7 +178,8 @@ pub(super) async fn create(
     let new = NewAccountToken::from_ui(name, grants, expires_at, actor.id);
     let minted = service_account::mint(&txn, account, new).await?;
     let stored = personal::grants_for(&txn, &[minted.row.id]).await?;
-    let mut detail = token_audit::access_summary(&minted.row, &stored);
+    // One row, in the account's org: its grants there, which are all it has.
+    let mut detail = Access::of(&minted.row, &stored).in_org(Some(account.org_id));
     detail["expires_at"] = token_audit::rfc3339(minted.row.expires_at);
     record(
         &txn,
