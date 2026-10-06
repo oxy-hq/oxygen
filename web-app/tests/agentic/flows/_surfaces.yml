@@ -181,6 +181,17 @@
   flows:
     - admin-airway-config
 
+# The staff list's Apps and Expiry cells are the account list's own
+# (`PersonalTokens/components/TokenRow/components/`), so the
+# settings-account-tokens surface below names this flow too.
+- surface: admin-sandbox-agent-tokens
+  paths:
+    - "src/pages/admin/AdminSandboxAgentTokens/"
+    - "src/hooks/api/sandboxAgentTokens/"
+    - "src/services/api/sandboxAgentTokens.ts"
+  flows:
+    - admin-sandbox-agent-tokens
+
 - surface: settings-org-api-access
   paths:
     - "src/components/settings/SettingsDialog/sections/organization/ApiAccess/"
@@ -233,3 +244,4 @@
     - settings-account-tokens
     - settings-account-sandbox-token
     - settings-org-api-access
+    - admin-sandbox-agent-tokens

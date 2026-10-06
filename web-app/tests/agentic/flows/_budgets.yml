@@ -261,6 +261,17 @@
   cold_usd: 0.15
   warm_usd: 0.005
 
+- flow: admin-sandbox-agent-tokens
+  # Cloud mode, under a STAFF session (see the flow header). Two cases. The
+  # first has no act: two waits, three $0 asserts, one judge. The second mints
+  # a sandbox agent token in Settings and revokes it from the staff list:
+  # eight acts (two navigations, name a token, pick the type, tick an app and
+  # submit, dismiss the secret, Revoke, confirm), four $0 asserts, one judge.
+  # Every click is testid-led. An estimate: not recorded yet, and in no CI
+  # bucket, so neither number has been measured.
+  cold_usd: 0.70
+  warm_usd: 0.015
+
 - flow: airway-pipeline-run
   # One act step (click Run, aria-label only — no testid on this surface
   # yet). Cold cost is dominated by that click's tool-pick plus the judge

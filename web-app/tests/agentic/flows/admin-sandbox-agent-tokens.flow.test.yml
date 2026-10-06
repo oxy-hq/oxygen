@@ -1,0 +1,134 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Admin → Sandbox agent tokens (`/admin/sandbox-agent-tokens`): every staff
+# member's sandbox agent tokens (`oxy_sbx_…`), newest first, with revoke
+# (web-app/src/pages/admin/AdminSandboxAgentTokens/index.tsx, over
+# `GET /api/admin/sandbox-agent-tokens` and `POST …/{id}/revoke`).
+#
+# NOT RECORDED YET, and in no CI bucket. It was written without a running
+# server, so no step here has been run. To finish it: record it cold under the
+# staff identity below (`HEADED=1 pnpm test:agentic admin-sandbox-agent-tokens`)
+# and add it to the invocation `scripts/verify-all.sh` runs the admin flows in.
+#
+# Backend: `--enterprise` (cloud). Do NOT use `--local`.
+#
+# Identity: through /dev-login as `e2e@oxy.tech`, for the reason
+# admin-airhouse-fleet spells out (a cookie-less session on the internal port
+# reads `null` from `/api/user`, so AdminLayout bounces it). That identity must
+# hold `operate_platform` (a Global Owner or Global Admin does): the route and
+# the rail entry are both gated on it. The second case also mints a token, so
+# it carries the two requirements of settings-account-sandbox-token: the
+# identity may build an app (`develop_apps` and `manage_apps` over its org) and
+# is a member of the `local` org, and `oxy seed` deployed at least one custom
+# app there.
+#
+# The second case makes its own token: a flow cannot seed one, and Revoke is
+# offered only on a token that still works. Same name every run. On a reused
+# backend several rows share it, newest first, so every step and every check
+# names the first row, which is the one this run made. An earlier one may still
+# be live if a run stopped between minting and revoking; it is not this run's.
+#
+# What proves it: the list resolves to a table or to its empty state, never to
+# an error or the "your staff access doesn't include this list" refusal; and a
+# row that carried data-token-status=active carries revoked after the confirm,
+# with no Revoke left on it.
+
+name: admin sandbox agent tokens
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # Case 2: navigate, mint (open, name, pick the type, tick an app, submit),
+  # dismiss the secret, navigate, revoke, confirm ≈ 9 clicks, one type and two
+  # navigations, plus waits.
+  max_steps: 30
+
+setup:
+  - "goto:/dev-login?email=e2e@oxy.tech&next=/admin/sandbox-agent-tokens"
+
+cases:
+  - name: the list mounts and resolves
+    tags: [admin, sandbox-agent, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-sandbox-tokens]"
+      - wait_for: "selector_hidden:[data-testid=admin-async-loading]"
+    expect:
+      - assert: "selector [data-testid=admin-sandbox-tokens] is visible"
+      - assert: "selector [data-testid=admin-async-error] is not visible"
+      - assert: "selector [data-testid=admin-sandbox-tokens-refused] is not visible"
+      # A token that has ended offers no Revoke. Asserted, not judged: run
+      # against a real list, the judge read an empty Actions cell beside
+      # "Revoked" as a control and failed a correct page.
+      - assert: "selector [data-testid=admin-sandbox-tokens-row][data-token-status=revoked] [data-testid=admin-sandbox-tokens-revoke] is not visible"
+      - assert: "selector [data-testid=admin-sandbox-tokens-row][data-token-status=expired] [data-testid=admin-sandbox-tokens-revoke] is not visible"
+      - judge: |
+          The page is at /admin/sandbox-agent-tokens and shows the heading
+          "Sandbox agent tokens".
+          Pass in either of these resolved states:
+          (1) a one-line summary of how many tokens are live, above a table
+              with the columns Token, Minted by, Apps, Expiry and Last used,
+              where each row names a token, an email address and one or more
+              apps written like "org/app"; or
+          (2) the message "No agent holds a token right now." with no table.
+          Fail if ANY of the following is true:
+          (a) a "Couldn't load sandbox agent tokens" message is visible;
+          (b) the text "Your staff access doesn't include this list" is
+              visible;
+          (c) the page is blank or shows loading placeholders that never
+              resolved.
+
+  - name: a staff member revokes a live token from the list
+    tags: [admin, sandbox-agent, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-sandbox-tokens]"
+      - act: |
+          Open your own token list: browser_navigate to
+          /home?settings=account.tokens.
+      - wait_for: "selector:[data-testid=settings-account-tokens]"
+      - act: |
+          Start a new token:
+          1. browser_click [data-testid=account-token-create-button].
+          2. In [data-testid=account-token-dialog], browser_type
+             "flow admin revoke token" into [data-testid=account-token-name].
+      - wait_for: "selector:[data-testid=account-token-access-sandbox]"
+      - act: |
+          Pick the sandbox agent type: browser_click
+          [data-testid=account-token-access-sandbox] (it reads "Sandbox agent").
+      - wait_for: "selector:[data-testid=account-token-sandbox-picker] [data-testid=account-token-sandbox-app-checkbox]"
+      - act: |
+          In [data-testid=account-token-sandbox-picker]:
+          1. browser_click the first [data-testid=account-token-sandbox-app-checkbox].
+          2. browser_click [data-testid=account-token-submit] (it reads
+             "Create token").
+      - wait_for: "selector:[data-testid=account-token-secret-dialog]"
+      - act: |
+          Dismiss the secret: browser_click [data-testid=account-token-secret-done]
+          (it reads "I've copied it").
+      - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
+      - act: |
+          Go to the staff list: browser_navigate to /admin/sandbox-agent-tokens
+          (the page is [data-testid=admin-sandbox-tokens]).
+      - wait_for: 'selector:[data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=active]'
+      - act: |
+          Revoke the new token: browser_click the
+          [data-testid=admin-sandbox-tokens-revoke] (it reads "Revoke") inside the
+          first [data-testid=admin-sandbox-tokens-row][data-token-name="flow admin revoke token"].
+      - wait_for: "selector:[data-testid=admin-sandbox-tokens-revoke-confirm]"
+      - act: |
+          Confirm: browser_click [data-testid=admin-sandbox-tokens-revoke-confirm]
+          (it reads "Revoke").
+      - wait_for: "selector_hidden:[data-testid=admin-sandbox-tokens-revoke-confirm]"
+      - wait_for: 'selector:[data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked]'
+    expect:
+      - assert: 'selector [data-testid=admin-sandbox-tokens-table] tbody tr:first-child[data-token-name="flow admin revoke token"][data-token-status=revoked] is visible'
+      - assert: 'selector [data-testid=admin-sandbox-tokens-table] tbody tr:first-child [data-testid=admin-sandbox-tokens-revoke] is not visible'
+      - assert: "selector [data-testid=admin-sandbox-tokens-revoke-confirm] is not visible"
+      - assert: "selector [data-testid=admin-async-error] is not visible"
+      - judge: |
+          The page is at /admin/sandbox-agent-tokens and shows a table of
+          sandbox agent tokens. The first row named "flow admin revoke token"
+          reads "Revoked" in its Expiry column and has no "Revoke" button. No
+          error message is shown, and no confirmation dialog is open.

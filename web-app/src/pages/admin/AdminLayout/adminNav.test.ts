@@ -82,6 +82,22 @@ describe("canReachAdminRoute", () => {
     expect(canReachAdminRoute(ROUTES.ADMIN.OLTP, nobody)).toBe(false);
   });
 
+  it("gates sandbox agent tokens on operate_platform, matching the endpoint", () => {
+    // The server mounts the list under `cap(Action::PlatformOperate)`. An App Operator
+    // may mint a sandbox agent token and still does not hold the shared list, so
+    // `manage_apps` and `develop_apps` must not open it.
+    const route = ROUTES.ADMIN.SANDBOX_AGENT_TOKENS;
+    expect(canReachAdminRoute(route, staff("operate_platform"))).toBe(true);
+    expect(canReachAdminRoute(route, owner)).toBe(true);
+    expect(canReachAdminRoute(route, staff("manage_apps", "develop_apps"))).toBe(false);
+    expect(canReachAdminRoute(route, nobody)).toBe(false);
+    // The rail asks the same question of the same entry.
+    expect(navItemReachable(route, staff("operate_platform"))).toBe(true);
+    expect(navItemReachable(route, staff("manage_apps", "develop_apps"))).toBe(false);
+    expect(adminPageTitle(route)).toBe("Sandbox agent tokens");
+    expect(adminPageGroup(route)).toBe("operations");
+  });
+
   it("gates the grant console on manage_platform_grants", () => {
     expect(canReachAdminRoute("/admin/app-admins", staff("manage_platform_grants"))).toBe(true);
     expect(canReachAdminRoute("/admin/app-admins", staff("manage_apps"))).toBe(false);

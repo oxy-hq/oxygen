@@ -146,6 +146,7 @@ const AdminAirhouse = React.lazy(() => import("./pages/admin/AdminAirhouse"));
 // alongside the rest of admin since most users never visit it.
 const AdminAppAdmins = React.lazy(() => import("./pages/admin/AdminAppAdmins"));
 const AdminPublishTokens = React.lazy(() => import("./pages/admin/AdminPublishTokens"));
+const AdminSandboxAgentTokens = React.lazy(() => import("./pages/admin/AdminSandboxAgentTokens"));
 const AdminCustomApps = React.lazy(() => import("./pages/admin/AdminCustomApps"));
 const AppDossierWindow = React.lazy(() => import("./pages/admin/AdminCustomApps/AppDossierWindow"));
 const AppsStorageAudit = React.lazy(() => import("./pages/admin/AdminCustomApps/StorageAudit"));
@@ -648,6 +649,8 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             <Route path='admin/app-admins' element={<AdminAppAdmins />} />
             {/* ROUTES.ADMIN.PUBLISH_TOKENS — open to any Global Admin */}
             <Route path='admin/publish-tokens' element={<AdminPublishTokens />} />
+            {/* ROUTES.ADMIN.SANDBOX_AGENT_TOKENS — staff holding operate_platform */}
+            <Route path='admin/sandbox-agent-tokens' element={<AdminSandboxAgentTokens />} />
             {/* Custom apps. `/admin/apps` is the fleet — every app, worst first;
                 `/admin/apps/:orgSlug/:appSlug` is one app's console. The bare
                 route briefly redirected to whichever app most needed a person,

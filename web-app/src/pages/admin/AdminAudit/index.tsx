@@ -1,5 +1,7 @@
-import { ScrollText } from "lucide-react";
+import { KeyRound, ScrollText, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Input } from "@/components/ui/shadcn/input";
 import {
@@ -14,6 +16,7 @@ import { useAuditSearch } from "@/hooks/api/audit";
 import { AdminAsync } from "../components/AdminAsync";
 import { AdminEmptyState } from "../components/AdminEmptyState";
 import { AdminPage } from "../components/AdminPage";
+import { auditCredential, tokenIdParam } from "./auditCredential";
 import AuditTable from "./components/AuditTable";
 
 const LIMIT = 200;
@@ -31,8 +34,26 @@ function useDebounced(value: string, ms = 300): string {
 /**
  * Platform audit log (`/admin/audit`, Oxy staff). Free-text search + action /
  * outcome facets over the append-only `audit_events` stream, newest first.
+ *
+ * `?token_id=` narrows it to one API token: what was done with it, and its own
+ * lifecycle events. It lives in the URL so a row elsewhere can link straight to
+ * a token's trail, and a row here sets it from its detail.
  */
 export default function AdminAudit() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tokenId = tokenIdParam(searchParams.get("token_id"));
+  const setTokenId = (id: string | null) => {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (id) next.set("token_id", id);
+        else next.delete("token_id");
+        return next;
+      },
+      { replace: true }
+    );
+  };
+
   const [qInput, setQInput] = useState("");
   const [actionInput, setActionInput] = useState("");
   const [outcome, setOutcome] = useState("all");
@@ -48,14 +69,24 @@ export default function AdminAudit() {
     q: q || undefined,
     action: action || undefined,
     outcome: outcome === "all" ? undefined : outcome,
+    token_id: tokenId,
     limit: LIMIT
   });
 
-  const hasFilters = !!q || !!action || outcome !== "all";
+  // The filter is an id. Its name is read off a loaded row that names the same token, and
+  // until one does the chip shows the start of the id.
+  const tokenName = tokenId
+    ? events.data
+        ?.map(auditCredential)
+        .find((credential) => credential?.id === tokenId && credential.name)?.name
+    : undefined;
+
+  const hasFilters = !!q || !!action || outcome !== "all" || !!tokenId;
   const clear = () => {
     setQInput("");
     setActionInput("");
     setOutcome("all");
+    setTokenId(null);
   };
 
   return (
@@ -94,6 +125,30 @@ export default function AdminAudit() {
             <SelectItem value='failure'>Failure</SelectItem>
           </SelectContent>
         </Select>
+        {tokenId && (
+          <Badge
+            variant='secondary'
+            className='h-8 gap-1.5 pr-1 font-normal text-xs'
+            title={tokenId}
+            data-testid='admin-audit-token-filter'
+          >
+            <KeyRound className='size-3 text-muted-foreground' aria-hidden />
+            <span className='text-muted-foreground'>Token</span>
+            <span className={tokenName ? "font-medium" : "font-mono"}>
+              {tokenName ?? tokenId.slice(0, 8)}
+            </span>
+            <Button
+              variant='ghost'
+              size='icon'
+              className='size-5'
+              onClick={() => setTokenId(null)}
+              aria-label='Show every token again'
+              data-testid='admin-audit-token-filter-clear'
+            >
+              <X className='size-3' />
+            </Button>
+          </Badge>
+        )}
         {hasFilters && (
           <Button variant='ghost' size='sm' onClick={clear}>
             Clear
@@ -109,7 +164,9 @@ export default function AdminAudit() {
         isEmpty={(rows) => rows.length === 0}
         empty={<AdminEmptyState icon={ScrollText} title='No events match these filters.' />}
       >
-        {(rows) => <AuditTable events={rows} limit={LIMIT} />}
+        {(rows) => (
+          <AuditTable events={rows} limit={LIMIT} tokenId={tokenId} onFilterToken={setTokenId} />
+        )}
       </AdminAsync>
     </AdminPage>
   );

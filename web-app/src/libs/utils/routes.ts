@@ -39,6 +39,8 @@ const ROUTES = {
     AIRHOUSE: "/admin/airhouse",
     APP_ADMINS: "/admin/app-admins",
     PUBLISH_TOKENS: "/admin/publish-tokens",
+    /** Every staff member's sandbox agent tokens, with revoke. */
+    SANDBOX_AGENT_TOKENS: "/admin/sandbox-agent-tokens",
     TENANTS: "/admin/tenants",
     /** Tenant-side triage hub: stale orgs, org-less users, failed and orphan workspaces. */
     TENANTS_OVERVIEW: "/admin/tenants/overview",

@@ -9,6 +9,7 @@
 import {
   Activity,
   AppWindow,
+  Bot,
   Building2,
   Database,
   FileCheck,
@@ -152,6 +153,17 @@ export const ADMIN_NAV: AdminNavItem[] = [
   // app console's Publishing & CI panel. If that link goes, so does the only way in —
   // the rail and the ⌘K palette both build from this list, so an omission here is not
   // "hidden", it is unreachable.
+
+  // Sandbox agent tokens: every staff member's, with revoke. The route gate is
+  // `cap(Action::PlatformOperate)` on `sandbox_agent_tokens::router()`, so an App
+  // Operator, who may mint one, is not shown the shared list.
+  {
+    to: ROUTES.ADMIN.SANDBOX_AGENT_TOKENS,
+    label: "Sandbox agent tokens",
+    icon: Bot,
+    capability: "operate_platform",
+    group: "operations"
+  },
   {
     to: ROUTES.ADMIN.WORKSPACE_HEALTH,
     label: "Workspace health",
