@@ -21,6 +21,8 @@ pub mod handlers;
 pub mod held_writes;
 /// The invocation query, its DTO, and the app-wide listing.
 pub mod invocations;
+/// An app's failures grouped per `(function, fingerprint)` — the pager's key.
+pub mod issues;
 mod ops;
 /// Slug validation, re-exported so the (non-admin) `/publish` route can reject a
 /// slug before it becomes a schema name / path — see `custom_apps_publish`.
@@ -75,6 +77,9 @@ pub(crate) fn router() -> Router<AppState> {
             "/apps/{id}/invocations/{invocation_id}/held",
             get(held_writes::get_held_writes),
         )
+        // The same failed invocations, one row per distinct failure. Derived
+        // on every read, production only — a DB read like its neighbours.
+        .route("/apps/{id}/issues", get(issues::list_app_issues))
         // Manually trigger a one-off background run of one of the app's Oxy
         // Functions as a job (the "run now" that isn't tied to a cron schedule).
         .route(

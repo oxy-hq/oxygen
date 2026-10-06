@@ -592,6 +592,8 @@ const customAppKeys = {
   functionInvocations: (id: string, name: string) =>
     ["customApps", "functions", id, name, "invocations"] as const,
   functionRun: (id: string, runId: string) => ["customApps", "functionRun", id, runId] as const,
+  /** The app's failures grouped per `(function, fingerprint)`, over `days`. */
+  issues: (id: string, days: number) => ["customApps", "issues", id, days] as const,
   /** The app's declared ∪ stored secrets. Never holds a value — reveal is its
    *  own uncached call, so a decrypted secret never sits in the query cache. */
   secrets: (id: string) => ["customApps", "secrets", id] as const,

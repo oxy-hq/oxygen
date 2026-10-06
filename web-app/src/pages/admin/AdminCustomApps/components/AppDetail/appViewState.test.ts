@@ -23,6 +23,26 @@ describe("readAppViewState", () => {
     expect(v.section).toBeNull();
   });
 
+  it("reads every section the dossier has", () => {
+    // `SECTIONS` is a runtime list beside a type; nothing ties the two
+    // together, so a section added to the union and forgotten here type-checks
+    // and then makes its own deep link silently open nothing.
+    for (const section of [
+      "status",
+      "builds",
+      "access",
+      "functions",
+      "secrets",
+      "availability",
+      "issues",
+      "logs",
+      "activity",
+      "settings"
+    ]) {
+      expect(readAppViewState(params(`section=${section}`), published).section).toBe(section);
+    }
+  });
+
   it("takes the channel default from the app, not from a constant", () => {
     // An app with nothing published must open on Draft — otherwise the toolbar
     // selects a disabled option and the iframe requests a bundle that does not

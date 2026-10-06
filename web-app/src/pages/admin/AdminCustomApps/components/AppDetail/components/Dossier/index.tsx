@@ -25,6 +25,7 @@ import { AppSettings } from "../AppSettings";
 import { Availability } from "../Availability";
 import { BuildHistory } from "../BuildHistory";
 import { Functions } from "../Functions";
+import { Issues, IssuesBadge } from "../Issues";
 import { Secrets, SecretsBadge } from "../Secrets";
 import { DockControls } from "./DockControls";
 import { isSectionOpen } from "./sectionOpen";
@@ -56,6 +57,9 @@ const DEFAULT_OPEN: Record<SectionId, boolean> = {
   // the dossier FOR during an incident, and a collapsed "is it up" answer is a
   // click away from being no answer at all.
   availability: true,
+  // Collapsed: the header badge counts the failures the live build has had,
+  // which is the whole answer when it is zero.
+  issues: false,
   // Collapsed: the verdict above answers "is it broken"; this answers "why",
   // which is the second question, and it is a long panel.
   logs: false,
@@ -176,6 +180,21 @@ export const DossierBody = ({
     }
   });
 
+  // From an issue to the function that has it. Selecting the function is not
+  // enough: its section is collapsed by default, and a selection inside a
+  // closed section is a button that appears to do nothing. Unlike a
+  // `?section=` link this is the operator's own click, so it opens the section
+  // the way clicking its header would.
+  const openFunction = (name: string) => {
+    setOpen((prev) => ({ ...prev, functions: true }));
+    (onFnChange ?? noop)(name);
+    requestAnimationFrame(() => {
+      scroller.current
+        ?.querySelector('[data-testid="admin-app-dossier-section-functions"]')
+        ?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  };
+
   return (
     <div ref={scroller} className='@container min-h-0 flex-1 overflow-auto'>
       <div className='grid @3xl:grid-cols-2 @5xl:grid-cols-3 grid-cols-1 items-start gap-x-8'>
@@ -206,6 +225,15 @@ export const DossierBody = ({
         </DossierSection>
         <DossierSection {...section("availability")} title='Availability'>
           <Availability orgSlug={app.org_slug} appSlug={app.slug} />
+        </DossierSection>
+        <DossierSection
+          {...section("issues")}
+          title='Issues'
+          badge={<IssuesBadge appId={app.id} />}
+        >
+          <div className='p-4 pt-0'>
+            <Issues app={app} onOpenFunction={openFunction} />
+          </div>
         </DossierSection>
         <DossierSection {...section("logs")} title='Logs'>
           <AppLogs orgSlug={app.org_slug} appSlug={app.slug} />

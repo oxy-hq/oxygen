@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 use crate::common::test_db;
 
+/// The Issues view reads the rows these tests insert — it shares the seeding.
+mod issues;
+
 const FUNCTION: &str = "upload-report";
 const FINGERPRINT: &str = "5c1e0b8a9d2f4e71";
 
