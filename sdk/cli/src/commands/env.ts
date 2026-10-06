@@ -8,11 +8,15 @@
  * (`crates/app/src/server/api/custom_apps_sandboxes/`) — never the machine
  * surface a publish token reaches. `staffCreds` refuses one outright: every
  * sandbox operation does (D22).
+ *
+ * A sandbox agent token (`oxy_sbx_…`) uses the same routes, held to the apps
+ * it was minted for and the sandboxes it created.
  */
 
 import { parseJson, request } from "../api/request.js";
 import { parseAppEnv, requireSandboxName } from "../apps/environment.js";
 import { ensureOk, resolveApp, staffCreds } from "../apps/resolve.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -118,7 +122,7 @@ export async function envCreate(ctx: Context, app: string, name: string): Promis
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   return parseJson(response.body) as Environment;
 }
 
@@ -132,7 +136,7 @@ export async function envList(ctx: Context, app: string): Promise<Environment[]>
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const payload = parseJson(response.body) as { environments?: Environment[] } | undefined;
   return payload?.environments ?? [];
 }
@@ -140,6 +144,14 @@ export async function envList(ctx: Context, app: string): Promise<Environment[]>
 export async function envShow(ctx: Context, app: string, name: string): Promise<Environment> {
   const envName = parseAppEnv(name);
   const creds = staffCreds(ctx);
+  // `env list` shows production and staging to a sandbox agent token; the
+  // detail route answers only for a sandbox the token created.
+  if (isSandboxAgentToken(creds.bearer) && !envName.startsWith("dev-")) {
+    throw usageError(
+      `a sandbox agent token cannot show ${envName}`,
+      "it reads only the dev-<handle> sandboxes it created — `oxyc env list <app>` has production and staging's rows"
+    );
+  }
   const resolved = await resolveApp(creds, app);
   const response = await request({
     target: creds.target,
@@ -148,7 +160,7 @@ export async function envShow(ctx: Context, app: string, name: string): Promise<
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   return parseJson(response.body) as Environment;
 }
 
@@ -224,7 +236,7 @@ async function waitForTeardown(
       headers: creds.headers
     });
     if (poll.status === 404) return;
-    ensureOk(poll);
+    ensureOk(poll, creds);
     if (Date.now() >= deadline) {
       throw new CliError(`${sandbox} did not finish deleting within ${waitSeconds}s`, {
         code: ExitCode.UNAVAILABLE,
@@ -268,7 +280,7 @@ export async function envDelete(
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const deleting = parseJson(response.body) as Deleting | undefined;
 
   if (opts.waitSeconds === undefined) {

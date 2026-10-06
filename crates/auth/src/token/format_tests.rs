@@ -50,7 +50,7 @@ fn two_tokens_never_collide() {
 
 #[test]
 fn every_new_prefix_round_trips_its_checksum() {
-    for prefix in [PAT_PREFIX, SAT_PREFIX, CI_PREFIX] {
+    for prefix in [PAT_PREFIX, SAT_PREFIX, CI_PREFIX, SBX_PREFIX] {
         let t = generate_with_prefix(prefix);
         assert!(verify_checksum(&t.plaintext), "{prefix}");
     }
@@ -134,6 +134,10 @@ fn a_malformed_new_prefix_still_claims_its_family() {
     assert_eq!(new_prefix_format("oxy_pat_!!"), Some(TokenFormat::Personal));
     assert_eq!(new_prefix_format("oxy_ci_x"), Some(TokenFormat::Ci));
     assert_eq!(
+        new_prefix_format("oxy_sbx_x"),
+        Some(TokenFormat::SandboxAgent)
+    );
+    assert_eq!(
         new_prefix_format("oxy_sat_x"),
         Some(TokenFormat::ServiceAccount)
     );
@@ -148,6 +152,7 @@ fn only_new_formats_are_new() {
     assert!(TokenFormat::Personal.is_new());
     assert!(TokenFormat::ServiceAccount.is_new());
     assert!(TokenFormat::Ci.is_new());
+    assert!(TokenFormat::SandboxAgent.is_new());
     assert!(!TokenFormat::LegacyKey.is_new());
     assert!(!TokenFormat::LegacyPublish.is_new());
 }
@@ -197,4 +202,90 @@ fn a_minted_legacy_key_has_the_legacy_shape_and_is_never_a_token() {
     // What the list shows of it: `oxy_` and the last four, as before.
     assert_eq!(display_prefix(&key), "oxy_");
     assert_eq!(last_four(&key).len(), 4);
+}
+
+#[test]
+fn a_sandbox_agent_token_has_its_own_prefix_and_the_shared_shape() {
+    let token = generate_sandbox_agent();
+    assert!(token.plaintext.starts_with("oxy_sbx_"));
+    assert_eq!(
+        token.plaintext.len(),
+        SBX_PREFIX.len() + RANDOM_LEN + CHECKSUM_LEN
+    );
+    assert!(verify_checksum(&token.plaintext));
+    assert_eq!(
+        parse_format(&token.plaintext),
+        Some(TokenFormat::SandboxAgent)
+    );
+    assert_eq!(token.token_hash, hash_token(&token.plaintext));
+    // The display prefix keeps the family and four characters of the body.
+    assert_eq!(token.display_prefix.len(), SBX_PREFIX.len() + 4);
+    assert!(token.display_prefix.starts_with(SBX_PREFIX));
+    // The checksum covers the prefix: the same body under another family's
+    // prefix does not verify.
+    let body = &token.plaintext[SBX_PREFIX.len()..];
+    assert!(!verify_checksum(&format!("{PAT_PREFIX}{body}")));
+}
+
+/// Every new-format kind, by an exhaustive match: a new `TokenFormat` variant
+/// does not compile here until it says whether a scanner must know it.
+fn scanned_prefix(format: TokenFormat) -> Option<&'static str> {
+    match format {
+        TokenFormat::Personal
+        | TokenFormat::ServiceAccount
+        | TokenFormat::Ci
+        | TokenFormat::SandboxAgent => format.new_prefix(),
+        TokenFormat::LegacyKey | TokenFormat::LegacyPublish => None,
+    }
+}
+
+const NEW_FORMATS: [TokenFormat; 4] = [
+    TokenFormat::Personal,
+    TokenFormat::ServiceAccount,
+    TokenFormat::Ci,
+    TokenFormat::SandboxAgent,
+];
+
+/// The scanner pattern is exactly the four prefixes and the 36-character
+/// body. A kind left out of it leaks without the leak endpoint ever hearing.
+#[test]
+fn the_scanner_pattern_names_every_new_format_prefix_and_the_body_length() {
+    let families: Vec<&str> = NEW_FORMATS
+        .into_iter()
+        .map(|format| {
+            let prefix = scanned_prefix(format).expect("a new format");
+            prefix
+                .strip_prefix("oxy_")
+                .and_then(|rest| rest.strip_suffix('_'))
+                .expect("oxy_<family>_")
+        })
+        .collect();
+    assert_eq!(families, ["pat", "sat", "ci", "sbx"]);
+    let body = RANDOM_LEN + CHECKSUM_LEN;
+    assert_eq!(body, 36);
+    assert_eq!(
+        SCANNER_PATTERN,
+        format!("oxy_({})_[0-9A-Za-z]{{{body}}}", families.join("|"))
+    );
+}
+
+/// What the pattern says, checked by hand against a minted token of each
+/// kind: its prefix, then exactly 36 base62 characters.
+#[test]
+fn a_minted_token_of_every_kind_matches_the_scanner_pattern() {
+    let minted = [
+        generate_personal(),
+        generate_service_account(),
+        generate_ci(),
+        generate_sandbox_agent(),
+    ];
+    for (token, format) in minted.iter().zip(NEW_FORMATS) {
+        let prefix = scanned_prefix(format).expect("a new format");
+        let body = token
+            .plaintext
+            .strip_prefix(prefix)
+            .unwrap_or_else(|| panic!("a {prefix} token"));
+        assert_eq!(body.len(), 36, "{prefix}");
+        assert!(body.bytes().all(|b| b.is_ascii_alphanumeric()), "{prefix}");
+    }
 }

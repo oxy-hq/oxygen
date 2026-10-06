@@ -32,8 +32,8 @@ use uuid::Uuid;
 
 use super::dto::RunFunctionJobResponse;
 use crate::server::api::custom_apps_env_resolve::may_open_non_production;
-use crate::server::api::custom_apps_functions::check_run::TriggerError;
-use crate::server::api::custom_apps_functions::{FunctionJobTrigger, trigger_function_job_in};
+use crate::server::api::custom_apps_functions::FunctionJobTrigger;
+use crate::server::api::custom_apps_functions::check_run::{self, Asked, TriggerError};
 
 /// `?environment=<name>` on a verify or read-back route.
 #[derive(Debug, Default, serde::Deserialize)]
@@ -107,6 +107,10 @@ impl<'a> Caller<'a> {
     /// Whether this caller may read `app`'s non-production rows: never a
     /// publish token, otherwise whoever oxy-authz lets open the app's
     /// non-production environments (`Action::AppNonProduction`).
+    ///
+    /// Never a sandbox agent token either: it reads one named sandbox of its
+    /// own (`agent_scope`), not "every environment", and the decision asked
+    /// here names none.
     pub(crate) async fn has_reach(&self, db: &DatabaseConnection, app: &apps::Model) -> bool {
         self.marker.is_none()
             && may_open_non_production(db, &crate::server::authz::Caller::from_user(self.user), app)
@@ -210,6 +214,11 @@ pub(crate) async fn require_reach(
     user: &AuthenticatedUser,
     environment: &str,
 ) -> Result<(), ScopeError> {
+    // A sandbox agent token reads only a sandbox it created: production does
+    // not pass for it, and the refusal is a not-found.
+    if super::agent_scope::is_agent(user) {
+        return super::agent_scope::require_own_named(db, app, user, environment).await;
+    }
     // The request's user with the credential it arrived with: a token that
     // carries no staff standing opens no non-production environment.
     let caller = crate::server::authz::Caller::from_user(user);
@@ -248,6 +257,12 @@ pub(crate) async fn admit_to(
     caller: &Caller<'_>,
     environment: &AppEnvironment,
 ) -> Result<(), ScopeError> {
+    // Asked first: production passes for everyone below, and it is not a
+    // sandbox agent token's. The token acts in a sandbox it created, or is
+    // answered not-found.
+    if super::agent_scope::is_agent(caller.user) {
+        return super::agent_scope::require_own(db, app, caller.user, environment).await;
+    }
     if *environment == AppEnvironment::Production {
         return Ok(());
     }
@@ -295,22 +310,24 @@ pub(crate) async fn admit(
 /// Queue a run of function `name` of `app` in `environment`, which the caller
 /// has already been admitted to ([`resolve`]). The body of
 /// `handlers::run_function_job` when `?environment=` is present.
+///
+/// `asked_by_token` is the sandbox agent token the request used, when that is
+/// its credential: it rides the task, and the worker admits it again before
+/// the run starts.
 pub(crate) async fn run_in_environment(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
     name: &str,
     input: Option<serde_json::Value>,
+    asked_by_token: Option<Uuid>,
 ) -> Result<RunFunctionJobResponse, ScopeError> {
-    let run_id = trigger_function_job_in(
-        db,
-        app.id,
-        name,
-        input,
-        FunctionJobTrigger::Manual,
+    let asked = Asked {
+        trigger: FunctionJobTrigger::Manual,
         environment,
-    )
-    .await?;
+        credential_token_id: asked_by_token,
+    };
+    let run_id = check_run::trigger(db, app.id, name, input, asked).await?;
     Ok(RunFunctionJobResponse {
         run_id,
         environment: environment.name(),

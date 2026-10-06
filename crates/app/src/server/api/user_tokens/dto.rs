@@ -46,6 +46,14 @@ pub struct GrantDto {
     pub role_ceiling: Option<String>,
     pub app_id: Option<Uuid>,
     pub app_name: Option<String>,
+    /// The org's slug, on an `app_sandbox` grant only: with [`Self::app_slug`]
+    /// it is how the app is named to a person and to `oxyc`
+    /// (`acme/store-ops`). Absent, not `null`, on every other kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_slug: Option<String>,
+    /// The app's slug, on an `app_sandbox` grant only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_slug: Option<String>,
     /// Set when the org ended this grant.
     pub revoked_at: Option<DateTime<Utc>>,
 }
@@ -119,12 +127,15 @@ pub struct TokenDto {
     pub blocked_orgs: Vec<BlockedOrgDto>,
 }
 
-/// The display names behind the ids a grant carries.
+/// The display names behind the ids a grant carries, and the slugs of its org
+/// and app — read from the same rows as their names.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Names {
     pub orgs: HashMap<Uuid, String>,
     pub workspaces: HashMap<Uuid, String>,
     pub apps: HashMap<Uuid, String>,
+    pub org_slugs: HashMap<Uuid, String>,
+    pub app_slugs: HashMap<Uuid, String>,
 }
 
 pub(crate) const STATUS_ACTIVE: &str = "active";
@@ -163,6 +174,9 @@ pub(crate) fn grant_dto(grant: &api_token_grants::Model, names: &Names) -> Grant
     let name_of = |names: &HashMap<Uuid, String>, id: Option<Uuid>| {
         id.map(|id| names.get(&id).cloned().unwrap_or_default())
     };
+    // Slugs ride an `app_sandbox` grant alone. One whose org or app is gone
+    // reads as its name does: empty, never absent.
+    let sandbox = grant.kind == api_token_grants::KIND_APP_SANDBOX;
     GrantDto {
         id: grant.id,
         kind: grant.kind.clone(),
@@ -173,6 +187,12 @@ pub(crate) fn grant_dto(grant: &api_token_grants::Model, names: &Names) -> Grant
         role_ceiling: grant.role_ceiling.clone(),
         app_id: grant.app_id,
         app_name: name_of(&names.apps, grant.app_id),
+        org_slug: sandbox
+            .then(|| name_of(&names.org_slugs, Some(grant.org_id)))
+            .flatten(),
+        app_slug: sandbox
+            .then(|| name_of(&names.app_slugs, grant.app_id))
+            .flatten(),
         revoked_at: grant.revoked_at.map(Into::into),
     }
 }

@@ -233,6 +233,28 @@ describe("draftFromToken", () => {
     expect(emptyDraft().revoked).toEqual([]);
   });
 
+  it("never turns a sandbox agent token's app grant into every workspace in the org", () => {
+    // Its `workspace_id` is `null`, which on a workspace grant means org-wide. No row offers
+    // Edit access for the kind, and this is what keeps a stray call from widening one.
+    const draft = draftFromToken({
+      all_access: false,
+      platform: true,
+      partner: false,
+      grants: [
+        grant({
+          kind: "app_sandbox",
+          workspace_id: null,
+          workspace_name: null,
+          role_ceiling: null,
+          app_id: "a1",
+          app_name: "Store Ops"
+        })
+      ]
+    });
+    expect(draft.orgs).toEqual({});
+    expect(grantsFromDraft(draft)).toEqual([]);
+  });
+
   it("carries an app-publish grant through an edit instead of dropping it", () => {
     const draft = draftFromToken({
       all_access: false,

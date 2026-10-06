@@ -18,6 +18,14 @@ pub const PAT_PREFIX: &str = "oxy_pat_";
 pub const SAT_PREFIX: &str = "oxy_sat_";
 /// Trusted-access (OIDC-exchanged) token prefix (Phase 4; recognised only).
 pub const CI_PREFIX: &str = "oxy_ci_";
+/// Sandbox agent token prefix (sandbox agent credential design §2).
+pub const SBX_PREFIX: &str = "oxy_sbx_";
+
+/// The pattern a secret scanner registers for every new-format token (API-tokens
+/// design §8 Phase 5; sandbox agent credential design §2): each checksummed
+/// prefix, then the [`RANDOM_LEN`] + [`CHECKSUM_LEN`] base62 characters. A new
+/// kind is added here with its prefix; `format_tests` fails until it is.
+pub const SCANNER_PATTERN: &str = "oxy_(pat|sat|ci|sbx)_[0-9A-Za-z]{36}";
 
 const LEGACY_KEY_PREFIX: &str = "oxy_";
 const LEGACY_KEY_HEX_LEN: usize = 32;
@@ -42,6 +50,8 @@ pub enum TokenFormat {
     ServiceAccount,
     /// `oxy_ci_…`
     Ci,
+    /// `oxy_sbx_…`
+    SandboxAgent,
     /// `oxy_<32 hex>`, and — for lookup purposes — any other value presented
     /// as an API key, since the legacy endpoint matched raw `api_keys` rows.
     LegacyKey,
@@ -50,10 +60,13 @@ pub enum TokenFormat {
 }
 
 impl TokenFormat {
-    /// True for the three checksummed prefixes. Only these carry the
+    /// True for the four checksummed prefixes. Only these carry the
     /// no-fallthrough rule (design §4.1); legacy keys keep today's precedence.
     pub fn is_new(self) -> bool {
-        matches!(self, Self::Personal | Self::ServiceAccount | Self::Ci)
+        matches!(
+            self,
+            Self::Personal | Self::ServiceAccount | Self::Ci | Self::SandboxAgent
+        )
     }
 
     /// The literal prefix for a new format; `None` for the legacy ones.
@@ -62,6 +75,7 @@ impl TokenFormat {
             Self::Personal => Some(PAT_PREFIX),
             Self::ServiceAccount => Some(SAT_PREFIX),
             Self::Ci => Some(CI_PREFIX),
+            Self::SandboxAgent => Some(SBX_PREFIX),
             Self::LegacyKey | Self::LegacyPublish => None,
         }
     }
@@ -77,6 +91,7 @@ pub fn new_prefix_format(candidate: &str) -> Option<TokenFormat> {
         TokenFormat::Personal,
         TokenFormat::ServiceAccount,
         TokenFormat::Ci,
+        TokenFormat::SandboxAgent,
     ]
     .into_iter()
     .find(|f| f.new_prefix().is_some_and(|p| candidate.starts_with(p)))
@@ -145,6 +160,11 @@ pub fn generate_service_account() -> GeneratedToken {
 /// Mint a trusted-access token (`oxy_ci_…`).
 pub fn generate_ci() -> GeneratedToken {
     generate_with_prefix(CI_PREFIX)
+}
+
+/// Mint a sandbox agent token (`oxy_sbx_…`).
+pub fn generate_sandbox_agent() -> GeneratedToken {
+    generate_with_prefix(SBX_PREFIX)
 }
 
 /// Mint a legacy API key: `oxy_` + 32 lowercase hex characters, the shape the

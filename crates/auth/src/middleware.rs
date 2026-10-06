@@ -57,9 +57,12 @@ impl<T> Clone for AuthState<T> {
 }
 
 impl AuthState<BuiltInAuthenticator> {
-    pub fn built_in() -> Self {
+    /// `sandbox_agent` is whether the tree this guards admits a sandbox agent
+    /// token. `Admit` belongs only on a tree that also mounts the route
+    /// allow-list (`app_grant_scope`), which is `api_auth_layers`.
+    pub fn built_in(sandbox_agent: crate::token::SandboxAgent) -> Self {
         Self {
-            authenticator: Arc::new(BuiltInAuthenticator::new()),
+            authenticator: Arc::new(BuiltInAuthenticator::new(sandbox_agent)),
             guest_only: false,
         }
     }
@@ -69,7 +72,9 @@ impl AuthState<BuiltInAuthenticator> {
     /// local-mode router.
     pub fn guest_only() -> Self {
         Self {
-            authenticator: Arc::new(BuiltInAuthenticator::new()),
+            authenticator: Arc::new(BuiltInAuthenticator::new(
+                crate::token::SandboxAgent::Refuse,
+            )),
             guest_only: true,
         }
     }
@@ -263,6 +268,7 @@ pub async fn api_key_only_middleware(
     let (identity, credential) = crate::token::authenticate_request(
         request.headers(),
         crate::token::AuthSurface::ApiKeyOnly,
+        crate::token::SandboxAgent::Refuse,
     )
     .await
     .map_err(|err| {
@@ -325,7 +331,7 @@ mod tests {
 
     #[test]
     fn built_in_state_is_not_guest_only() {
-        let state = AuthState::<BuiltInAuthenticator>::built_in();
+        let state = AuthState::<BuiltInAuthenticator>::built_in(crate::token::SandboxAgent::Refuse);
         assert!(!state.guest_only);
     }
 

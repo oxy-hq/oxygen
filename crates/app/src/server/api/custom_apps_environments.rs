@@ -108,6 +108,7 @@ async fn upsert_fixed<C: ConnectionTrait>(
         created_at: ActiveValue::Set(now),
         deleting_at: ActiveValue::Set(None),
         oltp_schema: ActiveValue::NotSet,
+        created_by_token_id: ActiveValue::NotSet,
     })
     .on_conflict(
         OnConflict::columns([

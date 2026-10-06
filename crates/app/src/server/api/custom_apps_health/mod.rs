@@ -153,7 +153,14 @@ async fn health_for(
 ) -> Response {
     // Auth first, app lookup second — that ordering is what keeps this from
     // becoming an anonymous enumeration oracle. See the module docs.
-    let outcome = match authenticate_and_authorize(headers, org_slug, app_slug).await {
+    let outcome = match authenticate_and_authorize(
+        headers,
+        org_slug,
+        app_slug,
+        oxy_auth::token::SandboxAgent::Refuse,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(status) => return error_response(status, reason(status)),
     };

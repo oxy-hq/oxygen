@@ -951,6 +951,7 @@ async fn load_facts_as_token(
         service_account: None,
         grants: shape.grants,
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
     };
     let user = oxy_auth::types::AuthenticatedUser {
         id: user_id,

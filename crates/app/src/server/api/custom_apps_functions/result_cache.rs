@@ -99,6 +99,7 @@ mod tests {
             environment: env,
             function_name: function,
             user_id: user,
+            credential_token_id: None,
         }
     }
 

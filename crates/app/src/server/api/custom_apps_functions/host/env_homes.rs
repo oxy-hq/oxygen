@@ -208,6 +208,7 @@ mod tests {
             app_slug: "a".to_string(),
             user_id,
             user_email: email.map(str::to_string),
+            credential_token_id: None,
         }
     }
 

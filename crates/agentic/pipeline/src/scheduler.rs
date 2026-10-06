@@ -441,24 +441,6 @@ pub async fn enqueue_app_function_job_in(
     traceparent: Option<String>,
     environment: Option<&str>,
 ) -> Result<String, ScheduleError> {
-    let run_id = uuid::Uuid::new_v4().to_string();
-    let mut metadata = serde_json::json!({});
-    stamp_trigger_metadata(&mut metadata, &Some(trigger.to_string()), &None, &None);
-    if let Some(name) = environment {
-        metadata[agentic_runtime::crud::RUN_ENVIRONMENT_KEY] =
-            serde_json::Value::String(name.to_string());
-    }
-    agentic_runtime::crud::insert_run(
-        db,
-        &run_id,
-        &format!("fn:{app_id}/{function_name}"),
-        None,
-        "app_function",
-        Some(metadata),
-        workspace_id,
-    )
-    .await
-    .map_err(ScheduleError::Db)?;
     // Carry the trigger so the executor records the invocation `mode` to match
     // (`manual` here) — the invocation history then agrees with the run's
     // stamped `metadata.trigger` — and the input params (if any) so the worker
@@ -468,6 +450,39 @@ pub async fn enqueue_app_function_job_in(
     task.input = input.filter(|v| !v.is_null());
     task.traceparent = traceparent;
     task.environment = environment.map(str::to_string);
+    enqueue_app_function_task(db, workspace_id, policy, task).await
+}
+
+/// Seed a run for `task` and queue it: the body of
+/// [`enqueue_app_function_job_in`], for a host that builds the payload itself
+/// because it sets a field that entry point has no argument for
+/// ([`AppFunctionTask::credential_token_id`](crate::app_function_task::AppFunctionTask)).
+/// The run's metadata is stamped from the task's own `trigger` and
+/// `environment`, so the two never disagree.
+pub async fn enqueue_app_function_task(
+    db: &DatabaseConnection,
+    workspace_id: uuid::Uuid,
+    policy: Option<agentic_core::delegation::TaskPolicy>,
+    task: crate::app_function_task::AppFunctionTask,
+) -> Result<String, ScheduleError> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let mut metadata = serde_json::json!({});
+    stamp_trigger_metadata(&mut metadata, &task.trigger, &None, &None);
+    if let Some(name) = task.environment.as_deref() {
+        metadata[agentic_runtime::crud::RUN_ENVIRONMENT_KEY] =
+            serde_json::Value::String(name.to_string());
+    }
+    agentic_runtime::crud::insert_run(
+        db,
+        &run_id,
+        &format!("fn:{}/{}", task.app_id, task.function_name),
+        None,
+        "app_function",
+        Some(metadata),
+        workspace_id,
+    )
+    .await
+    .map_err(ScheduleError::Db)?;
     let spec = agentic_core::delegation::TaskSpec::Custom {
         kind: crate::app_function_task::APP_FUNCTION_KIND.into(),
         payload: task.to_payload(),

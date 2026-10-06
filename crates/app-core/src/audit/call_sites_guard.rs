@@ -40,7 +40,8 @@ const NO_REQUEST_ACTOR: &[(&str, &str)] = &[
     (
         "app/src/server/api/user_tokens/system_audit.rs",
         "token lifecycle rows no request wrote: a leak report (public, nothing \
-         authenticated) and the token sweeper on the global worker's tick",
+         authenticated), the token sweeper on the global worker's tick, and the \
+         sandbox maintenance loop ending a dead token's sandboxes",
     ),
     (
         "app/src/server/api/custom_apps_sandboxes/expiry_audit.rs",

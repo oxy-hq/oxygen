@@ -65,6 +65,9 @@ pub(crate) struct HeldRow {
     pub writes: Vec<WriteRecord>,
     pub invocation_id: Option<Uuid>,
     pub trace_id: Option<String>,
+    /// The sandbox agent token behind the run, written as `metadata.token_id`
+    /// when there is one. Every other row's metadata is as it was.
+    pub token_id: Option<Uuid>,
 }
 
 /// The audit entry for `row`. Metadata keeps every field the host wrote
@@ -78,18 +81,22 @@ pub(crate) fn held_entry(row: &HeldRow) -> AuditEntry {
     let e = actor_entry(ACTION_STAGING_HELD, user, &row.app_slug)
         .org(row.org_id)
         .workspace(row.project_id);
+    let mut metadata = json!({
+        "app_id": row.app_id,
+        "app_slug": row.app_slug,
+        "actor_user_id": user.map(|(id, _)| id),
+        "function": row.function_or_surface,
+        "invocation_id": row.invocation_id,
+        "mode": row.mode,
+        "request_id": row.request_id,
+        "trace_id": row.trace_id,
+        "writes": row.writes,
+    });
+    if let Some(token_id) = row.token_id {
+        metadata[oxy_app_core::audit::TOKEN_ID_KEY] = json!(token_id);
+    }
     with_first_target(e, &row.writes)
-        .metadata(json!({
-            "app_id": row.app_id,
-            "app_slug": row.app_slug,
-            "actor_user_id": user.map(|(id, _)| id),
-            "function": row.function_or_surface,
-            "invocation_id": row.invocation_id,
-            "mode": row.mode,
-            "request_id": row.request_id,
-            "trace_id": row.trace_id,
-            "writes": row.writes,
-        }))
+        .metadata(metadata)
         .environment(row.environment.clone())
 }
 
@@ -261,6 +268,7 @@ mod tests {
             }],
             invocation_id: Some(Uuid::from_u128(4)),
             trace_id: Some("t".into()),
+            token_id: None,
         }
     }
 
@@ -293,6 +301,22 @@ mod tests {
             assert!(m.get(key).is_some(), "keeps {key}: {m}");
         }
         assert_eq!(m["writes"][0]["op"], "fetch");
+        assert!(m.get("token_id").is_none(), "no token, no key: {m}");
+    }
+
+    /// A run behind a sandbox agent token names that token on its held row;
+    /// the actor stays the user, as on every other row.
+    #[test]
+    fn a_held_entry_names_the_sandbox_agent_token_behind_the_run() {
+        let (user, token) = (Uuid::from_u128(9), Uuid::from_u128(0x70));
+        let mut held = row(HeldActor::User {
+            id: user,
+            email: Some("dev@oxy.tech".into()),
+        });
+        held.token_id = Some(token);
+        let e = held_entry(&held);
+        assert_eq!(e.metadata["token_id"], json!(token));
+        assert_eq!(e.actor_user_id, Some(user));
     }
 
     #[test]

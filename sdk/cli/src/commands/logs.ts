@@ -10,6 +10,8 @@
 import { parseJson, request } from "../api/request.js";
 import { parseAppEnv } from "../apps/environment.js";
 import { ensureOk, resolveApp, staffCreds } from "../apps/resolve.js";
+import { requireOwnSandbox } from "../apps/sandbox-token.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 
 export interface LogLine {
@@ -38,6 +40,8 @@ export interface LogsOptions {
 export async function fetchLogs(ctx: Context, app: string, opts: LogsOptions): Promise<LogLine[]> {
   const appEnv = opts.appEnv !== undefined ? parseAppEnv(opts.appEnv) : undefined;
   const creds = staffCreds(ctx);
+  // Before any request: with no environment this reads production's lines.
+  if (isSandboxAgentToken(creds.bearer)) requireOwnSandbox("oxyc logs", appEnv);
   const resolved = await resolveApp(creds, app);
 
   const query = new URLSearchParams();
@@ -55,7 +59,7 @@ export async function fetchLogs(ctx: Context, app: string, opts: LogsOptions): P
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const payload = parseJson(response.body) as { logs?: LogLine[] } | undefined;
   return payload?.logs ?? [];
 }

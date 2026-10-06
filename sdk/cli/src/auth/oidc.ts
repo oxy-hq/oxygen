@@ -28,6 +28,7 @@
  * app that has only the older registration.
  */
 
+import { withUserAgent } from "../api/user-agent.js";
 import { CliError, ExitCode, type ExitCodeValue, exitCodeForStatus } from "../util/errors.js";
 import { revokeOnExit } from "./exit-revoke.js";
 import type { Grant } from "./token-api.js";
@@ -457,7 +458,9 @@ async function attempt(
   const idToken = await requestGithubIdToken(audience, env);
   return send(url, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
+    // The exchange is a request to the deployment like any other, so it says
+    // who is asking. (The id-token request above goes to GitHub, and does not.)
+    headers: withUserAgent({ "content-type": "application/json", accept: "application/json" }),
     body: JSON.stringify({ token: idToken, service_account: serviceAccount })
   });
 }

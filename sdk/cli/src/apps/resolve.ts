@@ -14,9 +14,12 @@
  */
 
 import { type ApiResponse, errorForResponse, parseJson, request } from "../api/request.js";
-import { isMachineIdentity } from "../auth/token-kind.js";
-import type { Context } from "../context/resolve.js";
-import { authError, CliError, ExitCode, usageError } from "../util/errors.js";
+import { isMachineIdentity, isSandboxAgentToken } from "../auth/token-kind.js";
+import { type Context, notAuthenticated } from "../context/resolve.js";
+import { CliError, ExitCode, usageError } from "../util/errors.js";
+import { resolveSandboxApp, sandboxTokenError } from "./sandbox-token.js";
+
+export { SANDBOX_TOKEN_PREFIX } from "../auth/token-kind.js";
 
 export interface Creds {
   target: string;
@@ -66,12 +69,21 @@ export function staffCreds(ctx: Context): Creds {
   }
   const apiKey = ctx.apiKey();
   if (apiKey) return { target: ctx.target(), headers: { "X-API-Key": apiKey } };
-  // Nothing resolved — the canonical authError naming the login command.
-  throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
+  // Nothing resolved — the canonical error, naming the login command or, when
+  // a named variable is the only source, the variable.
+  throw notAuthenticated(ctx.target(), ctx.flags);
 }
 
-export function ensureOk(response: ApiResponse): void {
-  if (response.status < 200 || response.status >= 300) throw errorForResponse(response);
+/**
+ * Throw for a non-2xx response. Pass the credential that made the request:
+ * under a sandbox agent token the error carries what that caller can act on,
+ * in place of the generic "try `oxyc login` again".
+ */
+export function ensureOk(response: ApiResponse, creds?: { bearer?: string }): void {
+  if (response.status >= 200 && response.status < 300) return;
+  throw isSandboxAgentToken(creds?.bearer)
+    ? sandboxTokenError(response)
+    : errorForResponse(response);
 }
 
 interface AdminAppsPage {
@@ -95,8 +107,14 @@ interface AdminAppDetail {
  * routes. Both paths are the admin surface: a publish token never reaches
  * this function (`checks.ts` short-circuits around it for that credential;
  * every other caller goes through `staffCreds`, which already refused one).
+ *
+ * A SANDBOX AGENT TOKEN NEVER REACHES THE ADMIN SURFACE EITHER, and resolves
+ * against its own app list instead (`GET /api/auth/token`).
  */
 export async function resolveApp(creds: Creds, app: string): Promise<ResolvedApp> {
+  if (isSandboxAgentToken(creds.bearer)) {
+    return resolveSandboxApp(creds.target, creds.bearer, app);
+  }
   if (UUID_RE.test(app)) {
     const response = await request({
       target: creds.target,

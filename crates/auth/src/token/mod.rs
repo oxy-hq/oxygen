@@ -29,7 +29,9 @@
 //! - [`grant_plan`] — how an edit's `grants` replaces the stored set;
 //! - [`cli_login`] — the `oxyc login` PKCE code store;
 //! - [`leak`] — what a leak report revokes; [`hygiene`] — the expiry notice
-//!   and the unused-token sweep.
+//!   and the unused-token sweep;
+//! - [`sandbox`] — the sandbox agent token (`oxy_sbx_`): what a mint asks
+//!   for, and the writes behind it.
 
 pub mod access;
 pub mod account_access;
@@ -50,15 +52,23 @@ pub mod org_grants;
 pub mod personal;
 pub mod policy;
 pub mod policy_store;
+pub mod sandbox;
+pub mod sandbox_admission;
+pub mod sandbox_recheck;
 pub mod service_account;
 pub mod store;
 pub mod trust_policy;
 pub mod trust_policy_access;
 pub mod usage;
 
-pub use credential::{AccountStanding, AppPublishGrant, CredentialContext, StoredKind};
-pub use dispatch::{AuthSurface, Authenticated, authenticate_request};
+pub use credential::{
+    AccountStanding, AppPublishGrant, AppSandboxGrant, CredentialContext, StoredKind,
+};
+pub use dispatch::{
+    AuthSurface, Authenticated, SandboxAgent, authenticate_request, presents_api_token,
+    presents_sandbox_agent,
+};
 pub use format::{
-    TokenFormat, generate_ci, generate_personal, generate_service_account, hash_token,
-    parse_format, verify_checksum,
+    TokenFormat, generate_ci, generate_personal, generate_sandbox_agent, generate_service_account,
+    hash_token, parse_format, verify_checksum,
 };

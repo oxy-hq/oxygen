@@ -37,7 +37,10 @@ use uuid::Uuid;
 
 use super::custom_apps_nonproduction::publish as staging;
 use super::custom_apps_nonproduction::staging_task;
-use super::custom_apps_sandboxes::{publish as sandbox_publish, retention};
+use super::custom_apps_publish_refusal::PublishRefusal;
+use super::custom_apps_sandboxes::{
+    agent_publish as sandbox_agent_publish, publish as sandbox_publish, retention,
+};
 use super::{
     custom_apps_asset_manifest as asset_manifest, custom_apps_auth,
     custom_apps_build_store as store, custom_apps_bundle_cache as cache,
@@ -327,6 +330,13 @@ pub enum PublishError {
         "publishing to a sandbox is for Oxy staff who may open this app's non-production environments, signed in with a login token or an API key — a publish token cannot"
     )]
     SandboxRefused,
+    /// A sandbox agent token publishing to the app's channels, or promoting:
+    /// it publishes to a sandbox it created and nowhere else. The one publish
+    /// refusal answered as JSON with a `code` (`custom_apps_publish_refusal`).
+    #[error(
+        "a sandbox agent token publishes only to a sandbox it created: name it with the environment field (`oxyc publish --env dev-<handle>`), without --promote. Staging and production are published with a login token"
+    )]
+    SandboxTokenRefused,
     /// No such sandbox — or no such app: a sandbox publish never creates one.
     #[error(
         "no sandbox {name} to publish to: the app does not exist, or it has no sandbox of that name. Create it first (`oxyc env create <app> {name}`)."
@@ -454,10 +464,21 @@ impl PublishError {
             PublishError::InvalidEnvironment(_) | PublishError::SandboxWithPromote => {
                 StatusCode::BAD_REQUEST
             }
-            PublishError::SandboxRefused => StatusCode::FORBIDDEN,
+            PublishError::SandboxRefused | PublishError::SandboxTokenRefused => {
+                StatusCode::FORBIDDEN
+            }
             PublishError::UnknownEnvironment { .. } => StatusCode::NOT_FOUND,
             PublishError::EnvironmentDeleting { .. } => StatusCode::CONFLICT,
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// The machine-readable code of a refusal a client branches on. `None`
+    /// for every refusal answered as plain text, as the route always has.
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            PublishError::SandboxTokenRefused => Some("sandbox_token_refused"),
+            _ => None,
         }
     }
 }
@@ -1575,7 +1596,24 @@ pub async fn publish(input: PublishInput) -> Result<PublishResult, PublishError>
 /// it is admitted as staging is opened, never writes the app row or another
 /// environment's pointer, registers no schedule, applies no OLTP migration,
 /// and queues the sandbox's own Airhouse migrations instead of staging's.
+///
+/// A sandbox agent token is refused here, before anything else, unless the
+/// target is a sandbox and the publish does not promote — whoever the caller
+/// of this function is (`custom_apps_sandboxes::agent_publish`).
 pub async fn publish_to(
+    input: PublishInput,
+    target: PublishTarget,
+) -> Result<PublishResult, PublishError> {
+    let agent = sandbox_agent_publish::AgentPublish::of(&input, &target)?;
+    let published = store_and_point(input, target).await;
+    match agent {
+        Some(agent) => published.map_err(|refused| agent.sees(refused)),
+        None => published,
+    }
+}
+
+/// [`publish_to`], once the credential has been held to its target.
+async fn store_and_point(
     mut input: PublishInput,
     target: PublishTarget,
 ) -> Result<PublishResult, PublishError> {
@@ -2041,8 +2079,11 @@ async fn move_pointers(
             set_pointers(db, app_id, build_pk, input.promote, input.published_by).await
         }
         PublishTarget::Sandbox(environment) => {
-            sandbox_publish::move_pointer(db, app_id, environment, build_pk, input.published_by)
-                .await
+            let mover = sandbox_publish::Mover {
+                actor: input.published_by,
+                own: sandbox_agent_publish::token_of(input),
+            };
+            sandbox_publish::move_pointer(db, app_id, environment, build_pk, mover).await
         }
     }
 }
@@ -2092,13 +2133,18 @@ async fn queue_migrations_for(
 /// pull the user via `AuthenticatedUserExtractor` (before `Multipart`, which
 /// consumes the body) to stamp `published_by` on the build.
 pub async fn publish_handler(
-    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    // The authenticated user, with the key or token the request used and where
+    // it came from: what the publish is audited as (`custom_apps_publish_audit`).
+    actor: oxy_app_core::audit::RequestActor,
     // Present iff authenticated via an app publish token; its `app_id` is set only
     // for OIDC-minted machine tokens.
     marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     mut multipart: Multipart,
-) -> Result<Json<PublishResult>, (StatusCode, String)> {
-    let publisher = Publisher::from_request(&user, marker.as_ref().map(|axum::Extension(m)| m));
+) -> Result<Json<PublishResult>, PublishRefusal> {
+    let user = &actor.user;
+    let marker = marker.as_ref().map(|axum::Extension(m)| m);
+    let publisher = Publisher::from_request(user, marker);
+    let credential = sandbox_publish::PublishCredential::of(user, marker);
     let mut org: Option<String> = None;
     let mut org_id: Option<Uuid> = None;
     // Tracks whether the publisher sent a non-empty `org_id` that
@@ -2220,13 +2266,13 @@ pub async fn publish_handler(
     }
 
     if let Some(bad) = semantic_revision_invalid {
-        return Err((
+        return Err(PublishRefusal::text(
             StatusCode::BAD_REQUEST,
             format!("semantic_revision_id is not a valid UUID: {bad:?}"),
         ));
     }
     if let Some(bad) = org_id_invalid {
-        return Err((
+        return Err(PublishRefusal::text(
             StatusCode::BAD_REQUEST,
             format!("org_id is not a valid UUID: {bad:?}"),
         ));
@@ -2261,12 +2307,13 @@ pub async fn publish_handler(
         semantic_revision_id,
     };
 
-    let target = sandbox_publish::target_of(environment.as_deref(), promote, marker.is_some())
-        .map_err(|e| (e.status(), e.to_string()))?;
-    publish_to(input, target)
-        .await
-        .map(Json)
-        .map_err(|e| (e.status(), e.to_string()))
+    let target = sandbox_publish::target_of(environment.as_deref(), promote, credential)?;
+    let published = publish_to(input, target).await?;
+    // One audit row for every publish that succeeded, whatever the credential.
+    if let Ok(db) = oxy::database::client::establish_connection().await {
+        super::custom_apps_publish_audit::published(&db, &actor, marker, &published).await;
+    }
+    Ok(Json(published))
 }
 
 #[cfg(test)]

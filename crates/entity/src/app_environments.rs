@@ -36,6 +36,12 @@ pub struct Model {
     /// `production` and `staging`.
     #[sea_orm(column_type = "JsonBinary", nullable)]
     pub oltp_schema: Option<Json>,
+    /// The sandbox agent token (`api_tokens.id`, kind `sandbox_agent`) that
+    /// created this sandbox: what "its own sandbox" means for that token.
+    /// `None` for every environment a person created, and always for
+    /// `production` and `staging`. No foreign key: an id whose token row is
+    /// gone matches no credential, so the sandbox has no token owner.
+    pub created_by_token_id: Option<Uuid>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

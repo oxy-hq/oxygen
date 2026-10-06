@@ -23,7 +23,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::{EnvironmentDto, SandboxError, TeardownReason, ops};
-use crate::server::api::custom_apps_env_resolve::may_open_non_production;
+use crate::server::api::custom_apps_env_resolve::{
+    may_open_environment, may_open_new_sandbox, may_open_non_production,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateEnvironmentRequest {
@@ -44,18 +46,30 @@ pub struct DeleteAccepted {
     pub teardown_run_id: String,
 }
 
-/// A request the three checks let through: the app, and its org's slug (an
-/// environment's URL is built from it).
+/// A request the three checks let through: the app, its org's slug (an
+/// environment's URL is built from it), and the sandbox agent token the
+/// request used, when that is its credential.
 struct Admitted {
     db: DatabaseConnection,
     app: apps::Model,
     org_slug: String,
+    /// `Some` narrows what is shown to the sandboxes that token created.
+    own: Option<Uuid>,
+}
+
+/// Which environment a request is about, as far as its route says.
+enum Door<'a> {
+    /// List and create: no one sandbox yet.
+    New,
+    /// Show and delete: the name in the path, before it is parsed.
+    Named(&'a str),
 }
 
 async fn admit(
     user: &AuthenticatedUser,
     marker: Option<Extension<AppPublishTokenAuth>>,
     app_id: Uuid,
+    door: Door<'_>,
 ) -> Result<Admitted, SandboxError> {
     if marker.is_some() {
         return Err(SandboxError::PublishToken);
@@ -70,8 +84,8 @@ async fn admit(
         .ok_or(SandboxError::AppNotFound)?;
     // Credential-aware: a token that carries no staff standing is no staff.
     let caller = crate::server::authz::Caller::from_user(user);
-    if !may_open_non_production(&db, &caller, &app).await {
-        return Err(SandboxError::NotStaff);
+    if !opens(&db, &caller, &app, &door).await {
+        return Err(refusal(&caller, &door));
     }
     let org_slug = entity::organizations::Entity::find_by_id(app.org_id)
         .one(&db)
@@ -79,7 +93,42 @@ async fn admit(
         .map_err(|e| SandboxError::db("load the app's org", e))?
         .map(|org| org.slug)
         .unwrap_or_default();
-    Ok(Admitted { db, app, org_slug })
+    let own = caller.sandbox_agent().map(|reach| reach.token_id);
+    Ok(Admitted {
+        db,
+        app,
+        org_slug,
+        own,
+    })
+}
+
+/// Whether the caller may open what `door` names. A sandbox agent token is
+/// asked about the one environment (`may_open_environment`); a name that does
+/// not parse names none, so it is refused. Everyone else is asked about the
+/// app, as before, and told `InvalidName` by the handler afterwards.
+async fn opens(
+    db: &DatabaseConnection,
+    caller: &crate::server::authz::Caller,
+    app: &apps::Model,
+    door: &Door<'_>,
+) -> bool {
+    match door {
+        Door::New => may_open_new_sandbox(db, caller, app).await,
+        Door::Named(name) => match AppEnvironment::parse(name) {
+            Some(environment) => may_open_environment(db, caller, app, &environment).await,
+            None => !caller.is_sandbox_agent() && may_open_non_production(db, caller, app).await,
+        },
+    }
+}
+
+/// A sandbox agent token is answered as if what it asked for did not exist:
+/// another creator's sandbox, production and staging are not its to learn of.
+fn refusal(caller: &crate::server::authz::Caller, door: &Door<'_>) -> SandboxError {
+    match (caller.is_sandbox_agent(), door) {
+        (true, Door::Named(name)) => SandboxError::NotFound((*name).to_string()),
+        (true, Door::New) => SandboxError::AppNotFound,
+        (false, _) => SandboxError::NotStaff,
+    }
 }
 
 /// The environment `name` names; anything `AppEnvironment::parse` rejects is
@@ -94,8 +143,13 @@ pub async fn list(
     marker: Option<Extension<AppPublishTokenAuth>>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EnvironmentList>, SandboxError> {
-    let Admitted { db, app, org_slug } = admit(&user, marker, id).await?;
-    let environments = ops::list(&db, &app, &org_slug).await?;
+    let Admitted {
+        db,
+        app,
+        org_slug,
+        own,
+    } = admit(&user, marker, id, Door::New).await?;
+    let environments = ops::list_for(&db, &app, &org_slug, own).await?;
     Ok(Json(EnvironmentList { environments }))
 }
 
@@ -106,10 +160,15 @@ pub async fn create(
     Path(id): Path<Uuid>,
     Json(body): Json<CreateEnvironmentRequest>,
 ) -> Result<(StatusCode, Json<EnvironmentDto>), SandboxError> {
-    let Admitted { db, app, org_slug } = admit(&actor.user, marker, id).await?;
+    let Admitted {
+        db,
+        app,
+        org_slug,
+        own,
+    } = admit(&actor.user, marker, id, Door::New).await?;
     let environment = parse(&body.name)?;
     ops::create(&db, &app, &environment, &actor).await?;
-    let created = ops::get(&db, &app, &org_slug, &environment).await?;
+    let created = ops::get_for(&db, &app, &org_slug, &environment, own).await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -119,9 +178,16 @@ pub async fn show(
     marker: Option<Extension<AppPublishTokenAuth>>,
     Path((id, name)): Path<(Uuid, String)>,
 ) -> Result<Json<EnvironmentDto>, SandboxError> {
-    let Admitted { db, app, org_slug } = admit(&user, marker, id).await?;
+    let Admitted {
+        db,
+        app,
+        org_slug,
+        own,
+    } = admit(&user, marker, id, Door::Named(&name)).await?;
     let environment = parse(&name)?;
-    Ok(Json(ops::get(&db, &app, &org_slug, &environment).await?))
+    Ok(Json(
+        ops::get_for(&db, &app, &org_slug, &environment, own).await?,
+    ))
 }
 
 /// `DELETE /api/customer-apps/{id}/environments/{name}` — `202`; also when
@@ -132,7 +198,7 @@ pub async fn delete(
     marker: Option<Extension<AppPublishTokenAuth>>,
     Path((id, name)): Path<(Uuid, String)>,
 ) -> Result<(StatusCode, Json<DeleteAccepted>), SandboxError> {
-    let Admitted { db, app, .. } = admit(&actor.user, marker, id).await?;
+    let Admitted { db, app, .. } = admit(&actor.user, marker, id, Door::Named(&name)).await?;
     let environment = parse(&name)?;
     let teardown_run_id = ops::begin_delete(
         &db,

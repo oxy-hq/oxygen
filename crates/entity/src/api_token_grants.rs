@@ -12,6 +12,10 @@ use sea_orm::entity::prelude::*;
 pub const KIND_WORKSPACE: &str = "workspace";
 /// `(app, publish)` — Phase 4. Stored, refused by this release's validator.
 pub const KIND_APP_PUBLISH: &str = "app_publish";
+/// `(app, its sandboxes)` — the one grant a `sandbox_agent` token holds
+/// (sandbox agent credential design §2). `org_id` and `app_id` are set;
+/// `workspace_id` and `role_ceiling` are not.
+pub const KIND_APP_SANDBOX: &str = "app_sandbox";
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]

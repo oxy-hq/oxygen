@@ -255,6 +255,7 @@ async fn workspace_with(databases: &str, destinations: &[&str], with_reasons: bo
             app_slug: "receiving".into(),
             user_id: None,
             user_email: None,
+            credential_token_id: None,
         },
         EnvPolicy::production(),
     );

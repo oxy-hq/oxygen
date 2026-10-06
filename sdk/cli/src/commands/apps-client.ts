@@ -14,6 +14,7 @@
 
 import { parseJson, request } from "../api/request.js";
 import { type Creds, ensureOk, staffCreds, UUID_RE } from "../apps/resolve.js";
+import { refuseSandboxToken } from "../apps/sandbox-token.js";
 import type { Context } from "../context/resolve.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
 
@@ -195,7 +196,14 @@ export interface BuildHistory {
  * the API key, and refuses a publish token, which may not list apps.
  */
 export function connect(ctx: Context): Conn {
-  return staffCreds(ctx);
+  const creds = staffCreds(ctx);
+  // Every `oxyc apps` verb reads `/api/admin/apps`, which answers this token 404.
+  refuseSandboxToken(
+    creds.bearer,
+    "use `oxyc apps`",
+    "`oxyc whoami` lists the apps it reaches, and `oxyc env list <app>` an app's environments"
+  );
+  return creds;
 }
 
 /**

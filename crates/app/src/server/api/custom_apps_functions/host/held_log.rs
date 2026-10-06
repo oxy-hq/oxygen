@@ -69,6 +69,7 @@ impl RowWriter {
             writes,
             invocation_id: Some(id.invocation_id),
             trace_id,
+            token_id: id.credential_token_id,
         }
     }
 

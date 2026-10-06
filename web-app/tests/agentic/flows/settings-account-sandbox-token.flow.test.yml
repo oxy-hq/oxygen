@@ -1,0 +1,132 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Mint a sandbox agent token (`oxy_sbx_…`) from Account → Personal access
+# tokens, see it listed as its own kind, then revoke it
+# (internal-docs/2026-10-03-sandbox-agent-credential-design.md §2 and §5).
+#
+# NOT RECORDED YET, and in no CI bucket. The server half ships in the same PR:
+# `GET /user/token-options` with `sandbox_apps`, and `POST /user/tokens` with
+# `kind: "sandbox_agent"`. The UI was built against that pinned wire contract
+# and this flow has never been run against a live backend. To finish it: record
+# it cold under the staff identity described below
+# (`HEADED=1 pnpm test:agentic settings-account-sandbox-token`) and add it to
+# the invocation `scripts/verify-all.sh` runs the admin flows in.
+#
+# Its own flow, not a case of settings-account-tokens, because of who must be
+# signed in. The runner injects ONE session per invocation. The "Sandbox agent"
+# type is offered only to Oxygen staff who may build an app (`develop_apps` and
+# `manage_apps` over its org). settings-account-tokens runs as flow@oxy.local,
+# which has no platform standing, so the type never renders for it and a case
+# there could never pass beside its sibling.
+#
+# Identity: the staff session the admin flows use (export OXY_SESSION_TOKEN /
+# OXY_SESSION_USER, or OXY_FLOW_EMAIL=<a staff email>). That identity must
+# also be a member of the `local` org, as `scripts/verify-all.sh` seeds it:
+# staff reach is not standing, so without the membership `/home` answers
+# assume_role_required and the settings dialog never mounts.
+#
+# Surface: Settings dialog → Account → Personal access tokens, opened by the
+# `?settings=account.tokens` deep link (useSettingsDeepLink), exactly as
+# settings-account-tokens opens it.
+#
+# The flow creates its own token. Same name every run; on a reused backend
+# several rows can share it. The list is newest first, so every step says to
+# use the first, which is the one this run made.
+#
+# What this assumes about the backend, to check when recording:
+#   - `oxy seed` deployed at least one custom app the staff identity may build
+#     (its `oxy-starter` under org `local`), so `sandbox_apps` is not empty;
+#   - a revoked sandbox agent token stays in `GET /user/tokens` with
+#     `status: "revoked"`, as a revoked personal token does.
+#
+# What proves it: the type is offered at all (the server decides who may
+# mint), the one-time secret dialog with its `export OXY_TOKEN=…` line, and a
+# row carrying data-token-kind=sandbox_agent and the "Sandbox agent" badge,
+# then data-token-status=revoked after the confirm.
+
+name: settings account sandbox agent token
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # create (open, name, pick the type, tick an app, submit) + dismiss the
+  # secret + revoke (menu, item, confirm) ≈ 9 clicks and one type, plus waits.
+  max_steps: 25
+
+setup:
+  - "goto:/home?settings=account.tokens"
+
+cases:
+  - name: mint a sandbox agent token for one app, see it listed, revoke it
+    tags: [settings, api-tokens, sandbox-agent, regression]
+    steps:
+      - wait_for: "selector:[data-testid=settings-account-tokens]"
+
+      - act: |
+          Start a new token:
+          1. browser_click [data-testid=account-token-create-button].
+          2. In [data-testid=account-token-dialog], browser_type
+             "flow sandbox agent token" into [data-testid=account-token-name].
+
+      # The type appears only once GET /user/token-options has answered with an
+      # app this identity may build. Gate on it, so the wrong identity or an
+      # unseeded app fails here in 30s for $0 instead of at a click.
+      - wait_for: "selector:[data-testid=account-token-access-sandbox]"
+
+      - act: |
+          Pick the sandbox agent type: browser_click
+          [data-testid=account-token-access-sandbox] (it reads "Sandbox agent").
+
+      # Choosing the type swaps the expiry for hours and the workspaces for
+      # apps. Gate on the first app so the next step never clicks too early.
+      - wait_for: "selector:[data-testid=account-token-sandbox-picker] [data-testid=account-token-sandbox-app-checkbox]"
+
+      # 8 hours is the default lifetime, so nothing is picked for it.
+      - act: |
+          In [data-testid=account-token-sandbox-picker]:
+          1. browser_click the first [data-testid=account-token-sandbox-app-checkbox].
+          2. browser_click [data-testid=account-token-submit] (it reads
+             "Create token").
+
+      # The secret is shown once. Both gates are $0 and fail the case in 30s
+      # if the mint did not answer with a secret.
+      - wait_for: "selector:[data-testid=account-token-secret-dialog]"
+      - wait_for: "selector:[data-testid=account-token-export]"
+
+      - act: |
+          Dismiss the secret: browser_click [data-testid=account-token-secret-done]
+          (it reads "I've copied it").
+
+      - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
+      - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow sandbox agent token"][data-token-kind=sandbox_agent]'
+
+      # Revoke is a word in the row. A sandbox agent token has no row menu: it
+      # has no Edit access and no Regenerate to put in one.
+      - act: |
+          Revoke the new token: browser_click the
+          [data-testid=account-token-revoke] (it reads "Revoke") inside the first
+          [data-testid=account-token-row][data-token-name="flow sandbox agent token"].
+
+      # Revoke asks first.
+      - wait_for: "selector:[data-testid=account-token-revoke-confirm]"
+
+      - act: |
+          Confirm: browser_click [data-testid=account-token-revoke-confirm] (it
+          reads "Revoke").
+
+      - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow sandbox agent token"][data-token-status=revoked]'
+
+    expect:
+      - assert: 'selector [data-testid=account-token-row][data-token-name="flow sandbox agent token"][data-token-kind=sandbox_agent][data-token-status=revoked] is visible'
+      - assert: "selector [data-testid=account-token-kind-badge] is visible"
+      - assert: "selector [data-testid=account-token-secret-dialog] is not visible"
+      - assert: "selector [data-testid=account-token-revoke-confirm] is not visible"
+      - judge: |
+          The Settings dialog shows "Personal access tokens" with a table of
+          tokens. A row named "flow sandbox agent token" carries a "Sandbox
+          agent" badge, shows a masked token starting "oxy_sbx_", an Access
+          that starts "Sandboxes of", and a "Revoked" status. No error message
+          and no "aren't available on this server" notice is shown.

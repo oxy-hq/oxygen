@@ -6,7 +6,10 @@
 //! - the **token sweeper** expiring an unused token — it runs on the global
 //!   worker's tick, outside any request.
 //!
-//! Both write the same [`Event`] rows a request does — one per org the token
+//! - the **sandbox sweep** queuing the teardown of an ended sandbox agent
+//!   token's sandboxes (`super::sandboxes_queued`), on the same tick.
+//!
+//! All write the same [`Event`] rows a request does — one per org the token
 //! reaches, in the transaction that changes it — with `actor_type = system`.
 //! This is the one place in the token code that builds an entry without
 //! [`AuditEntry::for_request`]; `call_sites_guard` names it.
@@ -28,14 +31,17 @@ impl Event<'_> {
         txn: &C,
         context: &AuditContext,
     ) -> Result<(), TokenError> {
-        let base = || {
-            let mut entry = AuditEntry::new(SYSTEM_ACTOR, self.action).context(context.clone());
-            entry.actor_type = ActorType::System;
-            entry
-        };
-        for entry in self.entries_from(base) {
+        for entry in self.entries_from(|| system_entry(self.action, context)) {
             audit::record_in_txn(txn, entry).await?;
         }
         Ok(())
     }
+}
+
+/// An entry for `action` that the system wrote, with `context`. Also what
+/// `super::sandboxes_queued` starts its per-org rows from.
+pub(crate) fn system_entry(action: &'static str, context: &AuditContext) -> AuditEntry {
+    let mut entry = AuditEntry::new(SYSTEM_ACTOR, action).context(context.clone());
+    entry.actor_type = ActorType::System;
+    entry
 }

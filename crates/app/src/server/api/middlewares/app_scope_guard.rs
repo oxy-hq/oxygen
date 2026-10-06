@@ -113,7 +113,7 @@ pub async fn enforce_app_scope(request: Request<Body>, next: Next) -> Result<Res
 
     if !globals::platform_reaches(
         &db,
-        &crate::server::authz::Caller::from_user(&user),
+        &crate::server::authz::Caller::of_request(request.extensions(), &user),
         oxy_authz::Cap::ManageApps,
         app.org_id,
     )

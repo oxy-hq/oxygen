@@ -11,6 +11,7 @@ import {
   DialogTitle
 } from "@/components/ui/shadcn/dialog";
 import type { TokenWithSecret } from "@/types/apiToken";
+import { isFixedToken } from "../accessSummary";
 
 export interface SecretReveal extends TokenWithSecret {
   /** Which action produced the secret: it changes the heading and nothing else. */
@@ -93,8 +94,10 @@ const TokenSecretDialog: React.FC<Props> = ({ reveal, onDone }) => (
                 : `Copy the new secret for ${reveal.token.name}`}
             </DialogTitle>
             <DialogDescription className='text-xs'>
-              You won't see this again. Oxygen stores only a hash of it, so if it's lost the fix is
-              to regenerate the token.
+              {/* A sandbox agent token can't be regenerated: a lost one is revoked and replaced. */}
+              {isFixedToken(reveal.token)
+                ? "You won't see this again. Oxygen stores only a hash of it, so if it's lost the fix is to revoke this token and create another."
+                : "You won't see this again. Oxygen stores only a hash of it, so if it's lost the fix is to regenerate the token."}
               {reveal.reason === "regenerated" && " The previous secret has stopped working."}
             </DialogDescription>
           </DialogHeader>
@@ -107,7 +110,11 @@ const TokenSecretDialog: React.FC<Props> = ({ reveal, onDone }) => (
               testId='account-token-secret'
             />
             <CopyRow
-              label='Or set it in your shell or CI'
+              label={
+                isFixedToken(reveal.token)
+                  ? "Or set it in the agent's environment"
+                  : "Or set it in your shell or CI"
+              }
               value={exportSnippet(reveal.secret)}
               what='the export line'
               testId='account-token-export'

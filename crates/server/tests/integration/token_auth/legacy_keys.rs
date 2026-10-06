@@ -26,7 +26,7 @@ async fn assert_works_everywhere(fx: &Fixture, id: Uuid, key: &str) {
     // The custom-app path: subdomain serving, gates, the data plane.
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("x-api-key", key.parse().unwrap());
-    let identity = BuiltInAuthenticator::new()
+    let identity = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
         .authenticate(&headers)
         .await
         .expect("custom-app path");

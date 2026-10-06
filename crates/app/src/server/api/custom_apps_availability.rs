@@ -80,7 +80,14 @@ pub async fn get_availability(
     headers: HeaderMap,
 ) -> Response {
     // Auth first, app lookup second — same ordering, same reason, as `/health`.
-    let outcome = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
+    let outcome = match authenticate_and_authorize(
+        &headers,
+        &org_slug,
+        &app_slug,
+        oxy_auth::token::SandboxAgent::Refuse,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(status) => return error_response(status, "not permitted"),
     };

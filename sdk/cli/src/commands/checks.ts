@@ -183,7 +183,7 @@ async function listChecks(
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const payload = (parseJson(response.body) as FunctionSummary[] | undefined) ?? [];
   return payload.filter((fn) => fn.check === true).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -230,7 +230,7 @@ async function startRun(
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const payload = parseJson(response.body) as { run_id?: string } | undefined;
   if (!payload?.run_id) {
     throw new CliError(`POST .../functions/${name}/runs did not return a run_id`, {
@@ -253,7 +253,7 @@ async function getRunDetail(
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   return parseJson(response.body) as RunDetail;
 }
 

@@ -77,6 +77,13 @@ pub(super) async fn set(
     actor: &oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, Failure> {
     let key = bare_key(&body.key)?;
+    // A sandbox agent token stores no value shaped like an Oxy credential,
+    // and writes under the sandbox's row lock, held until this returns: the
+    // sandbox is looked at again there, so a write never lands in one another
+    // creator made under the name since the request was admitted. `None`,
+    // and no read, for every other caller (`agent`).
+    super::agent::refuse_credential(&actor.user, &body.value)?;
+    let _held = super::agent::hold_own(db, app, &actor.user, environment).await?;
     // `trim()`, not `is_empty()`. An empty value resolves to an empty
     // `ctx.env.KEY`, which reads as "configured" everywhere downstream while
     // behaving like unset — the `usable_secret` / `timingSafeEqual` footguns
@@ -139,6 +146,8 @@ pub(super) async fn delete(
     // Trimmed, like `set` — otherwise `DELETE …/secrets/%20SIG` 404s on a key
     // the sibling POST would have normalised to `SIG`.
     let key = bare_key(key)?;
+    // As in `set`: a sandbox agent token deletes under the sandbox's row lock.
+    let _held = super::agent::hold_own(db, app, &actor.user, environment).await?;
     let name = scope::secret_name(app.id, environment, key);
     SecretManagerService::new(app.project_id)
         .delete_secret(db, &name)

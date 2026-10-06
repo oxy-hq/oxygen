@@ -15,6 +15,7 @@ import { parse } from "yaml";
 import { CliError, ExitCode } from "../util/errors.js";
 import {
   manualSteps,
+  NO_CHECKS_STEP,
   SERVICE_ACCOUNT_ID_PLACEHOLDER,
   SETUP_ACTION,
   WORKFLOW_PATH,
@@ -68,36 +69,50 @@ function jobs(options: WorkflowOptions): { build: Job; publish: Job } {
 }
 
 describe("workflowYaml", () => {
-  it("adds a checks step only when the workflow promotes AND a check is declared", () => {
-    const names = (o: WorkflowOptions) => jobs(o).publish.steps.map((s) => s.name ?? s.uses);
-
+  /**
+   * NO CHECKS STEP, IN ANY SHAPE. The job's credential is a service account's
+   * `oxy_ci_` token, and the server answers it 403 on the check routes: they
+   * sit behind platform gates a service account never passes
+   * (`trusted_publish.rs` pins it). A generated step would exit 4 on every
+   * promoted publish of every app that declares a check.
+   */
+  it("never writes a checks step — the job's token could not run one", () => {
     for (const base of [OPTIONS, INLINE]) {
-      // `oxyc checks run` errors on an app with no checks, so a step that was
-      // always written would fail the first run of every generated workflow.
-      expect(names(base)).not.toContain("Run the app's checks");
-
-      // And a check runs against the app's LIVE build, so after a draft publish
-      // it would verify the previously promoted code — passing while the build
-      // this job uploaded is broken, and failing outright the first time a check
-      // is added, because the live build predates the flag.
-      expect(names({ ...base, hasChecks: true })).not.toContain("Run the app's checks");
-      expect(names({ ...base, promote: true })).not.toContain("Run the app's checks");
-
-      const steps = jobs({ ...base, hasChecks: true, promote: true }).publish.steps;
-      expect(steps.at(-2)?.run).toContain("publish --prebuilt --promote");
-      const step = steps.at(-1);
-      expect(step?.name).toBe("Run the app's checks");
-      expect(step?.run).toContain("checks run acme/sales --env production");
-      // Nothing is stored: no step ever names a secret.
-      expect(JSON.stringify(steps)).not.toContain("secrets.");
+      for (const o of [
+        base,
+        { ...base, hasChecks: true },
+        { ...base, promote: true },
+        { ...base, hasChecks: true, promote: true }
+      ]) {
+        const { publish } = jobs(o);
+        expect(publish.steps.map((s) => s.name ?? s.uses)).not.toContain("Run the app's checks");
+        expect(JSON.stringify(publish)).not.toContain("checks run");
+        // The publish is the last step, and nothing is stored.
+        expect(publish.steps.at(-1)?.name ?? publish.steps.at(-1)?.run).toMatch(/Publish|publish/);
+        expect(JSON.stringify(publish)).not.toContain("secrets.");
+      }
     }
   });
 
-  it("runs the checks by app id when it is known", () => {
-    // A service account's token may not list apps, so the id spares the
-    // command resolving a slug from the token's grants.
-    const steps = jobs({ ...OPTIONS, hasChecks: true, promote: true, appId: APP_ID }).publish.steps;
-    expect(steps.at(-1)?.run).toBe(`oxyc checks run ${APP_ID} --env production`);
+  it("leaves one comment line where the step would be, and only there", () => {
+    for (const base of [OPTIONS, INLINE]) {
+      // Where it would have been written: a promoted publish of an app with a check.
+      const yaml = workflowYaml({ ...base, hasChecks: true, promote: true });
+      const lines = yaml.split("\n").filter((line) => line.includes("oxyc checks run"));
+      expect(lines).toEqual([NO_CHECKS_STEP.trimEnd()]);
+      expect(lines[0]).toMatch(/^ {6}# No `oxyc checks run` step: /);
+      expect(lines[0]).toContain("until ci tokens may run checks");
+      // After the publish step, and still a workflow GitHub can parse.
+      expect(yaml.indexOf("oxyc checks run")).toBeGreaterThan(yaml.indexOf("- name: Publish"));
+      expect(jobs({ ...base, hasChecks: true, promote: true }).publish.steps.at(-1)?.name).toBe(
+        "Publish"
+      );
+
+      // Nowhere else: no check declared, or a draft publish.
+      for (const o of [base, { ...base, hasChecks: true }, { ...base, promote: true }]) {
+        expect(workflowYaml(o)).not.toContain("checks run");
+      }
+    }
   });
 
   it("publishes a draft unless --promote", () => {
@@ -234,8 +249,7 @@ describe("workflowYaml", () => {
       { serviceAccountId: "acme/deployer" },
       { serviceAccountId: `${ACCOUNT_ID}; id` },
       { host: "https://app.oxygen-hq.com/$(id)" },
-      { host: "javascript:alert(1)" },
-      { appId: "not-a-uuid; id" }
+      { host: "javascript:alert(1)" }
     ]) {
       expect(() => workflowYaml({ ...OPTIONS, ...bad }), JSON.stringify(bad)).toThrow(CliError);
     }

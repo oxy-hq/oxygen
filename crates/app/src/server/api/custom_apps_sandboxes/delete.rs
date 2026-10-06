@@ -33,7 +33,9 @@ use crate::server::api::custom_apps_environments::{self, EnvAction};
 /// answers the teardown's run id. See [`delete`].
 ///
 /// `actor` is who asked — the request's user, with the key or token the
-/// audit row names — and `None` for an expiry.
+/// audit row names — and `None` for an expiry. When that credential is a
+/// sandbox agent token, the delete holds only on a sandbox the token created,
+/// checked on the row the delete locks; any other answers `NotFound`.
 pub async fn begin_delete(
     db: &DatabaseConnection,
     app: &apps::Model,
@@ -77,6 +79,12 @@ pub enum Expect {
         created_at: DateTime<Utc>,
         marked_before: DateTime<Utc>,
     },
+    /// The sweep's token-ended pass: still active, still the row that was
+    /// created at `created_at`, and still the sandbox `token` created.
+    CreatedBy {
+        created_at: DateTime<Utc>,
+        token: Uuid,
+    },
 }
 
 /// [`begin_delete`], saying what it did.
@@ -112,8 +120,7 @@ pub async fn delete_if(
 ) -> Result<Option<Deletion>, SandboxError> {
     require_sandbox(environment)?;
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
-    let asked_by = actor.map(|actor| actor.user.id);
-    let deletion = mark_and_queue(&txn, app, environment, asked_by, reason, expect).await?;
+    let deletion = mark_and_queue(&txn, app, environment, actor, reason, expect).await?;
     txn.commit()
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
@@ -128,7 +135,7 @@ pub async fn delete_if(
 
 /// The `app.environment.deleted` audit row: written when a sandbox went from
 /// active to deleting, never for a retry. An expiry's actor is the system's.
-async fn audit_deletion(
+pub(super) async fn audit_deletion(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
@@ -147,15 +154,17 @@ async fn audit_deletion(
 /// Under a lock on the sandbox's row: leave it alone when `expect` no longer
 /// holds (`None`), answer the run already on its way, or mark the row and
 /// queue one.
-async fn mark_and_queue<C: ConnectionTrait>(
+pub(super) async fn mark_and_queue<C: ConnectionTrait>(
     txn: &C,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: Option<Uuid>,
+    actor: Option<&audit::RequestActor>,
     reason: TeardownReason,
     expect: Expect,
 ) -> Result<Option<Deletion>, SandboxError> {
     let row = lock_sandbox(txn, app.id, &environment.name()).await?;
+    refuse_unless_own(&row, actor)?;
+    let actor = actor.map(|actor| actor.user.id);
     if !still_expected(txn, &row, expect).await? {
         return Ok(None);
     }
@@ -202,6 +211,23 @@ async fn lock_sandbox<C: ConnectionTrait>(
         .ok_or_else(|| SandboxError::NotFound(name.to_string()))
 }
 
+/// A sandbox agent token deletes only a sandbox it created, decided on the
+/// row this delete holds locked. The handler's check ran on the row as it was
+/// when the request was admitted; by now that sandbox may have finished its
+/// teardown and a colleague created another under the same name. Such a row
+/// is answered as if it did not exist. A person and the sweep are not bound.
+fn refuse_unless_own(
+    row: &app_environments::Model,
+    actor: Option<&audit::RequestActor>,
+) -> Result<(), SandboxError> {
+    match actor.and_then(super::ops::agent_token) {
+        Some(token) if row.created_by_token_id != Some(token) => {
+            Err(SandboxError::NotFound(row.name.clone()))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Whether `expect` still holds of the locked `row`.
 async fn still_expected<C: ConnectionTrait>(
     txn: &C,
@@ -227,7 +253,16 @@ async fn still_expected<C: ConnectionTrait>(
             && row
                 .deleting_at
                 .is_some_and(|marked| marked.with_timezone(&Utc) < marked_before)),
+        Expect::CreatedBy { created_at, token } => Ok(is_live_row_of(row, created_at, token)),
     }
+}
+
+/// Whether `row` is still active, still the row created at `created_at`, and
+/// still the sandbox `token` created.
+fn is_live_row_of(row: &app_environments::Model, created_at: DateTime<Utc>, token: Uuid) -> bool {
+    row.deleting_at.is_none()
+        && row.created_at.with_timezone(&Utc) == created_at
+        && row.created_by_token_id == Some(token)
 }
 
 /// The teardown run queued when `row` was last marked, while the queue still
@@ -277,4 +312,80 @@ async fn mark_deleting_and_queue<C: ConnectionTrait>(
     teardown::enqueue(txn, &task)
         .await
         .map_err(|e| SandboxError::db("queue the teardown", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::api::custom_apps_agent_fixture as fixture;
+
+    const TOKEN: Uuid = Uuid::from_u128(0x70);
+
+    fn row(created_by_token_id: Option<Uuid>) -> app_environments::Model {
+        let now = Utc::now().fixed_offset();
+        app_environments::Model {
+            app_id: Uuid::from_u128(1),
+            name: "dev-a".into(),
+            kind: AppEnvironmentKind::Dev.as_str().into(),
+            owner_user_id: Some(Uuid::from_u128(2)),
+            build_id: None,
+            updated_by: None,
+            updated_at: now,
+            created_at: now,
+            deleting_at: None,
+            oltp_schema: None,
+            created_by_token_id,
+        }
+    }
+
+    fn token_actor() -> audit::RequestActor {
+        let credential = fixture::credential(TOKEN, Uuid::nil(), Uuid::from_u128(1), Uuid::nil());
+        fixture::actor(Some(credential))
+    }
+
+    /// The race the lock closes: the token was admitted against its own
+    /// `dev-a`, which then finished its teardown, and a colleague made a new
+    /// `dev-a`. Decided on the row the delete holds, that one is not the
+    /// token's, and it is answered as missing.
+    #[test]
+    fn a_token_deletes_only_the_row_it_created() {
+        let actor = token_actor();
+        assert_eq!(refuse_unless_own(&row(Some(TOKEN)), Some(&actor)), Ok(()));
+        for other in [None, Some(Uuid::from_u128(0x71))] {
+            assert_eq!(
+                refuse_unless_own(&row(other), Some(&actor)),
+                Err(SandboxError::NotFound("dev-a".into())),
+                "a row created by {other:?} is not the token's",
+            );
+        }
+    }
+
+    /// The token-ended pass deletes the row it selected and no other: not one
+    /// already being deleted, not a sandbox created again under the name, and
+    /// not a colleague's.
+    #[test]
+    fn the_token_ended_pass_deletes_only_the_live_row_it_selected() {
+        let own = row(Some(TOKEN));
+        let created_at = own.created_at.with_timezone(&Utc);
+        assert!(is_live_row_of(&own, created_at, TOKEN));
+        let mut deleting = own.clone();
+        deleting.deleting_at = Some(own.created_at);
+        assert!(!is_live_row_of(&deleting, created_at, TOKEN));
+        let earlier = created_at - chrono::Duration::seconds(1);
+        assert!(!is_live_row_of(&own, earlier, TOKEN), "created again");
+        let mut colleague = own.clone();
+        colleague.created_by_token_id = None;
+        assert!(!is_live_row_of(&colleague, created_at, TOKEN));
+        assert!(!is_live_row_of(&own, created_at, Uuid::from_u128(0x71)));
+    }
+
+    /// A person's delete, and the sweep's, are not bound by who created it.
+    #[test]
+    fn a_person_and_the_sweep_delete_any_sandbox() {
+        let person = fixture::actor(None);
+        for creator in [None, Some(TOKEN)] {
+            assert_eq!(refuse_unless_own(&row(creator), Some(&person)), Ok(()));
+            assert_eq!(refuse_unless_own(&row(creator), None), Ok(()));
+        }
+    }
 }

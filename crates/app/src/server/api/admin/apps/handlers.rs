@@ -240,6 +240,7 @@ pub async fn get_org_for_project(
 }
 
 pub async fn create_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(req): Json<CreateAppRequest>,
 ) -> Result<Json<AppResponse>, ApiErr> {
@@ -757,6 +758,7 @@ fn oltp_store_blocks(action: &str, org_id: Uuid, writer: &oxy_oltp::schema::Writ
 }
 
 pub async fn update_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateAppRequest>,
@@ -882,6 +884,7 @@ pub async fn update_app(
 /// [`publish_one`]) and stamp `published_at = now()` so the customer-facing
 /// auth gate flips and the workspace sidebar picks up the entry.
 pub async fn publish_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     user: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PromoteResponse>, StatusCode> {
@@ -928,6 +931,7 @@ async fn promote_response(
 /// Unpublish: null out `published_at`. Non-app-admins lose access on
 /// next request; the bundle itself stays untouched.
 pub async fn unpublish_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     user: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AppResponse>, StatusCode> {
@@ -968,7 +972,9 @@ pub async fn unpublish_app(
 /// `"check": true`. Without the parameter nothing changes, the bare `400`
 /// included.
 pub async fn run_function_job(
-    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    // The authenticated user, with the key or token the request used: what
+    // the queued run is audited as, whatever the credential (`run_audit`).
+    actor: oxy_app_core::audit::RequestActor,
     // Present iff authenticated via an app publish token. Such a token may run
     // an app's **checks** and nothing else — see `machine_may_run` below — and
     // only in production: `environment_scope` refuses it anywhere else.
@@ -992,11 +998,26 @@ pub async fn run_function_job(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let marker = marker.as_ref().map(|axum::Extension(marker)| marker);
+    let asked = super::run_audit::Asked {
+        actor: &actor,
+        marker,
+    };
+    let user = &actor.user;
+    let agent = super::agent_scope::token_of(user);
     let Some(raw) = q.environment.as_deref() else {
+        // No environment is production. A sandbox agent token queues a run in
+        // a sandbox it created and nowhere else: refused here, in the handler,
+        // whatever the route allow-list in front of it admits.
+        if agent.is_some() {
+            return Err(super::agent_scope::not_found().into());
+        }
         if let Some(marker) = marker {
             machine_may_run(&db, marker, id, &name).await?;
         }
-        return Ok(Json(run_in_production(&db, id, &name, input).await?));
+        let queued = run_in_production(&db, id, &name, input).await?;
+        let run = (name.as_str(), queued.run_id.as_str());
+        super::run_audit::run_queued_in_production(&db, asked, id, run).await;
+        return Ok(Json(queued));
     };
     // A token scoped to another app gets one answer whether or not this id
     // exists (the scope middleware already refused it; this holds if that
@@ -1006,12 +1027,15 @@ pub async fn run_function_job(
     if marker.is_some_and(|marker| !token_names_app(marker, id)) {
         return Err(StatusCode::FORBIDDEN.into());
     }
-    let (app, environment) = environment_scope::admit(&db, id, &user, marker, raw).await?;
+    let (app, environment) = environment_scope::admit(&db, id, user, marker, raw).await?;
     if let Some(marker) = marker {
         machine_may_run(&db, marker, id, &name).await?;
     }
-    let queued = environment_scope::run_in_environment(&db, &app, &environment, &name, input);
-    Ok(Json(queued.await?))
+    let queued =
+        environment_scope::run_in_environment(&db, &app, &environment, &name, input, agent).await?;
+    let run = (name.as_str(), queued.run_id.as_str());
+    super::run_audit::run_queued(&db, asked, &app, &environment, run).await;
+    Ok(Json(queued))
 }
 
 /// Run now as it has always been: production, by the trigger that names no
@@ -1186,6 +1210,7 @@ pub async fn list_builds(Path(id): Path<Uuid>) -> Result<Json<BuildHistoryRespon
 /// at any retained build. Pure pointer move; the build's bytes are already
 /// in S3. Validates the build belongs to this app.
 pub async fn rollback_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
     Json(req): Json<RollbackRequest>,
@@ -1259,6 +1284,7 @@ pub async fn rollback_app(
 }
 
 pub async fn delete_app(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiErr> {
@@ -1300,6 +1326,7 @@ async fn delete_app_unscoped(id: Uuid) -> Result<StatusCode, ApiErr> {
 
 /// `POST /api/customer-apps/batch/publish` — publish many apps at once.
 pub async fn batch_publish_apps(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(req): Json<BatchIdsRequest>,
 ) -> Result<Json<BatchResponse>, ApiErr> {
@@ -1329,6 +1356,7 @@ pub async fn batch_publish_apps(
 /// action). Best-effort per id; an app with no builds is reported as a
 /// per-item failure.
 pub async fn batch_promote_latest_apps(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(req): Json<BatchIdsRequest>,
 ) -> Result<Json<BatchResponse>, ApiErr> {
@@ -1352,6 +1380,7 @@ pub async fn batch_promote_latest_apps(
 
 /// `POST /api/customer-apps/batch/unpublish` — unpublish many apps at once.
 pub async fn batch_unpublish_apps(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(req): Json<BatchIdsRequest>,
 ) -> Result<Json<BatchResponse>, ApiErr> {
@@ -1376,6 +1405,7 @@ pub async fn batch_unpublish_apps(
 /// `POST /api/customer-apps/batch/delete` — delete many app registrations at
 /// once. POST (not DELETE) because the id set travels in the request body.
 pub async fn batch_delete_apps(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(req): Json<BatchIdsRequest>,
 ) -> Result<Json<BatchResponse>, ApiErr> {

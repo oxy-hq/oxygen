@@ -51,6 +51,18 @@ impl GrantRow {
         }
     }
 
+    /// The one grant a sandbox agent token holds: an app, in the org that
+    /// owns it. No workspace and no ceiling — admission derives both.
+    pub(super) fn app_sandbox(org_id: Uuid, app_id: Uuid) -> Self {
+        Self {
+            kind: api_token_grants::KIND_APP_SANDBOX,
+            org_id,
+            workspace_id: None,
+            role_ceiling: None,
+            app_id: Some(app_id),
+        }
+    }
+
     /// The row under a token. A new grant is live: not revoked.
     pub(super) fn for_token(
         self,

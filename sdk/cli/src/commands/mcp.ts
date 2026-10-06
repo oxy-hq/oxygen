@@ -33,10 +33,18 @@
  * document that verb's `--json` prints. `mcp.test.ts` pins the full tool list
  * and a raised (and justified) per-turn schema budget.
  *
- * Auth, target resolution and placeholder substitution are the CLI's — the
- * same `Context`, so a token cached by `oxyc login` works
- * here with no separate setup, and `{org}` / `{workspace}` resolve the same
- * way.
+ * Target resolution and placeholder substitution are the CLI's — the same
+ * `Context`, so `{org}` / `{workspace}` resolve the same way.
+ *
+ * THE CREDENTIAL IS THE TOKEN VARIABLE AND NOTHING ELSE, unless the server is
+ * started with `--login`. An agent runtime starts this with the agent's own
+ * token in `OXY_TOKEN`; with the variable unset, the process exits `4` rather
+ * than serving on whatever `oxyc login` cached for the machine's owner. A
+ * person who does want their own login passes `--login`.
+ *
+ * A SANDBOX AGENT TOKEN (`oxy_sbx_…`) GETS A DIFFERENT, SMALLER LIST — the
+ * sandbox loop, `oxy_whoami`, three secret tools and `oxy_token_revoke`; no
+ * `oxy_request`, no discovery, no previews. See `mcp-sandbox.ts`.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -50,7 +58,11 @@ import { paramsToQuery, parseFields } from "../api/fields.js";
 import { runJq } from "../api/output.js";
 import { isExternalSurface, normalizePath, substitutePlaceholders } from "../api/paths.js";
 import { parseJson, request } from "../api/request.js";
+import { markMcpSession } from "../api/user-agent.js";
 import { requireSandboxName } from "../apps/environment.js";
+import { describeSandboxToken, forgetSandboxTokens } from "../apps/sandbox-token.js";
+import { revokeCallingToken } from "../auth/token-api.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import { type Context, createContext } from "../context/resolve.js";
 import {
   CliError,
@@ -62,9 +74,17 @@ import {
 import { runChecksCore } from "./checks.js";
 import { comparablePath } from "./discover.js";
 import { envCreate, envDelete, envList, envShow } from "./env.js";
+import { secretDelete, secretList, secretSet } from "./env-secrets.js";
 import { fnCall } from "./fn.js";
 import { invocationsHeld, invocationsList } from "./invocations.js";
 import { fetchLogs } from "./logs.js";
+import {
+  notServed,
+  sandboxAgentTools,
+  startupToolSet,
+  type ToolDef,
+  type ToolSet
+} from "./mcp-sandbox.js";
 import {
   previewChecks,
   previewCreate,
@@ -585,7 +605,12 @@ const PREVIEW_TOOLS = [
   }
 ];
 
-const ALL_TOOLS = [...TOOLS, ...SANDBOX_TOOLS, ...PREVIEW_TOOLS];
+const ALL_TOOLS: ToolDef[] = [...TOOLS, ...SANDBOX_TOOLS, ...PREVIEW_TOOLS];
+
+/** The list a session serves — decided once, from its credential (`mcp-sandbox.ts`). */
+function toolsFor(set: ToolSet): ToolDef[] {
+  return set === "sandbox_agent" ? sandboxAgentTools(SANDBOX_TOOLS) : ALL_TOOLS;
+}
 
 /**
  * Above this many matches, `oxy_routes` drops the descriptions.
@@ -795,11 +820,19 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
 
     case "oxy_whoami": {
       const target = ctx.target();
+      const bearer = await ctx.bearer();
+      // `/api/user` answers a sandbox agent token 404. Its own description is
+      // the answer, asked fresh: this tool is what tells a dead token from a
+      // live one.
+      if (isSandboxAgentToken(bearer)) {
+        const described = await describeSandboxToken(target, bearer, { fresh: true });
+        return text(JSON.stringify({ target, token: parseJson(described.body) }, null, 2));
+      }
       const response = await request({
         target,
         path: "/api/user",
         method: "GET",
-        bearer: await ctx.bearer()
+        bearer
       });
       const payload = parseJson(response.body);
       if (payload === null || payload === undefined) {
@@ -912,6 +945,52 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
       return jsonResult({ logs });
     }
 
+    // ── sandbox agent token only (`mcp-sandbox.ts`) ─────────────────────────
+
+    case "oxy_env_secret_list": {
+      requireArgs(name, args, ["app", "appEnv"]);
+      return jsonResult(await secretList(ctx, String(args.app), String(args.appEnv)));
+    }
+
+    case "oxy_env_secret_set": {
+      requireArgs(name, args, ["app", "appEnv", "key", "value"]);
+      return jsonResult(
+        await secretSet(
+          ctx,
+          String(args.app),
+          String(args.appEnv),
+          String(args.key),
+          String(args.value)
+        )
+      );
+    }
+
+    case "oxy_env_secret_delete": {
+      requireArgs(name, args, ["app", "appEnv", "key"]);
+      return jsonResult(
+        await secretDelete(ctx, String(args.app), String(args.appEnv), String(args.key))
+      );
+    }
+
+    case "oxy_token_revoke": {
+      if (args.confirm !== true) {
+        throw usageError(
+          "oxy_token_revoke needs confirm=true",
+          "it ends this token for good — pass confirm=true once the sandbox is deleted and the task is done"
+        );
+      }
+      const target = ctx.target();
+      const outcome = await revokeCallingToken(target, await ctx.bearer());
+      forgetSandboxTokens();
+      if (outcome === "revoked" || outcome === "already_invalid") {
+        return jsonResult({ revoked: true, already: outcome === "already_invalid" });
+      }
+      throw new CliError(`${target} did not confirm the revoke`, {
+        code: ExitCode.UNAVAILABLE,
+        hint: "call oxy_token_revoke once more; the token also ends on its own at its expiry"
+      });
+    }
+
     // ── workspace previews ──────────────────────────────────────────────────
 
     case "oxy_preview_create": {
@@ -1000,11 +1079,26 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
  * plumbing without corrupting the stream.
  */
 export async function runMcp(ctx: Context): Promise<void> {
+  // Every request from here on is a tool call's, and its user agent says so
+  // (`… mcp`) — the startup check below included.
+  markMcpSession();
+
+  // BEFORE THE TRANSPORT IS UP. A missing or dead credential ends the process
+  // with exit 4 here, where an agent runtime reports "the server failed to
+  // start" — rather than a session whose every tool fails, or one that runs
+  // on a credential nobody chose (`startupToolSet`).
+  const set = await startupToolSet(ctx);
+  const tools = toolsFor(set);
+  const served = new Set(tools.map((tool) => tool.name));
+
   const server = new Server({ name: "oxyc", version: VERSION }, { capabilities: { tools: {} } });
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: ALL_TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    // A tool left off the list is not callable by name either: the list is the
+    // surface, not a suggestion.
+    if (!served.has(req.params.name)) return text(notServed(req.params.name, set), true);
     try {
       return await callTool(
         ctx,

@@ -171,6 +171,16 @@ impl CreateBody {
     pub fn access(&self) -> Result<Access, Invalid> {
         let all_access = self.all_access.unwrap_or(true);
         let grants = parse_grants(self.grants.as_deref().unwrap_or(&[]))?;
+        // An `app_publish` grant is only ever one a token already holds, kept
+        // by an edit ([`GrantWant::AppPublish`]). A new personal token holds
+        // none, and no route puts one on it: say so here, before anything is
+        // read, rather than as the edit's "holds no such grant".
+        if grants
+            .iter()
+            .any(|g| matches!(g, GrantWant::AppPublish { .. }))
+        {
+            return invalid(NO_APP_PUBLISH);
+        }
         match (all_access, grants.is_empty()) {
             (true, false) => {
                 return invalid("'grants' narrows a token: send \"all_access\": false with them");
@@ -195,6 +205,11 @@ impl CreateBody {
 
 const NEEDS_GRANTS: &str =
     "a token without all access needs at least one grant: send 'grants', or \"all_access\": true";
+
+/// What a create that names an `app_publish` grant is told.
+pub const NO_APP_PUBLISH: &str = "a personal token cannot be created with an app_publish grant: \
+     narrow it with workspace grants, or publish one app from CI through trusted access \
+     (a service account's trust policy)";
 
 /// What an edit does to the grant set.
 #[derive(Clone, Debug, PartialEq, Eq)]

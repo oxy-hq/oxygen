@@ -347,3 +347,15 @@
   # been run against a live backend.
   cold_usd: 0.50
   warm_usd: 0.01
+
+- flow: settings-account-sandbox-token
+  # Cloud mode, under a STAFF session (see the flow header): the type it picks
+  # is offered to nobody else. Six acts (name a token, pick the sandbox agent
+  # type, tick an app and submit, dismiss the one-time secret, open the row
+  # menu and pick Revoke, confirm), four $0 asserts, one judge. Every click is
+  # testid-led; the row menu is the one two-click act.
+  # Not recorded yet, and in no CI bucket: its UI was built against the pinned
+  # wire contract while the server half was still being written, and it has
+  # never been run against a live backend.
+  cold_usd: 0.50
+  warm_usd: 0.01

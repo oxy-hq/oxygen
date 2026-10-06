@@ -69,6 +69,29 @@ describe("WorkspaceTokenTable", () => {
     expect(within(personal).getByTestId("workspace-token-ceiling")).toHaveTextContent("Full");
   });
 
+  it("names a sandbox agent token, and says what it reaches here instead of a role", () => {
+    show({
+      data: {
+        tokens: [
+          row({
+            name: "refunds task",
+            kind: "sandbox_agent",
+            display_prefix: "oxy_sbx_Qr7k",
+            owner: { type: "user", id: "u1", label: "ana@example.com" },
+            // The ceiling its app grants are admitted at. It is not what the token can do here.
+            role_ceiling_here: "admin"
+          })
+        ]
+      }
+    });
+    const sandbox = screen.getByTestId("workspace-token-row");
+    expect(sandbox).toHaveAttribute("data-token-kind", "sandbox_agent");
+    expect(sandbox).toHaveTextContent("Sandbox agent");
+    const access = within(sandbox).getByTestId("workspace-token-ceiling");
+    expect(access).toHaveTextContent("App sandboxes only");
+    expect(access).not.toHaveTextContent("Admin");
+  });
+
   it("is read-only: an expired token shows its status and no way to extend it", () => {
     show({ data: { tokens: [row({ expires_at: "2020-01-01T00:00:00Z", status: "expired" })] } });
     expect(screen.getByTestId("workspace-token-row")).toHaveTextContent("Expired");

@@ -88,6 +88,12 @@ pub async fn load_principal_facts_scoped(
     if caller.is_service_account() {
         return Some(service_account_facts(caller));
     }
+    // A sandbox agent token holds no tenant standing (sandbox agent credential
+    // design §3.2), so none is loaded — not "loaded and dropped". Its facts are
+    // its minter's platform standing, bounded to the orgs of the apps it names.
+    if caller.is_sandbox_agent() {
+        return load_platform_facts(db, caller).await;
+    }
     let user_id = caller.user_id;
     // One query for every org membership; the org sets and the partner check both read
     // from these rows instead of re-querying per membership.

@@ -41,6 +41,12 @@ pub async fn org_middleware(
     // so a token cannot tell an org it may not reach from one that does not
     // exist. A session and a legacy key have no ceiling here.
     let caller = Caller::of(&user, request.extensions().get::<CredentialContext>());
+    // A sandbox agent token holds no standing in any org (sandbox agent
+    // credential design §3.2): not even the workspace discovery a grant-bound
+    // token gets below.
+    if caller.is_sandbox_agent() {
+        return Err(StatusCode::NOT_FOUND);
+    }
     let ceiling = match caller.org_ceiling(org_id) {
         Some(ceiling) => ceiling,
         // Discovery (design §4.5): a token granted only workspaces in this org may

@@ -77,13 +77,65 @@ async fn invocation_of(
         .one(db)
         .await
         .map_err(|e| ScopeError::internal("invocation lookup failed", e))?
-        .ok_or_else(|| {
-            ScopeError::new(
-                StatusCode::NOT_FOUND,
-                "invocation_not_found",
-                "no such invocation of this app",
-            )
-        })
+        .ok_or_else(invocation_not_found)
+}
+
+fn invocation_not_found() -> ScopeError {
+    ScopeError::new(
+        StatusCode::NOT_FOUND,
+        "invocation_not_found",
+        "no such invocation of this app",
+    )
+}
+
+/// Whether `caller` may read `invocation` of `app`.
+///
+/// Two machine credentials are told an invocation they may not read does not
+/// exist — the answer for an id that names nothing, so neither can tell the
+/// two apart. A **publish token** reads production's and no other: it is its
+/// minter, whose reach would otherwise open staging's held list to it on the
+/// `/customer-apps/{id}/…` mount a token may `GET`. A **sandbox agent token**
+/// reads only an invocation of a sandbox it created.
+async fn require_readable(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
+    caller: &environment_scope::Caller<'_>,
+    invocation: &app_function_invocations::Model,
+) -> Result<(), ScopeError> {
+    let environment = invocation.environment.as_str();
+    if caller.marker.is_some() && !environment_scope::is_production(environment) {
+        return Err(invocation_not_found());
+    }
+    let reach = environment_scope::require_reach(db, app, caller.user, environment).await;
+    match reach {
+        Err(_) if super::agent_scope::is_agent(caller.user) => Err(invocation_not_found()),
+        Ok(()) => of_own_instance(db, app, caller, invocation).await,
+        other => other,
+    }
+}
+
+/// A sandbox agent token reads an invocation of the sandbox it has now. One
+/// of an earlier sandbox that had the same name is answered as missing
+/// (`custom_apps_sandbox_instance`). Every other caller passes, unread.
+async fn of_own_instance(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
+    caller: &environment_scope::Caller<'_>,
+    invocation: &app_function_invocations::Model,
+) -> Result<(), ScopeError> {
+    use crate::server::api::custom_apps_sandbox_instance::is_of_instance;
+    let environment = invocation.environment.as_str();
+    let since = super::agent_scope::instance_since_named(db, app, caller.user, environment)
+        .await
+        .map_err(|e| match e.status {
+            StatusCode::NOT_FOUND => invocation_not_found(),
+            _ => e,
+        })?;
+    let written_at = invocation.created_at.with_timezone(&chrono::Utc);
+    match since {
+        Some(since) if !is_of_instance(written_at, since) => Err(invocation_not_found()),
+        _ => Ok(()),
+    }
 }
 
 /// The `writes` of every held row `invocation` wrote, oldest row first.
@@ -146,12 +198,16 @@ async fn build_label(
 /// invocation, which holds nothing.
 pub async fn get_held_writes(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    // Present iff authenticated via an app publish token, which reaches this
+    // route on the `/customer-apps/{id}/…` mount.
+    marker: Option<axum::Extension<oxy_auth::types::AppPublishTokenAuth>>,
     Path((id, invocation_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<HeldWrites>, ScopeError> {
     let db = environment_scope::connect().await?;
     let app = environment_scope::load_app(&db, id).await?;
     let invocation = invocation_of(&db, id, invocation_id).await?;
-    environment_scope::require_reach(&db, &app, &user, &invocation.environment).await?;
+    let caller = environment_scope::Caller::new(&user, marker.as_ref());
+    require_readable(&db, &app, &caller, &invocation).await?;
     let held = if environment_scope::is_production(&invocation.environment) {
         Vec::new()
     } else {

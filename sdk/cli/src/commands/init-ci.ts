@@ -73,7 +73,7 @@ export interface WorkflowOptions {
   pnpmFromPackageJson: boolean;
   /** Whether the manifest declares any `"check": true` function to verify with. */
   hasChecks: boolean;
-  /** `--promote`: publish to the live channel, and verify it with the checks. */
+  /** `--promote`: publish to the live channel. */
   promote: boolean;
   nodeVersionFile: boolean;
   cliVersion: string;
@@ -89,8 +89,6 @@ export interface WorkflowOptions {
   setupAction: boolean;
   /** The deployment's base URL, for the action. Unused without it. */
   host: string;
-  /** The app's id, when known: a service account's token cannot resolve a slug. */
-  appId?: string;
 }
 
 /** `org/app` from `--app`, else the manifest in the working directory. */
@@ -197,8 +195,7 @@ function assertWorkflowSafe(o: WorkflowOptions): void {
       "service account id",
       o.serviceAccountId ?? "",
       o.serviceAccountId === undefined || UUID.test(o.serviceAccountId)
-    ],
-    ["app id", o.appId ?? "", o.appId === undefined || UUID.test(o.appId)]
+    ]
   ];
   if (o.setupAction) {
     checks.push(["deployment URL", o.host, /^https?:\/\/[A-Za-z0-9._:/-]+$/.test(o.host)]);
@@ -233,8 +230,30 @@ function accountValue(o: WorkflowOptions): string {
 }
 
 /**
- * The publish job's steps after `setup-node`: how it gets a credential, the
- * publish, and the checks.
+ * The line left where an `oxyc checks run` step would be.
+ *
+ * NO CHECKS STEP IS GENERATED, because it could not pass. The job's credential
+ * is a service account's `oxy_ci_` token, and `checks run` sends it to
+ * `/api/customer-apps/{id}/functions…`. The token's scope admits those three
+ * routes for its own app — and then the routes' own platform gates
+ * (`oxy_owner_or_app_admin_guard`, `platform_cap_guard`) decide on the CALLER's
+ * platform standing, which a service account never holds. The server answers
+ * `403`: `crates/server/tests/integration/token_auth/trusted_publish.rs` pins
+ * it for the app's `GET`, and `app_publish_token_scope.rs` says the check-run
+ * routes sit behind the same gates. A step that always exits `4` would fail
+ * every promoted publish of every app that declares a check.
+ *
+ * Whether a `ci` token SHOULD run its app's checks is a product decision, not
+ * this file's. When it may, the step comes back here — and only alongside
+ * `--promote`, since a check runs the app's LIVE build: after a draft publish
+ * it would verify the previously promoted code.
+ */
+export const NO_CHECKS_STEP =
+  "      # No `oxyc checks run` step: this job's service-account token is refused on the check routes (they need platform standing) until ci tokens may run checks.\n";
+
+/**
+ * The publish job's steps after `setup-node`: how it gets a credential, and
+ * the publish.
  *
  * WITH THE ACTION, one step installs the pinned CLI, exchanges, exports
  * `OXY_TOKEN` and revokes it afterwards, and every later step is a plain
@@ -244,34 +263,11 @@ function accountValue(o: WorkflowOptions): string {
 function credentialedSteps(o: WorkflowOptions, workdir: string): string {
   const promote = o.promote ? " --promote" : "";
   const publishArgs = `publish --prebuilt${promote} --dir ${o.outDir} --env ${o.env} --org ${o.org} --app ${o.app}`;
-  // Two conditions, and the second is the one that is easy to get wrong.
-  //
-  // A check runs against the app's LIVE build — `trigger_function_job` and the
-  // executor both resolve `published_build_id.or(draft_build_id)`, so a run
-  // started right after a DRAFT publish executes the previously promoted code
-  // and reports on the wrong artifact. Worse, the first workflow to add a check
-  // would fail: the live build predates the flag, so `checks run` finds none and
-  // exits 1. So the step is emitted only alongside `--promote`, where the build
-  // just published IS the one the check runs.
-  //
-  // And only when there is something to run: `oxyc checks run` on an app that
-  // declares no check is an error, not a no-op.
-  const withChecks = o.hasChecks && o.promote;
-  // By id when it is known. A service account's token may not list apps, so a
-  // slug is resolved from the token's own grants — which works, but the id
-  // needs nothing resolved at all.
-  const checksArgs = `checks run ${o.appId ?? `${o.org}/${o.app}`} --env ${o.env}`;
-  const checksComment = `      # Runs every function the manifest marks \`"check": true\` against the
-      # build the step above just promoted, and fails the job if any of them does
-      # not pass.`;
+  // Said only where the step would have been written: a promoted publish of an
+  // app that declares a check.
+  const checks = o.hasChecks && o.promote ? NO_CHECKS_STEP : "";
 
   if (o.setupAction) {
-    const checks = withChecks
-      ? `${checksComment}
-      - name: Run the app's checks
-        run: oxyc ${checksArgs}
-`
-      : "";
     return `      # Installs the pinned oxyc without running any install script, exchanges
       # this job's OIDC token for a fifteen-minute token acting as the service
       # account, exports it as OXY_TOKEN, and revokes it when the job ends.
@@ -292,14 +288,6 @@ ${checks}`;
           # Which service account this job's OIDC token is exchanged for, by its
           # ID: a name could be taken over by another organization, an ID cannot.
           OXY_SERVICE_ACCOUNT: ${accountValue(o)}`;
-  const checks = withChecks
-    ? `${checksComment} It mints its own short-lived credential from the same
-      # OIDC identity — nothing stored, and nothing carried over from the step above.
-      - name: Run the app's checks
-${env}
-        run: npx --yes ${cli} ${checksArgs}
-`
-    : "";
   return `      # No stored secret and no token step: oxyc exchanges this job's OIDC
       # token itself, and revokes what it minted when the command ends.
       - name: Publish
@@ -502,8 +490,8 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
     workflowPath: WORKFLOW_PATH,
     environment
   };
-  // Before the file is written, because the app id it learns goes INTO the
-  // file; after the overwrite refusal, so a refused run creates nothing.
+  // Before the file is written, because the account id it learns goes INTO
+  // the file; after the overwrite refusal, so a refused run creates nothing.
   const registration: Registration =
     flags.register === false
       ? { kind: "manual", reason: "--no-register was passed" }
@@ -534,8 +522,7 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
       serviceAccount,
       serviceAccountId,
       setupAction,
-      host,
-      appId: registration.appId
+      host
     })
   );
 
@@ -551,10 +538,13 @@ export async function runInitCi(ctx: Context, flags: InitCiFlags): Promise<void>
   }
   // A manifest with a check and a workflow without the step is the one
   // surprising outcome here, so say it out loud rather than leaving the author
-  // to notice a step that was never written.
-  if (hasChecks && !flags.promote) {
+  // to notice a step that was never written. See `NO_CHECKS_STEP` for why.
+  if (hasChecks) {
     log.info(
-      "the manifest declares a check, but this workflow publishes a draft — a check runs the LIVE build, so it would verify the previously promoted one. Re-run with --promote to publish live and verify what this workflow ships."
+      "the manifest declares a check, but the workflow has no `oxyc checks run` step: the job's service-account token is refused on the check routes (403 — they need platform standing), so the step could not pass."
+    );
+    log.hint(
+      "run the checks with a staff credential after the publish — `oxyc checks run <org>/<app>` on your own login — until ci tokens may run them"
     );
   }
 

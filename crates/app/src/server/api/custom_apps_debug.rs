@@ -72,11 +72,17 @@ pub async fn get_debug(
     Path((org_slug, app_slug)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let AuthOutcome { app, caller, .. } =
-        match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
-            Ok(v) => v,
-            Err(status) => return status.into_response(),
-        };
+    let AuthOutcome { app, caller, .. } = match authenticate_and_authorize(
+        &headers,
+        &org_slug,
+        &app_slug,
+        oxy_auth::token::SandboxAgent::Refuse,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(status) => return status.into_response(),
+    };
     let db = oxy::database::client::establish_connection().await;
     let on_staging = match &db {
         Ok(db) => on_staging_host(db, &headers, &caller, &app).await,

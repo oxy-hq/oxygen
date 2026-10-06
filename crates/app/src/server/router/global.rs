@@ -259,6 +259,19 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
                     "/{id}/function-runs/{run_id}",
                     get(admin::apps::functions::get_function_run),
                 )
+                // Read-back, mounted here as well as under `/admin/apps`: a
+                // scoped machine credential never reaches `/admin` at all, so
+                // the sandbox loop's read-back needs these two on the tree it
+                // can reach. Registered above the console layers below, which
+                // therefore cover them. DB reads — FleetOk with the nest.
+                .route(
+                    "/{id}/invocations",
+                    get(admin::apps::invocations::list_app_invocations),
+                )
+                .route(
+                    "/{id}/invocations/{invocation_id}/held",
+                    get(admin::apps::held_writes::get_held_writes),
+                )
                 // Manually trigger a one-off background run of an app function
                 // as a job (the "run now" not tied to a cron schedule). Same
                 // handler as the /admin/apps surface. See the Function Jobs doc.

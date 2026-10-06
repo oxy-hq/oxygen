@@ -29,6 +29,34 @@ const loadError = (error: Error | null): string | undefined => {
     : "Couldn't load the tokens that reach this workspace.";
 };
 
+/**
+ * What the token may do in this workspace. A sandbox agent token is listed because the apps it
+ * builds live here, and whatever ceiling it is listed with, the sandboxes of those apps are all
+ * it reaches: showing the ceiling would read as far more than that.
+ */
+const AccessHere: React.FC<{ token: WorkspaceTokenRow }> = ({ token }) => {
+  if (token.kind === "sandbox_agent") {
+    return (
+      <span
+        title='Held by an AI agent: it can build and test sandboxes of the apps it names, and nothing else in this workspace.'
+        data-testid='workspace-token-ceiling'
+      >
+        App sandboxes only
+      </span>
+    );
+  }
+  return (
+    <span
+      title={
+        token.all_access ? "An all-access token: here it can do whatever its owner can." : undefined
+      }
+      data-testid='workspace-token-ceiling'
+    >
+      {CEILING_LABELS[token.role_ceiling_here] ?? token.role_ceiling_here}
+    </span>
+  );
+};
+
 /** One token that can act here. Nothing on the row changes it: its owner does that. */
 const InventoryRow: React.FC<{ token: WorkspaceTokenRow }> = ({ token }) => {
   const summary = toTokenSummary(token);
@@ -49,16 +77,7 @@ const InventoryRow: React.FC<{ token: WorkspaceTokenRow }> = ({ token }) => {
         </Badge>
       </TableCell>
       <TableCell data-label='Access here'>
-        <span
-          title={
-            token.all_access
-              ? "An all-access token: here it can do whatever its owner can."
-              : undefined
-          }
-          data-testid='workspace-token-ceiling'
-        >
-          {CEILING_LABELS[token.role_ceiling_here] ?? token.role_ceiling_here}
-        </span>
+        <AccessHere token={token} />
       </TableCell>
       <TableCell data-label='Expiry'>
         {/* No endpoints: a read-only surface, so an expired token shows no Extend. */}

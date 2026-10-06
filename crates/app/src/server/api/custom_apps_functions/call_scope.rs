@@ -31,6 +31,9 @@ pub(crate) struct CallScope<'a> {
     pub environment: &'a AppEnvironment,
     pub function_name: &'a str,
     pub user_id: Uuid,
+    /// The sandbox agent token the call authenticated with, recorded on the
+    /// invocation row. Never part of a key: the keys are the user's.
+    pub credential_token_id: Option<Uuid>,
 }
 
 impl CallScope<'_> {

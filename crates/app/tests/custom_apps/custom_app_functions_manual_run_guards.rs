@@ -33,7 +33,8 @@
 use crate::common::read_repo_file;
 use crate::custom_app_functions_manual_run::{
     ERRORS_ROUTE, FUNCTION_INVOCATIONS_ROUTE, FUNCTIONS_ROUTE, HELD_ROUTE, INVOCATIONS_ROUTE,
-    LOGS_ROUTE, RUN_DETAIL_ROUTE, RUNS_ROUTE, TOKEN_INVOCATIONS_ROUTE, TOKEN_RUN_DETAIL_ROUTE,
+    LOGS_ROUTE, RUN_DETAIL_ROUTE, RUNS_ROUTE, TOKEN_APP_INVOCATIONS_ROUTE, TOKEN_HELD_ROUTE,
+    TOKEN_INVOCATIONS_ROUTE, TOKEN_RUN_DETAIL_ROUTE,
 };
 
 /// `rel` (from the repo root) with whole-line comments dropped, every whitespace
@@ -168,6 +169,10 @@ fn the_customer_apps_reads_the_token_test_copies_still_match_production() {
         format!(
             ".route(\"{TOKEN_RUN_DETAIL_ROUTE}\",get(admin::apps::functions::get_function_run))"
         ),
+        format!(
+            ".route(\"{TOKEN_APP_INVOCATIONS_ROUTE}\",get(admin::apps::invocations::list_app_invocations))"
+        ),
+        format!(".route(\"{TOKEN_HELD_ROUTE}\",get(admin::apps::held_writes::get_held_writes))"),
     ] {
         assert!(
             global.contains(&route),

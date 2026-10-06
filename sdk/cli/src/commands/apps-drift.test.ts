@@ -340,7 +340,7 @@ const LIST = "/api/customer-apps";
 function fakeContext(cwd: string): Context {
   return {
     cwd,
-    flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
+    flags: { env: "production", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
     bearer: async () => "tok",

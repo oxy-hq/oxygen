@@ -106,13 +106,17 @@ POST   /invitations/{token}/accept
 └── POST /callback
 
 /user/tokens/                                 (session only — a token cannot manage tokens)
-├── GET  /   · POST /
+├── GET  /   · POST /                         (POST with `kind: "sandbox_agent"` mints an `oxy_sbx_` token: staff only, per app)
 ├── GET  /{id} · PATCH /{id} · DELETE /{id}
-├── POST /{id}/extend · /{id}/regenerate
+├── POST /{id}/extend · /{id}/regenerate      (PATCH, extend and regenerate answer 409 for a sandbox agent token)
 └── GET  /{id}/activity
 GET    /user/token-options                    (session only)
 GET|DELETE /auth/token                        (the calling token, about itself)
-POST   /auth/cli/authorize                    (session only — `oxyc login`: a one-time code for the CLI's challenge)
+POST   /auth/cli/authorize                    (session only — `oxyc login`: a one-time code for the CLI's challenge; with `mint`, a code for a sandbox agent token)
+
+/admin/sandbox-agent-tokens                   (`operate_platform`; rows narrowed to the grant's orgs)
+├── GET  /
+└── POST /{id}/revoke
 ```
 
 ### 🏢 Workspace — `/{workspace_id}/…`

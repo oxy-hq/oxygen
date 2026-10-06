@@ -84,6 +84,7 @@ fn credential_of(kind: crate::token::StoredKind) -> crate::token::CredentialCont
         expires_at: None,
         service_account: None,
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
     }
 }
 

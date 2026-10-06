@@ -125,6 +125,7 @@ async fn staging_hold(
         writes: Vec::new(),
         invocation_id: None,
         trace_id: None,
+        token_id: None,
     };
     let sink = Arc::new(AskHeldSink {
         db: db.clone(),

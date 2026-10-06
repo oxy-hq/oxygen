@@ -4,7 +4,9 @@
 // checked without one — the sandbox A/B step names are real canary steps,
 // `expectedOrder` reproduces the canary's own run order rather than a second
 // hand-written copy of it, and the step table itself is the nine steps the
-// plan describes, numbered 1..9 with no gaps or repeats.
+// plan describes, numbered 1..9 with no gaps or repeats. They also pin which
+// credential each step uses: the loop runs as a sandbox agent token, and the
+// staff bearer keeps only what `STAFF_ONLY` lists.
 //
 //   node --test scripts/ci/platform-canary-sandbox-loop.test.mjs
 
@@ -29,6 +31,13 @@ import {
   STEPS_B,
   sandboxASteps
 } from "./platform-canary-sandbox-loop.mjs";
+import {
+  mintBody,
+  productionRequests,
+  SANDBOX_TOKEN_RE,
+  STAFF_ONLY,
+  scrub
+} from "./platform-canary-sandbox-token.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const stepsSource = readFileSync(ALL_STEPS_SOURCE, "utf8");
@@ -169,4 +178,132 @@ test("the step table is exactly nine steps, numbered 1..9 with no gaps", () => {
     assert.ok(s.what.length > 0, `step ${s.n} has no description`);
     assert.equal(typeof s.run, "function");
   }
+});
+
+// ── the loop runs as a sandbox agent token ──────────────────────────────────
+
+const loopSource = readFileSync(
+  join(REPO, "scripts", "ci", "platform-canary-sandbox-loop.mjs"),
+  "utf8"
+);
+
+/** The source of `async function step<n>`, up to the brace that closes it. */
+function stepSource(n) {
+  const m = new RegExp(`\\nasync function step${n}\\(ctx[\\s\\S]*?\\n}\\n`).exec(loopSource);
+  assert.ok(m, `no step${n} in the loop`);
+  return m[0];
+}
+
+test("the mint asks for one app, for one hour, as a sandbox agent token", () => {
+  assert.deepEqual(mintBody("app-1"), {
+    name: "platform-canary sandbox loop",
+    kind: "sandbox_agent",
+    apps: ["app-1"],
+    expires_in_hours: 1
+  });
+});
+
+test("a sandbox agent token is its prefix and 36 base62 characters, nothing else", () => {
+  const token = `oxy_sbx_${"aB3".repeat(12)}`;
+  assert.ok(SANDBOX_TOKEN_RE.test(token));
+  for (const not of [
+    `oxy_pat_${"aB3".repeat(12)}`,
+    `${token}x`,
+    token.slice(0, -1),
+    `${token}; echo hi`,
+    ` ${token}`,
+    `oxy_sbx_${"a-3".repeat(12)}`
+  ]) {
+    assert.equal(SANDBOX_TOKEN_RE.test(not), false, JSON.stringify(not));
+  }
+});
+
+test("scrub takes both credentials and any token-shaped text out of what is printed", () => {
+  const agent = `oxy_sbx_${"aB3".repeat(12)}`;
+  const staff = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzdGFmZiJ9.c2lnbmF0dXJl";
+  const stray = `oxy_pat_${"Zz9".repeat(12)}`;
+  const printed = scrub(
+    `OXY_TOKEN=${agent} failed; Authorization: Bearer ${staff}; also saw ${stray} and ${agent}`,
+    [staff, agent]
+  );
+  for (const secret of [agent, staff, stray]) {
+    assert.equal(printed.includes(secret), false, "a credential survived");
+  }
+  assert.match(printed, /OXY_TOKEN=\[redacted\] failed/);
+  assert.match(printed, /oxy_pat_\[redacted\]/);
+  // A token nobody listed is still taken out by its shape; ordinary text stays.
+  assert.equal(scrub(`saw ${agent}`), "saw oxy_sbx_[redacted]");
+  assert.equal(scrub("exit 9: HeldInStaging", [undefined, ""]), "exit 9: HeldInStaging");
+  assert.equal(scrub(undefined), "");
+});
+
+test("what stays with the staff bearer is listed, with the reason the token may not do it", () => {
+  assert.deepEqual(
+    STAFF_ONLY.map((s) => s.step),
+    [0, 5, 8, 9]
+  );
+  for (const s of STAFF_ONLY) {
+    assert.ok(s.what.length > 0 && s.why.length > 0, `step ${s.step} gives no reason`);
+  }
+});
+
+test("only the steps STAFF_ONLY lists use the staff bearer; every other call is the token's", () => {
+  const listed = new Set(STAFF_ONLY.map((s) => s.step));
+  for (const { n } of STEPS) {
+    const source = stepSource(n);
+    const usesStaff = /\bstaff\(ctx\b/.test(source);
+    assert.equal(
+      usesStaff,
+      listed.has(n),
+      `step ${n} ${usesStaff ? "uses" : "does not use"} the staff bearer, and STAFF_ONLY ${
+        listed.has(n) ? "lists" : "does not list"
+      } it`
+    );
+    if (usesStaff) assert.match(source, /STAFF_ONLY/, `step ${n} does not say why`);
+    // Every step is part of the loop, so every step also runs as the token.
+    if (n !== 4) assert.match(source, /\boxyc\(ctx\b|publishSandbox\(ctx|deleteSandbox\(ctx/);
+  }
+  // Cleanup deletes whatever holds the name, so it is the staff bearer's.
+  assert.match(
+    loopSource,
+    /async function cleanupSandbox[\s\S]*?deleteSandbox\(ctx, name, staff\)/
+  );
+  // The two helpers are the only way a credential reaches `oxyc`.
+  assert.equal((loopSource.match(/OXY_TOKEN: /g) ?? []).length, 1);
+});
+
+test("the token sets a sandbox's secret with the named command, never `oxyc api`", () => {
+  const source = stepSource(4);
+  assert.match(source, /"env",\s*"secret",\s*"set"/);
+  assert.equal(/"api"/.test(source), false);
+  // No step sends the token through the generic command: `oxyc api` is staff's.
+  for (const { n } of STEPS) {
+    for (const call of stepSource(n).matchAll(/\b(oxyc|staff)\(ctx, \[\s*"api"/g)) {
+      assert.equal(call[1], "staff", `step ${n} sends the token through oxyc api`);
+    }
+  }
+});
+
+test("production is asked directly for four writes, on the app's own paths", () => {
+  const asked = productionRequests("app-1", "oxy-canary/platform-canary");
+  assert.deepEqual(
+    asked.map((r) => r.path),
+    [
+      "/api/customer-apps/app-1/functions/canary/runs",
+      "/api/customer-apps/app-1/publish",
+      "/api/customer-apps/app-1/rollback",
+      "/customer-apps/oxy-canary/platform-canary/fn/canary"
+    ]
+  );
+  assert.match(stepSource(8), /productionRefusesTheToken\(/);
+});
+
+test("the token is revoked on a green run and on a failed one, and then confirmed dead", () => {
+  assert.match(loopSource, /function revokeAgentToken[\s\S]*?"tokens", "revoke", "--current"/);
+  assert.match(loopSource, /function revokeAgentToken[\s\S]*?assertStatus\(after, 4,/);
+  assert.match(
+    loopSource,
+    /const abort = async[\s\S]*?revokeAfterFailure\(ctx\);\s*process\.exit\(1\)/
+  );
+  assert.match(loopSource, /revokeAgentToken\(ctx\);/);
 });

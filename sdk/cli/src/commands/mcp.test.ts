@@ -40,42 +40,76 @@ async function rpc(
   cacheDir?: string,
   net: { target?: string; token?: string; workspace?: string } = {}
 ): Promise<Frame[]> {
-  if (!existsSync(BIN)) throw new Error(`${BIN} missing — run \`pnpm build\``);
-
-  const args = ["mcp", "--env", "production"];
+  // `--login`: these sessions stand for a person serving on their own login —
+  // the mode every test here was written against. The fail-closed default, and
+  // an agent's own token, are `session` below.
+  const args = ["--login"];
   if (net.target) args.push("--target", net.target);
   if (net.workspace) args.push("--workspace", net.workspace);
-  const child = spawn(process.execPath, [BIN, ...args], {
+  const { frames } = await session(requests, { args, token: net.token, cacheDir, timeoutMs });
+  return frames;
+}
+
+/**
+ * One `oxyc mcp` process, start to exit: the frames it wrote, what it said on
+ * stderr, and its exit code — `null` when it had to be killed at the timeout.
+ */
+async function session(
+  requests: object[],
+  opts: {
+    args?: string[];
+    token?: string;
+    env?: Record<string, string>;
+    cacheDir?: string;
+    timeoutMs?: number;
+  } = {}
+): Promise<{ frames: Frame[]; stderr: string; code: number | null }> {
+  if (!existsSync(BIN)) throw new Error(`${BIN} missing — run \`pnpm build\``);
+
+  const child = spawn(process.execPath, [BIN, "mcp", "--env", "production", ...(opts.args ?? [])], {
     env: {
       ...process.env,
       OXY_CREDENTIALS_PATH: join(BIN, "..", "__no_creds__.json"),
-      OXYC_CACHE_DIR: cacheDir ?? join(BIN, "..", "__no_cache__"),
-      OXY_TOKEN: net.token ?? "",
-      NO_COLOR: "1"
+      OXYC_CACHE_DIR: opts.cacheDir ?? join(BIN, "..", "__no_cache__"),
+      OXY_TOKEN: opts.token ?? "",
+      OXY_API_KEY: "",
+      // Cleared: this suite is itself often run by an agent, whose harness
+      // sets the marker the user agent detects.
+      OXY_AGENT: "",
+      CLAUDECODE: "",
+      NO_COLOR: "1",
+      ...opts.env
     }
   });
 
   let out = "";
+  let stderr = "";
   child.stdout.on("data", (d) => {
     out += d;
   });
+  child.stderr.on("data", (d) => {
+    stderr += d;
+  });
+  // A process that refused to start has already closed its stdin.
+  child.stdin.on("error", () => {});
   for (const req of requests) child.stdin.write(`${JSON.stringify(req)}\n`);
   child.stdin.end();
 
-  await Promise.race([
-    new Promise<void>((r) => child.on("close", () => r())),
-    new Promise<void>((r) =>
+  const code = await Promise.race([
+    new Promise<number | null>((r) => child.on("close", (exit) => r(exit))),
+    new Promise<null>((r) =>
       setTimeout(() => {
         child.kill();
-        r();
-      }, timeoutMs)
+        r(null);
+      }, opts.timeoutMs ?? 20_000)
     )
   ]);
 
-  return out
+  const frames = out
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Frame);
+  return { frames, stderr, code };
 }
 
 /**
@@ -88,10 +122,13 @@ async function rpc(
  */
 function fakeServer(
   routes: Record<string, unknown>
-): Promise<{ url: string; close: () => Promise<void> }> {
+): Promise<{ url: string; close: () => Promise<void>; userAgents: string[] }> {
+  /** The `User-Agent` of every request, in arrival order. */
+  const userAgents: string[] = [];
   return new Promise((resolveServer) => {
     const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const key = `${(req.method ?? "GET").toUpperCase()} ${req.url}`;
+      userAgents.push(req.headers["user-agent"] ?? "");
       const body = routes[key];
       res.setHeader("content-type", "application/json");
       if (body === undefined) {
@@ -99,15 +136,27 @@ function fakeServer(
         res.end(JSON.stringify({ code: "not_stubbed", message: `no stub for ${key}` }));
         return;
       }
-      res.writeHead(200);
-      res.end(JSON.stringify(body));
+      // `{ $status }` answers with that status and no body worth reading —
+      // unless it carries one: `$body` as JSON, or `$text` sent as it is
+      // (`""` is a bare status, the way a refused route answers).
+      const reply = body as { $status?: number; $body?: unknown; $text?: string } | null;
+      const status = reply?.$status;
+      if (typeof reply?.$text === "string") {
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.writeHead(status ?? 200);
+        res.end(reply.$text);
+        return;
+      }
+      res.writeHead(status ?? 200);
+      res.end(JSON.stringify(status === undefined ? body : (reply?.$body ?? {})));
     });
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
       resolveServer({
         url: `http://127.0.0.1:${port}`,
-        close: () => new Promise((r) => server.close(() => r()))
+        close: () => new Promise((r) => server.close(() => r())),
+        userAgents
       });
     });
   });
@@ -824,5 +873,303 @@ describe("preview tools — isError on a terminal non-success outcome", () => {
     } finally {
       await close();
     }
+  });
+});
+
+const LIST = { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} };
+
+const call = (id: number, name: string, args: Record<string, unknown> = {}) => ({
+  jsonrpc: "2.0",
+  id,
+  method: "tools/call",
+  params: { name, arguments: args }
+});
+
+const textOf = (frames: Frame[], id: number): string =>
+  ((frames.find((f) => f.id === id)?.result?.content ?? []) as { text: string }[])[0]?.text ?? "";
+
+/**
+ * `oxyc mcp` is what an agent runtime starts, with the agent's own token in
+ * its environment. Unset, it must not serve on whatever `oxyc login` cached for
+ * the machine's owner: it exits 4 before the transport is up. A person serving
+ * on their own login says so, with `--login`.
+ */
+describe("the credential — fail closed unless --login", () => {
+  it("exits 4 with no token variable set, and writes no frame", async () => {
+    const { frames, stderr, code } = await session([INIT, LIST]);
+    expect(code).toBe(4);
+    expect(frames).toEqual([]);
+    expect(stderr).toMatch(/OXY_TOKEN is not set/);
+    expect(stderr).toMatch(/oxyc mcp --login/);
+  });
+
+  it("exits 4 when --token-env names a variable that is not set", async () => {
+    const { frames, stderr, code } = await session([INIT, LIST], {
+      args: ["--token-env", "OXYC_TEST_NEVER_SET"],
+      // A token in the DEFAULT variable is not the one that was named.
+      token: "oxy_pat_in_the_wrong_variable"
+    });
+    expect(code).toBe(4);
+    expect(frames).toEqual([]);
+    expect(stderr).toMatch(/OXYC_TEST_NEVER_SET is not set/);
+  });
+
+  it("starts with a token in the variable, with no --login", async () => {
+    const { frames, code } = await session([INIT, LIST], { token: "oxy_pat_agent" });
+    expect(code).toBe(0);
+    expect(frames.find((f) => f.id === 2)?.result?.tools).toBeDefined();
+  });
+
+  it("refuses --login together with --token-env, as a usage error", async () => {
+    const { code, frames } = await session([INIT], {
+      args: ["--login", "--token-env", "OXYC_TEST_NEVER_SET"]
+    });
+    expect(code).toBe(2);
+    expect(frames).toEqual([]);
+  });
+});
+
+/**
+ * THE SECOND PINNED LIST. A sandbox agent token (`oxy_sbx_…`) is served the
+ * sandbox loop, `oxy_whoami`, and four tools that exist only for it — and none
+ * of the generic or preview tools, which the server answers this token 404 on.
+ */
+describe("a sandbox agent token", () => {
+  const SANDBOX_TOKEN = "oxy_sbx_0123456789abcdefghijABCDEFGHIJ012345";
+  const DESCRIBED = {
+    id: "tok-sbx-1",
+    name: "fix the checkout",
+    kind: "sandbox_agent",
+    display_prefix: "oxy_sbx_0123",
+    last_four: "2345",
+    grants: [],
+    blocked_orgs: [],
+    expires_at: "2099-01-01T00:00:00Z",
+    minter: { user_id: "u-1", email: "luong@oxy.tech" },
+    apps: [
+      { id: "a1a1a1a1-2222-3333-4444-555555555555", org_slug: "acme", slug: "store", name: "Store" }
+    ]
+  };
+  const A1 = { "GET /api/auth/token": DESCRIBED };
+
+  const served = async (requests: object[], routes: Record<string, unknown>) => {
+    const { url, close } = await fakeServer(routes);
+    try {
+      return await session(requests, { args: ["--target", url], token: SANDBOX_TOKEN });
+    } finally {
+      await close();
+    }
+  };
+
+  it("is served exactly these fifteen tools", async () => {
+    const { frames, code } = await served([INIT, LIST], A1);
+    expect(code).toBe(0);
+    const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as { name: string }[];
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "oxy_checks_run",
+      "oxy_env_create",
+      "oxy_env_delete",
+      "oxy_env_list",
+      "oxy_env_secret_delete",
+      "oxy_env_secret_list",
+      "oxy_env_secret_set",
+      "oxy_env_show",
+      "oxy_fn_call",
+      "oxy_invocations_held",
+      "oxy_invocations_list",
+      "oxy_logs",
+      "oxy_publish_sandbox",
+      "oxy_token_revoke",
+      "oxy_whoami"
+    ]);
+  });
+
+  it("costs less schema per turn than the list a person is served", async () => {
+    const mine = await served([INIT, LIST], A1);
+    const theirs = await rpc([INIT, LIST]);
+    const bytes = (frames: Frame[]) =>
+      JSON.stringify(frames.find((f) => f.id === 2)?.result?.tools).length;
+    expect(bytes(mine.frames)).toBeLessThan(bytes(theirs));
+    expect(bytes(mine.frames)).toBeLessThan(12_000);
+  });
+
+  it("requires the sandbox on every tool that defaults to production for staff", async () => {
+    const { frames } = await served([INIT, LIST], A1);
+    const tools = (frames.find((f) => f.id === 2)?.result?.tools ?? []) as {
+      name: string;
+      inputSchema: { required?: string[] };
+    }[];
+    for (const name of ["oxy_fn_call", "oxy_checks_run", "oxy_invocations_list", "oxy_logs"]) {
+      expect(tools.find((t) => t.name === name)?.inputSchema.required).toContain("appEnv");
+    }
+  });
+
+  it("refuses a dropped tool called by name anyway — the list is the surface", async () => {
+    const { frames } = await served(
+      [
+        INIT,
+        call(2, "oxy_request", { path: "orgs" }),
+        call(3, "oxy_preview_list"),
+        { ...LIST, id: 9 }
+      ],
+      A1
+    );
+    for (const id of [2, 3]) {
+      expect(frames.find((f) => f.id === id)?.result?.isError).toBe(true);
+      expect(textOf(frames, id)).toMatch(/not served to a sandbox agent token/);
+    }
+    // The session survived the refusals.
+    expect(frames.find((f) => f.id === 9)?.result?.tools).toBeDefined();
+  });
+
+  it("oxy_whoami answers with the token's own description, not /api/user", async () => {
+    const { frames } = await served([INIT, call(2, "oxy_whoami")], A1);
+    const answered = JSON.parse(textOf(frames, 2)) as { token: typeof DESCRIBED };
+    expect(answered.token.kind).toBe("sandbox_agent");
+    expect(answered.token.minter.email).toBe("luong@oxy.tech");
+    expect(answered.token.apps[0]?.slug).toBe("store");
+  });
+
+  it("the secret tools accept only a dev-<handle> environment", async () => {
+    const { frames } = await served(
+      [
+        INIT,
+        call(2, "oxy_env_secret_set", {
+          app: "acme/store",
+          appEnv: "staging",
+          key: "STRIPE_KEY",
+          value: "sk_test"
+        }),
+        call(3, "oxy_env_secret_list", { app: "acme/store", appEnv: "production" })
+      ],
+      A1
+    );
+    for (const id of [2, 3]) {
+      expect(frames.find((f) => f.id === id)?.result?.isError).toBe(true);
+      expect(textOf(frames, id)).toMatch(/is not a sandbox/);
+      expect(textOf(frames, id)).toMatch(/\[exit 2 USAGE\]/);
+    }
+  });
+
+  /**
+   * A tool result is the error's one line, its hint and its exit class — never
+   * the response body. So the server's reason has to be ON that line, in every
+   * shape a route refuses this token with: coded JSON, plain text, plain text
+   * led by a code, and a bare status.
+   */
+  it("says why the server refused, on the one line a model is given", async () => {
+    const base = "/api/customer-apps/a1a1a1a1-2222-3333-4444-555555555555";
+    const { frames } = await served(
+      [
+        INIT,
+        call(2, "oxy_env_secret_set", {
+          app: "acme/store",
+          appEnv: "dev-a1",
+          key: "OXY",
+          value: SANDBOX_TOKEN
+        }),
+        call(3, "oxy_env_show", { app: "acme/store", name: "dev-b2" }),
+        call(4, "oxy_env_create", { app: "acme/store", name: "dev-c3" }),
+        call(5, "oxy_env_secret_list", { app: "acme/store", appEnv: "dev-b2" }),
+        call(6, "oxy_invocations_held", { app: "acme/store", invocationId: "i-1" })
+      ],
+      {
+        ...A1,
+        [`POST ${base}/secrets`]: {
+          $status: 400,
+          $text:
+            "credential_shaped_value: a sandbox agent token cannot store a value shaped like an Oxy credential"
+        },
+        [`GET ${base}/environments/dev-b2`]: {
+          $status: 404,
+          $body: { error: "environment_not_found", message: "this app has no environment dev-b2" }
+        },
+        [`POST ${base}/environments`]: {
+          $status: 409,
+          $body: {
+            error: "token_sandbox_limit",
+            message: "this token already holds 3 sandboxes, counting those still being deleted"
+          }
+        },
+        [`GET ${base}/secrets?environment=dev-b2`]: {
+          $status: 404,
+          $text: "this app has no environment dev-b2"
+        },
+        [`GET ${base}/invocations/i-1/held`]: { $status: 404, $text: "" }
+      }
+    );
+    const said = (id: number) => {
+      expect(frames.find((f) => f.id === id)?.result?.isError).toBe(true);
+      return textOf(frames, id);
+    };
+
+    expect(said(2)).toMatch(/cannot store a value shaped like an Oxy credential/);
+    expect(said(2)).toMatch(/\[exit 6 REQUEST\] server code: credential_shaped_value/);
+    // The value that was refused is never quoted back to the model.
+    expect(said(2)).not.toContain(SANDBOX_TOKEN);
+
+    expect(said(3)).toMatch(/this app has no environment dev-b2/);
+    expect(said(3)).toMatch(/\[exit 5 NOT_FOUND\] server code: environment_not_found/);
+
+    expect(said(4)).toMatch(/counting those still being deleted/);
+    expect(said(4)).toMatch(/\[exit 6 REQUEST\] server code: token_sandbox_limit/);
+    expect(said(4)).toMatch(/Do not retry in a loop/);
+
+    expect(said(5)).toMatch(/this app has no environment dev-b2/);
+    expect(said(5)).toMatch(/\[exit 5 NOT_FOUND\]/);
+
+    // A bare 404: no reason to give, so the status line and what to do instead.
+    expect(said(6)).toMatch(/^404 /);
+    expect(said(6)).toMatch(/anything else answers 404/);
+    expect(said(6)).toMatch(/\[exit 5 NOT_FOUND\]$/);
+  });
+
+  it("oxy_token_revoke refuses without confirm=true, and revokes with it", async () => {
+    const { frames } = await served(
+      [INIT, call(2, "oxy_token_revoke"), call(3, "oxy_token_revoke", { confirm: true })],
+      { ...A1, "DELETE /api/auth/token": {} }
+    );
+    expect(frames.find((f) => f.id === 2)?.result?.isError).toBe(true);
+    expect(textOf(frames, 2)).toMatch(/needs confirm=true/);
+    expect(JSON.parse(textOf(frames, 3))).toMatchObject({ revoked: true });
+  });
+
+  it("exits 4 at startup when the deployment no longer accepts the token", async () => {
+    const { frames, stderr, code } = await served([INIT, LIST], {
+      "GET /api/auth/token": { $status: 401 }
+    });
+    expect(code).toBe(4);
+    expect(frames).toEqual([]);
+    expect(stderr).toMatch(/no longer accepted/);
+    expect(stderr).toMatch(/do not look for another credential/);
+  });
+
+  /**
+   * The server records the user agent on audit rows and in the token's usage.
+   * ` mcp` is what tells a tool call from the same agent shelling out, and
+   * `agent/<label>` what tells the agent from its operator.
+   */
+  it("marks every request as made through mcp, by the agent that set OXY_AGENT", async () => {
+    const { url, close, userAgents } = await fakeServer(A1);
+    try {
+      await session([INIT, call(2, "oxy_whoami")], {
+        args: ["--target", url],
+        token: SANDBOX_TOKEN,
+        env: { OXY_AGENT: "Store Ops Agent" }
+      });
+    } finally {
+      await close();
+    }
+    // The startup check and the tool call, both.
+    expect(userAgents.length).toBeGreaterThanOrEqual(2);
+    for (const agent of userAgents) {
+      expect(agent).toMatch(/^oxyc\/\d+\.\d+\.\d+ agent\/store-ops-agent mcp$/);
+    }
+  });
+
+  it("is never offered oxy_token_revoke on a person's login", async () => {
+    const frames = await rpc([INIT, call(2, "oxy_token_revoke", { confirm: true })]);
+    expect(frames.find((f) => f.id === 2)?.result?.isError).toBe(true);
+    expect(textOf(frames, 2)).toMatch(/unknown tool/);
   });
 });

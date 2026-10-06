@@ -1,4 +1,4 @@
-import { apiErrorMessage, apiStatus } from "@/libs/apiError";
+import { apiErrorCode, apiErrorMessage, apiStatus } from "@/libs/apiError";
 import { exceedsPolicyMessage } from "@/libs/tokenPolicy";
 import { ApiKeyService } from "@/services/api/apiKey";
 import type { TokenKind } from "@/types/apiToken";
@@ -20,6 +20,10 @@ export const tokenNoun = (token: { kind?: TokenKind }): TokenNoun =>
 export const extendErrorMessage = (error: unknown, noun: TokenNoun = "legacy API key"): string => {
   const capped = exceedsPolicyMessage(error);
   if (capped) return capped;
+  // A 409 too, and not a revocation: a sandbox agent token's lifetime is fixed when it is minted.
+  if (apiErrorCode(error) === "sandbox_token_fixed") {
+    return "A sandbox agent token can't be extended. Create a new one when it lapses.";
+  }
   switch (apiStatus(error)) {
     case 409:
       return `This ${noun} was revoked and can't be extended`;

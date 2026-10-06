@@ -115,6 +115,21 @@ existing check, use `require` and say so.
 4. Add a case to `server::authz::differential` asserting the ring matches the shipped
    check across every caller shape. Reuse an existing ring rather than inventing one —
    two rings that mean the same thing is how drift restarts.
+5. Write its arm in `sandbox_agent::covers`, which will not compile without one. That
+   match has no wildcard on purpose, and the arm to write is `false`: a sandbox agent
+   token (`oxy_sbx_`) covers four actions, and a new one is not a fifth by default.
+
+## A credential narrows as a fact, never as a ring
+
+An API token is the same principal seen through a narrower credential, so it is a fact
+on the principal (`PrincipalFacts::token`) that `allows()` reads **first** and can only
+subtract with — not an `Action`, and not a `Ring`. The sandbox agent token is the
+narrowest: `TokenReach::sandbox_agent` covers `PlatformOps` and `PlatformApps` on the
+platform singleton, and `AppNonProduction` / `AppAdmin` only where the resource names an
+environment (`Resource::in_environment`, `EnvFacet`) that is a sandbox the token created,
+of an app it is granted. A decision that names no environment is refused for that token
+and unchanged for everyone else — which is what lets a call site learn to say which
+environment it is about without moving any session's answer.
 
 ## Testing
 

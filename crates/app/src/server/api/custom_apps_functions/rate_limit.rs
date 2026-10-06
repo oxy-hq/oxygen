@@ -74,6 +74,7 @@ mod tests {
             environment: env,
             function_name: "refresh",
             user_id: user,
+            credential_token_id: None,
         }
     }
 

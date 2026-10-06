@@ -11,8 +11,11 @@
 //! - an account's row that claims more than an account can hold
 //!   (`all_access`, `platform`, `partner`), names a grant outside its org, or
 //!   whose account is disabled or gone;
-//! - a grant it cannot read: a kind other than `workspace` or `app_publish`,
-//!   a ceiling it does not know, or an `app_publish` grant naming no app;
+//! - a grant it cannot read: a kind it does not know, a ceiling it does not
+//!   know, or an `app_publish` or `app_sandbox` grant naming no app;
+//! - a grant on the wrong kind of token: an `app_sandbox` grant is what a
+//!   **sandbox agent token** holds and nothing else does, and such a token
+//!   holds no other kind ([`super::sandbox_admission`]);
 //! - any narrowing on a row that mirrors an `api_keys` row. A legacy key, and
 //!   a token the legacy endpoint minted, are all-access with both standings —
 //!   always (§3.5) — and a pod one release back validates them from `api_keys`
@@ -28,9 +31,10 @@ use oxy_authz::{RoleCeiling, TokenGrant};
 use uuid::Uuid;
 
 use super::credential::{
-    AccountLink, AccountStanding, AppPublishGrant, CredentialContext, StoredKind,
+    AccountLink, AccountStanding, AppPublishGrant, AppSandboxGrant, CredentialContext, StoredKind,
 };
 use super::format::TokenFormat;
+use super::sandbox_admission;
 
 /// The state of a row's mirrored `api_keys` row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +63,9 @@ pub enum Refusal {
     KindMismatch,
     /// A service-account row claiming what an account never holds.
     Widened(&'static str),
+    /// A sandbox-agent row claiming what the kind never holds, or lacking
+    /// what it always has.
+    SandboxWidened(&'static str),
     /// The token's service account is disabled.
     AccountDisabled,
     /// The token's service account is gone, or unreadable.
@@ -83,6 +90,12 @@ impl std::fmt::Display for Refusal {
                     "service-account token claims {what}, which no account holds"
                 )
             }
+            Self::SandboxWidened(what) => {
+                write!(
+                    f,
+                    "sandbox agent token has {what}, which the kind never does"
+                )
+            }
             Self::AccountDisabled => f.write_str("token's service account is disabled"),
             Self::AccountMissing => f.write_str("token's service account is gone or unreadable"),
             Self::Revoked => f.write_str("token is revoked"),
@@ -97,6 +110,8 @@ impl std::fmt::Display for Refusal {
 pub struct ReadGrants {
     pub workspace: Vec<TokenGrant>,
     pub app_publish: Vec<AppPublishGrant>,
+    /// What a sandbox agent token holds, and nothing else may.
+    pub app_sandbox: Vec<AppSandboxGrant>,
 }
 
 fn workspace_grant(grant: &api_token_grants::Model) -> Result<TokenGrant, Refusal> {
@@ -120,6 +135,16 @@ fn app_publish_grant(grant: &api_token_grants::Model) -> Result<AppPublishGrant,
     })
 }
 
+fn app_sandbox_grant(grant: &api_token_grants::Model) -> Result<AppSandboxGrant, Refusal> {
+    let app_id = grant
+        .app_id
+        .ok_or_else(|| Refusal::UnknownGrant("app_sandbox naming no app".to_string()))?;
+    Ok(AppSandboxGrant {
+        org_id: grant.org_id,
+        app_id,
+    })
+}
+
 /// The grants of a row, as the model reads them — or the first one this
 /// release cannot enforce. A grant its org revoked is skipped: it no longer
 /// reaches anything, and the token's other grants stand.
@@ -129,6 +154,7 @@ pub fn read_grants(grants: &[api_token_grants::Model]) -> Result<ReadGrants, Ref
         match grant.kind.as_str() {
             api_token_grants::KIND_WORKSPACE => out.workspace.push(workspace_grant(grant)?),
             api_token_grants::KIND_APP_PUBLISH => out.app_publish.push(app_publish_grant(grant)?),
+            api_token_grants::KIND_APP_SANDBOX => out.app_sandbox.push(app_sandbox_grant(grant)?),
             other => return Err(Refusal::UnknownGrant(format!("kind '{other}'"))),
         }
     }
@@ -136,6 +162,11 @@ pub fn read_grants(grants: &[api_token_grants::Model]) -> Result<ReadGrants, Ref
 }
 
 /// The workspace grants of a row — see [`read_grants`].
+///
+/// An `app_sandbox` grant reads as none here: the workspace grant it stands
+/// for names the workspace its app is published from *now*, which is a lookup
+/// the request path makes ([`sandbox_admission::place_sandbox_apps`]). The
+/// inventories that call this never list a sandbox agent token.
 pub fn readable_grants(grants: &[api_token_grants::Model]) -> Result<Vec<TokenGrant>, Refusal> {
     Ok(read_grants(grants)?.workspace)
 }
@@ -265,6 +296,9 @@ pub fn admit(
     if kind.acts_as_account() {
         refuse_widened_account(row)?;
     }
+    if kind == StoredKind::SandboxAgent {
+        sandbox_admission::refuse_widened(row)?;
+    }
     let legacy = kind == StoredKind::LegacyKey || row.legacy_api_key_id.is_some();
     let blocked = if legacy {
         Vec::new()
@@ -283,6 +317,7 @@ pub fn admit(
     } else {
         read_grants(grants)?
     };
+    sandbox_admission::refuse_misplaced(kind, &grants)?;
     if StoredKind::expected_for(presented) != Some(kind) {
         return Err(Refusal::KindMismatch);
     }
@@ -302,7 +337,7 @@ pub fn admit(
         StoredKind::ServiceAccount | StoredKind::Ci => {
             Some(account_standing(links.account, &grants)?)
         }
-        StoredKind::Personal | StoredKind::LegacyKey => None,
+        StoredKind::Personal | StoredKind::LegacyKey | StoredKind::SandboxAgent => None,
     };
     Ok(CredentialContext {
         token_id: row.id,
@@ -316,6 +351,7 @@ pub fn admit(
         legacy_api_key_id: row.legacy_api_key_id,
         grants: grants.workspace,
         app_publish: grants.app_publish,
+        app_sandbox: grants.app_sandbox,
         blocked_orgs: blocked,
         service_account,
         expires_at: row.expires_at.map(DateTime::<Utc>::from),
@@ -329,3 +365,7 @@ mod tests;
 #[cfg(test)]
 #[path = "admission_ci_tests.rs"]
 mod ci_tests;
+
+#[cfg(test)]
+#[path = "admission_sandbox_tests.rs"]
+mod sandbox_tests;

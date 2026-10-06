@@ -18,9 +18,14 @@
  *
  * They still WORK for a credentials file holding a session token, which is
  * every login made before the deployment gained the exchange.
+ *
+ * TWO VERBS LIVE IN `tokens-sandbox.ts`: `create --sandbox-agent`, which mints
+ * a sandbox agent token through a browser approval, and `revoke --current`,
+ * which ends the token in use — the one token route any token may call.
  */
 
 import { type ApiResponse, errorForResponse, parseJson, request } from "../api/request.js";
+import { refuseSandboxToken } from "../apps/sandbox-token.js";
 import { openBrowser } from "../auth/login.js";
 import { describeExpiry, describeReach, normalizeToken, type Token } from "../auth/token-api.js";
 import type { Context } from "../context/resolve.js";
@@ -75,7 +80,21 @@ function reachCell(token: Token): string {
   return rest.length > 0 ? `${first} (+${rest.length} more)` : first;
 }
 
+/**
+ * `/api/user/tokens` answers a sandbox agent token 404, as it does every path
+ * outside the sandbox loop. Said here, before the request, with the one token
+ * operation that credential does have.
+ */
+function refuseSandboxAgent(ctx: Context, what: string): void {
+  refuseSandboxToken(
+    ctx.storedBearer(),
+    what,
+    "`oxyc whoami` describes this token, and `oxyc tokens revoke --current` ends it"
+  );
+}
+
 export async function runTokensList(ctx: Context, json: boolean): Promise<void> {
+  refuseSandboxAgent(ctx, "list tokens");
   const target = ctx.target();
   const response = await request({
     target,
@@ -111,6 +130,7 @@ export async function runTokensList(ctx: Context, json: boolean): Promise<void> 
 }
 
 export async function runTokensRevoke(ctx: Context, id: string): Promise<void> {
+  refuseSandboxAgent(ctx, "revoke a token by id");
   const target = ctx.target();
   const response = await request({
     target,

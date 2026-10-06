@@ -19,7 +19,8 @@
 use uuid::Uuid;
 
 use crate::{
-    PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource, ResourceKind, Scope,
+    PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource, ResourceKind,
+    SandboxAgentReach, Scope,
 };
 
 /// How high a grant lets a token act. Ordered: `Viewer < Member < Admin <
@@ -86,6 +87,17 @@ pub struct TokenReach {
     /// say, and **even when it is all-access**, which has no grant row to
     /// revoke. Everything it reaches elsewhere stands.
     pub blocked_orgs: Vec<Uuid>,
+    /// Set for a **sandbox agent token**: the apps it is granted, and its own
+    /// id. The narrowest reach there is — [`crate::allows`] asks it first, and
+    /// it covers four actions and nothing else. `None` for every other token.
+    ///
+    /// Such a token's [`Self::grants`] are one workspace grant per granted app,
+    /// on the workspace the app was published from, at `Admin`: the least the
+    /// existing checks need (staff standing bounded to the apps' orgs, an
+    /// admin ceiling for a staff tool, a workspace grant for the app). That is
+    /// wider than the apps, which is why [`PrincipalFacts::narrowed_by`] leaves
+    /// this kind no tenant standing at all.
+    pub sandbox_agent: Option<SandboxAgentReach>,
 }
 
 impl TokenReach {
@@ -97,6 +109,7 @@ impl TokenReach {
             partner: true,
             grants: Vec::new(),
             blocked_orgs: Vec::new(),
+            sandbox_agent: None,
         }
     }
 
@@ -287,6 +300,15 @@ impl PrincipalFacts {
         if let Some(account) = &mut self.service_account {
             account.admin = account.admin && reaches(account.org_id, RoleCeiling::Admin);
         }
+        // A sandbox agent token holds NO tenant standing. Its workspace grants
+        // exist to bound its minter's staff standing, and would otherwise be
+        // honoured as an admin's on every workspace and org route of a minter
+        // who is also a member there — routes no fence of this kind decides.
+        // So every fact a tenant ring could read is dropped at the source, and
+        // a role read by hand from these facts fails closed too.
+        if token.sandbox_agent.is_some() {
+            self.drop_tenant_standing();
+        }
         let (is_global_owner, platform) =
             token.narrow_platform(self.is_global_owner, self.platform.take());
         self.is_global_owner = is_global_owner;
@@ -294,6 +316,22 @@ impl PrincipalFacts {
         self.partners = token.narrow_partners(std::mem::take(&mut self.partners));
         self.token = Some(token.clone());
         self
+    }
+
+    /// Forget everything this principal is *inside a tenant*: memberships at
+    /// every level, workspace elevations, app grants, frontline enrolment and a
+    /// service account's standing. Platform and partner standing are not
+    /// tenant standing and are narrowed separately.
+    fn drop_tenant_standing(&mut self) {
+        self.member_orgs.clear();
+        self.admin_orgs.clear();
+        self.owned_orgs.clear();
+        self.ws_admin_override.clear();
+        self.app_memberships.clear();
+        self.app_admin_memberships.clear();
+        self.frontline_orgs.clear();
+        self.frontline_workspace_grants.clear();
+        self.service_account = None;
     }
 
     /// Whether the credential carries platform standing. A session or a legacy

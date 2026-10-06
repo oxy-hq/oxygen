@@ -52,7 +52,7 @@ pub(crate) fn console() -> Router {
     Router::new()
         .nest("/api/customer-apps", nest)
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(),
+            AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
             auth_middleware,
         ))
 }

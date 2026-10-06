@@ -13,23 +13,35 @@
 
 import { type ApiResponse, parseJson, request } from "../api/request.js";
 
-export type TokenKind = "personal" | "legacy_key" | "service_account" | "ci";
+export type TokenKind = "personal" | "legacy_key" | "service_account" | "ci" | "sandbox_agent";
 export type RoleCeiling = "viewer" | "member" | "admin" | "owner";
 
 /** One thing a token may reach. The wire shape, field for field. */
 export interface Grant {
   id: string;
-  kind: "workspace" | "app_publish";
+  kind: "workspace" | "app_publish" | "app_sandbox";
   org_id: string;
   org_name: string;
   /** `null` is every workspace in the org, future ones included. */
   workspace_id: string | null;
   workspace_name: string | null;
-  /** `null` on an `app_publish` grant. `owner` means no cap. */
+  /** `null` on an `app_publish` or `app_sandbox` grant. `owner` means no cap. */
   role_ceiling: RoleCeiling | null;
   app_id: string | null;
   app_name: string | null;
+  /** On an `app_sandbox` grant only: with `app_slug`, the app as `<org>/<app>`. */
+  org_slug?: string;
+  /** On an `app_sandbox` grant only. */
+  app_slug?: string;
   revoked_at: string | null;
+}
+
+/** An app a sandbox agent token was minted for, as `GET /api/auth/token` lists it. */
+export interface SandboxTokenApp {
+  id: string;
+  org_slug: string;
+  slug: string;
+  name: string;
 }
 
 /** The server's `Token`. Fields this tool does not read are still tolerated. */
@@ -51,6 +63,13 @@ export interface Token {
   source: string;
   owner: { type: "user" | "service_account"; id: string; label: string };
   blocked_orgs: { org_id: string; org_name: string; reason: string }[];
+  /**
+   * `sandbox_agent` only, and only from `GET /api/auth/token`: who minted it.
+   * `email` is `null` for a minter whose account has none.
+   */
+  minter?: { user_id: string; email: string | null };
+  /** `sandbox_agent` only, and only from `GET /api/auth/token`: the apps it reaches. */
+  apps?: SandboxTokenApp[];
 }
 
 export type Introspection =
@@ -94,8 +113,18 @@ export function normalizeToken(raw: Partial<Token>): Token {
   return {
     ...(raw as Token),
     grants: Array.isArray(raw.grants) ? raw.grants : [],
-    blocked_orgs: Array.isArray(raw.blocked_orgs) ? raw.blocked_orgs : []
+    blocked_orgs: Array.isArray(raw.blocked_orgs) ? raw.blocked_orgs : [],
+    // Left absent when the server sent none: only one kind carries the list.
+    ...(Array.isArray(raw.apps) ? { apps: raw.apps.filter(isSandboxTokenApp) } : {})
   };
+}
+
+/** A row a caller can resolve an app against: an id and both slugs. */
+function isSandboxTokenApp(row: unknown): row is SandboxTokenApp {
+  const app = row as Partial<SandboxTokenApp> | null;
+  return (
+    typeof app?.id === "string" && typeof app.org_slug === "string" && typeof app.slug === "string"
+  );
 }
 
 export type RevokeOutcome =
@@ -158,6 +187,9 @@ export function describeExpiry(expiresAt: string | null | undefined, now = Date.
 function describeGrant(grant: Grant): string {
   if (grant.kind === "app_publish") {
     return `publish ${grant.org_name} / ${grant.app_name ?? grant.app_id ?? "?"}`;
+  }
+  if (grant.kind === "app_sandbox") {
+    return `own sandboxes of ${grant.org_name} / ${grant.app_name ?? grant.app_id ?? "?"}`;
   }
   const where = grant.workspace_name ?? grant.workspace_id ?? "every workspace";
   const cap =

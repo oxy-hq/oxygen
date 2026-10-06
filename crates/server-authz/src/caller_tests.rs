@@ -35,6 +35,7 @@ fn credential(kind: StoredKind, legacy_api_key_id: Option<Uuid>) -> CredentialCo
             ceiling: RoleCeiling::Member,
         }],
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
     }
 }
 

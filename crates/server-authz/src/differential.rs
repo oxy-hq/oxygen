@@ -717,6 +717,7 @@ fn app_admin_ring_under_a_token_is_the_shipped_resolution_capped_at_its_ceiling(
                 ceiling,
             }],
             blocked_orgs: Vec::new(),
+            sandbox_agent: None,
         };
         for s in app_scenarios() {
             let session = s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin;
@@ -809,3 +810,7 @@ fn workspace_preview_subtracts_only_what_the_staff_door_cannot_see() {
     };
     assert!(allows(&here, Action::WorkspacePreview, &ws));
 }
+
+// The sandbox agent token against the same gates, over the same caller shapes.
+#[path = "differential_sandbox.rs"]
+mod sandbox;

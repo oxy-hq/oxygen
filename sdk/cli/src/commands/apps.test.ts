@@ -25,7 +25,7 @@ const TARGET = "https://oxy.test";
 function fakeContext(): Context {
   return {
     cwd: "/tmp",
-    flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
+    flags: { env: "production", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
     bearer: async () => "tok",

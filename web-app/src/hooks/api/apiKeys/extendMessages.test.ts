@@ -32,6 +32,15 @@ describe("extendErrorMessage", () => {
     );
   });
 
+  it("tells a sandbox agent token's fixed lifetime from a revocation, though both are 409", () => {
+    expect(extendErrorMessage(httpError(409, { code: "sandbox_token_fixed" }), "token")).toBe(
+      "A sandbox agent token can't be extended. Create a new one when it lapses."
+    );
+    expect(extendErrorMessage(httpError(409, { code: "revoked" }), "token")).toBe(
+      "This token was revoked and can't be extended"
+    );
+  });
+
   it("maps the contract's statuses to what the person can do about them", () => {
     expect(extendErrorMessage(httpError(409))).toBe(
       "This legacy API key was revoked and can't be extended"

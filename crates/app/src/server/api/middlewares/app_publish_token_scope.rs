@@ -622,6 +622,7 @@ mod tests {
             blocked_orgs: Vec::new(),
             expires_at: None,
             service_account: None,
+            app_sandbox: Vec::new(),
         }
     }
 

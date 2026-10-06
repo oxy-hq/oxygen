@@ -72,8 +72,8 @@ and apps, or reproduce a reported bug against live data.
 If your runtime speaks MCP, \`oxyc mcp\` serves the whole API as four tools
 (\`oxy_routes\`/\`oxy_schema\`/\`oxy_request\`/\`oxy_whoami\`), plus purpose-built tools for
 the sandbox loop (\`oxy_env_*\`, \`oxy_publish_sandbox\`, \`oxy_fn_call\`, \`oxy_checks_run\`,
-\`oxy_invocations_*\`, \`oxy_logs\`) and workspace previews (\`oxy_preview_*\`) below — the
-same two loops, as tool calls an agent can run unsupervised.
+\`oxy_invocations_*\`, \`oxy_logs\`) and workspace previews (\`oxy_preview_*\`) below. Its token
+is \`OXY_TOKEN\` only — unset is exit 4; \`oxyc mcp --login\` serves on your own login.
 
 ### Never guess a path
 
@@ -108,12 +108,14 @@ Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far few
 
 ### Sandboxes — try a custom-app change on real data, untouched by others
 
+    eval "$(oxyc tokens create --sandbox-agent --app <org>/<app>)"   # an agent's OWN token for this loop; your operator approves once
     oxyc env create <app> dev-x                      # starts with no build
     oxyc publish --env dev --app-env dev-x           # build + publish to it
     oxyc fn call <app> <fn> --app-env dev-x --data '{}'  # call a function in it
     oxyc checks run <app> --app-env dev-x            # run its checks
     oxyc invocations held <app> <invocation-id>      # what it held, not wrote
     oxyc env delete <app> dev-x --yes --wait         # done; tears its homes down
+    oxyc tokens revoke --current                     # last: end that token
 
 ### Workspace previews — open a branch on real data without it being live (staff)
 
@@ -140,6 +142,7 @@ Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far few
 - \`oxyc schema\` covers the data plane only; blank means undocumented — \`oxyc routes <path>\` confirms it's real.
 - A listed route can still 404 if it is \`ide-only\`; \`oxyc routes --all\` shows those.
 - Read freely. Ask before a mutating request against production, or \`--app-env\` other than your own sandbox.
+- With an \`oxy_sbx_\` token, exit 4 means it expired or was revoked: stop and report. Never fall back to another credential.
 `;
 
 /**

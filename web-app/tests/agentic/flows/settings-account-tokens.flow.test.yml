@@ -87,11 +87,11 @@ cases:
       - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
       - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow selected token"]'
 
+      # Revoke is a word in the row, not an item of the row menu.
       - act: |
-          Open the row menu of the new token: browser_click the
-          [data-testid=account-token-menu-button] inside the first
+          Revoke the new token: browser_click the
+          [data-testid=account-token-revoke] (it reads "Revoke") inside the first
           [data-testid=account-token-row][data-token-name="flow selected token"].
-          A menu opens; browser_click [data-testid=account-token-revoke] in it.
 
       # Revoke asks first.
       - wait_for: "selector:[data-testid=account-token-revoke-confirm]"

@@ -9,7 +9,10 @@
 //!    activity (`super::activity`) is more than [`super::idle_ttl`] ago: each
 //!    is deleted exactly as a `DELETE` would (`ops::begin_delete`), with no
 //!    actor and the reason `expired`.
-//! 2. **Retry** up to [`SANDBOXES_PER_PASS`] sandboxes marked deleting more
+//! 2. **End** the sandboxes of sandbox agent tokens that were revoked or
+//!    expired more than a day ago ([`super::token_ended`]), reason
+//!    `token_ended`.
+//! 3. **Retry** up to [`SANDBOXES_PER_PASS`] sandboxes marked deleting more
 //!    than [`stale_teardown`] ago: their teardown failed, or never got a
 //!    worker. Deleting one again marks it now and queues a new run, so it is
 //!    next retried a further [`stale_teardown`] later.
@@ -98,7 +101,8 @@ pub fn spawn(config: MaintenanceConfig) {
     });
 }
 
-/// One pass at `now`: expire idle sandboxes, then retry stale teardowns.
+/// One pass at `now`: expire idle sandboxes, end those whose token ended,
+/// then retry stale teardowns.
 /// Answers how many teardowns it queued. A sandbox that cannot be deleted is
 /// logged and left for the next pass; only a failed read fails the pass.
 pub async fn sweep(db: &DatabaseConnection, now: DateTime<Utc>) -> Result<usize, DbErr> {
@@ -110,6 +114,7 @@ pub async fn sweep(db: &DatabaseConnection, now: DateTime<Utc>) -> Result<usize,
         .map(|(app_id, name)| (app_id, name, idle_since))
         .collect();
     let mut queued = delete_each(db, idle, TeardownReason::Expired).await;
+    queued += super::token_ended::sweep(db, now).await?;
     let stale = stale_teardowns(db, now - stale_teardown(), SANDBOXES_PER_PASS).await?;
     queued += delete_each(db, stale, TeardownReason::Retried).await;
     Ok(queued)

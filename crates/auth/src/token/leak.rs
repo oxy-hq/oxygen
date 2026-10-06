@@ -31,7 +31,8 @@ pub const REVOKE_REASON: &str = "leaked";
 /// What a reported value is, judged without the database.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presented {
-    /// A well-formed `oxy_pat_` / `oxy_sat_` / `oxy_ci_` token: worth a lookup.
+    /// A well-formed `oxy_pat_` / `oxy_sat_` / `oxy_ci_` / `oxy_sbx_` token:
+    /// worth a lookup.
     NewFormat,
     /// An `oxy_<32 hex>` legacy key: never looked up, never revoked.
     Legacy,
@@ -119,7 +120,7 @@ UPDATE api_tokens SET revoked_at = now(), revoke_reason = $2
 WHERE id = $1
   AND revoked_at IS NULL
   AND legacy_api_key_id IS NULL
-  AND kind IN ('personal', 'service_account', 'ci')
+  AND kind IN ('personal', 'service_account', 'ci', 'sandbox_agent')
 RETURNING *
 "#;
 

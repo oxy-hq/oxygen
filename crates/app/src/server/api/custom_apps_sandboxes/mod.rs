@@ -26,7 +26,8 @@
 //! * [`retention`] — which builds a publish may prune, sandbox builds apart;
 //! * [`teardown`] — the second half of a delete, on the worker fleet;
 //! * [`maintenance`] — the loop that expires idle sandboxes and retries
-//!   teardowns that did not finish.
+//!   teardowns that did not finish; [`token_ended`] its pass over the
+//!   sandboxes of a sandbox agent token that ended.
 //!
 //! **Who.** Every route requires `Action::AppNonProduction` over the app
 //! (`custom_apps_env_resolve::may_open_non_production` — the rule that opens
@@ -34,6 +35,7 @@
 //! token. Ownership is recorded and shown, not enforced.
 
 pub mod activity;
+pub(crate) mod agent_publish;
 pub mod delete;
 mod expiry_audit;
 pub mod handlers;
@@ -44,10 +46,12 @@ pub mod oltp_home;
 pub mod oltp_state;
 pub mod oltp_task;
 pub mod ops;
+pub(crate) mod own;
 pub(crate) mod publish;
 pub(crate) mod retention;
 pub mod teardown;
 mod teardown_executor;
+pub mod token_ended;
 mod view;
 
 use axum::Json;
@@ -60,6 +64,11 @@ use uuid::Uuid;
 /// The most sandboxes one app may have. Rows still being torn down count, so
 /// creating and deleting in a loop cannot outrun the teardowns.
 pub const MAX_SANDBOXES_PER_APP: u64 = 20;
+
+/// How many sandboxes one sandbox agent token may hold, across the apps it is
+/// granted (sandbox agent credential design, decision 2), counting those still
+/// being torn down. A crashed agent leaves at most this many behind.
+pub const MAX_SANDBOXES_PER_TOKEN: u64 = 3;
 
 pub const IDLE_DAYS_ENV: &str = "OXY_APP_SANDBOX_IDLE_DAYS";
 const DEFAULT_IDLE_DAYS: i64 = 7;
@@ -125,6 +134,9 @@ pub enum TeardownReason {
     Expired,
     /// Its teardown did not finish, and the maintenance loop queued it again.
     Retried,
+    /// The sandbox agent token that created it was revoked or expired more
+    /// than [`token_ended::grace`] ago.
+    TokenEnded,
 }
 
 impl TeardownReason {
@@ -133,6 +145,7 @@ impl TeardownReason {
             Self::Deleted => "deleted",
             Self::Expired => "expired",
             Self::Retried => "retried",
+            Self::TokenEnded => "token_ended",
         }
     }
 }
@@ -170,6 +183,12 @@ pub enum SandboxError {
         "this app already has {0} sandboxes, counting those still being deleted; delete one first"
     )]
     Limit(u64),
+    /// A sandbox agent token at its own limit, across the apps it is granted.
+    #[error(
+        "this token already holds {0} sandboxes, counting those still being deleted; delete one \
+         of its own and wait for its teardown before creating another"
+    )]
+    TokenLimit(u64),
     /// The sandbox's Airhouse sibling would carry the name of another app's
     /// own schema (a legacy slug holding `--`).
     #[error(
@@ -187,9 +206,11 @@ impl SandboxError {
             Self::InvalidName(_) | Self::NotASandbox(_) => StatusCode::BAD_REQUEST,
             Self::PublishToken | Self::NotStaff => StatusCode::FORBIDDEN,
             Self::AppNotFound | Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::Exists(_) | Self::Deleting(_) | Self::Limit(_) | Self::Reserved { .. } => {
-                StatusCode::CONFLICT
-            }
+            Self::Exists(_)
+            | Self::Deleting(_)
+            | Self::Limit(_)
+            | Self::TokenLimit(_)
+            | Self::Reserved { .. } => StatusCode::CONFLICT,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -206,6 +227,7 @@ impl SandboxError {
             Self::Exists(_) => "environment_exists",
             Self::Deleting(_) => "environment_deleting",
             Self::Limit(_) => "environment_limit",
+            Self::TokenLimit(_) => "token_sandbox_limit",
             Self::Reserved { .. } => "environment_reserved",
             Self::Internal(_) => "internal",
         }
@@ -263,6 +285,7 @@ mod tests {
                 "environment_deleting",
             ),
             (SandboxError::Limit(20), 409, "environment_limit"),
+            (SandboxError::TokenLimit(3), 409, "token_sandbox_limit"),
             (
                 SandboxError::Reserved {
                     name: "dev-a".into(),
@@ -279,7 +302,7 @@ mod tests {
             assert_eq!(error.code(), code, "{error:?}");
             assert!(codes.insert(code), "{code} names two refusals");
         }
-        assert_eq!(codes.len(), 11);
+        assert_eq!(codes.len(), 12);
     }
 
     #[tokio::test]

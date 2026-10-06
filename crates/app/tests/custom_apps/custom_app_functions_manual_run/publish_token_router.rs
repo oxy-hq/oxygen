@@ -98,3 +98,58 @@ async fn a_real_publish_token_is_refused_every_non_production_read_through_the_r
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["environment"], "staging");
 }
+
+/// The two read-backs the `/customer-apps/{id}/…` surface gained for the
+/// sandbox loop — the app-wide invocation listing and one invocation's held
+/// list — under a real publish token: production's rows answer, and nothing
+/// of staging's does, whoever minted the token.
+#[tokio::test]
+async fn a_real_publish_token_reads_productions_invocations_and_held_list_and_no_other() {
+    let t = seeded_tenant().await;
+    let app_id = two_builds(&t, APP, PRODUCTION_BUILD, STAGING_BUILD).await;
+    make_guest_staff();
+    let live = ran(&t, APP, "whoami", &production_host(&t, APP)).await;
+    let staged = ran(&t, APP, "whoami", &staging_host(&t, APP)).await;
+    let token = minted_token(&t).await;
+    let token = Some(token.as_str());
+    let listed = |body: &Value| ids(&body["invocations"]);
+
+    // The app-wide listing: production's rows when nothing is named, and a
+    // coded refusal when staging is.
+    let listing = format!("/{app_id}/invocations");
+    let (status, body) = get_customer_apps(&listing, token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(listed(&body), vec![live.to_string()], "{body}");
+    let (status, body) =
+        get_customer_apps(&format!("{listing}?environment=production"), token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(listed(&body), vec![live.to_string()], "{body}");
+    let (status, body) = get_customer_apps(&format!("{listing}?environment=staging"), token).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], "publish_token_refused", "{body}");
+
+    // One invocation's held list: production's answers, with nothing held;
+    // staging's is the not-found of an id that names nothing.
+    let (status, body) = get_customer_apps(&format!("{listing}/{live}/held"), token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (&body["environment"], &body["held"]),
+        (&serde_json::json!("production"), &serde_json::json!([])),
+        "{body}"
+    );
+    let unknown = get_customer_apps(&format!("{listing}/{}/held", Uuid::new_v4()), token).await;
+    let refused = get_customer_apps(&format!("{listing}/{staged}/held"), token).await;
+    assert_eq!(refused.0, StatusCode::NOT_FOUND, "{}", refused.1);
+    assert_eq!(
+        refused, unknown,
+        "a staging invocation is as an unknown one"
+    );
+
+    // The token's minter, on their own login, reads staging's too.
+    let (status, body) = get_customer_apps(&format!("{listing}?environment=staging"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(listed(&body), vec![staged.to_string()], "{body}");
+    let (status, body) = get_customer_apps(&format!("{listing}/{staged}/held"), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["environment"], "staging", "{body}");
+}

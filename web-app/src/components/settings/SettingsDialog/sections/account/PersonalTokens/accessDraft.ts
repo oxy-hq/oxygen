@@ -187,6 +187,10 @@ export const draftFromToken = (
       });
       continue;
     }
+    // Not a workspace grant, and not one this picker carries through: an `app_sandbox` grant
+    // belongs to a sandbox agent token, which has no Edit access. Its `workspace_id` is `null`,
+    // so reading it below would turn it into "every workspace in the org".
+    if (grant.kind !== "workspace") continue;
     const org = draft.orgs[grant.org_id] ?? emptyOrg();
     const ceiling = grant.role_ceiling ?? DEFAULT_CEILING;
     draft.orgs[grant.org_id] =

@@ -26,7 +26,8 @@ export function splitInventory<T extends Pick<InventoryToken, "kind">>(
  *   shown disabled with the reason rather than hidden.
  * - `service_account`: owned by one of the org's own accounts; it is revoked
  *   from that account's page, which the row links to.
- * - `none`: nothing left to do — already revoked, or its reach here already ended.
+ * - `none`: nothing to do from here — already revoked, its reach here already ended, or a
+ *   sandbox agent token, which its minter and Oxygen staff revoke.
  */
 export type InventoryRevoke =
   | { kind: "revoke_grant" }
@@ -48,6 +49,10 @@ export function inventoryRevokeAction(token: RevokeFields): InventoryRevoke {
     case "service_account":
     case "ci":
       return { kind: "service_account", accountId: token.owner.id };
+    case "sandbox_agent":
+      // Minted by Oxygen staff for an agent building this org's apps. It is revoked by whoever
+      // minted it, or by Oxygen staff; ending its reach from here is not one of the ways.
+      return { kind: "none" };
     case "personal": {
       // Ended here: every grant in this org is revoked. That holds for an all-access token too,
       // which the server lists with the revoked org-wide row that blocks it. Nothing lifts a

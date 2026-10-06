@@ -145,9 +145,29 @@ pub async fn platform_grant_checked(
     if !caller.carries_platform() {
         return Ok(None);
     }
+    if caller.is_sandbox_agent() {
+        return uncached_grant(db, caller).await;
+    }
     let grant = grant_of_email(db, caller.standing_email()).await?;
     let listed = crate::oxy_owner_guard::is_oxy_owner(caller.standing_email());
     Ok(carried(caller, listed, grant).1)
+}
+
+/// [`platform_grant_checked`] for a **sandbox agent token**: its minter's
+/// grant read now, past the 60 s cache, and kept on the caller for the rest
+/// of the request (`grant_memo`).
+///
+/// "When the minter loses access the token stops at once" is decided here,
+/// inside the one door every guard takes, so no call site has to remember to
+/// ask for a fresh read (sandbox agent credential design §4). A failed read
+/// is not kept: the next guard asks again.
+async fn uncached_grant(db: &DatabaseConnection, caller: &Caller) -> Result<Option<Grant>, DbErr> {
+    if let Some(read) = caller.grant_memo().get() {
+        return Ok(read);
+    }
+    let grant = fresh_standing(db, caller).await?.grant;
+    caller.grant_memo().set(grant.clone());
+    Ok(grant)
 }
 
 /// The platform grant stored for an **address**, or `None` if there is none. Cached
@@ -173,7 +193,13 @@ pub async fn grant_of_email(db: &DatabaseConnection, email: &str) -> Result<Opti
     if let Some(v) = cached_admin(&key) {
         return Ok(v);
     }
+    read_grant(db, key).await
+}
 
+/// The platform grant stored for `key` (a normalized address), read from the
+/// table and written back to the cache. The one statement of how a row becomes
+/// a grant — the cached read and the fresh one both end here.
+async fn read_grant(db: &DatabaseConnection, key: String) -> Result<Option<Grant>, DbErr> {
     let Some(row) = AppAdmins::find()
         .filter(app_admins::Column::Email.eq(key.clone()))
         .one(db)
@@ -210,6 +236,69 @@ pub async fn grant_of_email(db: &DatabaseConnection, email: &str) -> Result<Opti
     let grant = Grant::from_role(role, scope);
     set_cached_admin(key, Some(grant.clone()));
     Ok(Some(grant))
+}
+
+/// The caller's platform standing **read now**, past the 60 s grant cache: for a
+/// decision that must not outlive a grant change by a cache window.
+///
+/// The one use today is minting a sandbox agent token, whose who-may-mint check is
+/// stated as uncached (sandbox agent credential design §2). It is deliberately not
+/// an address-keyed read beside the cached one: like every door here it takes the
+/// [`Caller`], so a narrowed credential is answered for the standing it carries.
+#[derive(Clone, Debug)]
+pub struct FreshStanding {
+    is_global_owner: bool,
+    grant: Option<Grant>,
+}
+
+impl FreshStanding {
+    /// Does the caller hold `cap` over `org_id`? As [`platform_reaches`]: root
+    /// short-circuits, and a grant must name the capability and reach the org.
+    pub fn reaches(&self, cap: oxy_authz::Cap, org_id: uuid::Uuid) -> bool {
+        self.is_global_owner || self.grant.as_ref().is_some_and(|g| g.grants(cap, org_id))
+    }
+
+    /// Whether the caller holds any staff standing at all.
+    pub fn is_staff(&self) -> bool {
+        self.is_global_owner || self.grant.is_some()
+    }
+
+    /// Where this standing reaches at all: every org for root and for an
+    /// unbounded grant, the grant's orgs for a bounded one, and nowhere for no
+    /// standing. For narrowing a query to the orgs worth asking about —
+    /// [`Self::reaches`] is still what decides each row.
+    pub fn scope(&self) -> Scope {
+        if self.is_global_owner {
+            return Scope::All;
+        }
+        self.grant
+            .as_ref()
+            .map_or_else(|| Scope::Orgs(Vec::new()), |grant| grant.scope.clone())
+    }
+}
+
+/// Read [`FreshStanding`] for the caller. `Err` is a failed lookup, which a
+/// caller deciding access must treat as no standing.
+pub async fn fresh_standing(
+    db: &DatabaseConnection,
+    caller: &Caller,
+) -> Result<FreshStanding, DbErr> {
+    let grant = if caller.carries_platform() {
+        let key = caller.standing_email().trim().to_ascii_lowercase();
+        let stored = if key.is_empty() {
+            None
+        } else {
+            read_grant(db, key).await?
+        };
+        let listed = crate::oxy_owner_guard::is_oxy_owner(caller.standing_email());
+        carried(caller, listed, stored).1
+    } else {
+        None
+    };
+    Ok(FreshStanding {
+        is_global_owner: is_global_owner(caller),
+        grant,
+    })
 }
 
 /// **Does the caller hold `cap` over `org_id`?** The platform tier's org-scoped question,
@@ -344,6 +433,10 @@ fn for_display(known: Option<PlatformFlags>, caller: &Caller) -> PlatformFlags {
 }
 
 #[cfg(test)]
+#[path = "globals_sandbox_tests.rs"]
+mod sandbox_tests;
+
+#[cfg(test)]
 mod tests {
     #[test]
     fn a_blank_email_holds_no_platform_standing() {
@@ -395,6 +488,7 @@ mod tests {
                 ceiling: oxy_authz::RoleCeiling::Owner,
             }],
             app_publish: Vec::new(),
+            app_sandbox: Vec::new(),
         };
         Caller::of(&user, Some(&credential))
     }

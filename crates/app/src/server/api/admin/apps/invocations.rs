@@ -215,6 +215,15 @@ async fn row_scope(
     q: &InvocationQuery,
     builds: &[Uuid],
 ) -> Result<Option<AppEnvironment>, ScopeError> {
+    // A sandbox agent token must name the environment, and it must be a
+    // sandbox the token created. With none named it would otherwise fall to
+    // "production's rows", and a named build would lift the environment
+    // filter: neither is the token's to read.
+    if super::agent_scope::is_agent(caller.user) {
+        let environment = environment_scope::parse(q.environment.as_deref())?;
+        environment_scope::admit_to(db, app, caller, &environment).await?;
+        return Ok(Some(environment));
+    }
     if let Some(raw) = q.environment.as_deref().filter(|e| !e.trim().is_empty()) {
         let environment = environment_scope::parse(Some(raw))?;
         environment_scope::admit_to(db, app, caller, &environment).await?;
@@ -272,6 +281,12 @@ pub(crate) async fn list(
     let scope = row_scope(db, app, caller, q, named.as_deref().unwrap_or_default()).await?;
     if let Some(environment) = scope {
         find = find.filter(app_function_invocations::Column::Environment.eq(environment.name()));
+        // A sandbox agent token reads the sandbox it has now, not an earlier
+        // one that had the name (`custom_apps_sandbox_instance`).
+        let agent = super::agent_scope::instance_since(db, app, caller.user, &environment);
+        if let Some(since) = agent.await? {
+            find = find.filter(app_function_invocations::Column::CreatedAt.gte(since));
+        }
     }
     if let Some(builds) = named {
         if builds.is_empty() {

@@ -21,6 +21,11 @@ pub struct Model {
     pub expires_at: DateTimeWithTimeZone,
     /// Set by the first exchange, valid or not: a code is spent by any attempt.
     pub consumed_at: Option<DateTimeWithTimeZone>,
+    /// What the code mints when it is not an `oxyc login`: the kind, the app
+    /// ids, the lifetime and the name of a sandbox agent token. `None` for a
+    /// login code.
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub mint: Option<Json>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

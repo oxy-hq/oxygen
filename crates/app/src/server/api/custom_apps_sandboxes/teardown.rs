@@ -70,7 +70,7 @@ pub struct SandboxTeardownTask {
     pub workspace_id: Uuid,
     /// The sandbox's full name, `dev-<handle>`.
     pub environment: String,
-    /// `deleted` or `expired` (`TeardownReason::as_str`).
+    /// `deleted`, `expired`, `retried` or `token_ended` (`TeardownReason::as_str`).
     pub reason: String,
     /// When the row was marked, in microseconds since the epoch: what tells
     /// one request to delete from the next, and so one run from the next.

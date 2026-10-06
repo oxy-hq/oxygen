@@ -312,6 +312,7 @@ pub async fn list_publishers(
 
 /// `POST /customer-apps/{id}/publishers`
 pub async fn register_publisher(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     axum::extract::Path(app_id): axum::extract::Path<Uuid>,
     oxy_auth::extractor::AuthenticatedUserExtractor(actor): oxy_auth::extractor::AuthenticatedUserExtractor,
     Json(body): Json<RegisterPublisherBody>,
@@ -348,6 +349,7 @@ pub async fn register_publisher(
 
 /// `DELETE /customer-apps/{id}/publishers/{publisher_id}`
 pub async fn delete_publisher(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     axum::extract::Path((app_id, publisher_id)): axum::extract::Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let db = oxy::database::client::establish_connection()

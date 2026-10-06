@@ -8,6 +8,7 @@
  * Not `--branch`, which records the app SOURCE branch.
  */
 
+import { withUserAgent } from "../api/user-agent.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -31,7 +32,7 @@ async function call(url: string, token: string, method: "GET" | "POST"): Promise
   try {
     response = await fetch(url, {
       method,
-      headers: { authorization: `Bearer ${token}` },
+      headers: withUserAgent({ authorization: `Bearer ${token}` }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
     });
   } catch (cause) {

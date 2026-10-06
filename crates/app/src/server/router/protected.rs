@@ -16,6 +16,7 @@ use oxy_auth::middleware::{AuthState, api_key_only_middleware, auth_middleware};
 use oxy_shared::errors::OxyError;
 
 use crate::api::middlewares::api_key_query::api_key_query_middleware;
+use crate::api::middlewares::app_grant_scope::app_grant_scope_middleware;
 use crate::api::middlewares::app_publish_token_scope::app_publish_token_scope_middleware;
 use crate::api::middlewares::local_context::local_context_middleware;
 use crate::api::middlewares::subscription_guard::workspace_subscription_guard_middleware;
@@ -139,6 +140,10 @@ pub fn api_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> R
         // admin surface before they reach a handler. No-op for cookie/JWT/
         // API-key sessions.
         .layer(middleware::from_fn(app_publish_token_scope_middleware))
+        // Beside it, the allow-list for a sandbox agent token: the sandbox loop
+        // and nothing else, 404 otherwise. This is what makes `Admit` below
+        // safe, so the two are never separated. No-op for any other credential.
+        .layer(middleware::from_fn(app_grant_scope_middleware))
         // Beside it, and for the same reason: after auth, before any handler.
         // A grant-bound API token is refused (404) on the flat routes that
         // answer from raw membership; an all-access token an org has blocked
@@ -150,7 +155,7 @@ pub fn api_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> R
         // timeout (so a timed-out request is counted with its real status).
         .layer(middleware::from_fn(token_usage_middleware))
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(),
+            AuthState::built_in(oxy_auth::token::SandboxAgent::Admit),
             auth_middleware,
         ))
         // Run BEFORE the auth gate so EventSource (SSE) can authenticate

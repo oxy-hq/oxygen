@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Grant, Token } from "@/types/apiToken";
-import { maskedToken, summarizeAccess, toTokenSummary } from "./accessSummary";
+import {
+  isFixedToken,
+  maskedToken,
+  sandboxGrantApps,
+  summarizeAccess,
+  TOKEN_KIND_LABELS,
+  toTokenSummary
+} from "./accessSummary";
 
 const grant = (over: Partial<Grant>): Grant => ({
   id: "g1",
@@ -138,6 +145,120 @@ describe("summarizeAccess", () => {
     );
     expect(summary.label).toBe("publish 1 app");
     expect(summary.lines).toEqual(["Acme: publish Store Ops"]);
+  });
+});
+
+describe("summarizeAccess, for a sandbox agent token", () => {
+  const appGrant = (id: string, appName: string, over: Partial<Grant> = {}): Grant =>
+    grant({
+      id,
+      kind: "app_sandbox",
+      workspace_id: null,
+      workspace_name: null,
+      role_ceiling: null,
+      app_id: id,
+      app_name: appName,
+      ...over
+    });
+  const sandbox = (grants: Grant[]) =>
+    summarizeAccess(token({ kind: "sandbox_agent", platform: true, grants }));
+
+  it("names its apps, and counts them past two", () => {
+    expect(sandbox([appGrant("a1", "Store Ops")]).label).toBe("Sandboxes of Store Ops");
+    expect(sandbox([appGrant("a1", "Store Ops"), appGrant("a2", "Refunds")]).label).toBe(
+      "Sandboxes of Store Ops and Refunds"
+    );
+    const three = sandbox([
+      appGrant("a1", "Store Ops"),
+      appGrant("a2", "Refunds"),
+      appGrant("a3", "POS", { org_id: "o2", org_name: "Globex" })
+    ]);
+    expect(three.label).toBe("Sandboxes of 3 apps");
+    expect(three.lines).toEqual([
+      "Acme: sandboxes of Store Ops",
+      "Acme: sandboxes of Refunds",
+      "Globex: sandboxes of POS"
+    ]);
+  });
+
+  it("never reads an app grant's null workspace as every workspace", () => {
+    const summary = sandbox([appGrant("a1", "Store Ops")]);
+    expect(`${summary.label} ${summary.lines.join(" ")}`).not.toMatch(/workspace/i);
+  });
+
+  it("shows no Staff standing: `platform` is how the kind is stored, not what it carries", () => {
+    expect(sandbox([appGrant("a1", "Store Ops")]).standing).toEqual([]);
+    // A personal token with the same flag does carry it.
+    expect(summarizeAccess(token({ platform: true })).standing).toEqual(["platform"]);
+  });
+
+  it("says so when no app is covered any more", () => {
+    const ended = sandbox([appGrant("a1", "Store Ops", { revoked_at: "2026-10-02T00:00:00Z" })]);
+    expect(ended.label).toBe("No access");
+    expect(ended.lines).toEqual(["Acme: sandboxes of Store Ops, no longer covered"]);
+  });
+});
+
+describe("sandboxGrantApps", () => {
+  const appGrant = (id: string, over: Partial<Grant> = {}): Grant =>
+    grant({
+      id,
+      kind: "app_sandbox",
+      workspace_id: null,
+      workspace_name: null,
+      role_ceiling: null,
+      app_id: id,
+      app_name: "Store Ops",
+      ...over
+    });
+
+  it("reads each app's reference off its own grant", () => {
+    expect(sandboxGrantApps([appGrant("a1", { org_slug: "acme", app_slug: "store-ops" })])).toEqual(
+      [{ id: "a1", name: "Store Ops", ref: "acme/store-ops" }]
+    );
+  });
+
+  it("has no reference for a grant an older server sent without its slugs", () => {
+    expect(sandboxGrantApps([appGrant("a1")])).toEqual([
+      { id: "a1", name: "Store Ops", ref: null }
+    ]);
+  });
+
+  it("has no reference when the org or the app is gone, which the server sends as empty", () => {
+    const halves = [
+      appGrant("a1", { org_slug: "acme", app_slug: "" }),
+      appGrant("a2", { org_slug: "", app_slug: "store-ops" }),
+      appGrant("a3", { org_slug: "acme" })
+    ];
+    expect(sandboxGrantApps(halves).map((app) => app.ref)).toEqual([null, null, null]);
+  });
+
+  it("still names an app whose name the server sent empty", () => {
+    expect(sandboxGrantApps([appGrant("a1", { app_name: "" })])[0].name).toBe("an app");
+  });
+
+  it("leaves out a grant that was ended, and every grant of another kind", () => {
+    const grants = [
+      appGrant("a1", { org_slug: "acme", app_slug: "store-ops" }),
+      appGrant("a2", { revoked_at: "2026-10-02T00:00:00Z" }),
+      grant({ id: "g3" }),
+      grant({ id: "g4", kind: "app_publish", app_id: "a4", app_name: "POS" })
+    ];
+    expect(sandboxGrantApps(grants).map((app) => app.id)).toEqual(["a1"]);
+  });
+});
+
+describe("isFixedToken", () => {
+  it("is true for a sandbox agent token and for nothing else", () => {
+    expect(isFixedToken({ kind: "sandbox_agent" })).toBe(true);
+    for (const kind of ["personal", "legacy_key", "service_account", "ci"] as const) {
+      expect(isFixedToken({ kind })).toBe(false);
+    }
+    expect(isFixedToken({})).toBe(false);
+  });
+
+  it("has a name for every kind a list can show", () => {
+    expect(TOKEN_KIND_LABELS.sandbox_agent).toBe("Sandbox agent");
   });
 });
 

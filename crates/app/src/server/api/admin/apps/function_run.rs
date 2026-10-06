@@ -15,6 +15,7 @@
 //!    run asks no such question.
 
 use axum::http::StatusCode;
+use chrono::{DateTime, Utc};
 use entity::apps;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Serialize;
@@ -114,8 +115,10 @@ async fn require_readable(
     app_id: Uuid,
     caller: &Caller<'_>,
     environment: &str,
+    queued_at: DateTime<Utc>,
 ) -> Result<(), RouteError> {
-    if environment_scope::is_production(environment) {
+    let agent = super::agent_scope::is_agent(caller.user);
+    if environment_scope::is_production(environment) && !agent {
         return Ok(());
     }
     let app = apps::Entity::find_by_id(app_id)
@@ -123,10 +126,41 @@ async fn require_readable(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+    // A sandbox agent token reads a run only of a sandbox it created; a run
+    // queued in production is not its to read. One bare not-found, as below.
+    if agent {
+        return own_run(db, &app, caller, environment, queued_at).await;
+    }
     if caller.has_reach(db, &app).await {
         Ok(())
     } else {
         Err(StatusCode::NOT_FOUND.into())
+    }
+}
+
+/// A sandbox agent token's read of a run queued at `queued_at` in
+/// `environment`: the environment is a sandbox the token created, and the run
+/// was queued in **that** sandbox — not in an earlier one that had the name
+/// (`custom_apps_sandbox_instance`). Anything else is the bare not-found.
+async fn own_run(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    caller: &Caller<'_>,
+    environment: &str,
+    queued_at: DateTime<Utc>,
+) -> Result<(), RouteError> {
+    use super::agent_scope::{instance_since_named, require_own_named};
+    use crate::server::api::custom_apps_sandbox_instance::is_of_instance;
+    let not_found = |_| RouteError::from(StatusCode::NOT_FOUND);
+    require_own_named(db, app, caller.user, environment)
+        .await
+        .map_err(not_found)?;
+    let since = instance_since_named(db, app, caller.user, environment)
+        .await
+        .map_err(not_found)?;
+    match since {
+        Some(since) if is_of_instance(queued_at, since) => Ok(()),
+        _ => Err(StatusCode::NOT_FOUND.into()),
     }
 }
 
@@ -168,7 +202,8 @@ pub(crate) async fn detail(
         return Err(StatusCode::NOT_FOUND.into());
     }
     let environment = run_environment(run.metadata.as_ref());
-    require_readable(db, id, caller, &environment).await?;
+    let queued_at = run.created_at.with_timezone(&Utc);
+    require_readable(db, id, caller, &environment, queued_at).await?;
     // Report queued-vs-running honestly: a background job is only executing once
     // a worker has claimed its queue task. Otherwise a run sitting in the queue
     // (e.g. no global worker draining it) reads as a perpetual "running" spinner.

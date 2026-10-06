@@ -21,6 +21,7 @@ pub use oxy_authz::*;
 pub mod assume_liveness;
 pub mod caller;
 pub mod globals;
+mod grant_memo;
 pub mod loader;
 pub mod org_context;
 pub mod oxy_owner_guard;

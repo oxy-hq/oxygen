@@ -47,6 +47,15 @@ pub struct AppFunctionTask {
     /// — see the module docs for why the reader came first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    /// The id of the scoped token that asked for the run, as a string, when
+    /// the host must admit that token again before the run starts (a check a
+    /// sandbox agent token queued). `None` for every other task. The host
+    /// decides what the id means; nothing here reads it.
+    ///
+    /// A worker one release behind does not know the field and runs the task
+    /// without that second look, on the reach decided when it was queued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_token_id: Option<String>,
 }
 
 impl AppFunctionTask {
@@ -59,6 +68,7 @@ impl AppFunctionTask {
             input: None,
             traceparent: None,
             environment: None,
+            credential_token_id: None,
         }
     }
 
@@ -130,6 +140,22 @@ mod tests {
             task.to_payload(),
             json!({ "app_id": "a1", "function_name": "refresh", "trigger": "manual" })
         );
+    }
+
+    /// The token a run must be admitted by again rides the payload, and a
+    /// payload written before the field existed names none.
+    #[test]
+    fn the_credential_token_round_trips_and_is_absent_by_default() {
+        let mut task = AppFunctionTask::new("a1", "smoke");
+        task.credential_token_id = Some("t1".into());
+        let read = AppFunctionTask::from_payload(&task.to_payload()).expect("parses");
+        assert_eq!(read.credential_token_id.as_deref(), Some("t1"));
+        let legacy = AppFunctionTask::from_payload(&json!({
+            "app_id": "a1",
+            "function_name": "smoke",
+        }))
+        .expect("parses");
+        assert_eq!(legacy.credential_token_id, None);
     }
 
     #[test]

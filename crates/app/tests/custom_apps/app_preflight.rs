@@ -169,6 +169,7 @@ async fn invocation(
         request_hash: Set(None),
         failure_fingerprint: Set(fingerprint.map(str::to_string)),
         environment: Set("production".into()),
+        credential_token_id: Set(None),
     }
     .insert(db)
     .await

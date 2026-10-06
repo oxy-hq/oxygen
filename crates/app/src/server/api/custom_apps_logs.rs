@@ -51,7 +51,6 @@ use serde::{Deserialize, Serialize};
 
 use super::custom_apps_auth::{authenticate_and_authorize, require_app_admin};
 use super::custom_apps_sourcemap;
-use environment::log_environment;
 
 /// Widest window a single read may span, and the most rows it may return.
 /// Unbounded observability queries have taken the backend offline before (see
@@ -153,7 +152,30 @@ pub async fn get_logs(
     Query(q): Query<LogQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let outcome = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
+    // An API token's read is counted as its `/api` requests are; a session, an
+    // anonymous request and a legacy key run the handler untouched.
+    let probe = super::custom_apps_agent::UsageProbe::of(&headers);
+    let handler = read_logs(org_slug, app_slug, q, headers);
+    probe.counted(LOGS_ROUTE, handler).await
+}
+
+/// The route template an API token's log read is counted under.
+const LOGS_ROUTE: &str = "/api/customer-apps/{org_slug}/{app_slug}/logs";
+
+async fn read_logs(
+    org_slug: String,
+    app_slug: String,
+    q: LogQuery,
+    headers: HeaderMap,
+) -> Response {
+    let outcome = match authenticate_and_authorize(
+        &headers,
+        &org_slug,
+        &app_slug,
+        oxy_auth::token::SandboxAgent::Admit,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(status) => return error_response(status, "not permitted"),
     };
@@ -163,14 +185,12 @@ pub async fn get_logs(
         Ok(q) => q,
         Err(invalid) => return invalid.into_response(),
     };
-    if let Err(status) = require_app_admin(&outcome).await {
-        return error_response(status, "app-admin required");
-    }
-    // Before the store: who may read an environment does not depend on
-    // whether this deployment captures logs at all.
-    let environment = match log_environment(&outcome, q.environment.as_deref()).await {
-        Ok(environment) => environment,
-        Err(refused) => return refused.into_response(),
+    // The app-admin gate, then the environment's. Before the store: who may
+    // read an environment does not depend on whether this deployment captures
+    // logs at all.
+    let admitted = match environment::admitted(&outcome, q.environment.as_deref()).await {
+        Ok(admitted) => admitted,
+        Err(refused) => return refused,
     };
     let store = match store_or_501() {
         Ok(s) => s,
@@ -186,7 +206,7 @@ pub async fn get_logs(
             limit,
             q.invocation_id.as_deref().unwrap_or_default(),
             q.request_id.as_deref().unwrap_or_default(),
-            &environment,
+            &admitted.environment,
         )
         .await
     {
@@ -197,8 +217,11 @@ pub async fn get_logs(
         }
     };
 
+    // The store reads by the environment's name. A sandbox agent token is
+    // shown its own sandbox's lines, not an earlier one's under that name.
     let logs: Vec<LogLineResponse> = rows
         .into_iter()
+        .filter(|r| admitted.shows(&r.timestamp))
         .map(|r| LogLineResponse {
             timestamp: r.timestamp,
             build_id: r.build_id,
@@ -221,7 +244,14 @@ pub async fn get_errors(
     Query(q): Query<ErrorQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let outcome = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
+    let outcome = match authenticate_and_authorize(
+        &headers,
+        &org_slug,
+        &app_slug,
+        oxy_auth::token::SandboxAgent::Refuse,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(status) => return error_response(status, "not permitted"),
     };

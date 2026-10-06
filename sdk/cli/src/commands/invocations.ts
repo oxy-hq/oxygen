@@ -1,7 +1,9 @@
 /**
  * `oxyc invocations` — the admin-only read-back of what ran in an app's
  * environment: `GET /api/admin/apps/{id}/invocations[/{id}/held]`
- * (`admin/apps/{functions,invocations,held_writes}.rs`).
+ * (`admin/apps/{functions,invocations,held_writes}.rs`). A sandbox agent token
+ * reads the same two handlers at `/api/customer-apps/{id}/invocations…`, for
+ * its own sandboxes only.
  *
  * `held` is the list of writes the non-production policy did NOT perform —
  * what production would have done — so an agent iterating in a sandbox can
@@ -10,12 +12,23 @@
 
 import { parseJson, request } from "../api/request.js";
 import { parseAppEnv } from "../apps/environment.js";
-import { ensureOk, resolveApp, staffCreds } from "../apps/resolve.js";
+import { type Creds, ensureOk, resolveApp, staffCreds } from "../apps/resolve.js";
+import { requireOwnSandbox, SANDBOX_READ_BACK_SURFACE } from "../apps/sandbox-token.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 
-function invocationsPath(appId: string, query: URLSearchParams): string {
+/**
+ * The mount the CREDENTIAL can reach, the way `checks.ts` picks its surface:
+ * `/api/admin/apps` for staff, and for a sandbox agent token the same two
+ * handlers under `/api/customer-apps`, since that token never reaches `/admin`.
+ */
+function readBackSurface(creds: Creds): string {
+  return isSandboxAgentToken(creds.bearer) ? SANDBOX_READ_BACK_SURFACE : "/api/admin/apps";
+}
+
+function invocationsPath(creds: Creds, appId: string, query: URLSearchParams): string {
   const qs = query.toString();
-  return `/api/admin/apps/${appId}/invocations${qs ? `?${qs}` : ""}`;
+  return `${readBackSurface(creds)}/${appId}/invocations${qs ? `?${qs}` : ""}`;
 }
 
 export async function invocationsList(
@@ -25,6 +38,9 @@ export async function invocationsList(
 ): Promise<unknown[]> {
   const appEnv = opts.appEnv !== undefined ? parseAppEnv(opts.appEnv) : undefined;
   const creds = staffCreds(ctx);
+  // Before any request: the listing a sandbox agent token may read is one
+  // sandbox's, and the server requires it to name which.
+  if (isSandboxAgentToken(creds.bearer)) requireOwnSandbox("oxyc invocations list", appEnv);
   const resolved = await resolveApp(creds, app);
 
   const query = new URLSearchParams();
@@ -35,12 +51,12 @@ export async function invocationsList(
 
   const response = await request({
     target: creds.target,
-    path: invocationsPath(resolved.appId, query),
+    path: invocationsPath(creds, resolved.appId, query),
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   const payload = parseJson(response.body) as { invocations?: unknown[] } | undefined;
   return payload?.invocations ?? [];
 }
@@ -73,12 +89,12 @@ export async function invocationsHeld(
   const resolved = await resolveApp(creds, app);
   const response = await request({
     target: creds.target,
-    path: `/api/admin/apps/${resolved.appId}/invocations/${encodeURIComponent(invocationId)}/held`,
+    path: `${readBackSurface(creds)}/${resolved.appId}/invocations/${encodeURIComponent(invocationId)}/held`,
     method: "GET",
     bearer: creds.bearer,
     headers: creds.headers
   });
-  ensureOk(response);
+  ensureOk(response, creds);
   return (parseJson(response.body) as Held | undefined) ?? {};
 }
 

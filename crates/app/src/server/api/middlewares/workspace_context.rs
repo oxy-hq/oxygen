@@ -1056,6 +1056,14 @@ pub(crate) async fn resolve_effective_role(
     use entity::workspace_members::Column as WsMemberCol;
     use sea_orm::{ColumnTrait, QueryFilter};
 
+    // A sandbox agent token holds no role in any workspace (sandbox agent
+    // credential design §3.2). Its workspace grant exists so the custom-app
+    // paths can find its apps, not to make it an admin here: without this it
+    // would resolve as one wherever its minter is a member, on every workspace
+    // route and in every handler that reads the role by hand.
+    if caller.is_sandbox_agent() {
+        return Err(StatusCode::NOT_FOUND.into());
+    }
     let ceiling = caller
         .workspace_ceiling(org_id, workspace_id)
         .ok_or(StatusCode::NOT_FOUND)?;

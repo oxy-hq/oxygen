@@ -183,8 +183,9 @@ export async function setup(/** @type {Io} */ io) {
     warning(
       io,
       `${inputs.host} has no OIDC token exchange (POST /api/auth/oidc/exchange answered 404): it predates trusted access. ` +
-        "oxyc is installed, but no OXY_TOKEN was exported. `oxyc publish` and `oxyc checks run` still authenticate on their own, " +
-        "through the app's registered publisher; any other command needs OXY_TOKEN set from a secret."
+        "oxyc is installed, but no OXY_TOKEN was exported. `oxyc publish` still authenticates on its own, through the app's " +
+        "registered publisher. Every other command needs a credential set from a secret (OXY_TOKEN, or OXY_API_KEY where the " +
+        "command takes one) — `oxyc checks run` included: a publisher's token is refused on the check routes."
     );
     return;
   }

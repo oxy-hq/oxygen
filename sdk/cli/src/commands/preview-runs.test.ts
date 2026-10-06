@@ -20,7 +20,7 @@ const WORKSPACE = "11111111-2222-3333-4444-555555555555";
 function fakeContext(opts: { bearer?: string } = {}): Context {
   return {
     cwd: "/tmp",
-    flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
+    flags: { env: "production", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
     bearer: async () => {

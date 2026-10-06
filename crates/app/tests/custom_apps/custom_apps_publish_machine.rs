@@ -11,6 +11,9 @@
 //! publisher fields built by the same `Publisher::from_request` the handler
 //! uses, so the FK is exercised exactly as production hits it.
 
+/// `app_publish` on a personal token: what the combination does today.
+mod personal_grant;
+
 use crate::common::test_db;
 use entity::{
     app_builds, app_environment_events, app_environments, apps, org_members, org_members::OrgRole,
@@ -320,10 +323,11 @@ async fn ci_publisher(
     let mut headers = axum::http::HeaderMap::new();
     let bearer = format!("Bearer {}", minted.secret);
     headers.insert("authorization", bearer.parse().unwrap());
-    let (_identity, credential) = oxy_auth::built_in::BuiltInAuthenticator::new()
-        .authenticate_with_credential(&headers)
-        .await
-        .expect("the ci token authenticates");
+    let (_identity, credential) =
+        oxy_auth::built_in::BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
+            .authenticate_with_credential(&headers)
+            .await
+            .expect("the ci token authenticates");
     let row = users::Entity::find_by_id(account.user_id)
         .one(db)
         .await

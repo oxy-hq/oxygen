@@ -23,6 +23,11 @@ export interface Call {
 export interface Reply {
   status: number;
   body?: unknown;
+  /**
+   * A raw body, sent as it is and as `text/plain`, in place of `body`: a route
+   * that answers a sentence, or (`""`) nothing at all.
+   */
+  text?: string;
   /** Response headers beyond `content-type`, e.g. `retry-after` on a 429. */
   headers?: Record<string, string>;
 }
@@ -61,9 +66,15 @@ export function stubFetch(base: string, routes: Routes): Call[] {
           status: 404
         });
       }
-      const { status, body, headers: extra } = route(call);
+      const { status, body, text, headers: extra } = route(call);
       // A 204 may not carry a body — `Response` throws if it is given one.
       if (status === 204) return new Response(null, { status, headers: extra });
+      if (text !== undefined) {
+        return new Response(text, {
+          status,
+          headers: { "content-type": "text/plain; charset=utf-8", ...extra }
+        });
+      }
       return new Response(JSON.stringify(body ?? {}), {
         status,
         headers: { "content-type": "application/json", ...extra }

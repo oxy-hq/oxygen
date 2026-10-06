@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use super::migrations_task::{self, SandboxMigrationsTask};
 use super::oltp_task::{self, SandboxOltpTask};
-use crate::server::api::custom_apps_env_resolve::may_open_non_production;
+use crate::server::api::custom_apps_env_resolve::may_open_environment;
 use crate::server::api::custom_apps_environments::{EnvAction, record_move};
 use crate::server::api::custom_apps_migrations::DeclaredMigration;
 use crate::server::api::custom_apps_nonproduction::staging_task::QueuedMigration;
@@ -30,26 +30,66 @@ use crate::server::api::custom_apps_publish::{
     PublishError, PublishInput, PublishTarget, ensure_same_workspace,
 };
 
+/// The credential a publish request arrived with, as far as its target cares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishCredential {
+    /// A session, a legacy key, or a personal or service-account token.
+    Other,
+    /// An `oxypublish_` token: the channels only, never a sandbox.
+    PublishToken,
+    /// A sandbox agent token (`oxy_sbx_`): a sandbox only, never the channels.
+    SandboxAgent,
+}
+
+impl PublishCredential {
+    /// The credential of a request: the publish-token marker, or the kind of
+    /// token the user authenticated with.
+    pub fn of(
+        user: &oxy_auth::types::AuthenticatedUser,
+        marker: Option<&oxy_auth::types::AppPublishTokenAuth>,
+    ) -> Self {
+        let agent = user
+            .credential
+            .as_ref()
+            .is_some_and(|credential| credential.is_sandbox_agent());
+        match (marker, agent) {
+            (Some(_), _) => Self::PublishToken,
+            (None, true) => Self::SandboxAgent,
+            (None, false) => Self::Other,
+        }
+    }
+}
+
 /// The target a publish request names. `environment` absent or empty is
 /// today's publish. Otherwise it must be a sandbox's name
 /// (`InvalidEnvironment`), must not arrive with `promote` or
 /// `channel=published` (`SandboxWithPromote`), and must not be authenticated
 /// by a publish token (`SandboxRefused`).
+///
+/// A sandbox agent token is the other way round: it names a sandbox, and a
+/// publish with no `environment`, or with `promote`, is `SandboxTokenRefused`.
 pub fn target_of(
     environment: Option<&str>,
     promote: bool,
-    publish_token: bool,
+    credential: PublishCredential,
 ) -> Result<PublishTarget, PublishError> {
+    let agent = credential == PublishCredential::SandboxAgent;
     let Some(name) = environment.map(str::trim).filter(|name| !name.is_empty()) else {
+        if agent {
+            return Err(PublishError::SandboxTokenRefused);
+        }
         return Ok(PublishTarget::Channels);
     };
     let Some(sandbox @ AppEnvironment::Dev { .. }) = AppEnvironment::parse(name) else {
         return Err(PublishError::InvalidEnvironment(name.to_string()));
     };
     if promote {
+        if agent {
+            return Err(PublishError::SandboxTokenRefused);
+        }
         return Err(PublishError::SandboxWithPromote);
     }
-    if publish_token {
+    if credential == PublishCredential::PublishToken {
         return Err(PublishError::SandboxRefused);
     }
     Ok(PublishTarget::Sandbox(sandbox))
@@ -98,7 +138,10 @@ async fn admit(
     let Some(app) = app else {
         return Err(PublishError::UnknownEnvironment { name });
     };
-    if !may_open_non_production(db, caller, app).await {
+    // Asked of the one sandbox: a sandbox agent token opens only a sandbox it
+    // created, of an app it is granted. For everyone else this is the app's
+    // non-production rule, as before.
+    if !may_open_environment(db, caller, app, environment).await {
         return Err(PublishError::SandboxRefused);
     }
     if ensure_same_workspace(db, app, input).await? {
@@ -120,26 +163,48 @@ async fn admit(
     }
 }
 
+/// Who moves a sandbox's pointer: the user the event names, and the sandbox
+/// agent token the publish arrived with, when that is its credential.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Mover {
+    pub actor: Option<Uuid>,
+    /// `Some` holds the move to a sandbox that token created, decided on the
+    /// row the move locks.
+    pub own: Option<Uuid>,
+}
+
 /// Point the sandbox at `build_pk`, with its event, and move nothing else. A
 /// sandbox deleted since [`admit`] has no row to move: `EnvironmentDeleting`,
-/// and the caller rolls the stored build back.
+/// and the caller rolls the stored build back. So does one a sandbox agent
+/// token did not create, when the token is the mover.
 pub(crate) async fn move_pointer(
     db: &DatabaseConnection,
     app_id: Uuid,
     environment: &AppEnvironment,
     build_pk: Uuid,
-    actor: Option<Uuid>,
+    mover: Mover,
 ) -> Result<(), PublishError> {
     let db_err = |e: DbErr| PublishError::Db(e.to_string());
     let txn = db.begin().await.map_err(db_err)?;
-    let moved = record_move(
-        &txn,
-        app_id,
-        environment,
-        Some(build_pk),
-        EnvAction::Publish,
-        actor,
-    )
+    let moved = async {
+        if let Some(token) = mover.own
+            && !super::own::lock_own(&txn, app_id, environment, token).await?
+        {
+            return Err(DbErr::RecordNotFound(format!(
+                "app {app_id} has no sandbox {environment} this token created"
+            )));
+        }
+        let action = EnvAction::Publish;
+        record_move(
+            &txn,
+            app_id,
+            environment,
+            Some(build_pk),
+            action,
+            mover.actor,
+        )
+        .await
+    }
     .await;
     match moved {
         Ok(()) => txn.commit().await.map_err(db_err),
@@ -263,81 +328,5 @@ fn oltp_warning(environment: &AppEnvironment, declared: usize) -> Option<String>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sandbox(handle: &str) -> AppEnvironment {
-        AppEnvironment::Dev {
-            handle: handle.into(),
-        }
-    }
-
-    /// Absent or empty is today's publish, whatever else was sent.
-    #[test]
-    fn no_environment_is_the_channels_publish() {
-        for absent in [None, Some(""), Some("   ")] {
-            for (promote, token) in [(false, false), (true, false), (false, true), (true, true)] {
-                assert!(matches!(
-                    target_of(absent, promote, token),
-                    Ok(PublishTarget::Channels)
-                ));
-            }
-        }
-    }
-
-    #[test]
-    fn a_sandbox_name_selects_that_sandbox() {
-        let target = target_of(Some(" dev-a1 "), false, false).expect("a sandbox");
-        assert!(matches!(target, PublishTarget::Sandbox(env) if env == sandbox("a1")));
-    }
-
-    /// Only a sandbox can be named: staging and production are reached by the
-    /// publish this field leaves alone.
-    #[test]
-    fn a_name_that_is_not_a_sandboxs_is_invalid() {
-        for name in ["staging", "production", "dev-", "dev--x", "a1", "DEV-a1"] {
-            let refused = target_of(Some(name), false, false).expect_err(name);
-            assert!(
-                matches!(&refused, PublishError::InvalidEnvironment(n) if n == name),
-                "{name}: {refused}"
-            );
-        }
-    }
-
-    /// The refusals in order: the name, then `promote`, then the credential.
-    #[test]
-    fn promote_and_a_publish_token_are_refused_with_a_sandbox() {
-        assert!(matches!(
-            target_of(Some("dev-a1"), true, false),
-            Err(PublishError::SandboxWithPromote)
-        ));
-        assert!(matches!(
-            target_of(Some("dev-a1"), false, true),
-            Err(PublishError::SandboxRefused)
-        ));
-        assert!(matches!(
-            target_of(Some("dev-a1"), true, true),
-            Err(PublishError::SandboxWithPromote)
-        ));
-        assert!(matches!(
-            target_of(Some("nope"), true, true),
-            Err(PublishError::InvalidEnvironment(_))
-        ));
-    }
-
-    /// With no branch, declared files are named — and so is how to get one.
-    #[test]
-    fn with_no_branch_declared_oltp_migrations_are_named_in_a_warning() {
-        assert_eq!(oltp_warning(&sandbox("a1"), 0), None);
-        let warning = oltp_warning(&sandbox("a1"), 2).expect("a warning");
-        assert!(
-            warning.starts_with("2 OLTP migration file(s) were not applied"),
-            "{warning}"
-        );
-        assert!(warning.contains("dev-a1"), "{warning}");
-        assert!(
-            warning.contains("oxyc oltp provision --branch staging"),
-            "{warning}"
-        );
-    }
-}
+#[path = "publish_tests.rs"]
+mod tests;

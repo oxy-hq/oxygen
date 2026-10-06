@@ -127,21 +127,43 @@ async fn runnable_function(
     Ok(function)
 }
 
-/// Queue a one-off run of `function_name` in `environment` of app `app_id`.
+/// How a queued run is recorded by the worker that runs it: its invocation
+/// `mode`, and the sandbox agent token that queued it, when one did — which
+/// stamps the invocation row and the run's held-write row.
+#[cfg_attr(not(feature = "custom-app-functions"), allow(dead_code))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct QueuedBy<'a> {
+    pub mode: &'a str,
+    pub credential_token_id: Option<Uuid>,
+}
+
+/// What queued a run, where it runs, and the token that asked for it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Asked<'a> {
+    pub trigger: FunctionJobTrigger,
+    pub environment: &'a AppEnvironment,
+    /// The sandbox agent token that asked, when one did. It rides the task,
+    /// and the worker admits it again before the run starts
+    /// (`app_function_agent::recheck`): a run queued by a token that has
+    /// since been revoked, or whose minter lost reach, is cancelled.
+    pub credential_token_id: Option<Uuid>,
+}
+
+/// Queue a one-off run of `function_name` of app `app_id`, as `asked`.
 /// See `custom_apps_functions::trigger_function_job_in`, the entry point.
 ///
 /// Production queues the task it always queued, naming no environment. Any
 /// other environment's task names it, so the worker resolves that
 /// environment's build and runs under its policy — and a worker that predates
 /// the field's writers refuses the task rather than run it on production.
-pub(super) async fn trigger(
+pub(crate) async fn trigger(
     db: &DatabaseConnection,
     app_id: Uuid,
     function_name: &str,
     input: Option<serde_json::Value>,
-    trigger: FunctionJobTrigger,
-    environment: &AppEnvironment,
+    asked: Asked<'_>,
 ) -> Result<String, TriggerError> {
+    let environment = asked.environment;
     let app = apps::Entity::find_by_id(app_id)
         .one(db)
         .await
@@ -152,20 +174,18 @@ pub(super) async fn trigger(
         .manifest_json
         .as_ref()
         .and_then(function_task_policy);
-    let named = (*environment != AppEnvironment::Production).then(|| environment.name());
-    agentic_pipeline::scheduler::enqueue_app_function_job_in(
-        db,
-        &app_id.to_string(),
+    let mut task = agentic_pipeline::app_function_task::AppFunctionTask::new(
+        app_id.to_string(),
         function_name,
-        app.project_id,
-        policy,
-        trigger.as_str(),
-        input,
-        oxy_telemetry::propagation::current_traceparent(),
-        named.as_deref(),
-    )
-    .await
-    .map_err(|e| TriggerError::Enqueue(format!("{e:?}")))
+    );
+    task.trigger = Some(asked.trigger.as_str().to_string());
+    task.input = input.filter(|v| !v.is_null());
+    task.traceparent = oxy_telemetry::propagation::current_traceparent();
+    task.environment = (*environment != AppEnvironment::Production).then(|| environment.name());
+    task.credential_token_id = asked.credential_token_id.map(|id| id.to_string());
+    agentic_pipeline::scheduler::enqueue_app_function_task(db, app.project_id, policy, task)
+        .await
+        .map_err(|e| TriggerError::Enqueue(format!("{e:?}")))
 }
 
 #[cfg(test)]

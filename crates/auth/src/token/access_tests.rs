@@ -103,6 +103,35 @@ fn a_narrowed_token_with_no_grants_is_refused() {
 }
 
 #[test]
+fn a_new_personal_token_cannot_be_given_an_app_publish_grant() {
+    // Alone, beside a workspace grant, and beside the all-access default: the
+    // same answer, which names the grant rather than the shape around it.
+    let app = json!({ "kind": "app_publish", "app_id": org(50) });
+    for body in [
+        json!({ "name": "ci", "all_access": false, "grants": [app.clone()] }),
+        json!({ "name": "ci", "all_access": false,
+                "grants": [{ "org_id": org(1), "role_ceiling": "admin" }, app.clone()] }),
+        json!({ "name": "ci", "platform": true, "all_access": false, "grants": [app.clone()] }),
+        json!({ "name": "ci", "grants": [app.clone()] }),
+    ] {
+        assert_eq!(
+            create(body.clone()).access(),
+            Err(Invalid(NO_APP_PUBLISH.to_string())),
+            "{body}"
+        );
+    }
+    // An edit still names one to keep it: whether the token holds it is
+    // decided against its stored grants (`grant_plan::replace`).
+    let kept = patch(json!({ "grants": [app] }))
+        .edit(&stored(false))
+        .unwrap();
+    assert_eq!(
+        kept.grants,
+        GrantsEdit::Replace(vec![GrantWant::AppPublish { app_id: org(50) }])
+    );
+}
+
+#[test]
 fn a_grant_that_cannot_be_read_is_refused() {
     for grant in [
         json!({}),

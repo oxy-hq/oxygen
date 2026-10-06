@@ -77,7 +77,10 @@ STRUCTURAL only — `oxy validate` also resolves `databases:` and `llm.ref`, and
 wins where the two disagree.
 
 If your runtime speaks MCP, `oxyc mcp` serves the same API surface as four
-tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead.
+tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead. It
+reads its credential from `OXY_TOKEN` only — with the variable unset it exits
+`4` rather than using the machine's `oxyc login`; `oxyc mcp --login` opts
+into that. The same holds for any command given `--token-env <VAR>`.
 
 ## Custom apps: what is live, healthy, used
 

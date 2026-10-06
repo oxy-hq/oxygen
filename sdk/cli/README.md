@@ -50,7 +50,7 @@ and `cache`.
 | --- | --- | --- |
 | `--env <name\|url>` | `production` | deployment to target |
 | `--target <url>` | — | explicit base URL; overrides `--env` |
-| `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer: any credential |
+| `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer: any credential. **Named, it is the only source** — an unset variable is exit `4`, never a fallback to your login |
 | `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the legacy API key or API token for `/external/api` |
 | `--service-account <id>` | `OXY_SERVICE_ACCOUNT` | in GitHub Actions: the **ID** of the service account the OIDC exchange acts as |
 | `--org <slug>` | — | value for the `{org}` placeholder |
@@ -155,21 +155,33 @@ oxyc token                  # print the bearer, for a raw curl
 oxyc logout                 # revoke the cached token, then forget it
 oxyc tokens list [--json]   # your personal access tokens
 oxyc tokens revoke <id>
+oxyc tokens revoke --current   # end the token in OXY_TOKEN
 oxyc tokens create          # opens Account → Personal access tokens
+oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …]
 ```
 
 **Every command resolves its credential the same way, first match wins:**
 
 1. **`OXY_TOKEN`** (or the variable `--token-env` names). It holds any
    credential, and all are sent as a bearer: an API token — a personal access
-   token (`oxy_pat_…`), a service account token (`oxy_sat_…`) or a CI token
-   (`oxy_ci_…`) — a legacy API key (`oxy_…`), a publish token, or a session
-   token. A blank value counts as unset.
+   token (`oxy_pat_…`), a service account token (`oxy_sat_…`), a CI token
+   (`oxy_ci_…`) or a sandbox agent token (`oxy_sbx_…`) — a legacy API key
+   (`oxy_…`), a publish token, or a session token. A blank value counts as
+   unset.
 2. **The login cache** — what `oxyc login` stored for this deployment.
 3. **GitHub OIDC**, in a GitHub Actions job granted `id-token: write`: the job's
    OIDC token is exchanged, once per process, for a fifteen-minute token acting
    as a service account, and that token is revoked when the command ends. See
    [CI without a stored secret](#ci-without-a-stored-secret).
+
+**Naming the variable stops the list at 1.** With `--token-env <VAR>`, and
+always in `oxyc mcp`, an unset or empty variable is an auth error (exit `4`):
+the login cache and the OIDC exchange are not tried. The flag says which
+credential runs the command — an agent's scoped token, typically — so a typo in
+the name must not quietly run it as whoever last ran `oxyc login` on the
+machine. A person who wants `oxyc mcp` on their own login starts it with
+`--login`. `OXY_API_KEY` is unaffected: a command that can use one on its own
+(`checks run`, the sandbox verbs) still does.
 
 `OXY_API_KEY` holds a legacy API key or an API token, and is honoured where it
 always was — the `/external/api` surface, and `checks run`.
@@ -213,6 +225,55 @@ outlive its own revocation. Since `login` now stores a token, `tokens list` and
 Personal access tokens, `<deployment>/?settings=account.tokens`); they work
 from a login that stored a session token. `tokens create` always opens that
 page — a new token's secret is shown once, and a terminal is the wrong place.
+
+**`tokens create --sandbox-agent`** is the exception, and the one command an
+agent runs to get its own credential. It mints a **sandbox agent token**
+(`oxy_sbx_…`): the [sandbox loop](#sandboxes) on one to five named apps, in
+sandboxes the token created, for 8 hours by default (`--hours`, 1 to 168) —
+and nothing else on the deployment.
+
+```bash
+eval "$(oxyc tokens create --sandbox-agent --app acme/store --env dev)"
+```
+
+It opens the same browser loopback as `login`, with the apps and the lifetime
+on the page; the agent's operator approves once, under their own session.
+Stdout is the single line `export OXY_TOKEN=oxy_sbx_…`, printed once, and
+everything else is on stderr. It holds no credential while it runs, never
+writes the credentials file, and revokes no other token. `--app` is
+`<org>/<app>` and repeats; arguments are checked before the browser opens
+(exit `2`). Only staff who can open the app's sandboxes can approve.
+
+What comes back is checked before anything is printed: it must be an
+`oxy_sbx_`, described as `sandbox_agent` and not all-access, for exactly the
+apps named, expiring no later than the hours asked for. Anything the check
+cannot read — an app entry with no slugs, an expiry that is missing or not a
+time — is refused rather than skipped. A deployment that predates sandbox
+agent tokens would otherwise hand back an ordinary login token with the
+approver's whole reach. On any mismatch the command prints nothing, revokes
+what was minted, and exits `8`.
+
+With that token in `OXY_TOKEN`, `oxyc` behaves differently in five ways:
+
+- **An app resolves against the token's own list** (`GET /api/auth/token`),
+  never `/api/admin/apps`. An app it was not minted for is exit `5`.
+- **Read-back uses `/api/customer-apps/{id}/…`** — `invocations list`,
+  `invocations held` and `checks run` — since the token never reaches `/admin`.
+- **Refused before any request, exit `2`:** an `--app-env` that is not
+  `dev-<handle>`; `publish` without `--app-env`, or with `--promote`;
+  `fn call`, `logs`, `invocations list` and `checks run` without `--app-env`;
+  `env show` of production or staging; `oxyc apps`, `tokens list` and
+  `tokens revoke <id>`; and `oxyc api` against any path.
+- **`whoami`** prints the token's description — `kind`, `expires_at`, the
+  `apps` it reaches and its `minter` — and `--json` is that document as the
+  server sent it.
+- **`tokens revoke --current`** ends it (`DELETE /api/auth/token`). Exit `0`
+  when it is revoked or was already dead. It works for any API token in the
+  variable; a cached login is ended with `logout` instead.
+
+A refusal from the server carries a hint an agent can act on — never "try
+`oxyc login` again". Exit `4` under this token means it expired, was revoked,
+or its minter lost access: stop and report.
 
 Credentials live in the OS config directory under **`oxy`** — the same file the
 Rust `oxy login` wrote before it was removed, so an existing login still works:
@@ -410,9 +471,9 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
   **`--prebuilt`** (with `--dir`) skips esbuild and refuses if a declared
   function's `functions/<name>.js` is missing. The pair splits CI so the job that
   runs package scripts never holds the credential.
-- **Auth**: the `--token-env` variable (`OXY_TOKEN`), then the login cache — or,
-  in a GitHub Actions job with `id-token: write` and neither set, the job's OIDC
-  token. Two exchanges are tried, in order, and the exchange happens last, after
+- **Auth**: `OXY_TOKEN`, then the login cache — or, in a GitHub Actions job
+  with `id-token: write` and neither set, the job's OIDC token. (A variable
+  named with `--token-env` is the only source: unset, the publish stops.) Two exchanges are tried, in order, and the exchange happens last, after
   the build. First the general one (`/api/auth/oidc/exchange`, audience `oxy:<the deployment's host>`):
   a **trust policy** on a service account (see `init-ci`). Then, only when the
   deployment has no such route (404) or answers `no_matching_policy`, the app's
@@ -455,8 +516,12 @@ person, and writes the ID into the workflow with the name beside it as a
 comment (`OXY_SERVICE_ACCOUNT: 3f25…3301   # acme/deployer`). When it cannot
 look the ID up — nobody logged in, no such account yet — it writes a
 `<service-account-id>` placeholder and says so; it never writes the name as
-the value. `--promote` makes the publish go live
-and adds a `checks run` step after it, when the manifest declares a check.
+the value. `--promote` makes the publish go live. **No `checks run` step is
+written**, even when the manifest declares a check: the job's service-account
+token is answered `403` on the check routes, which sit behind platform gates a
+service account never passes, so the step could not succeed. The workflow
+carries a one-line comment where it would be, and `init-ci` says so when it
+writes one. Run the checks with a staff credential until `ci` tokens may.
 `--setup-action` writes the same workflow around `uses: oxy-hq/setup-oxyc@v1`
 instead, which exchanges once for the whole job. That action is not published
 yet, so a workflow written with the flag cannot start until it is; `init-ci`
@@ -638,9 +703,11 @@ it admitted any function.
 **A check runs against the app's live build** — the server resolves
 `published_build_id`, else `draft_build_id`, for the pre-flight lookup and for
 the execution alike. So `checks run` after a plain `oxyc publish` verifies the
-*previously promoted* code, not the draft just uploaded. `oxyc init-ci` writes
-the step only with `--promote`, where the build just published is the one the
-check runs, and only when the manifest declares a check. **With `--app-env`**
+*previously promoted* code, not the draft just uploaded. (`oxyc init-ci` writes
+no checks step at all today: a service account's `oxy_ci_` token is answered
+`403` on these routes — the token's scope admits them for its own app, and the
+routes' platform gates then refuse a caller with no platform standing.) **With
+`--app-env`**
 it runs against that environment's own build instead — a sandbox's own
 publish, or staging's — and the report gains `environment` and each check's
 `invocationId`; the publish-token and OIDC paths are unchanged and work only
@@ -676,6 +743,10 @@ oxyc checks run <app> --app-env <name>       # see "Checks" above
 oxyc invocations list <app> [--app-env] [--build] [--function] [--limit]
 oxyc invocations held <app> <invocation-id>
 oxyc logs <app> [--app-env] [--invocation] [--request] [--hours] [--limit]
+
+oxyc env secret list <app> --app-env <name>      # keys and flags, never a value
+oxyc env secret set <app> <key> --app-env <name> (--value <text> | --value-env <VAR>)
+oxyc env secret delete <app> <key> --app-env <name>
 ```
 
 A **sandbox** is a named, short-lived `dev-<handle>` environment of one custom
@@ -698,7 +769,8 @@ staging's tables (rows up to a size cap), then the build's OLTP migrations.
 The loop: `env create` → `publish --app-env` → `fn call` / `checks run
 --app-env` → `invocations list` / `held` to read back what ran → iterate from
 `publish` → `env delete --yes --wait` when done. `oxyc guide` has the same six
-lines, meant to sit in an agent's context.
+lines — between the two an agent adds to mint and revoke its own token — meant
+to sit in an agent's context.
 
 **`--app-env <environment>`** (`production`, `staging` or `dev-<handle>`,
 validated client-side — exit `2` on a malformed name) is a *different axis*
@@ -709,6 +781,21 @@ take it. A publish-token credential is refused before any request for
 `--app-env` other than `production` (exit `2`); `env`, `invocations` and
 `logs` refuse one outright, for any environment, because sandbox management
 is a staff console surface.
+
+**An unattended agent drives this loop with a sandbox agent token**
+(`oxy_sbx_…`), not a staff credential: `oxyc tokens create --sandbox-agent
+--app <org>/<app>` mints one after a browser approval — see
+[Authentication](#authentication) for what `oxyc` then refuses, and
+`internal-docs/custom-app-sandboxes.md` §2 for the agent's procedure. With
+it, `--app-env dev-<handle>` is required on every verb above that takes one.
+
+**`env secret`** reads and writes one sandbox's own secrets, for any
+credential that reaches the sandbox, and only a `dev-<handle>` environment —
+never staging's or production's. `list` prints each key with `is_set`,
+`required` and `inherits_staging`; no verb returns a value. `set` takes the
+value from `--value`, or from an environment variable with `--value-env` so it
+stays off the command line. A sandbox with no value of its own reads
+staging's.
 
 **`env delete`** without `--yes` asks on a terminal and exits `8` (refused)
 off one, same as `oltp reset`. `--wait [seconds]` (default 120) polls until
@@ -869,9 +956,28 @@ no terminal to ask on inside an MCP server), and `oxy_publish_sandbox`
 requires a `dev-<handle>` `appEnv` and refuses production, staging or a
 promote client-side — it can never reach the live channel.
 
+**Its credential is the token variable and nothing else.** An agent runtime
+starts `oxyc mcp` with the agent's own token in `OXY_TOKEN` (or the
+`--token-env` variable); with the variable unset the server exits `4` before
+serving a tool, rather than running on the `oxyc login` of whoever owns the
+machine. To serve on your own login, start it with `--login`.
+
 ```bash
-claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --env production
+# an agent, on its own token
+claude mcp add oxyc -e OXY_TOKEN=oxy_sbx_… -- npx -y @oxy-hq/cli mcp --env dev
+# you, on your login
+claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production
 ```
+
+**A sandbox agent token (`oxy_sbx_…`) is served a different, smaller list**:
+the ten sandbox-loop tools, `oxy_whoami` (the token's `kind`, `expires_at`,
+`apps` and `minter`), and four that exist only for it — `oxy_env_secret_list`,
+`oxy_env_secret_set` and `oxy_env_secret_delete`, which accept only a
+`dev-<handle>` `appEnv`, and `oxy_token_revoke`, which needs `confirm: true`.
+`oxy_request`, `oxy_routes`, `oxy_schema` and the preview tools are dropped,
+and refused if called by name: the server answers that token `404` on all of
+them, and a tool that can only fail still costs its schema every turn. A dead
+token ends the server at startup with exit `4`.
 
 **`guide`** prints a page to paste into `AGENTS.md` / `CLAUDE.md`.
 **`skills install`** symlinks the six bundled Claude skills into
@@ -901,6 +1007,7 @@ once npm reclaims it.
 | `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC |
 | `OXY_API_KEY` | — | a legacy API key or an API token, for the `/external/api` surface and for `checks run` |
 | `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a GitHub OIDC exchange acts as (`--service-account`); never `<org>/<name>` |
+| `OXY_AGENT` | detected | the name of the agent driving `oxyc`, sent in the user agent — see below |
 | `OXY_CREDENTIALS_PATH` | OS config dir | the shared `credentials.json` |
 | `OXYC_ORG` | `oxy-hq` | GitHub org the customer repos live in |
 | `OXYC_CUSTOMER_TOPIC` | `oxy-customer` | topic that registers a customer repo |
@@ -919,6 +1026,17 @@ once npm reclaims it.
 | `OXYC_QUIET` | — | `1` is `--quiet` |
 | `OXYC_DRY_RUN` | — | `1` makes `launch` print the command instead of running it |
 | `NO_COLOR` / `FORCE_COLOR` | — | force plain / coloured output |
+
+**An agent should set `OXY_AGENT`.** Every request `oxyc` makes to a deployment
+carries the user agent `oxyc/<version>`, with `agent/<label>` after it when an
+agent is driving, and `mcp` last when the call came through `oxyc mcp` —
+`oxyc/0.6.0 agent/release-bot mcp`. The server records it on audit rows and in
+each token's usage, and it is the one thing there that tells an agent from the
+engineer running the same commands. The label is `OXY_AGENT`, held to
+lowercase letters, digits, `.`, `_` and `-` and to 32 characters (anything else
+becomes `-`). With `OXY_AGENT` unset, Claude Code is recognised by the
+`CLAUDECODE` variable it exports and labelled `claude-code`. It identifies
+honest callers in a log; it is not a credential and grants nothing.
 
 ## Output contract
 

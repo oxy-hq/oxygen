@@ -52,6 +52,7 @@
 //! | `shape_zoo` | `fixtures/data-shapes/zoo.json` is well formed, and the SQL built from it matches the shared vector the canary also tests |
 //! | `shape_zoo_coverage` | source scans: every native type `ch_type_to_typed`, `strip_type_wrappers`, `pg_typname_to_typed`, `is_decodable` and `describe_type_to_typed` name has a zoo case, or a reasoned exemption |
 //! | `canary_coverage` | source scans: every host op in `HOST_OPS` is declared by a platform-canary step (`STEP_OPS` in the canary's `steps.ts`), or exempted with a reason; a declared op the host lacks is refused |
+//! | `sandbox_agent_token` | a sandbox agent token (`oxy_sbx_`), minted through the real route and sent to the real routers: the whole loop in a sandbox it created — introspect, create, publish, functions, a secret, a call as the app's admin, a queued check the executor admits it for again, invocations, held writes, logs, delete — with the sandbox's creator, the invocation's credential, the held row's token and one stamped audit row per write; every refusal outside that sandbox (production, staging, a sibling app of the workspace, a colleague's sandbox, another token's, a channel publish as `403 sandbox_token_refused`, a secret's value, `/admin`, the public reads, a subdomain host, `?api_key=`, a credential stored as a secret); a channel publish, a production call and a production run still refused with the route allow-list gone; the token stopping on its next request when its minter loses the grant with the grant cache still warm, is deactivated or revokes it, and a queued check cancelled; its per-token limit counting sandboxes still being torn down, and a delete decided on the row it locks |
 //! | `sandbox_environments` | a sandbox resolves its own build from its row, uncached, and never another environment's; an absent or deleting one resolves to nothing; a sandbox page's data reads take the pin of its own build |
 //! | `sandbox_isolation` | two sandboxes of one app, through the real serve route after a real publish: each runs its own build in its own storage silo; each reads its own secrets, then staging's, then production's `shared` ones, and cannot rotate a key it read from staging |
 //! | `sandbox_isolation_airhouse` | two sandboxes' `ctx.airhouse` appends land in two distinct siblings, each on a connection scoped to its own |
@@ -133,6 +134,8 @@ mod example_app_serving;
 mod function_failure_alerts;
 mod nonprod_function_uploads;
 mod preview_read_only_session;
+mod publish_audit;
+mod sandbox_agent_token;
 mod sandbox_environments;
 mod sandbox_isolation;
 mod sandbox_isolation_airhouse;

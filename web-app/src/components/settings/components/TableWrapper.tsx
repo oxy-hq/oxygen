@@ -1,4 +1,5 @@
 import type React from "react";
+import { cn } from "@/libs/shadcn/utils";
 import "./TableWrapper.css";
 
 /**
@@ -10,9 +11,18 @@ import "./TableWrapper.css";
  * Action cells (or any cells that should render without a header) just omit
  * `data-label`.
  */
-const TableWrapper: React.FC<React.PropsWithChildren> = ({ children }) => {
+const TableWrapper: React.FC<React.PropsWithChildren<{ plain?: boolean }>> = ({
+  plain,
+  children
+}) => {
   return (
-    <div className='settings-table-wrapper w-full rounded-lg border md:overflow-x-auto'>
+    <div
+      className={cn(
+        "settings-table-wrapper w-full md:overflow-x-auto",
+        // `plain` leaves the card off, for a table ruled by its own hairlines.
+        !plain && "rounded-lg border"
+      )}
+    >
       {children}
     </div>
   );

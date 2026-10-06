@@ -12,12 +12,22 @@
  */
 
 import { parseJson, request } from "../api/request.js";
+import { withUserAgent } from "../api/user-agent.js";
 import { APP_ENV_HEADER, isProduction, parseAppEnv } from "../apps/environment.js";
 import { ensureOk, PUBLISH_TOKEN_PREFIX, UUID_RE } from "../apps/resolve.js";
-import type { Context } from "../context/resolve.js";
+import {
+  readRefusal,
+  requireOwnSandbox,
+  resolveSandboxApp,
+  sandboxRefusalHint,
+  withReason
+} from "../apps/sandbox-token.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
+import { type Context, notAuthenticated } from "../context/resolve.js";
 import { err } from "../ui/tty.js";
 import { resolveDataInput } from "../util/data-input.js";
-import { authError, CliError, ExitCode, exitCodeForStatus, usageError } from "../util/errors.js";
+import { CliError, ExitCode, exitCodeForStatus, usageError } from "../util/errors.js";
+import { printable, printableLines } from "../util/printable.js";
 
 export interface FnCallResult {
   function: string;
@@ -109,7 +119,7 @@ function fnCredential(ctx: Context): FnCreds {
   if (bearer) return { target: ctx.target(), bearer };
   const apiKey = ctx.apiKey();
   if (apiKey) return { target: ctx.target(), apiKey };
-  throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
+  throw notAuthenticated(ctx.target(), ctx.flags);
 }
 
 /**
@@ -145,6 +155,11 @@ async function resolveOrgAppSlug(
       "resolving a UUID means GET /api/admin/apps/{id}, which a publish token may not reach"
     );
   }
+  // A sandbox agent token may not reach it either, and does not need to: the
+  // token's own app list has the slugs.
+  if (isSandboxAgentToken(creds.bearer)) {
+    return resolveSandboxApp(creds.target, creds.bearer, app);
+  }
   const response = await request({
     target: creds.target,
     path: `/api/admin/apps/${app}`,
@@ -175,6 +190,31 @@ function printFnCallResult(result: FnCallResult): void {
 }
 
 /**
+ * The error for a call the deployment refused before the function ran.
+ *
+ * The body may be JSON with a `message` (the environment gate, a function the
+ * build does not have), a sentence in some other shape, or nothing at all: a
+ * sandbox agent token outside its own sandbox is answered a bare `404`. The
+ * message is one readable line in every case, and never anything but a string.
+ */
+function fnRefused(response: Response, text: string, url: string, creds: FnCreds): CliError {
+  const refusal = readRefusal(text);
+  const parsed = parseJson(text) as { message?: unknown } | undefined;
+  const said =
+    typeof parsed?.message === "string"
+      ? printable(parsed.message.replace(/\s+/g, " ")).trim()
+      : "";
+  const status = `${response.status} ${response.statusText} — ${url}`;
+  return new CliError(said || withReason(status, refusal), {
+    code: exitCodeForStatus(response.status),
+    detail: printableLines(text).trim() || undefined,
+    hint: isSandboxAgentToken(creds.bearer) ? sandboxRefusalHint(response.status, text) : undefined,
+    serverCode: refusal.code,
+    serverMessage: refusal.reason
+  });
+}
+
+/**
  * POST the function and parse its SSE stream into a result — no printing, and
  * no throw for a function-level failure (`result.ok === false`): that
  * decision belongs to the caller. `runFnCall` below prints and throws for the
@@ -195,10 +235,12 @@ export async function fnCall(
       "sandboxes and staging need a staff credential — oxyc login, or OXY_TOKEN set to a user token"
     );
   }
+  // Before any request: with no `--app-env` this is a production call.
+  if (isSandboxAgentToken(creds.bearer)) requireOwnSandbox("oxyc fn call", appEnv);
 
   const { orgSlug, appSlug } = await resolveOrgAppSlug(creds, app);
   const url = `${creds.target.replace(/\/+$/, "")}/customer-apps/${orgSlug}/${appSlug}/fn/${encodeURIComponent(fn)}`;
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers = withUserAgent({ "content-type": "application/json" });
   if (creds.bearer) headers.authorization = `Bearer ${creds.bearer}`;
   if (creds.apiKey) headers["x-api-key"] = creds.apiKey;
   if (!isProduction(appEnv)) headers[APP_ENV_HEADER] = appEnv as string;
@@ -220,14 +262,7 @@ export async function fnCall(
   const invocationId = response.headers.get("x-oxy-invocation-id") ?? undefined;
   const environment = appEnv ?? "production";
 
-  if (!response.ok) {
-    const text = await response.text();
-    const parsed = parseJson(text) as { error?: string; message?: string } | undefined;
-    throw new CliError(parsed?.message ?? `${response.status} ${response.statusText} — ${url}`, {
-      code: exitCodeForStatus(response.status),
-      detail: text.trim() || undefined
-    });
-  }
+  if (!response.ok) throw fnRefused(response, await response.text(), url, creds);
 
   const streamed = parseFunctionStream(await response.text());
   return { function: fn, environment, invocationId, ...streamed };

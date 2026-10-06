@@ -155,6 +155,9 @@ const roleOf = (g: Grant) => ROLE_LABELS[g.role_ceiling ?? "owner"];
 
 function describeGrant(g: Grant): string {
   if (g.kind === "app_publish") return `Publish ${g.app_name ?? "an app"}`;
+  // A sandbox agent token's grant. Before the workspace reading: its `workspace_id` is `null`
+  // too, and it is nothing like "every workspace".
+  if (g.kind === "app_sandbox") return `Sandboxes of ${g.app_name ?? "an app"}`;
   if (g.workspace_id === null) return `Every workspace, as ${roleOf(g)}`;
   return `${g.workspace_name ?? "A workspace"} as ${roleOf(g)}`;
 }
@@ -185,6 +188,10 @@ export function describeAccess(grants: Grant[]): AccessDescription {
 
   if (apps.length === 1) parts.push(describeGrant(apps[0]));
   else if (apps.length > 1) parts.push(`Publish ${apps.length} apps`);
+
+  const sandboxes = active.filter((g) => g.kind === "app_sandbox");
+  if (sandboxes.length === 1) parts.push(describeGrant(sandboxes[0]));
+  else if (sandboxes.length > 1) parts.push(`Sandboxes of ${sandboxes.length} apps`);
 
   const [first, ...rest] = parts;
   const summary = [first, ...rest.map((p) => p.charAt(0).toLowerCase() + p.slice(1))].join(" and ");

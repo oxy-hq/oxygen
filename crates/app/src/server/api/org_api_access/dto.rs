@@ -195,6 +195,8 @@ mod tests {
             role_ceiling: Some("member".into()),
             app_id: None,
             app_name: None,
+            org_slug: None,
+            app_slug: None,
             revoked_at: None,
         }
     }

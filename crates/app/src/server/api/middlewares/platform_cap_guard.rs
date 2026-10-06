@@ -67,14 +67,12 @@ async fn enforce_cap(
     // Both halves are read for the CALLER — the user and the credential the request
     // arrived with — so an API token that does not carry platform standing is not
     // staff here, whoever its bearer is.
-    let caller = Caller::from_user(&user);
+    let caller = Caller::of_request(request.extensions(), &user);
     let is_owner = globals::is_global_owner(&caller);
     let legacy = is_owner || is_oxy_app_admin(&caller).await;
 
     let facts = match oxy::database::client::establish_connection().await {
-        Ok(db) => {
-            loader::load_platform_facts(&db, &crate::server::authz::Caller::from_user(&user)).await
-        }
+        Ok(db) => loader::load_platform_facts(&db, &caller).await,
         Err(e) => {
             tracing::error!(
                 target: "authz",

@@ -53,6 +53,7 @@
 //! production's for a `shared` key (`inherits_production`). Neither is missing.
 //! A sandbox's teardown removes its whole path ([`delete_environment_secrets`]).
 
+mod agent;
 pub(crate) mod declared;
 pub mod environment;
 mod ops;
@@ -431,6 +432,12 @@ pub async fn admin_reveal(
 ) -> Result<Json<RevealResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
+    // A sandbox agent token never reads a secret's value, in any environment
+    // — its own sandbox included. The route allow-list does not admit this
+    // route; this holds if that list is ever loosened.
+    if agent::token_of(&actor.user).is_some() {
+        return Err((StatusCode::NOT_FOUND, "secret not found".to_string()));
+    }
     let caller = Caller::of(&actor.user, &marker);
     let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
     ops::reveal(&db, &app, &environment, &key, &actor).await

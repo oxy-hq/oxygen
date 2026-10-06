@@ -46,7 +46,8 @@ const NameEditor: React.FC<EditorProps> = ({ token, onDone }) => {
   };
 
   return (
-    <div className='flex flex-col gap-1'>
+    // Wider than the name's column: it lies over the cells beside it while it is open.
+    <div className='relative z-10 ml-1 flex w-max flex-col gap-1 bg-background pr-2'>
       <div className='flex items-center gap-1'>
         <Input
           value={name}
@@ -124,7 +125,8 @@ const TokenName: React.FC<Props> = ({ token, editable }) => {
           variant='ghost'
           size='icon'
           // Quiet until the row is pointed at or tabbed to; always shown where there is no hover.
-          className='size-6 shrink-0 text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100'
+          // It takes no width until then, so a name has the whole of its narrow column.
+          className='h-6 w-0 min-w-0 shrink-0 overflow-hidden p-0 text-muted-foreground opacity-0 focus-visible:w-6 focus-visible:opacity-100 group-hover/row:w-6 group-hover/row:opacity-100 [@media(hover:none)]:w-6 [@media(hover:none)]:opacity-100'
           onClick={() => setEditing(true)}
           title='Rename'
           aria-label={`Rename ${token.name}`}

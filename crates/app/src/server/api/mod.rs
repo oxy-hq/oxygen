@@ -14,6 +14,10 @@ pub mod compile;
 pub mod compile_staging;
 pub mod compiled_reader;
 pub mod custom_apps_activity;
+pub(crate) mod custom_apps_agent;
+#[cfg(test)]
+pub(crate) mod custom_apps_agent_fixture;
+pub mod custom_apps_agent_refusal;
 pub mod custom_apps_asset_manifest;
 pub mod custom_apps_auth;
 pub mod custom_apps_availability;
@@ -32,11 +36,16 @@ pub mod custom_apps_html_cache;
 pub mod custom_apps_logs;
 pub mod custom_apps_manifest;
 pub mod custom_apps_migrations;
+pub mod custom_apps_non_production;
 pub mod custom_apps_nonproduction;
 pub mod custom_apps_precompress;
 pub mod custom_apps_publish;
+/// The audit row of a bundle publish, and what one says of a publish token.
+pub(crate) mod custom_apps_publish_audit;
 pub mod custom_apps_publish_authz;
 pub mod custom_apps_publish_oidc;
+pub mod custom_apps_publish_refusal;
+pub(crate) mod custom_apps_sandbox_instance;
 pub mod custom_apps_sandboxes;
 pub mod custom_apps_scaffold;
 pub mod custom_apps_secrets;

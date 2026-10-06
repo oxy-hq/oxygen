@@ -28,6 +28,7 @@ fn credential(token_id: Uuid) -> CredentialContext {
         service_account: None,
         grants: Vec::new(),
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
     }
 }
 

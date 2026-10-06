@@ -17,6 +17,7 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use entity::{apps, organizations, users, workspaces};
 use oxy_app::server::api::admin::apps::handlers::{create_app, update_app};
+use oxy_app::server::api::custom_apps_agent_refusal::RefuseSandboxAgent;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait};
@@ -122,7 +123,7 @@ async fn patch(
     body: serde_json::Value,
 ) -> Result<(Uuid, String), (StatusCode, String)> {
     let req = serde_json::from_value(body).expect("a valid UpdateAppRequest body");
-    update_app(actor(f), Path(f.app_id), Json(req))
+    update_app(RefuseSandboxAgent, actor(f), Path(f.app_id), Json(req))
         .await
         .map(|Json(resp)| (resp.project_id, resp.name))
         .map_err(|(status, Json(err))| (status, err.message))
@@ -159,7 +160,7 @@ async fn create(
         "scaffold_pr": false,
     }))
     .expect("a valid CreateAppRequest body");
-    create_app(actor(f), Json(req))
+    create_app(RefuseSandboxAgent, actor(f), Json(req))
         .await
         .map(|Json(resp)| (resp.id, resp.project_id))
         .map_err(|(status, Json(err))| (status, err.message))

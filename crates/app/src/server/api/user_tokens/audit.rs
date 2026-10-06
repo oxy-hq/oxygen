@@ -42,6 +42,9 @@ pub(crate) const GRANTS_CHANGED: &str = "token.grants_changed";
 pub(crate) const GRANT_REVOKED_BY_ORG: &str = "token.grant_revoked_by_org";
 /// The sweeper expired a new-format token nobody used for a year.
 pub(crate) const EXPIRED_UNUSED: &str = "token.expired_unused";
+/// The sandbox sweep queued the teardown of the sandboxes an ended sandbox
+/// agent token left behind (`super::sandboxes_queued`).
+pub(crate) const EXPIRED_SANDBOXES_QUEUED: &str = "token.expired_sandboxes_queued";
 
 /// The orgs a token reaches, sorted and distinct. `grants` are its rows; only
 /// live ones reach anything.
@@ -134,17 +137,33 @@ impl Event<'_> {
     /// The event's rows, each started from `base` — the request's actor, or
     /// for a row no request wrote, the system (`super::system_audit`).
     pub(crate) fn entries_from(&self, base: impl Fn() -> AuditEntry) -> Vec<AuditEntry> {
-        let metadata = self.metadata(Uuid::new_v4());
+        self.entries_with(base, |_| Value::Null)
+    }
+
+    /// [`Self::entries_from`], with what `own` answers for a row's org merged
+    /// over that row's metadata alone. For an event whose detail belongs to
+    /// one org and must not be read on another's chain; the rows still share
+    /// one `event_id`. An `own` that answers no object changes nothing.
+    pub(crate) fn entries_with(
+        &self,
+        base: impl Fn() -> AuditEntry,
+        own: impl Fn(Option<Uuid>) -> Value,
+    ) -> Vec<AuditEntry> {
+        let shared = self.metadata(Uuid::new_v4());
         self.row_orgs()
             .into_iter()
             .map(|org| {
+                let mut metadata = shared.clone();
+                if let (Value::Object(row), Value::Object(own)) = (&mut metadata, own(org)) {
+                    row.extend(own);
+                }
                 let mut entry = base()
                     .target(
                         TOKEN_TARGET_TYPE,
                         self.token.id.to_string(),
                         self.token.name.clone(),
                     )
-                    .metadata(metadata.clone());
+                    .metadata(metadata);
                 if let Some((before, after)) = &self.change {
                     entry = entry.change(before.clone(), after.clone());
                 }

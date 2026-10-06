@@ -52,6 +52,8 @@ fn names() -> Names {
         orgs: [(id(10), "Acme".to_string())].into(),
         workspaces: [(id(20), "Default".to_string())].into(),
         apps: [(id(30), "Store Ops".to_string())].into(),
+        org_slugs: [(id(10), "acme".to_string())].into(),
+        app_slugs: [(id(30), "store-ops".to_string())].into(),
     }
 }
 
@@ -130,6 +132,53 @@ fn an_app_publish_grant_names_its_app_and_no_ceiling() {
     assert_eq!(out.grants[0].kind, "app_publish");
     assert_eq!(out.grants[0].role_ceiling, None);
     assert_eq!(out.grants[0].app_name.as_deref(), Some("Store Ops"));
+}
+
+/// A sandbox agent token's grant names its app the way a person and `oxyc`
+/// do, `acme/store-ops`: the org's and the app's slugs ride the grant, beside
+/// their names. No other kind carries the two fields at all.
+#[test]
+fn an_app_sandbox_grant_carries_its_orgs_and_apps_slugs() {
+    let mut row = token("sandbox_agent", None);
+    row.all_access = false;
+    let sandbox = api_token_grants::Model {
+        kind: api_token_grants::KIND_APP_SANDBOX.into(),
+        role_ceiling: None,
+        app_id: Some(id(30)),
+        ..grant(7, None)
+    };
+    let publish = api_token_grants::Model {
+        kind: api_token_grants::KIND_APP_PUBLISH.into(),
+        role_ceiling: None,
+        app_id: Some(id(30)),
+        ..grant(8, None)
+    };
+    let out = dto(&row, &[sandbox.clone(), publish, grant(9, Some(20))]);
+    assert_eq!(out.grants[0].kind, "app_sandbox");
+    assert_eq!(out.grants[0].org_slug.as_deref(), Some("acme"));
+    assert_eq!(out.grants[0].app_slug.as_deref(), Some("store-ops"));
+    assert_eq!(out.grants[0].app_name.as_deref(), Some("Store Ops"));
+    let wire = serde_json::to_value(&out).unwrap();
+    assert_eq!(wire["grants"][0]["org_slug"], "acme");
+    assert_eq!(wire["grants"][0]["app_slug"], "store-ops");
+    for other in [1, 2] {
+        let grant = &wire["grants"][other];
+        assert!(
+            grant.get("org_slug").is_none() && grant.get("app_slug").is_none(),
+            "{grant}"
+        );
+    }
+
+    // An app deleted since the grant was made: its slug reads as its name
+    // does, empty and present.
+    let gone = api_token_grants::Model {
+        app_id: Some(id(31)),
+        ..sandbox
+    };
+    let out = dto(&row, &[gone]);
+    assert_eq!(out.grants[0].app_name.as_deref(), Some(""));
+    assert_eq!(out.grants[0].app_slug.as_deref(), Some(""));
+    assert_eq!(out.grants[0].org_slug.as_deref(), Some("acme"));
 }
 
 #[test]

@@ -3,10 +3,13 @@
 //! the row that says who changed it. The credential cache is invalidated after
 //! the commit, which bounds how long another pod honours the old state.
 //!
-//! These routes serve **personal access tokens only**. A legacy API key is not
-//! a token: its id is a 404 here, and it is managed through the legacy routes
-//! (`/api/{workspace_id}/api-keys`). The one caller that still hands a legacy
-//! row to [`revoke`] is refused before it gets here (`introspect.rs`).
+//! These routes serve the tokens a person owns directly: their **personal
+//! access tokens**, and the **sandbox agent tokens** they minted — which are
+//! listed, read and revoked here and never edited (`sandbox.rs`). A legacy API
+//! key is not a token: its id is a 404 here, and it is managed through the
+//! legacy routes (`/api/{workspace_id}/api-keys`). The one caller that still
+//! hands a legacy row to [`revoke`] is refused before it gets here
+//! (`introspect.rs`).
 
 use std::collections::HashMap;
 
@@ -26,7 +29,7 @@ use uuid::Uuid;
 use super::audit::{self, Event};
 use super::dto::TokenDto;
 use super::error::TokenError;
-use super::{policy_cap, reach, view};
+use super::{policy_cap, reach, sandbox, view};
 use crate::server::api::api_keys::activity::{ActivityResponse, last_used_at, token_activity};
 use crate::server::authz;
 
@@ -153,6 +156,7 @@ pub(super) async fn patch(
     body: PatchBody,
 ) -> Result<TokenDto, TokenError> {
     let row = owned(db, id, actor.id).await?;
+    sandbox::refuse_edit(&row)?;
     if row.revoked_at.is_some() {
         return Err(TokenError::Revoked);
     }
@@ -240,6 +244,7 @@ pub(super) async fn extend(
     target: ExtendTo,
 ) -> Result<TokenDto, TokenError> {
     let row = owned(db, id, actor.id).await?;
+    sandbox::refuse_edit(&row)?;
     let previous = row.expires_at;
     let txn = db.begin().await?;
     if row.revoked_at.is_some() {
@@ -273,6 +278,7 @@ pub(super) async fn regenerate(
     id: Uuid,
 ) -> Result<Minted, TokenError> {
     let row = owned(db, id, actor.id).await?;
+    sandbox::refuse_edit(&row)?;
     if row.revoked_at.is_some() {
         return Err(TokenError::Revoked);
     }

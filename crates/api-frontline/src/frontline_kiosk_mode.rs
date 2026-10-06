@@ -185,7 +185,7 @@ fn left_response(secure: bool) -> Response {
 /// carries no `Authorization` header. Reads only.
 pub(crate) async fn signed_in_account(headers: &HeaderMap) -> Option<String> {
     extract_session_cookie(headers)?;
-    let identity = BuiltInAuthenticator::new()
+    let identity = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
         .authenticate(headers)
         .await
         .ok()?;

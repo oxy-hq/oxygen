@@ -15,9 +15,9 @@
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::uri::PathAndQuery;
-use axum::http::{HeaderName, HeaderValue, Uri};
+use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use oxy_auth::constants::DEFAULT_API_KEY_HEADER;
 
 pub async fn api_key_query_middleware(mut request: Request<Body>, next: Next) -> Response {
@@ -30,6 +30,13 @@ pub async fn api_key_query_middleware(mut request: Request<Body>, next: Next) ->
     let Some(api_key) = extract_api_key(&query) else {
         return next.run(request).await;
     };
+    // A sandbox agent token never travels in a URL: it is not promoted, and
+    // the request is refused here whatever else it carries (sandbox agent
+    // credential design §3.1). The value is left out of the log.
+    if api_key.starts_with(oxy_auth::token::format::SBX_PREFIX) {
+        tracing::warn!("sandbox agent token presented as ?api_key= — 401");
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
 
     // Promote the value into the X-API-Key header (an explicit header wins).
     if !request.headers().contains_key(&header_name)

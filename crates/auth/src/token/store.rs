@@ -26,10 +26,11 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::credential::{
-    AccountLink, CredentialContext, LegacyLink, Links, StoredKind, admit, source,
+    AccountLink, CredentialContext, LegacyLink, Links, StoredKind, admit, place_sandbox_apps,
+    source,
 };
 use super::format::{TokenFormat, display_prefix, hash_token};
-use super::policy_store;
+use super::{policy_store, sandbox};
 use crate::api_key_infra::{identity_for_key_owner, identity_for_service_account};
 use crate::types::Identity;
 
@@ -89,7 +90,7 @@ async fn find_by_hash(
         .map_err(db_err("api token lookup"))
 }
 
-async fn resolve_row(
+pub(super) async fn resolve_row(
     db: &DatabaseConnection,
     row: api_tokens::Model,
     presented: TokenFormat,
@@ -102,6 +103,12 @@ async fn resolve_row(
     let mut credential = admit(&row, &grants, presented, links, Utc::now()).map_err(invalid)?;
     if !credential.is_legacy() {
         block_by_policy(db, &row, &grants, &mut credential).await?;
+    }
+    if credential.is_sandbox_agent() {
+        // Its workspace grants, from where each app it names lives now. One
+        // read, for this kind only; a failed one fails the token closed.
+        let homes = sandbox::app_homes(db, &credential.app_sandbox).await?;
+        place_sandbox_apps(&mut credential, &homes);
     }
     let identity = if credential.is_service_account() {
         identity_for_service_account(db, row.principal_user_id).await?
@@ -273,6 +280,7 @@ fn legacy_credential(api_key: &api_keys::Model) -> CredentialContext {
         blocked_orgs: Vec::new(),
         service_account: None,
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
         expires_at: api_key.expires_at.map(DateTime::<Utc>::from),
     }
 }

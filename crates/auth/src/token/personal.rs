@@ -22,7 +22,10 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::credential::StoredKind;
-use super::format::{GeneratedToken, generate_ci, generate_personal, generate_service_account};
+use super::format::{
+    GeneratedToken, generate_ci, generate_personal, generate_sandbox_agent,
+    generate_service_account,
+};
 use super::grant_plan::GrantPlan;
 use super::grant_row::GrantRow;
 
@@ -70,6 +73,7 @@ pub(super) fn generate_for(kind: &str) -> GeneratedToken {
     match StoredKind::parse(kind) {
         Some(StoredKind::ServiceAccount) => generate_service_account(),
         Some(StoredKind::Ci) => generate_ci(),
+        Some(StoredKind::SandboxAgent) => generate_sandbox_agent(),
         _ => generate_personal(),
     }
 }
@@ -179,23 +183,29 @@ pub async fn grants_for<C: ConnectionTrait>(
         .map_err(db_err("api token grants lookup"))
 }
 
-/// True for a row the token routes serve: a personal token that mirrors no
-/// `api_keys` row. A legacy API key is never one — it has its own routes
-/// (`/api/{workspace_id}/api-keys`) and its own section in the UI.
-fn is_personal_token(row: &api_tokens::Model) -> bool {
-    row.kind == StoredKind::Personal.as_str() && row.legacy_api_key_id.is_none()
+/// The kinds a person owns directly and manages on the token routes: their
+/// personal tokens, and the sandbox agent tokens they minted.
+const OWNED_KINDS: [StoredKind; 2] = [StoredKind::Personal, StoredKind::SandboxAgent];
+
+/// True for a row the token routes serve: a personal token or a sandbox agent
+/// token that mirrors no `api_keys` row. A legacy API key is never one — it
+/// has its own routes (`/api/{workspace_id}/api-keys`) and its own section in
+/// the UI.
+fn is_owned_token(row: &api_tokens::Model) -> bool {
+    row.legacy_api_key_id.is_none()
+        && StoredKind::parse(&row.kind).is_some_and(|kind| OWNED_KINDS.contains(&kind))
 }
 
-/// The user's personal access tokens, newest first — revoked ones included,
-/// so a revoked token keeps its row and its Activity. Legacy API keys are not
-/// tokens and are never listed here.
+/// The user's personal access tokens and sandbox agent tokens, newest first —
+/// revoked ones included, so a revoked token keeps its row and its Activity.
+/// Legacy API keys are not tokens and are never listed here.
 pub async fn list_owned<C: ConnectionTrait>(
     db: &C,
     user_id: Uuid,
 ) -> Result<Vec<api_tokens::Model>, OxyError> {
     ApiTokens::find()
         .filter(api_tokens::Column::PrincipalUserId.eq(user_id))
-        .filter(api_tokens::Column::Kind.eq(StoredKind::Personal.as_str()))
+        .filter(api_tokens::Column::Kind.is_in(OWNED_KINDS.map(StoredKind::as_str)))
         .filter(api_tokens::Column::LegacyApiKeyId.is_null())
         .order_by_desc(api_tokens::Column::CreatedAt)
         .order_by_desc(api_tokens::Column::Id)
@@ -204,9 +214,9 @@ pub async fn list_owned<C: ConnectionTrait>(
         .map_err(db_err("list api tokens"))
 }
 
-/// The caller's own personal token, revoked or not. `None` when it does not
-/// exist, is someone else's, is a legacy API key, or is of a kind a user does
-/// not own directly — all indistinguishable on purpose.
+/// The caller's own personal or sandbox agent token, revoked or not. `None`
+/// when it does not exist, is someone else's, is a legacy API key, or is of a
+/// kind a user does not own directly — all indistinguishable on purpose.
 pub async fn find_owned<C: ConnectionTrait>(
     db: &C,
     token_id: Uuid,
@@ -216,7 +226,7 @@ pub async fn find_owned<C: ConnectionTrait>(
         .one(db)
         .await
         .map_err(db_err("api token lookup"))?
-        .filter(|t| t.principal_user_id == user_id && is_personal_token(t)))
+        .filter(|t| t.principal_user_id == user_id && is_owned_token(t)))
 }
 
 /// What an edit may change on a personal token.

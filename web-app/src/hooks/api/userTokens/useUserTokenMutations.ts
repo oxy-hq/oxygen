@@ -2,13 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UserTokenService } from "@/services/api/apiToken";
 import type {
+  CreateSandboxAgentTokenRequest,
   CreateTokenRequest,
   Token,
   TokenWithSecret,
   UpdateTokenRequest
 } from "@/types/apiToken";
 import queryKeys from "../queryKey";
-import { isStaleTokenError, tokenErrorMessage } from "./tokenErrors";
+import { isStaleTokenError, isUnavailableAppError, tokenErrorMessage } from "./tokenErrors";
 
 /** A personal token also shows in the inventory of every workspace it reaches: `apiKey.all`. */
 const useInvalidateTokenLists = () => {
@@ -29,6 +30,25 @@ export const useCreateUserToken = () => {
     mutationFn: (request) => UserTokenService.create(request),
     onSuccess: invalidate,
     onError: (error) => toast.error(tokenErrorMessage(error, "create"))
+  });
+};
+
+/**
+ * Mint a sandbox agent token. As with create, the caller shows the secret. It shows a refusal
+ * too, beside the apps it is about, so this hook toasts nothing. A 404 `app_not_found` means
+ * the apps on offer are out of date, so they are read again.
+ */
+export const useCreateSandboxAgentToken = () => {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateTokenLists();
+  return useMutation<TokenWithSecret, Error, CreateSandboxAgentTokenRequest>({
+    mutationFn: (request) => UserTokenService.create(request),
+    onSuccess: invalidate,
+    onError: (error) => {
+      if (isUnavailableAppError(error)) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.userToken.options() });
+      }
+    }
   });
 };
 

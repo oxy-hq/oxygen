@@ -2,6 +2,7 @@ import type { ApiKeyActivityResponse } from "@/types/apiKey";
 import type {
   CliAuthorizeRequest,
   CliAuthorizeResponse,
+  CreateSandboxAgentTokenRequest,
   CreateTokenRequest,
   ExtendBody,
   Token,
@@ -14,8 +15,10 @@ import type {
 import { apiClient } from "./axios";
 
 /**
- * The caller's own personal access tokens. Every route needs a browser session. A legacy API
- * key is not a token: it is never listed here, and its id answers 404 on these routes.
+ * The caller's own personal access tokens, and the sandbox agent tokens they minted. Every route
+ * needs a browser session. A legacy API key is not a token: it is never listed here, and its id
+ * answers 404 on these routes. A sandbox agent token is fixed once minted: `update`, `extend`
+ * and `regenerate` answer 409 `sandbox_token_fixed` for one.
  */
 export const UserTokenService = {
   async list(): Promise<UserTokenListResponse> {
@@ -23,7 +26,10 @@ export const UserTokenService = {
     return response.data;
   },
 
-  async create(request: CreateTokenRequest): Promise<TokenWithSecret> {
+  /** One route mints both: a body with `kind: "sandbox_agent"` is a sandbox agent token. */
+  async create(
+    request: CreateTokenRequest | CreateSandboxAgentTokenRequest
+  ): Promise<TokenWithSecret> {
     const response = await apiClient.post<TokenWithSecret>("/user/tokens", request);
     return response.data;
   },
@@ -75,7 +81,10 @@ export const WorkspaceTokenService = {
   }
 };
 
-/** The browser half of `oxyc login`: trade the session for a single-use code. */
+/**
+ * The browser half of an oxyc PKCE flow: trade the session for a single-use code. With `mint`,
+ * the code yields a sandbox agent token instead of a login.
+ */
 export const CliAuthService = {
   async authorize(request: CliAuthorizeRequest): Promise<CliAuthorizeResponse> {
     const response = await apiClient.post<CliAuthorizeResponse>("/auth/cli/authorize", request);

@@ -55,6 +55,12 @@ pub(super) async fn authorize(
     user: &AuthenticatedUser,
     environment: &AppEnvironment,
 ) -> Result<(), Failure> {
+    // Asked first: production passes for everyone below, and it is not a
+    // sandbox agent token's. The token reaches the secrets of a sandbox it
+    // created, and is told any other environment does not exist.
+    if super::agent::token_of(user).is_some() {
+        return super::agent::authorize(db, app, user, environment).await;
+    }
     if *environment == AppEnvironment::Production {
         return Ok(());
     }

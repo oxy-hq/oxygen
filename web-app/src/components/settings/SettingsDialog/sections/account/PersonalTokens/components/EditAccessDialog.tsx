@@ -67,7 +67,7 @@ const EditAccessDialog: React.FC<Props> = ({ token, open, onOpenChange }) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className='max-h-dvh overflow-y-auto sm:max-w-xl'
+        className='max-h-dvh overflow-y-auto sm:max-w-160'
         data-testid='account-token-edit-dialog'
       >
         <DialogHeader>
@@ -78,7 +78,7 @@ const EditAccessDialog: React.FC<Props> = ({ token, open, onOpenChange }) => {
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className='flex min-w-0 flex-col gap-5'>
+        <form onSubmit={handleSubmit} className='flex min-w-0 flex-col gap-3 text-sm'>
           <AccessFields
             draft={draft}
             dispatch={dispatch}

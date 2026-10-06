@@ -35,6 +35,7 @@ import { runChecks } from "./commands/checks.js";
 import { runList, runPath } from "./commands/customers.js";
 import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./commands/env.js";
+import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
 import { runFnCall } from "./commands/fn.js";
 import { runGuide } from "./commands/guide.js";
 import { runInitCi } from "./commands/init-ci.js";
@@ -57,6 +58,7 @@ import { runImport, runNew, runRemove } from "./commands/registry.js";
 import { runRepos } from "./commands/repos.js";
 import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
 import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
+import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
 import { runValidate } from "./commands/validate.js";
 import { runAdopt, runDoctor, runUpdate } from "./commands/workspace.js";
 import { createContext, type GlobalFlags } from "./context/resolve.js";
@@ -72,7 +74,13 @@ function withGlobals(command: Command): Command {
     command
       .option("--env <name|url>", "environment or URL to target", "production")
       .option("--target <url>", "explicit base URL; overrides --env")
-      .option("--token-env <VAR>", "env var holding the bearer: any credential", "OXY_TOKEN")
+      // NO COMMANDER DEFAULT, on purpose: `createContext` has to tell "named
+      // a variable" from "said nothing", because naming one turns the login
+      // cache off as a fallback. A default here would make every run look named.
+      .option(
+        "--token-env <VAR>",
+        "env var holding the bearer (default: OXY_TOKEN). Named, it is the only source: unset is an auth error, never your login"
+      )
       .option(
         "--api-key-env <VAR>",
         "env var holding the legacy API key or API token for /external/api",
@@ -440,16 +448,73 @@ function buildProgram(): Command {
   withGlobals(
     tokens
       .command("revoke")
-      .argument("<id>", "the token's id, from `oxyc tokens list`")
-      .description("revoke one of your tokens (needs a browser-session login)")
-  ).action(async (id: string, opts: Record<string, unknown>) => {
-    await runTokensRevoke(createContext(globals(opts)), id);
+      .argument("[id]", "the token's id, from `oxyc tokens list`")
+      .description(
+        "revoke one of your tokens by id (needs a browser-session login), or --current: the one in use"
+      )
+      .option("--current", "revoke the token this command is running with (OXY_TOKEN)")
+  ).action(async (id: string | undefined, opts: Record<string, unknown>) => {
+    const ctx = createContext(globals(opts));
+    if (opts.current) {
+      if (id !== undefined) {
+        throw usageError("pass an <id> or --current, not both", "--current is the token in use");
+      }
+      await runTokensRevokeCurrent(ctx);
+      return;
+    }
+    if (id === undefined) {
+      throw usageError(
+        "oxyc tokens revoke needs an <id>, or --current",
+        "`oxyc tokens list` shows the ids; --current ends the token this command runs with"
+      );
+    }
+    await runTokensRevoke(ctx, id);
   });
 
   withGlobals(
-    tokens.command("create").description("open Account → Personal access tokens in the browser")
-  ).action((opts: Record<string, unknown>) => {
-    runTokensCreate(createContext(globals(opts)));
+    tokens
+      .command("create")
+      .description(
+        "open Account → Personal access tokens in the browser — or, with --sandbox-agent, mint an agent's token"
+      )
+      .option(
+        "--sandbox-agent",
+        "mint a sandbox agent token (oxy_sbx_…): approved once in the browser, printed as `export OXY_TOKEN=…`"
+      )
+      .option("--app <org>/<app>", "with --sandbox-agent: an app it reaches (1 to 5)", collect, [])
+      .option("--hours <n>", "with --sandbox-agent: its lifetime, 1 to 168 (default 8)")
+      .option(
+        "--name <label>",
+        "with --sandbox-agent: its name in the token list and the audit log"
+      )
+      .addHelpText(
+        "after",
+        "\nA sandbox agent token does the sandbox loop on the named apps and nothing else:\n" +
+          "create up to three dev-<handle> sandboxes, publish into them, call their functions,\n" +
+          "run their checks, read them back, set their secrets, delete them. It is never\n" +
+          "stored on this machine and it revokes no other token.\n\n" +
+          '    eval "$(oxyc tokens create --sandbox-agent --app acme/store --env dev)"\n'
+      )
+  ).action(async (opts: Record<string, unknown>) => {
+    const ctx = createContext(globals(opts));
+    const apps = opts.app as string[];
+    if (opts.sandboxAgent) {
+      await runTokensCreateSandboxAgent(ctx, {
+        apps,
+        hours: opts.hours as string | undefined,
+        name: opts.name as string | undefined
+      });
+      return;
+    }
+    // The three flags mean nothing without it, and silently opening the page
+    // would look like the mint had been asked for.
+    if (apps.length > 0 || opts.hours !== undefined || opts.name !== undefined) {
+      throw usageError(
+        "--app, --hours and --name are only valid with --sandbox-agent",
+        "plain `oxyc tokens create` opens the page that creates a personal access token"
+      );
+    }
+    runTokensCreate(ctx);
   });
 
   const checks = program
@@ -509,6 +574,53 @@ function buildProgram(): Command {
       yes: opts.yes as boolean | undefined,
       waitSeconds:
         opts.wait === undefined ? undefined : opts.wait === true ? 120 : Number(opts.wait),
+      json: Boolean(opts.json)
+    });
+  });
+
+  const envSecret = env
+    .command("secret")
+    .description("a sandbox's own secrets — keys and flags, set, delete; never a value");
+  withGlobals(
+    envSecret
+      .command("list <app>")
+      .description("the sandbox's secret keys: which are set, required, or read from staging")
+      .requiredOption("--app-env <environment>", "the dev-<handle> sandbox")
+      .option("--json", "emit the server's list as JSON")
+  ).action(async (app: string, opts: Record<string, unknown>) => {
+    await runEnvSecretList(createContext(globals(opts)), app, {
+      appEnv: opts.appEnv as string | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    envSecret
+      .command("set <app> <key>")
+      .description("set one secret in the sandbox, e.g. a third party's sandbox key")
+      .requiredOption("--app-env <environment>", "the dev-<handle> sandbox")
+      .option("--value <text>", "the value")
+      .option(
+        "--value-env <VAR>",
+        "read the value from this env var, keeping it off the command line"
+      )
+      .option("--json", "emit {key, environment, status} as JSON")
+  ).action(async (app: string, key: string, opts: Record<string, unknown>) => {
+    await runEnvSecretSet(createContext(globals(opts)), app, key, {
+      appEnv: opts.appEnv as string | undefined,
+      value: opts.value as string | undefined,
+      valueEnv: opts.valueEnv as string | undefined,
+      json: Boolean(opts.json)
+    });
+  });
+  withGlobals(
+    envSecret
+      .command("delete <app> <key>")
+      .description("delete the sandbox's own value; reads fall back to staging's")
+      .requiredOption("--app-env <environment>", "the dev-<handle> sandbox")
+      .option("--json", "emit {key, environment, status} as JSON")
+  ).action(async (app: string, key: string, opts: Record<string, unknown>) => {
+    await runEnvSecretDelete(createContext(globals(opts)), app, key, {
+      appEnv: opts.appEnv as string | undefined,
       json: Boolean(opts.json)
     });
   });
@@ -1014,8 +1126,8 @@ function buildProgram(): Command {
         "\n--org takes a slug or a UUID (default: OXY_ORG, then oxy-app.json orgSlug, then\n" +
           "the apps/<org>/<app>/ directory). --project pins the workspace; otherwise it is\n" +
           "resolved from the target. .env.local and .env are loaded without overriding.\n" +
-          "\nAuth: the --token-env variable, then `oxyc login`'s cache — or, in a GitHub\n" +
-          "Actions job with `id-token: write` and neither, the job's OIDC identity: a\n" +
+          "\nAuth: OXY_TOKEN, then `oxyc login`'s cache — or, in a GitHub Actions job\n" +
+          "with `id-token: write` and neither, the job's OIDC identity: a\n" +
           "service account's trust policy first, then the app's registered publisher.\n" +
           "\nBefore the build, each Oxy Function's source is linted for what the host refuses\n" +
           "at the first call: a `ctx.*` call whose capability the manifest lacks, a global\n" +
@@ -1115,15 +1227,30 @@ function buildProgram(): Command {
     program
       .command("mcp")
       .description("serve the Oxy API as MCP tools over stdio, for an agent runtime")
+      .option(
+        "--login",
+        "serve on your own `oxyc login` when the token variable is unset (without it, unset is exit 4)"
+      )
       .addHelpText(
         "after",
         "\nFour tools — oxy_routes, oxy_schema, oxy_request, oxy_whoami — not one per\n" +
           "endpoint: an agent runtime ships every tool's schema on every turn, and ~670 of\n" +
           "them would cost tens of KB per request. Discovery stays a question the agent\n" +
           "asks, so this reaches endpoints added after the package was published.\n\n" +
-          "Claude Code:  claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --env production\n"
+          "The credential is OXY_TOKEN (or the --token-env variable) and nothing else: an\n" +
+          "agent must not inherit the login of whoever owns the machine. --login opts in.\n" +
+          "A sandbox agent token (oxy_sbx_…) is served the sandbox loop only.\n\n" +
+          "An agent, on its own token:  claude mcp add oxyc -e OXY_TOKEN=oxy_sbx_… -- npx -y @oxy-hq/cli mcp --env dev\n" +
+          "You, on your login:          claude mcp add oxyc -- npx -y @oxy-hq/cli mcp --login --env production\n"
       )
   ).action(async (opts: Record<string, unknown>) => {
+    const flags = globals(opts);
+    if (opts.login && flags.tokenEnv !== undefined) {
+      throw usageError(
+        "--login and --token-env cannot be combined",
+        "--token-env names the only place the bearer may come from; --login says your cached login may stand in"
+      );
+    }
     // IMPORTED HERE, not at the top. `@modelcontextprotocol/sdk` pulls in
     // express, ajv and zod, and a static import loads all of it on every
     // `oxyc` invocation — including `oxyc --help`. Worse, `zod` is a required
@@ -1137,7 +1264,7 @@ function buildProgram(): Command {
     // but make `oxyc mcp` fail at the import on a normal install, which is a
     // worse trade for the command an agent runtime is configured to start.
     const { runMcp } = await import("./commands/mcp.js");
-    await runMcp(createContext(globals(opts)));
+    await runMcp(createContext({ ...flags, requireTokenEnv: !opts.login }));
   });
 
   program

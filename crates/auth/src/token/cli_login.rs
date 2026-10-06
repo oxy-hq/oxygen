@@ -10,6 +10,20 @@
 //! Only the code's SHA-256 is stored. **Any** exchange attempt spends the
 //! code — a wrong verifier included — so a party that intercepted the code
 //! cannot guess at the verifier, and a replay finds nothing.
+//!
+//! ## A code that mints something else
+//!
+//! The same exchange mints a sandbox agent token when the browser asked for
+//! one ([`authorize_mint`]): the code then carries **what** it mints, and the
+//! handler mints that instead of the login token.
+//!
+//! Such a code is stored under a *different* hash — the code prefixed with
+//! [`MINT_DOMAIN`] — and that is a safety property, not tidiness. A binary one
+//! release back knows only the login hash and mints an all-access login token
+//! for any code it finds. Under its own hash a mint code is one that binary
+//! cannot find, so redeeming it there answers `invalid_code` instead of
+//! handing an agent its operator's whole reach. A row is honoured only under
+//! the hash its own `mint` column says it belongs to.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -19,6 +33,7 @@ use entity::prelude::CliAuthCodes;
 use oxy_shared::errors::OxyError;
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -31,6 +46,8 @@ const CHALLENGE_LEN: usize = 43;
 /// RFC 7636 bounds on a verifier.
 const VERIFIER_LEN: std::ops::RangeInclusive<usize> = 43..=128;
 const MAX_HOSTNAME_CHARS: usize = 255;
+/// What a mint code is prefixed with before it is hashed. See the module docs.
+const MINT_DOMAIN: &str = "oxy-cli-mint:";
 
 fn db_err(what: &'static str) -> impl FnOnce(sea_orm::DbErr) -> OxyError {
     move |e| OxyError::DBError(format!("{what}: {e}"))
@@ -74,25 +91,57 @@ fn hash_code(code: &str) -> Vec<u8> {
     Sha256::digest(code.as_bytes()).to_vec()
 }
 
-/// Issue a code for `user_id`, redeemable once against `code_challenge` until
-/// it expires. The caller has validated both inputs.
+/// The hash a **mint** code is stored under: never the one a login code is.
+fn hash_mint_code(code: &str) -> Vec<u8> {
+    Sha256::digest(format!("{MINT_DOMAIN}{code}").as_bytes()).to_vec()
+}
+
+/// Issue a login code for `user_id`, redeemable once against `code_challenge`
+/// until it expires. The caller has validated both inputs.
 pub async fn authorize<C: ConnectionTrait>(
     db: &C,
     user_id: Uuid,
     code_challenge: &str,
     hostname: &str,
 ) -> Result<String, OxyError> {
+    issue(db, user_id, code_challenge, hostname, None).await
+}
+
+/// Issue a code that mints `mint` instead of the login token — what the
+/// browser approved, already checked against what the session may mint.
+pub async fn authorize_mint<C: ConnectionTrait>(
+    db: &C,
+    user_id: Uuid,
+    code_challenge: &str,
+    hostname: &str,
+    mint: Value,
+) -> Result<String, OxyError> {
+    issue(db, user_id, code_challenge, hostname, Some(mint)).await
+}
+
+async fn issue<C: ConnectionTrait>(
+    db: &C,
+    user_id: Uuid,
+    code_challenge: &str,
+    hostname: &str,
+    mint: Option<Value>,
+) -> Result<String, OxyError> {
     let now = Utc::now();
     sweep(db, now).await;
     let code = URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>());
+    let code_hash = match mint {
+        Some(_) => hash_mint_code(&code),
+        None => hash_code(&code),
+    };
     cli_auth_codes::ActiveModel {
-        code_hash: Set(hash_code(&code)),
+        code_hash: Set(code_hash),
         user_id: Set(user_id),
         code_challenge: Set(code_challenge.to_string()),
         hostname: Set(hostname.to_string()),
         created_at: Set(now.fixed_offset()),
         expires_at: Set((now + Duration::seconds(CODE_TTL_SECS)).fixed_offset()),
         consumed_at: Set(None),
+        mint: Set(mint),
     }
     .insert(db)
     .await
@@ -112,26 +161,24 @@ async fn sweep<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) {
     }
 }
 
-/// Who a redeemed code belongs to, and the host it was issued for.
+/// Who a redeemed code belongs to, the host it was issued for, and what it
+/// mints when that is not the login token.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Redeemed {
     pub user_id: Uuid,
     pub hostname: String,
+    /// `None` for an `oxyc login` code.
+    pub mint: Option<Value>,
 }
 
-/// Redeem `code` with `code_verifier`. `Ok(None)` for every failure — an
-/// unknown code, a spent one, an expired one, a verifier that does not match —
-/// which the caller answers identically.
-///
-/// The code is marked spent **first**, in one conditional `UPDATE`, so two
-/// concurrent exchanges cannot both win and a failed attempt still burns it.
-pub async fn redeem<C: ConnectionTrait>(
+/// Mark the code stored under `hash` spent and return its row. `None` when
+/// there is no such unspent code. One conditional `UPDATE`, so two concurrent
+/// exchanges cannot both win.
+async fn spend<C: ConnectionTrait>(
     db: &C,
-    code: &str,
-    code_verifier: &str,
-) -> Result<Option<Redeemed>, OxyError> {
-    let hash = hash_code(code);
-    let now = Utc::now();
+    hash: Vec<u8>,
+    now: DateTime<Utc>,
+) -> Result<Option<cli_auth_codes::Model>, OxyError> {
     let spent = CliAuthCodes::update_many()
         .col_expr(
             cli_auth_codes::Column::ConsumedAt,
@@ -145,11 +192,40 @@ pub async fn redeem<C: ConnectionTrait>(
     if spent.rows_affected != 1 {
         return Ok(None);
     }
-    let Some(row) = CliAuthCodes::find_by_id(hash)
+    CliAuthCodes::find_by_id(hash)
         .one(db)
         .await
-        .map_err(db_err("read cli auth code"))?
-    else {
+        .map_err(db_err("read cli auth code"))
+}
+
+/// The row `code` names, spent: a login code under the login hash, or a mint
+/// code under the mint hash. A row whose `mint` disagrees with the hash it
+/// was found under is no code at all.
+async fn spend_code<C: ConnectionTrait>(
+    db: &C,
+    code: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<cli_auth_codes::Model>, OxyError> {
+    if let Some(row) = spend(db, hash_code(code), now).await? {
+        return Ok(row.mint.is_none().then_some(row));
+    }
+    let row = spend(db, hash_mint_code(code), now).await?;
+    Ok(row.filter(|row| row.mint.is_some()))
+}
+
+/// Redeem `code` with `code_verifier`. `Ok(None)` for every failure — an
+/// unknown code, a spent one, an expired one, a verifier that does not match —
+/// which the caller answers identically.
+///
+/// The code is marked spent **first**, in one conditional `UPDATE`, so two
+/// concurrent exchanges cannot both win and a failed attempt still burns it.
+pub async fn redeem<C: ConnectionTrait>(
+    db: &C,
+    code: &str,
+    code_verifier: &str,
+) -> Result<Option<Redeemed>, OxyError> {
+    let now = Utc::now();
+    let Some(row) = spend_code(db, code, now).await? else {
         return Ok(None);
     };
     let live = DateTime::<Utc>::from(row.expires_at) > now;
@@ -161,6 +237,7 @@ pub async fn redeem<C: ConnectionTrait>(
     Ok(Some(Redeemed {
         user_id: row.user_id,
         hostname: row.hostname,
+        mint: row.mint,
     }))
 }
 
@@ -191,6 +268,16 @@ mod tests {
         ] {
             assert_eq!(clean_challenge(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_mint_code_is_stored_under_a_hash_a_login_lookup_never_computes() {
+        // The property a binary one release back depends on: it looks a code
+        // up by `hash_code` alone, so it must not find a mint code.
+        let code = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        assert_ne!(hash_code(code), hash_mint_code(code));
+        assert_eq!(hash_code(code), Sha256::digest(code.as_bytes()).to_vec());
+        assert_eq!(hash_mint_code(code).len(), 32);
     }
 
     #[test]

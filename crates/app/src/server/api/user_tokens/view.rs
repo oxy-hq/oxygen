@@ -35,7 +35,10 @@ pub(crate) async fn names_for<C: ConnectionTrait>(
             .filter(organizations::Column::Id.is_in(org_ids))
             .all(db)
             .await?;
-        names.orgs = rows.into_iter().map(|o| (o.id, o.name)).collect();
+        for org in rows {
+            names.org_slugs.insert(org.id, org.slug);
+            names.orgs.insert(org.id, org.name);
+        }
     }
     if !workspace_ids.is_empty() {
         let rows = Workspaces::find()
@@ -49,7 +52,10 @@ pub(crate) async fn names_for<C: ConnectionTrait>(
             .filter(apps::Column::Id.is_in(app_ids))
             .all(db)
             .await?;
-        names.apps = rows.into_iter().map(|a| (a.id, a.name)).collect();
+        for app in rows {
+            names.app_slugs.insert(app.id, app.slug);
+            names.apps.insert(app.id, app.name);
+        }
     }
     Ok(names)
 }

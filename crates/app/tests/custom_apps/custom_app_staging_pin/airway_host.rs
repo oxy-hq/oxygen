@@ -72,6 +72,7 @@ pub(super) async fn host(
             app_slug: "staging".into(),
             user_id: None,
             user_email: None,
+            credential_token_id: None,
         },
         // Admitted to production: what makes a branch read here S9's case,
         // decided by `EnvPolicy::decide_on_branch`.

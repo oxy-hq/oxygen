@@ -100,6 +100,7 @@ fn ceiling_here(
             readable_grants(&own).ok()?
         },
         blocked_orgs: blocked,
+        sandbox_agent: None,
     };
     reach.workspace_ceiling(org_id, workspace_id)
 }

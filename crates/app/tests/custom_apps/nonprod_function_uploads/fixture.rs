@@ -156,6 +156,7 @@ impl Rig {
                 app_slug: "uploads".into(),
                 user_id: None,
                 user_email: None,
+                credential_token_id: None,
             },
             EnvPolicy::for_environment(environment),
         ))

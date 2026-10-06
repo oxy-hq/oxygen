@@ -156,6 +156,17 @@ const ALLOWED_SEAMS: &[Seam] = &[
                `airhouse::sql_rules`, no `AppState`: at a Functions-crate cut it moves DOWN \
                into a crate both sides depend on.",
     },
+    Seam {
+        prefix: "crate::server::api::user_tokens::sandboxes_queued",
+        why: "the one writer of `token.expired_sandboxes_queued` and its input type. The sandbox \
+               sweep (`custom_apps_sandboxes/token_ended.rs`) tears down the sandboxes an ended \
+               sandbox agent token left behind, and writes that token lifecycle event in the \
+               same transaction that marks them, so a sandbox is never queued without its \
+               record. The event's shape and its one-row-per-org rule (each org sees only its \
+               own sandboxes) belong with the other token lifecycle events in `user_tokens`, \
+               not in a second copy here. At a Functions-crate cut the sweep takes the writer \
+               as an injected port.",
+    },
 ];
 
 /// Compute a file's module path (`crate::a::b`) from its path relative to `src/`.

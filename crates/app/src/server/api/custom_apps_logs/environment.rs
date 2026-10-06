@@ -9,11 +9,13 @@
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
 use oxy::database::client::establish_connection;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 
-use crate::server::api::custom_apps_auth::AuthOutcome;
-use crate::server::api::custom_apps_env_resolve::may_open_non_production;
+use crate::server::api::custom_apps_auth::{AuthOutcome, require_app_admin};
+use crate::server::api::custom_apps_env_resolve::{may_open_environment, may_open_non_production};
+use crate::server::api::custom_apps_sandbox_instance::{line_is_of_instance, own_since};
 
 /// A refusal on the environment a log read named: a machine-readable code
 /// beside its message, the shape the staff read-back routes answer
@@ -52,12 +54,93 @@ fn requested_environment(raw: Option<&str>) -> Result<AppEnvironment, Environmen
     })
 }
 
+/// The environment whose lines `outcome`'s caller reads, as the store takes
+/// it, once both gates have passed: the app-admin gate, then
+/// [`log_environment`]. A sandbox agent token passes neither as asked of the
+/// app; it is asked about the one sandbox it names ([`agent_environment`]).
+pub(super) async fn admitted(
+    outcome: &AuthOutcome,
+    raw: Option<&str>,
+) -> Result<Admitted, Response> {
+    if outcome.caller.is_sandbox_agent() {
+        return agent_environment(outcome, raw).await;
+    }
+    if let Err(status) = require_app_admin(outcome).await {
+        return Err(super::error_response(status, "app-admin required"));
+    }
+    let environment = log_environment(outcome, raw)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    Ok(Admitted {
+        environment,
+        since: None,
+    })
+}
+
+/// What a log read was admitted to.
+pub(super) struct Admitted {
+    /// The environment, as the store takes it.
+    pub environment: String,
+    /// For a sandbox agent token, where the sandbox it has now starts: it is
+    /// shown the lines written from then on, and none of an earlier sandbox
+    /// that had the name (`custom_apps_sandbox_instance`). `None` for every
+    /// other caller, who reads the environment's lines as before.
+    pub since: Option<DateTime<Utc>>,
+}
+
+impl Admitted {
+    /// Whether a line with the served `timestamp` is one this read returns.
+    pub(super) fn shows(&self, timestamp: &str) -> bool {
+        self.since
+            .is_none_or(|since| line_is_of_instance(timestamp, since))
+    }
+}
+
+/// A sandbox agent token's log read (sandbox agent credential design §1, row
+/// L1): the environment is required, and must be a sandbox the token created
+/// of an app it is granted — where it is also the app's admin, as the gate
+/// above asks of everyone else. Production (the absent parameter), staging
+/// and another creator's sandbox are answered as an unknown app is.
+async fn agent_environment(outcome: &AuthOutcome, raw: Option<&str>) -> Result<Admitted, Response> {
+    use crate::server::api::custom_apps_agent::resolve_app_role_in;
+    let not_found = || super::error_response(StatusCode::NOT_FOUND, "not permitted");
+    let environment = requested_environment(raw).map_err(IntoResponse::into_response)?;
+    if !matches!(environment, AppEnvironment::Dev { .. }) {
+        return Err(not_found());
+    }
+    let db = establish_connection().await.map_err(|e| {
+        tracing::error!("db connect failed for the log environment check: {e}");
+        super::error_response(StatusCode::INTERNAL_SERVER_ERROR, "retry shortly")
+    })?;
+    let (caller, app) = (&outcome.caller, &outcome.app);
+    if !may_open_environment(&db, caller, app, &environment).await {
+        return Err(not_found());
+    }
+    match resolve_app_role_in(&db, caller, app, &environment).await {
+        Ok(Some(entity::app_members::ROLE_ADMIN)) => {}
+        _ => return Err(not_found()),
+    }
+    // The start of the sandbox the token has now, read off the row it owns.
+    let token = caller.sandbox_agent().map(|reach| reach.token_id);
+    let since = match token {
+        Some(token) => own_since(&db, app.id, &environment, token).await,
+        None => Ok(None),
+    };
+    match since {
+        Ok(Some(since)) => Ok(Admitted {
+            environment: environment.name(),
+            since: Some(since),
+        }),
+        _ => Err(not_found()),
+    }
+}
+
 /// The environment a log read asks for, as the store takes it: `""` for
 /// production (absent, blank or named), otherwise the name — for a caller who
 /// may open that app's non-production environments. The app-admin gate has
 /// already passed; this is the second one, and only a non-production read
 /// pays for it.
-pub(super) async fn log_environment(
+async fn log_environment(
     outcome: &AuthOutcome,
     raw: Option<&str>,
 ) -> Result<String, EnvironmentRefusal> {

@@ -548,20 +548,40 @@ pub(crate) fn user_cache_key(identity: &oxy_auth::types::Identity) -> String {
 /// Authenticate the request and confirm the caller has access to
 /// (org, app). Returns the app row + user info on success; an HTTP
 /// status on any failure.
+///
+/// `sandbox_agent` is this caller's answer to a sandbox agent token. `/fn` and
+/// `/logs` admit one; `/errors`, `/debug`, `/health` and `/availability` share
+/// this function and refuse it, which is why the answer is an argument and not
+/// a property of the function (sandbox agent credential design §3.1).
 pub(crate) async fn authenticate_and_authorize(
     headers: &axum::http::HeaderMap,
     org_slug: &str,
     app_slug: &str,
+    sandbox_agent: oxy_auth::token::SandboxAgent,
 ) -> Result<AuthOutcome, axum::http::StatusCode> {
     use axum::http::StatusCode;
 
-    let (identity, credential) = BuiltInAuthenticator::new()
+    let (identity, credential) = BuiltInAuthenticator::new(sandbox_agent)
         .authenticate_with_credential(headers)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
+    // A sandbox agent token: noted for the request's usage count, and its
+    // minter's row read now, past the 60 s user cache in both directions, so a
+    // change to the minter is seen by the next request (`custom_apps_agent`).
+    super::custom_apps_agent::seen(credential.as_ref());
     let cache_key = user_cache_key(&identity);
-    let user = if let Some(u) = cached_user(&cache_key) {
+    let user = if super::custom_apps_agent::is_agent(credential.as_ref()) {
+        // Boxed, so the token's branch adds a pointer to this future, which the
+        // function route awaits inline.
+        Box::pin(super::custom_apps_agent::fresh_user(&identity))
+            .await
+            .map_err(|e| {
+                error!("user lookup failed: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .ok_or(StatusCode::UNAUTHORIZED)?
+    } else if let Some(u) = cached_user(&cache_key) {
         u
     } else {
         let u = UserService::find_user_by_identity(&identity)
@@ -611,6 +631,11 @@ pub(crate) async fn authenticate_and_authorize(
         .workspace_ceiling(app.org_id, app.project_id)
         .is_none()
     {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    // A sandbox agent token's workspace grant stands for the apps it names,
+    // not for every app of the workspace: any other is an unknown app.
+    if !super::custom_apps_agent::admits_app(&caller, &app) {
         return Err(StatusCode::NOT_FOUND);
     }
 

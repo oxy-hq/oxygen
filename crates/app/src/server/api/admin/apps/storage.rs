@@ -470,6 +470,7 @@ pub async fn browse(
 
 /// `POST /api/customer-apps/{id}/storage/delete` — remove selected objects.
 pub async fn delete_objects(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     Path(app_id): Path<Uuid>,
     Json(body): Json<DeleteRequest>,
 ) -> axum::response::Response {
@@ -595,6 +596,7 @@ fn try_claim_sweep(scope: &Option<Vec<Uuid>>) -> SweepClaim {
 /// one org would otherwise start a walk over every app in the fleet — a cost
 /// amplifier rather than a disclosure, but the same missing check.
 pub async fn sweep_now(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> axum::response::Response {
     let Ok(db) = establish_connection().await else {

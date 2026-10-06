@@ -157,6 +157,7 @@ async fn staging_hold(
             writes: vec![automation_write(automation_id)],
             invocation_id: None,
             trace_id: None,
+            token_id: None,
         },
     )
     .await;

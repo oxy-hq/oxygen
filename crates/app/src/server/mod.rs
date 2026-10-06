@@ -3,6 +3,7 @@
 pub mod admission;
 pub mod anomaly_notify;
 pub mod api;
+mod app_function_agent;
 pub mod app_function_executor;
 pub mod audit_anchor;
 pub mod authz;

@@ -6,8 +6,12 @@
  * credential chosen by path. What they share with it is the exit-code mapping.
  */
 
+import { withUserAgent } from "../api/user-agent.js";
+import { readRefusal, sandboxRefusalHint, withReason } from "../apps/sandbox-token.js";
 import { requestGithubIdToken } from "../auth/oidc.js";
+import { isSandboxAgentToken } from "../auth/token-kind.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
+import { printableLines } from "../util/printable.js";
 
 const LOOKUP_TIMEOUT_MS = 30_000;
 /** The bundle upload, which can be tens of megabytes. */
@@ -15,7 +19,12 @@ const UPLOAD_TIMEOUT_MS = 120_000;
 
 async function send(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   try {
-    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    return await fetch(url, {
+      ...init,
+      // Every call here goes to the deployment, the two public lookups included.
+      headers: withUserAgent(init.headers as Record<string, string> | undefined),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
   } catch (cause) {
     throw new CliError(`${init.method ?? "GET"} ${url} failed: ${(cause as Error).message}`, {
       code: ExitCode.UNAVAILABLE
@@ -118,14 +127,30 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
     { method: "POST", headers: { authorization: `Bearer ${req.token}` }, body: form },
     UPLOAD_TIMEOUT_MS
   );
-  if (!response.ok) {
-    const body = await response.text();
-    throw new CliError(`publish failed (${response.status})`, {
-      code: exitCodeForStatus(response.status),
-      detail: body.slice(0, 4000)
-    });
-  }
+  if (!response.ok) throw publishRefused(response.status, await response.text(), req.token);
   return json<PublishResult>(response, "publish");
+}
+
+/**
+ * The error for a refused publish. The route answers plain text, except the
+ * one refusal a sandbox agent token branches on (`403 sandbox_token_refused`),
+ * which is JSON with a `code`.
+ *
+ * Under a sandbox agent token the server's sentence goes on the error line as
+ * well as in `detail`: `oxyc mcp` hands a model the message and the hint and
+ * never the body, and a publish that failed without saying why cannot be fixed.
+ */
+function publishRefused(status: number, body: string, token: string): CliError {
+  const refusal = readRefusal(body);
+  const agent = isSandboxAgentToken(token);
+  const headline = `publish failed (${status})`;
+  return new CliError(agent ? withReason(headline, refusal) : headline, {
+    code: exitCodeForStatus(status),
+    detail: agent ? printableLines(body.slice(0, 4000)) : body.slice(0, 4000),
+    hint: agent ? sandboxRefusalHint(status, body) : undefined,
+    serverCode: refusal.code,
+    serverMessage: refusal.reason
+  });
 }
 
 export { githubOidcAvailable } from "../auth/oidc.js";

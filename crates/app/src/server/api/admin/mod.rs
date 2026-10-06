@@ -31,6 +31,7 @@ pub mod org_subdomains;
 pub mod oxy_access;
 pub mod partners;
 pub mod routing;
+pub mod sandbox_agent_tokens;
 pub mod scope;
 pub mod users_admin;
 // `pub(crate)`: the module stays internal and only what a caller outside this crate
@@ -188,6 +189,10 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         )
         .merge(audit::router().route_layer(cap(Action::PlatformAudit)))
         .merge(app_publish_tokens::router().route_layer(cap(Action::PlatformApps)))
+        // Every staff member's sandbox agent tokens: the cross-admin view, which
+        // is what `operate_platform` buys. An App Operator may mint one and does
+        // not hold this; they manage their own on `/user/tokens`.
+        .merge(sandbox_agent_tokens::router().route_layer(cap(Action::PlatformOperate)))
         .merge(explorer::router().route_layer(cap(Action::PlatformExplorer)))
         .merge(metrics::router().route_layer(cap(Action::PlatformOperate)))
         // Org and workspace administration (`/orgs*`, `/workspaces*`) moved to

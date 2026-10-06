@@ -114,8 +114,90 @@ describe("TokenRow", () => {
     expect(screen.getByTestId("account-token-access-label")).toHaveTextContent(
       "1 workspace in 1 org"
     );
-    expect(screen.getByTestId("account-token-standing-platform")).toHaveTextContent("Staff");
+    // Standing reads on in the same line, in words.
+    expect(screen.getByTestId("account-token-standing-platform")).toHaveTextContent("staff");
+    expect(screen.getByTestId("account-token-access")).toHaveTextContent(
+      "1 workspace in 1 org, with staff standing"
+    );
+    expect(screen.getByTestId("account-token-kind")).toHaveTextContent("Personal");
     expect(screen.getByTestId("account-token-row")).toHaveTextContent("Never");
+  });
+
+  it("names both standings when a token carries both", () => {
+    show(token({ all_access: true, platform: true, partner: true }));
+    expect(screen.getByTestId("account-token-access")).toHaveTextContent(
+      "All access, with staff and partner standing"
+    );
+  });
+
+  it("carries the token's prefix as the name cell's title, under the name in full", () => {
+    // Where the table's box is too narrow for the Token column, this is where the prefix is.
+    show(token({ name: "a name far too long for the width of its column" }));
+    const cell = screen.getByTestId("account-token-name-cell");
+    expect(cell).toHaveAttribute(
+      "title",
+      "a name far too long for the width of its column\noxy_pat_Ab3x…wxyz"
+    );
+    expect(cell).toContainElement(screen.getByTestId("account-token-name-text"));
+    cleanup();
+
+    show(token({ kind: "sandbox_agent", display_prefix: "oxy_sbx_Qr7k", name: "refunds task" }));
+    expect(screen.getByTestId("account-token-name-cell").title).toContain("oxy_sbx_Qr7k…wxyz");
+  });
+
+  it("puts the whole of the access in its one tooltip, for a column that cuts it short", async () => {
+    show(token({ all_access: true, platform: true, partner: true }));
+    // One hover text: a native title beside the tooltip would show two at once.
+    expect(screen.getByTestId("account-token-access")).not.toHaveAttribute("title");
+    await userEvent.hover(screen.getByTestId("account-token-access-label"));
+    const whole = await screen.findAllByText(
+      "All access, with staff and partner standing",
+      {},
+      { timeout: 5000 }
+    );
+    expect(whole.length).toBeGreaterThan(0);
+    cleanup();
+
+    show(token());
+    expect(screen.getByTestId("account-token-access")).not.toHaveAttribute("title");
+    await userEvent.hover(screen.getByTestId("account-token-access-label"));
+    const summary = await screen.findAllByText("1 workspace in 1 org", {}, { timeout: 5000 });
+    // The label in the cell, and the same words leading the tooltip.
+    expect(summary.length).toBeGreaterThan(1);
+  });
+
+  it("says when it was last used: a word, then the day alone with the hour in a title", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const used = () => screen.getByTestId("account-token-row").querySelector("td:nth-child(6)");
+    show(token());
+    expect(used()).toHaveTextContent(/^Never$/);
+    expect(used()).not.toHaveAttribute("title");
+    cleanup();
+
+    show(token({ last_used_at: new Date(Date.now() - 3 * DAY).toISOString() }));
+    expect(used()).toHaveTextContent(/^3 days ago$/);
+    cleanup();
+
+    show(token({ last_used_at: "2026-03-04T15:30:00Z" }));
+    // No hour in the cell. The title has the moment in full.
+    expect(used()).toHaveTextContent(/^Mar \d, 2026$/);
+    expect(used()?.getAttribute("title")).toMatch(/^Mar \d, 2026, \d{2}:\d{2} [AP]M$/);
+  });
+
+  it("says when it dies as a short phrase: a countdown, no expiry, expired or revoked", () => {
+    const HOUR = 60 * 60 * 1000;
+    const status = () => screen.getByTestId("account-token-row").querySelector("td:nth-child(5)");
+    show(token({ expires_at: new Date(Date.now() + 7.5 * HOUR).toISOString() }));
+    expect(status()).toHaveTextContent(/^Active, expires in 7 hours$/);
+    cleanup();
+    show(token({ expires_at: null }));
+    expect(status()).toHaveTextContent(/^Active, No expiry$/);
+    cleanup();
+    show(token({ status: "expired", expires_at: new Date(Date.now() - HOUR).toISOString() }));
+    expect(status()).toHaveTextContent(/^Expired$/);
+    cleanup();
+    show(token({ status: "revoked", revoked_at: "2026-10-02T00:00:00Z" }));
+    expect(status()).toHaveTextContent(/^Revoked$/);
   });
 
   it("warns when an org's policy blocks the token", () => {
@@ -127,16 +209,34 @@ describe("TokenRow", () => {
     const user = show(token());
     expect(screen.getByTestId("account-token-activity-button")).toBeInTheDocument();
     expect(screen.getByTestId("api-key-extend-button")).toBeInTheDocument();
+    // The three a row is read for are words in the row. The rest are behind the menu.
+    for (const name of ["Extend laptop", "Activity for laptop", "Revoke laptop"]) {
+      expect(screen.getByRole("button", { name })).toHaveTextContent(/^(Extend|Activity|Revoke)$/);
+    }
+    expect(screen.getByTestId("account-token-revoke")).toHaveTextContent("Revoke");
     await openMenu(user);
     expect(screen.getByTestId("account-token-edit-access")).toBeInTheDocument();
     expect(screen.getByTestId("account-token-regenerate")).toBeInTheDocument();
+  });
+
+  it("offers Extend on a lapsed personal token, since extending is how it comes back", () => {
+    show(token({ status: "expired", expires_at: "2026-01-01T00:00:00Z" }));
+    expect(screen.getByTestId("api-key-expired-extend-button")).toHaveTextContent("Extend");
+    expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
     expect(screen.getByTestId("account-token-revoke")).toBeInTheDocument();
+  });
+
+  it("offers no Extend on a token that never expires", () => {
+    show(token({ expires_at: null }));
+    expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("api-key-expired-extend-button")).not.toBeInTheDocument();
   });
 
   it("offers nothing to change on a revoked token", () => {
     show(token({ status: "revoked", revoked_at: "2026-10-02T00:00:00Z" }));
     expect(screen.getByTestId("account-token-row")).toHaveTextContent("Revoked");
     expect(screen.queryByTestId("account-token-menu-button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("account-token-revoke")).not.toBeInTheDocument();
     expect(screen.queryByTestId("account-token-rename-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
     // What it did is still worth reading.
@@ -145,7 +245,6 @@ describe("TokenRow", () => {
 
   it("asks before revoking", async () => {
     const user = show(token());
-    await openMenu(user);
     await user.click(screen.getByTestId("account-token-revoke"));
     expect(revoke).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("account-token-revoke-confirm"));
@@ -203,6 +302,135 @@ describe("TokenRow", () => {
       "This token was revoked, so it can't be changed."
     );
     expect(screen.getByTestId("account-token-rename-input")).toHaveValue("laptop two");
+  });
+
+  describe("for a sandbox agent token", () => {
+    const HOUR = 60 * 60 * 1000;
+    const [workspaceGrant] = token().grants;
+    // `slugs` is what the server sends beside the names: `{}` is an older server, which sends none.
+    const appGrant = (
+      id: string,
+      appName: string,
+      slugs: { org_slug?: string; app_slug?: string } = {}
+    ) => ({
+      ...workspaceGrant,
+      id,
+      kind: "app_sandbox" as const,
+      workspace_id: null,
+      workspace_name: null,
+      role_ceiling: null,
+      app_id: id,
+      app_name: appName,
+      ...slugs
+    });
+    const acme = (appSlug: string) => ({ org_slug: "acme", app_slug: appSlug });
+    const sandbox = (over: Partial<Token> = {}): Token =>
+      token({
+        name: "refunds task",
+        kind: "sandbox_agent",
+        display_prefix: "oxy_sbx_Qr7k",
+        // How the kind is stored. It is not standing the token carries.
+        platform: true,
+        grants: [appGrant("a1", "Store Ops"), appGrant("a2", "Refunds")],
+        // Half an hour past the seventh, so the count below can't tip over while the test runs.
+        expires_at: new Date(Date.now() + 7.5 * HOUR).toISOString(),
+        ...over
+      });
+
+    it("shows what it is, its apps and how long it has left", () => {
+      show(sandbox());
+      const row = screen.getByTestId("account-token-row");
+      expect(row).toHaveAttribute("data-token-kind", "sandbox_agent");
+      expect(screen.getByTestId("account-token-kind-badge")).toHaveTextContent("Sandbox agent");
+      expect(screen.getByTestId("account-token-masked")).toHaveTextContent("oxy_sbx_Qr7k…wxyz");
+      // An older server sends a grant no slug, so its apps keep their names.
+      expect(screen.getByTestId("account-token-access-label")).toHaveTextContent(
+        "Sandboxes of Store Ops, Refunds"
+      );
+      expect(screen.getByTestId("api-key-expiry-countdown")).toHaveTextContent("in 7 hours");
+    });
+
+    it("names its apps by the reference each grant carries, and by name where it carries none", async () => {
+      show(
+        sandbox({
+          grants: [appGrant("a1", "Store Ops", acme("store-ops")), appGrant("a2", "Refunds")]
+        })
+      );
+      const access = screen.getByTestId("account-token-access-label");
+      expect(access).toHaveTextContent("Sandboxes of acme/store-ops, Refunds");
+      // The row stays one line: past two apps, the rest are a count.
+      cleanup();
+      show(
+        sandbox({
+          grants: [
+            appGrant("a1", "App a1", acme("store-ops")),
+            appGrant("a2", "App a2", acme("refunds")),
+            appGrant("a3", "App a3"),
+            appGrant("a4", "App a4")
+          ]
+        })
+      );
+      expect(screen.getByTestId("account-token-access-label")).toHaveTextContent(
+        "Sandboxes of acme/store-ops, acme/refunds, +2 more"
+      );
+      // The tooltip names every app: the two shown, and the two the count stands for.
+      await userEvent.hover(screen.getByTestId("account-token-access-label"));
+      const whole = await screen.findAllByText(
+        "Sandboxes of acme/store-ops, acme/refunds, App a3, App a4",
+        {},
+        { timeout: 5000 }
+      );
+      expect(whole.length).toBeGreaterThan(0);
+    });
+
+    it("falls back to the app's name when either half of the reference is empty", () => {
+      // The server sends a slug empty, not absent, for an org or an app that is gone.
+      show(
+        sandbox({
+          grants: [
+            appGrant("a1", "Store Ops", { org_slug: "acme", app_slug: "" }),
+            appGrant("a2", "Refunds", { org_slug: "", app_slug: "refunds" })
+          ]
+        })
+      );
+      expect(screen.getByTestId("account-token-access-label")).toHaveTextContent(
+        "Sandboxes of Store Ops, Refunds"
+      );
+    });
+
+    it("never reads its apps as every workspace, or its storage flag as staff access", () => {
+      show(sandbox());
+      expect(screen.queryByTestId("account-token-standing-platform")).not.toBeInTheDocument();
+      expect(screen.getByTestId("account-token-access")).not.toHaveTextContent(/workspace/i);
+    });
+
+    it("offers Activity and Revoke, and no Rename, Extend, Edit access or Regenerate", async () => {
+      const user = show(sandbox());
+      expect(screen.getByTestId("account-token-activity-button")).toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-rename-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
+
+      // Revoke is in the row. There is no menu, since nothing else can be done to it.
+      expect(screen.getByTestId("account-token-revoke")).toHaveTextContent("Revoke");
+      expect(screen.queryByTestId("account-token-menu-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-edit-access")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-regenerate")).not.toBeInTheDocument();
+      await user.click(screen.getByTestId("account-token-activity-button"));
+    });
+
+    it("revokes after asking, like any token", async () => {
+      const user = show(sandbox());
+      await user.click(screen.getByTestId("account-token-revoke"));
+      await user.click(await screen.findByTestId("account-token-revoke-confirm"));
+      expect(revoke).toHaveBeenCalledWith({ id: "t1", name: "refunds task" });
+    });
+
+    it("shows Expired once it lapses, with no Extend to bring it back", () => {
+      show(sandbox({ status: "expired", expires_at: new Date(Date.now() - HOUR).toISOString() }));
+      expect(screen.getByTestId("account-token-row")).toHaveTextContent("Expired");
+      expect(screen.queryByTestId("api-key-expired-extend-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
+    });
   });
 
   it("locks a workspace its org removed, instead of offering a tick that would do nothing", async () => {

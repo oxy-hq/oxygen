@@ -386,6 +386,7 @@ every iteration that would otherwise touch staging. Limit: 20 per app.
 ```bash
 oxyc env create acme/store dev-x --env dev --json          # starts with no build
 oxyc publish --env dev --app-env dev-x --json               # build + publish to it
+oxyc env secret set acme/store KEY --app-env dev-x --env dev --value-env VAR  # optional: its own secret
 oxyc fn call acme/store submit-order --app-env dev-x --env dev --data '{}' --json   # call it
 oxyc checks run acme/store --app-env dev-x --env dev --json # run its checks
 oxyc invocations list acme/store --app-env dev-x --env dev --json  # what ran; a row's id is `id`
@@ -395,10 +396,32 @@ oxyc env delete acme/store dev-x --env dev --yes --wait --json     # done; tears
 
 (`--data` has no short form — don't write `-d`.)
 
+**An agent's credential is a sandbox agent token** (`oxy_sbx_…`), not a staff
+login. Get it yourself, once per task — your operator approves in the browser
+that opens — and end it when the task is done:
+
+```bash
+eval "$(oxyc tokens create --sandbox-agent --app acme/store --env dev)"   # prints: export OXY_TOKEN=oxy_sbx_…
+oxyc whoami --env dev --json     # kind "sandbox_agent", your app in `apps`, `expires_at` after the task ends
+# … the loop above …
+oxyc tokens revoke --current --env dev                                     # last, after the delete
+```
+
+It does this loop on the apps it was minted for (`--app`, up to five), in
+sandboxes it created, for 8 hours (`--hours`, up to 168) — and nothing else:
+production, staging, other apps, `oxyc api`, `oxyc apps` and a secret's value
+are all refused. With it, every verb that takes `--app-env` requires a
+`dev-<handle>` (exit `2` otherwise), and at most three of its sandboxes may be
+live at once.
+
 **Over MCP.** If your runtime speaks MCP, `oxyc mcp --env dev` serves the same
 loop as tools — `oxy_env_create` / `oxy_env_list` / `oxy_env_show` /
 `oxy_env_delete`, `oxy_publish_sandbox`, `oxy_fn_call`, `oxy_checks_run`,
-`oxy_invocations_list` / `oxy_invocations_held`, `oxy_logs`. Prefer them to
+`oxy_invocations_list` / `oxy_invocations_held`, `oxy_logs`. It reads its
+credential from `OXY_TOKEN` and nowhere else (a person on their own login
+adds `--login`). With a sandbox agent token the list is those ten,
+`oxy_whoami`, `oxy_env_secret_list` / `_set` / `_delete` and
+`oxy_token_revoke` (`confirm: true`) — and no `oxy_request`. Prefer them to
 shelling out: each calls its verb's own request-building code, so the result
 is the document that verb's `--json` prints, and the choice changes nothing
 on the server. There is no exit code over MCP: a failure is `isError: true`
@@ -412,8 +435,9 @@ function or a check failed, with the full document still in the result.
 Iterate from `publish` as the code changes — each publish is a new build, and
 the sandbox always serves the newest. A sandbox build is **never promoted**:
 ship by publishing the same tree to staging, then promoting from the console.
-Staff only (needs `develop_apps` + `manage_apps`); a publish token is refused
-on every sandbox operation, so CI cannot use one.
+Staff only (needs `develop_apps` + `manage_apps`) — or a sandbox agent token
+such staff approved; a publish token is refused on every sandbox operation,
+so CI cannot use one.
 
 **Driving this loop unattended (an agent, not a human at a keyboard):**
 
@@ -422,10 +446,14 @@ on every sandbox operation, so CI cannot use one.
   answers exit `6` if the name is already taken.
 - Branch on exit codes and JSON fields only, never on stderr text: `0` ok,
   `1` it ran and the thing itself failed, `2` you called it wrong, `4` not
-  authenticated (stop — don't try another credential), `5` not found
+  authenticated — your token expired, was revoked, or your operator lost
+  access (stop — don't try another credential, a cached `oxyc login`
+  included), `5` not found
   (environment/function/invocation — check the name, or publish first if
   the environment has no build), `6` a conflict or bad name (pick another
-  name, wait out a teardown, or free up the 20-sandbox limit), `7` retryable
+  name, wait out a teardown, or free up the 20-sandbox limit — or, on
+  `token_sandbox_limit`, delete one of your own three with `--wait` first: a
+  sandbox still being deleted counts toward the three), `7` retryable
   (network/5xx, or a `--wait` deadline), `8` refused (stop and report), `9`
   a check failed — read `invocations held` for that check's invocation
   before assuming the function is broken.
@@ -435,7 +463,9 @@ on every sandbox operation, so CI cannot use one.
   delete the sandbox you created, **even when an earlier step failed**. On
   exit `4` or `8`, stop and report to a human rather than retrying with a
   different credential or flag. A held write is information to report, not
-  an error to engineer around.
+  an error to engineer around. Set a sandbox's secret with `oxyc env secret
+  set` (`oxy_env_secret_set`), never a hand-built request, and never try to
+  read a value back. Revoke your token last: `oxyc tokens revoke --current`.
 - Report back: the sandbox name, the build id(s) published, each check's
   `passed`, every held write (`op`/`plane`/`table`/`note`), and confirmation
   the sandbox was deleted.

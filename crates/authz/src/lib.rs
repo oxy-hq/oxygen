@@ -47,7 +47,9 @@
 
 use uuid::Uuid;
 
+mod sandbox_agent;
 mod token;
+pub use sandbox_agent::{EnvFacet, SandboxAgentReach, SandboxApp};
 pub use token::{RoleCeiling, TokenGrant, TokenReach};
 
 #[cfg(test)]
@@ -1114,6 +1116,13 @@ pub struct Resource {
     /// `None` reads the highest ceiling of any grant in the org. Read by nothing
     /// but the token cap, so it can only subtract.
     pub app_workspace: Option<Uuid>,
+    /// For an `App` resource: which environment of the app the decision is
+    /// about, when the call site says ([`Resource::in_environment`]). `None`
+    /// names none. Read by nothing but a sandbox agent token's cover
+    /// ([`SandboxAgentReach`]), which is not satisfied by `None` — so it can
+    /// only subtract, and every other caller decides the same with or without
+    /// it.
+    pub environment: Option<EnvFacet>,
 }
 
 impl Resource {
@@ -1127,6 +1136,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1141,6 +1151,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1157,6 +1168,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1171,6 +1183,7 @@ impl Resource {
             partner: Some(partner_id),
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1185,6 +1198,7 @@ impl Resource {
             partner: Some(acting_partner),
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1200,6 +1214,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1214,6 +1229,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1232,6 +1248,7 @@ impl Resource {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         }
     }
 
@@ -1250,6 +1267,22 @@ impl Resource {
     /// wherever the app row is in hand and the decision turns on a role.
     pub fn published_from(mut self, workspace_id: Uuid) -> Self {
         self.app_workspace = Some(workspace_id);
+        self
+    }
+
+    /// One environment of a custom app: production, staging, a sandbox, or the
+    /// act of creating or listing sandboxes. `id` MUST be the **app id**: a
+    /// sandbox agent token's grants are keyed by it.
+    pub fn app_environment(id: Uuid, org_id: Uuid, facet: EnvFacet) -> Self {
+        Self::app(id, org_id).in_environment(facet)
+    }
+
+    /// This app resource, naming the environment the decision is about. Use it
+    /// wherever a call site knows which environment it is deciding for; one
+    /// that does not say is refused for a sandbox agent token and unchanged
+    /// for everyone else.
+    pub fn in_environment(mut self, facet: EnvFacet) -> Self {
+        self.environment = Some(facet);
         self
     }
 }
@@ -1406,6 +1439,15 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
     // ceiling `c` on a principal of role `r` decides as a session of role `min(r, c)`.
     //
     // No token (a browser session, a legacy key) is no cap. This can only subtract.
+    //
+    // A sandbox agent token is narrower than any grant can say: it covers four
+    // actions, two of them only in a sandbox it created. Asked first, and it can
+    // only refuse — what it covers is still decided below, for its minter.
+    if let Some(sandbox) = facts.token.as_ref().and_then(|t| t.sandbox_agent.as_ref())
+        && !sandbox_agent::covers(sandbox, action, resource)
+    {
+        return false;
+    }
     let ceiling = match &facts.token {
         None => RoleCeiling::Owner,
         Some(token) => match token.ceiling_for(resource) {
@@ -2092,6 +2134,7 @@ mod policy_tests {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         };
         assert!(allows(&f, Action::OrgRead, &thread));
         // A different user does not own it.
@@ -2116,6 +2159,7 @@ mod policy_tests {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         };
         // Owning a thread grants the read...
         assert!(allows(&f, Action::OrgRead, &thread));
@@ -2135,6 +2179,7 @@ mod policy_tests {
             partner: None,
             app_restricted: false,
             app_workspace: None,
+            environment: None,
         };
         assert!(!allows(&f, Action::OrgRead, &owned_workspace));
         assert!(!allows(&f, Action::WorkspaceManage, &owned_workspace));

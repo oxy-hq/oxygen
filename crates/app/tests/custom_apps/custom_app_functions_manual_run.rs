@@ -49,6 +49,7 @@ mod log_reads;
 mod partner_audit;
 mod publish_token_router;
 mod readback;
+mod run_audit;
 mod run_readback;
 mod run_stream_scope;
 mod sandbox_build_reach;
@@ -126,7 +127,7 @@ pub(crate) const HELD_ROUTE: &str = "/apps/{id}/invocations/{invocation_id}/held
 
 fn admin_router() -> Router {
     guarded_admin().layer(middleware::from_fn_with_state(
-        AuthState::built_in(),
+        AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
         auth_middleware,
     ))
 }
@@ -136,6 +137,10 @@ fn admin_router() -> Router {
 /// `custom_app_functions_manual_run_guards` checks production still does.
 pub(crate) const TOKEN_INVOCATIONS_ROUTE: &str = "/{id}/functions/{name}/invocations";
 pub(crate) const TOKEN_RUN_DETAIL_ROUTE: &str = "/{id}/function-runs/{run_id}";
+/// The app-wide invocation listing and one invocation's held list, mounted
+/// on that surface too for the sandbox loop's read-back.
+pub(crate) const TOKEN_APP_INVOCATIONS_ROUTE: &str = "/{id}/invocations";
+pub(crate) const TOKEN_HELD_ROUTE: &str = "/{id}/invocations/{invocation_id}/held";
 
 /// That surface as a request reaches it: real authentication, the publish
 /// token's own scope middleware, then the nest's guards in production order.
@@ -149,6 +154,11 @@ fn customer_apps_router() -> Router {
             TOKEN_RUN_DETAIL_ROUTE,
             get(admin_functions::get_function_run),
         )
+        .route(
+            TOKEN_APP_INVOCATIONS_ROUTE,
+            get(admin_invocations::list_app_invocations),
+        )
+        .route(TOKEN_HELD_ROUTE, get(held_writes::get_held_writes))
         .layer(middleware::from_fn(block_admin_while_acting))
         .layer(middleware::from_fn(app_scope_guard::enforce_app_scope))
         .layer(middleware::from_fn(platform_cap_guard::require(
@@ -159,7 +169,7 @@ fn customer_apps_router() -> Router {
         .nest("/customer-apps", apps)
         .layer(middleware::from_fn(app_publish_token_scope_middleware))
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(),
+            AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
             auth_middleware,
         ));
     Router::new().nest("/api", api)

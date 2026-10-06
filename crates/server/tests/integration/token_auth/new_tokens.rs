@@ -34,7 +34,7 @@ async fn a_pat_authenticates_as_bearer_and_as_x_api_key_on_every_surface() {
     // BuiltInAuthenticator, which goes through the same dispatch.
     let mut headers = axum::http::HeaderMap::new();
     headers.insert("authorization", bearer.parse().unwrap());
-    let identity = BuiltInAuthenticator::new()
+    let identity = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
         .authenticate(&headers)
         .await
         .expect("custom-app path");

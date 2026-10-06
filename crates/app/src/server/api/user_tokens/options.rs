@@ -6,6 +6,10 @@
 //! Orgs are the caller's own (`via: member`) and, for a partner, the clients it
 //! manages (`via: partner`). Staff reach is not enumerated: a staff token that
 //! names orgs names them by id.
+//!
+//! The third type the dialog offers staff is a sandbox agent token: its limits
+//! (`sandbox_agent`) and the apps the caller may mint one for (`sandbox_apps`,
+//! empty for anyone who is not staff) — `sandbox.rs`.
 
 use std::collections::HashMap;
 
@@ -26,6 +30,7 @@ use uuid::Uuid;
 use super::ManageTokens;
 use super::error::TokenError;
 use super::reach;
+use super::sandbox::{self, SandboxAgentLimits, SandboxAppOption};
 use crate::server::authz::{self, PrincipalFacts};
 
 const VIA_MEMBER: &str = "member";
@@ -77,6 +82,11 @@ pub struct TokenOptions {
     pub orgs: Vec<OrgOption>,
     pub can_platform: bool,
     pub can_partner: bool,
+    /// What a sandbox agent token may be minted with.
+    pub sandbox_agent: SandboxAgentLimits,
+    /// The apps the caller may mint a sandbox agent token for. Filled by
+    /// [`get_token_options`]; `[]` for anyone who is not staff.
+    pub sandbox_apps: Vec<SandboxAppOption>,
 }
 
 /// The orgs a grant may name, with the role to show and how they are reached.
@@ -174,6 +184,8 @@ fn build(
         orgs: out,
         can_platform: facts.is_staff(),
         can_partner: facts.is_partner(),
+        sandbox_agent: SandboxAgentLimits::current(),
+        sandbox_apps: Vec::new(),
     }
 }
 
@@ -228,7 +240,9 @@ pub async fn get_token_options(
     actor: RequestActor,
 ) -> Result<Json<TokenOptions>, TokenError> {
     let db = establish_connection().await?;
-    Ok(Json(load(&db, &actor).await?))
+    let mut options = load(&db, &actor).await?;
+    options.sandbox_apps = sandbox::mintable_options(&db, &actor).await?;
+    Ok(Json(options))
 }
 
 #[cfg(test)]

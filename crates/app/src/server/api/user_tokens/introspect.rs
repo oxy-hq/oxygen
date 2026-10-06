@@ -6,6 +6,10 @@
 //! itself.
 //!
 //! - A browser session has no calling token: both answer 404 (`no_token`).
+//! - A **sandbox agent token** is also told who minted it and which apps it
+//!   may run the sandbox loop on (`minter`, `apps`): `oxyc` resolves
+//!   `<org>/<app>` against that list, because the token reaches no app
+//!   directory. Every other credential's answer is unchanged.
 //! - A legacy credential — an `oxy_<hex>` key, or a token the legacy endpoint
 //!   minted — can be described but not revoked here (409 `legacy_immutable`).
 //!   It ends only by its owner's hand, in a session, or by its own expiry
@@ -20,10 +24,25 @@ use oxy::database::client::establish_connection;
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::token::CredentialContext;
 use sea_orm::{DatabaseConnection, EntityTrait};
+use serde::Serialize;
 
 use super::dto::TokenDto;
 use super::error::TokenError;
+use super::sandbox::{self, GrantedAppDto, MinterDto};
 use super::{service, view};
+
+/// The calling token, as it is told about itself: the shared token shape,
+/// and — for a sandbox agent token only — its minter and its apps. The two
+/// fields are absent, not null, for every other kind.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct CallingToken {
+    #[serde(flatten)]
+    pub token: TokenDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minter: Option<MinterDto>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apps: Option<Vec<GrantedAppDto>>,
+}
 
 /// The credential the request authenticated with, or 404 `no_token`.
 fn calling(actor: &RequestActor) -> Result<&CredentialContext, TokenError> {
@@ -53,11 +72,20 @@ fn may_revoke_itself(credential: &CredentialContext) -> Result<(), TokenError> {
 }
 
 /// Describe the token this request authenticated with
-pub async fn get_calling_token(actor: RequestActor) -> Result<Json<TokenDto>, TokenError> {
+pub async fn get_calling_token(actor: RequestActor) -> Result<Json<CallingToken>, TokenError> {
     let credential = calling(&actor)?;
     let db = establish_connection().await?;
     let row = calling_row(&db, &actor, credential).await?;
-    Ok(Json(view::token(&db, &row, actor.label()).await?))
+    let token = view::token(&db, &row, actor.label()).await?;
+    let (minter, apps) = match sandbox::describe(&db, &actor, &row).await? {
+        Some(own) => (Some(own.minter), Some(own.apps)),
+        None => (None, None),
+    };
+    Ok(Json(CallingToken {
+        token,
+        minter,
+        apps,
+    }))
 }
 
 /// Revoke the token this request authenticated with
@@ -93,6 +121,7 @@ mod tests {
             service_account: None,
             grants: Vec::new(),
             app_publish: Vec::new(),
+            app_sandbox: Vec::new(),
         }
     }
 

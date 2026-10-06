@@ -112,17 +112,35 @@ retried.
 
 If `<host>` answers **404** to the exchange, it predates trusted access. That
 is a **warning, not a failure**: `oxyc` is still installed and no `OXY_TOKEN`
-is exported. `oxyc publish` and `oxyc checks run` then authenticate on their
-own, through the app's registered publisher, exactly as they did before this
-action existed. Any other command needs `OXY_TOKEN` set from a secret.
+is exported. What a later step can then do:
+
+- `oxyc publish` authenticates on its own, through the app's registered
+  publisher, exactly as it did before this action existed.
+- `oxyc checks run` gets a token the same way, and the deployment then refuses
+  it (403): the check routes need platform standing, which a publisher's token
+  does not hold. Run the checks with a staff credential set from a secret.
+- Any other command needs a credential set from a secret: `OXY_TOKEN`, or
+  `OXY_API_KEY` where the command takes an API key.
 
 ## Without this action
 
 `oxyc` does the same exchange by itself whenever it runs in a job granted
-`id-token: write` with no `OXY_TOKEN` set, and revokes what it minted when the
-command ends. The action is worth having when a job runs several `oxyc`
+`id-token: write` with no `OXY_TOKEN` set and the account named in
+`OXY_SERVICE_ACCOUNT` (or `--service-account`). It revokes what it minted when
+the command ends. The action is worth having when a job runs several `oxyc`
 commands — one exchange instead of one per command — or wants the token for
 something other than `oxyc`.
+
+Two cases make no exchange at all:
+
+- a command given `--token-env <VAR>`. That variable is then the only place the
+  bearer may come from.
+- `oxyc mcp`, unless it is started with `--login`. It reads `OXY_TOKEN` (or the
+  `--token-env` variable) and nothing else.
+
+With the variable unset, both exit `4`. The exception is `OXY_API_KEY`: it is a
+second credential the step named, so it is still read, by `oxyc mcp` and by any
+command that takes an API key.
 
 ```yaml
       - run: npx --yes @oxy-hq/cli@<version> publish --promote

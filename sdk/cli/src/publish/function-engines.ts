@@ -26,6 +26,7 @@
  * host still makes every one of these refusals at the first call.
  */
 
+import { withUserAgent } from "../api/user-agent.js";
 import { CliError, ExitCode } from "../util/errors.js";
 import { GATED_CAPABILITIES } from "./capabilities.js";
 import { type CtxCall, describeLintIssue, type FunctionLintIssue } from "./function-lint.js";
@@ -63,7 +64,7 @@ export async function fetchDatabaseEngines(
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { authorization: `Bearer ${token}` },
+      headers: withUserAgent({ authorization: `Bearer ${token}` }),
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS)
     });
   } catch (cause) {

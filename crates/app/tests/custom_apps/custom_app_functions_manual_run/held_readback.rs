@@ -143,7 +143,7 @@ async fn the_held_route_returns_one_invocations_held_writes_and_no_one_elses() {
             credential: None,
         })
     };
-    let refused = held_writes::get_held_writes(outsider(), Path((app_id, staged)))
+    let refused = held_writes::get_held_writes(outsider(), None, Path((app_id, staged)))
         .await
         .map(|_| ())
         .expect_err("a staging invocation's held list is staff's");
@@ -151,7 +151,7 @@ async fn the_held_route_returns_one_invocations_held_writes_and_no_one_elses() {
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert_eq!(body["error"], "non_production_refused");
     assert!(body.get("held").is_none(), "{body}");
-    let axum::Json(allowed) = held_writes::get_held_writes(outsider(), Path((app_id, live)))
+    let axum::Json(allowed) = held_writes::get_held_writes(outsider(), None, Path((app_id, live)))
         .await
         .expect("a production invocation holds nothing to hide");
     assert!(allowed.held.is_empty());

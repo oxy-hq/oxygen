@@ -29,6 +29,9 @@ struct JobRequest {
     input: Vec<u8>,
     traceparent: Option<String>,
     environment: AppEnvironment,
+    /// The sandbox agent token that queued the run, admitted again before it
+    /// starts (`app_function_agent`).
+    credential_token_id: Option<uuid::Uuid>,
 }
 
 /// Read an `app_function` task.
@@ -71,6 +74,8 @@ fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
             .map_err(|e| format!("failed to serialize app_function input: {e}"))?,
         None => Vec::new(),
     };
+    let credential_token_id =
+        super::app_function_agent::token_of(task.credential_token_id.as_deref())?;
     Ok(JobRequest {
         app_id,
         mode: invocation_mode(task.trigger.as_deref()),
@@ -78,6 +83,7 @@ fn read_task(spec: &TaskSpec) -> Result<JobRequest, String> {
         input,
         traceparent: task.traceparent,
         environment,
+        credential_token_id,
     })
 }
 
@@ -99,6 +105,7 @@ impl TaskExecutor for AppFunctionTaskExecutor {
             input,
             traceparent,
             environment,
+            credential_token_id,
         } = read_task(&assignment.spec)?;
 
         // The worker's run is a root trace of its own; this span is that root,
@@ -133,6 +140,7 @@ impl TaskExecutor for AppFunctionTaskExecutor {
             preagg: self.preagg.clone(),
             app_id,
             environment,
+            credential_token_id,
             function_name,
             mode,
             input,
@@ -163,6 +171,7 @@ struct JobArgs {
     preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
     app_id: uuid::Uuid,
     environment: AppEnvironment,
+    credential_token_id: Option<uuid::Uuid>,
     function_name: String,
     mode: String,
     input: Vec<u8>,
@@ -180,6 +189,7 @@ async fn run_job(args: JobArgs) {
         preagg,
         app_id,
         environment,
+        credential_token_id,
         function_name,
         mode,
         input,
@@ -187,6 +197,22 @@ async fn run_job(args: JobArgs) {
         event_tx,
         outcome_tx,
     } = args;
+    // A run a sandbox agent token queued starts only if that token would
+    // still be admitted now. Otherwise it is cancelled, before the started
+    // event and before any of the function runs.
+    if let Some(token_id) = credential_token_id
+        && let Err(why) =
+            super::app_function_agent::recheck(&db, token_id, app_id, &environment).await
+    {
+        let _ = event_tx
+            .send((
+                "app_function_cancelled".into(),
+                serde_json::json!({ "app_id": app_id, "function_name": function_name, "reason": why }),
+            ))
+            .await;
+        let _ = outcome_tx.send(TaskOutcome::Cancelled).await;
+        return;
+    }
     let _ = event_tx
         .send((
             "app_function_started".into(),
@@ -200,7 +226,10 @@ async fn run_job(args: JobArgs) {
         app_id,
         &environment,
         &function_name,
-        &mode,
+        crate::server::api::custom_apps_functions::QueuedBy {
+            mode: &mode,
+            credential_token_id,
+        },
         input,
         cancel,
         // Stream the run's log lines onto the run's event log so a
@@ -231,6 +260,7 @@ async fn run_job(args: JobArgs) {
             &environment,
             &function_name,
             &mode,
+            credential_token_id,
             input,
             cancel,
             &preagg,

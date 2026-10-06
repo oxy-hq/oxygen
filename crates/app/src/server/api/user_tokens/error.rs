@@ -47,6 +47,17 @@ pub enum TokenError {
     /// among the orgs the token holds grants in. The body names the cap as
     /// `max_lifetime_days`.
     ExceedsPolicy { max_lifetime_days: i32 },
+    /// 400 `invalid_sandbox_token` — a sandbox agent mint that cannot be
+    /// honoured: no apps, too many, one named twice, a lifetime out of range,
+    /// or a personal token's field. The body repeats the reason as `message`.
+    InvalidSandboxToken(String),
+    /// 404 `app_not_found` — a sandbox agent mint named an app the caller may
+    /// not mint for. One that does not exist reads the same. The body names
+    /// the app as `app_id`, as it was sent.
+    AppNotFound(String),
+    /// 409 `sandbox_token_fixed` — a sandbox agent token is never renamed,
+    /// widened, extended or regenerated.
+    SandboxTokenFixed,
     /// 429 `rate_limited` — a public route asked too often from one address.
     /// `retry_after_secs` is sent as `Retry-After`.
     RateLimited { retry_after_secs: u64 },
@@ -144,6 +155,23 @@ impl TokenError {
                 ),
                 Some("exceeds_policy"),
             ),
+            Self::InvalidSandboxToken(message) => (
+                StatusCode::BAD_REQUEST,
+                message.clone(),
+                Some("invalid_sandbox_token"),
+            ),
+            Self::AppNotFound(_) => (
+                StatusCode::NOT_FOUND,
+                "not found".into(),
+                Some("app_not_found"),
+            ),
+            Self::SandboxTokenFixed => (
+                StatusCode::CONFLICT,
+                "a sandbox agent token cannot be changed, extended or regenerated: mint a new \
+                 one and revoke this one"
+                    .into(),
+                Some("sandbox_token_fixed"),
+            ),
             Self::RateLimited { .. } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many requests; try again later".into(),
@@ -171,6 +199,12 @@ impl IntoResponse for TokenError {
         match self {
             Self::ExceedsPolicy { max_lifetime_days } => {
                 body["max_lifetime_days"] = json!(max_lifetime_days);
+            }
+            Self::InvalidSandboxToken(message) => {
+                body["message"] = json!(message);
+            }
+            Self::AppNotFound(app_id) => {
+                body["app_id"] = json!(app_id);
             }
             Self::RateLimited { retry_after_secs } => {
                 let mut response = (status, Json(body)).into_response();
@@ -233,6 +267,21 @@ mod tests {
                 429,
                 Some("rate_limited"),
             ),
+            (
+                TokenError::InvalidSandboxToken("no apps".into()),
+                400,
+                Some("invalid_sandbox_token"),
+            ),
+            (
+                TokenError::AppNotFound("an-app".into()),
+                404,
+                Some("app_not_found"),
+            ),
+            (
+                TokenError::SandboxTokenFixed,
+                409,
+                Some("sandbox_token_fixed"),
+            ),
             (TokenError::Internal("db down".into()), 500, None),
         ];
         for (error, status, code) in cases {
@@ -256,6 +305,34 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["code"], "exceeds_policy");
         assert_eq!(body["max_lifetime_days"], 30);
+    }
+
+    async fn body_of(error: TokenError) -> (StatusCode, serde_json::Value) {
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_sandbox_mint_refusal_says_why_and_names_the_app() {
+        let (status, body) = body_of(TokenError::InvalidSandboxToken("no apps".into())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "invalid_sandbox_token");
+        // The contract's `message`, beside the `error` every refusal carries.
+        assert_eq!(body["message"], "no apps");
+        assert_eq!(body["error"], "no apps");
+
+        let (status, body) = body_of(TokenError::AppNotFound("an-app".into())).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["code"], "app_not_found");
+        assert_eq!(body["app_id"], "an-app");
+
+        let (status, body) = body_of(TokenError::SandboxTokenFixed).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "sandbox_token_fixed");
     }
 
     #[test]

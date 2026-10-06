@@ -5,7 +5,8 @@
  * person, and under `/api/customer-apps` for a machine. The CREDENTIAL picks,
  * not the environment — a publish token or a service account's token carries
  * no platform standing, so the admin mount refuses it on a path the caller
- * cannot be given.
+ * cannot be given. A sandbox agent token (`oxy_sbx_…`) reads the machine
+ * mount too, for the opposite reason: it never reaches `/admin` at all.
  *
  * ORDER, which differs from every other command in exactly one place:
  *
@@ -23,9 +24,10 @@
 
 import { isProduction } from "../apps/environment.js";
 import { UUID_RE } from "../apps/resolve.js";
+import { requireOwnSandbox, resolveSandboxApp } from "../apps/sandbox-token.js";
 import { fallsBackToPublisher, githubOidcAvailable, OidcExchangeError } from "../auth/oidc.js";
 import { introspectToken } from "../auth/token-api.js";
-import { credentialShape, isMachineIdentity } from "../auth/token-kind.js";
+import { credentialShape, isMachineIdentity, isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import { exchangeGithubOidc } from "../publish/server.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -85,6 +87,12 @@ async function forBearer(
   if (shape === "publish") return { bearer, surface: MACHINE_SURFACE };
   if (shape === "service_account" || shape === "ci") {
     const appId = UUID_RE.test(app) ? undefined : await appIdFromGrants(target, bearer, app);
+    return { bearer, surface: MACHINE_SURFACE, appId };
+  }
+  if (shape === "sandbox_agent") {
+    // The admin mount answers this token 404. The app comes off the token's
+    // own list — a slug or a UUID — and one it was not minted for stops here.
+    const { appId } = await resolveSandboxApp(target, bearer, app);
     return { bearer, surface: MACHINE_SURFACE, appId };
   }
   return { bearer, surface: ADMIN_SURFACE };
@@ -186,6 +194,9 @@ export async function resolveCredentials(
     // Before `forBearer`, which may ask the server what a service account's
     // token names — a refusal makes no request at all.
     if (isMachineIdentity(stored) && !isProduction(appEnv)) refuseNonProduction();
+    // The mirror image, and likewise before any request: a sandbox agent
+    // token runs checks in its own sandboxes and nowhere else.
+    if (isSandboxAgentToken(stored)) requireOwnSandbox("oxyc checks run", appEnv);
     return forBearer(target, stored, app);
   }
 

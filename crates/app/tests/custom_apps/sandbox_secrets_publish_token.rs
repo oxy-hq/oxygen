@@ -51,7 +51,7 @@ fn secrets(token: bool) -> Router {
     Router::new()
         .nest("/api", routes)
         .layer(middleware::from_fn_with_state(
-            AuthState::built_in(),
+            AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
             auth_middleware,
         ))
 }

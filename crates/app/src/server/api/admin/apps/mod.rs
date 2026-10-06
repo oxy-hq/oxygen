@@ -10,6 +10,9 @@
 //! per-app repo variables.
 
 pub mod access;
+/// A sandbox agent token on the verify and read-back routes: an own sandbox
+/// is required, everything else is a not-found.
+mod agent_scope;
 mod dto;
 /// The `?environment=` parameter and who may name a non-production one.
 pub mod environment_scope;
@@ -27,6 +30,8 @@ mod ops;
 /// Slug validation, re-exported so the (non-admin) `/publish` route can reject a
 /// slug before it becomes a schema name / path — see `custom_apps_publish`.
 pub(crate) use ops::is_valid_slug;
+/// The audit row of "run now", for every credential.
+mod run_audit;
 pub mod storage;
 pub mod templates;
 

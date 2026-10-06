@@ -47,6 +47,7 @@ pub async fn get_app_access(Path(app_id): Path<Uuid>) -> Result<Json<AppAccessDt
 
 /// `PUT /admin/apps/{app_id}/access`
 pub async fn set_app_access(
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     actor: oxy_app_core::audit::RequestActor,
     Path(app_id): Path<Uuid>,
     Json(req): Json<SetAppAccessRequest>,

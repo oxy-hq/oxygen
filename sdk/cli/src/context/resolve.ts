@@ -31,7 +31,17 @@ import { loadForTargetResolution, type ResolvedEnv, resolveEnv } from "./target.
 export interface GlobalFlags {
   env?: string;
   target?: string;
+  /**
+   * `--token-env <VAR>`, set ONLY when the caller passed it. Absent, the
+   * bearer is `OXY_TOKEN`, then the login cache. Present, that variable is the
+   * only stored source: see `envOnly` in `createContext`.
+   */
   tokenEnv?: string;
+  /**
+   * The token variable must hold the credential, whether or not it was named.
+   * `oxyc mcp` sets it unless it was started with `--login`.
+   */
+  requireTokenEnv?: boolean;
   apiKeyEnv?: string;
   org?: string;
   workspace?: string;
@@ -55,6 +65,9 @@ export interface GlobalFlags {
  *
  * The first two are read off the machine and cost nothing. The third is a
  * network exchange, which is why everything that can reach it is async.
+ *
+ * A caller that NAMED its variable (`--token-env`), and `oxyc mcp` without
+ * `--login`, stop after the first: `file` and `oidc` are never tried.
  */
 export interface ResolvedCredential {
   token: string;
@@ -64,6 +77,44 @@ export interface ResolvedCredential {
   tokenId?: string;
   /** `<org>/<name>`, on an OIDC credential. */
   serviceAccount?: string;
+}
+
+/**
+ * Whether the token variable is the ONLY place a stored bearer may come from.
+ *
+ * True when the caller named the variable, and for `oxyc mcp` unless it was
+ * started with `--login`. The login cache and the GitHub OIDC exchange are
+ * then never consulted — an unset or empty variable is "no bearer", and for a
+ * command that needs one, exit `4`.
+ *
+ * `OXY_API_KEY` IS NOT A FALLBACK THIS CLOSES. It is a second credential the
+ * caller also named, and the release checks depend on exactly this pairing:
+ * they pass `--token-env` a variable that is never set so that the API key is
+ * what goes out (`.github/workflows/custom-app-checks.yaml`).
+ */
+export function envOnly(flags: Pick<GlobalFlags, "tokenEnv" | "requireTokenEnv">): boolean {
+  return flags.tokenEnv !== undefined || flags.requireTokenEnv === true;
+}
+
+/**
+ * The "no credential" error for this invocation: the usual one naming
+ * `oxyc login`, or — when the variable is the only source — one that says the
+ * variable is unset and does NOT send the caller to a login.
+ */
+export function notAuthenticated(target: string, flags: GlobalFlags): CliError {
+  const variable = flags.tokenEnv ?? "OXY_TOKEN";
+  if (!envOnly(flags)) return authError(target, flags.env ?? "production", variable);
+  return new CliError(`not authenticated for ${target}: ${variable} is not set`, {
+    code: ExitCode.AUTH,
+    detail:
+      flags.tokenEnv !== undefined
+        ? `--token-env ${variable} names the only place the bearer may come from. The \`oxyc login\` cache is never a fallback for it.`
+        : `\`oxyc mcp\` reads the bearer from ${variable} and from nowhere else, unless it is started with --login.`,
+    hint:
+      flags.tokenEnv !== undefined
+        ? `set ${variable} to the token — or drop --token-env to use your own \`oxyc login\``
+        : `set ${variable} to the token — or, to serve on your own \`oxyc login\`, start it as \`oxyc mcp --login\``
+  });
 }
 
 /** Everything a command might need, resolved on demand. */
@@ -183,6 +234,11 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
     once("stored", () => {
       const fromEnv = process.env[flags.tokenEnv ?? "OXY_TOKEN"]?.trim();
       if (fromEnv) return { token: fromEnv, source: "env" as const };
+      // FAIL CLOSED, before the file is opened. The variable was named to say
+      // WHICH credential runs this — an agent's scoped token, typically — so a
+      // typo in the name, or a variable that never reached the process, must
+      // not quietly run it as whoever last ran `oxyc login` on the machine.
+      if (envOnly(flags)) return undefined;
       const cached = loadCredential(env().target);
       const token = cached?.token?.trim();
       if (!token) return undefined;
@@ -218,8 +274,9 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
   const credential = async (): Promise<ResolvedCredential> => {
     const have = stored();
     if (have) return have;
-    if (githubOidcAvailable()) return minted();
-    throw authError(env().target, flags.env ?? "production", flags.tokenEnv ?? "OXY_TOKEN");
+    // No exchange either: a named variable is the only source, not the first.
+    if (!envOnly(flags) && githubOidcAvailable()) return minted();
+    throw notAuthenticated(env().target, flags);
   };
 
   return {
@@ -236,6 +293,7 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
     maybeBearer: async () => {
       const have = stored();
       if (have) return have.token;
+      if (envOnly(flags)) return undefined;
       // No account named: no exchange to attempt, so no bearer — silently, as
       // in any job that never had `id-token: write`.
       if (!githubOidcAvailable() || !serviceAccount()) return undefined;

@@ -54,6 +54,10 @@ pub struct InvocationIdentity {
     /// an Airway step or a manual run, which execute as the platform.
     pub user_id: Option<Uuid>,
     pub user_email: Option<String>,
+    /// The sandbox agent token behind the run: the one the request used, or
+    /// the one that queued it. Stamped on the run's `app.staging.held` row as
+    /// `metadata.token_id`. `None` for every other caller.
+    pub credential_token_id: Option<Uuid>,
 }
 
 /// Postgres truncates `application_name` past `NAMEDATALEN - 1` bytes, with a
@@ -305,6 +309,7 @@ mod tests {
             user_id: human
                 .then(|| Uuid::parse_str("b7ad6b71-6920-3331-0000-000000000001").unwrap()),
             user_email: human.then(|| "ana@example.test".to_string()),
+            credential_token_id: None,
         }
     }
 

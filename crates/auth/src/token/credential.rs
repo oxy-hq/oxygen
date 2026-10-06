@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use entity::service_accounts;
-use oxy_authz::{TokenGrant, TokenReach};
+use oxy_authz::{SandboxAgentReach, SandboxApp, TokenGrant, TokenReach};
 use uuid::Uuid;
 
 use super::format::TokenFormat;
@@ -14,6 +14,7 @@ use super::format::TokenFormat;
 pub use super::admission::{
     LegacyLink, Links, ReadGrants, Refusal, admit, blocked_orgs, read_grants, readable_grants,
 };
+pub use super::sandbox_admission::{SandboxAppHome, place_sandbox_apps};
 
 /// Where a row came from. Text in the table; constants here so the writers
 /// agree.
@@ -30,6 +31,9 @@ pub mod source {
     pub const OXYC_LOGIN: &str = "oxyc_login";
     /// Minted by `POST /api/auth/oidc/exchange` — trusted access.
     pub const OIDC: &str = "oidc";
+    /// Minted by `POST /api/auth/cli/exchange` for a code that asked for a
+    /// token other than the login's — `oxyc tokens create --sandbox-agent`.
+    pub const OXYC: &str = "oxyc";
 }
 
 /// What a token's service account is, read from its `service_accounts` row:
@@ -89,6 +93,9 @@ pub enum StoredKind {
     /// `oxy_ci_…` — minted for one CI run by a trust policy, acting as the
     /// policy's service account for 15 minutes.
     Ci,
+    /// `oxy_sbx_…` — minted by a staff member for an agent: it reaches the
+    /// sandboxes it creates of the apps it names, as its minter, for hours.
+    SandboxAgent,
 }
 
 impl StoredKind {
@@ -98,6 +105,7 @@ impl StoredKind {
             Self::LegacyKey => "legacy_key",
             Self::ServiceAccount => "service_account",
             Self::Ci => "ci",
+            Self::SandboxAgent => "sandbox_agent",
         }
     }
 
@@ -115,6 +123,7 @@ impl StoredKind {
             "legacy_key" => Some(Self::LegacyKey),
             "service_account" => Some(Self::ServiceAccount),
             "ci" => Some(Self::Ci),
+            "sandbox_agent" => Some(Self::SandboxAgent),
             _ => None,
         }
     }
@@ -128,6 +137,7 @@ impl StoredKind {
             TokenFormat::LegacyKey => Some(Self::LegacyKey),
             TokenFormat::ServiceAccount => Some(Self::ServiceAccount),
             TokenFormat::Ci => Some(Self::Ci),
+            TokenFormat::SandboxAgent => Some(Self::SandboxAgent),
             TokenFormat::LegacyPublish => None,
         }
     }
@@ -137,6 +147,15 @@ impl StoredKind {
 /// custom-apps surface reaches nothing but it (design §3.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AppPublishGrant {
+    pub org_id: Uuid,
+    pub app_id: Uuid,
+}
+
+/// One live `app_sandbox` grant: a sandbox agent token may run the sandbox
+/// loop on this app, in sandboxes it created itself (sandbox agent credential
+/// design §1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppSandboxGrant {
     pub org_id: Uuid,
     pub app_id: Uuid,
 }
@@ -167,6 +186,12 @@ pub struct CredentialContext {
     /// The live `app_publish` grants of a token with `all_access = false`.
     /// Empty for an all-access token and for every legacy credential.
     pub app_publish: Vec<AppPublishGrant>,
+    /// The apps a **sandbox agent token** is granted: its live `app_sandbox`
+    /// grants whose app still exists in the org the grant names. Empty for
+    /// every other kind. For this kind [`Self::grants`] holds one workspace
+    /// grant per app here, on the workspace the app is published from now
+    /// (`place_sandbox_apps`).
+    pub app_sandbox: Vec<AppSandboxGrant>,
     /// Orgs this token reaches nothing in: ones that ended its reach (a
     /// revoked org-wide grant), and — added by the store after admission —
     /// ones whose token policy it violates (`super::policy`). Always empty for
@@ -200,13 +225,41 @@ impl CredentialContext {
         // row says: admission refuses a row that claims otherwise, and this
         // does not rely on it having done so.
         let account = self.is_service_account();
+        // A sandbox agent token is never all-access and carries no partner
+        // standing, by the same rule: admission refuses a row that claims
+        // either, and this does not rely on it having done so. It always
+        // carries the sandbox fact — with no app, when it has no live grant —
+        // so nothing about it is ever decided as a plain grant-bound token.
+        let sandbox = self.is_sandbox_agent();
         Some(TokenReach {
-            all_access: self.all_access && !account,
+            all_access: self.all_access && !account && !sandbox,
             platform: self.platform && !account,
-            partner: self.partner && !account,
+            partner: self.partner && !account && !sandbox,
             grants: self.grants.clone(),
             blocked_orgs: self.blocked_orgs.clone(),
+            sandbox_agent: sandbox.then(|| SandboxAgentReach {
+                token_id: self.token_id,
+                apps: self
+                    .app_sandbox
+                    .iter()
+                    .map(|g| SandboxApp {
+                        app_id: g.app_id,
+                        org_id: g.org_id,
+                    })
+                    .collect(),
+            }),
         })
+    }
+
+    /// Whether the credential is a sandbox agent token (`oxy_sbx_`): its
+    /// minter, confined to the sandbox loop on the apps it names.
+    pub fn is_sandbox_agent(&self) -> bool {
+        self.kind == StoredKind::SandboxAgent
+    }
+
+    /// Whether an `app_sandbox` grant names this app.
+    pub fn sandboxes_app(&self, app_id: Uuid) -> bool {
+        self.app_sandbox.iter().any(|g| g.app_id == app_id)
     }
 
     /// Whether the credential acts as an org's service account rather than as

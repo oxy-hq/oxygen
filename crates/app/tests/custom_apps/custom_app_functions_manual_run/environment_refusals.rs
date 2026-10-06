@@ -58,7 +58,7 @@ async fn run_as(
     query: Query<EnvironmentQuery>,
 ) -> (StatusCode, Value) {
     let outcome = handlers::run_function_job(
-        caller,
+        oxy_app_core::audit::RequestActor::session(caller.0),
         token,
         Path((app_id, function.to_string())),
         query,

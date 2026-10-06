@@ -47,13 +47,13 @@ fn logs_surface() -> Router {
 }
 
 /// The two custom-app paths of one app.
-struct Paths {
+pub(super) struct Paths {
     invoke: String,
     logs: String,
 }
 
 /// The fixture user as Owner of an org with one published app.
-async fn app_fixture() -> (Fixture, Paths) {
+pub(super) async fn app_fixture() -> (Fixture, Paths) {
     let fx = fixture().await;
     join_org(&fx.db, fx.org_id, fx.user.id, OrgRole::Owner).await;
     let app = published_app(&fx.db, fx.org_id, fx.workspace_id).await;
@@ -71,18 +71,18 @@ async fn app_fixture() -> (Fixture, Paths) {
 }
 
 /// A credential as the header it travels in.
-type Credential = (&'static str, String);
+pub(super) type Credential = (&'static str, String);
 
-fn bearer(secret: &str) -> Credential {
+pub(super) fn bearer(secret: &str) -> Credential {
     ("authorization", format!("Bearer {secret}"))
 }
 
-fn api_key(secret: &str) -> Credential {
+pub(super) fn api_key(secret: &str) -> Credential {
     ("x-api-key", secret.to_string())
 }
 
 /// What `/fn` and `/logs` answer `credential`, in that order.
-async fn fn_and_logs(paths: &Paths, credential: &Credential) -> [StatusCode; 2] {
+pub(super) async fn fn_and_logs(paths: &Paths, credential: &Credential) -> [StatusCode; 2] {
     let headers = [(credential.0, credential.1.as_str())];
     let (invoke, _) = call(
         function_surface(),

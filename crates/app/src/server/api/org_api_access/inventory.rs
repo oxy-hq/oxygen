@@ -148,6 +148,7 @@ impl OrgSide {
             partner: row.partner,
             grants: readable_grants(&here).unwrap_or_default(),
             blocked_orgs: blocked_orgs(&here),
+            sandbox_agent: None,
         };
         reach.workspace_ceiling(self.org_id, workspace_id).is_some()
     }

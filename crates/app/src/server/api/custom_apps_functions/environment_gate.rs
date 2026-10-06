@@ -49,6 +49,11 @@ pub(crate) enum Entrance {
     /// `/fn` with an authenticated viewer; `non_production_reach` is whether
     /// that viewer may open this app's non-production environments.
     Route { non_production_reach: bool },
+    /// `/fn` with a **sandbox agent token** (`oxy_sbx_`). `own_sandbox` is
+    /// whether the environment is a sandbox that token created, of an app it
+    /// is granted (`agent_gate`). The token runs a function there and nowhere
+    /// else — not in production, which every other caller is admitted to.
+    SandboxAgent { own_sandbox: bool },
     /// A schedule, webhook, Airway step or manual job: no viewer.
     Queued,
 }
@@ -67,6 +72,8 @@ pub(crate) enum RefusedReason {
     NotStaff,
     /// A non-production environment runs only on a staff route call.
     QueuedOutsideProduction,
+    /// A sandbox agent token, anywhere but a sandbox it created.
+    NotOwnSandbox,
 }
 
 /// A function run refused because of the environment it would run in.
@@ -88,10 +95,19 @@ impl EnvironmentRefused {
                 "only a route call runs a function in the {env} environment; schedules, \
                  webhooks and manual runs are production-only"
             ),
+            RefusedReason::NotOwnSandbox => {
+                "a sandbox agent token runs functions only in a sandbox it created".to_string()
+            }
         }
     }
 
+    /// `403` with the reason — except to a sandbox agent token, which is
+    /// answered as an unknown app is: a bare `404`, so it learns nothing of
+    /// production, staging or another creator's sandbox.
     pub(crate) fn into_response(self) -> Response {
+        if self.reason == RefusedReason::NotOwnSandbox {
+            return StatusCode::NOT_FOUND.into_response();
+        }
         (
             StatusCode::FORBIDDEN,
             axum::Json(serde_json::json!({
@@ -116,6 +132,16 @@ pub(crate) fn admit(
     };
     use AppEnvironment::{Dev, Production, Staging};
     match (&resolved.environment, entrance) {
+        // Stated first, so the arm that admits production to every caller
+        // never sees this entrance. This is the second refusal of a
+        // production call by a sandbox agent token (sandbox agent credential
+        // design, decision 6): it reads the entrance and the environment and
+        // nothing the route allow-list reads.
+        (Dev { .. }, Entrance::SandboxAgent { own_sandbox: true }) => Ok(Admission {
+            environment: resolved.clone(),
+            policy: EnvPolicy::for_environment(resolved.environment.clone()),
+        }),
+        (_, Entrance::SandboxAgent { .. }) => Err(refused(RefusedReason::NotOwnSandbox)),
         (Production, _)
         | (
             Staging | Dev { .. },
@@ -210,13 +236,19 @@ fn oltp_home_for(branch: Option<&oxy_oltp::entity::branches::Model>) -> OltpHome
 }
 
 /// The [`Entrance`] of a route call. Only a call outside production pays for
-/// the reach decision (`may_open_non_production`, cached 60 s).
+/// the reach decision (`may_open_non_production`, cached 60 s). A sandbox
+/// agent token takes an entrance of its own (`agent_gate`).
 pub(crate) async fn route_entrance(
     db: &sea_orm::DatabaseConnection,
     resolved: &ResolvedEnvironment,
     caller: &crate::server::authz::Caller,
     app: &entity::apps::Model,
 ) -> Entrance {
+    if caller.is_sandbox_agent() {
+        // Boxed: this is awaited inside the function route's future, whose
+        // size every caller pays for; the token's branch adds a pointer to it.
+        return Box::pin(super::agent_gate::entrance(db, resolved, caller, app)).await;
+    }
     let non_production_reach =
         !resolved.is_production() && may_open_non_production(db, caller, app).await;
     Entrance::Route {
@@ -241,159 +273,5 @@ pub(crate) async fn with_build_pin(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::server::api::custom_apps_functions::env_policy::{Decision, HostOp};
-
-    fn resolved(environment: AppEnvironment) -> ResolvedEnvironment {
-        ResolvedEnvironment {
-            environment,
-            build_id: Some(Uuid::nil()),
-        }
-    }
-
-    const STAFF: Entrance = Entrance::Route {
-        non_production_reach: true,
-    };
-    const VIEWER: Entrance = Entrance::Route {
-        non_production_reach: false,
-    };
-
-    #[test]
-    fn production_runs_for_everyone_and_allows_every_op() {
-        for entrance in [STAFF, VIEWER, Entrance::Queued] {
-            let admission = admit(&resolved(AppEnvironment::Production), entrance)
-                .expect("production is always admitted");
-            assert!(admission.policy.is_production());
-            assert_eq!(admission.policy.decide(HostOp::StoragePut), Decision::Allow);
-        }
-    }
-
-    /// Staging runs for staff on a route call, with a policy that holds its
-    /// writes — the admission is what the host is built from.
-    #[test]
-    fn staging_runs_for_staff_with_writes_held() {
-        let admission = admit(&resolved(AppEnvironment::Staging), STAFF).expect("staff");
-        assert_eq!(admission.environment.environment, AppEnvironment::Staging);
-        assert_eq!(
-            admission.policy.decide(HostOp::OltpExec),
-            Decision::Hold,
-            "a staging write is held"
-        );
-        assert_eq!(admission.policy.decide(HostOp::Query), Decision::Allow);
-    }
-
-    #[test]
-    fn staging_is_refused_to_a_viewer_who_is_not_staff_and_to_the_queue() {
-        let env = resolved(AppEnvironment::Staging);
-        let refused = admit(&env, VIEWER).expect_err("not staff");
-        assert_eq!(refused.reason, RefusedReason::NotStaff);
-        let refused = admit(&env, Entrance::Queued).expect_err("queued");
-        assert_eq!(refused.reason, RefusedReason::QueuedOutsideProduction);
-        assert!(
-            refused.message().contains("staging"),
-            "{}",
-            refused.message()
-        );
-        assert_eq!(refused.into_response().status(), StatusCode::FORBIDDEN);
-    }
-
-    /// Only an `active` branch becomes staging's OLTP home; anything else
-    /// holds on production.
-    #[test]
-    fn only_an_active_branch_is_the_oltp_home() {
-        use oxy_oltp::entity::branches::{BranchStatus, Model};
-        let row = |status| Model {
-            id: Uuid::nil(),
-            tenant_row_id: Uuid::nil(),
-            kind: oxy_oltp::OltpBranch::Staging,
-            provider_branch_id: "br-staging".into(),
-            parent_branch_id: "br-main".into(),
-            host: "h".into(),
-            database_name: "d".into(),
-            owner_role: "o".into(),
-            owner_password_ciphertext: None,
-            status,
-            created_at: chrono::Utc::now().into(),
-            last_reset_at: None,
-            updated_at: chrono::Utc::now().into(),
-        };
-        assert_eq!(
-            oltp_home_for(Some(&row(BranchStatus::Active))),
-            OltpHome::StagingBranch("br-staging".into())
-        );
-        for status in [BranchStatus::Resetting, BranchStatus::Provisioning] {
-            assert_eq!(oltp_home_for(Some(&row(status))), OltpHome::Production);
-        }
-        assert_eq!(oltp_home_for(None), OltpHome::Production);
-    }
-
-    fn sandbox() -> AppEnvironment {
-        AppEnvironment::Dev {
-            handle: "luong".into(),
-        }
-    }
-
-    /// A sandbox's schema is the app's writer schema and the sandbox's label —
-    /// the Airhouse sibling's name — and only a sandbox has one. A name over
-    /// 63 bytes is none, not a shorter one.
-    #[test]
-    fn a_sandboxs_oltp_schema_is_derived_from_the_slug_and_the_sandbox() {
-        let schema = sandbox_schema_of("store-ops", &sandbox()).expect("a schema");
-        assert_eq!(schema.name(), "app_store_ops__dev_luong");
-        assert_eq!(
-            Some(schema.name().to_string()),
-            airhouse::app_schema::environment_schema(
-                "app_store_ops",
-                &sandbox().schema_label().expect("a label")
-            ),
-            "one name in both stores"
-        );
-        assert!(sandbox_schema_of("store-ops", &AppEnvironment::Staging).is_none());
-        assert!(sandbox_schema_of("store-ops", &AppEnvironment::Production).is_none());
-        let long = "a".repeat(50);
-        assert!(sandbox_schema_of(&long, &sandbox()).is_none(), "64+ bytes");
-        assert!(sandbox_schema_of("store_ops", &sandbox()).is_none());
-    }
-
-    /// A sandbox is admitted on the arm staging is: a route call from staff,
-    /// with the non-production policy of **that** environment — the host then
-    /// isolates its writes to the sandbox's own homes or holds them.
-    #[test]
-    fn a_sandbox_runs_for_staff_with_the_non_production_policy() {
-        let admission = admit(&resolved(sandbox()), STAFF).expect("staff");
-        assert_eq!(admission.environment.environment, sandbox());
-        assert_eq!(admission.policy.environment(), &sandbox());
-        assert!(!admission.policy.is_production());
-        assert_eq!(
-            admission.policy.decide(HostOp::OltpExec),
-            Decision::Hold,
-            "a sandbox write with no isolated home is held"
-        );
-        assert_eq!(admission.policy.decide(HostOp::Query), Decision::Allow);
-        let staging = admit(&resolved(AppEnvironment::Staging), STAFF).expect("staff");
-        for op in HostOp::ALL {
-            assert_eq!(
-                admission.policy.decide(*op),
-                staging.policy.decide(*op),
-                "{op:?}: a sandbox decides as staging"
-            );
-        }
-    }
-
-    #[test]
-    fn a_sandbox_is_refused_to_a_viewer_who_is_not_staff_and_to_the_queue() {
-        let env = resolved(sandbox());
-        let refused = admit(&env, VIEWER).expect_err("not staff");
-        assert_eq!(refused.environment, sandbox());
-        assert_eq!(refused.reason, RefusedReason::NotStaff);
-        let refused = admit(&env, Entrance::Queued).expect_err("queued");
-        assert_eq!(refused.reason, RefusedReason::QueuedOutsideProduction);
-        assert!(
-            refused.message().contains("dev-luong"),
-            "{}",
-            refused.message()
-        );
-        assert_eq!(refused.into_response().status(), StatusCode::FORBIDDEN);
-    }
-}
+#[path = "environment_gate_tests.rs"]
+mod tests;

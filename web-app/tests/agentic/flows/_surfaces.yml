@@ -203,7 +203,7 @@
     - airway-pipeline-run
 
 # The Extend popover, the Activity drawer and the status badge live here and
-# are shared by every token surface, so a change to them reaches all three flows.
+# are shared by every token surface, so a change to them reaches all four flows.
 - surface: settings-api-keys
   paths:
     - "src/components/settings/SettingsDialog/sections/workspace/ApiKeys/"
@@ -212,6 +212,7 @@
   flows:
     - settings-api-key-extend
     - settings-account-tokens
+    - settings-account-sandbox-token
     - settings-org-api-access
 
 # Workspace → Legacy API keys (`sections/workspace/LegacyApiKeys/`) has no entry
@@ -226,6 +227,9 @@
     - "src/hooks/api/userTokens/"
     - "src/services/api/apiToken.ts"
     - "src/types/apiToken.ts"
+    # What a sandbox agent token may ask for, shared with the /cli-auth approval.
+    - "src/libs/sandboxAgentToken.ts"
   flows:
     - settings-account-tokens
+    - settings-account-sandbox-token
     - settings-org-api-access

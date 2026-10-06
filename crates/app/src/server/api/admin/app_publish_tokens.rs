@@ -19,10 +19,28 @@
 //!
 //! So list and revoke are scoped to the caller's own tokens, and the shared cross-admin
 //! view is what `Cap::OperatePlatform` buys — the capability that already means "operates
-//! Oxy's own machinery". Minting is unrestricted and needs no boundary: a staff token
-//! carries `app_id: None`, and `custom_apps_publish_authz::resolve_actor` re-resolves the
-//! minter's own capability and scope at publish time, so a token can never out-reach the
-//! person holding it.
+//! Oxy's own machinery". Minting needs no boundary of *reach*: a staff token carries
+//! `app_id: None`, and `custom_apps_publish_authz::resolve_actor` re-resolves the minter's
+//! own capability and scope at publish time, so a token can never out-reach the person
+//! holding it.
+//!
+//! ## A token cannot mint one
+//!
+//! Reach is not the only thing a credential has; it also has an end. A publish token
+//! minted here never expires and names no app, so an API token allowed to mint one could
+//! turn its own hours or days into a credential that outlives it — a credential quietly
+//! minting a stronger one, which the API-tokens design forbids (§4.6). Minting therefore
+//! takes a browser session or a **legacy API key** ([`SessionOrLegacyKey`]): CI scripts
+//! mint with a legacy key today and nothing may break one, while every new-format token
+//! (`oxy_pat_`, `oxy_sat_`, `oxy_ci_`, `oxy_sbx_`) is answered `403 session_required`,
+//! as on the token-management routes.
+//!
+//! ## Mint and revoke are audited
+//!
+//! One `audit_events` row each ([`MINTED`], [`REVOKED`]), written in the transaction
+//! that changes the token, so neither can happen unrecorded. Built with
+//! `AuditEntry::for_request`, so a mint by a legacy key names that key. The row carries
+//! the token's id, label and non-secret display prefix — never the plaintext or its hash.
 //!
 //! A live token authenticates as its minting app-admin **only on the
 //! customer-apps admin surface** — see the `app_publish_token_scope` middleware and
@@ -39,10 +57,17 @@ use chrono::Utc;
 use entity::app_publish_tokens;
 use entity::prelude::AppPublishTokens;
 use oxy::database::client::establish_connection;
+use oxy_app_core::audit::{self, AuditEntry, RequestActor};
 use oxy_auth::app_publish_token_domain::generate_token;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
-use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use oxy_auth::extractor::{
+    AuthenticatedUserExtractor, SESSION_REQUIRED, SessionAction, SessionOrLegacyKey,
+};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
+    TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::server::router::AppState;
@@ -100,8 +125,49 @@ impl From<app_publish_tokens::Model> for TokenResponse {
     }
 }
 
+/// The audit actions of this module, named after the partner console's
+/// `partner.publish_token.*` pair for the same two events.
+pub const MINTED: &str = "admin.publish_token.minted";
+pub const REVOKED: &str = "admin.publish_token.revoked";
+
+/// What a new-format API token is told when it asks to mint a publish token.
+pub struct MintPublishToken;
+impl SessionAction for MintPublishToken {
+    const REFUSAL: &'static str = "minting an app publish token requires a browser session";
+    const CODE: Option<&'static str> = Some(SESSION_REQUIRED);
+}
+
+/// A 500 for a failed step, logged with what the step was.
+fn internal<E: std::fmt::Display>(step: &'static str) -> impl FnOnce(E) -> StatusCode {
+    move |e| {
+        tracing::error!("app publish token: {step} failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+/// The audit row of a mint or a revoke: the publish token is the target, named
+/// by id, label and non-secret display prefix. Never the plaintext or the hash.
+fn token_event(
+    actor: &RequestActor,
+    action: &'static str,
+    token: &app_publish_tokens::Model,
+) -> AuditEntry {
+    AuditEntry::for_request(actor, action)
+        .target(
+            "app_publish_token",
+            token.id.to_string(),
+            token.name.clone(),
+        )
+        .metadata(json!({
+            "token_prefix": token.token_prefix,
+            "minted_by": token.created_by,
+        }))
+}
+
 pub async fn create_token(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
+    _: SessionOrLegacyKey<MintPublishToken>,
+    actor: RequestActor,
     body: Option<Json<CreateTokenBody>>,
 ) -> Result<Json<CreateTokenResponse>, StatusCode> {
     let body = body
@@ -112,16 +178,17 @@ pub async fn create_token(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| format!("app-publish-token {}", Utc::now().format("%Y-%m-%d")));
 
-    let db = establish_connection().await.map_err(|e| {
-        tracing::error!("create_token DB connect failed: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let db = establish_connection()
+        .await
+        .map_err(internal("create_token DB connect"))?;
 
     let generated = generate_token();
     let now = Utc::now().fixed_offset();
     let id = Uuid::new_v4();
 
-    app_publish_tokens::ActiveModel {
+    // The token and the row that says who minted it commit together.
+    let txn = db.begin().await.map_err(internal("create_token begin"))?;
+    let token = app_publish_tokens::ActiveModel {
         id: ActiveValue::Set(id),
         name: ActiveValue::Set(name.clone()),
         token_hash: ActiveValue::Set(generated.token_hash),
@@ -136,12 +203,15 @@ pub async fn create_token(
         app_id: ActiveValue::Set(None),
         expires_at: ActiveValue::Set(None),
     }
-    .insert(&db)
+    .insert(&txn)
     .await
-    .map_err(|e| {
-        tracing::error!("create_token insert failed: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    .map_err(internal("create_token insert"))?;
+    audit::record_in_txn(&txn, token_event(&actor, MINTED, &token))
+        .await
+        .map_err(internal("create_token audit"))?;
+    txn.commit()
+        .await
+        .map_err(internal("create_token commit"))?;
 
     Ok(Json(CreateTokenResponse {
         id,
@@ -219,6 +289,31 @@ mod tests {
     }
 
     #[test]
+    fn the_audit_row_names_the_token_and_carries_no_secret() {
+        let model = sample_model(false);
+        let actor = RequestActor::session(oxy_auth::types::AuthenticatedUser {
+            id: Uuid::new_v4(),
+            email: Some("staff@oxy.tech".to_string()),
+            name: "Staff".to_string(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        });
+        for action in [MINTED, REVOKED] {
+            let entry = token_event(&actor, action, &model);
+            assert_eq!(entry.action, action);
+            assert_eq!(entry.actor_user_id, Some(actor.id));
+            assert_eq!(entry.target_type.as_deref(), Some("app_publish_token"));
+            assert_eq!(entry.target_id, Some(model.id.to_string()));
+            assert_eq!(entry.org_id, None, "a platform-level event");
+            let written = entry.effective_metadata();
+            assert_eq!(written["token_prefix"], json!(model.token_prefix));
+            assert_eq!(written["minted_by"], json!(model.created_by));
+            assert!(!written.to_string().contains(&model.token_hash));
+        }
+    }
+
+    #[test]
     fn revoked_flag_reflects_revoked_at() {
         assert!(TokenResponse::from(sample_model(true)).revoked);
         assert!(!TokenResponse::from(sample_model(false)).revoked);
@@ -250,21 +345,18 @@ mod tests {
 }
 
 pub async fn revoke_token(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
+    actor: RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TokenResponse>, StatusCode> {
-    let db = establish_connection().await.map_err(|e| {
-        tracing::error!("revoke_token DB connect failed: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let db = establish_connection()
+        .await
+        .map_err(internal("revoke_token DB connect"))?;
 
     let token = AppPublishTokens::find_by_id(id)
         .one(&db)
         .await
-        .map_err(|e| {
-            tracing::error!("revoke_token lookup failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .map_err(internal("revoke_token lookup"))?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Revoking someone else's token is a fleet-operator action, not an app-publishing
@@ -274,17 +366,26 @@ pub async fn revoke_token(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Idempotent: re-revoking an already-revoked token is a no-op success.
+    // Idempotent: re-revoking an already-revoked token is a no-op success, and
+    // changes nothing to record.
     if token.revoked_at.is_some() {
         return Ok(Json(token.into()));
     }
 
+    // The revoke and the row that says who revoked whose token commit together.
+    let txn = db.begin().await.map_err(internal("revoke_token begin"))?;
     let mut active: app_publish_tokens::ActiveModel = token.into();
     active.revoked_at = ActiveValue::Set(Some(Utc::now().fixed_offset()));
-    let updated = active.update(&db).await.map_err(|e| {
-        tracing::error!("revoke_token update failed: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let updated = active
+        .update(&txn)
+        .await
+        .map_err(internal("revoke_token update"))?;
+    audit::record_in_txn(&txn, token_event(&actor, REVOKED, &updated))
+        .await
+        .map_err(internal("revoke_token audit"))?;
+    txn.commit()
+        .await
+        .map_err(internal("revoke_token commit"))?;
 
     Ok(Json(updated.into()))
 }

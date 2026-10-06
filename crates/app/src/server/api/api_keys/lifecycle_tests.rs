@@ -79,6 +79,7 @@ fn a_call_made_with_a_legacy_key_is_recorded_as_that_key() {
         service_account: None,
         grants: Vec::new(),
         app_publish: Vec::new(),
+        app_sandbox: Vec::new(),
     };
     let request = RequestActor {
         user: u,

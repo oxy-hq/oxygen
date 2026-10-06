@@ -85,6 +85,26 @@ describe("inventoryRevokeAction", () => {
     });
   });
 
+  it("offers nothing on a sandbox agent token: its minter and Oxygen staff revoke it", () => {
+    const sandbox = row({
+      kind: "sandbox_agent",
+      grants_here: [
+        grant({
+          kind: "app_sandbox",
+          workspace_id: null,
+          workspace_name: null,
+          role_ceiling: null,
+          app_id: "app-1",
+          app_name: "Store Ops"
+        })
+      ]
+    });
+    expect(inventoryRevokeAction(sandbox)).toEqual({ kind: "none" });
+    // And it is listed with the tokens, saying what it reaches rather than "every workspace".
+    expect(splitInventory([sandbox]).tokens).toEqual([sandbox]);
+    expect(inventoryAccess(sandbox).summary).toBe("Sandboxes of Store Ops");
+  });
+
   it("offers nothing on a revoked token, whatever its kind", () => {
     for (const kind of ["personal", "legacy_key", "service_account", "ci"] as const) {
       expect(inventoryRevokeAction(row({ kind, status: "revoked" }))).toEqual({ kind: "none" });

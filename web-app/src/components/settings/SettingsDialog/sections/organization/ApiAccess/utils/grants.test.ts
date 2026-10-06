@@ -263,6 +263,23 @@ describe("describeAccess", () => {
     expect(access.summary).toBe("Publish Store Ops");
   });
 
+  it("does not read a sandbox agent token's app grant as org-wide workspace access", () => {
+    const sandbox = (id: string, appName: string) =>
+      grant({
+        id,
+        kind: "app_sandbox",
+        workspace_id: null,
+        workspace_name: null,
+        role_ceiling: null,
+        app_id: id,
+        app_name: appName
+      });
+    expect(describeAccess([sandbox("app-1", "Store Ops")]).summary).toBe("Sandboxes of Store Ops");
+    const two = describeAccess([sandbox("app-1", "Store Ops"), sandbox("app-2", "Refunds")]);
+    expect(two.summary).toBe("Sandboxes of 2 apps");
+    expect(two.details).toEqual(["Sandboxes of Store Ops", "Sandboxes of Refunds"]);
+  });
+
   it("says so when every grant was revoked, and when there never was one", () => {
     expect(describeAccess([grant({ revoked_at: "2026-09-01T00:00:00Z" })]).summary).toBe(
       "Access revoked"

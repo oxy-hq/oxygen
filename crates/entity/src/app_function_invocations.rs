@@ -52,6 +52,11 @@ pub struct Model {
     /// replays in another. `DEFAULT 'production'`, which every row written
     /// before the column existed was.
     pub environment: String,
+    /// The API token the call authenticated with (`api_tokens.id`), when it
+    /// was a sandbox agent token; `user_id` is then its minter. `None` for a
+    /// session and for every row from before the column. No foreign key: the
+    /// attribution outlives the token row.
+    pub credential_token_id: Option<Uuid>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -14,6 +14,7 @@ import { formatBody } from "../api/output.js";
 import { paginate } from "../api/paginate.js";
 import { isExternalSurface, normalizePath, substitutePlaceholders } from "../api/paths.js";
 import { errorForResponse, request } from "../api/request.js";
+import { refuseSandboxToken } from "../apps/sandbox-token.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
@@ -87,6 +88,14 @@ function rejectConflictingOutput(flags: ApiFlags): void {
 }
 
 export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Promise<void> {
+  // Against ANY path, and before anything is read or sent: a hand-built
+  // request is the generic escape hatch, and this token is the opposite of
+  // generic. The server answers it 404 outside the sandbox loop regardless.
+  refuseSandboxToken(
+    ctx.storedBearer(),
+    "use `oxyc api`",
+    "it does the sandbox loop through its own verbs — env, publish --app-env, fn call, checks run, invocations, logs, env secret"
+  );
   rejectConflictingOutput(flags);
 
   const fields = parseFields(flags.rawField, flags.field);

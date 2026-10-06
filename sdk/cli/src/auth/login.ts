@@ -29,9 +29,11 @@ import { randomUUID } from "node:crypto";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { hostname as osHostname } from "node:os";
+import { withUserAgent } from "../api/user-agent.js";
 import * as log from "../ui/log.js";
 import { err } from "../ui/tty.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
+import { printableLines } from "../util/printable.js";
 import { type HostCredential, saveCredential } from "./credentials.js";
 import { createPkce, type Pkce } from "./pkce.js";
 
@@ -49,20 +51,51 @@ export interface LoginOptions {
 }
 
 /** What the loopback caught. */
-type Callback = { kind: "code"; code: string } | { kind: "token"; token: string };
+export type Callback = { kind: "code"; code: string } | { kind: "token"; token: string };
 
 /** A token ready to cache, with what the exchange said about it. */
-interface Minted {
+export interface Minted {
   token: string;
   tokenId?: string;
   expiresAt?: string;
+  /**
+   * The exchange's `token` object as the server sent it. `oxyc login` reads
+   * only the two fields above; a caller that has to CHECK what it was handed
+   * (`tokens create --sandbox-agent`) reads the rest.
+   */
+  described?: Record<string, unknown>;
 }
 
+/**
+ * What one browser round is FOR, in the four places a person reads it. The
+ * protocol is the same for a login and for approving a token; the words are not.
+ */
+export interface BrowserPurpose {
+  /** `Opening <url> in your browser to <opening>…` */
+  opening: string;
+  /** The command to run again, named when a round fails. */
+  retry: string;
+  /** The heading of the tab the user is left looking at. */
+  done: string;
+  /** What timed out: `timed out waiting for the browser to <waitingFor> (5 min)`. */
+  waitingFor: string;
+}
+
+const LOGIN_PURPOSE: BrowserPurpose = {
+  opening: "log in",
+  retry: "oxyc login",
+  done: "Logged in to oxy ✓",
+  waitingFor: "complete login"
+};
+
 /** The tab the user is left looking at. */
-const SUCCESS_HTML =
-  "<!doctype html><meta charset=utf-8><title>oxyc login</title>" +
-  '<body style="font-family:system-ui;padding:3rem;text-align:center">' +
-  "<h2>Logged in to oxy ✓</h2><p>You can close this tab and return to your terminal.</p>";
+function successHtml(purpose: BrowserPurpose): string {
+  return (
+    `<!doctype html><meta charset=utf-8><title>${purpose.retry}</title>` +
+    '<body style="font-family:system-ui;padding:3rem;text-align:center">' +
+    `<h2>${purpose.done}</h2><p>You can close this tab and return to your terminal.</p>`
+  );
+}
 
 /** The Rust waits 5 minutes. Long enough for an SSO detour with an MFA prompt. */
 const LOGIN_TIMEOUT_MS = 300_000;
@@ -132,17 +165,25 @@ async function obtainToken(target: string, opts: LoginOptions): Promise<Minted> 
   return { token: second.token };
 }
 
-/** Open the browser at `/cli-auth` and wait for the callback. */
-async function browserRound(
+/**
+ * Open the browser at `/cli-auth` and wait for the callback.
+ *
+ * `ask` is what a caller other than `oxyc login` adds: more query parameters
+ * for the page, and its own words. `oxyc login` passes none, and its URL and
+ * messages are what they always were.
+ */
+export async function browserRound(
   target: string,
   opts: LoginOptions,
-  pkce: Pkce | undefined
+  pkce: Pkce | undefined,
+  ask: { query?: string; purpose?: BrowserPurpose } = {}
 ): Promise<Callback> {
+  const purpose = ask.purpose ?? LOGIN_PURPOSE;
   const state = randomUUID();
-  const { port, waitForCallback, close } = await startLoopback(state);
+  const { port, waitForCallback, close } = await startLoopback(state, purpose);
   try {
-    const authUrl = cliAuthUrl(target, port, state, pkce, opts.hostname ?? osHostname());
-    log.info(`Opening ${authUrl} in your browser to log in…`);
+    const authUrl = cliAuthUrl(target, port, state, pkce, opts.hostname ?? osHostname(), ask.query);
+    log.info(`Opening ${authUrl} in your browser to ${purpose.opening}…`);
     log.info("If it doesn't open automatically, paste that URL into your browser.");
     (opts.open ?? openBrowser)(authUrl);
     return await waitForCallback;
@@ -155,18 +196,36 @@ async function browserRound(
  * The page URL. `port` and `state` are the original protocol; the challenge
  * and the hostname are what a deployment with the exchange reads to issue a
  * code instead of a token. Without a `pkce` this is the original URL exactly.
+ *
+ * `query` is appended as given — already encoded, `k=v&k=v` — after the four
+ * parameters above, which a page that does not know the extra ones still reads.
  */
 export function cliAuthUrl(
   target: string,
   port: number,
   state: string,
   pkce: Pkce | undefined,
-  hostname: string
+  hostname: string,
+  query?: string
 ): string {
   const url = `${base(target)}/cli-auth?port=${port}&state=${encodeURIComponent(state)}`;
   if (!pkce) return url;
-  return `${url}&code_challenge=${encodeURIComponent(pkce.challenge)}&hostname=${encodeURIComponent(hostname)}`;
+  const withPkce = `${url}&code_challenge=${encodeURIComponent(pkce.challenge)}&hostname=${encodeURIComponent(hostname)}`;
+  return query ? `${withPkce}&${query}` : withPkce;
 }
+
+/** What a caller says when the deployment answers `400 invalid_code`. */
+export interface CodeRefused {
+  message: string;
+  detail: string;
+  hint: string;
+}
+
+const LOGIN_CODE_REFUSED: CodeRefused = {
+  message: "the login code was rejected",
+  detail: "a code is single-use and lives five minutes.",
+  hint: `run \`${LOGIN_PURPOSE.retry}\` again`
+};
 
 /**
  * Trade the one-time code for a token.
@@ -174,18 +233,22 @@ export function cliAuthUrl(
  * `undefined` means the route is not there (404) — the caller's cue to fall
  * back. Every other failure throws: a rejected code is not something a second
  * attempt at the same exchange can fix.
+ *
+ * `refused` is the caller's wording for `invalid_code`, which is one answer
+ * for several causes and means more for a mint than for a login.
  */
 export async function exchangeCliCode(
   target: string,
   code: string,
-  verifier: string
+  verifier: string,
+  refused: CodeRefused = LOGIN_CODE_REFUSED
 ): Promise<Minted | undefined> {
   const url = `${base(target)}/api/auth/cli/exchange`;
   let response: Response;
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json" },
+      headers: withUserAgent({ "content-type": "application/json", accept: "application/json" }),
       body: JSON.stringify({ code, code_verifier: verifier }),
       signal: AbortSignal.timeout(30_000)
     });
@@ -197,7 +260,11 @@ export async function exchangeCliCode(
   if (response.status === 404) return undefined;
 
   const text = await response.text();
-  let body: { token?: { id?: string; expires_at?: string | null }; secret?: string; code?: string };
+  let body: {
+    token?: { id?: string; expires_at?: string | null } & Record<string, unknown>;
+    secret?: string;
+    code?: string;
+  };
   try {
     body = JSON.parse(text);
   } catch {
@@ -205,15 +272,17 @@ export async function exchangeCliCode(
   }
   if (!response.ok) {
     if (body.code === "invalid_code") {
-      throw new CliError("the login code was rejected", {
+      throw new CliError(refused.message, {
         code: ExitCode.AUTH,
-        detail: "a code is single-use and lives five minutes.",
-        hint: "run `oxyc login` again"
+        detail: refused.detail,
+        hint: refused.hint,
+        serverCode: "invalid_code"
       });
     }
     throw new CliError(`the login exchange failed (${response.status})`, {
       code: exitCodeForStatus(response.status),
-      detail: text.slice(0, 2000) || undefined
+      // The body is the deployment's, and a terminal acts on control characters.
+      detail: printableLines(text.slice(0, 2000)).trim() || undefined
     });
   }
   if (!body.secret) {
@@ -222,7 +291,8 @@ export async function exchangeCliCode(
   return {
     token: body.secret,
     tokenId: body.token?.id,
-    expiresAt: body.token?.expires_at ?? undefined
+    expiresAt: body.token?.expires_at ?? undefined,
+    described: body.token
   };
 }
 
@@ -234,7 +304,10 @@ export async function exchangeCliCode(
  * `/favicon.ico` alongside the redirect, and treating that as the callback
  * would fail a login that was actually about to succeed.
  */
-async function startLoopback(expectedState: string): Promise<{
+async function startLoopback(
+  expectedState: string,
+  purpose: BrowserPurpose
+): Promise<{
   port: number;
   waitForCallback: Promise<Callback>;
   close: () => void;
@@ -259,7 +332,7 @@ async function startLoopback(expectedState: string): Promise<{
     if (parsed.searchParams.get("state") !== expectedState) {
       // A mismatch means this callback belongs to some other login attempt —
       // or to something that guessed the port. Refuse and keep listening.
-      plain(res, 400, "State mismatch — please retry `oxyc login`.");
+      plain(res, 400, `State mismatch — please retry \`${purpose.retry}\`.`);
       return;
     }
     // `code` first: a page that sent both would be a page that can do the
@@ -274,15 +347,15 @@ async function startLoopback(expectedState: string): Promise<{
       "Content-Type": "text/html; charset=utf-8",
       Connection: "close"
     });
-    res.end(SUCCESS_HTML);
+    res.end(successHtml(purpose));
     resolveCallback(code ? { kind: "code", code } : { kind: "token", token: token as string });
   });
 
   const timer = setTimeout(() => {
     rejectCallback(
-      new CliError("timed out waiting for the browser to complete login (5 min)", {
+      new CliError(`timed out waiting for the browser to ${purpose.waitingFor} (5 min)`, {
         code: ExitCode.UNAVAILABLE,
-        hint: "oxyc login --env <env>   — and complete the browser flow"
+        hint: `${purpose.retry} --env <env>   — and complete the browser flow`
       })
     );
   }, LOGIN_TIMEOUT_MS);
@@ -331,7 +404,7 @@ async function fetchUser(target: string, token: string): Promise<UserResponse> {
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: withUserAgent({ Authorization: `Bearer ${token}` }),
       signal: AbortSignal.timeout(30_000)
     });
   } catch (cause) {

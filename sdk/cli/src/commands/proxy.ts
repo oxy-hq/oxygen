@@ -30,6 +30,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
+import { withUserAgent } from "../api/user-agent.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -369,7 +370,10 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
       const traceId = fn ? ensureTraceparent(headers) : undefined;
       const upstream = await fetch(`${target.replace(/\/+$/, "")}${path}`, {
         method,
-        headers,
+        // The browser's own user agent was never forwarded (it is not on the
+        // list `buildRequestHeaders` copies), so this names the process that
+        // is actually making the request.
+        headers: withUserAgent(headers),
         body: method === "GET" || method === "HEAD" ? undefined : body,
         redirect: "manual",
         signal: abort.signal

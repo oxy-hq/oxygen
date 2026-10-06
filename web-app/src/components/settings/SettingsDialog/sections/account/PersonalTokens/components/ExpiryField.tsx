@@ -17,6 +17,7 @@ import {
   presetAllowed
 } from "../expiry";
 import OptionChip from "./OptionChip";
+import SheetRow from "./SheetRow";
 
 interface Props {
   choice: ExpiryChoice;
@@ -27,6 +28,11 @@ interface Props {
   testId?: string;
   /** For a dialog whose labels are set smaller than the default. */
   labelClassName?: string;
+  /**
+   * `sheet` sets the label in the gutter of a token sheet, beside filled chips. `stacked` is the
+   * label above its chips, for a dialog laid out top to bottom.
+   */
+  variant?: "stacked" | "sheet";
 }
 
 const capNote = (cap: LifetimeCap): string =>
@@ -109,14 +115,14 @@ const ExpiryField: React.FC<Props> = ({
   onChange,
   cap,
   testId = "account-token-expiry",
-  labelClassName
+  labelClassName,
+  variant = "stacked"
 }) => {
   const group = useId();
-  return (
-    <fieldset className='flex min-w-0 flex-col gap-2 border-0 p-0'>
-      <Label asChild className={cn(labelClassName)}>
-        <legend>Expires</legend>
-      </Label>
+  const sheet = variant === "sheet";
+  const chip = sheet ? "solid" : "outline";
+  const choices = (
+    <>
       <div className='flex flex-wrap items-center gap-1.5'>
         {expiryOptions(cap).map(({ days, label }) => (
           <OptionChip
@@ -126,6 +132,7 @@ const ExpiryField: React.FC<Props> = ({
             checked={choice.kind === "days" && choice.days === days}
             onSelect={() => onChange({ kind: "days", days })}
             label={label}
+            variant={chip}
             disabled={!presetAllowed(days, cap)}
             title={cap && !presetAllowed(days, cap) ? capNote(cap) : undefined}
           />
@@ -136,6 +143,7 @@ const ExpiryField: React.FC<Props> = ({
           checked={choice.kind === "date"}
           onSelect={() => onChange({ kind: "date" })}
           label='Custom date'
+          variant={chip}
         />
         <OptionChip
           group={group}
@@ -143,6 +151,7 @@ const ExpiryField: React.FC<Props> = ({
           checked={choice.kind === "never"}
           onSelect={() => onChange({ kind: "never" })}
           label='No expiry'
+          variant={chip}
           disabled={!!cap}
           title={cap ? capNote(cap) : undefined}
         />
@@ -156,6 +165,25 @@ const ExpiryField: React.FC<Props> = ({
         />
       )}
       <Outcome choice={choice} cap={cap} testId={testId} />
+    </>
+  );
+
+  if (sheet) {
+    return (
+      <SheetRow label='Expires' labelId={group}>
+        {/* `pt-0.5` centres the 32px chips on the 36px line the label sits on. */}
+        <div role='radiogroup' aria-labelledby={group} className='flex flex-col gap-2 pt-0.5'>
+          {choices}
+        </div>
+      </SheetRow>
+    );
+  }
+  return (
+    <fieldset className='flex min-w-0 flex-col gap-2 border-0 p-0'>
+      <Label asChild className={cn(labelClassName)}>
+        <legend>Expires</legend>
+      </Label>
+      {choices}
     </fieldset>
   );
 };

@@ -85,6 +85,7 @@ async fn failed_in_production(
         request_hash: Set(None),
         failure_fingerprint: Set(Some(fingerprint.into())),
         environment: Set("production".into()),
+        credential_token_id: Set(None),
     }
     .insert(db)
     .await

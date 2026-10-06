@@ -9,10 +9,21 @@
  *
  * Called from `platform-canary-checkpoint.mjs` behind `--sandbox-loop`, after
  * its second green `checks run`, reusing the checkpoint's staged canary (as
- * the publish cwd), its staff `dev-login` token as `OXY_TOKEN`, and the
- * workspace build of `oxyc`. Can also run standalone against an
- * already-published canary — see `main()` below — which is mainly useful for
- * iterating on this script itself.
+ * the publish cwd), its staff `dev-login` token, and the workspace build of
+ * `oxyc`. Can also run standalone against an already-published canary — see
+ * `main()` below — which is mainly useful for iterating on this script itself.
+ *
+ * **The loop runs as a sandbox agent token** (`oxy_sbx_…`,
+ * `internal-docs/2026-10-03-sandbox-agent-credential-design.md` §7.2): the
+ * credential an agent holds. The staff bearer mints one for the canary app,
+ * for an hour, the way a person does in a browser (`POST /api/user/tokens`,
+ * which takes a session and no token). Every step of the loop then uses that
+ * token, and it is revoked at the end, on a green run and on a failed one.
+ * The staff bearer keeps only what the token is not allowed to do —
+ * `STAFF_ONLY` names each and why.
+ *
+ * `STAFF_ONLY`, the mint and what keeps both credentials out of the output
+ * are in `platform-canary-sandbox-token.mjs`.
  *
  * Every assertion is on a JSON field or an exit code, never on stderr text —
  * `oxyc`'s exit-code contract (`oxyc exit-codes`) is what an agent branches
@@ -35,6 +46,11 @@ import {
   OMITTED_IN_CI,
   parseAllSteps
 } from "./platform-canary-checkpoint.mjs";
+import {
+  mintAgentToken,
+  productionRefusesTheToken,
+  scrub
+} from "./platform-canary-sandbox-token.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const OXYC = join(REPO, "sdk", "cli", "dist", "main.mjs");
@@ -113,16 +129,26 @@ export function parseOmit(csv) {
 
 // ── oxyc, captured ──────────────────────────────────────────────────────────
 
-/** Shell `node <oxyc> <args>`, stdout and stderr captured separately (never inherited). */
-function oxyc(ctx, args, { cwd } = {}) {
+/** Shell `node <oxyc> <args>` with `bearer` as `OXY_TOKEN`; stdout and stderr captured, never inherited. */
+function run(ctx, bearer, args, { cwd } = {}) {
   const cmd = ["node", ctx.oxyc, ...args];
   const r = spawnSync(cmd[0], cmd.slice(1), {
     cwd: cwd ?? ctx.appDir,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, OXY_TOKEN: ctx.token, OXY_CREDENTIALS_PATH: ctx.credentialsPath }
+    env: { ...process.env, OXY_TOKEN: bearer, OXY_CREDENTIALS_PATH: ctx.credentialsPath }
   });
   return { cmd, status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+}
+
+/** `oxyc` as the sandbox agent token: every step of the loop. */
+function oxyc(ctx, args, opts) {
+  return run(ctx, ctx.agentToken, args, opts);
+}
+
+/** `oxyc` as the staff bearer: only what `STAFF_ONLY` lists. */
+function staff(ctx, args, opts) {
+  return run(ctx, ctx.token, args, opts);
 }
 
 class StepFailure extends Error {
@@ -193,8 +219,9 @@ export function expectedOrder(csv, allSteps) {
 
 // ── cleanup: pre-flight (re-run safety) and on-failure ──────────────────────
 
-function deleteSandbox(ctx, name) {
-  return oxyc(ctx, [
+/** `oxyc env delete … --wait`, by `as`: the token (`oxyc`) in step 9, `staff` for cleanup. */
+function deleteSandbox(ctx, name, as = oxyc) {
+  return as(ctx, [
     "env",
     "delete",
     ctx.app,
@@ -207,13 +234,17 @@ function deleteSandbox(ctx, name) {
   ]);
 }
 
-/** Exit 0 (deleted) or 5 (never existed) are both fine; anything else is a loud warning, not fatal. */
+/**
+ * Cleanup is the staff bearer's: it deletes whatever holds the name, whoever
+ * created it. Exit 0 (deleted) or 5 (never existed) are both fine; anything
+ * else is a loud warning, not fatal.
+ */
 async function cleanupSandbox(ctx, name) {
-  const call = deleteSandbox(ctx, name);
+  const call = deleteSandbox(ctx, name, staff);
   if (call.status === 0 || call.status === 5) return;
   process.stderr.write(
     `  cleanup: deleting ${name} exited ${call.status} (continuing)\n` +
-      `    stderr: ${call.stderr.slice(0, 500)}\n`
+      `    stderr: ${scrub(call.stderr.slice(0, 500), [ctx.token, ctx.agentToken])}\n`
   );
 }
 
@@ -311,28 +342,34 @@ async function step3(ctx, state) {
 }
 
 async function step4(ctx, state) {
-  const path = `/api/customer-apps/${ctx.appId}/secrets`;
   for (const { name, steps } of [
     { name: SANDBOX_A, steps: state.stepsA },
     { name: SANDBOX_B, steps: STEPS_B }
   ]) {
+    // The named command, not `oxyc api`: a sandbox agent token is refused the
+    // generic one before any request, and this is the route it sets a
+    // sandbox's secret through.
     const call = oxyc(ctx, [
-      "api",
-      "-X",
-      "POST",
-      path,
-      "-f",
-      "key=CANARY_STEPS",
-      "-f",
-      `value=${steps.join(",")}`,
-      "-f",
-      `environment=${name}`,
+      "env",
+      "secret",
+      "set",
+      ctx.app,
+      "CANARY_STEPS",
+      "--app-env",
+      name,
+      "--value",
+      steps.join(","),
       "--target",
-      ctx.target
+      ctx.target,
+      "--json"
     ]);
-    // `oxyc api` exits 0 only on a 2xx; the route answers 204, which this
-    // CLI prints nothing for — exit 0 IS the "204" assertion here.
     assertStatus(call, 0, `set CANARY_STEPS for ${name}`);
+    const change = parseJsonOrThrow(call, `set CANARY_STEPS for ${name}`);
+    assertJson(
+      call,
+      change.key === "CANARY_STEPS" && change.environment === name,
+      `set CANARY_STEPS for ${name}: answered ${JSON.stringify(change)}`
+    );
   }
 }
 
@@ -367,7 +404,9 @@ async function step5(ctx, state) {
   assertJson(call, Boolean(check.invocationId), "no invocationId on the passed check");
   state.invocationA = check.invocationId;
 
-  const detail = oxyc(ctx, [
+  // STAFF_ONLY: the answer is read on the admin surface. The token itself
+  // read this run's detail while `checks run` polled it, on its own mount.
+  const detail = staff(ctx, [
     "api",
     `/api/admin/apps/${ctx.appId}/function-runs/${check.runId}?environment=${SANDBOX_A}`,
     "--target",
@@ -506,7 +545,14 @@ async function step7(ctx, state) {
 }
 
 async function step8(ctx) {
-  const call = oxyc(ctx, [
+  // The token is refused production before any request (exit 2) by `oxyc`,
+  // and by the server when asked directly.
+  const refused = oxyc(ctx, ["checks", "run", ctx.app, "--target", ctx.target, "--json"]);
+  assertStatus(refused, 2, "checks run on production as the sandbox agent token");
+  await productionRefusesTheToken(ctx.target, ctx.agentToken, ctx.appId, ctx.app);
+
+  // STAFF_ONLY: production is not the token's.
+  const call = staff(ctx, [
     "checks",
     "run",
     ctx.app,
@@ -530,7 +576,7 @@ async function step8(ctx) {
   );
   const check = report.checks[0];
 
-  const detail = oxyc(ctx, [
+  const detail = staff(ctx, [
     "api",
     `/api/admin/apps/${ctx.appId}/function-runs/${check.runId}`,
     "--target",
@@ -557,16 +603,15 @@ async function step9(ctx, state) {
     assertStatus(show, 5, `env show ${name} after delete`);
   }
 
-  const listA = oxyc(ctx, [
-    "invocations",
-    "list",
-    ctx.app,
-    "--app-env",
-    SANDBOX_A,
-    "--target",
-    ctx.target,
-    "--json"
-  ]);
+  const history = ["invocations", "list", ctx.app, "--app-env", SANDBOX_A];
+  const flags = ["--target", ctx.target, "--json"];
+
+  // The token has no dev-loop-a now, so the name's rows are not its to read.
+  const gone = oxyc(ctx, [...history, ...flags]);
+  assertStatus(gone, 5, "invocations list for dev-loop-a as the token, after delete");
+
+  // STAFF_ONLY: the history is kept, and staff read it by the name.
+  const listA = staff(ctx, [...history, ...flags]);
   assertStatus(listA, 0, "invocations list for dev-loop-a after delete");
   const invocationsA =
     parseJsonOrThrow(listA, "invocations list for dev-loop-a after delete").invocations ?? [];
@@ -586,6 +631,29 @@ async function step9(ctx, state) {
     "--json"
   ]);
   assertStatus(recreate, 0, "recreate dev-loop-a after delete");
+
+  // The new dev-loop-a is another sandbox with the same name: the token reads
+  // none of what the deleted one ran, though the rows are still there.
+  const fresh = oxyc(ctx, [...history, ...flags]);
+  assertStatus(fresh, 0, "invocations list for the recreated dev-loop-a");
+  const carried = parseJsonOrThrow(fresh, "invocations list for the recreated dev-loop-a");
+  assertJson(
+    fresh,
+    (carried.invocations ?? []).length === 0,
+    `the recreated dev-loop-a shows the deleted one's rows: ${JSON.stringify(carried.invocations)}`
+  );
+}
+
+/**
+ * End the token, and confirm it ended: `oxyc tokens revoke --current`, then
+ * one more request with it, which must be refused as an auth failure (exit
+ * 4) — not as a sandbox that happens to be missing.
+ */
+function revokeAgentToken(ctx) {
+  const revoke = oxyc(ctx, ["tokens", "revoke", "--current", "--target", ctx.target]);
+  assertStatus(revoke, 0, "tokens revoke --current");
+  const after = oxyc(ctx, ["env", "list", ctx.app, "--target", ctx.target, "--json"]);
+  assertStatus(after, 4, "env list with the revoked token");
 }
 
 /** The nine steps, as a table — one runner below drives all of them. */
@@ -601,8 +669,16 @@ export const STEPS = [
   { n: 5, what: "checks run on dev-loop-a: passes, exactly A's steps, nothing held", run: step5 },
   { n: 6, what: "checks run on dev-loop-b: HeldInStaging on warehouse_insert, exit 9", run: step6 },
   { n: 7, what: "fn call canary on dev-loop-a; invocation visible only there", run: step7 },
-  { n: 8, what: "checks run on production: still green, production's own steps", run: step8 },
-  { n: 9, what: "delete both sandboxes; history kept; the name frees up", run: step9 }
+  {
+    n: 8,
+    what: "production refuses the token; its own checks run (staff) is still green",
+    run: step8
+  },
+  {
+    n: 9,
+    what: "delete both sandboxes; history kept; the name frees up, and shows the token none of it",
+    run: step9
+  }
 ];
 
 // ── driver ───────────────────────────────────────────────────────────────────
@@ -611,16 +687,31 @@ function truncate(s) {
   return s.length > 4000 ? `${s.slice(0, 4000)}… (truncated)` : s;
 }
 
-function reportFailure(n, what, e) {
+/** `secrets`: both credentials, taken out of everything printed (`scrub`). */
+function reportFailure(n, what, e, secrets) {
+  const clean = (text) => scrub(text, secrets);
   process.stderr.write(`\nFAIL step ${n}: ${what}\n`);
   if (e instanceof StepFailure) {
-    process.stderr.write(`  ${e.message}\n`);
-    process.stderr.write(`  $ ${e.call.cmd.join(" ")}\n`);
+    process.stderr.write(`  ${clean(e.message)}\n`);
+    process.stderr.write(`  $ ${clean(e.call.cmd.join(" "))}\n`);
     process.stderr.write(`  exit ${e.call.status}\n`);
-    if (e.call.stdout) process.stderr.write(`  stdout: ${truncate(e.call.stdout)}\n`);
-    if (e.call.stderr) process.stderr.write(`  stderr: ${truncate(e.call.stderr)}\n`);
+    if (e.call.stdout) process.stderr.write(`  stdout: ${clean(truncate(e.call.stdout))}\n`);
+    if (e.call.stderr) process.stderr.write(`  stderr: ${clean(truncate(e.call.stderr))}\n`);
   } else {
-    process.stderr.write(`  ${e.stack ?? e}\n`);
+    process.stderr.write(`  ${clean(e.stack ?? e)}\n`);
+  }
+}
+
+/**
+ * End the token after a failed run, whatever state the run left it in: an
+ * exit that is not 0 is reported and does not mask the failure being
+ * handled. The token also ends by itself within the hour it was minted for.
+ */
+function revokeAfterFailure(ctx) {
+  if (!ctx.agentToken) return;
+  const revoke = oxyc(ctx, ["tokens", "revoke", "--current", "--target", ctx.target]);
+  if (revoke.status !== 0) {
+    process.stderr.write(`  the sandbox agent token was not revoked (exit ${revoke.status})\n`);
   }
 }
 
@@ -628,7 +719,9 @@ function reportFailure(n, what, e) {
  * Run the nine steps against an already-published, already-checked canary.
  * `ctx`: { target, app ("<org-slug>/platform-canary"), appId, appDir (cwd for
  * `oxyc publish`), oxyc (path to dist/main.mjs), org, project (workspace id),
- * token (a staff bearer — never a publish token), credentialsPath,
+ * token (a staff **session** bearer, e.g. a dev-login JWT — the mint of the
+ * sandbox agent token takes a session and refuses every API token),
+ * credentialsPath,
  * checkTimeoutSeconds, productionSteps (the CSV production's own CANARY_STEPS
  * resolves to, in canary order), omitSteps (names of `STEPS_A` sandbox A does
  * not run here; default none) }.
@@ -650,13 +743,28 @@ export async function runSandboxLoop(ctx) {
 
   await cleanupBoth(ctx, "pre-flight — safe to re-run after an aborted run");
 
+  // A copy: the caller's `ctx` keeps holding the staff bearer alone.
+  ctx = { ...ctx };
+  const secrets = () => [ctx.token, ctx.agentToken];
+  /** Report `e`, delete both sandboxes, end the token, and exit non-zero. */
+  const abort = async (n, what, e) => {
+    reportFailure(n, what, e, secrets());
+    await cleanupBoth(ctx, "after failure");
+    revokeAfterFailure(ctx);
+    process.exit(1);
+  };
+
+  try {
+    ctx.agentToken = await mintAgentToken(ctx.target, ctx.token, ctx.appId);
+  } catch (e) {
+    await abort(0, "mint a sandbox agent token for the canary app with the staff bearer", e);
+  }
+
   for (const s of STEPS) {
     try {
       await s.run(ctx, state);
     } catch (e) {
-      reportFailure(s.n, s.what, e);
-      await cleanupBoth(ctx, "after failure");
-      process.exit(1);
+      await abort(s.n, s.what, e);
     }
     process.stdout.write(`ok ${s.n} ${s.what}\n`);
   }
@@ -664,7 +772,15 @@ export async function runSandboxLoop(ctx) {
   // Step 9 recreates dev-loop-a to prove the name frees up; tidy it away
   // rather than leaving a sandbox behind after a green run.
   await cleanupSandbox(ctx, SANDBOX_A);
-  process.stdout.write(`\nsandbox loop green: ${STEPS.length} steps through oxyc\n`);
+  try {
+    revokeAgentToken(ctx);
+  } catch (e) {
+    await abort(STEPS.length + 1, "revoke the sandbox agent token; it is refused from then on", e);
+  }
+  process.stdout.write("ok revoked the sandbox agent token; its next request was refused\n");
+  process.stdout.write(
+    `\nsandbox loop green: ${STEPS.length} steps through oxyc as a sandbox agent token\n`
+  );
 }
 
 // ── standalone entry (mainly for iterating on this script itself) ───────────
@@ -682,8 +798,9 @@ const USAGE = `usage: node scripts/ci/platform-canary-sandbox-loop.mjs [options]
   --omit-steps <csv>       steps sandbox A does not run here (env CANARY_SANDBOX_LOOP_OMIT);
                            CI passes storage_roundtrip
 
-OXY_TOKEN must hold a staff bearer (not a publish token) — the same credential
-\`oxyc login\` or a dev-login JWT would give.
+OXY_TOKEN must hold a staff session bearer — a dev-login JWT. The loop mints
+its own sandbox agent token from it and runs as that; the mint takes a session
+and refuses every API token, an \`oxyc login\` one included.
 `;
 
 /** An environment variable, trimmed; blank counts as absent — mirrors checkpoint.mjs's own. */
@@ -742,7 +859,7 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const token = env("OXY_TOKEN");
   if (!token) {
-    process.stderr.write(`OXY_TOKEN must be set to a staff bearer\n${USAGE}`);
+    process.stderr.write(`OXY_TOKEN must be set to a staff session bearer\n${USAGE}`);
     process.exit(2);
   }
   const allSteps = parseAllSteps(readFileSync(ALL_STEPS_SOURCE, "utf8"));

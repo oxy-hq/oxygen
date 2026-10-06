@@ -25,8 +25,8 @@ import { join, resolve, sep } from "node:path";
 import { APP_ENV_HEADER, requireSandboxName } from "../apps/environment.js";
 import { UUID_RE } from "../apps/resolve.js";
 import { fallsBackToPublisher, OidcExchangeError } from "../auth/oidc.js";
-import { isMachineIdentity } from "../auth/token-kind.js";
-import type { Context } from "../context/resolve.js";
+import { isMachineIdentity, isSandboxAgentToken } from "../auth/token-kind.js";
+import { type Context, notAuthenticated } from "../context/resolve.js";
 import { loadDotenv } from "../publish/dotenv.js";
 import {
   checkEngines,
@@ -74,7 +74,7 @@ import {
 import { tarGzDir } from "../publish/tarball.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
-import { authError, CliError, ExitCode, usageError } from "../util/errors.js";
+import { CliError, ExitCode, usageError } from "../util/errors.js";
 
 export interface PublishFlags {
   app?: string;
@@ -124,7 +124,31 @@ function resolveCredential(ctx: Context): Credential {
   const token = ctx.storedBearer();
   if (token) return { kind: "token", token };
   if (githubOidcAvailable()) return { kind: "oidc" };
-  throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
+  throw notAuthenticated(ctx.target(), ctx.flags);
+}
+
+/**
+ * A sandbox agent token publishes into a sandbox it created and nowhere else.
+ * Refused here, before the build and before any request: with no `--app-env`
+ * a publish goes to the app's draft channel, and `--promote` to the live one.
+ * The server refuses both too (`403 sandbox_token_refused`).
+ */
+function refuseOutsideOwnSandbox(token: string, flags: PublishFlags): void {
+  if (!isSandboxAgentToken(token)) return;
+  if (flags.appEnv === undefined) {
+    throw usageError(
+      flags.promote
+        ? "a sandbox agent token cannot promote"
+        : "a sandbox agent token cannot publish to a channel",
+      "it publishes only into a sandbox it created — pass --app-env dev-<handle>, and never --promote"
+    );
+  }
+  if (flags.semanticBranch !== undefined) {
+    throw usageError(
+      "--semantic-branch needs a staff credential, not a sandbox agent token",
+      "compiling a workspace branch is outside what the token reaches — publish without it"
+    );
+  }
 }
 
 /** One manifest build step, output to stderr so stdout stays the result. */
@@ -463,6 +487,7 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
       );
     }
   }
+  if (credential?.kind === "token") refuseOutsideOwnSandbox(credential.token, flags);
   if (!identity.org && projectPin) {
     identity.org = await fetchOrgForProject(ctx.target(), projectPin);
   }
@@ -509,7 +534,15 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
 
   const token = await uploadToken(ctx, credential, identity);
   if (lint && manifest) {
-    await lintEngines(lint, manifest, target, project, token, flags.allowFunctionLint);
+    if (!isSandboxAgentToken(token)) {
+      await lintEngines(lint, manifest, target, project, token, flags.allowFunctionLint);
+    } else if (lint.writes.length > 0) {
+      // Not attempted: `GET /api/{project}/databases` answers this token 404.
+      log.info(
+        "function lint: the engine check (`upsert` and `ctx.tx` dialects, customer-warehouse " +
+          "writes) is skipped — a sandbox agent token cannot list the project's databases"
+      );
+    }
   }
   const semanticRevision = flags.semanticBranch
     ? await stageSemanticBranch(target, token, project, flags.semanticBranch.trim())
@@ -536,7 +569,13 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
       ]
     });
   } catch (cause) {
-    if (cause instanceof CliError && cause.code === ExitCode.AUTH && credential.kind === "token") {
+    if (
+      cause instanceof CliError &&
+      cause.code === ExitCode.AUTH &&
+      credential.kind === "token" &&
+      // `uploadBundle` already said what a sandbox agent token should do.
+      !isSandboxAgentToken(token)
+    ) {
       throw new CliError(cause.message, {
         code: cause.code,
         detail: cause.detail,

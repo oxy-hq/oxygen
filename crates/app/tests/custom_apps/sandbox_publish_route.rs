@@ -44,7 +44,11 @@ fn multipart(fields: &[(&str, &str)], tarball: &[u8]) -> Vec<u8> {
 
 /// `POST /api/customer-apps/publish` through the real handler, as the
 /// signed-in guest — with a publish-token marker when `token`.
-async fn publish(slug: &str, fields: &[(&str, &str)], token: bool) -> (StatusCode, String) {
+pub(crate) async fn publish(
+    slug: &str,
+    fields: &[(&str, &str)],
+    token: bool,
+) -> (StatusCode, String) {
     let workspace = demo_workspace_id().to_string();
     let mut all = vec![("app", slug), ("project", workspace.as_str())];
     all.extend_from_slice(fields);
@@ -63,7 +67,7 @@ async fn publish(slug: &str, fields: &[(&str, &str)], token: bool) -> (StatusCod
         }));
     }
     let router = router.layer(middleware::from_fn_with_state(
-        AuthState::built_in(),
+        AuthState::built_in(oxy_auth::token::SandboxAgent::Refuse),
         auth_middleware,
     ));
     let request = Request::builder()
@@ -83,7 +87,7 @@ async fn publish(slug: &str, fields: &[(&str, &str)], token: bool) -> (StatusCod
     (status, String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn json_of(body: &str) -> Value {
+pub(crate) fn json_of(body: &str) -> Value {
     serde_json::from_str(body).unwrap_or_else(|e| panic!("not JSON ({e}): {body}"))
 }
 

@@ -14,13 +14,13 @@ use oxy_app_core::audit;
 use oxy_app_core::custom_app_environment::{AppEnvironment, AppEnvironmentKind};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr,
-    EntityTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
 };
 use uuid::Uuid;
 
 pub use super::delete::{Deletion, Expect, begin_delete, delete, delete_if};
 use super::view::{View, is_sandbox};
-use super::{EnvironmentDto, MAX_SANDBOXES_PER_APP, SandboxError};
+use super::{EnvironmentDto, MAX_SANDBOXES_PER_APP, MAX_SANDBOXES_PER_TOKEN, SandboxError};
 use crate::server::api::custom_apps_env_resolve::load_environment_builds;
 use crate::server::api::custom_apps_migrations::{AirhouseHome, schema_owner};
 
@@ -47,7 +47,11 @@ pub async fn create(
 ) -> Result<app_environments::Model, SandboxError> {
     require_sandbox(environment)?;
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
-    let created = insert_within_limit(&txn, app.id, environment, owner.user.id).await?;
+    let creator = Creator {
+        user_id: owner.user.id,
+        token_id: agent_token(owner),
+    };
+    let created = insert_within_limit(&txn, app.id, environment, creator).await?;
     txn.commit()
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
@@ -56,14 +60,61 @@ pub async fn create(
     Ok(created)
 }
 
+/// Who a new sandbox belongs to: the person, and the sandbox agent token they
+/// minted when that is what created it.
+#[derive(Clone, Copy)]
+struct Creator {
+    user_id: Uuid,
+    token_id: Option<Uuid>,
+}
+
+/// The sandbox agent token the request used, if that is its credential.
+pub(crate) fn agent_token(actor: &audit::RequestActor) -> Option<Uuid> {
+    actor
+        .credential
+        .as_ref()
+        .or(actor.user.credential.as_ref())
+        .filter(|credential| credential.is_sandbox_agent())
+        .map(|credential| credential.token_id)
+}
+
+/// Refuse a sandbox agent token that already holds its limit of sandboxes.
+/// Under a lock on the token's row: each create holds only its own app's lock,
+/// so two creates on different apps would otherwise not see each other's row.
+///
+/// A sandbox still being torn down counts, as it does toward the per-app
+/// limit: its row goes when the teardown finishes, and until then it still
+/// holds what it was given. Counting only active rows would let a token
+/// create, delete and create again faster than the teardowns run.
+async fn within_token_limit<C: ConnectionTrait>(
+    txn: &C,
+    token_id: Uuid,
+) -> Result<(), SandboxError> {
+    entity::api_tokens::Entity::find_by_id(token_id)
+        .lock_exclusive()
+        .one(txn)
+        .await
+        .map_err(|e| SandboxError::db("lock the token", e))?;
+    let held = app_environments::Entity::find()
+        .filter(app_environments::Column::CreatedByTokenId.eq(token_id))
+        .count(txn)
+        .await
+        .map_err(|e| SandboxError::db("count the token's sandboxes", e))?;
+    if held >= MAX_SANDBOXES_PER_TOKEN {
+        return Err(SandboxError::TokenLimit(MAX_SANDBOXES_PER_TOKEN));
+    }
+    Ok(())
+}
+
 /// Under a lock on the app row: refuse a taken name and a full app, else
 /// insert the row.
 async fn insert_within_limit<C: ConnectionTrait>(
     txn: &C,
     app_id: Uuid,
     environment: &AppEnvironment,
-    owner: Uuid,
+    creator: Creator,
 ) -> Result<app_environments::Model, SandboxError> {
+    let owner = creator.user_id;
     let app = apps::Entity::find_by_id(app_id)
         .lock_exclusive()
         .one(txn)
@@ -86,6 +137,9 @@ async fn insert_within_limit<C: ConnectionTrait>(
     if sandboxes.len() as u64 >= MAX_SANDBOXES_PER_APP {
         return Err(SandboxError::Limit(MAX_SANDBOXES_PER_APP));
     }
+    if let Some(token_id) = creator.token_id {
+        within_token_limit(txn, token_id).await?;
+    }
     if let Some(owner) = sibling_owner(txn, &app, environment).await? {
         return Err(SandboxError::Reserved {
             name: name.clone(),
@@ -105,6 +159,9 @@ async fn insert_within_limit<C: ConnectionTrait>(
         deleting_at: ActiveValue::Set(None),
         // Written by the OLTP schema task a publish queues (`oltp_state`).
         oltp_schema: ActiveValue::NotSet,
+        // The sandbox agent token that created it: what makes it that token's
+        // own, and no other token's.
+        created_by_token_id: ActiveValue::Set(creator.token_id),
     }
     .insert(txn)
     .await
@@ -138,6 +195,18 @@ pub async fn list(
     app: &apps::Model,
     org_slug: &str,
 ) -> Result<Vec<EnvironmentDto>, SandboxError> {
+    list_for(db, app, org_slug, None).await
+}
+
+/// [`list`] as the caller may see it. `own` is a sandbox agent token's id:
+/// it sees the fixed environments and the sandboxes it created. Another
+/// creator's sandbox is left out, so a token does not learn its name.
+pub async fn list_for(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    org_slug: &str,
+    own: Option<Uuid>,
+) -> Result<Vec<EnvironmentDto>, SandboxError> {
     let failed = |e: DbErr| SandboxError::db("read the app's environments", e);
     let rows = app_environments::Entity::find()
         .filter(app_environments::Column::AppId.eq(app.id))
@@ -163,6 +232,7 @@ pub async fn list(
     environments.extend(
         rows.iter()
             .filter(|row| is_sandbox(row))
+            .filter(|row| own.is_none_or(|token| row.created_by_token_id == Some(token)))
             .filter_map(|row| view.sandbox(row)),
     );
     Ok(environments)
@@ -176,8 +246,19 @@ pub async fn get(
     org_slug: &str,
     environment: &AppEnvironment,
 ) -> Result<EnvironmentDto, SandboxError> {
+    get_for(db, app, org_slug, environment, None).await
+}
+
+/// [`get`] as the caller may see it; `own` as in [`list_for`].
+pub async fn get_for(
+    db: &DatabaseConnection,
+    app: &apps::Model,
+    org_slug: &str,
+    environment: &AppEnvironment,
+    own: Option<Uuid>,
+) -> Result<EnvironmentDto, SandboxError> {
     let name = environment.name();
-    list(db, app, org_slug)
+    list_for(db, app, org_slug, own)
         .await?
         .into_iter()
         .find(|shown| shown.name == name)

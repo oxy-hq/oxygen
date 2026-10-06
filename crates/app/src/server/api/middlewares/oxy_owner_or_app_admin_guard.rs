@@ -27,20 +27,14 @@ pub async fn oxy_owner_or_app_admin_guard_middleware(
     // for non-owners.
     //
     // Read for the CALLER, so an API token without platform standing is not staff.
-    let caller = crate::server::authz::Caller::from_user(&user);
+    let caller = crate::server::authz::Caller::of_request(request.extensions(), &user);
     let legacy =
         crate::server::authz::globals::is_global_owner(&caller) || is_oxy_app_admin(&caller).await;
 
     // Platform tier through the shared model — see `Ring::GlobalAdminOrOwner` in
     // `oxy_authz`. `existing && unified`; the ring reads only the global flags.
     let facts = match oxy::database::client::establish_connection().await {
-        Ok(db) => {
-            crate::server::authz::loader::load_platform_facts(
-                &db,
-                &crate::server::authz::Caller::from_user(&user),
-            )
-            .await
-        }
+        Ok(db) => crate::server::authz::loader::load_platform_facts(&db, &caller).await,
         Err(_) => None,
     };
     let allowed = match facts {

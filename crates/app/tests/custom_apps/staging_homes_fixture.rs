@@ -142,6 +142,7 @@ pub(crate) fn host_on(
             app_slug: APP_SLUG.into(),
             user_id: None,
             user_email: None,
+            credential_token_id: None,
         },
         policy,
     ))

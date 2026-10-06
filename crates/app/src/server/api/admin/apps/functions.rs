@@ -159,9 +159,9 @@ async fn environment_build(
     app: &apps::Model,
     user: &AuthenticatedUser,
     marker: Option<&AppPublishTokenAuth>,
-    raw: &str,
+    raw: Option<&str>,
 ) -> Result<Option<Uuid>, ScopeError> {
-    let environment = environment_scope::resolve(db, app, user, marker, Some(raw)).await?;
+    let environment = environment_scope::resolve(db, app, user, marker, raw).await?;
     let resolved = crate::server::api::custom_apps_env_resolve::resolve_function_environment(
         db,
         app,
@@ -195,9 +195,14 @@ pub async fn list_functions(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+    // With no environment named, the app's active build — except for a
+    // sandbox agent token, which must name a sandbox it created: for it the
+    // absent parameter is resolved, and refused, like any other.
     let build_id = match q.environment.as_deref() {
-        None => app.published_build_id.or(app.draft_build_id),
-        Some(raw) => {
+        None if !super::agent_scope::is_agent(&user) => {
+            app.published_build_id.or(app.draft_build_id)
+        }
+        raw => {
             let marker = marker.as_ref().map(|axum::Extension(marker)| marker);
             environment_build(&db, &app, &user, marker, raw).await?
         }

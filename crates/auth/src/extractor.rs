@@ -204,6 +204,7 @@ mod session_only_tests {
                 service_account: None,
                 grants: Vec::new(),
                 app_publish: Vec::new(),
+                app_sandbox: Vec::new(),
             });
         }
         parts
@@ -234,11 +235,40 @@ mod session_only_tests {
             (None, true),
             (Some(StoredKind::LegacyKey), true),
             (Some(StoredKind::Personal), false),
+            (Some(StoredKind::ServiceAccount), false),
+            (Some(StoredKind::Ci), false),
+            (Some(StoredKind::SandboxAgent), false),
         ] {
             let got = SessionOrLegacyKey::<Extend>::from_request_parts(&mut parts(kind), &())
                 .await
                 .is_ok();
             assert_eq!(got, admitted, "{kind:?}");
+        }
+    }
+
+    /// An action that names a `code`, as the token-management routes do.
+    struct Mint;
+    impl SessionAction for Mint {
+        const REFUSAL: &'static str = "minting requires a browser session";
+        const CODE: Option<&'static str> = Some(SESSION_REQUIRED);
+    }
+
+    #[tokio::test]
+    async fn every_new_format_is_refused_with_the_actions_status_and_code() {
+        for kind in [
+            StoredKind::Personal,
+            StoredKind::ServiceAccount,
+            StoredKind::Ci,
+            StoredKind::SandboxAgent,
+        ] {
+            let Err(refused) =
+                SessionOrLegacyKey::<Mint>::from_request_parts(&mut parts(Some(kind)), &()).await
+            else {
+                panic!("{kind:?} must be refused");
+            };
+            assert_eq!(refused.error, Mint::REFUSAL, "{kind:?}");
+            assert_eq!(refused.code, Some(SESSION_REQUIRED), "{kind:?}");
+            assert_eq!(refused.into_response().status(), StatusCode::FORBIDDEN);
         }
     }
 }

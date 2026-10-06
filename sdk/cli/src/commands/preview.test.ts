@@ -22,7 +22,7 @@ function fakeContext(opts: { bearer?: string; workspace?: string | null } = {}):
   const workspace = opts.workspace === null ? undefined : (opts.workspace ?? WORKSPACE);
   return {
     cwd: "/tmp",
-    flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
+    flags: { env: "production", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
     bearer: async () => {

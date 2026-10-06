@@ -16,6 +16,8 @@
 //! call is an invocation only — no durable run, not in the coordinator. A job
 //! runs the SAME isolate, wrapped in the queue/monitoring/trigger machinery.
 
+/// A sandbox agent token at the function gate: its entrance, and its id.
+mod agent_gate;
 /// Whose call this is — the scope every per-call key (result cache,
 /// idempotency record, rate-limit bucket) is built from, environment included.
 mod call_scope;
@@ -91,6 +93,8 @@ mod url_shape;
 /// ungated, so the staging held-call log builds without the V8 feature.
 pub(crate) mod write_record;
 
+#[cfg_attr(not(feature = "custom-app-functions"), allow(unused_imports))]
+pub(crate) use check_run::QueuedBy;
 /// Named so `ProjectFunctionHost::new` can be called from outside the crate —
 /// the engine-backed tests in `tests/custom_apps/` build a real host.
 #[cfg(feature = "custom-app-functions")]
@@ -557,7 +561,12 @@ pub(crate) async fn trigger_function_job_in(
     trigger: FunctionJobTrigger,
     environment: &AppEnvironment,
 ) -> Result<String, check_run::TriggerError> {
-    check_run::trigger(db, app_id, function_name, input, trigger, environment).await
+    let asked = check_run::Asked {
+        trigger,
+        environment,
+        credential_token_id: None,
+    };
+    check_run::trigger(db, app_id, function_name, input, asked).await
 }
 
 /// Per-mode default `timeoutSeconds` (design doc §11.11). Route invocations
@@ -831,6 +840,7 @@ async fn insert_running_invocation(
         request_hash: Set(request_hash),
         failure_fingerprint: Set(None),
         environment: Set(scope.environment_name()),
+        credential_token_id: Set(scope.credential_token_id),
     }
     .insert(db)
     .await
@@ -1014,7 +1024,16 @@ pub fn handle_function_request<'a>(
     query_exec: std::sync::Arc<dyn seam::FunctionQueryExecutor>,
     preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
 ) -> BoxFuture<'a, Response> {
-    Box::pin(invoke_function(
+    // A new-format API token's call is counted as its `/api` requests are
+    // (`custom_apps_agent`); read from the presented prefix, so a session, an
+    // anonymous call and a legacy key run the handler untouched.
+    //
+    // The invocation is boxed BEFORE it is handed on, for the reason above:
+    // the wrapper then holds a pointer, not the future. Held by value it was
+    // moved through two more frames, and every test that called a function
+    // overflowed its stack.
+    let probe = crate::server::api::custom_apps_agent::UsageProbe::of(&headers);
+    let invocation: BoxFuture<'a, Response> = Box::pin(invoke_function(
         org_slug,
         app_slug,
         function_name,
@@ -1024,7 +1043,8 @@ pub fn handle_function_request<'a>(
         body,
         query_exec,
         preagg,
-    ))
+    ));
+    Box::pin(probe.counted(agent_gate::FN_ROUTE, invocation))
 }
 
 async fn invoke_function(
@@ -1065,7 +1085,14 @@ async fn invoke_function(
         return refused.into_response();
     }
 
-    let outcome = match authenticate_and_authorize(&headers, org_slug, app_slug).await {
+    let outcome = match authenticate_and_authorize(
+        &headers,
+        org_slug,
+        app_slug,
+        oxy_auth::token::SandboxAgent::Admit,
+    )
+    .await
+    {
         Ok(o) => o,
         Err(status) => return status.into_response(),
     };
@@ -1178,6 +1205,20 @@ async fn invoke_function(
         .map(str::trim)
         .filter(|s| !s.is_empty() && s.len() <= 200)
         .map(str::to_string);
+    // A sandbox agent token's key is spent in the sandbox it has now: one
+    // spent in an earlier sandbox under the same name is not replayed here.
+    let scoped = agent_gate::instance_key(&db, &app, &resolved, &outcome.caller, idempotency_key);
+    let idempotency_key = match scoped.await {
+        Ok(key) => key,
+        Err(e) => {
+            error!("sandbox lookup for the idempotency key failed: {e}");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InvocationLookupFailed",
+                "could not read the sandbox; retry shortly",
+            );
+        }
+    };
     let request_hash = request_body_hash(&body);
 
     // Every per-call key below — result cache, rate-limit bucket, idempotency
@@ -1188,6 +1229,7 @@ async fn invoke_function(
         environment: &resolved.environment,
         function_name,
         user_id: outcome.user_id,
+        credential_token_id: agent_gate::token_of(&outcome.caller),
     };
 
     // Opt-in result cache (manifest `cache.ttlSeconds`). A hit skips the isolate
@@ -1345,6 +1387,7 @@ async fn invoke_function(
                 invocation_id,
                 function_name,
                 mode: "route",
+                credential_token_id: scope.credential_token_id,
                 build_id,
                 // The one path with a real request behind it. Read from the header the
                 // outer middleware stamped rather than minted here, so the id on this
@@ -1562,7 +1605,8 @@ pub(crate) async fn run_scheduled_function(
     app_id: Uuid,
     environment: &AppEnvironment,
     function_name: &str,
-    mode: &str,
+    // The invocation `mode`, and the sandbox agent token that queued the run.
+    queued: QueuedBy<'_>,
     // Request body handed to the isolate as `req` — the function's input params
     // (JSON), same shape a route invocation receives. Empty for a bare cron fire.
     input: Vec<u8>,
@@ -1573,6 +1617,7 @@ pub(crate) async fn run_scheduled_function(
     // `ctx.semantic` resolves rollups like its HTTP-invoked twin.
     preagg: crate::server::api::middlewares::workspace_context::PreaggCacheCtx,
 ) -> Result<String, String> {
+    let mode = queued.mode;
     let app = entity::apps::Entity::find_by_id(app_id)
         .one(db)
         .await
@@ -1663,6 +1708,7 @@ pub(crate) async fn run_scheduled_function(
         request_hash: Set(None),
         failure_fingerprint: Set(None),
         environment: Set(resolved.environment.name()),
+        credential_token_id: Set(queued.credential_token_id),
     })
     .insert(db)
     .await
@@ -1706,6 +1752,7 @@ pub(crate) async fn run_scheduled_function(
         invocation_id,
         function_name,
         mode,
+        credential_token_id: queued.credential_token_id,
         build_id,
         // No HTTP request behind a cron tick, an Airway step or a manual job
         // run. See the field docs on `RunArgs` for why this stays `None`.
@@ -1973,6 +2020,9 @@ struct RunArgs<'a> {
     /// `app_function_invocations.mode`: `"route"` | `"schedule"` | `"airway"`.
     function_name: &'a str,
     mode: &'a str,
+    /// The sandbox agent token behind the run — the one the request used, or
+    /// the one that queued it — for the invocation's held-write row.
+    credential_token_id: Option<Uuid>,
     build_id: Uuid,
     /// The `x-oxy-request-id` of the HTTP request behind this run, when there
     /// was one. `None` on the schedule / Airway paths, where no request exists.
@@ -2251,7 +2301,15 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     let human = args.identity_kind == runtime::CtxIdentityKind::User;
     let (env, app_role, org_standing, held) = tokio::join!(
         resolve_function_env(args.db, args.app.project_id, args.app.id, &args.policy),
-        crate::server::api::custom_apps_auth::resolve_app_role(args.db, &args.caller, args.app),
+        // Asked for the environment the run was admitted to: a sandbox agent
+        // token is the app's admin on a sandbox it created, and nowhere else.
+        // For every other caller this is `resolve_app_role`, unchanged.
+        crate::server::api::custom_apps_agent::resolve_app_role_in(
+            args.db,
+            &args.caller,
+            args.app,
+            args.policy.environment(),
+        ),
         async {
             if human {
                 // One membership read covers both the role and the teams gate.
@@ -2349,6 +2407,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             app_slug: args.app.slug.clone(),
             user_id: human.then_some(args.user_id),
             user_email: if human { args.user_email.clone() } else { None },
+            credential_token_id: args.credential_token_id,
         },
         // The keys `ctx.env` took from production through the shared
         // fallback travel with the policy: `ctx.secrets.set` refuses them.

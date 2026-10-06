@@ -8,6 +8,7 @@
  */
 
 import { parseJson, request } from "../api/request.js";
+import { describeSandboxToken } from "../apps/sandbox-token.js";
 import { clearCredential, loadCredential } from "../auth/credentials.js";
 import { keepPastExit } from "../auth/exit-revoke.js";
 import { adminStatusLine, login } from "../auth/login.js";
@@ -18,7 +19,7 @@ import {
   revokeCallingToken,
   type Token
 } from "../auth/token-api.js";
-import { isRevocable } from "../auth/token-kind.js";
+import { isRevocable, isSandboxAgentToken } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -133,6 +134,18 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   const target = ctx.target();
   const bearer = await ctx.bearer();
 
+  // `/api/user` answers a sandbox agent token 404, like every path outside the
+  // sandbox loop. What that token is — kind, expiry, apps, minter — is the
+  // introspection route's document, and `--json` prints it as the server sent it.
+  if (isSandboxAgentToken(bearer)) {
+    const described = await describeSandboxToken(target, bearer, { fresh: true });
+    const text = json
+      ? described.body.trim()
+      : sandboxTokenLines(target, described.token).join("\n");
+    process.stdout.write(`${text}\n`);
+    return;
+  }
+
   const response = await request({
     target,
     path: "/api/user",
@@ -228,6 +241,25 @@ export function credentialLines(token: Token): string[] {
     `${out.bold("token")}       ${token.name}  (${token.kind}, ${masked})`,
     `${out.bold("reach")}       ${first}`,
     ...rest.map((line) => `            ${line}`),
+    `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
+  ];
+}
+
+/**
+ * `whoami` for a sandbox agent token: what an agent checks before it starts —
+ * that the app it was asked to work on is listed, and that the token outlives
+ * the task.
+ */
+export function sandboxTokenLines(target: string, token: Token): string[] {
+  const masked = `${token.display_prefix}…${token.last_four}`;
+  const [first = "none", ...rest] = (token.apps ?? []).map((a) => `${a.org_slug}/${a.slug}`);
+  return [
+    `${out.bold("target")}      ${target}`,
+    `${out.bold("token")}       ${token.name}  (${token.kind}, ${masked})`,
+    `${out.bold("minted by")}   ${token.minter?.email ?? token.owner?.label ?? "unknown"}`,
+    `${out.bold("apps")}        ${first}`,
+    ...rest.map((app) => `            ${app}`),
+    `${out.bold("reach")}       the dev-<handle> sandboxes it creates in those apps — nothing else`,
     `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
   ];
 }

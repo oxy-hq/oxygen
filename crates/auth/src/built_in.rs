@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::constants::{AUTHENTICATION_HEADER_KEY, AUTHENTICATION_SECRET_KEY, SESSION_COOKIE_NAME};
 use oxy_shared::errors::OxyError;
 
-use crate::token::{AuthSurface, Authenticated, authenticate_request};
+use crate::token::{AuthSurface, Authenticated, SandboxAgent, authenticate_request};
 use crate::{authenticator::Authenticator, types::Identity};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
@@ -51,22 +51,26 @@ pub(crate) fn guest_identity() -> Identity {
 /// The session a request carries: the `Authorization` JWT, else the
 /// `oxy_session` cookie. Step 2 of [`authenticate_request`]'s order.
 pub(crate) fn session_identity(header: &axum::http::HeaderMap) -> Result<Identity, OxyError> {
-    let authenticator = BuiltInAuthenticator;
+    // Reading a session never involves a token, so the choice is not used here.
+    let authenticator = BuiltInAuthenticator::new(SandboxAgent::Refuse);
     let token = authenticator.extract_token(header)?;
     authenticator.validate(&token)
 }
 
-pub struct BuiltInAuthenticator;
-
-impl Default for BuiltInAuthenticator {
-    fn default() -> Self {
-        Self
-    }
+/// The built-in authenticator, with its entry point's answer to a sandbox
+/// agent token.
+///
+/// There is no default: every construction states `Admit` or `Refuse`, so a
+/// new call site does not compile until it chooses (sandbox agent credential
+/// design §3.1). Only `/api`, `/fn` and `/logs` admit one, and each sits behind
+/// the route allow-list that makes admitting safe.
+pub struct BuiltInAuthenticator {
+    sandbox_agent: SandboxAgent,
 }
 
 impl BuiltInAuthenticator {
-    pub fn new() -> Self {
-        Self
+    pub fn new(sandbox_agent: SandboxAgent) -> Self {
+        Self { sandbox_agent }
     }
 }
 
@@ -77,8 +81,11 @@ impl Authenticator for BuiltInAuthenticator {
     /// kiosk enrol) lands here, so they share [`authenticate_request`]'s order
     /// with `/api`: guest on a zero-config install, then a new-prefix token
     /// (no fallthrough), then the session JWT or cookie, then a legacy key.
+    ///
+    /// A sandbox agent token is admitted only where this authenticator was
+    /// built to admit one; everywhere else it answers 401.
     async fn authenticate(&self, header: &axum::http::HeaderMap) -> Result<Identity, Self::Error> {
-        authenticate_request(header, AuthSurface::Session)
+        authenticate_request(header, AuthSurface::Session, self.sandbox_agent)
             .await
             .map(|(identity, _)| identity)
     }
@@ -87,7 +94,7 @@ impl Authenticator for BuiltInAuthenticator {
         &self,
         header: &axum::http::HeaderMap,
     ) -> Result<Authenticated, Self::Error> {
-        authenticate_request(header, AuthSurface::Session).await
+        authenticate_request(header, AuthSurface::Session, self.sandbox_agent).await
     }
 }
 
@@ -214,7 +221,7 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert("authorization", "header-jwt".parse().unwrap());
         h.insert("cookie", "oxy_session=cookie-jwt".parse().unwrap());
-        let auth = BuiltInAuthenticator::new();
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
         assert_eq!(auth.extract_token(&h).unwrap(), "header-jwt");
     }
 
@@ -224,7 +231,7 @@ mod tests {
         // must come back without the scheme so it decodes as a JWT.
         let mut h = HeaderMap::new();
         h.insert("authorization", "Bearer header-jwt".parse().unwrap());
-        let auth = BuiltInAuthenticator::new();
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
         assert_eq!(auth.extract_token(&h).unwrap(), "header-jwt");
 
         let mut h2 = HeaderMap::new();
@@ -235,14 +242,14 @@ mod tests {
     #[test]
     fn extract_token_falls_back_to_cookie() {
         let h = make_headers("oxy_session=cookie-jwt");
-        let auth = BuiltInAuthenticator::new();
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
         assert_eq!(auth.extract_token(&h).unwrap(), "cookie-jwt");
     }
 
     #[test]
     fn extract_token_errors_when_neither_present() {
         let h = HeaderMap::new();
-        let auth = BuiltInAuthenticator::new();
+        let auth = BuiltInAuthenticator::new(SandboxAgent::Refuse);
         assert!(auth.extract_token(&h).is_err());
     }
 
@@ -285,7 +292,7 @@ mod session_identity_tests {
         // finds nobody — `sub` is the only identifier that works, and it has
         // carried the user id since tokens were introduced.
         let id = uuid::Uuid::new_v4();
-        let identity = BuiltInAuthenticator
+        let identity = BuiltInAuthenticator::new(SandboxAgent::Refuse)
             .validate(&token(&id.to_string(), ""))
             .expect("validate");
         assert_eq!(identity.user_id, Some(id));
@@ -296,7 +303,7 @@ mod session_identity_tests {
         // Deploy safety: a `sub` that is not a uuid must fall back to the email
         // claim rather than being rejected, or every session in flight breaks
         // the moment this ships.
-        let identity = BuiltInAuthenticator
+        let identity = BuiltInAuthenticator::new(SandboxAgent::Refuse)
             .validate(&token("legacy-subject", "ada@acme.com"))
             .expect("validate");
         assert_eq!(identity.user_id, None);

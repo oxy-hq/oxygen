@@ -220,7 +220,7 @@ pub(crate) async fn mint(db: &DatabaseConnection, user_id: Uuid, reach: Reach) -
 pub(crate) async fn custom_app_caller(fx: &Fixture, secret: &str) -> Caller {
     let mut headers = HeaderMap::new();
     headers.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-    let (identity, credential) = BuiltInAuthenticator::new()
+    let (identity, credential) = BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
         .authenticate_with_credential(&headers)
         .await
         .expect("the custom-app path authenticates the credential");

@@ -26,8 +26,10 @@ use entity::org_members::OrgRole;
 use entity::workspace_members::WorkspaceRole;
 use oxy_auth::token::{AccountStanding, AppPublishGrant, CredentialContext};
 use oxy_auth::types::AuthenticatedUser;
-use oxy_authz::{PrincipalFacts, RoleCeiling, TokenReach};
+use oxy_authz::{PrincipalFacts, RoleCeiling, SandboxAgentReach, TokenReach};
 use uuid::Uuid;
+
+use crate::grant_memo::GrantMemo;
 
 /// The new-format token a request authenticated with.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,6 +53,10 @@ pub struct Caller {
     /// The apps the credential's `app_publish` grants name. Empty for a
     /// session, a legacy key and every token that holds none.
     app_publish: Vec<AppPublishGrant>,
+    /// The platform grant this request has read uncached, kept for its other
+    /// guards. Written only for a sandbox agent token (`globals`); never part
+    /// of who the caller is.
+    grant_memo: GrantMemo,
 }
 
 /// The service account a request acts as. `standing` is `None` only if the
@@ -94,6 +100,7 @@ impl Caller {
             token,
             account,
             app_publish,
+            grant_memo: GrantMemo::default(),
         }
     }
 
@@ -105,9 +112,45 @@ impl Caller {
     }
 
     /// The caller of the request these extensions belong to, once auth has run.
+    ///
+    /// A caller already [left in the extensions](Self::share_with) is handed
+    /// out as a clone, so every guard of the request shares what it has read.
     pub fn from_extensions(extensions: &Extensions) -> Option<Self> {
+        if let Some(shared) = extensions.get::<Self>() {
+            return Some(shared.clone());
+        }
         let user = extensions.get::<AuthenticatedUser>()?;
         Some(Self::of(user, extensions.get::<CredentialContext>()))
+    }
+
+    /// The caller of the request `extensions` belong to, for a guard that
+    /// already holds its `user`: the one [left there](Self::share_with) when
+    /// there is one, otherwise [`Self::from_user`], as it always was. Only a
+    /// sandbox agent token's caller is ever left there, so for every other
+    /// credential this is `from_user` and nothing else.
+    pub fn of_request(extensions: &Extensions, user: &AuthenticatedUser) -> Self {
+        match extensions.get::<Self>() {
+            Some(shared) => shared.clone(),
+            None => Self::from_user(user),
+        }
+    }
+
+    /// Build the request's caller once and leave it in its extensions, so
+    /// every later [`Self::from_extensions`] shares one uncached read of the
+    /// platform grant. Does nothing unless the credential is a sandbox agent
+    /// token: no other caller reads uncached, so none has anything to share.
+    pub fn share_with(extensions: &mut Extensions) {
+        if extensions.get::<Self>().is_some() {
+            return;
+        }
+        if let Some(caller) = Self::from_extensions(extensions).filter(Self::is_sandbox_agent) {
+            extensions.insert(caller);
+        }
+    }
+
+    /// The slot [`crate::globals`] keeps this request's uncached grant in.
+    pub(crate) fn grant_memo(&self) -> &GrantMemo {
+        &self.grant_memo
     }
 
     /// A principal with **no credential in hand**: code acting for a user
@@ -123,6 +166,7 @@ impl Caller {
             token: None,
             account: None,
             app_publish: Vec::new(),
+            grant_memo: GrantMemo::default(),
         }
     }
 
@@ -164,6 +208,22 @@ impl Caller {
         } else {
             OrgRole::Member
         })
+    }
+
+    /// The sandbox agent token the request authenticated with: its id, and
+    /// the apps it names. `None` for every other credential.
+    ///
+    /// Such a caller is its minter confined to the sandbox loop on those apps
+    /// (sandbox agent credential design §3.2). It holds **no tenant role**:
+    /// the facts loader loads it none, and the two role resolutions answer it
+    /// as they answer a workspace or an org that does not exist.
+    pub fn sandbox_agent(&self) -> Option<&SandboxAgentReach> {
+        self.reach().and_then(|reach| reach.sandbox_agent.as_ref())
+    }
+
+    /// Whether the request authenticated with a sandbox agent token.
+    pub fn is_sandbox_agent(&self) -> bool {
+        self.sandbox_agent().is_some()
     }
 
     /// The user's address, for display and logs. Not what standing is read

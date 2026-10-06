@@ -12,6 +12,7 @@ import { usableAsApiKey } from "../auth/token-kind.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { cacheKey, readCache, writeCache } from "./cache.js";
 import { isExternalSurface } from "./paths.js";
+import { userAgent } from "./user-agent.js";
 
 export interface RequestOptions {
   target: string;
@@ -111,7 +112,8 @@ export async function request(opts: RequestOptions): Promise<ApiResponse> {
 
   const headers: Record<string, string> = {
     Accept: "application/json",
-    "User-Agent": "oxyc",
+    // `oxyc/<version>[ agent/<label>][ mcp]` — see `user-agent.ts`.
+    "User-Agent": userAgent(),
     ...authHeaders(opts),
     ...(opts.headers ?? {})
   };

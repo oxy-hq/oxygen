@@ -142,6 +142,15 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
     let uri = parts.uri;
     let method = parts.method;
 
+    // A sandbox agent token reaches one shape on this tree, `/fn` of a `dev-*`
+    // sandbox on the product host. Asked first, before any authentication, so
+    // nothing below has to remember the kind exists.
+    if crate::server::api::middlewares::app_grant_scope::serve_tree_refuses(
+        &method, &headers, &path,
+    ) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     // Strip the leading slash that axum hands us for a `{*path}` capture
     // when the URL is `/customer-apps/`. Split lazily into the first two
     // segments + the remainder; an empty path means /customer-apps/ which
@@ -279,42 +288,43 @@ pub(crate) async fn serve_pretty(
     //    session.
     //    With the credential: an API token's grants decide below whether this
     //    app exists for it at all.
-    let (identity, credential) = match BuiltInAuthenticator::new()
-        .authenticate_with_credential(&headers)
-        .instrument(tracing::info_span!(
-            target: "custom_apps_serve",
-            "custom_app_authenticate"
-        ))
-        .await
-    {
-        Ok(authenticated) => authenticated,
-        Err(e) => {
-            // Surface auth failures so an operator can tell apart "no cookie"
-            // (browser never logged in) vs "stale JWT" vs "wrong domain
-            // scope". Without this the only symptom is a silent redirect to
-            // login and there's no way to know why from outside the server.
-            let cookie_present = headers
-                .get(axum::http::header::COOKIE)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.contains("oxy_session="))
-                .unwrap_or(false);
-            let auth_header_present = headers.get(axum::http::header::AUTHORIZATION).is_some();
-            // `info`, not `warn`: an unauthenticated hit is the client doing
-            // something ordinary (a service-worker update check, a
-            // `version.json` poll, an expired session), and at `warn` it was a
-            // third of prod's warnings. The fields keep the diagnosis.
-            tracing::info!(
+    let (identity, credential) =
+        match BuiltInAuthenticator::new(oxy_auth::token::SandboxAgent::Refuse)
+            .authenticate_with_credential(&headers)
+            .instrument(tracing::info_span!(
                 target: "custom_apps_serve",
-                org_slug = %org_slug,
-                app_slug = %app_slug,
-                cookie_present,
-                auth_header_present,
-                error = %e,
-                "auth failed, redirecting to login"
-            );
-            return redirect_to_login(&headers, &uri).into_response();
-        }
-    };
+                "custom_app_authenticate"
+            ))
+            .await
+        {
+            Ok(authenticated) => authenticated,
+            Err(e) => {
+                // Surface auth failures so an operator can tell apart "no cookie"
+                // (browser never logged in) vs "stale JWT" vs "wrong domain
+                // scope". Without this the only symptom is a silent redirect to
+                // login and there's no way to know why from outside the server.
+                let cookie_present = headers
+                    .get(axum::http::header::COOKIE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.contains("oxy_session="))
+                    .unwrap_or(false);
+                let auth_header_present = headers.get(axum::http::header::AUTHORIZATION).is_some();
+                // `info`, not `warn`: an unauthenticated hit is the client doing
+                // something ordinary (a service-worker update check, a
+                // `version.json` poll, an expired session), and at `warn` it was a
+                // third of prod's warnings. The fields keep the diagnosis.
+                tracing::info!(
+                    target: "custom_apps_serve",
+                    org_slug = %org_slug,
+                    app_slug = %app_slug,
+                    cookie_present,
+                    auth_header_present,
+                    error = %e,
+                    "auth failed, redirecting to login"
+                );
+                return redirect_to_login(&headers, &uri).into_response();
+            }
+        };
 
     // User lookup is cached — without this, every asset request triggers a
     // fresh `users` table query. Keyed by who the credential NAMES, not by its

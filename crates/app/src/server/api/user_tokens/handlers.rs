@@ -1,4 +1,5 @@
-//! `/api/user/tokens` — the caller's personal tokens and legacy keys.
+//! `/api/user/tokens` — the caller's personal tokens and the sandbox agent
+//! tokens they minted.
 //!
 //! Every handler takes [`SessionOnly`] first: a key or token gets 403
 //! `session_required` before anything is parsed or read. Bodies are read as
@@ -21,6 +22,7 @@ use uuid::Uuid;
 use super::ManageTokens;
 use super::dto::TokenDto;
 use super::error::TokenError;
+use super::sandbox;
 use super::service::{self, Minted};
 use crate::server::api::api_keys::activity::{ActivityQuery, ActivityResponse, page_size};
 
@@ -64,15 +66,35 @@ pub async fn list_tokens(
     Ok(Json(TokenList { tokens }))
 }
 
-/// Create a personal access token; the secret is returned once
+/// The body as JSON when it asks for a sandbox agent token
+/// (`kind: "sandbox_agent"`). `None` for a personal token's body — no `kind`,
+/// or `kind: "personal"` — and for one that is not JSON at all, which the
+/// personal path then refuses with the message it always has.
+fn sandbox_body(body: &Bytes) -> Result<Option<serde_json::Value>, TokenError> {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return Ok(None);
+    };
+    Ok(oxy_auth::token::sandbox::asked_for(&value)?.then_some(value))
+}
+
+/// Create a personal access token or a sandbox agent token; the secret is returned once
 pub async fn create_token(
     _: SessionOnly<ManageTokens>,
     actor: RequestActor,
     body: Bytes,
 ) -> Result<(StatusCode, Json<TokenWithSecret>), TokenError> {
-    let body: CreateBody = parse(&body)?;
-    let db = establish_connection().await?;
-    let minted = service::create(&db, &actor, body).await?;
+    let minted = match sandbox_body(&body)? {
+        Some(mint) => {
+            let db = establish_connection().await?;
+            sandbox::create_from_body(&db, &actor, &mint).await?
+        }
+        // A personal token's body: parsed before anything is read, as always.
+        None => {
+            let body: CreateBody = parse(&body)?;
+            let db = establish_connection().await?;
+            service::create(&db, &actor, body).await?
+        }
+    };
     Ok((StatusCode::CREATED, Json(minted.into())))
 }
 

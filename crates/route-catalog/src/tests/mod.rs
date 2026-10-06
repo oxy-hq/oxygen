@@ -7,8 +7,11 @@ use oxy_app::server::route_catalog::{GeneratedRoute, RouteDescription, searchabl
 
 use super::{GENERATED_SCANNED_DIRS, catalog};
 
+mod app_grant_scope;
 mod handler;
 mod previews_read_only;
+mod sandbox_agent_refusal;
+mod sandbox_agent_stack;
 mod token_grant_scope;
 
 fn routes() -> &'static [GeneratedRoute] {
