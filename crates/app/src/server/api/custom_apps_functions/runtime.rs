@@ -1149,9 +1149,11 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// the route accepts that was half the default ceiling.
 struct RequestBody(String);
 
-/// Hand the request body to the invoke script, once. Any later call gets an
-/// empty string — and only app code could make one, since the artifact shares
-/// a global with the bootstrap; by then the body is its own `req.body`.
+/// Hand the request body to the invoke script, once; any later call gets an
+/// empty string. The artifact shares a global with the bootstrap, so app code
+/// can reach this op too. The invoke script calls it before anything else, and
+/// an app whose top-level code has replaced `Deno.core.ops` can lose only its
+/// own request's body by doing so.
 #[op2]
 #[string]
 fn op_req_take_body(state: &mut OpState) -> String {
@@ -2486,18 +2488,19 @@ async fn execute_isolate_inner(
     eval.await
         .map_err(|e| RuntimeError::Js(format!("module evaluation failed: {e}")))?;
 
-    // Parked only now, after the module's top-level statements have run. The
-    // script below collects it before it awaits anything, so the handler's
-    // `req.body` is the one place app code ever finds it. `body` is assigned
-    // last, which keeps `req`'s keys in the order they have always had.
+    // Parked only now, after the module's top-level statements have run, and
+    // collected by the script's first statements — ahead of `__buildCtx`, which
+    // is a global the artifact could have replaced with code of its own.
+    // `body` is assigned after the literal, which keeps `req`'s keys in the
+    // order they have always had.
     runtime.op_state().borrow_mut().put(RequestBody(body));
 
     let invoke_script = format!(
         r#"
         (async () => {{
-            const ctx = globalThis.__buildCtx({ctx_json});
             const req = {req_json};
             req.body = Deno.core.ops.op_req_take_body();
+            const ctx = globalThis.__buildCtx({ctx_json});
             const mod = await import("oxy:function");
             const handler = mod.default;
             if (typeof handler !== "function") {{
