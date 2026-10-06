@@ -288,11 +288,21 @@ export const CustomAppsService = {
     return r.data as AppAvailability;
   },
 
-  /** Persisted Oxy Function output. Slug-addressed, like its `/availability` sibling. */
-  async logs(orgSlug: string, appSlug: string, hours = 24): Promise<FunctionLogLine[]> {
-    const r = await apiClient.get(
-      `/customer-apps/${orgSlug}/${appSlug}/logs?hours=${hours}&limit=200`
-    );
+  /**
+   * Persisted Oxy Function output, newest first. Slug-addressed, like its
+   * `/availability` sibling.
+   *
+   * `requestId` narrows to one `x-oxy-request-id`. It must be a UUID: the route
+   * answers anything else with a 400 rather than an empty list.
+   */
+  async logs(
+    orgSlug: string,
+    appSlug: string,
+    { hours, limit, requestId }: { hours: number; limit: number; requestId?: string }
+  ): Promise<FunctionLogLine[]> {
+    const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+    if (requestId) params.set("request_id", requestId);
+    const r = await apiClient.get(`/customer-apps/${orgSlug}/${appSlug}/logs?${params}`);
     return (r.data?.logs ?? []) as FunctionLogLine[];
   },
 

@@ -145,10 +145,20 @@ export const useAppAvailability = (orgSlug: string | undefined, appSlug: string 
  * observability backend) is a state to render, not a transient failure to
  * retry behind a spinner.
  */
-export const useAppLogs = (orgSlug: string | undefined, appSlug: string | undefined, hours = 24) =>
+export const useAppLogs = (
+  orgSlug: string | undefined,
+  appSlug: string | undefined,
+  query: { hours: number; limit: number; requestId?: string }
+) =>
   useQuery({
-    queryKey: queryKeys.customApps.logs(orgSlug ?? "", appSlug ?? "", hours),
-    queryFn: () => CustomAppsService.logs(orgSlug as string, appSlug as string, hours),
+    queryKey: queryKeys.customApps.logs(
+      orgSlug ?? "",
+      appSlug ?? "",
+      query.hours,
+      query.limit,
+      query.requestId
+    ),
+    queryFn: () => CustomAppsService.logs(orgSlug as string, appSlug as string, query),
     enabled: !!orgSlug && !!appSlug,
     staleTime: 15_000,
     retry: false

@@ -2,14 +2,7 @@ import { AlertCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/libs/shadcn/utils";
 import { formatDuration } from "../../utils/index";
-
-interface TraceSummary {
-  spanCount: number;
-  errorCount: number;
-  llmCallCount: number;
-  toolCallCount: number;
-  totalTokens: number;
-}
+import type { TraceSummary } from "./traceSummary";
 
 interface TraceSummaryStripProps {
   summary: TraceSummary;

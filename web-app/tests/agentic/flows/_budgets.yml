@@ -271,10 +271,10 @@
   warm_usd: 0.008
 
 - flow: observability-traces
-  # ZERO act steps, two cases (list + detail), same shape as
-  # apps-data-app-charts — every step is a deterministic wait against
-  # already-seeded ClickHouse data, so cost is just two judge calls.
-  cold_usd: 0.20
+  # Three cases (list, detail, filtered link). Two single-action act steps —
+  # "click the first row" and one browser_navigate — against already-seeded
+  # ClickHouse data; the rest is deterministic waits and two judge calls.
+  cold_usd: 0.30
   warm_usd: 0.008
 
 - flow: observability-clusters

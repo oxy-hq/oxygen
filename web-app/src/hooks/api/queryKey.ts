@@ -76,9 +76,7 @@ const traceKeys = {
       projectId,
       { limit, offset, status, duration, search, from, to }
     ] as const,
-  item: (projectId: string, traceId: string) => [...traceKeys.all, projectId, { traceId }] as const,
-  waterfall: (projectId: string, traceId: string) =>
-    [...traceKeys.all, "waterfall", projectId, traceId] as const
+  item: (projectId: string, traceId: string) => [...traceKeys.all, projectId, { traceId }] as const
 };
 
 const executionAnalyticsKeys = {
@@ -603,8 +601,8 @@ const customAppKeys = {
   fleetHealth: (needsAttention: boolean) => ["customApps", "fleetHealth", needsAttention] as const,
   availability: (orgSlug: string, appSlug: string) =>
     ["customApps", "availability", orgSlug, appSlug] as const,
-  logs: (orgSlug: string, appSlug: string, hours: number) =>
-    ["customApps", "logs", orgSlug, appSlug, hours] as const,
+  logs: (orgSlug: string, appSlug: string, hours: number, limit: number, requestId?: string) =>
+    ["customApps", "logs", orgSlug, appSlug, { hours, limit, requestId }] as const,
   clientErrors: (orgSlug: string, appSlug: string, hours: number) =>
     ["customApps", "clientErrors", orgSlug, appSlug, hours] as const,
   activityVisitors: (id: string, days: number) =>

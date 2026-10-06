@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import useTraces from "@/hooks/api/traces/useTraces";
 import type { Trace } from "@/services/api/traces";
-import type { TimeRange } from "./components/TimeRangeControl";
 import { MAX_COMPARE } from "./constants";
-import { type StatusFilter, statusFilterToApi, type TraceView } from "./types";
+import { readTracesViewState, type TracesViewState, writeTracesViewState } from "./tracesViewState";
+import { type StatusFilter, statusFilterToApi, type TimeRange, type TraceView } from "./types";
 
 const PAGE_SIZE = 10;
 const CHART_LIMIT = 500;
@@ -15,33 +16,58 @@ interface UseTracesControllerArgs {
 }
 
 /**
- * Owns all Traces-surface UI state (Theme 3): time range, debounced search,
- * status filter, live-tail polling, view mode, paging, and compare selection.
- * Feeds two `useTraces` queries (paged list + wider chart window) that share
- * every filter so the charts always reflect the visible set.
+ * Owns all Traces-surface UI state (Theme 3). The filters that say *where* the
+ * reader is — time range, search, status, page — live in the URL (see
+ * `tracesViewState.ts`); live-tail, view mode and the compare selection stay
+ * local. Feeds two `useTraces` queries (paged list + wider chart window) that
+ * share every filter so the charts are drawn from the same set as the list.
  */
 export function useTracesController({ enabled }: UseTracesControllerArgs) {
-  const [timeRange, setTimeRange] = useState<TimeRange>({ kind: "preset", value: "30d" });
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<StatusFilter>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const {
+    timeRange,
+    search,
+    status,
+    page: currentPage
+  } = useMemo(() => readTracesViewState(searchParams), [searchParams]);
+
+  // The box holds what is being typed; the URL holds what is being searched.
+  const [searchInput, setSearchInput] = useState(search);
   const [live, setLive] = useState(false);
   const [view, setView] = useState<TraceView>("card");
-  const [currentPage, setCurrentPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // `replace`, like the coordinator's Runs filters: Back leaves the page rather
+  // than replaying filter edits, and returning from a trace lands on the view
+  // that was left. Any change reshapes the result set, so it drops the selection.
+  const patchView = useCallback(
+    (patch: Partial<TracesViewState>) => {
+      setSearchParams((prev) => writeTracesViewState(prev, patch), { replace: true });
+      setSelectedIds([]);
+    },
+    [setSearchParams]
+  );
+
+  // What this hook last put in the URL. A `search` that is not that came from
+  // outside — the sidebar's own Traces link, a pasted address — and the box has
+  // to follow it, or the debounce below would write the stale text straight back.
+  const writtenSearch = useRef(search);
+  useEffect(() => {
+    if (search === writtenSearch.current) return;
+    writtenSearch.current = search;
+    setSearchInput(search);
+  }, [search]);
 
   // Debounce the search box so keystrokes don't hammer the API.
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    const next = searchInput.trim();
+    if (next === search) return;
+    const timer = setTimeout(() => {
+      writtenSearch.current = next;
+      patchView({ search: next, page: 1 });
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  // Any filter change reshapes the result set → back to page 1, drop selection.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: these are reset keys, not values read in the body
-  useEffect(() => {
-    setCurrentPage(1);
-    setSelectedIds([]);
-  }, [search, status, timeRange]);
+  }, [searchInput, search, patchView]);
 
   const apiStatus = statusFilterToApi(status) ?? "all";
   const range =
@@ -71,6 +97,16 @@ export function useTracesController({ enabled }: UseTracesControllerArgs) {
   const traces = listQuery.data?.items;
   const total = listQuery.data?.total ?? 0;
 
+  // A link can name a page the result set no longer has — the window rolled, or
+  // the list shrank. Land on the last real page instead of an empty one that
+  // reads as "no traces" under a pager that says otherwise. Only once the list
+  // has answered: before that there is no total to clamp against.
+  const loaded = listQuery.data !== undefined;
+  const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  useEffect(() => {
+    if (loaded && currentPage > lastPage) patchView({ page: lastPage });
+  }, [loaded, currentPage, lastPage, patchView]);
+
   // Any refetch (window focus, a late in-flight poll) can drop a selected trace
   // off the current page. Prune selection to what's actually visible so
   // selectedIds, compareTraces, and the selection cap never disagree.
@@ -94,20 +130,16 @@ export function useTracesController({ enabled }: UseTracesControllerArgs) {
     [traces, selectedIds]
   );
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-    setSelectedIds([]);
-  };
-
   const filtersActive = search.length > 0 || status !== "all" || timeRange.kind === "custom";
 
   return {
     timeRange,
-    setTimeRange,
+    // A filter change reshapes the result set → back to page 1.
+    setTimeRange: (next: TimeRange) => patchView({ timeRange: next, page: 1 }),
     searchInput,
     setSearchInput,
     status,
-    setStatus,
+    setStatus: (next: StatusFilter) => patchView({ status: next, page: 1 }),
     live,
     setLive,
     view,
@@ -116,10 +148,11 @@ export function useTracesController({ enabled }: UseTracesControllerArgs) {
     total,
     isLoading: listQuery.isLoading,
     chartTraces: chartQuery.data?.items,
+    chartTotal: chartQuery.data?.total,
     isChartLoading: chartQuery.isLoading,
     currentPage,
     pageSize: PAGE_SIZE,
-    handlePageChange,
+    handlePageChange: (page: number) => patchView({ page }),
     selectedIds,
     toggleSelect,
     clearSelection: () => setSelectedIds([]),

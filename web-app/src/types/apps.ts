@@ -561,6 +561,13 @@ export interface FunctionLogLine {
   level: string;
   seq: number;
   message: string;
+  /**
+   * The platform-trace id the line was written under, when the process had one
+   * — the handle that finds the invocation's spans in HyperDX. Empty otherwise.
+   */
+  trace_id: string;
+  /** The app environment the line was written in. */
+  environment: string;
 }
 
 export interface ClientError {

@@ -1,13 +1,34 @@
 import { AlertCircle, ArrowDown, ArrowRight, ArrowUp, CheckCircle2 } from "lucide-react";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/shadcn/dialog";
 import { Spinner } from "@/components/ui/shadcn/spinner";
-import useTraceWaterfall from "@/hooks/api/traces/useTraceWaterfall";
-import type { Trace, WaterfallResponse } from "@/services/api/traces";
+import useTraceDetail from "@/hooks/api/traces/useTraceDetail";
+import type { Trace } from "@/services/api/traces";
 import { TraceSummaryStrip } from "../../trace/components/TraceSummaryStrip";
+import { summarizeTrace, type TraceSummary } from "../../trace/components/traceSummary";
 import { formatDuration, formatTimeAgo } from "../../utils";
 import { deriveTraceRow } from "./traceRow";
+
+/** What Compare needs of one side: the strip's figures and the wall time. */
+interface ComparedTrace {
+  summary: TraceSummary;
+  totalDurationMs: number;
+}
+
+/** One side of the comparison, summarised from that trace's own spans. */
+function useComparedTrace(trace: Trace | undefined, enabled: boolean) {
+  const { data, isLoading } = useTraceDetail(trace?.traceId ?? "", enabled && !!trace);
+  const compared = useMemo<ComparedTrace | undefined>(
+    () =>
+      data
+        ? { summary: summarizeTrace(data.spans), totalDurationMs: data.totalDurationMs }
+        : undefined,
+    [data]
+  );
+  return { compared, isLoading };
+}
 
 interface CompareTracesDialogProps {
   traces: Trace[];
@@ -63,13 +84,13 @@ function ColumnHeader({
 function SummaryPanel({
   trace,
   label,
-  waterfall,
+  compared,
   isLoading,
   onOpenTrace
 }: {
   trace: Trace;
   label: string;
-  waterfall?: WaterfallResponse;
+  compared?: ComparedTrace;
   isLoading: boolean;
   onOpenTrace: (traceId: string) => void;
 }) {
@@ -80,11 +101,8 @@ function SummaryPanel({
         <div className='flex h-32 items-center justify-center'>
           <Spinner className='size-6 text-muted-foreground' />
         </div>
-      ) : waterfall ? (
-        <TraceSummaryStrip
-          summary={waterfall.summary}
-          totalDurationMs={waterfall.totalDurationMs}
-        />
+      ) : compared ? (
+        <TraceSummaryStrip summary={compared.summary} totalDurationMs={compared.totalDurationMs} />
       ) : (
         <p className='text-muted-foreground text-sm'>Could not load trace summary.</p>
       )}
@@ -98,7 +116,7 @@ interface DeltaRow {
   formatted: string;
 }
 
-function buildDeltas(a: WaterfallResponse, b: WaterfallResponse): DeltaRow[] {
+function buildDeltas(a: ComparedTrace, b: ComparedTrace): DeltaRow[] {
   const fmtNum = (n: number) => (n >= 0 ? "+" : "−") + Math.abs(n).toLocaleString();
   return [
     {
@@ -126,7 +144,7 @@ function buildDeltas(a: WaterfallResponse, b: WaterfallResponse): DeltaRow[] {
   ];
 }
 
-function DeltaStrip({ a, b }: { a: WaterfallResponse; b: WaterfallResponse }) {
+function DeltaStrip({ a, b }: { a: ComparedTrace; b: ComparedTrace }) {
   return (
     <div className='rounded-lg border bg-muted/40 p-3'>
       <div className='mb-2 flex items-center gap-1 text-muted-foreground text-xs uppercase tracking-wide'>
@@ -162,8 +180,8 @@ export function CompareTracesDialog({
   onOpenTrace
 }: CompareTracesDialogProps) {
   const [a, b] = traces;
-  const waterfallA = useTraceWaterfall(a?.traceId ?? "", open && !!a);
-  const waterfallB = useTraceWaterfall(b?.traceId ?? "", open && !!b);
+  const sideA = useComparedTrace(a, open);
+  const sideB = useComparedTrace(b, open);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -177,20 +195,20 @@ export function CompareTracesDialog({
               <SummaryPanel
                 trace={a}
                 label='A'
-                waterfall={waterfallA.data}
-                isLoading={waterfallA.isLoading}
+                compared={sideA.compared}
+                isLoading={sideA.isLoading}
                 onOpenTrace={onOpenTrace}
               />
               <SummaryPanel
                 trace={b}
                 label='B'
-                waterfall={waterfallB.data}
-                isLoading={waterfallB.isLoading}
+                compared={sideB.compared}
+                isLoading={sideB.isLoading}
                 onOpenTrace={onOpenTrace}
               />
             </div>
-            {waterfallA.data && waterfallB.data && (
-              <DeltaStrip a={waterfallA.data} b={waterfallB.data} />
+            {sideA.compared && sideB.compared && (
+              <DeltaStrip a={sideA.compared} b={sideB.compared} />
             )}
           </div>
         )}

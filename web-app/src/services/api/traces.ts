@@ -67,55 +67,6 @@ export interface TraceDetail {
   end_time: string;
 }
 
-interface SpanAttributes {
-  agentRef?: string;
-  agentPrompt?: string;
-  agentMemoryLength?: number;
-  llmModel?: string;
-  llmProvider?: string;
-  llmTokenPrompt?: number;
-  llmTokenCompletion?: number;
-  llmTokenTotal?: number;
-  toolName?: string;
-  toolType?: string;
-  toolSuccess?: boolean;
-  codeFilepath?: string;
-  codeLineno?: number;
-  codeNamespace?: string;
-  raw?: string;
-}
-
-interface WaterfallSpan {
-  spanId: string;
-  parentSpanId: string;
-  spanName: string;
-  startTime: string;
-  endTime: string;
-  durationMs: number;
-  offsetMs: number;
-  depth: number;
-  statusCode: string;
-  spanKind: string;
-  attributes: SpanAttributes;
-  children: string[];
-}
-
-interface TraceSummary {
-  spanCount: number;
-  errorCount: number;
-  llmCallCount: number;
-  toolCallCount: number;
-  totalTokens: number;
-}
-
-export interface WaterfallResponse {
-  traceId: string;
-  spans: WaterfallSpan[];
-  totalDurationMs: number;
-  startTime: string;
-  summary: TraceSummary;
-}
-
 export interface ClusterMapPoint {
   traceId: string;
   question: string;
@@ -237,11 +188,6 @@ export class TracesService {
 
   static async getTraceDetail(projectId: string, traceId: string): Promise<TraceDetailSpan[]> {
     const response = await apiClient.get(`/${projectId}/traces/${traceId}`);
-    return response.data;
-  }
-
-  static async getTraceWaterfall(projectId: string, traceId: string): Promise<WaterfallResponse> {
-    const response = await apiClient.get(`/${projectId}/traces/${traceId}/waterfall`);
     return response.data;
   }
 

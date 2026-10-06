@@ -43,7 +43,7 @@ function TracesList({
           <p className='text-muted-foreground text-sm'>
             {searchQuery
               ? "Try adjusting your search or filters"
-              : "Start running agents to see traces here"}
+              : "Start running agents to see traces here. A run can take up to 30 seconds to appear."}
           </p>
         </div>
       </Card>

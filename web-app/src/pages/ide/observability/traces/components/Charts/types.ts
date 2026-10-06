@@ -2,6 +2,8 @@ import type { Trace } from "@/services/api/traces";
 
 export interface TraceChartsProps {
   traces: Trace[] | undefined;
+  /** How many traces match the filters. `traces` holds only the newest of them. */
+  total: number | undefined;
   isLoading: boolean;
 }
 

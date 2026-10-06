@@ -72,7 +72,11 @@ export default function TracesPage() {
         <div className='scrollbar-gutter-auto min-h-0 flex-1 overflow-auto p-4'>
           {observabilityConfigured ? (
             <>
-              <TraceCharts traces={ctl.chartTraces} isLoading={ctl.isChartLoading} />
+              <TraceCharts
+                traces={ctl.chartTraces}
+                total={ctl.chartTotal}
+                isLoading={ctl.isChartLoading}
+              />
               <TracesToolbar
                 search={ctl.searchInput}
                 onSearchChange={ctl.setSearchInput}

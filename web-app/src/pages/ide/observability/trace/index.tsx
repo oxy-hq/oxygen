@@ -6,7 +6,6 @@ import {
   ResizablePanelGroup
 } from "@/components/ui/shadcn/resizable";
 import useTraceDetail from "@/hooks/api/traces/useTraceDetail";
-import useTraceWaterfall from "@/hooks/api/traces/useTraceWaterfall";
 import type { TimelineSpan } from "@/services/api/traces";
 import { ErrorPage } from "../components/ErrorPage";
 import { SpanDetailPanel } from "./components/SpanDetailPanel";
@@ -14,11 +13,11 @@ import { computeTraceSpanMetrics, criticalSelfPercent } from "./components/spanM
 import { Timeline } from "./components/Timeline";
 import { TraceHeader } from "./components/TraceHeader";
 import { TraceSummaryStrip } from "./components/TraceSummaryStrip";
+import { summarizeTrace } from "./components/traceSummary";
 
 export default function TraceDetailPage() {
   const { traceId } = useParams<{ traceId: string }>();
   const { data: trace, isLoading, error } = useTraceDetail(traceId || "");
-  const { data: waterfall } = useTraceWaterfall(traceId || "");
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
 
   // Only show selected span when explicitly clicked (no auto-select)
@@ -27,6 +26,7 @@ export default function TraceDetailPage() {
   // Self-time per span + critical path — powers the waterfall's self-time cap,
   // critical-path highlight, and the inspector's self-vs-children split.
   const metrics = useMemo(() => computeTraceSpanMetrics(trace?.spans ?? []), [trace?.spans]);
+  const summary = useMemo(() => summarizeTrace(trace?.spans ?? []), [trace?.spans]);
 
   const handleSelectSpan = useCallback((span: TimelineSpan) => {
     setSelectedSpanId(span.spanId);
@@ -59,15 +59,13 @@ export default function TraceDetailPage() {
         startTime={trace.startTime}
       />
 
-      {waterfall?.summary && (
-        <div className='border-b px-4 py-3'>
-          <TraceSummaryStrip
-            summary={waterfall.summary}
-            totalDurationMs={trace.totalDurationMs}
-            criticalPercent={criticalSelfPercent(metrics, trace.totalDurationMs)}
-          />
-        </div>
-      )}
+      <div className='border-b px-4 py-3'>
+        <TraceSummaryStrip
+          summary={summary}
+          totalDurationMs={trace.totalDurationMs}
+          criticalPercent={criticalSelfPercent(metrics, trace.totalDurationMs)}
+        />
+      </div>
 
       {/* Main Content with Resizable Panels */}
       <div className='flex-1 overflow-hidden'>

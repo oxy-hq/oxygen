@@ -1,6 +1,7 @@
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import { useAppClientErrors } from "@/hooks/api/customApps/useCustomApps";
 import type { ClientError } from "@/types/apps";
+import { type LogWindowHours, windowPhrase } from "../functionLogs";
 
 /**
  * Browser errors, grouped by stack.
@@ -9,8 +10,16 @@ import type { ClientError } from "@/types/apps";
  * loop fires thousands of times and is still one thing to fix. The counts carry
  * "how bad", the row carries "what".
  */
-export const ClientErrors = ({ orgSlug, appSlug }: { orgSlug: string; appSlug: string }) => {
-  const { data, isLoading, error } = useAppClientErrors(orgSlug, appSlug);
+export const ClientErrors = ({
+  orgSlug,
+  appSlug,
+  hours
+}: {
+  orgSlug: string;
+  appSlug: string;
+  hours: LogWindowHours;
+}) => {
+  const { data, isLoading, error } = useAppClientErrors(orgSlug, appSlug, hours);
 
   if (isLoading) return <Skeleton className='h-24 w-full' />;
   if (error) {
@@ -24,7 +33,7 @@ export const ClientErrors = ({ orgSlug, appSlug }: { orgSlug: string; appSlug: s
   if (errors.length === 0) {
     return (
       <p className='text-muted-foreground text-xs' data-testid='admin-app-errors-empty'>
-        No uncaught browser errors in the last 24 hours.
+        No uncaught browser errors in {windowPhrase(hours)}.
       </p>
     );
   }

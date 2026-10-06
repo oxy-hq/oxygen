@@ -54,6 +54,15 @@ export function isErrorStatus(statusCode: string | undefined): boolean {
   return !!statusCode && /error/i.test(statusCode);
 }
 
+/**
+ * A `tool.execute` span that recorded nothing. The waterfall leaves these out,
+ * so anything that counts tool calls has to leave them out as well, or the count
+ * names rows the reader cannot find.
+ */
+export function isEmptyToolSpan(span: TimelineSpan): boolean {
+  return span.spanName === "tool.execute" && span.events.length === 0;
+}
+
 function categoryFromSpanType(spanType: string): SpanCategory | undefined {
   if (spanType === "agent" || spanType === "analytics") return "agent";
   if (spanType === "llm") return "llm";

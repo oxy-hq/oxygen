@@ -51,7 +51,7 @@ export function TracesToolbar({
       </div>
 
       <Select value={status} onValueChange={(v) => onStatusChange(v as StatusFilter)}>
-        <SelectTrigger className='w-36'>
+        <SelectTrigger className='w-36' data-testid='traces-status-filter'>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

@@ -9,7 +9,13 @@ import {
 } from "./useChartOptions";
 import { aggregateByDuration, aggregateByTime, calculateStats } from "./utils";
 
-export default function TraceCharts({ traces, isLoading }: TraceChartsProps) {
+export default function TraceCharts({ traces, total, isLoading }: TraceChartsProps) {
+  // The charts are drawn from one capped page of the result set. Past the cap
+  // every figure here is a count of the newest slice, not of the view, and the
+  // headline numbers are the ones a reader quotes — so say which it is.
+  const shown = traces?.length ?? 0;
+  const capped = total !== undefined && total > shown && shown > 0;
+
   const timeBuckets = useMemo(() => aggregateByTime(traces ?? []), [traces]);
 
   const durationBuckets = useMemo(() => aggregateByDuration(traces ?? []), [traces]);
@@ -22,38 +28,46 @@ export default function TraceCharts({ traces, isLoading }: TraceChartsProps) {
   const tokensChartOptions = useTokensChartOptions(timeBuckets);
 
   return (
-    <div className='mb-4 grid grid-cols-4 gap-4'>
-      <ChartCard
-        title='Automation Runs'
-        value={`${stats.automationRuns} Automation Runs`}
-        subtitle=''
-        options={automationRunsChartOptions}
-        isLoading={isLoading}
-      />
+    <div className='mb-4'>
+      <div className='grid grid-cols-4 gap-4'>
+        <ChartCard
+          title='Automation Runs'
+          value={`${stats.automationRuns} Automation Runs`}
+          subtitle=''
+          options={automationRunsChartOptions}
+          isLoading={isLoading}
+        />
 
-      <ChartCard
-        title='Analytics Runs'
-        value={`${stats.analyticsRuns} Analytics Runs`}
-        subtitle=''
-        options={analyticsRunsChartOptions}
-        isLoading={isLoading}
-      />
+        <ChartCard
+          title='Analytics Runs'
+          value={`${stats.analyticsRuns} Analytics Runs`}
+          subtitle=''
+          options={analyticsRunsChartOptions}
+          isLoading={isLoading}
+        />
 
-      <ChartCard
-        title='Duration'
-        value={`${stats.avgDuration} Average Execution Time`}
-        subtitle=''
-        options={durationChartOptions}
-        isLoading={isLoading}
-      />
+        <ChartCard
+          title='Duration'
+          value={`${stats.avgDuration} Average Execution Time`}
+          subtitle=''
+          options={durationChartOptions}
+          isLoading={isLoading}
+        />
 
-      <ChartCard
-        title='Tokens'
-        value={`${stats.totalTokens.toLocaleString()} Total Tokens Used`}
-        subtitle=''
-        options={tokensChartOptions}
-        isLoading={isLoading}
-      />
+        <ChartCard
+          title='Tokens'
+          value={`${stats.totalTokens.toLocaleString()} Total Tokens Used`}
+          subtitle=''
+          options={tokensChartOptions}
+          isLoading={isLoading}
+        />
+      </div>
+      {capped && (
+        <p className='mt-2 px-3 text-muted-foreground text-xs' data-testid='traces-charts-capped'>
+          Charts and totals cover the newest {shown.toLocaleString()} of {total.toLocaleString()}{" "}
+          traces in this view.
+        </p>
+      )}
     </div>
   );
 }

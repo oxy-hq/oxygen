@@ -207,6 +207,15 @@ cases:
       # trace/index.tsx:47-51 on a query error or missing trace.
       - assert: "selector text=Failed to load trace is not visible"
 
+      # The summary strip (TraceSummaryStrip.tsx). From #2698 until Oct 2026
+      # it was fed by GET /traces/<id>/waterfall, a route the server never
+      # had, and the page rendered it only `if (waterfall?.summary)` — so it
+      # was absent on every trace and nothing noticed, this flow included.
+      # It is computed from the spans now (trace/components/traceSummary.ts).
+      # "LLM calls" is a tile label that exists nowhere else on the page.
+      - assert: text "LLM calls" is visible
+      - assert: text "Tool calls" is visible
+
       - judge: |
           The page is a trace detail / waterfall view. It names a span count
           of at least two, and each span row carries a non-empty label.
@@ -227,3 +236,27 @@ cases:
               or an em dash "—";
           (c) the page shows "Failed to load trace" or "Trace not found";
           (d) the page is blank or shows a React error boundary message.
+
+  - name: a filtered traces link opens with its filters applied
+    tags: [ide, observability, traces, url-state, regression]
+    steps:
+      # The view lives in the query string (traces/tracesViewState.ts). While
+      # it lived in component state a link could only ever open the default
+      # view, and Back from a trace dropped every filter. `setup:` is
+      # flow-level and lands on the bare list, so this case navigates on.
+      - act: |
+          Use browser_navigate to open /ide/observability/traces?status=error&range=7d
+          Navigate directly; do not click anything.
+
+      - wait_for: "selector:[data-testid=traces-status-filter];timeout_ms=45000"
+
+    expect:
+      # The trigger shows the selected option's label. "All statuses" here
+      # means the page ignored the link and opened on its default view.
+      - assert: 'selector [data-testid=traces-status-filter] does not contain text "All statuses"'
+      - assert: text "Errors" is visible
+
+      # TimeRangeControl renders the presets as Radix tabs; the active one
+      # carries data-state=active. The default is 30d, so 7d being active is
+      # the link's doing.
+      - assert: "selector role=tab[name='7d'] has attribute data-state=active"

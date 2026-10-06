@@ -5,21 +5,7 @@ import { Input } from "@/components/ui/shadcn/input";
 import { Label } from "@/components/ui/shadcn/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/shadcn/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
-
-const DURATION_OPTIONS = [
-  { value: "1h", label: "1h" },
-  { value: "24h", label: "24h" },
-  { value: "7d", label: "7d" },
-  { value: "30d", label: "30d" },
-  { value: "90d", label: "90d" }
-] as const;
-
-type DurationValue = (typeof DURATION_OPTIONS)[number]["value"];
-
-/** Either a rolling preset window or an absolute range (epoch seconds). */
-export type TimeRange =
-  | { kind: "preset"; value: DurationValue }
-  | { kind: "custom"; from: number; to: number };
+import { DURATION_VALUES, type DurationValue, type TimeRange } from "../types";
 
 interface TimeRangeControlProps {
   value: TimeRange;
@@ -83,9 +69,9 @@ export function TimeRangeControl({ value, onChange }: TimeRangeControlProps) {
         onValueChange={(v) => v && onChange({ kind: "preset", value: v as DurationValue })}
       >
         <TabsList>
-          {DURATION_OPTIONS.map((option) => (
-            <TabsTrigger key={option.value} value={option.value}>
-              {option.label}
+          {DURATION_VALUES.map((duration) => (
+            <TabsTrigger key={duration} value={duration}>
+              {duration}
             </TabsTrigger>
           ))}
         </TabsList>

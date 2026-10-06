@@ -1,7 +1,7 @@
 import { cn } from "@/libs/shadcn/utils";
 import type { TimelineSpan } from "@/services/api/traces";
 import { formatDuration } from "../../utils/index";
-import { LEGEND_CATEGORIES, SPAN_CATEGORY_META } from "./spanCategory";
+import { isEmptyToolSpan, LEGEND_CATEGORIES, SPAN_CATEGORY_META } from "./spanCategory";
 import { TimelineSpanRow } from "./TimelineSpanRow";
 
 interface TimelineProps {
@@ -38,10 +38,7 @@ export function Timeline({
   selfTimes,
   criticalPath
 }: TimelineProps) {
-  // Filter out tool.execute spans that have no events
-  const filteredSpans = spans.filter(
-    (s) => !(s.spanName === "tool.execute" && s.events.length === 0)
-  );
+  const filteredSpans = spans.filter((s) => !isEmptyToolSpan(s));
   const rootSpans = filteredSpans.filter((s) => !s.parentSpanId);
 
   return (
