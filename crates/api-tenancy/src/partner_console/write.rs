@@ -16,7 +16,6 @@ use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::{self, OrgRole};
 use entity::prelude::{OrgMembers, Organizations, Users};
 use entity::users;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -71,7 +70,7 @@ pub struct InvitationResponse {
 /// org (pending invitation; the invitee accepts via the normal magic-link flow).
 pub async fn invite_member(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, org_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
     Json(body): Json<InviteMemberBody>,
@@ -136,8 +135,8 @@ pub async fn invite_member(
 
     audit::record_best_effort(
         &db,
-        AuditEntry::new(actor.label().to_string(), "partner.member.invited")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.member.invited")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("org_invitation", email.clone(), email)
@@ -190,7 +189,7 @@ pub struct UpdateRoleBody {
 /// and never grants Owner.
 pub async fn update_member_role(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, org_id, user_id)): Path<(Uuid, Uuid, Uuid)>,
     Json(body): Json<UpdateRoleBody>,
 ) -> Result<StatusCode, StatusCode> {
@@ -225,8 +224,8 @@ pub async fn update_member_role(
     model.update(&txn).await.map_err(internal("update role"))?;
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.member.role_updated")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.member.role_updated")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("org_member", user_id.to_string(), String::new())
@@ -247,7 +246,7 @@ pub async fn update_member_role(
 /// (which also preserves the org's last-owner invariant).
 pub async fn remove_member(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, org_id, user_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let db = db().await?;
@@ -274,8 +273,8 @@ pub async fn remove_member(
         .map_err(internal("remove member"))?;
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.member.removed")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.member.removed")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("org_member", user_id.to_string(), String::new()),

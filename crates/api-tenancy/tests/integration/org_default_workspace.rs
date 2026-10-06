@@ -63,6 +63,7 @@ fn actor(user: &users::Model) -> AuthenticatedUserExtractor {
         name: user.name.clone(),
         picture: None,
         status: users::UserStatus::Active,
+        credential: None,
     })
 }
 
@@ -186,9 +187,13 @@ async fn the_workspace_list_never_offers_the_local_mode_nil_workspace() {
         is_global_override: false,
     };
 
-    let Json(listed) = list_workspaces(OrgContextExtractor(ctx), State(bare_app_state()))
-        .await
-        .expect("list workspaces");
+    let Json(listed) = list_workspaces(
+        OrgContextExtractor(ctx),
+        oxy_server_authz::Caller::without_credential(staff.id, ""),
+        State(bare_app_state()),
+    )
+    .await
+    .expect("list workspaces");
     let ids: Vec<Uuid> = listed.iter().map(|w| w.id).collect();
     assert_eq!(
         ids,

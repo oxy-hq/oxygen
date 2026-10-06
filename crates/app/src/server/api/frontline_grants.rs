@@ -31,14 +31,12 @@ use uuid::Uuid;
 /// keep. `existing_allow` is the guard the route already passed.
 pub async fn may_grant_apps(
     db: &DatabaseConnection,
-    actor_id: Uuid,
-    actor_email: &str,
+    caller: &oxy_server_authz::Caller,
     org_id: Uuid,
 ) -> bool {
     oxy_server_authz::enforce_for(
         db,
-        actor_id,
-        actor_email,
+        caller,
         "frontline.enrol_grants",
         Action::AppAccessManage,
         Resource::org(org_id),

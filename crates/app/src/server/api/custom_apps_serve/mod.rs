@@ -277,15 +277,17 @@ pub(crate) async fn serve_pretty(
     //    real registered (org, app) pair (302 redirect) from a fake one
     //    (404). No DB work happens before we know the caller has a valid
     //    session.
-    let identity = match BuiltInAuthenticator::new()
-        .authenticate(&headers)
+    //    With the credential: an API token's grants decide below whether this
+    //    app exists for it at all.
+    let (identity, credential) = match BuiltInAuthenticator::new()
+        .authenticate_with_credential(&headers)
         .instrument(tracing::info_span!(
             target: "custom_apps_serve",
             "custom_app_authenticate"
         ))
         .await
     {
-        Ok(i) => i,
+        Ok(authenticated) => authenticated,
         Err(e) => {
             // Surface auth failures so an operator can tell apart "no cookie"
             // (browser never logged in) vs "stale JWT" vs "wrong domain
@@ -340,6 +342,10 @@ pub(crate) async fn serve_pretty(
             }
         }
     };
+    // Attached AFTER the cache: the cached row is the user, never the credential
+    // one request happened to arrive with.
+    let user = user.with_credential(credential);
+    let caller = oxy_server_authz::Caller::from_user(&user);
 
     // 2. Now that the caller is known, look up the org + app and check
     // membership. Joining by (org_slug, app_slug) is the only DB hit other
@@ -436,12 +442,9 @@ pub(crate) async fn serve_pretty(
     // unreleased build is never a customer's to open.
     let access = async {
         if environment == AppEnvironment::Production {
-            user_can_access_app(&db, user.id, user.email.as_deref().unwrap_or(""), &app).await
+            user_can_access_app(&db, &caller, &app).await
         } else {
-            Ok(
-                may_open_non_production(&db, user.id, user.email.as_deref().unwrap_or(""), &app)
-                    .await,
-            )
+            Ok(may_open_non_production(&db, &caller, &app).await)
         }
     };
     let allowed = match access

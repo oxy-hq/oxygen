@@ -6,7 +6,7 @@
 # and its engineers publish from their machines with `oxyc login` and
 # `oxyc publish`; its own docs say "there is no GitHub Actions / CI". A repo
 # scaffolded from this template therefore behaves the same way unless somebody
-# asks for CI publishing, rather than arriving demanding a long-lived token the
+# asks for CI publishing, rather than arriving demanding a credential setup the
 # rest of the org has already decided it does not want.
 #
 # In its own file for the same reason publish-env.sh is: a `run:` block cannot
@@ -14,14 +14,15 @@
 # until the first real push. This is the switch the whole opt-in rests on, so it
 # is the last thing that should be unexecuted.
 #
-# THE SWITCH IS EXPLICIT, AND IT IS NOT THE TOKEN. Skipping the publish whenever
-# no OXY_TOKEN reached the job would have been one line, and it would have
-# destroyed the property publish.yaml is built around: that a publish into a
-# misconfigured environment is a loud credential failure rather than a quiet
-# success. Inferred from the token, "we do not publish from CI" and "somebody
-# forgot production's OXY_TOKEN" are the same observation — and the second one
-# then ships nothing, silently, for as long as nobody looks. Two causes need two
-# states, which is what this file is.
+# THE SWITCH IS EXPLICIT, AND IT IS NOT THE CREDENTIAL. Skipping the publish
+# whenever the job could not authenticate would have been one line, and it would
+# have destroyed the property publish.yaml is built around: that a publish into
+# a misconfigured environment is a loud credential failure rather than a quiet
+# success. Inferred from the credential, "we do not publish from CI" and
+# "somebody forgot production's trust policy" (or its OXY_TOKEN, on the fallback
+# path) are the same observation — and the second one then ships nothing,
+# silently, for as long as nobody looks. Two causes need two states, which is
+# what this file is.
 #
 # A VARIABLE rather than a secret, for two reasons that both matter. It is read
 # in the `build` job — the only job that runs when publishing is off, and so the
@@ -64,7 +65,7 @@ case "$value" in
   # misreading of a switch that costs something.
   ''|false|no|off|0)
     printf 'off\n'
-    printf '::notice::CI publishing is off in this repo, which is the default. This run built the app bundles and published nothing. Publishing here is self-serve: from an app directory under apps/, run "oxyc login --env dev" once and then "oxyc publish --env dev" (or --env production). To publish from CI instead, add a repository VARIABLE named OXY_CI_PUBLISH with the value true — Settings, then Secrets and variables, then Actions, then the Variables tab — and give each GitHub environment its own OXY_TOKEN.\n' >&2
+    printf '::notice::CI publishing is off in this repo, which is the default. This run built the app bundles and published nothing. Publishing here is self-serve: from an app directory under apps/, run "oxyc login --env dev" once and then "oxyc publish --env dev" (or --env production). To publish from CI instead, add a repository VARIABLE named OXY_CI_PUBLISH with the value true — Settings, then Secrets and variables, then Actions, then the Variables tab — and register a trust policy for each GitHub environment, so the publish job needs no stored secret (or, as the fallback, give each environment its own OXY_TOKEN). The steps are under "Publishing custom apps" in README.md.\n' >&2
     ;;
   true|yes|on|1)
     printf 'on\n'

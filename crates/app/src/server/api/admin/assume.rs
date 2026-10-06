@@ -76,14 +76,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::server::router::AppState;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 use oxy_app_core::pagination::{self, Paged, trim_overfetch};
 
 // The pure liveness-query cluster now lives in `oxy-server-authz` so the authz fact
 // loader and the partner tier can read session liveness without depending on `oxy-app`.
 // The handlers below use `MAX_SESSION` / `live_filter` internally; the three query fns
 // are re-exported so external callers keep resolving `assume::…` unchanged.
-use oxy_server_authz::assume_liveness::{MAX_SESSION, live_filter};
+use oxy_server_authz::assume_liveness::{MAX_SESSION, live_filter, usable_by};
 pub use oxy_server_authz::assume_liveness::{
     is_session_live, live_assumed_org_ids, live_sessions_for,
 };
@@ -165,10 +165,13 @@ async fn db() -> Result<DatabaseConnection, StatusCode> {
 /// Re-checked on **every request** (not just at session creation), so revoking a
 /// partner's `develop_apps` or un-assigning a client kills a live session's reach
 /// immediately rather than at expiry.
+///
+/// Takes the [`Caller`], so both authorities are what the request's credential
+/// carries: an API token without `platform` is not staff here, and one without
+/// `partner` operates no partner.
 pub async fn may_act_as(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &crate::server::authz::Caller,
     org_id: Uuid,
 ) -> Option<ActingAs> {
     // Staff acting as a tenant synthesize **Owner** in that org, so this door demands the
@@ -183,7 +186,7 @@ pub async fn may_act_as(
     // nothing changes for them.
     if crate::server::authz::globals::platform_reaches(
         db,
-        user_email,
+        caller,
         oxy_authz::Cap::ManageOrgSettings,
         org_id,
     )
@@ -197,7 +200,7 @@ pub async fn may_act_as(
         PartnerCapability, partner_for_org, resolve_scope,
     };
     let partner_org_id = partner_for_org(db, org_id).await?;
-    let scope = resolve_scope(db, partner_org_id, user_id, user_email).await?;
+    let scope = resolve_scope(db, partner_org_id, caller).await?;
     if !scope.allows(PartnerCapability::DevelopApps) {
         return None;
     }
@@ -251,12 +254,20 @@ fn to_dto(
 
 /// `POST /admin/assume` — begin acting as an Owner of `org_id`.
 pub async fn start(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(body): Json<StartBody>,
 ) -> Result<Json<SessionDto>, StatusCode> {
     let reason = body.reason.trim().to_string();
     if reason.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
+    }
+    let caller = crate::server::authz::caller_of(&actor);
+    // A session belongs to the credential that opens it (API-tokens design
+    // §3.2). A new-format token may open one only when it carries platform
+    // standing; a browser session and a legacy key open one as they always
+    // have, and share it.
+    if caller.reach().is_some_and(|reach| !reach.platform) {
+        return Err(StatusCode::FORBIDDEN);
     }
     let db = db().await?;
 
@@ -268,20 +279,18 @@ pub async fn start(
 
     // The gate. Staff may act as any org; a partner only as an assigned client,
     // and only with `develop_apps`.
-    let authority = may_act_as(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        body.org_id,
-    )
-    .await
-    .ok_or(StatusCode::FORBIDDEN)?;
+    let authority = may_act_as(&db, &caller, body.org_id)
+        .await
+        .ok_or(StatusCode::FORBIDDEN)?;
 
     // Re-entering an org you're already assuming is idempotent — return the live
     // session rather than stacking rows (and rather than silently extending it).
     let now = Utc::now().fixed_offset();
+    //
+    // "Already assuming" is per credential: a token's session is not the
+    // browser's, so each gets (and ends) its own.
     if let Some(existing) = AdminAssumeSessions::find()
-        .filter(admin_assume_sessions::Column::ActorUserId.eq(actor.id))
+        .filter(usable_by(&caller))
         .filter(admin_assume_sessions::Column::OrgId.eq(body.org_id))
         .filter(live_filter(now))
         .one(&db)
@@ -310,6 +319,8 @@ pub async fn start(
         started_at: ActiveValue::NotSet,
         expires_at: ActiveValue::Set(expires_at),
         ended_at: ActiveValue::Set(None),
+        // NULL for a browser session and a legacy key: shared, as before.
+        token_id: ActiveValue::Set(caller.assume_binding()),
     }
     .insert(&txn)
     .await
@@ -317,8 +328,7 @@ pub async fn start(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "admin.assume.started")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "admin.assume.started")
             .org(body.org_id)
             .target("organization", body.org_id.to_string(), org.name.clone())
             .reason(reason)
@@ -345,14 +355,16 @@ pub struct EndQuery {
 
 /// `DELETE /admin/assume` — stop acting as a tenant.
 pub async fn end(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Query(q): Query<EndQuery>,
 ) -> Result<StatusCode, StatusCode> {
     let db = db().await?;
     let now = Utc::now().fixed_offset();
 
+    // Only the sessions this credential holds: a token ends its own, the
+    // browser (and a legacy key) the browser's.
     let mut query = AdminAssumeSessions::find()
-        .filter(admin_assume_sessions::Column::ActorUserId.eq(actor.id))
+        .filter(usable_by(&crate::server::authz::caller_of(&actor)))
         .filter(live_filter(now));
     if let Some(org_id) = q.org_id {
         query = query.filter(admin_assume_sessions::Column::OrgId.eq(org_id));
@@ -370,8 +382,7 @@ pub async fn end(
         m.update(&txn).await.map_err(db_err("end session"))?;
         audit::record_in_txn(
             &txn,
-            AuditEntry::new(actor.label().to_string(), "admin.assume.ended")
-                .actor(actor.id, ActorType::User)
+            AuditEntry::for_request(&actor, "admin.assume.ended")
                 .org(org_id)
                 .target("organization", org_id.to_string(), String::new()),
         )
@@ -391,7 +402,7 @@ pub async fn current(
     let now = Utc::now().fixed_offset();
 
     let rows = AdminAssumeSessions::find()
-        .filter(admin_assume_sessions::Column::ActorUserId.eq(actor.id))
+        .filter(usable_by(&crate::server::authz::Caller::from_user(&actor)))
         .filter(live_filter(now))
         .order_by_desc(admin_assume_sessions::Column::StartedAt)
         .all(&db)
@@ -460,8 +471,7 @@ pub async fn history(
     // whom across the platform.
     let facts = crate::server::authz::loader::load_platform_facts(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::Caller::from_user(&actor),
     )
     .await
     .ok_or(StatusCode::FORBIDDEN)?;
@@ -580,7 +590,8 @@ pub async fn block_admin_while_acting(
         // Can't tell ⇒ don't invent a lockout. Admin routes have their own guards.
         return Ok(next.run(request).await);
     };
-    if !live_sessions_for(&db, actor.id).await.is_empty() {
+    let caller = crate::server::authz::Caller::from_user(&actor);
+    if !live_sessions_for(&db, &caller).await.is_empty() {
         tracing::info!(
             actor = %actor.label(),
             "admin/assume: admin surface refused — actor is currently acting as a tenant"

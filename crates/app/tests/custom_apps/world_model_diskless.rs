@@ -134,6 +134,7 @@ impl Request {
             name: "Builder".into(),
             picture: None,
             status: entity::users::UserStatus::Active,
+            credential: None,
         })
     }
 

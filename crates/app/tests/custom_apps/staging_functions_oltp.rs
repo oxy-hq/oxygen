@@ -135,7 +135,11 @@ pub(crate) async fn count_orders(connector: &PostgresConnector) -> i64 {
 /// Run `body` against `app`, then drop the store — database first, then the
 /// role (`AppStore::cleanup`) — whatever happened.
 pub(crate) async fn run_then_cleanup<F: std::future::Future<Output = ()>>(app: &OltpApp, body: F) {
-    let outcome = std::panic::AssertUnwindSafe(body).catch_unwind().await;
+    // Boxed: `#[tokio::test]` pins the test's future on the thread's stack, and
+    // a body that publishes, migrates and tears down inline outgrew it.
+    let outcome = std::panic::AssertUnwindSafe(Box::pin(body))
+        .catch_unwind()
+        .await;
     app.store.cleanup().await;
     if let Err(panic) = outcome {
         std::panic::resume_unwind(panic);

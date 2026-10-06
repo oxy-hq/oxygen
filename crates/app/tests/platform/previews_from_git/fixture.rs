@@ -189,6 +189,7 @@ async fn staff_member(fx: &Fx, org: Uuid) -> AuthenticatedUser {
         name: "Staff".into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     }
 }
 

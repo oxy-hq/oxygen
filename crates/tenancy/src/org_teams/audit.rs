@@ -14,12 +14,11 @@
 //! leave the log defeatable in one step — grant a team once, then move people into
 //! it quietly.
 
-use oxy_auth::types::AuthenticatedUser;
 use oxy_server_authz::org_context::OrgContext;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 /// The two names one change can land under.
 ///
@@ -80,7 +79,7 @@ pub type Target = (&'static str, Uuid, String);
 pub async fn record(
     db: &DatabaseConnection,
     ctx: &OrgContext,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
     action: AccessAction,
     target: Target,
 ) {
@@ -92,10 +91,9 @@ pub async fn record(
     let (kind, id, label) = target;
     audit::record_best_effort(
         db,
-        AuditEntry::new(actor.label().to_string(), name)
+        AuditEntry::for_request(actor, name)
             // `User` on both branches, matching the admin sibling — the actor tier
             // is carried by the action prefix, not by re-typing the actor.
-            .actor(actor.id, ActorType::User)
             .org(ctx.org.id)
             .target(kind, id.to_string(), label),
     )

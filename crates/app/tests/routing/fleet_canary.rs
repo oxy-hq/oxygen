@@ -214,6 +214,7 @@ async fn the_meta_route_reads_no_filesystem_on_a_replica() {
             name: "canary".to_string(),
             picture: None,
             status: entity::users::UserStatus::Active,
+            credential: None,
         }),
         oxy_server_authz::workspace_role::EffectiveWorkspaceRole(
             entity::workspace_members::WorkspaceRole::Admin,

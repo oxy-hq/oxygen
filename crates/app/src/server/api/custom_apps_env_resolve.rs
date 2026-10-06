@@ -351,39 +351,44 @@ fn non_production_cache() -> &'static DecisionCache {
 /// holding `develop_apps` over the app's org, decided by oxy-authz
 /// (`Action::AppNonProduction`) with today's staff draft-preview gate as the
 /// `existing_allow`, so the model can only narrow it. Cached 60 s.
+///
+/// Asked of the [`Caller`](crate::server::authz::Caller): an API token opens a
+/// non-production environment only with the staff standing it carries, inside
+/// the orgs it covers. The cache holds a session's verdict per (user, app), so
+/// a token that narrows its bearer neither reads it nor writes it.
 pub async fn may_open_non_production(
     db: &sea_orm::DatabaseConnection,
-    user_id: Uuid,
-    email: &str,
+    caller: &crate::server::authz::Caller,
     app: &apps::Model,
 ) -> bool {
     use super::custom_apps_cache::{get_fresh, insert_with_sweep};
-    let key = (user_id, app.id);
+    if caller.reach().is_some_and(oxy_authz::TokenReach::narrows) {
+        return decide_non_production(db, caller, app).await;
+    }
+    let key = (caller.user_id, app.id);
     if let Some(allowed) = get_fresh(non_production_cache(), &key) {
         return allowed;
     }
-    let allowed = decide_non_production(db, user_id, email, app).await;
+    let allowed = decide_non_production(db, caller, app).await;
     insert_with_sweep(non_production_cache(), key, allowed);
     allowed
 }
 
 async fn decide_non_production(
     db: &sea_orm::DatabaseConnection,
-    user_id: Uuid,
-    email: &str,
+    caller: &crate::server::authz::Caller,
     app: &apps::Model,
 ) -> bool {
     let existing_allow = crate::server::authz::globals::platform_reaches(
         db,
-        email,
+        caller,
         oxy_authz::Cap::DevelopApps,
         app.org_id,
     )
     .await;
     crate::server::authz::enforce_for(
         db,
-        user_id,
-        email,
+        caller,
         "custom_app_non_production",
         oxy_authz::Action::AppNonProduction,
         oxy_authz::Resource::app(app.id, app.org_id),

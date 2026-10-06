@@ -46,6 +46,23 @@
 //!     `POST /{id}/secrets`, and every non-customer-apps path)
 //!     → `403`.
 //!
+//! **The same allow-list, keyed by grant.** An API token (`oxy_ci_`, or a
+//! personal one) holding an `app_publish` grant carries no marker — it is an
+//! ordinary credential, resolved by the token machinery. On this surface it
+//! is confined exactly as an app-scoped publish token is: its own apps'
+//! `/customer-apps/{id}[/…]`, the upload, and the same method-aware grant.
+//! Everything else on the surface answers `404` — never `403`, as every
+//! out-of-grant answer of an API token is. Off this surface the middleware
+//! does nothing for it: the token's workspace grants, or the lack of any,
+//! decide there as they do for every token.
+//!
+//! The grant confines; it does not lift the route's own gate. The publish
+//! upload is decided inside `publish()`, where the grant is what authorizes a
+//! service account. The read and check-run routes stay behind the platform
+//! gates they were always behind, so a token whose bearer holds no platform
+//! standing is refused there by those gates — as an OIDC-minted publish
+//! token's machine principal is today.
+//!
 //! Runs immediately after `auth_middleware` (which sets the marker). NOTE:
 //! `api_router` is mounted with `.nest("/api", …)`, and axum strips the nest
 //! prefix before this layer runs — so `request.uri().path()` here is
@@ -55,15 +72,28 @@
 use axum::http::{Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
+use oxy_auth::token::CredentialContext;
 use oxy_auth::types::AppPublishTokenAuth;
 
 pub async fn app_publish_token_scope_middleware(
     request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Only constrain requests that authenticated via an app publish token.
-    // Every other credential passes straight through.
+    // Only constrain requests that authenticated via an app publish token, or
+    // with an API token holding an `app_publish` grant. Every other credential
+    // passes straight through.
     let Some(marker) = request.extensions().get::<AppPublishTokenAuth>().cloned() else {
+        if let Some(credential) = request.extensions().get::<CredentialContext>()
+            && !grant_admits(credential, request.method(), request.uri().path())
+        {
+            tracing::warn!(
+                token_id = %credential.token_id,
+                method = %request.method(),
+                path = %request.uri().path(),
+                "app_publish-grant token reached outside its apps — 404"
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
         return Ok(next.run(request).await);
     };
 
@@ -105,6 +135,22 @@ pub async fn app_publish_token_scope_middleware(
         );
         Err(StatusCode::FORBIDDEN)
     }
+}
+
+/// Whether a token-authenticated request stays inside its `app_publish`
+/// grants. True for a credential that holds none (it is not confined here),
+/// for a legacy credential (which narrows nothing, ever), and for every path
+/// off the customer-apps surface (the token's other grants decide there).
+///
+/// On the surface: one of the apps a grant names, or the upload — whose body
+/// names the app, matched against the grants in `publish()` — and within the
+/// method-aware grant below.
+fn grant_admits(credential: &CredentialContext, method: &Method, path: &str) -> bool {
+    if credential.is_legacy() || !credential.holds_app_publish() || !under_custom_apps(path) {
+        return true;
+    }
+    let own_app = app_id_in_path(path).is_some_and(|id| credential.publishes_app(id));
+    (own_app || is_upload_route(path)) && is_allowed(method, path)
 }
 
 /// The narrow grant: reads anywhere on the customer-apps surface, but only the
@@ -547,6 +593,169 @@ mod tests {
         // No marker → not scope-limited → reaches even /admin/*.
         assert_eq!(
             status_of(nested_app(false), "GET", "/api/admin/app-publish-tokens").await,
+            StatusCode::OK
+        );
+    }
+
+    // ── The same allow-list, keyed by an `app_publish` grant ───────────────
+    use oxy_auth::token::{AppPublishGrant, StoredKind};
+
+    fn granted(kind: StoredKind, apps: &[&str]) -> CredentialContext {
+        CredentialContext {
+            token_id: uuid::Uuid::from_u128(9),
+            kind,
+            principal_user_id: uuid::Uuid::from_u128(1),
+            all_access: false,
+            platform: false,
+            partner: false,
+            name: "t".into(),
+            display_prefix: "oxy_ci_".into(),
+            legacy_api_key_id: None,
+            grants: Vec::new(),
+            app_publish: apps
+                .iter()
+                .map(|app| AppPublishGrant {
+                    org_id: uuid::Uuid::from_u128(0xA),
+                    app_id: uuid::Uuid::parse_str(app).unwrap(),
+                })
+                .collect(),
+            blocked_orgs: Vec::new(),
+            expires_at: None,
+            service_account: None,
+        }
+    }
+
+    #[test]
+    fn a_grant_admits_its_apps_routes_and_the_upload_and_nothing_else_on_the_surface() {
+        for kind in [StoredKind::Ci, StoredKind::Personal] {
+            let cred = granted(kind, &[SCOPED_APP]);
+            let own = format!("/customer-apps/{SCOPED_APP}");
+            for (method, path) in [
+                (Method::GET, own.clone()),
+                (Method::GET, format!("{own}/builds")),
+                (Method::GET, format!("{own}/functions")),
+                (Method::POST, format!("{own}/publish")),
+                (Method::POST, format!("{own}/functions/check_orders/runs")),
+                (Method::POST, "/customer-apps/publish".to_string()),
+            ] {
+                assert!(grant_admits(&cred, &method, &path), "{method} {path}");
+            }
+            let other = format!("/customer-apps/{OTHER_APP}");
+            for (method, path) in [
+                (Method::GET, other.clone()),
+                (Method::POST, format!("{other}/publish")),
+                (Method::POST, format!("{other}/functions/check_orders/runs")),
+                (Method::GET, "/customer-apps".to_string()),
+                (Method::GET, "/customer-apps/fleet-health".to_string()),
+                (Method::GET, "/customer-apps/storage".to_string()),
+                (Method::GET, "/customer-apps/storage/history".to_string()),
+                (Method::POST, "/customer-apps".to_string()),
+                (Method::POST, "/customer-apps/publish/anything".to_string()),
+                // Its own app, outside the method-aware grant.
+                (Method::DELETE, own.clone()),
+                (Method::PATCH, own.clone()),
+                (Method::POST, format!("{own}/secrets")),
+                (Method::POST, format!("{own}/rollback")),
+                (Method::DELETE, format!("{own}/publish")),
+            ] {
+                assert!(!grant_admits(&cred, &method, &path), "{method} {path}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_token_with_several_app_grants_reaches_each_and_no_third() {
+        let cred = granted(StoredKind::Ci, &[SCOPED_APP, OTHER_APP]);
+        for app in [SCOPED_APP, OTHER_APP] {
+            assert!(grant_admits(
+                &cred,
+                &Method::GET,
+                &format!("/customer-apps/{app}")
+            ));
+        }
+        let third = "0e8d1c5e-7b0a-4f1f-9f65-1d2f3a4b5c6d";
+        assert!(!grant_admits(
+            &cred,
+            &Method::GET,
+            &format!("/customer-apps/{third}")
+        ));
+    }
+
+    #[test]
+    fn off_the_surface_the_grant_confines_nothing() {
+        // The token's other grants — or the lack of any — decide there.
+        let cred = granted(StoredKind::Ci, &[SCOPED_APP]);
+        for path in [
+            "/orgs",
+            "/auth/token",
+            "/3f2504e0/threads",
+            "/customer-apps-evil",
+        ] {
+            assert!(grant_admits(&cred, &Method::GET, path), "{path}");
+        }
+    }
+
+    #[test]
+    fn a_token_with_no_app_grant_and_a_legacy_key_are_not_confined() {
+        let plain = granted(StoredKind::Personal, &[]);
+        assert!(grant_admits(&plain, &Method::GET, "/customer-apps"));
+        assert!(grant_admits(
+            &plain,
+            &Method::DELETE,
+            &format!("/customer-apps/{OTHER_APP}")
+        ));
+        // A legacy credential narrows nothing, whatever sits beside it.
+        let mut legacy = granted(StoredKind::LegacyKey, &[SCOPED_APP]);
+        legacy.all_access = true;
+        assert!(grant_admits(&legacy, &Method::GET, "/customer-apps"));
+        let mut mirrored = granted(StoredKind::Personal, &[SCOPED_APP]);
+        mirrored.legacy_api_key_id = Some(uuid::Uuid::from_u128(5));
+        assert!(grant_admits(&mirrored, &Method::GET, "/customer-apps"));
+    }
+
+    /// Stamps a credential holding an `app_publish` grant on `SCOPED_APP`,
+    /// standing in for the token machinery.
+    async fn inject_grant(mut req: Request<Body>, next: Next) -> Response {
+        req.extensions_mut()
+            .insert(granted(StoredKind::Ci, &[SCOPED_APP]));
+        next.run(req).await
+    }
+
+    fn granted_app() -> Router {
+        let inner = Router::new()
+            .route("/customer-apps", get(ok))
+            .route("/customer-apps/publish", post(ok))
+            .route("/customer-apps/{id}", get(ok).delete(ok))
+            .route("/customer-apps/{id}/secrets", post(ok))
+            .route("/orgs", get(ok))
+            .layer(middleware::from_fn(app_publish_token_scope_middleware))
+            .layer(middleware::from_fn(inject_grant));
+        Router::new().nest("/api", inner)
+    }
+
+    #[tokio::test]
+    async fn a_grant_bound_request_out_of_scope_answers_404_never_403() {
+        let own = format!("/api/customer-apps/{SCOPED_APP}");
+        assert_eq!(status_of(granted_app(), "GET", &own).await, StatusCode::OK);
+        assert_eq!(
+            status_of(granted_app(), "POST", "/api/customer-apps/publish").await,
+            StatusCode::OK
+        );
+        for (method, uri) in [
+            ("GET", "/api/customer-apps".to_string()),
+            ("GET", format!("/api/customer-apps/{OTHER_APP}")),
+            ("DELETE", own.clone()),
+            ("POST", format!("{own}/secrets")),
+        ] {
+            assert_eq!(
+                status_of(granted_app(), method, &uri).await,
+                StatusCode::NOT_FOUND,
+                "{method} {uri}"
+            );
+        }
+        // Off the surface it passes through to whatever guards that route.
+        assert_eq!(
+            status_of(granted_app(), "GET", "/api/orgs").await,
             StatusCode::OK
         );
     }

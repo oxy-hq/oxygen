@@ -120,7 +120,7 @@ pub async fn list(
     // Standing, not a ring: the same `404` every other read gives an org the
     // caller has nothing to do with, so a category list cannot be used to
     // enumerate a tenant's filing system.
-    let standing = resolve_standing(&db, user.id, q.org_id)
+    let standing = resolve_standing(&db, &user, q.org_id)
         .await
         .map_err(db_err)?;
     if matches!(standing, ReadStanding::None) {
@@ -230,9 +230,7 @@ pub async fn rename(
         }
     })?;
 
-    let standing = resolve_standing(&db, user.id, org_id)
-        .await
-        .map_err(db_err)?;
+    let standing = resolve_standing(&db, &user, org_id).await.map_err(db_err)?;
     let counts = counts(&db, org_id, user.id, &standing)
         .await
         .map_err(db_err)?;

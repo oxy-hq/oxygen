@@ -83,18 +83,18 @@ pub async fn user_info_from(user: AuthenticatedUser) -> UserInfo {
         Ok(db) => {
             crate::server::authz::globals::platform_standing(
                 &db,
-                user.email.as_deref().unwrap_or(""),
+                &crate::server::authz::Caller::from_user(&user),
             )
             .await
         }
         Err(_) => crate::server::authz::globals::platform_standing_offline(
-            user.email.as_deref().unwrap_or(""),
+            &crate::server::authz::Caller::from_user(&user),
         ),
     };
     let is_owner = standing.is_global_owner;
     let is_app_admin = standing.is_global_admin;
     let platform_capabilities =
-        platform_capabilities_for(user.email.as_deref().unwrap_or(""), is_owner).await;
+        platform_capabilities_for(&crate::server::authz::Caller::from_user(&user), is_owner).await;
     let partner_memberships = partner_memberships_for(&user).await;
     UserInfo {
         id: user.id.to_string(),
@@ -112,7 +112,10 @@ pub async fn user_info_from(user: AuthenticatedUser) -> UserInfo {
 /// The capability list to report. The owner short-circuit mirrors the model, where
 /// `is_global_owner` is still a boolean that satisfies every capability — reading the
 /// grant table for an owner would report an empty list and blank their own console.
-async fn platform_capabilities_for(email: &str, is_owner: bool) -> Vec<String> {
+async fn platform_capabilities_for(
+    caller: &crate::server::authz::Caller,
+    is_owner: bool,
+) -> Vec<String> {
     if is_owner {
         return oxy_authz::Cap::ALL
             .iter()
@@ -122,7 +125,7 @@ async fn platform_capabilities_for(email: &str, is_owner: bool) -> Vec<String> {
     let Ok(db) = oxy::database::client::establish_connection().await else {
         return Vec::new();
     };
-    match crate::server::authz::globals::platform_grant_checked(&db, email).await {
+    match crate::server::authz::globals::platform_grant_checked(&db, caller).await {
         Ok(Some(grant)) => grant.caps.iter().map(|c| c.as_str().to_string()).collect(),
         // No grant, or an unreadable one. Reporting nothing hides nav items rather than
         // showing ones that would 403 — the safe direction for a display-only field.
@@ -138,7 +141,7 @@ async fn partner_memberships_for(user: &AuthenticatedUser) -> Vec<PartnerMembers
     let Ok(db) = oxy::database::client::establish_connection().await else {
         return Vec::new();
     };
-    scopes_for_user(&db, user.id, user.email.as_deref().unwrap_or(""))
+    scopes_for_user(&db, &crate::server::authz::Caller::from_user(&user))
         .await
         .into_iter()
         .map(|s| PartnerMembershipInfo {
@@ -208,12 +211,18 @@ pub async fn get_current_user_public(
 
     let authenticator = BuiltInAuthenticator::new();
 
-    match authenticator.authenticate(&headers).await {
-        Ok(identity) => {
+    match authenticator.authenticate_with_credential(&headers).await {
+        Ok((identity, credential)) => {
             // Look up existing user only — do not auto-create. Closes #16.
             // User rows are created by the auth/sign-up flow, not by a public GET.
+            //
+            // The user carries the key or token that authenticated the request,
+            // so the standing reported is what that credential holds — the same
+            // thing every other route will enforce for it.
             match UserService::find_user_by_identity(&identity).await {
-                Ok(Some(user)) => Ok(Json(Some(user_info_from(user).await))),
+                Ok(Some(user)) => Ok(Json(Some(
+                    user_info_from(user.with_credential(credential)).await,
+                ))),
                 Ok(None) => Ok(Json(None)),
                 Err(e) => {
                     tracing::error!("Failed to lookup user from identity: {}", e);

@@ -84,6 +84,8 @@ GET	/api/{workspace_id}/analytics/threads/{thread_id}/run	fleet-ok	Now	use a rea
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/api-keys	fleet-ok	Now	verified live 200, empty; `POST` create is disposable
 *	/api/{workspace_id}/api-keys/{id}	fleet-ok	Fixture	needs a key from the row above
+*	/api/{workspace_id}/api-keys/{id}/activity	fleet-ok	Fixture	needs a key from the create row; session only (a key gets 403); Postgres-only read (audit_events, api_token_usage_daily)
+*	/api/{workspace_id}/api-keys/{id}/extend	fleet-ok	Fixture	needs a key from the create row; session only (a key gets 403); `POST {"days": 30}` on the disposable key is safe
 GET	/api/{workspace_id}/app-integrations	fleet-ok	Now	verified live 200, empty list — a legitimately empty fixture, not a failure
 POST	/api/{workspace_id}/app-integrations	ide-only	Fixture	creates a real Toast/weather/BestTime row + writes `config.yml`; disposable via the `DELETE` row above
 *	/api/{workspace_id}/app-integrations/{kind}	ide-only	Fixture	`DELETE` — fixture has zero integrations configured (verified live), so nothing to target without creating one first

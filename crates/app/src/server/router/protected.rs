@@ -20,6 +20,8 @@ use crate::api::middlewares::app_publish_token_scope::app_publish_token_scope_mi
 use crate::api::middlewares::local_context::local_context_middleware;
 use crate::api::middlewares::subscription_guard::workspace_subscription_guard_middleware;
 use crate::api::middlewares::timeout::timeout_middleware;
+use crate::api::middlewares::token_grant_scope::token_grant_scope_middleware;
+use crate::api::middlewares::token_usage::token_usage_middleware;
 use crate::api::middlewares::workspace_context::{
     workspace_access_middleware, workspace_middleware,
 };
@@ -124,13 +126,29 @@ pub(super) fn apply_middleware(
     declarations: Vec<Decl>,
 ) -> Result<Router<AppState>, OxyError> {
     crate::server::role_manifest::install_declarations(declarations);
-    Ok(protected_routes
+    Ok(api_auth_layers(protected_routes))
+}
+
+/// The `/api` authentication stack, exactly as served. Public so `oxy-server`'s
+/// token regression tests (`tests/integration/token_auth`) send requests through
+/// these same layers rather than a copy of them.
+pub fn api_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> Router<S> {
+    routes
         // Innermost: runs AFTER auth has attached identity + any admin-token
         // marker, so it can confine admin-token requests to the customer-apps
         // admin surface before they reach a handler. No-op for cookie/JWT/
         // API-key sessions.
         .layer(middleware::from_fn(app_publish_token_scope_middleware))
+        // Beside it, and for the same reason: after auth, before any handler.
+        // A grant-bound API token is refused (404) on the flat routes that
+        // answer from raw membership; an all-access token an org has blocked
+        // keeps the ones that leave that org out. No-op for sessions, legacy
+        // keys and all-access tokens no org has blocked.
+        .layer(middleware::from_fn(token_grant_scope_middleware))
         .layer(middleware::from_fn(timeout_middleware))
+        // Inside auth (it reads the credential auth attached), outside the
+        // timeout (so a timed-out request is counted with its real status).
+        .layer(middleware::from_fn(token_usage_middleware))
         .layer(middleware::from_fn_with_state(
             AuthState::built_in(),
             auth_middleware,
@@ -140,7 +158,19 @@ pub(super) fn apply_middleware(
         // EventSource requests. axum applies `.layer` from the outside in,
         // so this declaration places the query-param promoter outermost,
         // which is what we want.
-        .layer(middleware::from_fn(api_key_query_middleware)))
+        .layer(middleware::from_fn(api_key_query_middleware))
+}
+
+/// The `/external/api` authentication stack, exactly as served (CORS aside).
+/// Order mirrors [`api_auth_layers`]: `api_key_query` is OUTERMOST (runs
+/// first) so EventSource's `?api_key=` is promoted to the `X-API-Key` header
+/// before the API-key-only gate reads it.
+pub fn external_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> Router<S> {
+    routes
+        .layer(middleware::from_fn(timeout_middleware))
+        .layer(middleware::from_fn(token_usage_middleware))
+        .layer(middleware::from_fn(api_key_only_middleware))
+        .layer(middleware::from_fn(api_key_query_middleware))
 }
 
 /// Local-mode protected routes: mount the same `build_workspace_routes` content
@@ -258,19 +288,14 @@ pub(super) fn build_external_api_router(
         )),
     };
 
-    Router::new()
+    let routes = Router::new()
         .nest("/{workspace_id}", with_context)
         // Explicit 404 so an unmatched external path returns JSON, not the SPA
         // HTML it would otherwise fall through to (serve.rs `.fallback_service`).
         // A nested miss propagates its default 404 up to this fallback; auth
         // (below) still runs first, so unauth misses stay 401.
-        .fallback(external_api_not_found)
-        // Order mirrors `apply_middleware`: api_key_query is OUTERMOST (runs
-        // first) so EventSource's `?api_key=` is promoted to the X-API-Key
-        // header before the API-key-only auth gate reads it.
-        .layer(middleware::from_fn(timeout_middleware))
-        .layer(middleware::from_fn(api_key_only_middleware))
-        .layer(middleware::from_fn(api_key_query_middleware))
+        .fallback(external_api_not_found);
+    external_auth_layers(routes)
         .layer(super::build_external_cors_layer())
         .with_state(app_state)
 }

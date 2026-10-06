@@ -353,6 +353,7 @@ mod tests {
             name: "stub".to_string(),
             picture: None,
             status: UserStatus::Active,
+            credential: None,
         }
     }
 

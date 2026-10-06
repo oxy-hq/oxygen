@@ -57,6 +57,41 @@ pub enum ReadStanding {
     None,
 }
 
+/// Who is reading: the request's user — who carries the API key or token the
+/// request authenticated with — or a bare user id, for code and tests that act
+/// for a user outside a request.
+///
+/// The request's user is what a handler passes. Its credential is what makes an
+/// API token's narrowing hold on this surface too: a token with no grant in the
+/// org has no standing here, an assume-role session is the credential's own,
+/// and staff standing is what the credential carries (API-tokens design §4.4).
+#[derive(Debug, Clone)]
+pub enum Reader {
+    Caller(oxy_server_authz::Caller),
+    User(Uuid),
+}
+
+impl Reader {
+    pub(crate) fn user_id(&self) -> Uuid {
+        match self {
+            Reader::Caller(caller) => caller.user_id,
+            Reader::User(id) => *id,
+        }
+    }
+}
+
+impl From<Uuid> for Reader {
+    fn from(user_id: Uuid) -> Self {
+        Reader::User(user_id)
+    }
+}
+
+impl From<&oxy_auth::types::AuthenticatedUser> for Reader {
+    fn from(user: &oxy_auth::types::AuthenticatedUser) -> Self {
+        Reader::Caller(oxy_server_authz::Caller::from_user(user))
+    }
+}
+
 /// Resolve what the caller is, in this org, right now.
 ///
 /// Errors propagate rather than degrading to [`ReadStanding::None`].
@@ -66,9 +101,29 @@ pub enum ReadStanding {
 /// looks to the reader like their SOP was deleted.
 pub async fn resolve_standing(
     db: &DatabaseConnection,
-    user_id: Uuid,
+    reader: impl Into<Reader>,
     org_id: Uuid,
 ) -> Result<ReadStanding, DbErr> {
+    let reader = reader.into();
+    let user_id = reader.user_id();
+    // An API token reads only inside the orgs it covers, and reads as an officer
+    // only under an admin ceiling. No token — a session, a legacy key, a bare
+    // id — is no cap.
+    let ceiling = match &reader {
+        Reader::Caller(caller) => match caller.org_reach_ceiling(org_id) {
+            Some(ceiling) => ceiling,
+            None => return Ok(ReadStanding::None),
+        },
+        Reader::User(_) => oxy_server_authz::RoleCeiling::Owner,
+    };
+    let officer_under_ceiling = |role: org_members::OrgRole| {
+        ceiling >= oxy_server_authz::RoleCeiling::Admin
+            && matches!(
+                role,
+                org_members::OrgRole::Owner | org_members::OrgRole::Admin
+            )
+    };
+
     if let Some(m) = org_members::Entity::find()
         .filter(org_members::Column::OrgId.eq(org_id))
         .filter(org_members::Column::UserId.eq(user_id))
@@ -76,10 +131,7 @@ pub async fn resolve_standing(
         .await?
     {
         return Ok(ReadStanding::Member {
-            is_officer: matches!(
-                m.role,
-                org_members::OrgRole::Owner | org_members::OrgRole::Admin
-            ),
+            is_officer: officer_under_ceiling(m.role),
         });
     }
 
@@ -113,19 +165,31 @@ pub async fn resolve_standing(
     // and every document test; `may_act_as` needs it because a Global Owner is
     // identified by address. `is_session_live` runs on every document read —
     // one indexed lookup (`idx_admin_assume_actor_org`) — and gates the rest.
-    if assume::is_session_live(db, user_id, org_id).await
-        && let Some(email) = users::Entity::find_by_id(user_id)
-            .one(db)
-            .await?
-            .and_then(|u| u.email)
-        && let Some(authority) = assume::may_act_as(db, user_id, &email, org_id).await
-    {
-        return Ok(ReadStanding::Member {
-            is_officer: matches!(
-                authority.org_role(),
-                org_members::OrgRole::Owner | org_members::OrgRole::Admin
-            ),
-        });
+    //
+    // Asked of the caller, so the session is the credential's own and the
+    // authority is what it carries. A bare id has no credential: it reads the
+    // browser-opened sessions, and its address is looked up only once a session
+    // is known to be live.
+    let sessions_of = match &reader {
+        Reader::Caller(caller) => caller.clone(),
+        Reader::User(id) => oxy_server_authz::Caller::without_credential(*id, ""),
+    };
+    if assume::is_session_live(db, &sessions_of, org_id).await {
+        let caller = match reader {
+            Reader::Caller(caller) => Some(caller),
+            Reader::User(id) => users::Entity::find_by_id(id)
+                .one(db)
+                .await?
+                .and_then(|u| u.email)
+                .map(|email| oxy_server_authz::Caller::without_credential(id, &email)),
+        };
+        if let Some(caller) = caller
+            && let Some(authority) = assume::may_act_as(db, &caller, org_id).await
+        {
+            return Ok(ReadStanding::Member {
+                is_officer: officer_under_ceiling(authority.org_role()),
+            });
+        }
     }
 
     let roles = org_role_members::Entity::find()

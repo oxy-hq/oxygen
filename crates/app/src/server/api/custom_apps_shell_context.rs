@@ -176,11 +176,10 @@ pub async fn get_shell_context(
         }
     };
 
-    let viewer = crate::server::api::workspace_custom_apps::Viewer {
-        id: ctx.user.id,
-        email: ctx.user.email.as_deref().unwrap_or(""),
-    };
-    let summaries = match published_app_summaries(&ctx.db, project_id, Some(viewer)).await {
+    // `ctx.user` carries the credential the request arrived with, so an API
+    // token's narrowing reaches this list too.
+    let viewer = oxy_server_authz::Caller::from_user(&ctx.user);
+    let summaries = match published_app_summaries(&ctx.db, project_id, Some(&viewer)).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("shell-context app listing failed: {e}");

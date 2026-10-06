@@ -249,7 +249,7 @@ pub async fn list_my_partners(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
 ) -> Result<Json<Vec<MyPartner>>, StatusCode> {
     let db = db().await?;
-    let scopes = scopes_for_user(&db, user.id, user.email.as_deref().unwrap_or("")).await;
+    let scopes = scopes_for_user(&db, &oxy_server_authz::Caller::from_user(&user)).await;
     if scopes.is_empty() {
         return Ok(Json(Vec::new()));
     }

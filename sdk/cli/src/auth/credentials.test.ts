@@ -9,11 +9,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearCredential,
   configDir,
   hostKey,
+  loadCredential,
   loadToken,
   readStore,
-  resolveBearer,
   saveCredential
 } from "./credentials.js";
 
@@ -121,16 +122,65 @@ describe("the store", () => {
   });
 });
 
-describe("resolveBearer", () => {
-  it("prefers the env var — that is the CI path", () => {
-    saveCredential("https://a.example.com", { token: "cached", email: "", is_app_admin: false });
-    process.env.OXY_TOKEN = "from-env";
-    expect(resolveBearer("https://a.example.com")).toBe("from-env");
+/**
+ * `token_id` and `expires_at` arrived with the PKCE login. They are additive in
+ * both directions, and each direction is somebody's existing login: a file
+ * written before them must still load, and a file carrying them must survive
+ * being rewritten by a login to some OTHER host.
+ */
+describe("the optional token fields", () => {
+  it("loads a file written before they existed, and reads them as absent", () => {
+    writeFileSync(
+      process.env.OXY_CREDENTIALS_PATH as string,
+      JSON.stringify({
+        "app.oxygen-hq.com": { token: "eyJ.session.jwt", email: "x@y.z", is_app_admin: true }
+      })
+    );
+    const cached = loadCredential("https://app.oxygen-hq.com");
+    expect(cached).toEqual({ token: "eyJ.session.jwt", email: "x@y.z", is_app_admin: true });
+    expect(cached?.token_id).toBeUndefined();
+    expect(cached?.expires_at).toBeUndefined();
   });
 
-  it("falls back to the cache when the env var is empty", () => {
-    saveCredential("https://a.example.com", { token: "cached", email: "", is_app_admin: false });
-    process.env.OXY_TOKEN = "   ";
-    expect(resolveBearer("https://a.example.com")).toBe("cached");
+  it("round-trips them, under the same snake-case names the server uses", () => {
+    saveCredential("https://app.oxygen-hq.com", {
+      token: "oxy_pat_abc",
+      email: "a@b.c",
+      is_app_admin: false,
+      token_id: "tok-1",
+      expires_at: "2026-12-30T00:00:00Z"
+    });
+    const raw = JSON.parse(readFileSync(process.env.OXY_CREDENTIALS_PATH as string, "utf8"));
+    expect(raw["app.oxygen-hq.com"]).toEqual({
+      token: "oxy_pat_abc",
+      email: "a@b.c",
+      is_app_admin: false,
+      token_id: "tok-1",
+      expires_at: "2026-12-30T00:00:00Z"
+    });
+  });
+
+  it("keeps an older host's entry byte-for-byte when a newer one is saved beside it", () => {
+    const old = { token: "eyJ.session.jwt", email: "x@y.z", is_app_admin: true };
+    writeFileSync(
+      process.env.OXY_CREDENTIALS_PATH as string,
+      JSON.stringify({ "aip.dev.oxy.tech": old })
+    );
+    saveCredential("https://app.oxygen-hq.com", {
+      token: "oxy_pat_abc",
+      email: "x@y.z",
+      is_app_admin: true,
+      token_id: "tok-1"
+    });
+    expect(readStore()["aip.dev.oxy.tech"]).toEqual(old);
+    expect(loadToken("https://aip.dev.oxy.tech")).toBe("eyJ.session.jwt");
+  });
+
+  it("drops one host on logout and leaves the rest", () => {
+    saveCredential("https://a.example.com", { token: "1", email: "", is_app_admin: false });
+    saveCredential("https://b.example.com", { token: "2", email: "", is_app_admin: false });
+    expect(clearCredential("https://a.example.com")).toBe(true);
+    expect(clearCredential("https://a.example.com")).toBe(false);
+    expect(Object.keys(readStore())).toEqual(["b.example.com"]);
   });
 });

@@ -392,7 +392,7 @@ pub async fn search(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let standing = resolve_standing(&db, user.id, q.org_id)
+    let standing = resolve_standing(&db, &user, q.org_id)
         .await
         .map_err(db_err)?;
 

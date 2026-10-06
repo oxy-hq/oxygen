@@ -18,9 +18,11 @@
  */
 
 import type { PlaceholderValues } from "../api/paths.js";
-import { loadCredential, resolveBearer } from "../auth/credentials.js";
+import { loadCredential } from "../auth/credentials.js";
+import { exchangeOidcOnce, githubOidcAvailable, OidcExchangeError } from "../auth/oidc.js";
 import { dossierPath, isCloned, slugForDirectory } from "../customer/dossier.js";
 import { type Customer, customersOrg, resolveCustomer } from "../github/customers.js";
+import * as log from "../ui/log.js";
 import { authError, CliError, ExitCode } from "../util/errors.js";
 import { repoRoot } from "../util/git.js";
 import { loadForTargetResolution, type ResolvedEnv, resolveEnv } from "./target.js";
@@ -36,6 +38,32 @@ export interface GlobalFlags {
   project?: string;
   customer?: string;
   refresh?: boolean;
+  /** `--service-account <id>`: which account a GitHub OIDC exchange acts as, by its ID. */
+  serviceAccount?: string;
+}
+
+/**
+ * A credential and where it came from.
+ *
+ * The three sources ARE the resolution order, for every command:
+ *
+ *   env    `OXY_TOKEN` (or `--token-env`). Any credential: an API token, a
+ *          legacy API key, a publish token or a session.
+ *   file   what `oxyc login` cached for this host.
+ *   oidc   in a GitHub Actions job granted `id-token: write`, the job's OIDC
+ *          token exchanged for a fifteen-minute `oxy_ci_` token.
+ *
+ * The first two are read off the machine and cost nothing. The third is a
+ * network exchange, which is why everything that can reach it is async.
+ */
+export interface ResolvedCredential {
+  token: string;
+  source: "env" | "file" | "oidc";
+  /** RFC 3339, when it is known. */
+  expiresAt?: string;
+  tokenId?: string;
+  /** `<org>/<name>`, on an OIDC credential. */
+  serviceAccount?: string;
 }
 
 /** Everything a command might need, resolved on demand. */
@@ -47,11 +75,30 @@ export interface Context {
   target(): string;
   /** The resolved env, including the org slug a pasted URL carried. */
   env(): ResolvedEnv;
-  /** The bearer, or a thrown `authError` naming the login command. */
-  bearer(): string;
-  /** The bearer if there is one, without throwing. */
-  maybeBearer(): string | undefined;
-  /** The API key for the `/external/api` surface, if one is configured. */
+  /**
+   * The credential, from the first source that has one. Throws `authError`
+   * when none does, or the exchange's own error when GitHub OIDC was available
+   * and refused — that one says what to fix, which "not authenticated" cannot.
+   */
+  credential(): Promise<ResolvedCredential>;
+  /** `credential().token`. */
+  bearer(): Promise<string>;
+  /**
+   * The bearer if there is one, without throwing. A refused OIDC exchange is a
+   * warning here rather than an error: the caller asked "if there is one".
+   */
+  maybeBearer(): Promise<string | undefined>;
+  /**
+   * The bearer already on this machine — `OXY_TOKEN`, then the login cache —
+   * and nothing else. Synchronous, no network, never mints.
+   *
+   * For a caller with another credential in hand (an API key), or one that
+   * must decide before it is ready to spend a single-use OIDC token.
+   */
+  storedBearer(): string | undefined;
+  /** `--service-account`, then `OXY_SERVICE_ACCOUNT`. */
+  serviceAccount(): string | undefined;
+  /** `OXY_API_KEY`: a legacy API key or an API token for `/external/api`, if one is set. */
   apiKey(): string | undefined;
   /** The customer this invocation is about, if it is about one. */
   customer(): Customer | undefined;
@@ -132,6 +179,49 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
       return repoRoot(cwd);
     });
 
+  const stored = (): ResolvedCredential | undefined =>
+    once("stored", () => {
+      const fromEnv = process.env[flags.tokenEnv ?? "OXY_TOKEN"]?.trim();
+      if (fromEnv) return { token: fromEnv, source: "env" as const };
+      const cached = loadCredential(env().target);
+      const token = cached?.token?.trim();
+      if (!token) return undefined;
+      return {
+        token,
+        source: "file" as const,
+        expiresAt: cached?.expires_at,
+        tokenId: cached?.token_id
+      };
+    });
+
+  const serviceAccount = (): string | undefined =>
+    flags.serviceAccount?.trim() || process.env.OXY_SERVICE_ACCOUNT?.trim() || undefined;
+
+  /**
+   * The third source. Memoised per process inside `exchangeOidcOnce`.
+   *
+   * Attempted only for a run that names its service account. One that names
+   * none gets `no_service_account` without a request being made — the error
+   * every command but `publish` and `checks run` then shows.
+   */
+  const minted = async (): Promise<ResolvedCredential> => {
+    const exchanged = await exchangeOidcOnce(env().target, serviceAccount());
+    return {
+      token: exchanged.token,
+      source: "oidc",
+      expiresAt: exchanged.expiresAt,
+      tokenId: exchanged.tokenId,
+      serviceAccount: exchanged.serviceAccount
+    };
+  };
+
+  const credential = async (): Promise<ResolvedCredential> => {
+    const have = stored();
+    if (have) return have;
+    if (githubOidcAvailable()) return minted();
+    throw authError(env().target, flags.env ?? "production", flags.tokenEnv ?? "OXY_TOKEN");
+  };
+
   return {
     cwd,
     flags,
@@ -141,14 +231,32 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
     // what asking for a different env means.
     withEnv: (next: string) => createContext({ ...flags, env: next, target: undefined }, cwd),
     target: () => env().target,
-    maybeBearer: () =>
-      once("bearer", () => resolveBearer(env().target, flags.tokenEnv ?? "OXY_TOKEN")),
-    bearer() {
-      const token = this.maybeBearer();
-      if (!token)
-        throw authError(env().target, flags.env ?? "production", flags.tokenEnv ?? "OXY_TOKEN");
-      return token;
+    credential,
+    bearer: async () => (await credential()).token,
+    maybeBearer: async () => {
+      const have = stored();
+      if (have) return have.token;
+      // No account named: no exchange to attempt, so no bearer — silently, as
+      // in any job that never had `id-token: write`.
+      if (!githubOidcAvailable() || !serviceAccount()) return undefined;
+      try {
+        return (await minted()).token;
+      } catch (cause) {
+        if (!(cause instanceof OidcExchangeError)) throw cause;
+        // A deployment with no exchange is the old behaviour exactly — no
+        // bearer, and nothing to say about it. Any other refusal is worth one
+        // line, or the "not authenticated" that follows explains nothing.
+        if (cause.oidcCode !== "unsupported") {
+          once("oidc-warned", () => {
+            log.warn(`GitHub OIDC is available, but the exchange was refused: ${cause.message}`);
+            if (cause.hint) for (const line of cause.hint.split("\n")) log.hint(line);
+          });
+        }
+        return undefined;
+      }
     },
+    storedBearer: () => stored()?.token,
+    serviceAccount,
     apiKey: () => {
       const name = flags.apiKeyEnv ?? "OXY_API_KEY";
       return process.env[name]?.trim() || undefined;

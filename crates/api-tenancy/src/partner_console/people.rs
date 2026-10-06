@@ -15,7 +15,6 @@ use axum::http::StatusCode;
 use entity::org_members::OrgRole;
 use entity::prelude::{OrgMembers, PartnerRoleBindings, Users};
 use entity::{org_members, partner_role_bindings, users};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::ActiveModelTrait;
 use sea_orm::{
@@ -27,7 +26,7 @@ use uuid::Uuid;
 
 use super::{db, internal};
 use crate::partner_console::partner_context::PartnerActor;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 /// Who may change partner access: an **owner or admin of the partner org** (the same
 /// people who run any org), or Oxy staff acting as the partner. A plain operator can
@@ -59,8 +58,7 @@ async fn require_people_admin(
 
     let allowed = oxy_server_authz::enforce_for(
         db,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
+        &oxy_server_authz::Caller::from_user(&user),
         "partner_console.people_admin",
         oxy_server_authz::Action::MemberSetRole,
         oxy_server_authz::Resource::org(partner_org_id),
@@ -143,7 +141,7 @@ pub async fn list_people(actor: PartnerActor) -> Result<Json<Vec<PersonDto>>, St
 /// granting to someone who already has it is a no-op success.
 pub async fn grant_access(
     actor: PartnerActor,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path((_partner_org_id, org_member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PersonDto>, StatusCode> {
     let partner_org_id = actor.0.partner_id;
@@ -185,8 +183,7 @@ pub async fn grant_access(
 
         audit::record_in_txn(
             &txn,
-            AuditEntry::new(user.label().to_string(), "partner.access.granted")
-                .actor(user.id, ActorType::User)
+            AuditEntry::for_request(&user, "partner.access.granted")
                 .partner(partner_org_id)
                 .org(partner_org_id)
                 .target(
@@ -214,7 +211,7 @@ pub async fn grant_access(
 /// person stays an employee of the partner; they just manage no clients.
 pub async fn revoke_access(
     actor: PartnerActor,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path((_partner_org_id, org_member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let partner_org_id = actor.0.partner_id;
@@ -248,8 +245,7 @@ pub async fn revoke_access(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(user.label().to_string(), "partner.access.revoked")
-            .actor(user.id, ActorType::User)
+        AuditEntry::for_request(&user, "partner.access.revoked")
             .partner(partner_org_id)
             .org(partner_org_id)
             .target("partner_member", org_member_id.to_string(), String::new()),

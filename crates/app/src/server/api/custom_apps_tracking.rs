@@ -151,8 +151,12 @@ pub async fn record_view(
             return;
         }
     };
-    let (app_role, org_role) =
-        resolve_view_roles(&db, &app, user_id, user_email.as_deref().unwrap_or("")).await;
+    // A label for the activity log, not a decision: it records the viewer's own
+    // role in the app, so it is asked of the user rather than of whichever
+    // credential this one view arrived with.
+    let viewer =
+        oxy_server_authz::Caller::without_credential(user_id, user_email.as_deref().unwrap_or(""));
+    let (app_role, org_role) = resolve_view_roles(&db, &app, &viewer).await;
     let now = Utc::now().fixed_offset();
     let model = custom_app_view_event::ActiveModel {
         id: ActiveValue::Set(Uuid::new_v4()),
@@ -209,17 +213,16 @@ pub async fn record_view(
 async fn resolve_view_roles(
     db: &sea_orm::DatabaseConnection,
     app: &entity::apps::Model,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
 ) -> (Option<String>, Option<String>) {
-    let app_role =
-        crate::server::api::custom_apps_auth::resolve_app_role(db, user_id, user_email, app)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!("custom-app view tracking: app role lookup failed: {e}");
-                None
-            })
-            .map(str::to_string);
+    let user_id = caller.user_id;
+    let app_role = crate::server::api::custom_apps_auth::resolve_app_role(db, caller, app)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("custom-app view tracking: app role lookup failed: {e}");
+            None
+        })
+        .map(str::to_string);
 
     let org_role = crate::server::api::custom_apps_auth::resolve_org_role(db, user_id, app.org_id)
         .await

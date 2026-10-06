@@ -22,8 +22,13 @@ function fakeContext(): Context {
     flags: { env: "production" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
-    bearer: () => "tok",
-    maybeBearer: () => "tok",
+    bearer: async () => "tok",
+    maybeBearer: async () => "tok",
+    storedBearer: () => "tok",
+    async credential() {
+      return { token: await this.bearer(), source: "env" };
+    },
+    serviceAccount: () => undefined,
     apiKey: () => undefined,
     customer: () => undefined,
     repoDir: () => undefined,

@@ -79,6 +79,24 @@ pub const DB_POOL_PROBE_FAILURE_REASONS: [&str; 3] = [
     DB_POOL_PROBE_FAILURE_ERROR,
 ];
 
+/// Every reason a trusted-access exchange is refused with — the wire `code`
+/// of the refusal, plus `malformed_request` for a body that named no token.
+/// `service_account_required` is a run that named no account to act as.
+/// The one label of `oxy_oidc_exchange_rejected_total`, and a closed set: the
+/// server's refusal enum maps onto exactly these, and a test there pins it.
+pub const OIDC_EXCHANGE_REJECT_REASONS: [&str; 10] = [
+    "malformed_request",
+    "invalid_token",
+    "wrong_audience",
+    "expired",
+    "replayed",
+    "pull_request_target",
+    "self_hosted_runner",
+    "missing_environment",
+    "no_matching_policy",
+    "service_account_required",
+];
+
 /// Give the synchronous counters an alert can be written against a sample at
 /// zero, at install time.
 ///
@@ -111,6 +129,24 @@ pub(super) fn seed_zero_series(i: &Instruments) {
         i.db_pool_probe_failures
             .add(0, &[KeyValue::new(REASON, reason)]);
     }
+    // No org label, and a closed reason set: every series can exist from the
+    // first scrape, so a first refusal of any kind is a visible delta.
+    for reason in OIDC_EXCHANGE_REJECT_REASONS {
+        i.oidc_exchange_rejected
+            .add(0, &[KeyValue::new(REASON, reason)]);
+    }
+}
+
+/// One trusted-access exchange refused.
+///
+/// `reason` is one of [`OIDC_EXCHANGE_REJECT_REASONS`] — the only label. No
+/// repository, org or account: a refused exchange is by definition one whose
+/// claims we would not vouch for, and an attacker chooses them.
+pub fn oidc_exchange_rejected(reason: &'static str) {
+    with_instruments(|i| {
+        i.oidc_exchange_rejected
+            .add(1, &[KeyValue::new(REASON, reason)]);
+    });
 }
 
 /// One successful pool health probe, and how long it waited for a connection.
@@ -308,6 +344,7 @@ mod tests {
         custom_app_heap_termination("org");
         custom_app_admission_wait("org", 0.0);
         custom_app_admission_shed("org", "global");
+        oidc_exchange_rejected("replayed");
         compile_duration(COMPILE_SOURCE_GIT, COMPILE_OUTCOME_READY, 0.5);
         compile_fetch_duration(true, 1.2);
     }

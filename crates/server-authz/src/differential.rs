@@ -29,8 +29,8 @@
 //! * `authz::loader` → the [`PrincipalFacts`] [`allows`] reads.
 
 use oxy_authz::{
-    Action, Cap, PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource, Scope,
-    allows,
+    Action, Cap, PartnerStanding, PlatformRole, PlatformStanding, PrincipalFacts, Resource,
+    RoleCeiling, Scope, TokenGrant, TokenReach, allows,
 };
 use uuid::Uuid;
 
@@ -242,6 +242,48 @@ fn manage_documents_ring_matches_the_shipped_guard() {
 fn manage_assignments_ring_matches_the_shipped_guard() {
     // operating_graph::assignments::create / remove — OrgAdmin
     assert_matches_oracle(Action::ManageAssignments, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+}
+
+/// Org API access (API-tokens design §8 Phase 3): service accounts, the org
+/// token inventory, and ending a token's reach into the org.
+///
+/// All three handlers take `OrgAdminFor<_>`, whose shipped half is the same
+/// Owner-or-Admin role check as `OrgAdmin`. Stated per action, like the
+/// assignment graph's above: a later edit that moved one of them to
+/// `OrgAdminStrict`, `OrgMemberStrict` or the owner ring must fail here.
+#[test]
+fn service_account_manage_ring_matches_the_shipped_guard() {
+    // service_accounts::handlers — every route under /service-accounts
+    assert_matches_oracle(Action::ServiceAccountManage, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+}
+
+#[test]
+fn token_inventory_view_ring_matches_the_shipped_guard() {
+    // org_tokens::handlers::{list_org_tokens, get_org_token_activity}
+    assert_matches_oracle(Action::TokenInventoryView, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+}
+
+#[test]
+fn token_grant_revoke_ring_matches_the_shipped_guard() {
+    // org_tokens::handlers::revoke_org_grant
+    assert_matches_oracle(Action::TokenGrantRevoke, |s| {
+        matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
+    });
+}
+
+/// Org token policy (API-tokens design §5, §8 Phase 5): `GET|PUT
+/// /orgs/{org_id}/token-policy` take `OrgAdminFor<TokenPolicy>`, whose shipped
+/// half is the Owner-or-Admin role check.
+#[test]
+fn token_policy_manage_ring_matches_the_shipped_guard() {
+    // org_api_access::handlers::{get_token_policy, put_token_policy}
+    assert_matches_oracle(Action::TokenPolicyManage, |s| {
         matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin)
     });
 }
@@ -647,6 +689,52 @@ fn app_admin_ring_matches_the_shipped_role_resolution() {
         assert_app_ring(Action::AppAdmin, restricted, |s| {
             s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin
         });
+    }
+}
+
+/// The same resolution under an API token (API-tokens design §4.4): the
+/// session's verdict at an admin ceiling over the workspace the app was
+/// published from, and nobody below it.
+///
+/// Oracle = `resolve_app_role` for a session, capped as every role is — a token
+/// of ceiling `c` on a role `r` decides as a session of `min(r, c)`. The
+/// scenario this pins is the per-app admin: its term carried no ceiling, so a
+/// viewer token of an app admin still read `appRole: 'admin'` and passed
+/// `require_app_admin`.
+#[test]
+fn app_admin_ring_under_a_token_is_the_shipped_resolution_capped_at_its_ceiling() {
+    let resource = Resource::app_with_visibility(app_id(), org(), false).published_from(ws_id());
+    for ceiling in RoleCeiling::ALL {
+        // Staff standing rides along, so the staff scenario is capped by the
+        // ceiling and not by a missing flag.
+        let token = TokenReach {
+            all_access: false,
+            platform: true,
+            partner: true,
+            grants: vec![TokenGrant {
+                org_id: org(),
+                workspace_id: Some(ws_id()),
+                ceiling,
+            }],
+            blocked_orgs: Vec::new(),
+        };
+        for s in app_scenarios() {
+            let session = s.is_staff || s.is_org_owner || s.is_org_admin || s.is_app_admin;
+            assert_eq!(
+                allows(&s.facts(), Action::AppAdmin, &resource),
+                session,
+                "a session — scenario {:?}",
+                s.name
+            );
+            let expected = session && ceiling >= RoleCeiling::Admin;
+            let actual = allows(&s.facts().narrowed_by(&token), Action::AppAdmin, &resource);
+            assert_eq!(
+                actual, expected,
+                "ring drift for AppAdmin under a {ceiling:?} token — scenario {:?}: the capped \
+                 resolution says {expected}, the model says {actual}",
+                s.name
+            );
+        }
     }
 }
 

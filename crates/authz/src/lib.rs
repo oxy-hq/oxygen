@@ -47,6 +47,12 @@
 
 use uuid::Uuid;
 
+mod token;
+pub use token::{RoleCeiling, TokenGrant, TokenReach};
+
+#[cfg(test)]
+mod service_account_tests;
+
 /// An action a principal may take on a resource. Oxy owns this closed vocabulary, and
 /// [`allows`] must have an arm for every variant — adding one here without giving it a
 /// `Ring` fails the build, which is the exhaustiveness guarantee this enum exists for.
@@ -94,6 +100,31 @@ pub enum Action {
     /// here — an assignment names a member or an active frontline worker, and
     /// the writer checks that standing the way the app access settings do.
     ManageAssignments,
+    /// Create, edit, disable or delete an org's SERVICE ACCOUNTS, and mint,
+    /// extend, regenerate or revoke their tokens — org owner/admin, a managing
+    /// partner, or a global operator. Same ring as member management, and for
+    /// the same reason: a service account is a principal the org adds to
+    /// itself, with a standing the admin chooses.
+    ///
+    /// Not open to a plain member: a member could otherwise mint themselves an
+    /// admin-standing machine. And never reachable with a token at all — the
+    /// routes are session-only — so a service account cannot manage service
+    /// accounts whatever its standing.
+    ServiceAccountManage,
+    /// See every API token that reaches the org (the org token inventory) and
+    /// what each did there — the same ring. A token is a way into the org, so
+    /// the list of them is the org's officers' to read, not every member's.
+    TokenInventoryView,
+    /// End one personal token's reach into the org without touching what it
+    /// reaches elsewhere — the same ring. The org decides what may reach it;
+    /// the token's owner is told, and keeps the token.
+    TokenGrantRevoke,
+    /// Read or set the org's token policy: a lifetime cap, whether all-access
+    /// tokens reach the org, and whether trust policies must name an
+    /// environment — the same ring. It decides which credentials may act in
+    /// the org, so it is the officers', not every member's; setting it is
+    /// session-only besides, so no token can loosen the policy over itself.
+    TokenPolicyManage,
     /// Billing (Stripe portal / invoices / checkout) — a **real** org owner or
     /// admin. Mirrors the `OrgAdminStrict` guard: unlike member management, the
     /// cross-tenant global-operator override does NOT reach it (Oxy staff are
@@ -326,12 +357,16 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 44] = [
+    pub const ALL: [Action; 48] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
         Action::ManageDocuments,
         Action::ManageAssignments,
+        Action::ServiceAccountManage,
+        Action::TokenInventoryView,
+        Action::TokenGrantRevoke,
+        Action::TokenPolicyManage,
         Action::MemberInvite,
         Action::MemberSetRole,
         Action::MemberRemove,
@@ -383,6 +418,10 @@ impl Action {
             Action::ManageOrgRoles => "manage_org_roles",
             Action::ManageDocuments => "manage_documents",
             Action::ManageAssignments => "manage_assignments",
+            Action::ServiceAccountManage => "service_account_manage",
+            Action::TokenInventoryView => "token_inventory_view",
+            Action::TokenGrantRevoke => "token_grant_revoke",
+            Action::TokenPolicyManage => "token_policy_manage",
             Action::MemberInvite => "member_invite",
             Action::MemberSetRole => "member_set_role",
             Action::MemberRemove => "member_remove",
@@ -436,6 +475,11 @@ impl Action {
             | Action::ManageOrgRoles
             | Action::ManageDocuments
             | Action::ManageAssignments => Ring::OrgAdmin,
+            // API access is the org's own shape too: who and what may act in it.
+            Action::ServiceAccountManage
+            | Action::TokenInventoryView
+            | Action::TokenGrantRevoke
+            | Action::TokenPolicyManage => Ring::OrgAdmin,
             Action::OrgBilling => Ring::OrgAdminStrict,
             Action::OrgOwnerManage => Ring::OwnerOnly,
             Action::OrgReadStrict => Ring::MemberStrict,
@@ -829,17 +873,22 @@ impl PrincipalFacts {
     /// Any partner the principal operates that manages `org_id` — the coarse "operates
     /// this client", used where the shipped check is the override path rather than a
     /// specific capability.
-    fn manages(&self, org_id: Uuid) -> bool {
-        self.partners
-            .iter()
-            .any(|p| p.client_orgs.contains(&org_id))
+    ///
+    /// Public as a **fact to read**, not a decision: it says a partner standing
+    /// reaches the org, never what it may do there. Ask a ring for that.
+    pub fn manages(&self, org_id: Uuid) -> bool {
+        self.carries_partner()
+            && self
+                .partners
+                .iter()
+                .any(|p| p.client_orgs.contains(&org_id))
     }
 
     /// A partner the principal operates that manages `org_id` AND holds `cap`. Not
     /// scoped to an acting partner: used where the shipped check resolves the partner
     /// FROM the org (the custom-app data plane), not from the URL.
     fn any_partner_grants(&self, cap: Cap, org_id: Uuid) -> bool {
-        self.partners.iter().any(|p| p.grants(cap, org_id))
+        self.carries_partner() && self.partners.iter().any(|p| p.grants(cap, org_id))
     }
 
     /// **Staff reach into a tenant**, gated on the capability that names the ring's
@@ -855,31 +904,48 @@ impl PrincipalFacts {
     /// is still a boolean: the owner is Oxy's root, and modelling root as a grant it
     /// could edit buys nothing.
     fn platform_grants(&self, cap: Cap, org_id: Uuid) -> bool {
-        self.is_global_owner
-            || self
-                .platform
-                .as_ref()
-                .is_some_and(|p| p.grants(cap, org_id))
+        self.carries_platform()
+            && (self.is_global_owner
+                || self
+                    .platform
+                    .as_ref()
+                    .is_some_and(|p| p.grants(cap, org_id)))
     }
 
     /// Holds `cap` with scope ignored — the platform-console door. See
     /// [`PlatformStanding::holds`] for why scope must not be consulted here.
     fn platform_holds(&self, cap: Cap) -> bool {
-        self.is_global_owner || self.platform.as_ref().is_some_and(|p| p.holds(cap))
+        self.carries_platform()
+            && (self.is_global_owner || self.platform.as_ref().is_some_and(|p| p.holds(cap)))
+    }
+
+    /// Oxy's root, as this credential carries it. A token without `platform`
+    /// is not root, whoever its bearer is.
+    pub fn is_root(&self) -> bool {
+        self.carries_platform() && self.is_global_owner
     }
 
     /// Any platform standing at all — a Global Owner, or a grant of any shape.
     /// Gates [`Action::PlatformOps`], the "is this person staff" question the outer
     /// `/admin/*` nest asks before any section-specific capability is consulted.
     pub fn is_staff(&self) -> bool {
-        self.is_global_owner || self.platform.is_some()
+        self.carries_platform() && (self.is_global_owner || self.platform.is_some())
+    }
+
+    /// Any partner standing at all — operates at least one partner, as this
+    /// credential carries it. The partner twin of [`Self::is_staff`]: what a
+    /// token's `partner` flag needs its owner to hold. It names no capability and
+    /// no client, so it gates nothing a partner *does* — that is
+    /// [`Self::any_partner_grants`] and `Ring::PartnerCap`.
+    pub fn is_partner(&self) -> bool {
+        self.carries_partner() && !self.partners.is_empty()
     }
 
     /// Back-compatible read for display and telemetry: staff who are not the owner.
     /// **Not an authorization primitive** — nothing in [`allows`] reads it, and no
     /// call site should branch on it. Ask for a capability instead.
     pub fn is_global_admin(&self) -> bool {
-        self.platform.is_some()
+        self.carries_platform() && self.platform.is_some()
     }
 
     /// Where this principal's platform grant reaches, for handlers that must filter
@@ -887,6 +953,9 @@ impl PrincipalFacts {
     pub fn platform_scope(&self) -> Option<&Scope> {
         /// The owner's scope is unbounded and has no grant row to borrow from.
         static UNBOUNDED: Scope = Scope::All;
+        if !self.carries_platform() {
+            return None;
+        }
         if self.is_global_owner {
             return Some(&UNBOUNDED);
         }
@@ -1038,6 +1107,13 @@ pub struct Resource {
     /// preserves the historical "any org member" rule, so this can only ever
     /// tighten a specific app and never loosens one.
     pub app_restricted: bool,
+    /// For an `App` resource: the workspace the app was published from, when the
+    /// call site has the app row in hand ([`Resource::published_from`]). An API
+    /// token's ceiling over the app is then its ceiling over **that workspace**
+    /// — a grant on another workspace of the org says nothing about this app.
+    /// `None` reads the highest ceiling of any grant in the org. Read by nothing
+    /// but the token cap, so it can only subtract.
+    pub app_workspace: Option<Uuid>,
 }
 
 impl Resource {
@@ -1050,6 +1126,7 @@ impl Resource {
             owner: None,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1063,6 +1140,7 @@ impl Resource {
             owner: None,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1078,6 +1156,7 @@ impl Resource {
             owner: None,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1091,6 +1170,7 @@ impl Resource {
             owner: None,
             partner: Some(partner_id),
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1104,6 +1184,7 @@ impl Resource {
             owner: None,
             partner: Some(acting_partner),
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1118,6 +1199,7 @@ impl Resource {
             owner: created_by,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1131,6 +1213,7 @@ impl Resource {
             owner: created_by,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1148,6 +1231,7 @@ impl Resource {
             owner: None,
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         }
     }
 
@@ -1159,6 +1243,14 @@ impl Resource {
             app_restricted: restricted,
             ..Self::app(id, org_id)
         }
+    }
+
+    /// This app, naming the workspace it was published from (`apps.project_id`)
+    /// so an API token is capped at its ceiling over that workspace. Use it
+    /// wherever the app row is in hand and the decision turns on a role.
+    pub fn published_from(mut self, workspace_id: Uuid) -> Self {
+        self.app_workspace = Some(workspace_id);
+        self
     }
 }
 
@@ -1221,6 +1313,25 @@ pub struct PrincipalFacts {
     /// Empty for everyone who is not a frontline worker — a member reaches the data
     /// plane through `member_orgs` and never needs it.
     pub frontline_workspace_grants: Vec<Uuid>,
+    /// Set when the principal is an org-owned **service account**: the one org
+    /// it belongs to, and whether it stands there as an admin. Read from its
+    /// `service_accounts` row, which is deliberately NOT an `org_members` row
+    /// (API-tokens design §3.3) — the same choice [`Self::frontline_orgs`]
+    /// made, for the same reason: membership is enumerated everywhere (seats,
+    /// member lists, invitations, app audiences).
+    ///
+    /// Unlike a frontline worker, a service account *does* stand as a member
+    /// (or an admin) of its org in the rings below — that is what it is for.
+    /// What it never is:
+    ///
+    /// - an **owner**: there is no owner standing to load;
+    /// - a real officer for billing ([`Ring::OrgAdminStrict`]);
+    /// - **staff or a partner**: it has no email to hold either by, and
+    ///   [`PrincipalFacts::carries_platform`] / `carries_partner` are false
+    ///   for it whatever else these facts say.
+    ///
+    /// Its token's grants cap it further, per decision, like any token.
+    pub service_account: Option<ServiceAccountStanding>,
     /// Apps where the principal's `app_members` row is `role = 'admin'`. A subset
     /// of [`Self::app_memberships`]; gates [`Ring::AppAdmin`].
     pub app_admin_memberships: Vec<Uuid>,
@@ -1236,6 +1347,24 @@ pub struct PrincipalFacts {
     /// Oxy's root. Deliberately still a boolean — see
     /// [`PrincipalFacts::platform_grants`].
     pub is_global_owner: bool,
+    /// The API token the request arrived with, when it has one that can narrow:
+    /// which orgs and workspaces it covers, at what ceiling, and whether the
+    /// bearer's platform and partner standing ride along.
+    ///
+    /// `None` for a browser session **and for a legacy key** — it narrows
+    /// nothing, so both decide exactly as they did before tokens had grants.
+    /// A fact, not a second principal: [`allows`] reads it to subtract, per
+    /// decision, what the token does not cover.
+    pub token: Option<TokenReach>,
+}
+
+/// A service account's standing: its org, and whether it is an admin there.
+/// There is no owner variant — a service account is never an owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceAccountStanding {
+    pub org_id: Uuid,
+    /// `org_role = admin`. `false` = a plain member of the org.
+    pub admin: bool,
 }
 
 /// One partner the principal operates: its clients, and the ceiling over them.
@@ -1270,6 +1399,22 @@ pub struct Denied {
 /// with exhaustiveness as the compiler's job: a new [`Action`] with no `Ring`, or a
 /// `Ring` with no arm here, fails the build.
 pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bool {
+    // A token narrows its bearer, and this is where: per decision, because the facts
+    // load once per request and the target varies. Outside every grant the token
+    // decides as a non-member would — before any other rule, the self rule included.
+    // Inside one, `ceiling` caps the role each term below may claim, so a token of
+    // ceiling `c` on a principal of role `r` decides as a session of role `min(r, c)`.
+    //
+    // No token (a browser session, a legacy key) is no cap. This can only subtract.
+    let ceiling = match &facts.token {
+        None => RoleCeiling::Owner,
+        Some(token) => match token.ceiling_for(resource) {
+            Some(ceiling) => ceiling,
+            None => return false,
+        },
+    };
+    let at_least = |level: RoleCeiling| ceiling >= level;
+
     // Self: a thread's owner may READ it. Scoped to BOTH kind and action — unscoped,
     // this would hand the owner of any future owner-bearing resource every action.
     if action == Action::OrgRead
@@ -1283,36 +1428,58 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
     // every child carries its parent's, so one containment serves both. `Platform` has
     // a nil org and is therefore in no set — nothing tenant-scoped reaches it.
     let in_org = |set: &[Uuid]| set.contains(&resource.org_id);
+    // A service account stands in its ONE org, as a member or an admin, from its own
+    // row rather than from `org_members`. The platform's nil org matches no account.
+    let account_here = facts
+        .service_account
+        .filter(|account| account.org_id == resource.org_id);
+    // A member of the org: a person in `org_members`, or the org's service account.
+    let member_here = in_org(&facts.member_orgs) || account_here.is_some();
+    // A PERSON who is an officer of the org, as far as the token's ceiling lets the
+    // role reach. Billing asks for exactly this.
+    let officer_here = at_least(RoleCeiling::Admin) && in_org(&facts.admin_orgs);
+    // An officer, or a service account the org made an admin.
+    let admin_here = officer_here
+        || (at_least(RoleCeiling::Admin) && account_here.is_some_and(|account| account.admin));
+    let owner_here = at_least(RoleCeiling::Owner) && in_org(&facts.owned_orgs);
     // The per-workspace elevation is keyed by the workspace, not its org.
-    let elevated_here =
-        resource.kind == ResourceKind::Workspace && facts.ws_admin_override.contains(&resource.id);
+    let elevated_here = at_least(RoleCeiling::Admin)
+        && resource.kind == ResourceKind::Workspace
+        && facts.ws_admin_override.contains(&resource.id);
     let is_platform = resource.kind == ResourceKind::Platform;
 
     // Operator reach — staff, and a managing partner — models the SYNTHETIC-OWNER
     // override, which the middleware applies only when the caller is NOT a real member.
     // Unconditional, it out-ranks a real membership and silently promotes an operator
     // who happens to be a plain member of the tenant.
-    let not_member = !in_org(&facts.member_orgs);
+    let not_member = !member_here;
 
     // Staff reach into a tenant, NAMED BY CAPABILITY. This used to be one boolean
     // (`is_global_admin || is_global_owner`) shared by every ring below, which is why
     // an app publisher could delete an org: `Ring::OwnerOnly` honoured the same term
     // `Ring::AppAdmin` did. Each ring now asks for the capability its own authority is
     // about, so a grant that omits the capability cannot reach the ring at all.
-    let staff = |cap: Cap| not_member && facts.platform_grants(cap, resource.org_id);
-    let staff_or_partner = |cap: Cap| {
-        not_member
+    //
+    // `level` is the role the override stands in for IN THIS RING — the synthetic
+    // membership is capped by the token's ceiling exactly as a real one is.
+    let staff = |cap: Cap, level: RoleCeiling| {
+        at_least(level) && not_member && facts.platform_grants(cap, resource.org_id)
+    };
+    let staff_or_partner = |cap: Cap, level: RoleCeiling| {
+        at_least(level)
+            && not_member
             && (facts.platform_grants(cap, resource.org_id) || facts.manages(resource.org_id))
     };
 
     match action.ring() {
         // Reading a tenant you don't belong to is the support engineer's power, and it
         // is now a capability an app-only role simply doesn't hold.
-        Ring::Read => in_org(&facts.member_orgs) || staff(Cap::ViewTenants),
-        Ring::MemberStrict => in_org(&facts.member_orgs),
-        Ring::OrgAdmin => in_org(&facts.admin_orgs) || staff_or_partner(Cap::ManageMembers),
+        Ring::Read => member_here || staff(Cap::ViewTenants, RoleCeiling::Viewer),
+        Ring::MemberStrict => member_here,
+        Ring::OrgAdmin => admin_here || staff_or_partner(Cap::ManageMembers, RoleCeiling::Admin),
         // Billing: real owner/admin only — the override is barred and partners don't bill.
-        Ring::OrgAdminStrict => in_org(&facts.admin_orgs),
+        // A PERSON: an admin service account does not open the Stripe portal.
+        Ring::OrgAdminStrict => officer_here,
         // Deleting an org, transferring ownership, promoting an owner. A partner assumes
         // Admin, never Owner, so no partner term here.
         //
@@ -1320,20 +1487,27 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         // bare global flag, so every Global Admin — including the ones who only ship
         // custom apps — could delete any tenant. It now demands
         // `ManageOrgSettings`, which `PlatformRole::AppOperator` does not grant.
-        Ring::OwnerOnly => in_org(&facts.owned_orgs) || staff(Cap::ManageOrgSettings),
+        Ring::OwnerOnly => owner_here || staff(Cap::ManageOrgSettings, RoleCeiling::Owner),
         Ring::OrgAdminOrCreator => {
-            in_org(&facts.admin_orgs)
-                || resource.owner == Some(facts.user_id)
-                || staff_or_partner(Cap::ManageOrgSettings)
+            admin_here
+                // The creator is a plain member managing their own thing: a member's
+                // act, so a ceiling below member takes it away.
+                || (at_least(RoleCeiling::Member) && resource.owner == Some(facts.user_id))
+                || staff_or_partner(Cap::ManageOrgSettings, RoleCeiling::Admin)
         }
         Ring::WorkspaceAdmin => {
-            in_org(&facts.admin_orgs) || elevated_here || staff_or_partner(Cap::ManageOrgSettings)
+            admin_here
+                || elevated_here
+                || staff_or_partner(Cap::ManageOrgSettings, RoleCeiling::Admin)
         }
         // The Oxy-access switch: a REAL workspace officer; the override is rejected so
         // staff cannot unlock themselves.
-        Ring::WorkspaceAdminStrict => in_org(&facts.admin_orgs) || elevated_here,
+        Ring::WorkspaceAdminStrict => admin_here || elevated_here,
+        // Member or above — the one ring where a `viewer` ceiling bites in the model
+        // itself, because the ring is defined as "not a viewer".
         Ring::WorkspaceEdit => {
-            in_org(&facts.member_orgs) || staff_or_partner(Cap::ManageOrgSettings)
+            at_least(RoleCeiling::Member)
+                && (member_here || staff_or_partner(Cap::ManageOrgSettings, RoleCeiling::Member))
         }
         // A member of the app's org, any Oxy operator, or a develop_apps partner.
         //
@@ -1355,7 +1529,7 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
             // staff member of the org already passes on the membership term.
             let unconditional = facts.platform_grants(Cap::DevelopApps, resource.org_id)
                 || facts.any_partner_grants(Cap::DevelopApps, resource.org_id)
-                || in_org(&facts.admin_orgs);
+                || admin_here;
             // A frontline worker reaches an app ONLY through an explicit grant,
             // and only in an org they are actively enrolled in.
             //
@@ -1382,11 +1556,10 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
                 // refused — the app's shell would load and every query would 403.
                 // Grantees are validated as org members at write time too; this is
                 // the enforcement half of the same rule.
-                unconditional
-                    || (in_org(&facts.member_orgs) && facts.app_memberships.contains(&resource.id))
+                unconditional || (member_here && facts.app_memberships.contains(&resource.id))
             } else {
                 // Unrestricted (the default): unchanged — any member of the org.
-                unconditional || in_org(&facts.member_orgs)
+                unconditional || member_here
             }
         }
         // The workspace-keyed data plane. Same reach as an UNRESTRICTED app —
@@ -1402,7 +1575,7 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         Ring::WorkspaceData => {
             facts.platform_grants(Cap::DevelopApps, resource.org_id)
                 || facts.any_partner_grants(Cap::DevelopApps, resource.org_id)
-                || in_org(&facts.member_orgs)
+                || member_here
                 || (in_org(&facts.frontline_orgs)
                     && facts.frontline_workspace_grants.contains(&resource.id))
         }
@@ -1412,9 +1585,16 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         // without granting org-wide billing/member powers. No develop_apps term:
         // building an app is not administering its live privileged surface.
         Ring::AppAdmin => {
-            facts.platform_grants(Cap::ManageApps, resource.org_id)
-                || in_org(&facts.admin_orgs)
-                || facts.app_admin_memberships.contains(&resource.id)
+            (at_least(RoleCeiling::Admin)
+                && facts.platform_grants(Cap::ManageApps, resource.org_id))
+                || admin_here
+                // The per-app admin role is capped like every other: it is an
+                // admin's authority over the app's privileged surface, so a token
+                // whose ceiling over the app is below admin does not carry it.
+                // Uncapped, a viewer-ceiling token of an app admin read the app's
+                // logs and ran its admin-gated functions.
+                || (at_least(RoleCeiling::Admin)
+                    && facts.app_admin_memberships.contains(&resource.id))
         }
         // Staffing an app — visibility, grants, and the org team roster that feeds
         // them. An org officer, Oxy staff, or a `manage_apps` partner.
@@ -1430,26 +1610,41 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         // Otherwise an app admin could grant themselves a second app admin and the
         // org would have no way to see it coming.
         Ring::AppGrant => {
-            facts.platform_grants(Cap::ManageApps, resource.org_id)
-                || in_org(&facts.admin_orgs)
-                || facts.any_partner_grants(Cap::ManageApps, resource.org_id)
+            admin_here
+                || (at_least(RoleCeiling::Admin)
+                    && (facts.platform_grants(Cap::ManageApps, resource.org_id)
+                        || facts.any_partner_grants(Cap::ManageApps, resource.org_id)))
         }
         // Staff work inside one tenant: the grant must name the capability AND reach
         // this org. A TENANT resource only — the platform singleton's nil org would
         // satisfy an all-scope grant and turn this into a console door, and a
         // platform surface is `PlatformCap`'s to gate.
-        Ring::StaffReach(cap) => !is_platform && facts.platform_grants(cap, resource.org_id),
+        //
+        // A staff tool changes the tenant it is used in, so a token needs an admin
+        // ceiling there to carry it.
+        Ring::StaffReach(cap) => {
+            !is_platform
+                && at_least(RoleCeiling::Admin)
+                && facts.platform_grants(cap, resource.org_id)
+        }
         // The console IS scoped: the capability must come from the partner being acted
         // as. Operating a partner that grants `cap` over some other client authorizes
         // nothing here — that scope is what a flattened model silently dropped.
+        //
+        // A token must carry partner standing to hold any of it, and — a partner
+        // acting in a client is an admin there — an admin ceiling over the client.
         Ring::PartnerCap(cap) => match resource.partner {
             None => false, // a partner decision must name the partner it is acting as
-            Some(acting) => facts.partners.iter().any(|p| {
-                p.partner_id == acting
-                    && p.caps.contains(&cap)
-                    && (resource.kind == ResourceKind::Partner
-                        || p.client_orgs.contains(&resource.org_id))
-            }),
+            Some(acting) => {
+                facts.carries_partner()
+                    && at_least(RoleCeiling::Admin)
+                    && facts.partners.iter().any(|p| {
+                        p.partner_id == acting
+                            && p.caps.contains(&cap)
+                            && (resource.kind == ResourceKind::Partner
+                                || p.client_orgs.contains(&resource.org_id))
+                    })
+            }
         },
         // The platform tier reads ONLY platform standing and is pinned to the Platform
         // singleton: no tenant standing reaches an operator surface, and no platform
@@ -1462,7 +1657,7 @@ pub fn allows(facts: &PrincipalFacts, action: Action, resource: &Resource) -> bo
         // capabilities gate verbs, scope filters rows.
         Ring::PlatformAny => is_platform && facts.is_staff(),
         Ring::PlatformCap(cap) => is_platform && facts.platform_holds(cap),
-        Ring::GlobalOwnerOnly => is_platform && facts.is_global_owner,
+        Ring::GlobalOwnerOnly => is_platform && facts.is_root(),
     }
 }
 
@@ -1896,6 +2091,7 @@ mod policy_tests {
             owner: Some(user()),
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         };
         assert!(allows(&f, Action::OrgRead, &thread));
         // A different user does not own it.
@@ -1919,6 +2115,7 @@ mod policy_tests {
             owner: Some(user()),
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         };
         // Owning a thread grants the read...
         assert!(allows(&f, Action::OrgRead, &thread));
@@ -1937,6 +2134,7 @@ mod policy_tests {
             owner: Some(user()),
             partner: None,
             app_restricted: false,
+            app_workspace: None,
         };
         assert!(!allows(&f, Action::OrgRead, &owned_workspace));
         assert!(!allows(&f, Action::WorkspaceManage, &owned_workspace));

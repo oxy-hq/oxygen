@@ -28,8 +28,13 @@ function fakeContext(): Context {
     flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
-    bearer: () => "tok",
-    maybeBearer: () => "tok",
+    bearer: async () => "tok",
+    maybeBearer: async () => "tok",
+    storedBearer: () => "tok",
+    async credential() {
+      return { token: await this.bearer(), source: "env" };
+    },
+    serviceAccount: () => undefined,
     apiKey: () => undefined,
     customer: () => undefined,
     repoDir: () => undefined,
@@ -218,8 +223,9 @@ describe("apps list", () => {
     stubFetch(twoPages(), calls);
     const withPublishToken: Context = {
       ...fakeContext(),
-      bearer: () => "oxypublish_abc",
-      maybeBearer: () => "oxypublish_abc"
+      bearer: async () => "oxypublish_abc",
+      maybeBearer: async () => "oxypublish_abc",
+      storedBearer: () => "oxypublish_abc"
     };
     const error = await failure(runAppsList(withPublishToken, {}));
     expect(error.code).toBe(ExitCode.USAGE);

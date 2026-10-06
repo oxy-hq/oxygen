@@ -85,7 +85,7 @@ pub async fn list_fleet(
 /// permanently and creates an external resource, from one unconfirmed click.
 /// `/admin/audit` is where an operator goes to find out who did it.
 pub async fn provision(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(workspace_id): Path<Uuid>,
 ) -> Result<Json<inner::AirhouseFleetRow>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
@@ -94,11 +94,14 @@ pub async fn provision(
         .await
         .map_err(msg)?;
 
-    let out = inner::provision(AuthenticatedUserExtractor(user.clone()), Path(workspace_id)).await;
+    let out = inner::provision(
+        AuthenticatedUserExtractor(user.user.clone()),
+        Path(workspace_id),
+    )
+    .await;
     // Best-effort: an audit write must never turn a successful provision into a
     // 500, and a failure is already logged at `error` by `record_best_effort`.
-    let entry = audit::AuditEntry::new(user.label().to_string(), "airhouse.provisioned")
-        .actor(user.id, audit::ActorType::User)
+    let entry = audit::AuditEntry::for_request(&user, "airhouse.provisioned")
         .workspace(workspace_id)
         .target(
             "airhouse_tenant",

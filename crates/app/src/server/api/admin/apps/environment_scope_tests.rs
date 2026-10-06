@@ -41,6 +41,7 @@ fn caller() -> AuthenticatedUser {
         name: "Someone".to_string(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     }
 }
 

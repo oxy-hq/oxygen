@@ -13,4 +13,6 @@ pub mod role_guards;
 pub mod sentry_surface;
 pub mod subscription_guard;
 pub mod timeout;
+pub mod token_grant_scope;
+pub mod token_usage;
 pub mod workspace_context;

@@ -15,7 +15,7 @@ use entity::{
     app_members, app_team_grants, apps, org_members, org_members::OrgRole, org_team_members,
     org_teams, organizations, users, workspaces,
 };
-use oxy_app::server::api::workspace_custom_apps::{Viewer, published_app_summaries};
+use oxy_app::server::api::workspace_custom_apps::published_app_summaries;
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
 
@@ -174,10 +174,7 @@ async fn visible_to(
     workspace_id: Uuid,
     who: (Uuid, &str),
 ) -> Vec<String> {
-    let viewer = Viewer {
-        id: who.0,
-        email: who.1,
-    };
+    let viewer = &oxy_app::server::authz::Caller::without_credential(who.0, who.1);
     published_app_summaries(conn, workspace_id, Some(viewer))
         .await
         .expect("summaries")
@@ -374,10 +371,9 @@ async fn each_summary_reports_its_own_visibility() {
     let by_name: std::collections::HashMap<String, String> = published_app_summaries(
         &conn,
         ws,
-        Some(Viewer {
-            id: owner,
-            email: &email,
-        }),
+        Some(&oxy_app::server::authz::Caller::without_credential(
+            owner, &email,
+        )),
     )
     .await
     .expect("summaries")

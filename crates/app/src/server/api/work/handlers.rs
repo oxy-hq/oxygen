@@ -152,6 +152,9 @@ pub async fn list(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<WorkItemDto>>, StatusCode> {
+    // Work is addressed to people. A service account is refused by default
+    // (API-tokens design §3.3).
+    user.refuse_service_account()?;
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -191,6 +194,13 @@ pub async fn list(
     }
     if let Some(loc) = q.location_id {
         filter = filter.add(work_items::Column::LocationId.eq(loc));
+    }
+    // An org that ended the request's token's reach (API-tokens design §5) is
+    // left out, in the query so the page limit counts only what is returned.
+    // Nothing is excluded for a session or a legacy key.
+    let blocked = user.blocked_orgs();
+    if !blocked.is_empty() {
+        filter = filter.add(work_items::Column::OrgId.is_not_in(blocked.iter().copied()));
     }
 
     let rows = work_items::Entity::find()
@@ -352,6 +362,12 @@ pub async fn create(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CreateWorkItem>,
 ) -> Result<(StatusCode, Json<WorkItemDto>), StatusCode> {
+    // Work is addressed to people. A service account is refused by default
+    // (API-tokens design §3.3).
+    user.refuse_service_account()?;
+    // An org the request's token does not reach is a bad `org_id`: 404, as
+    // `gate_create` answers for an org the caller has no standing in.
+    user.require_org_reach(body.org_id)?;
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -418,6 +434,9 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateWorkItem>,
 ) -> Result<Json<WorkItemDto>, StatusCode> {
+    // Work is addressed to people. A service account is refused by default
+    // (API-tokens design §3.3).
+    user.refuse_service_account()?;
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -429,6 +448,8 @@ pub async fn update(
     else {
         return Err(StatusCode::NOT_FOUND);
     };
+    // An item of an org the request's token does not reach is not there.
+    user.require_org_reach(item.org_id)?;
 
     // Assignee, supervisor, or holder of the addressed role. Same rule as the
     // read, restated for the write — and 404 rather than 403, so an item the

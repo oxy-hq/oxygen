@@ -31,7 +31,7 @@ use super::ops::*;
 /// POST /orgs/:org_id/invitations
 pub async fn create_invitation(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     headers: HeaderMap,
     Json(req): Json<InviteRequest>,
 ) -> Result<Json<InvitationResponse>, StatusCode> {
@@ -134,8 +134,7 @@ pub async fn create_invitation(
     // produces IS recorded durably, in `accept_invitation`'s membership write.)
     audit::record_best_effort(
         &db,
-        audit::AuditEntry::new(actor.label().to_string(), "org.invitation.created")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "org.invitation.created")
             .org(ctx.org.id)
             .target(
                 "invitation",
@@ -464,7 +463,7 @@ pub async fn list_my_invitations(
     let Some(email_lower) = user.email.as_deref().map(str::to_lowercase) else {
         return Ok(Json(Vec::new()));
     };
-    let invitations = OrgInvitations::find()
+    let invitations: Vec<org_invitations::Model> = OrgInvitations::find()
         .filter(org_invitations::Column::Email.eq(email_lower))
         .filter(org_invitations::live_pending(Utc::now().fixed_offset()))
         // Most-recently-sent invites appear first; stable order across refetches
@@ -475,7 +474,13 @@ pub async fn list_my_invitations(
         .map_err(|e| {
             tracing::error!("Failed to query pending invitations: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        })?
+        .into_iter()
+        // Less the orgs the request's API token does not reach: one an org has
+        // blocked (API-tokens design §5) sees no invitation into that org, and
+        // `accept_invitation` refuses one the same way.
+        .filter(|invitation| user.reaches_org(invitation.org_id))
+        .collect();
 
     if invitations.is_empty() {
         return Ok(Json(Vec::new()));
@@ -556,6 +561,11 @@ pub async fn accept_invitation(
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    // An invitation into an org the request's API token does not reach is not
+    // there: a token an org has blocked does not act in that org, joining it
+    // included.
+    user.require_org_reach(invitation.org_id)?;
 
     // Verify the invitation was sent to this user's email (case-insensitive per RFC 5321).
     // An invitation is addressed to an email, so a user without one can never

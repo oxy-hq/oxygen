@@ -23,7 +23,8 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
-use super::ops::{actor_label, audit_entry, require_sandbox};
+use super::expiry_audit::expiry_entry;
+use super::ops::{require_sandbox, scoped};
 use super::teardown::{self, SandboxTeardownTask};
 use super::{SandboxError, TeardownReason, activity};
 use crate::server::api::custom_apps_environments::{self, EnvAction};
@@ -31,12 +32,13 @@ use crate::server::api::custom_apps_environments::{self, EnvAction};
 /// Mark the sandbox deleting, clear its pointer and queue its teardown;
 /// answers the teardown's run id. See [`delete`].
 ///
-/// `actor` is who asked, `None` for an expiry.
+/// `actor` is who asked — the request's user, with the key or token the
+/// audit row names — and `None` for an expiry.
 pub async fn begin_delete(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: Option<Uuid>,
+    actor: Option<&audit::RequestActor>,
     reason: TeardownReason,
 ) -> Result<String, SandboxError> {
     Ok(delete(db, app, environment, actor, reason).await?.run_id)
@@ -89,7 +91,7 @@ pub async fn delete(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: Option<Uuid>,
+    actor: Option<&audit::RequestActor>,
     reason: TeardownReason,
 ) -> Result<Deletion, SandboxError> {
     let name = environment.name();
@@ -104,13 +106,14 @@ pub async fn delete_if(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: Option<Uuid>,
+    actor: Option<&audit::RequestActor>,
     reason: TeardownReason,
     expect: Expect,
 ) -> Result<Option<Deletion>, SandboxError> {
     require_sandbox(environment)?;
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
-    let deletion = mark_and_queue(&txn, app, environment, actor, reason, expect).await?;
+    let asked_by = actor.map(|actor| actor.user.id);
+    let deletion = mark_and_queue(&txn, app, environment, asked_by, reason, expect).await?;
     txn.commit()
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
@@ -129,19 +132,15 @@ async fn audit_deletion(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: Option<Uuid>,
+    actor: Option<&audit::RequestActor>,
     reason: TeardownReason,
 ) {
-    let label = actor_label(db, actor).await;
-    let mut entry =
-        audit_entry(app, environment, label, "app.environment.deleted").reason(reason.as_str());
-    entry = match actor {
-        Some(user) => entry.actor(user, audit::ActorType::User),
-        None => {
-            entry.actor_type = audit::ActorType::System;
-            entry
-        }
+    const ACTION: &str = "app.environment.deleted";
+    let entry = match actor {
+        Some(actor) => audit::AuditEntry::for_request(actor, ACTION),
+        None => expiry_entry(ACTION),
     };
+    let entry = scoped(entry, app, environment).reason(reason.as_str());
     audit::record_best_effort(db, entry).await;
 }
 

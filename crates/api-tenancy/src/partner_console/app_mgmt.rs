@@ -153,12 +153,16 @@ async fn require_own_org_authority(
         .map_err(internal("check own-org role"))?
         .is_some();
     let is_officer = is_real_officer
-        || oxy_server_authz::assume_liveness::is_session_live(db, actor.id, org_id).await;
+        || oxy_server_authz::assume_liveness::is_session_live(
+            db,
+            &oxy_server_authz::Caller::from_user(&actor),
+            org_id,
+        )
+        .await;
 
     let allowed = oxy_server_authz::enforce_for(
         db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &oxy_server_authz::Caller::from_user(&actor),
         "partner_console.own_app",
         oxy_authz::Action::AppAccessManage,
         oxy_authz::Resource::org(org_id),
@@ -236,7 +240,7 @@ pub async fn get_app_access(
 /// `PUT /partners/{id}/apps/{app_id}/access`
 pub async fn set_app_access(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, app_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<SetAppAccessRequest>,
 ) -> Result<Json<AppAccessDto>, StatusCode> {
@@ -250,8 +254,8 @@ pub async fn set_app_access(
     // especially, since it changes who can see the client's data.
     audit::record_best_effort(
         &db,
-        AuditEntry::new(actor.label().to_string(), "partner.app.access_changed")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.app.access_changed")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("app", app_id.to_string(), format!("{name} ({slug})")),
@@ -299,7 +303,7 @@ pub async fn list_grantable_people(
 /// `POST /partners/{id}/apps/{app_id}/publish` — make the app live to viewers.
 pub async fn publish_app(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, app_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PartnerAppDto>, StatusCode> {
     let db = db().await?;
@@ -319,8 +323,8 @@ pub async fn publish_app(
 
     audit::record_best_effort(
         &db,
-        AuditEntry::new(actor.label().to_string(), "partner.app.published")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.app.published")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("app", app_id.to_string(), format!("{name} ({slug})")),
@@ -332,7 +336,7 @@ pub async fn publish_app(
 /// `DELETE /partners/{id}/apps/{app_id}/publish` — take the app out of view.
 pub async fn unpublish_app(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, app_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<PartnerAppDto>, StatusCode> {
     let db = db().await?;
@@ -349,8 +353,8 @@ pub async fn unpublish_app(
 
     audit::record_best_effort(
         &db,
-        AuditEntry::new(actor.label().to_string(), "partner.app.unpublished")
-            .actor(actor.id, ActorType::PartnerAdmin)
+        AuditEntry::for_request(&actor, "partner.app.unpublished")
+            .acting_as(ActorType::PartnerAdmin)
             .partner(scope.partner_id)
             .org(org_id)
             .target("app", app_id.to_string(), format!("{name} ({slug})")),

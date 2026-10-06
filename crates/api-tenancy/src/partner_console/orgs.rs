@@ -24,7 +24,6 @@ use entity::org_members::{self, OrgRole};
 use entity::prelude::{Apps, OrgMembers, Organizations, Users};
 use entity::{organizations, partner_orgs};
 use oxy::database::filters::UserQueryFilterExt;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
     TransactionTrait,
@@ -38,7 +37,7 @@ use crate::organizations::{
 };
 use crate::partner_console::partner_context::PartnerActor;
 use crate::workspace_provisioning::create_default_workspace;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 use oxy_server_authz::partner_authz::PartnerCapability;
 
 #[derive(Deserialize)]
@@ -67,7 +66,7 @@ pub struct CreatedOrg {
 /// IdeOnly route in the crate — see `route_roles` in `lib.rs`.
 pub async fn create_org(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     headers: HeaderMap,
     Json(body): Json<CreateOrgBody>,
 ) -> Result<Json<CreatedOrg>, StatusCode> {
@@ -201,8 +200,7 @@ pub async fn create_org(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.org.created")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.org.created")
             .partner(scope.partner_id)
             .org(org_id)
             .target("organization", org_id.to_string(), name.clone())
@@ -295,7 +293,7 @@ pub struct UpdateOrgBody {
 /// client's own call, not their partner's.
 pub async fn update_org(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_org_id, org_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateOrgBody>,
 ) -> Result<Json<ChildOrg>, StatusCode> {
@@ -324,8 +322,7 @@ pub async fn update_org(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.org.updated")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.org.updated")
             .partner(scope.partner_id)
             .org(org_id)
             .target("organization", org_id.to_string(), saved.name.clone())

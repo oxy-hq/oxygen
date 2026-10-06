@@ -113,7 +113,7 @@ pub async fn create(
     Query(q): Query<OrgQuery>,
 ) -> Result<(StatusCode, Json<SessionSummary>), StatusCode> {
     let db = connect().await?;
-    guard_standing(&db, user.id, q.org_id).await?;
+    guard_standing(&db, &user, q.org_id).await?;
 
     let now = chrono::Utc::now().fixed_offset();
     let row = document_ask_sessions::ActiveModel {
@@ -166,7 +166,7 @@ pub async fn list(
     Query(q): Query<ListQuery>,
 ) -> Result<Paged<SessionSummary>, StatusCode> {
     let db = connect().await?;
-    guard_standing(&db, user.id, q.org_id).await?;
+    guard_standing(&db, &user, q.org_id).await?;
 
     let limit = q.limit.clamp(1, 100);
     // One more than asked for, so "is there a next page" is answered by the
@@ -217,7 +217,7 @@ pub async fn read(
 ) -> Result<Json<SessionDetail>, StatusCode> {
     let db = connect().await?;
     let session = mine(&db, user.id, id).await?;
-    let standing = resolve_standing(&db, user.id, session.org_id)
+    let standing = resolve_standing(&db, &user, session.org_id)
         .await
         .map_err(db_err)?;
     if matches!(standing, ReadStanding::None) {
@@ -376,7 +376,11 @@ async fn connect() -> Result<DatabaseConnection, StatusCode> {
 
 /// `404` for a caller with no standing in the org — the same answer every other
 /// read on this surface gives, and made before any row is touched.
-async fn guard_standing(db: &DatabaseConnection, user: Uuid, org: Uuid) -> Result<(), StatusCode> {
+async fn guard_standing(
+    db: &DatabaseConnection,
+    user: impl Into<super::visibility::Reader>,
+    org: Uuid,
+) -> Result<(), StatusCode> {
     match resolve_standing(db, user, org).await.map_err(db_err)? {
         ReadStanding::None => Err(StatusCode::NOT_FOUND),
         _ => Ok(()),

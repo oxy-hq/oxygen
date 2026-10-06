@@ -26,6 +26,18 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+mod actor;
+#[cfg(test)]
+mod call_sites_guard;
+mod canonical;
+mod token_events;
+
+/// The address an audit row records: the one the load balancer saw, never the
+/// hop the caller wrote. The same function the rate limit and token usage use.
+pub use crate::forwarded::client_ip;
+pub use actor::{RequestActor, TOKEN_ID_KEY, user_agent};
+pub use token_events::{TOKEN_TARGET_TYPE, events_for_token, events_for_token_in_org};
+
 /// Seed for the first event in any chain.
 const GENESIS: &str = "genesis";
 
@@ -93,6 +105,10 @@ pub struct AuditEntry {
     pub outcome: Outcome,
     pub reason: Option<String>,
     pub metadata: Value,
+    /// The key or token that performed the action, set only by
+    /// [`AuditEntry::for_request`]. Kept apart from `metadata` so no setter can
+    /// drop or overwrite it; merged in when the row is written.
+    token: Option<actor::TokenStamp>,
     /// The custom-app environment the action happened in
     /// (`audit_events.environment`). `None` is production — the column's
     /// default, and every row written before environments existed.
@@ -100,6 +116,10 @@ pub struct AuditEntry {
 }
 
 impl AuditEntry {
+    /// An entry with no request behind it: a system loop, a queued job, an app
+    /// function acting as itself. **Request handlers use
+    /// [`AuditEntry::for_request`]**, which records the key or token used;
+    /// `audit/call_sites_guard.rs` enforces that.
     pub fn new(actor_email: impl Into<String>, action: &'static str) -> Self {
         Self {
             actor_user_id: None,
@@ -118,14 +138,16 @@ impl AuditEntry {
             outcome: Outcome::Success,
             reason: None,
             metadata: json!({}),
+            token: None,
             environment: None,
         }
     }
 
+    /// Name the acting user and their tier. An entry a key or token performed
+    /// keeps `ApiKey` (see [`AuditEntry::acting_as`]).
     pub fn actor(mut self, user_id: Uuid, actor_type: ActorType) -> Self {
         self.actor_user_id = Some(user_id);
-        self.actor_type = actor_type;
-        self
+        self.acting_as(actor_type)
     }
 
     pub fn org(mut self, org_id: Uuid) -> Self {
@@ -250,9 +272,20 @@ fn content_digest_input(entry: &AuditEntry, id: Uuid, created_at: &str) -> Strin
         req = s(&entry.context.request_id),
         outcome = entry.outcome.as_str(),
         reason = s(&entry.reason),
-        meta = entry.metadata,
+        meta = entry.effective_metadata(),
         env = environment_suffix(entry.environment.as_deref()),
     )
+}
+
+/// The entry exactly as it will be stored and hashed: the credential stamp
+/// merged into the metadata, and every JSON value in `jsonb` key order so the
+/// verifier's digest of the stored row matches (see [`canonical`]).
+fn canonical_entry(mut entry: AuditEntry) -> AuditEntry {
+    entry.metadata = canonical::jsonb_order(&entry.effective_metadata());
+    entry.token = None;
+    entry.before = entry.before.as_ref().map(canonical::jsonb_order);
+    entry.after = entry.after.as_ref().map(canonical::jsonb_order);
+    entry
 }
 
 /// The same digest, rebuilt from a **persisted row** — the verifier's half of
@@ -448,8 +481,33 @@ pub fn spawn_audit_prune_loop() {
                 },
                 Err(e) => tracing::warn!(error = %e, "audit prune: DB connect failed; skipping"),
             }
+            prune_token_usage().await;
         }
     });
+}
+
+/// Per-token daily usage rides the same daily sweep as the audit log, on its
+/// own (longer) window. Idempotent, so every replica running it is harmless.
+async fn prune_token_usage() {
+    use oxy_auth::token::usage;
+    let db = match oxy::database::client::establish_connection().await {
+        Ok(db) => db,
+        Err(e) => {
+            tracing::warn!(error = %e, "token usage prune: DB connect failed; skipping");
+            return;
+        }
+    };
+    match usage::prune_older_than(&db, usage::USAGE_RETENTION_DAYS).await {
+        Ok(n) if n > 0 => {
+            tracing::info!(
+                pruned = n,
+                retain_days = usage::USAGE_RETENTION_DAYS,
+                "token usage prune"
+            )
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "token usage prune failed"),
+    }
 }
 
 fn compute_hash(prev: Option<&str>, content: &str) -> String {
@@ -533,6 +591,7 @@ async fn insert_event<C: ConnectionTrait>(
 /// entry commit or roll back together (review #7). [`record_best_effort`] remains
 /// for the operational-visibility events where a dropped row is acceptable.
 pub async fn record(db: &DatabaseConnection, entry: AuditEntry) -> Result<Uuid, DbErr> {
+    let entry = canonical_entry(entry);
     let id = Uuid::new_v4();
     let created_at = to_micros(Utc::now());
     let content = content_digest_input(&entry, id, &created_at.to_rfc3339());
@@ -569,6 +628,7 @@ pub async fn record(db: &DatabaseConnection, entry: AuditEntry) -> Result<Uuid, 
 /// per-org hash chain serialized exactly as [`record`] does, without a second
 /// transaction.
 pub async fn record_in_txn<C: ConnectionTrait>(txn: &C, entry: AuditEntry) -> Result<Uuid, DbErr> {
+    let entry = canonical_entry(entry);
     let id = Uuid::new_v4();
     let created_at = to_micros(Utc::now());
     let content = content_digest_input(&entry, id, &created_at.to_rfc3339());
@@ -703,6 +763,9 @@ pub struct AuditFilter {
     pub org_id: Option<Uuid>,
     pub outcome: Option<String>,
     pub q: Option<String>,
+    /// Everything about one API token: actions performed with it
+    /// (`metadata.token_id`) and lifecycle events whose target it is.
+    pub token_id: Option<Uuid>,
     /// The orgs the **caller** may read — `None` for an unbounded reader.
     ///
     /// Not a search term: `org_id` above is what the caller asked for, this is what
@@ -737,6 +800,9 @@ pub async fn search_events(
     }
     if let Some(outcome) = filter.outcome.as_deref().filter(|s| !s.is_empty()) {
         query = query.filter(audit_events::Column::Outcome.eq(outcome));
+    }
+    if let Some(token_id) = filter.token_id {
+        query = query.filter(token_events::about_token(token_id));
     }
     if let Some(q) = filter.q.as_deref().filter(|s| !s.is_empty()) {
         query = query.filter(

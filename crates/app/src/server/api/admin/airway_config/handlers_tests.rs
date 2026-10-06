@@ -160,6 +160,7 @@ async fn seed_actor(db: &DatabaseConnection, scope: Option<&[Uuid]>) -> Authenti
         name: "airway scope test".to_string(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     }
 }
 

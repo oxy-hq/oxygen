@@ -3,7 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::constants::{AUTHENTICATION_HEADER_KEY, AUTHENTICATION_SECRET_KEY, SESSION_COOKIE_NAME};
 use oxy_shared::errors::OxyError;
 
-use crate::{api_key_infra::authenticate_header, authenticator::Authenticator, types::Identity};
+use crate::token::{AuthSurface, Authenticated, authenticate_request};
+use crate::{authenticator::Authenticator, types::Identity};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 
@@ -31,8 +32,28 @@ pub fn set_auth_configured(value: bool) {
     AUTH_CONFIGURED.store(value, Ordering::Relaxed);
 }
 
-fn auth_configured() -> bool {
+pub(crate) fn auth_configured() -> bool {
     AUTH_CONFIGURED.load(Ordering::Relaxed)
+}
+
+/// The zero-config guest. No id: this sentinel exists so `get_or_create_user`
+/// MINTS the guest row on a zero-config install. Naming an id would turn the
+/// first request on a fresh database into a hard failure.
+pub(crate) fn guest_identity() -> Identity {
+    Identity {
+        user_id: None,
+        picture: None,
+        name: Some("Local User".to_string()),
+        email: crate::user::LOCAL_GUEST_EMAIL.to_string(),
+    }
+}
+
+/// The session a request carries: the `Authorization` JWT, else the
+/// `oxy_session` cookie. Step 2 of [`authenticate_request`]'s order.
+pub(crate) fn session_identity(header: &axum::http::HeaderMap) -> Result<Identity, OxyError> {
+    let authenticator = BuiltInAuthenticator;
+    let token = authenticator.extract_token(header)?;
+    authenticator.validate(&token)
 }
 
 pub struct BuiltInAuthenticator;
@@ -52,32 +73,21 @@ impl BuiltInAuthenticator {
 impl Authenticator for BuiltInAuthenticator {
     type Error = OxyError;
 
+    /// Every direct caller (custom-app serving and gates, `GET /api/user`,
+    /// kiosk enrol) lands here, so they share [`authenticate_request`]'s order
+    /// with `/api`: guest on a zero-config install, then a new-prefix token
+    /// (no fallthrough), then the session JWT or cookie, then a legacy key.
     async fn authenticate(&self, header: &axum::http::HeaderMap) -> Result<Identity, Self::Error> {
-        // Check if any authentication methods are configured.
-        // If YES: enforce authentication.
-        // If NO: use guest user (backward compatibility for zero-config local installs).
-        if !auth_configured() {
-            return Ok(Identity {
-                // No id: this sentinel exists so `get_or_create_user` MINTS the
-                // guest row on a zero-config install. Naming an id would turn
-                // the first request on a fresh database into a hard failure.
-                user_id: None,
-                picture: None,
-                name: Some("Local User".to_string()),
-                email: crate::user::LOCAL_GUEST_EMAIL.to_string(),
-            });
-        }
+        authenticate_request(header, AuthSurface::Session)
+            .await
+            .map(|(identity, _)| identity)
+    }
 
-        match self.extract_token(header) {
-            Ok(token) => match self.validate(&token) {
-                Ok(identity) => return Ok(identity),
-                Err(err) => tracing::debug!("JWT validation failed, will try API key: {}", err),
-            },
-            Err(err) => tracing::debug!("No JWT token extracted: {}", err),
-        }
-
-        // Fallback to X-API-Key header authentication.
-        authenticate_header(header).await
+    async fn authenticate_with_credential(
+        &self,
+        header: &axum::http::HeaderMap,
+    ) -> Result<Authenticated, Self::Error> {
+        authenticate_request(header, AuthSurface::Session).await
     }
 }
 
@@ -251,7 +261,6 @@ mod tests {
 #[cfg(test)]
 mod session_identity_tests {
     use super::*;
-    use crate::authenticator::Authenticator;
     use jsonwebtoken::{EncodingKey, Header, encode};
 
     fn token(sub: &str, email: &str) -> String {

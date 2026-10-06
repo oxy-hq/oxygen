@@ -90,6 +90,8 @@ pub struct AuditQuery {
     pub outcome: Option<String>,
     /// Free-text search across action / actor / target label.
     pub q: Option<String>,
+    /// One API token: actions performed with it and its lifecycle events.
+    pub token_id: Option<Uuid>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
 }
@@ -163,6 +165,7 @@ pub async fn list_audit(
         org_id: q.org_id,
         outcome: q.outcome,
         q: q.q,
+        token_id: q.token_id,
         org_scope: crate::server::api::admin::scope::list_scope(&db, &actor).await?,
     };
     // CLAMPED AT BOTH ENDS. `?limit=0` past a top-only clamp is an infinite

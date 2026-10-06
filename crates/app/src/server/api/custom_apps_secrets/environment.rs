@@ -58,9 +58,8 @@ pub(super) async fn authorize(
     if *environment == AppEnvironment::Production {
         return Ok(());
     }
-    let email = user.email.as_deref().unwrap_or("");
-    if crate::server::api::custom_apps_env_resolve::may_open_non_production(db, user.id, email, app)
-        .await
+    let caller = crate::server::authz::Caller::from_user(user);
+    if crate::server::api::custom_apps_env_resolve::may_open_non_production(db, &caller, app).await
     {
         return Ok(());
     }

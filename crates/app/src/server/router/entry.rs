@@ -203,6 +203,15 @@ pub async fn api_router(
     // prune doesn't report a false chain break.
     oxy_app_core::audit::spawn_audit_prune_loop();
 
+    // Per-token usage: counted in memory by `token_usage_middleware`, written
+    // here once a minute, and once more when the shutdown token is cancelled —
+    // registered as a shutdown hook so the last partial minute is not lost.
+    super::recovery::register_shutdown_hook(
+        crate::server::token_usage_flush::spawn_token_usage_flush(
+            agentic_state.shutdown_token.clone(),
+        ),
+    );
+
     // Audit tamper evidence: every hour, each org's chain head goes to S3 under
     // Object Lock (compliance mode), so a verifier can check the database
     // against something the database cannot rewrite. Singleton-gated; a no-op

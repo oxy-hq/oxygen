@@ -89,7 +89,7 @@ pub(crate) async fn with_two_sandboxes(app: &OltpApp) -> apps::Model {
         .find(|a| a.slug == app.slug && a.org_id == app.t.org_id)
         .expect("the app");
     for handle in ["a1", "b2"] {
-        ops::create(&app.t.db, &row, &sandbox(handle), app.t.guest_id)
+        ops::create(&app.t.db, &row, &sandbox(handle), &app.t.guest())
             .await
             .expect("create the sandbox");
     }

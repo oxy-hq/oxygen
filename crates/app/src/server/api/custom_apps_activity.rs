@@ -210,8 +210,7 @@ pub enum EventAppRefusal {
 pub async fn resolve_event_app(
     db: &sea_orm::DatabaseConnection,
     project_id: Uuid,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     app_id: Option<Uuid>,
 ) -> Result<apps::Model, EventAppRefusal> {
     let db_err = |e: sea_orm::DbErr| EventAppRefusal::Db(e.to_string());
@@ -223,10 +222,9 @@ pub async fn resolve_event_app(
                 .await
                 .map_err(db_err)?
                 .ok_or(EventAppRefusal::NotYours)?;
-            let can_open =
-                super::custom_apps_auth::user_can_access_app(db, user_id, user_email, &app)
-                    .await
-                    .map_err(db_err)?;
+            let can_open = super::custom_apps_auth::user_can_access_app(db, caller, &app)
+                .await
+                .map_err(db_err)?;
             if can_open {
                 Ok(app)
             } else {
@@ -318,8 +316,7 @@ pub async fn post_event(
     let app = match resolve_event_app(
         &db,
         ctx.project_id,
-        ctx.user.id,
-        ctx.user.email.as_deref().unwrap_or(""),
+        &oxy_server_authz::Caller::from_user(&ctx.user),
         req.app_id,
     )
     .await

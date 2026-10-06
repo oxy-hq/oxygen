@@ -109,13 +109,8 @@ impl<'a> Caller<'a> {
     /// non-production environments (`Action::AppNonProduction`).
     pub(crate) async fn has_reach(&self, db: &DatabaseConnection, app: &apps::Model) -> bool {
         self.marker.is_none()
-            && may_open_non_production(
-                db,
-                self.user.id,
-                self.user.email.as_deref().unwrap_or(""),
-                app,
-            )
-            .await
+            && may_open_non_production(db, &crate::server::authz::Caller::from_user(self.user), app)
+                .await
     }
 }
 
@@ -212,13 +207,13 @@ pub(crate) fn is_production(environment: &str) -> bool {
 pub(crate) async fn require_reach(
     db: &DatabaseConnection,
     app: &apps::Model,
-    user_id: Uuid,
-    email: Option<&str>,
+    user: &AuthenticatedUser,
     environment: &str,
 ) -> Result<(), ScopeError> {
-    if is_production(environment)
-        || may_open_non_production(db, user_id, email.unwrap_or(""), app).await
-    {
+    // The request's user with the credential it arrived with: a token that
+    // carries no staff standing opens no non-production environment.
+    let caller = crate::server::authz::Caller::from_user(user);
+    if is_production(environment) || may_open_non_production(db, &caller, app).await {
         return Ok(());
     }
     Err(ScopeError::new(
@@ -259,8 +254,7 @@ pub(crate) async fn admit_to(
     if caller.marker.is_some() {
         return Err(ScopeError::publish_token_refused(environment));
     }
-    let user = caller.user;
-    require_reach(db, app, user.id, user.email.as_deref(), &environment.name()).await
+    require_reach(db, app, caller.user, &environment.name()).await
 }
 
 impl From<TriggerError> for ScopeError {

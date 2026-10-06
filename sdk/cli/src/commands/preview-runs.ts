@@ -125,7 +125,7 @@ export async function previewSubmitRun(ctx: Context, params: SubmitRunParams): P
     path: previewsPath(ctx, "/runs"),
     method: "POST",
     body: JSON.stringify(body),
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   return parseJson(response.body) as Submitted;
@@ -136,7 +136,7 @@ export async function previewRunsList(ctx: Context, branch: string): Promise<Run
     target: ctx.target(),
     path: `${previewsPath(ctx, "/runs")}?branch=${encodeURIComponent(branch)}`,
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   return (parseJson(response.body) as RunSummary[] | undefined) ?? [];
@@ -147,7 +147,7 @@ async function fetchRunDetail(ctx: Context, runId: string): Promise<RunDetail> {
     target: ctx.target(),
     path: previewsPath(ctx, `/runs/${encodeURIComponent(runId)}`),
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   return parseJson(response.body) as RunDetail;

@@ -17,14 +17,19 @@ function fakeContext(opts: { bearer?: string; apiKey?: string } = {}): Context {
     flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
-    bearer: () => {
+    bearer: async () => {
       if (opts.bearer) return opts.bearer;
       throw new CliError(`not authenticated for ${TARGET}`, {
         code: ExitCode.AUTH,
         hint: "oxyc login --env production"
       });
     },
-    maybeBearer: () => opts.bearer,
+    maybeBearer: async () => opts.bearer,
+    storedBearer: () => opts.bearer,
+    async credential() {
+      return { token: await this.bearer(), source: "env" };
+    },
+    serviceAccount: () => undefined,
     apiKey: () => opts.apiKey,
     customer: () => undefined,
     repoDir: () => undefined,

@@ -9,7 +9,6 @@ use chrono::Utc;
 use entity::{org_role_members, org_roles};
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait,
     PaginatorTrait, QueryFilter, Set,
@@ -111,7 +110,7 @@ fn refused(e: RoleError) -> Response {
 #[instrument(skip_all, fields(org = %org_id, role = %id))]
 pub async fn patch_role(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateRole>,
 ) -> Response {
@@ -122,8 +121,7 @@ pub async fn patch_role(
         Ok(row) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "org.role.renamed")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "org.role.renamed")
                     .org(org_id)
                     .target("org_role", row.id.to_string(), row.name.clone()),
             )
@@ -138,7 +136,7 @@ pub async fn patch_role(
 #[instrument(skip_all, fields(org = %org_id, role = %id))]
 pub async fn delete_role_handler(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Response {
     let Ok(db) = establish_connection().await else {
@@ -148,8 +146,7 @@ pub async fn delete_role_handler(
         Ok(()) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "org.role.deleted")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "org.role.deleted")
                     .org(org_id)
                     .target("org_role", id.to_string(), String::new()),
             )

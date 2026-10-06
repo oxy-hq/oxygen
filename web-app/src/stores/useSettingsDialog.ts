@@ -8,6 +8,7 @@ export type SettingsSection =
   | "organization.crew"
   | "organization.locations"
   | "organization.positions"
+  | "organization.api_access"
   | "organization.billing"
   | "organization.integration"
   | "workspace.members"
@@ -17,11 +18,13 @@ export type SettingsSection =
   | "workspace.airhouse"
   | "workspace.oltp"
   | "workspace.api_keys"
+  | "workspace.legacy_api_keys"
   | "workspace.secrets"
   | "workspace.connections"
   | "workspace.apps"
   | "workspace.activity_logs"
   | "workspace.oxy_access"
+  | "account.tokens"
   | "preferences.appearance";
 
 interface SettingsDialogState {

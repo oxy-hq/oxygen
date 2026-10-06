@@ -101,13 +101,24 @@ pub fn invalidate_access_cache() {
 /// Short-circuits on the staff path so an Oxy engineer's request
 /// skips the org-membership query, and on the unpublished check so
 /// customers don't fan out to membership for draft apps.
+///
+/// Takes the [`oxy_server_authz::Caller`]: an API token reaches an app only
+/// when a grant covers the workspace it was published from, staff standing is
+/// what the token carries, and the officer break-glass needs an admin ceiling.
+/// Outside the grant the answer is `false` — to a token the app does not exist.
 pub async fn user_can_access_app(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     app: &apps::Model,
 ) -> Result<bool, DbErr> {
-    if let Some(v) = cached_access(user_id, app.id) {
+    let user_id = caller.user_id;
+    let Some(ceiling) = caller.workspace_ceiling(app.org_id, app.project_id) else {
+        return Ok(false);
+    };
+    // The verdict cache is keyed by (user, app) — a session's verdict. A token
+    // that narrows its bearer must neither read one nor leave one behind.
+    let cacheable = !caller.reach().is_some_and(oxy_authz::TokenReach::narrows);
+    if cacheable && let Some(v) = cached_access(user_id, app.id) {
         return Ok(v);
     }
 
@@ -124,7 +135,7 @@ pub async fn user_can_access_app(
     // reports staff, and a grant bounded to one org must not open another's app.
     let allowed = if oxy_server_authz::globals::platform_reaches(
         db,
-        user_email,
+        caller,
         oxy_authz::Cap::DevelopApps,
         app.org_id,
     )
@@ -147,7 +158,8 @@ pub async fn user_can_access_app(
             // `Ring::AppAccess`.
             (is_org_member(db, user_id, app.org_id).await?
                 && has_app_grant(db, user_id, app.id).await?)
-                || is_org_officer(db, user_id, app.org_id).await?
+                || (ceiling >= oxy_authz::RoleCeiling::Admin
+                    && is_org_officer(db, user_id, app.org_id).await?)
         } else {
             is_org_member(db, user_id, app.org_id).await?
         };
@@ -172,7 +184,9 @@ pub async fn user_can_access_app(
         false
     };
 
-    set_cached_access(user_id, app.id, allowed);
+    if cacheable {
+        set_cached_access(user_id, app.id, allowed);
+    }
     Ok(allowed)
 }
 
@@ -258,25 +272,27 @@ pub(crate) async fn is_org_officer(
 /// surface on it is server-enforcing, not merely hiding a tab.
 pub async fn resolve_app_role(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     app: &apps::Model,
 ) -> Result<Option<&'static str>, DbErr> {
+    let user_id = caller.user_id;
     // The admin verdict comes from the ONE model — not a second copy of the rule
     // written out here. Restating "staff OR org owner OR app-admin row" in SQL is
     // exactly the drift `oxy-authz` exists to end, and it would silently diverge
     // the moment `Ring::AppAdmin` changed.
     //
     // Workspace facts are skipped: no app ring reads them.
+    //
+    // The resource names the workspace the app was published from, so an API
+    // token is an app admin only where its ceiling over THAT workspace reaches
+    // admin — the per-app admin row included. Under a lower ceiling the caller
+    // falls through to `member` below: the capped role, as for any other.
+    let resource =
+        oxy_authz::Resource::app_with_visibility(app.id, app.org_id, app.is_restricted())
+            .published_from(app.project_id);
     let is_admin =
-        match oxy_server_authz::loader::load_principal_facts_scoped(db, user_id, user_email, false)
-            .await
-        {
-            Some(facts) => oxy_authz::allows(
-                &facts,
-                oxy_authz::Action::AppAdmin,
-                &oxy_authz::Resource::app_with_visibility(app.id, app.org_id, app.is_restricted()),
-            ),
+        match oxy_server_authz::loader::load_principal_facts_scoped(db, caller, false).await {
+            Some(facts) => oxy_authz::allows(&facts, oxy_authz::Action::AppAdmin, &resource),
             // Facts unknown (a DB blip) → not admin. Fail closed.
             None => false,
         };
@@ -473,17 +489,12 @@ pub(crate) async fn require_app_admin(outcome: &AuthOutcome) -> Result<(), Statu
         error!("db connect failed for app-admin check: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let role = resolve_app_role(
-        &db,
-        outcome.user_id,
-        outcome.user_email.as_deref().unwrap_or(""),
-        &outcome.app,
-    )
-    .await
-    .map_err(|e| {
-        error!("app role lookup failed: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let role = resolve_app_role(&db, &outcome.caller, &outcome.app)
+        .await
+        .map_err(|e| {
+            error!("app role lookup failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     if role == Some(app_members::ROLE_ADMIN) {
         Ok(())
     } else {
@@ -507,6 +518,10 @@ pub(crate) struct AuthOutcome {
     /// `users.picture`, when they have one.
     pub user_picture: Option<String>,
     pub is_staff: bool,
+    /// The user with the credential the request arrived with — what every
+    /// further authorization question about this request must be asked of, so
+    /// an API token's grants and standing flags hold on the custom-app paths too.
+    pub caller: oxy_server_authz::Caller,
 }
 
 /// The key the per-request user cache is kept under: **who the credential
@@ -540,8 +555,8 @@ pub(crate) async fn authenticate_and_authorize(
 ) -> Result<AuthOutcome, axum::http::StatusCode> {
     use axum::http::StatusCode;
 
-    let identity = BuiltInAuthenticator::new()
-        .authenticate(headers)
+    let (identity, credential) = BuiltInAuthenticator::new()
+        .authenticate_with_credential(headers)
         .await
         .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
@@ -559,6 +574,10 @@ pub(crate) async fn authenticate_and_authorize(
         set_cached_user(cache_key, u.clone());
         u
     };
+    // Attached AFTER the cache: the cached row is the user, never the credential
+    // one request happened to arrive with.
+    let user = user.with_credential(credential);
+    let caller = oxy_server_authz::Caller::from_user(&user);
 
     let db = establish_connection().await.map_err(|e| {
         error!("DB connection failed: {e}");
@@ -586,12 +605,19 @@ pub(crate) async fn authenticate_and_authorize(
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let allowed = user_can_access_app(&db, user.id, user.email.as_deref().unwrap_or(""), &app)
-        .await
-        .map_err(|e| {
-            error!("access check failed: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    // An API token with no grant on the app's workspace answers exactly as an
+    // unknown app does, so it cannot probe which apps exist.
+    if caller
+        .workspace_ceiling(app.org_id, app.project_id)
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let allowed = user_can_access_app(&db, &caller, &app).await.map_err(|e| {
+        error!("access check failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     if !allowed {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -602,7 +628,7 @@ pub(crate) async fn authenticate_and_authorize(
     // precisely the bug this comment was written for.
     let is_staff = oxy_server_authz::globals::platform_reaches(
         &db,
-        user.email.as_deref().unwrap_or(""),
+        &caller,
         oxy_authz::Cap::DevelopApps,
         app.org_id,
     )
@@ -615,6 +641,7 @@ pub(crate) async fn authenticate_and_authorize(
         user_name: user.name,
         user_picture: user.picture,
         is_staff,
+        caller,
     })
 }
 

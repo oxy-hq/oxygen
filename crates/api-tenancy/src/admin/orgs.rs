@@ -143,8 +143,7 @@ pub async fn create_org(
         // drift the helper split was meant to end.
         let facts = match oxy_server_authz::loader::load_platform_facts(
             &db,
-            actor.id,
-            actor.email.as_deref().unwrap_or(""),
+            &oxy_server_authz::Caller::from_user(&actor),
         )
         .await
         {

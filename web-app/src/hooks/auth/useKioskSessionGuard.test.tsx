@@ -40,8 +40,12 @@ const kiosk = (sessionUserId: string | null | undefined): KioskDevice =>
 const tokenFor = (sub: string) =>
   `h.${btoa(JSON.stringify({ sub, exp: Math.floor(Date.now() / 1000) + 3600 }))}.s`;
 
+// The token signed in with, compared by value: rebuilding it later reads the
+// clock again, and a test that crosses a second boundary got a different `exp`.
+let signedInToken = "";
 const signInAsAdmin = () => {
-  localStorage.setItem("auth_token", tokenFor(ADMIN_ID));
+  signedInToken = tokenFor(ADMIN_ID);
+  localStorage.setItem("auth_token", signedInToken);
   localStorage.setItem("user", JSON.stringify({ id: ADMIN_ID, email: "maya@acme.test" }));
   sessionStorage.setItem("some-tab-state", "x");
 };
@@ -128,7 +132,7 @@ const expectSignedOut = async () => {
 
 const expectStillSignedIn = () => {
   expect(navigatedTo).toBeNull();
-  expect(localStorage.getItem("auth_token")).toBe(tokenFor(ADMIN_ID));
+  expect(localStorage.getItem("auth_token")).toBe(signedInToken);
   expect(screen.getByTestId("admin-page")).toBeTruthy();
 };
 

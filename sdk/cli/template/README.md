@@ -201,11 +201,11 @@ stops publishing with nobody told, and guessed as on publishes when nobody
 asked, so it is not guessed.
 
 Note what the switch does **not** do. It decides whether the publish job runs;
-it never softens what happens once it has. With CI publishing on, a missing
-`OXY_TOKEN` is a **hard failure** exactly as it always was. That is the reason
-there is a switch at all rather than the obvious shortcut of skipping whenever
-no token turns up: inferred from the token, "this repo does not publish from
-CI" and "somebody forgot production's token" are the same observation — and
+it never softens what happens once it has. With CI publishing on, a run that
+cannot authenticate is a **hard failure**. That is the reason there is a switch
+at all rather than the obvious shortcut of skipping whenever no credential
+turns up: inferred from the credential, "this repo does not publish from CI"
+and "somebody forgot production's trust policy" are the same observation — and
 the second one ships nothing, quietly, for as long as nobody looks.
 
 Everything from here to the end of this section describes a repo that has
@@ -241,9 +241,10 @@ is no code path that can fall back to a default.
 
 There is deliberately **no environment picker** on the manual run. An input
 would need a default, which is the thing being removed; and the same resolved
-name also selects the GitHub environment whose `OXY_TOKEN` the job publishes
-with, so leaving it to a form field would mean the credential and the
-destination agree only by an operator's care. To publish a dev draft by hand,
+name also selects the GitHub environment the job runs in — which is what its
+credential is bound to — so leaving it to a form field would mean the
+credential and the destination agree only by an operator's care. To publish a
+dev draft by hand,
 re-run the push-triggered run from the Actions tab — a re-run keeps the
 original event, so it still resolves to `dev`.
 
@@ -251,10 +252,10 @@ It is **two jobs**, and the split is the security boundary rather than a
 tidiness one. `build` runs `pnpm install` and `pnpm -r build` — which is to
 say it executes the postinstall and build scripts of every dependency your
 apps pull in — and holds no publish credential at all. It hands the built
-output to `publish` as a workflow artifact. `publish` holds `OXY_TOKEN`, and
-runs no package script: `oxyc publish --dir` uploads a pre-built directory
+output to `publish` as a workflow artifact. `publish` holds the credential,
+and runs no package script: `oxyc publish --dir` uploads a pre-built directory
 as-is instead of building anything. So a compromised dependency in an app's
-tree never runs on a runner where the token exists.
+tree never runs on a runner where the credential exists.
 
 **On a fresh repo it does nothing at all, and that is the intended
 behaviour.** The scaffold ships no apps and no `pnpm-lock.yaml` — there is
@@ -264,32 +265,90 @@ the run goes **green**. The install is skipped along with the publish
 deliberately: `pnpm install --frozen-lockfile` fails without a lockfile, and
 a repo whose CI is red the day it is created is a repo where nobody reads CI.
 
-Before it can publish anything, each of the two **GitHub environments** —
-`dev` and `production` — needs its own **`OXY_TOKEN`** (Settings →
-Environments → *environment* → Environment secrets), a publish-scoped API key
-minted in oxy against that workspace. This is the credential the self-serve
-model does without, and it is worth knowing what it is before you create one:
-a personal API key records the project it was minted against, but that project
-never reaches validation — a leaked key carries the minter's **user-level**
-access, not "this app's project only".
+#### How CI authenticates: no stored secret
 
-**A missing one fails the run, loudly, and that is the intended behaviour.**
-It is also why CI publishing is a switch rather than something inferred from
-the token's presence: with the switch on, no token means a red run naming the
-environment it was looked for in, never a green run that published nothing.
+**By default the publish job holds no secret at all.** It is granted
+`id-token: write`, which lets it ask GitHub for a signed statement of what it
+is — this repository, this workflow file, the environment the job runs in.
+`oxyc publish` hands that statement to oxy and gets back a token that lasts
+fifteen minutes, acts as a **service account** of your organization, and is
+revoked when the command ends. There is nothing to rotate and nothing to leak
+from Settings.
+
+What makes oxy honour the statement is a **trust policy** on the service
+account, and it has to exist before the first publish. An org admin registers
+one **per environment**, once:
+
+1. In the web app: **Organization settings → API access → Service accounts**.
+   Create a service account — `deployer` is the conventional name — with the
+   role *member*.
+2. Open it and, under **Trusted access**, add a policy for each of `dev` and
+   `production`:
+
+   | Field | Value |
+   | --- | --- |
+   | Repository | this repo, as `<owner>/<repo>` |
+   | Workflow | `.github/workflows/publish.yaml` |
+   | Environment | `dev` (and a second policy for `production`) |
+   | Grant | publishing the apps under `apps/` — and nothing else |
+
+The environment is part of the match, so the `production` policy cannot be
+satisfied by a push-triggered run in `dev`: the credential and the destination
+agree by construction, exactly as they did when each environment held its own
+token. A run no policy matches fails with the repository, workflow and ref it
+presented, which is usually enough to see which field is off.
+
+**Name the account the workflow acts as, by its ID**, in an
+`OXY_SERVICE_ACCOUNT` **variable** on the environment. The ID is on the
+account's page (Organization settings → API access → Service accounts → the
+account). It is required for a trust policy to be used at all: the deployment
+matches a run against the policies of the one account its workflow names, and
+never picks one on a run's behalf — anyone can register a policy that names a
+repository. With the variable unset, the publish goes through each app's
+*registered publisher* instead, as it did before trust policies existed.
+
+The ID, never `<org-slug>/<name>`: a slug is free for anyone once its org
+renames or is deleted, so a name can be taken over and an ID cannot. A name in
+the variable is refused (`service_account_required`).
+
+> Trust policies need a recent enough CLI in CI. The workflow pins the one it
+> installs as `OXYC_VERSION`; the comment beside the pin says which release
+> first honours them. An older pin still publishes with no stored secret, but
+> only through an app's *registered publisher* — the earlier, per-app
+> registration (`/api/customer-apps/<app-id>/publishers`), which Oxy staff set
+> up.
+
+#### The fallback: an `OXY_TOKEN` secret
+
+A static token still works, and **when it is set it wins** — the job then
+requests no OIDC token and authenticates exactly as this workflow always did.
+Use it where the deployment has no trusted access yet, or where a repository
+cannot be given a trust policy. Each of the two **GitHub environments** — `dev`
+and `production` — holds its own **`OXY_TOKEN`** (Settings → Environments →
+*environment* → Environment secrets). Prefer a **service account token**
+(Organization settings → API access → Service accounts → *account* → Tokens),
+granted only what publishing needs; a personal access token or an older
+workspace API key also works, and carries its owner's access with it — a
+leaked one is that person, not "this app only".
+
+Every run prints which of the two it used. **A run with neither fails,
+loudly, and that is the intended behaviour.** It is also why CI publishing is
+a switch rather than something inferred from a credential's presence: with the
+switch on, a job that cannot authenticate is a red run that says why, never a
+green run that published nothing.
 
 **And any repository-level `OXY_TOKEN` must be DELETED, not left in place.**
 GitHub's order is environment → repository → organisation, and that is
 *precedence, not exclusion*: an environment secret overrides a repository one
 of the same name, it does not suppress it. A repo still carrying an old
 repository-level token therefore serves **both** environments from it wherever
-the environment has none — every run looks healthy, the missing-token check
-never fires, and production ships under whatever that token was scoped to.
+the environment has none — every run looks healthy, OIDC is never tried, and
+production ships under whatever that token was scoped to.
 
 Nothing in CI can catch it. GitHub does not tell a job which level a secret
 came from, so the two cases are identical from inside the run. It is a
 one-time human check, and it is the single thing to get right when moving an
-existing repo onto environments:
+existing repo onto trust policies or onto environments:
 
 ```bash
 gh secret list --repo <owner>/<repo>              # repository level
@@ -311,10 +370,13 @@ So adding the first app is two things — three, if this repo publishes from CI:
    lockfile it writes. Only the lockfile: `node_modules/` and every app's
    build output are covered by `.gitignore`, so `git add -A` after an install
    stages the one file CI needs and none of the ones it does not;
-3. **only with `OXY_CI_PUBLISH` set** — an `OXY_TOKEN` in each environment.
+3. **only with `OXY_CI_PUBLISH` set** — a trust policy for each environment
+   that grants publishing the app (or, as the fallback, an `OXY_TOKEN` in each
+   environment).
 
 Miss one and the workflow fails loudly and names it: the discovery step
-points at the manifest, or the missing lockfile, or the missing secret. It
+points at the manifest, or the missing lockfile; the publish step says no
+trust policy matched the run, or that it had nothing to authenticate with. It
 does not guess and it does not half-publish. (The first two are needed even
 with CI publishing off: the `build` job installs and builds either way.)
 
@@ -397,8 +459,10 @@ someone points each at the branch:
 
 Promoting the production semantic model is a deliberate, human step: open the
 production workspace in Oxygen and pull the latest commit. **CI does not do
-it**, and holds no credential that could — the `OXY_TOKEN` in each environment
-is publish-scoped and cannot compile or promote a workspace at all. So a merge
+it**, and holds no credential that could — the trust policy behind each
+environment grants publishing apps and nothing else, so the token the job is
+handed cannot compile or promote a workspace at all. (Keep it that way on the
+fallback path: an `OXY_TOKEN` should be a token that can only publish.) So a merge
 to `main` never changes what production answers until someone decides it
 should.
 

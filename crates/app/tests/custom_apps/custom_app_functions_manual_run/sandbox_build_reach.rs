@@ -37,7 +37,7 @@ fn sandbox_host(t: &Tenant, handle: &str) -> String {
 /// The sandbox `dev-<handle>` of the app, serving its own build `build`.
 async fn sandbox_serving(t: &Tenant, app_id: Uuid, handle: &str, build: &str) {
     let app = app_row(&t.db, app_id).await;
-    ops::create(&t.db, &app, &sandbox(handle), t.guest_id)
+    ops::create(&t.db, &app, &sandbox(handle), &t.guest())
         .await
         .expect("create the sandbox");
     let whoami = FunctionSpec {
@@ -68,7 +68,7 @@ async fn naming_a_build_only_a_sandbox_serves_needs_reach_and_productions_build_
     sandbox_serving(&t, app_id, "a1", SANDBOX_BUILD).await;
     // A second sandbox with no build: the rule reads every sandbox at once.
     let app = app_row(&t.db, app_id).await;
-    ops::create(&t.db, &app, &sandbox("b2"), t.guest_id)
+    ops::create(&t.db, &app, &sandbox("b2"), &t.guest())
         .await
         .expect("create a second sandbox");
 
@@ -138,7 +138,7 @@ async fn naming_a_build_only_a_sandbox_serves_needs_reach_and_productions_build_
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await

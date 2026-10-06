@@ -140,6 +140,7 @@ async fn the_held_route_returns_one_invocations_held_writes_and_no_one_elses() {
             name: "Outsider".to_string(),
             picture: None,
             status: UserStatus::Active,
+            credential: None,
         })
     };
     let refused = held_writes::get_held_writes(outsider(), Path((app_id, staged)))

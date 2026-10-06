@@ -35,6 +35,7 @@
 
 pub mod activity;
 pub mod delete;
+mod expiry_audit;
 pub mod handlers;
 pub mod lock;
 pub mod maintenance;

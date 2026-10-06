@@ -33,6 +33,7 @@ mod invoices;
 mod portal;
 mod provision;
 mod seats;
+pub use seats::billable_seats;
 mod stripe_shapes;
 mod webhook_apply;
 

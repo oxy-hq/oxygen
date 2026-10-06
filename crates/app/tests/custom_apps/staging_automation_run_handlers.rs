@@ -102,6 +102,7 @@ async fn held_for(t: &Tenant, app_id: Uuid) -> Vec<HeldEntry> {
         email: Some(LOCAL_GUEST_EMAIL.to_string()),
         name: "Local User".to_string(),
         picture: None,
+        credential: None,
         status: UserStatus::Active,
     });
     list_held(Path(app_id), Query(HeldQuery::default()), who)

@@ -83,9 +83,12 @@ async fn admit(
     app: Option<&apps::Model>,
     environment: &AppEnvironment,
 ) -> Result<Uuid, PublishError> {
-    let (Some(user), Some(email), None, None) = (
+    // The publisher with the credential the request arrived with: a token that
+    // carries no staff standing opens no sandbox.
+    let (Some(_), Some(_), Some(caller), None, None) = (
         input.published_by,
         input.published_by_email.as_deref(),
+        input.publisher.as_ref(),
         input.machine_app_id,
         input.published_via.as_ref(),
     ) else {
@@ -95,7 +98,7 @@ async fn admit(
     let Some(app) = app else {
         return Err(PublishError::UnknownEnvironment { name });
     };
-    if !may_open_non_production(db, user, email, app).await {
+    if !may_open_non_production(db, caller, app).await {
         return Err(PublishError::SandboxRefused);
     }
     if ensure_same_workspace(db, app, input).await? {

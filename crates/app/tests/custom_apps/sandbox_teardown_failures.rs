@@ -39,12 +39,13 @@ async fn a_worker_without_airhouse_does_not_finish_a_teardown_whose_sibling_exis
     // dev-a1 was migrated on a node that has Airhouse: its ledger holds rows.
     let home = migrated_sibling(&t, &app, build, "a1").await;
     let (a1, b2) = (sandbox("a1"), sandbox("b2"));
+    let guest = t.guest();
     let delete = |environment| {
         ops::begin_delete(
             &t.db,
             &app,
             environment,
-            Some(t.guest_id),
+            Some(&guest),
             TeardownReason::Deleted,
         )
     };
@@ -89,7 +90,7 @@ async fn a_failing_step_leaves_the_sandbox_deleting() {
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await
@@ -105,7 +106,7 @@ async fn a_failing_step_leaves_the_sandbox_deleting() {
         "the row stays, deleting"
     );
     assert_eq!(
-        ops::create(&t.db, &app, &sandbox("a1"), t.guest_id).await,
+        ops::create(&t.db, &app, &sandbox("a1"), &t.guest()).await,
         Err(SandboxError::Deleting("dev-a1".into()))
     );
     // Its run has ended, failed: deleting it again is the retry, a run of
@@ -114,7 +115,7 @@ async fn a_failing_step_leaves_the_sandbox_deleting() {
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await

@@ -9,6 +9,7 @@ use super::{GENERATED_SCANNED_DIRS, catalog};
 
 mod handler;
 mod previews_read_only;
+mod token_grant_scope;
 
 fn routes() -> &'static [GeneratedRoute] {
     catalog().routes

@@ -398,9 +398,8 @@ async fn an_event_names_only_an_app_its_sender_can_open() {
     .expect("seed restricted app");
     let elsewhere = seed_app(&conn, org).await;
 
-    let resolve = |app_id: Option<Uuid>| {
-        resolve_event_app(&conn, open.project_id, member, &member_email, app_id)
-    };
+    let caller = oxy_app::server::authz::Caller::without_credential(member, &member_email);
+    let resolve = |app_id: Option<Uuid>| resolve_event_app(&conn, open.project_id, &caller, app_id);
 
     // Named, published here, org-visible: the member can open it, so it is named.
     assert_eq!(resolve(Some(open.id)).await.map(|a| a.id), Ok(open.id));
@@ -422,7 +421,7 @@ async fn an_event_names_only_an_app_its_sender_can_open() {
     );
     // Unnamed, in a workspace that published nothing.
     assert_eq!(
-        resolve_event_app(&conn, Uuid::new_v4(), member, &member_email, None)
+        resolve_event_app(&conn, Uuid::new_v4(), &caller, None)
             .await
             .map(|a| a.id),
         Err(EventAppRefusal::NoneInWorkspace)

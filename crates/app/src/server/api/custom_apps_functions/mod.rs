@@ -1112,14 +1112,7 @@ async fn invoke_function(
     // The one environment decision (see `environment_gate`): production for
     // everyone; staging for staff, with every write held by the policy the
     // host is built from; dev slots refused.
-    let entrance = environment_gate::route_entrance(
-        &db,
-        &resolved,
-        outcome.user_id,
-        outcome.user_email.as_deref(),
-        &app,
-    )
-    .await;
+    let entrance = environment_gate::route_entrance(&db, &resolved, &outcome.caller, &app).await;
     let admission = match environment_gate::admit(&resolved, entrance) {
         Ok(admission) => admission,
         Err(refused) => return refused.into_response(),
@@ -1344,6 +1337,7 @@ async fn invoke_function(
                 headers: sanitize_request_headers(&headers),
                 user_id: outcome.user_id,
                 user_email: outcome.user_email.clone(),
+                caller: outcome.caller.clone(),
                 user_name: Some(outcome.user_name.clone()),
                 user_picture: outcome.user_picture.clone(),
                 identity_kind: runtime::CtxIdentityKind::User,
@@ -1693,6 +1687,12 @@ pub(crate) async fn run_scheduled_function(
         headers: std::collections::BTreeMap::new(),
         user_id: owner.user_id,
         user_email: Some(format!("schedule+{function_name}@system.oxy")),
+        // A system run has no request, so no credential — and its synthetic
+        // address matches no staff grant, exactly as before.
+        caller: crate::server::authz::Caller::without_credential(
+            owner.user_id,
+            &format!("schedule+{function_name}@system.oxy"),
+        ),
         // No caller to attribute this run to — and note this path serves the
         // console's manual `Run now` as well as a cron tick, so a person may well
         // have clicked. The `user_id` above is the org owner's (the invocation row
@@ -1950,6 +1950,11 @@ struct RunArgs<'a> {
     headers: std::collections::BTreeMap<String, String>,
     user_id: Uuid,
     user_email: Option<String>,
+    /// Who invoked, **with the credential the request arrived with** — what the
+    /// role and app-role lookups below are asked of, so an API token's grants
+    /// and ceiling hold inside a function too. A system run (schedule, Airway,
+    /// manual job) has no request behind it and carries no credential.
+    caller: crate::server::authz::Caller,
     /// Display identity for `ctx.user.name` / `ctx.user.picture`. `None` on the
     /// system paths (schedule / Airway / manual job run), where the `user_id` is
     /// only the org owner's FK and there is no caller to attribute the run to —
@@ -2174,13 +2179,12 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
             args.db,
             workspace.id,
             org_id,
-            args.user_id,
-            // `""` when the invocation carries no email, and that fails CLOSED.
-            // The only thing the callee does with it is `assume::may_act_as`,
-            // which checks it against the staff allow-list and the partner
-            // grants — an empty string matches neither, so an emailless caller
-            // gets real membership or nothing, never synthesized authority.
-            args.user_email.as_deref().unwrap_or_default(),
+            // A caller with no email carries `""`, and that fails CLOSED. The
+            // only thing the callee does with it is `assume::may_act_as`, which
+            // checks it against the staff allow-list and the partner grants — an
+            // empty string matches neither, so an emailless caller gets real
+            // membership or nothing, never synthesized authority.
+            &args.caller,
         )
         .await
         .ok()
@@ -2247,12 +2251,7 @@ async fn run_with_runtime_inner(args: RunArgs<'_>) -> RunOutcome {
     let human = args.identity_kind == runtime::CtxIdentityKind::User;
     let (env, app_role, org_standing, held) = tokio::join!(
         resolve_function_env(args.db, args.app.project_id, args.app.id, &args.policy),
-        crate::server::api::custom_apps_auth::resolve_app_role(
-            args.db,
-            args.user_id,
-            args.user_email.as_deref().unwrap_or(""),
-            args.app,
-        ),
+        crate::server::api::custom_apps_auth::resolve_app_role(args.db, &args.caller, args.app),
         async {
             if human {
                 // One membership read covers both the role and the teams gate.

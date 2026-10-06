@@ -27,10 +27,20 @@ use entity::{
     users, workspace_members, workspaces,
 };
 use oxy::database::client::establish_connection;
-use oxy_app::server::authz::loader::load_principal_facts;
 use oxy_authz::{Action, PlatformRole, Resource, allows};
 use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection};
 use uuid::Uuid;
+
+/// The real loader, asked as a browser session asks it: a user with no API
+/// token, so nothing narrows the facts.
+async fn load_principal_facts(
+    conn: &DatabaseConnection,
+    user_id: Uuid,
+    email: &str,
+) -> Option<oxy_authz::PrincipalFacts> {
+    let caller = oxy_app::server::authz::Caller::without_credential(user_id, email);
+    oxy_app::server::authz::loader::load_principal_facts(conn, &caller).await
+}
 
 fn db_unavailable() -> bool {
     std::env::var("OXY_DATABASE_URL").is_err()
@@ -899,4 +909,273 @@ async fn loader_takes_the_strongest_grant_when_both_paths_apply() {
         1,
         "the two grant paths must union, not append"
     );
+}
+
+// ── API tokens: facts capped at the source (API-tokens design §4.4) ─────────────
+//
+// The unit differential (`server::authz::differential`) hand-builds a token's
+// facts. These run the REAL loader as a request carrying the token runs it, over
+// seeded rows, and assert the three properties the design names: a ceiling `c`
+// on a user of role `r` decides like a session of role `min(r, c)`; no grant on
+// the target decides like a non-member; `platform = false` decides like a user
+// with no standing. A legacy credential must change nothing at all.
+
+/// What the token under test carries. `partner` is always off.
+struct TokenShape {
+    all_access: bool,
+    platform: bool,
+    grants: Vec<oxy_authz::TokenGrant>,
+}
+
+/// The real loader, asked as a request authenticated by this API token asks it.
+/// `legacy` makes it a row mirroring `api_keys`, which narrows nothing.
+async fn load_facts_as_token(
+    conn: &DatabaseConnection,
+    user_id: Uuid,
+    email: &str,
+    shape: TokenShape,
+    legacy: bool,
+) -> oxy_authz::PrincipalFacts {
+    let credential = oxy_auth::token::CredentialContext {
+        token_id: Uuid::new_v4(),
+        kind: oxy_auth::token::StoredKind::Personal,
+        principal_user_id: user_id,
+        all_access: shape.all_access,
+        platform: shape.platform,
+        partner: false,
+        name: "differential".into(),
+        display_prefix: "oxy_pat_diff".into(),
+        legacy_api_key_id: legacy.then(Uuid::new_v4),
+        blocked_orgs: Vec::new(),
+        expires_at: None,
+        service_account: None,
+        grants: shape.grants,
+        app_publish: Vec::new(),
+    };
+    let user = oxy_auth::types::AuthenticatedUser {
+        id: user_id,
+        email: Some(email.to_string()),
+        name: "Authz Differential".into(),
+        picture: None,
+        status: users::UserStatus::Active,
+        credential: None,
+    };
+    let caller = oxy_app::server::authz::Caller::of(&user, Some(&credential));
+    oxy_app::server::authz::loader::load_principal_facts(conn, &caller)
+        .await
+        .expect("the loader must resolve a token's facts against a live seeded database")
+}
+
+fn org_wide(org_id: Uuid, ceiling: oxy_authz::RoleCeiling) -> oxy_authz::TokenGrant {
+    oxy_authz::TokenGrant {
+        org_id,
+        workspace_id: None,
+        ceiling,
+    }
+}
+
+/// A ceiling caps the org role sets at the source, so every ring reads the
+/// capped role: an Owner under `c` decides like a session of role `min(Owner, c)`.
+#[tokio::test]
+async fn loader_caps_a_tokens_org_role_sets_at_its_ceiling() {
+    use oxy_authz::RoleCeiling;
+    if db_unavailable() {
+        eprintln!("skipping: OXY_DATABASE_URL unset");
+        return;
+    }
+    let conn = establish_connection().await.expect("db connect");
+    let (user_id, email) = seed_user(&conn).await;
+    let org_id = seed_org(&conn).await;
+    seed_membership(&conn, org_id, user_id, org_members::OrgRole::Owner).await;
+    let org = Resource::org(org_id);
+
+    for (ceiling, admin, owner) in [
+        (RoleCeiling::Viewer, false, false),
+        (RoleCeiling::Member, false, false),
+        (RoleCeiling::Admin, true, false),
+        (RoleCeiling::Owner, true, true),
+    ] {
+        let shape = TokenShape {
+            all_access: false,
+            platform: false,
+            grants: vec![org_wide(org_id, ceiling)],
+        };
+        let facts = load_facts_as_token(&conn, user_id, &email, shape, false).await;
+
+        assert!(facts.member_orgs.contains(&org_id), "{ceiling:?}: a member");
+        assert_eq!(facts.admin_orgs.contains(&org_id), admin, "{ceiling:?}");
+        assert_eq!(facts.owned_orgs.contains(&org_id), owner, "{ceiling:?}");
+        assert!(allows(&facts, Action::OrgRead, &org), "{ceiling:?}: reads");
+        assert_eq!(
+            allows(&facts, Action::MemberInvite, &org),
+            admin,
+            "{ceiling:?}: the org-admin ring"
+        );
+        assert_eq!(
+            allows(&facts, Action::OrgOwnerManage, &org),
+            owner,
+            "{ceiling:?}: the owner-only ring"
+        );
+    }
+}
+
+/// No grant on the target decides like a non-member — even though the user is
+/// the Owner there. And a workspace grant is not an org grant.
+#[tokio::test]
+async fn loader_gives_a_token_nothing_outside_its_grants() {
+    use oxy_authz::RoleCeiling;
+    if db_unavailable() {
+        eprintln!("skipping: OXY_DATABASE_URL unset");
+        return;
+    }
+    let conn = establish_connection().await.expect("db connect");
+    let (user_id, email) = seed_user(&conn).await;
+    let granted = seed_org(&conn).await;
+    let other = seed_org(&conn).await;
+    for org in [granted, other] {
+        seed_membership(&conn, org, user_id, org_members::OrgRole::Owner).await;
+    }
+    let (ws_granted, ws_sibling) = (Uuid::new_v4(), Uuid::new_v4());
+
+    let shape = TokenShape {
+        all_access: false,
+        platform: false,
+        grants: vec![oxy_authz::TokenGrant {
+            org_id: granted,
+            workspace_id: Some(ws_granted),
+            ceiling: RoleCeiling::Owner,
+        }],
+    };
+    let facts = load_facts_as_token(&conn, user_id, &email, shape, false).await;
+
+    assert!(facts.member_orgs.contains(&granted));
+    for set in [&facts.member_orgs, &facts.admin_orgs, &facts.owned_orgs] {
+        assert!(!set.contains(&other), "no standing in an org with no grant");
+    }
+    assert!(
+        !allows(&facts, Action::OrgRead, &Resource::org(other)),
+        "an org outside the grants reads as a non-member's"
+    );
+    assert!(
+        !allows(&facts, Action::OrgRead, &Resource::org(granted)),
+        "a workspace grant does not cover the org's own routes"
+    );
+    assert!(allows(
+        &facts,
+        Action::WorkspaceEdit,
+        &Resource::workspace(ws_granted, granted)
+    ));
+    assert!(
+        !allows(
+            &facts,
+            Action::WorkspaceEdit,
+            &Resource::workspace(ws_sibling, granted)
+        ),
+        "a sibling workspace in the same org is not covered"
+    );
+
+    // The same user's session holds all of it.
+    let session = load_principal_facts(&conn, user_id, &email).await.unwrap();
+    assert!(allows(&session, Action::OrgRead, &Resource::org(other)));
+    assert!(allows(
+        &session,
+        Action::WorkspaceEdit,
+        &Resource::workspace(ws_sibling, granted)
+    ));
+}
+
+/// `platform = false` decides like a user with no standing; `platform = true`
+/// carries it, bounded to the grants' orgs when the token is grant-bound.
+#[tokio::test]
+async fn loader_carries_staff_standing_only_on_a_platform_token() {
+    use oxy_authz::RoleCeiling;
+    if db_unavailable() {
+        eprintln!("skipping: OXY_DATABASE_URL unset");
+        return;
+    }
+    let conn = establish_connection().await.expect("db connect");
+    let (user_id, email) = seed_user(&conn).await;
+    seed_app_admin(&conn, &email).await;
+    let (granted, other) = (seed_org(&conn).await, seed_org(&conn).await);
+
+    let session = load_principal_facts(&conn, user_id, &email).await.unwrap();
+    assert!(session.is_staff(), "the seeded grant makes the user staff");
+
+    let all_access = |platform| TokenShape {
+        all_access: true,
+        platform,
+        grants: Vec::new(),
+    };
+    let without = load_facts_as_token(&conn, user_id, &email, all_access(false), false).await;
+    assert!(
+        !without.is_staff(),
+        "platform=false: nobody to the platform"
+    );
+    assert!(!allows(
+        &without,
+        Action::PlatformOps,
+        &Resource::platform()
+    ));
+
+    let with = load_facts_as_token(&conn, user_id, &email, all_access(true), false).await;
+    assert!(with.is_staff());
+    assert!(allows(&with, Action::PlatformOps, &Resource::platform()));
+    let scope = with.platform.as_ref().map(|s| s.scope.clone());
+    assert!(
+        scope.is_some_and(|s| s.is_all()),
+        "an all-access platform token keeps its owner's scope"
+    );
+
+    let bound = TokenShape {
+        all_access: false,
+        platform: true,
+        grants: vec![org_wide(granted, RoleCeiling::Owner)],
+    };
+    let bound = load_facts_as_token(&conn, user_id, &email, bound, false).await;
+    let scope = bound
+        .platform
+        .as_ref()
+        .map(|s| s.scope.clone())
+        .expect("a grant-bound platform token keeps a standing");
+    assert!(scope.covers(granted));
+    assert!(
+        !scope.covers(other),
+        "its staff reach is fenced to the orgs it was granted"
+    );
+}
+
+/// The hard constraint: a legacy credential narrows nothing, whatever its row
+/// says. Its facts are the session's.
+#[tokio::test]
+async fn loader_gives_a_legacy_key_exactly_the_sessions_facts() {
+    if db_unavailable() {
+        eprintln!("skipping: OXY_DATABASE_URL unset");
+        return;
+    }
+    let conn = establish_connection().await.expect("db connect");
+    let (user_id, email) = seed_user(&conn).await;
+    seed_app_admin(&conn, &email).await;
+    let org_id = seed_org(&conn).await;
+    seed_membership(&conn, org_id, user_id, org_members::OrgRole::Owner).await;
+
+    let session = load_principal_facts(&conn, user_id, &email).await.unwrap();
+    // A legacy row that (wrongly) reads as narrowed in every way it could.
+    let shape = TokenShape {
+        all_access: false,
+        platform: false,
+        grants: Vec::new(),
+    };
+    let legacy = load_facts_as_token(&conn, user_id, &email, shape, true).await;
+
+    assert_eq!(legacy.owned_orgs, session.owned_orgs);
+    assert_eq!(legacy.admin_orgs, session.admin_orgs);
+    assert_eq!(legacy.member_orgs, session.member_orgs);
+    assert!(legacy.is_staff() && session.is_staff());
+    assert!(legacy.token.is_none(), "no reach is attached to narrow by");
+    assert!(allows(
+        &legacy,
+        Action::OrgOwnerManage,
+        &Resource::org(org_id)
+    ));
+    assert!(allows(&legacy, Action::PlatformOps, &Resource::platform()));
 }

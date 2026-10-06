@@ -92,7 +92,7 @@ async function postCreate(ctx: Context, branch: string): Promise<PreviewItem> {
     path: previewsPath(ctx),
     method: "POST",
     body: JSON.stringify({ branch }),
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   const payload = parseJson(response.body) as { item?: PreviewItem } | undefined;
@@ -107,7 +107,7 @@ export async function previewList(ctx: Context): Promise<PreviewItem[]> {
     target: ctx.target(),
     path: previewsPath(ctx),
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   const payload = parseJson(response.body) as { items?: PreviewItem[] } | undefined;
@@ -179,7 +179,7 @@ export async function previewDelete(
     target: ctx.target(),
     path: `${previewsPath(ctx)}?branch=${encodeURIComponent(branch)}`,
     method: "DELETE",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   return { branch, deleted: true };
@@ -190,7 +190,7 @@ export async function previewChecks(ctx: Context, branch: string): Promise<Check
     target: ctx.target(),
     path: `${previewsPath(ctx, "/checks")}?branch=${encodeURIComponent(branch)}`,
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   ensureOk(response);
   return parseJson(response.body) as ChecksResponse;

@@ -77,6 +77,11 @@ pub struct PublishInput {
     /// Email of the publisher — needed to resolve partner / staff authority for
     /// the third-party publish path (a partner uploading into a client).
     pub published_by_email: Option<String>,
+    /// The publisher with the credential the request arrived with — what publish
+    /// authority is resolved for, so an API token publishes only where its
+    /// grants reach and with the standing it carries. `None` for a machine
+    /// publish, which is authorized by its app id and consent alone.
+    pub publisher: Option<oxy_server_authz::Caller>,
     /// Set iff the request authenticated via an **app-scoped** publish token —
     /// OIDC-minted (no human) or partner-minted (a real `created_by`, design §7).
     /// Either way the `app_id` confines the token: authorization is strictly
@@ -98,6 +103,8 @@ pub struct PublishInput {
 pub struct Publisher {
     pub published_by: Option<Uuid>,
     pub published_by_email: Option<String>,
+    /// See [`PublishInput::publisher`].
+    pub caller: Option<oxy_server_authz::Caller>,
     pub machine_app_id: Option<Uuid>,
     pub published_via: Option<String>,
 }
@@ -125,10 +132,19 @@ impl Publisher {
             return Self {
                 published_by: None,
                 published_by_email: None,
+                caller: None,
                 machine_app_id,
                 published_via: Some(identity),
             };
         }
+        // A trusted-access (`ci`) token: the publisher is its service account,
+        // which has a `users` row, so the build names it — and carries the
+        // workflow identity the exchange verified, as a machine publish does.
+        let published_via = user
+            .credential
+            .as_ref()
+            .filter(|c| c.kind == oxy_auth::token::StoredKind::Ci)
+            .map(|c| c.name.clone());
         Self {
             published_by: Some(user.id),
             // `user.email`, never a display label. This value is not decoration:
@@ -139,8 +155,9 @@ impl Publisher {
             // right answer — publishing is a developer action and a worker
             // enrolled without a mailbox has no path to it.
             published_by_email: user.email.clone(),
+            caller: Some(oxy_server_authz::Caller::from_user(user)),
             machine_app_id,
-            published_via: None,
+            published_via,
         }
     }
 }
@@ -657,6 +674,35 @@ async fn authorize_publish(
         });
     }
 
+    // An API token holding `app_publish` grants (API-tokens design §3.2): it
+    // publishes the apps its grants name and no other, whatever else it reaches.
+    if let Some(caller) = input.publisher.as_ref().filter(|c| c.holds_app_publish()) {
+        let deny = || PublishError::OxyAccessDenied {
+            org: org.slug.clone(),
+            project: input.project_id,
+        };
+        let target = find_app(db, org.id, &input.app_slug)
+            .await?
+            .ok_or_else(deny)?;
+        if !caller.publishes_app(org.id, target.id) {
+            return Err(deny());
+        }
+        // A service account — a trust policy's `ci` token, or the account's
+        // own — is authorized by the grant itself: an admin of the app's own
+        // org put it there, and an account's grants are only ever in its own
+        // org. That is why no `partner_publish_consent` is asked: consent is
+        // an org agreeing to *someone else* publishing into it, and here the
+        // org is publishing its own app. A person's token falls through: the
+        // grant narrowed it to this app, and the person's own authority
+        // decides, below, as it would without the grant.
+        if caller.account_role_in(org.id).is_some() {
+            return Ok(());
+        }
+        if caller.is_service_account() {
+            return Err(deny());
+        }
+    }
+
     // Every non-machine publish routes through the ONE pure, tested decision
     // (`publish_decision`): it denies an outsider and a plain Member, allows an org
     // Admin+ and a partner with all three gates, and lets staff publish unless the
@@ -668,10 +714,16 @@ async fn authorize_publish(
         org: org.slug.clone(),
         project: input.project_id,
     };
-    let (Some(uid), Some(email)) = (input.published_by, input.published_by_email.as_deref()) else {
+    // Both the recorded identity and the caller: a publisher with no address has
+    // no path here, and authority is resolved for the caller's credential.
+    let (Some(_), Some(_), Some(caller)) = (
+        input.published_by,
+        input.published_by_email.as_deref(),
+        input.publisher.as_ref(),
+    ) else {
         return Err(deny());
     };
-    let actor = authz::resolve_actor(db, uid, email, org.id).await;
+    let actor = authz::resolve_actor(db, caller, org.id).await;
 
     // Read each side-fact only for the actor it applies to: the lockdown for staff,
     // consent for a partner. Everyone else pays no extra query.
@@ -2203,6 +2255,7 @@ pub async fn publish_handler(
         commit_sha,
         published_by: publisher.published_by,
         published_by_email: publisher.published_by_email,
+        publisher: publisher.caller,
         machine_app_id: publisher.machine_app_id,
         published_via: publisher.published_via,
         semantic_revision_id,

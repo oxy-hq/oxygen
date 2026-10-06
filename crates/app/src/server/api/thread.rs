@@ -289,8 +289,7 @@ pub async fn get_thread(
             // must not hand anyone another tenant's thread.
             let is_operator = match crate::server::authz::loader::load_platform_facts(
                 &connection,
-                user.id,
-                user.email.as_deref().unwrap_or(""),
+                &crate::server::authz::Caller::from_user(&user),
             )
             .await
             {

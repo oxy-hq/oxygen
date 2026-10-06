@@ -6,11 +6,38 @@ use axum::{
 };
 use std::sync::Arc;
 
+use crate::token::CredentialContext;
 use crate::user::UserService;
 
 use crate::{authenticator::Authenticator, built_in::BuiltInAuthenticator};
 use entity::users::UserStatus;
 use oxy_shared::errors::OxyError;
+
+/// On every response to a request that authenticated with a key or token that
+/// expires: when it does, RFC 3339 UTC (API-tokens design §8 Phase 5). Legacy
+/// keys included — a header informs and changes nothing. Absent for a session
+/// and for a credential that never expires.
+pub const TOKEN_EXPIRATION_HEADER: &str = "x-oxy-token-expiration";
+
+/// Run the rest of the stack, then stamp [`TOKEN_EXPIRATION_HEADER`]. The one
+/// place the header is written, so no handler has to remember it.
+async fn run_stamped(
+    request: Request<axum::body::Body>,
+    next: Next,
+    credential: Option<&CredentialContext>,
+) -> Response {
+    let expires_at = credential.and_then(|c| c.expires_at);
+    let mut response = next.run(request).await;
+    if let Some(value) = expires_at.and_then(|at| {
+        let text = at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        axum::http::HeaderValue::from_str(&text).ok()
+    }) {
+        response
+            .headers_mut()
+            .insert(TOKEN_EXPIRATION_HEADER, value);
+    }
+    response
+}
 
 pub struct AuthState<T> {
     authenticator: Arc<T>,
@@ -101,10 +128,11 @@ pub async fn auth_middleware<T: Authenticator>(
         return authenticate_app_publish_token(&bearer, request, next).await;
     }
 
-    // Authenticate using the configured authenticator
-    let claims = auth_state
+    // Authenticate using the configured authenticator — `authenticate_request`
+    // for the built-in one, which also names the key or token when one was used.
+    let (claims, credential) = auth_state
         .authenticator
-        .authenticate(request.headers())
+        .authenticate_with_credential(request.headers())
         .await
         .map_err(|err| {
             tracing::error!("Authentication failed: {}", err);
@@ -136,10 +164,18 @@ pub async fn auth_middleware<T: Authenticator>(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    // Add user to request extensions for downstream handlers
-    request.extensions_mut().insert(user);
+    // Add user to request extensions for downstream handlers, and — beside it,
+    // never instead of it — the credential marker when a key or token was used.
+    // The user carries the same credential, so code that holds only the user
+    // still authorizes as the token allows.
+    request
+        .extensions_mut()
+        .insert(user.with_credential(credential.clone()));
+    if let Some(credential) = &credential {
+        request.extensions_mut().insert(credential.clone());
+    }
 
-    Ok(next.run(request).await)
+    Ok(run_stamped(request, next, credential.as_ref()).await)
 }
 
 /// Pull a bearer token out of the `Authorization` header, tolerating the
@@ -202,15 +238,19 @@ async fn authenticate_app_publish_token(
     Ok(next.run(request).await)
 }
 
-/// Authenticate strictly via the `X-API-Key` header — no session cookie, no
-/// bearer token, no guest fallback. Used by the external API surface
-/// (`/external/api/*`), which is served with wide-open CORS. That is safe
-/// precisely *because* this middleware only accepts an API key: an API key is
-/// not an ambient browser credential (unlike the `oxy_session` cookie), so a
+/// Authenticate strictly via an API key or token — no session cookie, no
+/// session JWT, no guest fallback, no publish token. Used by the external API
+/// surface (`/external/api/*`), which is served with wide-open CORS. That is
+/// safe precisely *because* this middleware only accepts a key: a key is not
+/// an ambient browser credential (unlike the `oxy_session` cookie), so a
 /// malicious cross-origin page cannot read it or have the browser attach it
 /// automatically — there is no CSRF vector. The cookie-accepting
 /// [`auth_middleware`] must never be combined with `*`-origin CORS for the
 /// same reason.
+///
+/// Keys arrive in `X-API-Key` as before; a new-prefix token or an
+/// `oxy_<hex>` key is also accepted as `Authorization: Bearer`, which is not
+/// ambient either.
 pub async fn api_key_only_middleware(
     mut request: Request<axum::body::Body>,
     next: Next,
@@ -220,12 +260,15 @@ pub async fn api_key_only_middleware(
         return Ok(next.run(request).await);
     }
 
-    let identity = crate::api_key_infra::authenticate_header(request.headers())
-        .await
-        .map_err(|err| {
-            tracing::warn!("external API: X-API-Key authentication failed: {err}");
-            StatusCode::UNAUTHORIZED
-        })?;
+    let (identity, credential) = crate::token::authenticate_request(
+        request.headers(),
+        crate::token::AuthSurface::ApiKeyOnly,
+    )
+    .await
+    .map_err(|err| {
+        tracing::warn!("external API: API key authentication failed: {err}");
+        StatusCode::UNAUTHORIZED
+    })?;
 
     let user = UserService::get_or_create_user(&identity)
         .await
@@ -238,8 +281,13 @@ pub async fn api_key_only_middleware(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    request.extensions_mut().insert(user);
-    Ok(next.run(request).await)
+    request
+        .extensions_mut()
+        .insert(user.with_credential(credential.clone()));
+    if let Some(credential) = &credential {
+        request.extensions_mut().insert(credential.clone());
+    }
+    Ok(run_stamped(request, next, credential.as_ref()).await)
 }
 
 /// Middleware for the internal port that auto-authenticates as an internal user.

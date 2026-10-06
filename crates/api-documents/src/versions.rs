@@ -260,7 +260,7 @@ pub async fn list(
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     // `readable` is the one gate, and it answers 404 for anything the caller
     // may not see — including a document in another tenant.
-    let doc = super::handlers::readable(&db, user.id, id).await?;
+    let doc = super::handlers::readable(&db, &user, id).await?;
 
     // A ceiling, like every other listing. A document's history is small today
     // and unbounded by construction — nothing prunes it, and a chapter edited
@@ -314,7 +314,7 @@ pub async fn read(
     // may not see, including a document in another tenant. A version is not a
     // separate thing to authorize — it belongs to the document, and the
     // document decides.
-    let doc = super::handlers::readable(&db, user.id, id).await?;
+    let doc = super::handlers::readable(&db, &user, id).await?;
     let version = owned_version(&db, id, version_no).await?;
 
     let authors = super::hydrate::author_names(&db, std::slice::from_ref(&version))
@@ -345,7 +345,7 @@ pub async fn download(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let doc = super::handlers::readable(&db, user.id, id).await?;
+    let doc = super::handlers::readable(&db, &user, id).await?;
     let version = owned_version(&db, id, version_no).await?;
 
     // A chapter has no object. `400` rather than `404` for the same reason the

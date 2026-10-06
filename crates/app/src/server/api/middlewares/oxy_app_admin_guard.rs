@@ -12,21 +12,23 @@
 
 use oxy::database::client::establish_connection;
 
-use crate::server::authz::globals::is_app_admin_email;
+use crate::server::authz::Caller;
+use crate::server::authz::globals::is_app_admin;
 
-/// Returns `true` when `email` is in the `app_admins` table. Used by
-/// login responses to expose `is_app_admin` on the user payload so the
-/// frontend can show the customer-apps entry point.
+/// Returns `true` when the caller holds a platform grant (`app_admins`), as the
+/// credential the request arrived with carries it — an API token without
+/// `platform` holds none. The shipped console check the capability guards
+/// difference the model against.
 ///
-/// Wraps the cached check in [`is_app_admin_email`] and treats any DB
+/// Wraps the cached check in [`is_app_admin`] and treats any DB
 /// error as "not admin" — a transient outage should fail closed for
 /// admin elevation rather than fail open.
-pub async fn is_oxy_app_admin(email: &str) -> bool {
+pub async fn is_oxy_app_admin(caller: &Caller) -> bool {
     let Ok(db) = establish_connection().await else {
         tracing::warn!("is_oxy_app_admin: DB connection failed; treating as non-admin");
         return false;
     };
-    match is_app_admin_email(&db, email).await {
+    match is_app_admin(&db, caller).await {
         Ok(v) => v,
         Err(e) => {
             tracing::warn!("is_oxy_app_admin lookup failed: {e}; treating as non-admin");

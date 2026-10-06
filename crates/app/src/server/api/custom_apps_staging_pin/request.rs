@@ -65,8 +65,7 @@ pub(crate) enum AppRef {
 pub async fn staging_pin_for_data_request(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     project_id: Uuid,
 ) -> Option<Uuid> {
     let non_production = oxy_app_core::custom_app_env_request::request_environment(headers)
@@ -76,7 +75,7 @@ pub async fn staging_pin_for_data_request(
     if app.project_id != project_id {
         return None;
     }
-    let build_id = environment_build(db, user_id, user_email, &app, &non_production).await?;
+    let build_id = environment_build(db, caller, &app, &non_production).await?;
     super::pinned_revision_for(db, build_id).await
 }
 
@@ -84,15 +83,14 @@ pub async fn staging_pin_for_data_request(
 /// may open the app's non-production environments.
 async fn environment_build(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     app: &entity::apps::Model,
     environment: &AppEnvironment,
 ) -> Option<Uuid> {
     use crate::server::api::custom_apps_env_resolve::{
         may_open_non_production, resolve_environment,
     };
-    if !may_open_non_production(db, user_id, user_email, app).await {
+    if !may_open_non_production(db, caller, app).await {
         return None;
     }
     resolve_environment(db, app, environment)
@@ -143,8 +141,7 @@ pub(crate) fn staging_app_ref(headers: &HeaderMap) -> Option<AppRef> {
 pub(crate) async fn staging_app_for(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     project_id: Uuid,
 ) -> Option<entity::apps::Model> {
     use crate::server::api::custom_apps_env_resolve::may_open_non_production;
@@ -152,7 +149,7 @@ pub(crate) async fn staging_app_for(
     if app.project_id != project_id {
         return None;
     }
-    may_open_non_production(db, user_id, user_email, &app)
+    may_open_non_production(db, caller, &app)
         .await
         .then_some(app)
 }

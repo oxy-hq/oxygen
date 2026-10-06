@@ -74,6 +74,21 @@ pub(crate) struct Tenant {
     pub(crate) guest_id: Uuid,
 }
 
+impl Tenant {
+    /// The guest Owner as a request's actor — a browser session, no key or
+    /// token — which is what a handler hands the sandbox ops.
+    pub(crate) fn guest(&self) -> oxy_app_core::audit::RequestActor {
+        oxy_app_core::audit::RequestActor::session(oxy_auth::types::AuthenticatedUser {
+            id: self.guest_id,
+            email: Some(LOCAL_GUEST_EMAIL.to_string()),
+            name: "Guest".to_string(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        })
+    }
+}
+
 /// One declared function: its `oxy-app.json` entry and its bundled module.
 pub(crate) struct FunctionSpec {
     pub(crate) name: &'static str,
@@ -193,6 +208,10 @@ pub(crate) async fn publish_app(
         commit_sha: None,
         published_by: Some(t.guest_id),
         published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
+        publisher: Some(oxy_app::server::authz::Caller::without_credential(
+            t.guest_id,
+            LOCAL_GUEST_EMAIL,
+        )),
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
@@ -226,6 +245,10 @@ pub(crate) async fn publish_build(
         commit_sha: None,
         published_by: Some(t.guest_id),
         published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
+        publisher: Some(oxy_app::server::authz::Caller::without_credential(
+            t.guest_id,
+            LOCAL_GUEST_EMAIL,
+        )),
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,

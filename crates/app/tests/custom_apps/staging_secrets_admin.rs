@@ -22,6 +22,7 @@ use oxy_app::server::api::custom_apps_secrets::environment::EnvironmentQuery;
 use oxy_app::server::api::custom_apps_secrets::{
     SetSecretRequest, admin_delete, admin_list, admin_reveal, admin_set,
 };
+use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
@@ -32,13 +33,14 @@ use crate::common::demo_workspace_id;
 use crate::custom_app_functions_fixture::{FunctionSpec, Tenant, publish_build, seeded_tenant};
 use crate::staging_functions::make_guest_staff;
 
-fn user(id: Uuid, email: &str) -> AuthenticatedUserExtractor {
-    AuthenticatedUserExtractor(AuthenticatedUser {
+fn user(id: Uuid, email: &str) -> RequestActor {
+    RequestActor::session(AuthenticatedUser {
         id,
         email: Some(email.to_string()),
         name: "Secrets".to_string(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     })
 }
 
@@ -116,15 +118,25 @@ async fn staff_set_a_staging_secret_that_a_tenant_admin_cannot() {
         Some("prod")
     );
 
-    let Json(prod) = admin_list(Path(app), Query(EnvironmentQuery::default()), staff(), None)
-        .await
-        .expect("production view");
+    let Json(prod) = admin_list(
+        Path(app),
+        Query(EnvironmentQuery::default()),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("production view");
     let keys: Vec<&str> = prod.entries.iter().map(|e| e.key.as_str()).collect();
     assert_eq!(keys, vec!["QB_TOKEN"], "never `staging/QB_TOKEN`");
     assert_eq!(prod.environment, "production");
-    let Json(stg) = admin_list(Path(app), env("staging"), staff(), None)
-        .await
-        .expect("staging view");
+    let Json(stg) = admin_list(
+        Path(app),
+        env("staging"),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("staging view");
     assert_eq!(stg.environment, "staging");
     assert_eq!(stg.entries.len(), 1);
     assert!(stg.entries[0].is_set);
@@ -140,10 +152,15 @@ async fn staff_set_a_staging_secret_that_a_tenant_admin_cannot() {
     .await
     .expect_err("a non-staff caller is refused staging");
     assert_eq!(code, StatusCode::FORBIDDEN);
-    let (code, _) = admin_list(Path(app), env("staging"), tenant(), None)
-        .await
-        .map(|_| ())
-        .expect_err("and its view");
+    let (code, _) = admin_list(
+        Path(app),
+        env("staging"),
+        AuthenticatedUserExtractor(tenant().user),
+        None,
+    )
+    .await
+    .map(|_| ())
+    .expect_err("and its view");
     assert_eq!(code, StatusCode::FORBIDDEN);
     assert_eq!(
         value(format!("apps/{app}/staging/QB_TOKEN"))
@@ -262,9 +279,14 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
     }
 
     // A new sandbox stores nothing; what it would read is staging's first.
-    let Json(view) = admin_list(Path(app), env("dev-a1"), staff(), None)
-        .await
-        .expect("the sandbox's view");
+    let Json(view) = admin_list(
+        Path(app),
+        env("dev-a1"),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("the sandbox's view");
     assert_eq!(view.environment, "dev-a1");
     assert_eq!(
         rows(&view),
@@ -277,9 +299,14 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
     );
     assert_eq!(view.missing_required, 1, "only NOWHERE has nothing to read");
     // Control: staging's own view inherits production only.
-    let Json(stg) = admin_list(Path(app), env("staging"), staff(), None)
-        .await
-        .expect("staging's view");
+    let Json(stg) = admin_list(
+        Path(app),
+        env("staging"),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("staging's view");
     assert!(stg.entries.iter().all(|e| !e.inherits_staging));
 
     let status = admin_set(
@@ -300,13 +327,23 @@ async fn staff_set_a_sandbox_secret_and_its_view_shows_what_staging_lends() {
         assert_eq!(stored(name.clone()).await.as_deref(), expected, "{name}");
     }
 
-    let Json(mine) = admin_list(Path(app), env("dev-a1"), staff(), None)
-        .await
-        .expect("view");
+    let Json(mine) = admin_list(
+        Path(app),
+        env("dev-a1"),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("view");
     assert!(rows(&mine).contains(&("QB_TOKEN", true, false, false)));
-    let Json(other) = admin_list(Path(app), env("dev-b2"), staff(), None)
-        .await
-        .expect("the other sandbox's view");
+    let Json(other) = admin_list(
+        Path(app),
+        env("dev-b2"),
+        AuthenticatedUserExtractor(staff().user),
+        None,
+    )
+    .await
+    .expect("the other sandbox's view");
     assert!(
         rows(&other).contains(&("QB_TOKEN", false, true, false)),
         "one sandbox's value never lists in another's view: {:?}",
@@ -494,10 +531,11 @@ async fn tenant_project_secret_routes_never_reach_a_staging_row() {
     let admin = || WorkspaceAdmin(WorkspaceRole::Admin);
     let tenant = || user(Uuid::new_v4(), "tenant-admin@customer.example");
 
-    let listed = secrets::list_secrets(admin(), tenant(), Path(ws))
-        .await
-        .expect("list")
-        .into_response();
+    let listed =
+        secrets::list_secrets(admin(), AuthenticatedUserExtractor(tenant().user), Path(ws))
+            .await
+            .expect("list")
+            .into_response();
     let (_, listed) = body_of(listed).await;
     let names: Vec<&str> = listed["secrets"]
         .as_array()
@@ -524,13 +562,14 @@ async fn tenant_project_secret_routes_never_reach_a_staging_row() {
         .id
         .to_string();
     let by_id = || Path((ws, staging_id.clone()));
-    let got = secrets::get_secret(admin(), tenant(), by_id())
+    let got = secrets::get_secret(admin(), AuthenticatedUserExtractor(tenant().user), by_id())
         .await
         .unwrap();
     assert_eq!(got.into_response().status(), StatusCode::NOT_FOUND, "get");
-    let revealed = secrets::reveal_secret(admin(), tenant(), by_id())
-        .await
-        .unwrap();
+    let revealed =
+        secrets::reveal_secret(admin(), AuthenticatedUserExtractor(tenant().user), by_id())
+            .await
+            .unwrap();
     assert_eq!(
         revealed.into_response().status(),
         StatusCode::NOT_FOUND,
@@ -538,17 +577,23 @@ async fn tenant_project_secret_routes_never_reach_a_staging_row() {
     );
     let rotate: secrets::UpdateSecretRequest =
         serde_json::from_value(json!({ "value": "rotated" })).expect("request");
-    let updated = secrets::update_secret(admin(), tenant(), by_id(), axum::Json(rotate))
-        .await
-        .unwrap();
+    let updated = secrets::update_secret(
+        admin(),
+        AuthenticatedUserExtractor(tenant().user),
+        by_id(),
+        axum::Json(rotate),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         updated.into_response().status(),
         StatusCode::NOT_FOUND,
         "update"
     );
-    let deleted = secrets::delete_secret(admin(), tenant(), by_id())
-        .await
-        .unwrap();
+    let deleted =
+        secrets::delete_secret(admin(), AuthenticatedUserExtractor(tenant().user), by_id())
+            .await
+            .unwrap();
     assert_eq!(
         deleted.into_response().status(),
         StatusCode::NOT_FOUND,

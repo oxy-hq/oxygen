@@ -101,7 +101,7 @@ async function rows(ctx: Context, path: string): Promise<unknown[] | undefined> 
     target: ctx.target(),
     path,
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   if (response.status < 200 || response.status >= 300) return undefined;
   const body = parseJson(response.body);
@@ -232,7 +232,7 @@ export async function runAssumeStart(
     target,
     path: "/api/assume",
     method: "POST",
-    bearer: ctx.bearer(),
+    bearer: await ctx.bearer(),
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ org_id: orgId, reason: trimmed })
   });
@@ -276,7 +276,7 @@ export async function runAssumeStatus(ctx: Context, json: boolean): Promise<void
     target,
     path: "/api/assume/current",
     method: "GET",
-    bearer: ctx.bearer()
+    bearer: await ctx.bearer()
   });
   if (response.status < 200 || response.status >= 300) {
     throw new CliError(`could not read assume sessions from ${target} (${response.status})`, {
@@ -340,7 +340,7 @@ export async function runAssumeEnd(
   const orgId = all || !hinted ? undefined : await resolveOrgId(ctx, hinted);
   const path = orgId ? `/api/assume?org_id=${encodeURIComponent(orgId)}` : "/api/assume";
 
-  const response = await request({ target, path, method: "DELETE", bearer: ctx.bearer() });
+  const response = await request({ target, path, method: "DELETE", bearer: await ctx.bearer() });
   if (response.status < 200 || response.status >= 300) {
     throw new CliError(`could not end the assume-role session (${response.status})`, {
       code: exitCodeForStatus(response.status),

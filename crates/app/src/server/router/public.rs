@@ -31,6 +31,7 @@ use crate::server::api::{custom_apps_debug, projects};
 
 use super::AppState;
 use super::role_router::RoleRouter;
+use super::tokens::build_public_token_routes;
 
 pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
@@ -46,6 +47,7 @@ pub(super) fn build_public_routes(app_state: &AppState) -> RoleRouter {
             "/customer-apps/publish/oidc-exchange",
             post(crate::api::custom_apps_publish_oidc::oidc_exchange_handler),
         )
+        .merge(build_public_token_routes(app_state))
         .route_fleet("/auth/config", get(auth::get_config))
         .route_fleet("/auth/session", get(auth::get_session))
         .route_fleet("/auth/oauth/state", post(auth::issue_oauth_state))

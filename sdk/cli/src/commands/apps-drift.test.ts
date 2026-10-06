@@ -343,8 +343,13 @@ function fakeContext(cwd: string): Context {
     flags: { env: "production", tokenEnv: "OXY_TOKEN", apiKeyEnv: "OXY_API_KEY" },
     target: () => TARGET,
     env: () => ({ target: TARGET, orgSlug: undefined }) as ReturnType<Context["env"]>,
-    bearer: () => "tok",
-    maybeBearer: () => "tok",
+    bearer: async () => "tok",
+    maybeBearer: async () => "tok",
+    storedBearer: () => "tok",
+    async credential() {
+      return { token: await this.bearer(), source: "env" };
+    },
+    serviceAccount: () => undefined,
     apiKey: () => undefined,
     customer: () => undefined,
     repoDir: () => undefined,

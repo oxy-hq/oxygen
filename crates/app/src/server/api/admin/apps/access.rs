@@ -14,7 +14,6 @@
 use axum::{Json, extract::Path, http::StatusCode};
 use entity::prelude::Apps;
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::EntityTrait;
 use uuid::Uuid;
 
@@ -22,7 +21,7 @@ use crate::server::api::org_teams::dto::{
     AppAccessDto, OrgMemberOptionDto, SetAppAccessRequest, TeamDto,
 };
 use crate::server::api::org_teams::service;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 /// Resolve an app to the org that owns it.
 ///
@@ -48,7 +47,7 @@ pub async fn get_app_access(Path(app_id): Path<Uuid>) -> Result<Json<AppAccessDt
 
 /// `PUT /admin/apps/{app_id}/access`
 pub async fn set_app_access(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(app_id): Path<Uuid>,
     Json(req): Json<SetAppAccessRequest>,
 ) -> Result<Json<AppAccessDto>, StatusCode> {
@@ -64,10 +63,9 @@ pub async fn set_app_access(
     // exception would leave the most sensitive of the three invisible to the org.
     audit::record_best_effort(
         &db,
-        AuditEntry::new(actor.label().to_string(), "admin.app.access_changed")
+        AuditEntry::for_request(&actor, "admin.app.access_changed")
             // `User`, matching the sibling `app.published` entry — the actor tier is
             // conveyed by the `admin.` action prefix, not by re-typing the actor.
-            .actor(actor.id, ActorType::User)
             .org(org_id)
             .target(
                 "app",

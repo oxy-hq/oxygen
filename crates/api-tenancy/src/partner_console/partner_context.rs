@@ -49,7 +49,12 @@ pub async fn partner_middleware(
     // A session for THIS partner org is the opposite case — that is Oxy staff
     // acting *as* the partner, which is precisely how they reach this console. So
     // only a session pointed somewhere else locks it.
-    let elsewhere = oxy_server_authz::assume_liveness::live_sessions_for(&db, user.id)
+    //
+    // Everything here is asked of the CALLER — the user with the credential the
+    // request arrived with — so an API token sees only the sessions it opened
+    // and resolves a scope only when it carries partner standing.
+    let caller = oxy_server_authz::Caller::from_user(&user);
+    let elsewhere = oxy_server_authz::assume_liveness::live_sessions_for(&db, &caller)
         .await
         .into_iter()
         .find(|s| s.org_id != partner_org_id);
@@ -62,14 +67,9 @@ pub async fn partner_middleware(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let scope = resolve_scope(
-        &db,
-        partner_org_id,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-    )
-    .await
-    .ok_or(StatusCode::FORBIDDEN)?;
+    let scope = resolve_scope(&db, partner_org_id, &caller)
+        .await
+        .ok_or(StatusCode::FORBIDDEN)?;
 
     request.extensions_mut().insert(scope);
     Ok(next.run(request).await)
@@ -143,6 +143,7 @@ mod tests {
                 manage_apps,
                 ..Default::default()
             },
+            token: None,
         }
     }
 

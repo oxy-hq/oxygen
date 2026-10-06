@@ -132,12 +132,20 @@ pub async fn consent_enabled(db: &DatabaseConnection, org_id: Uuid) -> bool {
 /// Staff is checked first because an Oxy staffer who is *also* incidentally a
 /// member somewhere should still publish with staff authority, not be narrowed to
 /// their membership.
+///
+/// Resolved for the [`Caller`](oxy_server_authz::Caller), so an API token
+/// publishes only where it reaches: outside its grants it is an outsider, its
+/// staff and partner standing are what it carries, and a member's role is
+/// capped by the token's ceiling in the org.
 pub async fn resolve_actor(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     target_org_id: Uuid,
 ) -> PublishActor {
+    let user_id = caller.user_id;
+    let Some(ceiling) = caller.org_reach_ceiling(target_org_id) else {
+        return PublishActor::Outsider;
+    };
     // Staff publish authority is `ManageApps` **over this org** — capability and scope.
     //
     // `is_staff()` alone would let a grant bounded to org A publish into org B, which
@@ -146,7 +154,7 @@ pub async fn resolve_actor(
     // function resolves WHICH actor you are, and the answer decides the rest.
     if oxy_server_authz::globals::platform_reaches(
         db,
-        user_email,
+        caller,
         oxy_authz::Cap::ManageApps,
         target_org_id,
     )
@@ -162,13 +170,13 @@ pub async fn resolve_actor(
         .one(db)
         .await
     {
-        return PublishActor::OrgMember(m.role);
+        return PublishActor::OrgMember(oxy_server_authz::cap_org_role(m.role, ceiling));
     }
 
     // A partner of the target org: does a partner manage it, and does THIS user
     // hold a role there that (a) grants manage_apps and (b) is assigned this client?
     if let Some(partner_org_id) = partner_for_org(db, target_org_id).await
-        && let Some(scope) = resolve_scope(db, partner_org_id, user_id, user_email).await
+        && let Some(scope) = resolve_scope(db, partner_org_id, caller).await
     {
         return PublishActor::Partner {
             manages_target: scope.org_ids.contains(&target_org_id),
@@ -184,11 +192,10 @@ pub async fn resolve_actor(
 /// the org/staff paths pay no extra query.
 pub async fn authorize_publish_for(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
     target_org_id: Uuid,
 ) -> Result<(), PublishDenied> {
-    let actor = resolve_actor(db, user_id, user_email, target_org_id).await;
+    let actor = resolve_actor(db, caller, target_org_id).await;
     let consent = match actor {
         PublishActor::Partner { .. } => consent_enabled(db, target_org_id).await,
         _ => false,

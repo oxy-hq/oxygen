@@ -43,7 +43,7 @@ export async function runRoutes(
 ): Promise<void> {
   const catalog = await loadCatalog({
     target: ctx.target(),
-    bearer: ctx.maybeBearer(),
+    bearer: await ctx.maybeBearer(),
     refresh: flags.refresh
   });
 
@@ -160,7 +160,7 @@ export async function runSchema(
   rawPath: string,
   method: string | undefined
 ): Promise<void> {
-  const doc = (await loadOpenApi({ target: ctx.target(), bearer: ctx.maybeBearer() })) as {
+  const doc = (await loadOpenApi({ target: ctx.target(), bearer: await ctx.maybeBearer() })) as {
     paths?: Record<string, Record<string, unknown>>;
     components?: unknown;
   };
@@ -248,6 +248,6 @@ export function literalSegments(path: string): string {
 
 /** `oxyc openapi` — the whole document, for piping into jq. */
 export async function runOpenApi(ctx: Context): Promise<void> {
-  const doc = await loadOpenApi({ target: ctx.target(), bearer: ctx.maybeBearer() });
+  const doc = await loadOpenApi({ target: ctx.target(), bearer: await ctx.maybeBearer() });
   process.stdout.write(`${JSON.stringify(doc, null, stdoutIsTty() ? 2 : 0)}\n`);
 }

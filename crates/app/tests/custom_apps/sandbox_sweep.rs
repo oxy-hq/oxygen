@@ -42,7 +42,7 @@ pub(crate) async fn app_with(t: &Tenant, slug: &str, handles: &[&str]) -> (apps:
         .expect("the build")
         .id;
     for handle in handles {
-        ops::create(&t.db, &app, &sandbox(handle), t.guest_id)
+        ops::create(&t.db, &app, &sandbox(handle), &t.guest())
             .await
             .expect("create the sandbox");
     }
@@ -243,7 +243,7 @@ async fn the_sweep_requeues_a_teardown_stuck_for_six_hours() {
         &t.db,
         &app,
         &sandbox("waiting"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await

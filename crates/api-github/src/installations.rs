@@ -36,9 +36,12 @@ pub struct UserInstallation {
 /// Returns a URL pointing at `https://github.com/apps/{slug}/installations/new`
 /// with an HMAC-signed `state` carrying `flow=install` and the target org.
 pub async fn get_new_installation_url(
-    AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(q): Query<NewInstallationUrlQuery>,
 ) -> Result<ResponseJson<NewInstallationUrlResponse>, StatusCode> {
+    // No path names the org, so the request's API token is asked here: an org
+    // that blocked it (API-tokens design §5) is not one it installs into.
+    user.require_org_reach(q.org_id)?;
     let state = encode_state(&StatePayload {
         org_id: q.org_id,
         flow: Flow::Install,

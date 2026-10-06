@@ -11,7 +11,6 @@ use axum::{Json, extract::Path, http::StatusCode};
 use entity::prelude::{OrgMembers, OrgTeamMembers, OrgTeams, Users};
 use entity::{org_members, org_team_members, org_teams, users};
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_authz::{Action, Resource};
 use oxy_server_authz::role_guards::OrgAdmin;
 use sea_orm::{
@@ -43,14 +42,12 @@ fn db_err(e: impl std::fmt::Display) -> StatusCode {
 /// specifically rather than `OrgAdmin`'s any-managing-partner.
 pub(super) async fn enforce_team_manage(
     db: &DatabaseConnection,
-    actor_id: Uuid,
-    actor_email: &str,
+    caller: &oxy_server_authz::Caller,
     org_id: Uuid,
 ) -> Result<(), StatusCode> {
     let allowed = oxy_server_authz::enforce_for(
         db,
-        actor_id,
-        actor_email,
+        caller,
         "org_teams.manage",
         Action::AppAccessManage,
         Resource::org(org_id),
@@ -78,16 +75,10 @@ fn normalize_name(raw: &str) -> Option<String> {
 /// `GET /orgs/{org_id}/teams`
 pub async fn list_teams(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<Json<Vec<TeamDto>>, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
 
     Ok(Json(service::list_org_teams(&db, ctx.org.id).await?))
 }
@@ -95,17 +86,11 @@ pub async fn list_teams(
 /// `POST /orgs/{org_id}/teams`
 pub async fn create_team(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(req): Json<CreateTeamRequest>,
 ) -> Result<Json<TeamDto>, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
 
     let name = normalize_name(&req.name).ok_or(StatusCode::BAD_REQUEST)?;
 
@@ -174,17 +159,11 @@ fn is_unique_violation(e: &sea_orm::DbErr) -> bool {
 /// `GET /orgs/{org_id}/teams/{team_id}`
 pub async fn get_team(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<TeamDetailDto>, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     let team = load_team(&db, ctx.org.id, team_id).await?;
 
     let rows = OrgTeamMembers::find()
@@ -261,18 +240,12 @@ pub(super) async fn load_team(
 /// `PATCH /orgs/{org_id}/teams/{team_id}`
 pub async fn update_team(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, team_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateTeamRequest>,
 ) -> Result<Json<TeamDto>, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     load_team(&db, ctx.org.id, team_id).await?;
 
     let name = normalize_name(&req.name).ok_or(StatusCode::BAD_REQUEST)?;
@@ -310,17 +283,11 @@ pub async fn update_team(
 /// has to be dropped, or a deleted team keeps working for up to its TTL.
 pub async fn delete_team(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, team_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     // Read the name BEFORE the delete: the audit row is the only place it survives,
     // and a log entry saying a uuid lost its grants is not a log entry anyone reads.
     let team = load_team(&db, ctx.org.id, team_id).await?;
@@ -350,18 +317,12 @@ pub async fn delete_team(
 /// nothing.
 pub async fn add_team_member(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, team_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<AddTeamMemberRequest>,
 ) -> Result<StatusCode, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     let team = load_team(&db, ctx.org.id, team_id).await?;
 
     let is_member = OrgMembers::find()
@@ -404,17 +365,11 @@ pub async fn add_team_member(
 /// `DELETE /orgs/{org_id}/teams/{team_id}/members/{user_id}`
 pub async fn remove_team_member(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, team_id, user_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let db = establish_connection().await.map_err(db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     let team = load_team(&db, ctx.org.id, team_id).await?;
 
     OrgTeamMembers::delete_many()

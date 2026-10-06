@@ -167,6 +167,16 @@ pub(super) fn spawn_shutdown_hook(agentic_state: Arc<AgenticState>) {
         .push(handle);
 }
 
+/// Register a task the serve command should wait for (bounded) before the
+/// process exits — work that must happen once the shutdown token is cancelled,
+/// like the final token-usage flush.
+pub(crate) fn register_shutdown_hook(handle: tokio::task::JoinHandle<()>) {
+    SHUTDOWN_HOOKS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(handle);
+}
+
 /// Wait for every registered shutdown hook to finish, bounded by
 /// [`SHUTDOWN_HOOK_TIMEOUT`].
 ///
@@ -484,6 +494,10 @@ pub(crate) fn spawn_recovery(
                     // terminal, then start each workspace's next queued one.
                     // Row writes only — the runs themselves are queue work.
                     crate::server::previews::runs::sweep(&db).await;
+                    // Token hygiene: spent OIDC jtis and long-expired `ci`
+                    // tokens. Idempotent deletes, throttled per process, so
+                    // every driver running it is harmless.
+                    crate::server::token_sweep::sweep(&db).await;
                 }
             }
         }

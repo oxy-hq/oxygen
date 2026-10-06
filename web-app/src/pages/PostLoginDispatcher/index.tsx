@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
+import { SETTINGS_PARAM } from "@/components/settings/SettingsDialog/useSettingsDeepLink";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useOrgs } from "@/hooks/api/organizations";
 import useCurrentUser from "@/hooks/api/users/useCurrentUser";
@@ -51,6 +52,14 @@ export default function PostLoginDispatcher() {
   const isPartner = (user?.partner_memberships?.length ?? 0) > 0;
 
   const chosenOrg = useMemo(() => pickOrg(orgs), [orgs]);
+  // `/?settings=<section>` — the link the token emails carry — rides into the
+  // org or workspace chosen here, where the dialog reads it. Only that param.
+  const [searchParams] = useSearchParams();
+  const settings = searchParams.get(SETTINGS_PARAM);
+  const into = (pathname: string) => ({
+    pathname,
+    search: settings ? `?${new URLSearchParams({ [SETTINGS_PARAM]: settings })}` : ""
+  });
 
   // Pass chosenOrg.id explicitly — the dispatcher runs at `/` before any
   // OrgGuard has primed the store, so `useAllWorkspaces`'s store fallback
@@ -70,11 +79,11 @@ export default function PostLoginDispatcher() {
   if (injectedOrg) {
     return injectedOrg.defaultProjectId ? (
       <Navigate
-        to={ROUTES.ORG(injectedOrg.orgSlug).WORKSPACE(injectedOrg.defaultProjectId).ROOT}
+        to={into(ROUTES.ORG(injectedOrg.orgSlug).WORKSPACE(injectedOrg.defaultProjectId).ROOT)}
         replace
       />
     ) : (
-      <Navigate to={ROUTES.ORG(injectedOrg.orgSlug).ROOT} replace />
+      <Navigate to={into(ROUTES.ORG(injectedOrg.orgSlug).ROOT)} replace />
     );
   }
 
@@ -98,12 +107,15 @@ export default function PostLoginDispatcher() {
 
   if (wsError) {
     // Fail open: send the user to the org root so the org dispatcher can retry.
-    return <Navigate to={ROUTES.ORG(chosenOrg.slug).ROOT} replace />;
+    return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).ROOT)} replace />;
   }
 
   if (!workspaces || workspaces.length === 0) {
     return (
-      <Navigate to={isPartner ? ROUTES.PARTNERS.ROOT : ROUTES.ORG(chosenOrg.slug).ROOT} replace />
+      <Navigate
+        to={isPartner ? ROUTES.PARTNERS.ROOT : into(ROUTES.ORG(chosenOrg.slug).ROOT)}
+        replace
+      />
     );
   }
 
@@ -114,12 +126,15 @@ export default function PostLoginDispatcher() {
     // next visit doesn't re-select a workspace that isn't navigable.
     clearLastWorkspaceId(chosenOrg.id);
     return (
-      <Navigate to={isPartner ? ROUTES.PARTNERS.ROOT : ROUTES.ORG(chosenOrg.slug).ROOT} replace />
+      <Navigate
+        to={isPartner ? ROUTES.PARTNERS.ROOT : into(ROUTES.ORG(chosenOrg.slug).ROOT)}
+        replace
+      />
     );
   }
   setLastWorkspaceId(chosenOrg.id, target.id);
 
-  return <Navigate to={ROUTES.ORG(chosenOrg.slug).WORKSPACE(target.id).ROOT} replace />;
+  return <Navigate to={into(ROUTES.ORG(chosenOrg.slug).WORKSPACE(target.id).ROOT)} replace />;
 }
 
 function FullPageSpinner() {

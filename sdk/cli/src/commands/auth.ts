@@ -8,8 +8,17 @@
  */
 
 import { parseJson, request } from "../api/request.js";
-import { clearCredential, loadCredential, resolveBearer } from "../auth/credentials.js";
+import { clearCredential, loadCredential } from "../auth/credentials.js";
+import { keepPastExit } from "../auth/exit-revoke.js";
 import { adminStatusLine, login } from "../auth/login.js";
+import {
+  describeExpiry,
+  describeReach,
+  introspectToken,
+  revokeCallingToken,
+  type Token
+} from "../auth/token-api.js";
+import { isRevocable } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
@@ -43,6 +52,11 @@ export async function runLogin(
       const { user } = await login(target);
       process.stderr.write(`${out.green(`Logged in as ${user.email} (${target}).`)}\n`);
       process.stderr.write(`${adminStatusLine(user)}\n`);
+      if (user.expires_at) {
+        log.info(
+          `the token expires ${describeExpiry(user.expires_at)} — \`oxyc logout\` revokes it sooner`
+        );
+      }
     } catch (cause) {
       failures.push(target);
       log.warn(`could not log into ${target}: ${(cause as Error).message}`);
@@ -64,13 +78,46 @@ export async function runLogin(
   }
 }
 
-export function runLogout(ctx: Context): void {
+/**
+ * Revoke the cached token on the server, then forget it here.
+ *
+ * IN THAT ORDER, and the second step never waits on the first succeeding. A
+ * token `oxyc login` minted is a row the deployment can end, so logging out
+ * ends it rather than leaving a ninety-day credential behind in a backup of
+ * this file. But the revoke is best-effort: a session token cannot be revoked
+ * at all, an older deployment has no route for it, and an unreachable one must
+ * not leave you unable to log out. Whatever the server says, the entry goes.
+ *
+ * Only the CACHED token is touched. `OXY_TOKEN` is the caller's own, and
+ * "log out" does not mean "kill the secret my CI is using".
+ */
+export async function runLogout(ctx: Context): Promise<void> {
   const target = ctx.target();
-  if (clearCredential(target)) {
-    process.stderr.write(`${out.green(`Logged out of ${target}.`)}\n`);
+  const token = loadCredential(target)?.token?.trim();
+  const outcome = token ? await revokeCallingToken(target, token) : undefined;
+
+  if (!clearCredential(target)) {
+    log.info(`no cached credential for ${target}`);
     return;
   }
-  log.info(`no cached credential for ${target}`);
+  process.stderr.write(`${out.green(`Logged out of ${target}.`)}\n`);
+  if (outcome === "revoked") {
+    log.info("the token was revoked on the server");
+  } else if (outcome === "legacy") {
+    // 409 `legacy_immutable`: the credential is a legacy API key (`oxy_<hex>`),
+    // which cannot end itself. A legacy API key is not a token, so it is not
+    // called one here, and it is not revoked where tokens are.
+    log.warn(
+      "the credential was removed from this machine, but it is a legacy API key and cannot revoke itself"
+    );
+    log.hint("revoke it in the web app: Settings → Workspace → Legacy API keys");
+  } else if (token && isRevocable(token) && outcome !== "already_invalid") {
+    // Said only for a token that SHOULD have been revocable. A session token
+    // was never going to be, and saying so on every logout from an older
+    // deployment would be noise about something nobody can change.
+    log.warn("the token was removed from this machine, but the server did not confirm a revoke");
+    log.hint("revoke it in the web app: Account → Personal access tokens");
+  }
 }
 
 /**
@@ -84,7 +131,7 @@ export function runLogout(ctx: Context): void {
  */
 export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   const target = ctx.target();
-  const bearer = ctx.bearer();
+  const bearer = await ctx.bearer();
 
   const response = await request({
     target,
@@ -138,7 +185,51 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   const customer = ctx.customer();
   if (customer)
     lines.push(`${out.bold("customer")}    ${customer.name}  (from the repo you are in)`);
+  lines.push(...(await tokenLines(target, bearer)));
   process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+/**
+ * What the calling CREDENTIAL is and can reach — the half of "who am I" that
+ * `/api/user` cannot answer, because a narrowed token is still its owner.
+ *
+ * Empty against a deployment with no `GET /api/auth/token`: nothing to add is
+ * the right output there, not an error under a `whoami` that just succeeded.
+ */
+async function tokenLines(target: string, bearer: string): Promise<string[]> {
+  const found = await introspectToken(target, bearer);
+  if (found.kind === "session") {
+    return [`${out.bold("credential")}  a browser session — everything you can reach`];
+  }
+  if (found.kind !== "token") return [];
+  return credentialLines(found.token);
+}
+
+/**
+ * The lines `whoami` prints for the row behind the calling credential.
+ *
+ * A LEGACY API KEY IS NOT A TOKEN and is never labelled one: the route answers
+ * for it (`kind: "legacy_key"`) so this can say what it is. Its reach is stated
+ * rather than read off the row — the row carries `all_access` and both standing
+ * flags for every legacy API key, which says how it is stored, not what its
+ * owner holds.
+ */
+export function credentialLines(token: Token): string[] {
+  const masked = `${token.display_prefix}…${token.last_four}`;
+  if (token.kind === "legacy_key") {
+    return [
+      `${out.bold("credential")}  Legacy API key: ${token.name}  (${masked})`,
+      `${out.bold("reach")}       everything its owner can — it can't be limited to workspaces`,
+      `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
+    ];
+  }
+  const [first = "", ...rest] = describeReach(token);
+  return [
+    `${out.bold("token")}       ${token.name}  (${token.kind}, ${masked})`,
+    `${out.bold("reach")}       ${first}`,
+    ...rest.map((line) => `            ${line}`),
+    `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
+  ];
 }
 
 /**
@@ -147,15 +238,21 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
  * It exists because the alternative is people copying tokens out of the
  * credentials file by hand, which is worse in every way — including that they
  * then paste the wrong host's.
+ *
+ * Inside a GitHub Actions job with nothing stored, this prints the token the
+ * job's OIDC identity exchanges for — `gh auth token`'s shape. THAT ONE IS NOT
+ * REVOKED ON EXIT, alone among the commands that mint: the output is the
+ * token, and a token dead before the caller reads it is no output at all. It
+ * expires in fifteen minutes regardless, and the expiry goes to stderr so
+ * stdout stays exactly the token.
  */
-export function runToken(ctx: Context): void {
-  const target = ctx.target();
-  const token = resolveBearer(target, ctx.flags.tokenEnv ?? "OXY_TOKEN");
-  if (!token) {
-    throw new CliError(`not authenticated for ${target}`, {
-      code: ExitCode.AUTH,
-      hint: `oxyc login --env ${ctx.flags.env ?? "production"}`
-    });
+export async function runToken(ctx: Context): Promise<void> {
+  const credential = await ctx.credential();
+  if (credential.source === "oidc") {
+    keepPastExit(credential.token);
+    const who = credential.serviceAccount ? ` for ${credential.serviceAccount}` : "";
+    log.info(`exchanged this job's GitHub OIDC token${who} — not revoked on exit`);
   }
-  process.stdout.write(`${token}\n`);
+  if (credential.expiresAt) log.info(`expires ${describeExpiry(credential.expiresAt)}`);
+  process.stdout.write(`${credential.token}\n`);
 }

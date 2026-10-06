@@ -5,10 +5,13 @@ import {
   CreditCard,
   Database,
   Eye,
+  Fingerprint,
+  FolderKey,
   GitBranch,
   HardHat,
   Key,
   KeyRound,
+  KeySquare,
   type LucideIcon,
   MapPin,
   Plug,
@@ -103,6 +106,15 @@ export const CLOUD_NAV: NavGroup[] = [
         icon: BriefcaseBusiness,
         requires: "orgAdmin"
       },
+      // Machine access to the org: service accounts, the token inventory and the
+      // token policy. Every route behind it is org-admin only, so it carries the
+      // same gate as the rest of the org's shape.
+      {
+        value: "organization.api_access",
+        label: "API access",
+        icon: KeySquare,
+        requires: "orgAdmin"
+      },
       {
         value: "organization.billing",
         label: "Billing",
@@ -152,7 +164,23 @@ export const CLOUD_NAV: NavGroup[] = [
       // Oxy staff only — previews are a staff tool, never the customer's, so a
       // tenant admin does not see this either. See `useCanUsePreviews`.
       { value: "workspace.previews", label: "Previews", icon: Eye, requires: "staff" },
-      { value: "workspace.api_keys", label: "API Keys", icon: Key, requires: "workspaceAdmin" },
+      // "API tokens", the title of the section it opens: a read-only inventory
+      // of the personal, service-account and trusted-access tokens that reach
+      // this workspace. The section id keeps its old name because
+      // `?settings=workspace.api_keys` is a link people already hold.
+      { value: "workspace.api_keys", label: "API tokens", icon: Key, requires: "workspaceAdmin" },
+      // The old `oxy_<hex>` keys, kept apart from tokens: they are extended,
+      // inspected and revoked here and nowhere else.
+      //
+      // Ungated on purpose, unlike API tokens above it. A legacy key belongs
+      // to its owner: `GET /{workspace}/api-keys` has no admin guard, and
+      // extend and activity ask only that the caller owns the key. An owner
+      // who is not (or is no longer) a workspace admin must still reach their
+      // own keys, and the expiry email for one links to
+      // `?settings=workspace.legacy_api_keys` — the id is a contract. Only
+      // revoke needs workspace admin, and that is gated on the button inside
+      // the section, not here.
+      { value: "workspace.legacy_api_keys", label: "Legacy API keys", icon: FolderKey },
       { value: "workspace.secrets", label: "Secrets", icon: KeyRound, requires: "workspaceAdmin" },
       {
         // "Connections", not "Integrations" — the org-level section above is
@@ -178,6 +206,13 @@ export const CLOUD_NAV: NavGroup[] = [
   },
   // Customer-apps management used to live here. It now has its own
   // top-level surface at `/admin/apps`, gated by `is_app_admin`.
+  // The viewer's own credentials, across every org and workspace: the group
+  // needs neither loaded, and the item is ungated because a token is always
+  // its owner's to manage. Cloud only — local mode has no sign-in to mint for.
+  {
+    label: "Account",
+    items: [{ value: "account.tokens", label: "Personal access tokens", icon: Fingerprint }]
+  },
   {
     label: "Preferences",
     items: [{ value: "preferences.appearance", label: "Appearance", icon: SunMoon }]
@@ -191,7 +226,8 @@ export const LOCAL_NAV: NavGroup[] = [
       { value: "workspace.databases", label: "Databases", icon: Database },
       { value: "workspace.airhouse", label: "Airhouse", icon: AirhouseLogo },
       { value: "workspace.oltp", label: "OLTP Database", icon: Database },
-      { value: "workspace.api_keys", label: "API Keys", icon: Key },
+      { value: "workspace.api_keys", label: "API tokens", icon: Key },
+      { value: "workspace.legacy_api_keys", label: "Legacy API keys", icon: FolderKey },
       { value: "workspace.secrets", label: "Secrets", icon: KeyRound },
       { value: "workspace.connections", label: "Connections", icon: Plug },
       { value: "workspace.apps", label: "Apps", icon: AppWindow },

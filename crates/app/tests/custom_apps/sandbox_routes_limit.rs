@@ -73,10 +73,10 @@ async fn concurrent_creates_cannot_pass_the_limit() {
     let mut racers = Vec::new();
     for i in 0..6 {
         let db = sea_orm::Database::connect(&url).await.expect("connect");
-        let (app, owner) = (app.clone(), t.guest_id);
+        let (app, owner) = (app.clone(), t.guest());
         racers.push(tokio::spawn(async move {
             let environment = AppEnvironment::parse(&format!("dev-race{i}")).unwrap();
-            ops::create(&db, &app, &environment, owner).await
+            ops::create(&db, &app, &environment, &owner).await
         }));
     }
     // Until every create waits on the lock — or, had one not taken it, until

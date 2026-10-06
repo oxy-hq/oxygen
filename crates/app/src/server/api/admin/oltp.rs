@@ -120,7 +120,7 @@ pub async fn get_status(
 }
 
 pub async fn provision(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::ProvisionRequest>,
 ) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
@@ -131,7 +131,7 @@ pub async fn provision(
     let writers = body.writers.clone();
     let branch = body.branch.clone();
     let out = inner::provision(
-        AuthenticatedUserExtractor(user.clone()),
+        AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
         Json(body),
     )
@@ -161,7 +161,7 @@ pub async fn provision(
 /// live app state may be regulated. It was the only mutating handler here
 /// without an audit event, and the chip UI turned it into a one-click action.
 pub async fn set_visibility(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::VisibilityRequest>,
 ) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
@@ -171,7 +171,7 @@ pub async fn set_visibility(
         .map_err(msg)?;
     let (writer, visible) = (body.writer.clone(), body.visible);
     let out = inner::set_visibility(
-        AuthenticatedUserExtractor(user.clone()),
+        AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
         Json(body),
     )
@@ -193,7 +193,7 @@ pub async fn set_visibility(
 /// where an operator goes to find out who did it; a `warn!` line is in a log
 /// aggregator they may not have.
 pub async fn deprovision(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
 ) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
     let db = conn().await.map_err(msg)?;
@@ -208,7 +208,7 @@ pub async fn deprovision(
         .map(|s| s.database)
         .unwrap_or_default();
 
-    let out = inner::deprovision(AuthenticatedUserExtractor(user.clone()), Path(org_id)).await;
+    let out = inner::deprovision(AuthenticatedUserExtractor(user.user.clone()), Path(org_id)).await;
     audit_oltp(
         &db,
         &user,
@@ -230,7 +230,7 @@ pub async fn deprovision(
 /// an entry that said only "oltp deprovisioned" would be indistinguishable
 /// from the one that destroyed the tenant.
 pub async fn deprovision_writer(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::DeprovisionWriterRequest>,
 ) -> Result<Json<oxy_oltp::api::handlers::ConnectionInfoResponse>, (StatusCode, String)> {
@@ -241,7 +241,7 @@ pub async fn deprovision_writer(
     let writer = body.writer.clone();
 
     let out = inner::deprovision_writer(
-        AuthenticatedUserExtractor(user.clone()),
+        AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
         Json(body),
     )
@@ -261,7 +261,7 @@ pub async fn deprovision_writer(
 /// Handing out a DSN is a disclosure, and a writer DSN is a live write
 /// credential — the one thing on this surface that leaves the console entirely.
 pub async fn credentials(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(body): Json<inner::CredentialsRequest>,
 ) -> Result<Json<inner::CredentialsResponse>, (StatusCode, String)> {
@@ -271,7 +271,7 @@ pub async fn credentials(
         .map_err(msg)?;
     let role = body.role.clone();
     let out = inner::credentials(
-        AuthenticatedUserExtractor(user.clone()),
+        AuthenticatedUserExtractor(user.user.clone()),
         Path(org_id),
         Json(body),
     )
@@ -309,7 +309,7 @@ pub async fn get_branch(
 /// unconfirmed call is a preview that touched nothing, and an audit row saying
 /// "reset" for it would be the one lie the log must not tell.
 pub async fn reset_branch(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path((org_id, branch)): Path<(Uuid, String)>,
     Json(body): Json<oxy_oltp::api::branches::ResetRequest>,
 ) -> Result<(StatusCode, Json<oxy_oltp::api::branches::ResetResponse>), (StatusCode, String)> {
@@ -327,7 +327,7 @@ pub async fn reset_branch(
         serde_json::Value::Null
     };
     let out = oxy_oltp::api::branches::reset_branch(
-        AuthenticatedUserExtractor(user.clone()),
+        AuthenticatedUserExtractor(user.user.clone()),
         Path((org_id, branch.clone())),
         Json(body),
     )
@@ -372,14 +372,13 @@ async fn branch_reach(
 /// 500, and a failed one is already logged at `error` by `record_best_effort`.
 async fn audit_oltp(
     db: &sea_orm::DatabaseConnection,
-    user: &oxy_auth::types::AuthenticatedUser,
+    user: &oxy_app_core::audit::RequestActor,
     org_id: Uuid,
     action: &'static str,
     metadata: serde_json::Value,
     ok: bool,
 ) {
-    let entry = audit::AuditEntry::new(user.label().to_string(), action)
-        .actor(user.id, audit::ActorType::User)
+    let entry = audit::AuditEntry::for_request(user, action)
         .org(org_id)
         .target("oltp_tenant", org_id.to_string(), String::new())
         .metadata(metadata);

@@ -24,6 +24,7 @@ oxy-app-core = { workspace = true }  # AppState (router state) + the audit write
 oxy-tenancy = { workspace = true }
 oxy = { workspace = true }           # database client
 oxy-auth = { workspace = true }      # AuthenticatedUserExtractor + the PIN primitives
+oxy-server-authz = { workspace = true } # Caller: the actor with the credential they used
 oxy-shared = { workspace = true }    # OxyError, fleet_role::RouteRoleDecl
 entity = { workspace = true }
 

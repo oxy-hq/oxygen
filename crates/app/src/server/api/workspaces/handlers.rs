@@ -973,6 +973,7 @@ pub async fn get_workspace_status(
 )]
 pub async fn list_workspaces(
     crate::server::api::middlewares::org_context::OrgContextExtractor(ctx): crate::server::api::middlewares::org_context::OrgContextExtractor,
+    caller: authz::Caller,
     State(_app_state): State<AppState>,
 ) -> Result<ResponseJson<Vec<WorkspaceSummary>>, StatusCode> {
     use entity::prelude::Workspaces;
@@ -998,6 +999,13 @@ pub async fn list_workspaces(
             error!("Failed to list workspaces: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+    // Discovery follows the grant (API-tokens design §4.5): an API token lists
+    // only the workspaces it covers. A session lists them all.
+    let workspaces: Vec<_> = workspaces
+        .into_iter()
+        .filter(|ws| caller.workspace_ceiling(ctx.org.id, ws.id).is_some())
+        .collect();
 
     // Batch-fetch creator names for all workspaces that have a created_by set.
     let creator_ids: Vec<Uuid> = workspaces
@@ -1114,7 +1122,7 @@ pub async fn list_workspaces(
 // alongside the other role checks.
 pub async fn rename_workspace(
     OrgContextExtractor(ctx): OrgContextExtractor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, workspace_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<RenameWorkspaceRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
@@ -1172,8 +1180,7 @@ pub async fn rename_workspace(
     let legacy = ensure_org_admin_or_workspace_creator(&ctx, &workspace).is_ok();
     let allowed = authz::enforce_for(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::caller_of(&actor),
         "workspace.rename",
         authz::Action::WorkspaceRename,
         authz::Resource::workspace_with_creator(workspace.id, org_id, workspace.created_by),

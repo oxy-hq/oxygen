@@ -38,6 +38,10 @@ pub async fn callback(
         tracing::warn!("failed to decode GitHub callback state: {e:?}");
         StatusCode::UNAUTHORIZED
     })?;
+    // The org rides in the signed state, not the path. A state minted for an
+    // org that has blocked the request's API token (API-tokens design §5) is
+    // not completed with it — the install flow writes a namespace there.
+    user.require_org_reach(payload.org_id)?;
 
     match payload.flow {
         Flow::Oauth => handle_oauth(user.id, body.code).await,

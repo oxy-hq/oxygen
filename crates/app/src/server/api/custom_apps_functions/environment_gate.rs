@@ -214,12 +214,11 @@ fn oltp_home_for(branch: Option<&oxy_oltp::entity::branches::Model>) -> OltpHome
 pub(crate) async fn route_entrance(
     db: &sea_orm::DatabaseConnection,
     resolved: &ResolvedEnvironment,
-    user_id: Uuid,
-    email: Option<&str>,
+    caller: &crate::server::authz::Caller,
     app: &entity::apps::Model,
 ) -> Entrance {
-    let non_production_reach = !resolved.is_production()
-        && may_open_non_production(db, user_id, email.unwrap_or(""), app).await;
+    let non_production_reach =
+        !resolved.is_production() && may_open_non_production(db, caller, app).await;
     Entrance::Route {
         non_production_reach,
     }

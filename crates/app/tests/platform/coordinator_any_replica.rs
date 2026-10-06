@@ -73,6 +73,7 @@ fn replica(db: &DatabaseConnection, workspace_id: Uuid) -> (Router, Arc<AgenticS
         name: "Operator".into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     };
     let router = Router::new()
         .nest(

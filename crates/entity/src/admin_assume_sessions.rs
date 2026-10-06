@@ -30,6 +30,11 @@ pub struct Model {
     pub expires_at: DateTimeWithTimeZone,
     /// Set when explicitly ended; NULL while live.
     pub ended_at: Option<DateTimeWithTimeZone>,
+    /// The new-format API token that opened the session, which is then the only
+    /// credential it applies to. `None` = opened in a browser: every browser
+    /// session of the actor shares it, and so does a legacy key (API-tokens
+    /// design §3.2, §3.5). No foreign key — see the migration.
+    pub token_id: Option<Uuid>,
     #[sea_orm(
         belongs_to,
         from = "org_id",

@@ -7,14 +7,27 @@ use chrono::Utc;
 use entity::{org_billing, org_members};
 use reqwest::Method;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
-    QuerySelect, TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
+    PaginatorTrait, QueryFilter, QuerySelect, TransactionTrait,
 };
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::errors::BillingError;
 use crate::service::BillingService;
+
+/// The org's billable seats: its `org_members` rows, and nothing else.
+///
+/// This is the one definition of a seat. A principal that must not be billed
+/// as a person — a frontline worker, an org's **service account** — is
+/// deliberately not an `org_members` row, and that is what keeps it out of
+/// this count; nothing here filters it out after the fact.
+pub async fn billable_seats<C: ConnectionTrait>(db: &C, org_id: Uuid) -> Result<u64, DbErr> {
+    org_members::Entity::find()
+        .filter(org_members::Column::OrgId.eq(org_id))
+        .count(db)
+        .await
+}
 
 impl BillingService {
     /// Push the current member count up to Stripe as the subscription
@@ -49,10 +62,7 @@ impl BillingService {
             return Ok(());
         };
 
-        let count = org_members::Entity::find()
-            .filter(org_members::Column::OrgId.eq(org_id))
-            .count(&txn)
-            .await? as u64;
+        let count = billable_seats(&txn, org_id).await?;
 
         if count as i32 == row.seats_paid {
             txn.commit().await?;

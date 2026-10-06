@@ -37,7 +37,8 @@ async fn a_late_run_removes_nothing_once_an_earlier_run_has_finished() {
     let (app, build) = published(&t, AIRHOUSE_APP).await;
     furnished_sandbox(&t, &app, build, "a1").await;
     let a1 = sandbox("a1");
-    let delete = || ops::delete(&t.db, &app, &a1, Some(t.guest_id), TeardownReason::Deleted);
+    let guest = t.guest();
+    let delete = || ops::delete(&t.db, &app, &a1, Some(&guest), TeardownReason::Deleted);
 
     let first = delete().await.expect("delete dev-a1");
     assert!(first.queued && first.was_active, "{first:?}");
@@ -93,7 +94,7 @@ async fn a_run_that_cannot_take_the_sandboxs_lock_removes_nothing() {
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await

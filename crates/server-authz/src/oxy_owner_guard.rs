@@ -13,24 +13,29 @@
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
-use oxy_auth::types::AuthenticatedUser;
+
+use crate::caller::Caller;
 
 pub async fn oxy_owner_guard_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let user = request
-        .extensions()
-        .get::<AuthenticatedUser>()
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    // Platform standing is keyed by email, so an account without one can never
-    // hold it. `unwrap_or("")` is safe because `is_oxy_owner` refuses a blank
-    // needle outright — see the note there.
-    require_oxy_owner(user.email.as_deref().unwrap_or(""))?;
+    let caller = Caller::from_extensions(request.extensions()).ok_or(StatusCode::UNAUTHORIZED)?;
+    // Root as the CREDENTIAL carries it: an API token without `platform`, or one
+    // narrowed to a list of orgs, is not root whoever its bearer is. An account
+    // with no address can never hold it either — `is_oxy_owner` refuses a blank
+    // needle outright; see the note there.
+    if !crate::globals::is_global_owner(&caller) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     Ok(next.run(request).await)
 }
 
 /// Returns `true` when `email` matches the `OXY_OWNER` allow-list.
+///
+/// **About an address, not a request.** A request's standing depends on the
+/// credential it arrived with, so anything deciding or displaying for the
+/// requester goes through `globals::is_global_owner(&Caller)`.
 ///
 /// Same matching rules as the middleware (case- and whitespace-insensitive,
 /// comma-separated). Used by login responses to expose `is_owner` on the
@@ -59,6 +64,7 @@ pub fn is_oxy_owner(email: &str) -> bool {
         .any(|e| e.trim().to_ascii_lowercase() == needle)
 }
 
+#[cfg(test)]
 fn require_oxy_owner(email: &str) -> Result<(), StatusCode> {
     if is_oxy_owner(email) {
         Ok(())

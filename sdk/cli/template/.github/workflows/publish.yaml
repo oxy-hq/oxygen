@@ -20,29 +20,40 @@
 # scaffolded repo should behave like that on day one rather than arriving with a
 # long-lived credential requirement nobody asked for.
 #
-# The switch is EXPLICIT rather than inferred from the token, and that is the
-# design rather than a preference. Skipping whenever no OXY_TOKEN reached the
-# job would be one line, and it would make "this repo does not publish from CI"
-# indistinguishable from "somebody forgot production's token" — the second of
-# which would then ship nothing, quietly, for as long as nobody looked. With the
-# switch ON a missing token is the loud failure it has always been, which is the
-# property the separate states exist to keep. The reasoning, and why it is a
-# variable and not a secret, is in `.github/scripts/ci-publish.sh`.
+# The switch is EXPLICIT rather than inferred from a credential, and that is
+# the design rather than a preference. Skipping whenever the job could not
+# authenticate would be one line, and it would make "this repo does not publish
+# from CI" indistinguishable from "somebody forgot production's trust policy" —
+# the second of which would then ship nothing, quietly, for as long as nobody
+# looked. With the switch ON a run that cannot authenticate is a loud failure,
+# which is the property the separate states exist to keep. The reasoning, and
+# why it is a variable and not a secret, is in `.github/scripts/ci-publish.sh`.
 #
 # Deliberately NOT modelled on pokehouse-oxy's `franchise-report-app.yml`
 # (Docker -> ECR -> ArgoCD). That is the only real, green CI on disk in this
 # org, which is exactly what makes it tempting; it is a legacy path for the
 # one app still on Next.js and has nothing to do with `oxyc publish`.
 #
-# Auth is a static `OXY_TOKEN` secret, not GitHub OIDC trusted publishing.
-# Both appear in this org's examples and a workflow that MIXES them 403s.
-# OIDC also needs a one-time publisher-registration POST that nothing
-# automates — a manual onboarding step this scaffold exists to remove.
+# AUTH IS GITHUB OIDC BY DEFAULT: NO STORED SECRET. The publish job holds
+# `id-token: write`, and `oxyc publish` trades the job's OIDC token for a
+# fifteen-minute Oxy token acting as a service account, which it revokes when
+# the command ends. What makes the deployment honour that is a TRUST POLICY on
+# the service account, naming this repository, this workflow file
+# (`.github/workflows/publish.yaml`) and the job's `environment:` — one policy
+# per environment, each granted publishing the apps here. An org admin registers
+# it once, in the web app under Organization settings -> Service accounts ->
+# Trusted access; "Publishing custom apps" in README.md has the steps.
+#
+# A STATIC `OXY_TOKEN` SECRET IS THE FALLBACK, and it wins when it is set: a
+# repo that already publishes with one keeps doing exactly that, and a
+# deployment without trusted access has no other way. It is one or the other
+# per run, never a mix — with `OXY_TOKEN` set, no OIDC token is requested.
 #
 # TWO JOBS, and the split is the security boundary, not a style choice.
 # `build` runs the bundles' own postinstall and build scripts — arbitrary
 # third-party code out of node_modules — and holds no publish credential.
-# `publish` holds `OXY_TOKEN`, downloads what `build` produced, and runs no
+# `publish` holds the credential — the `id-token` permission, or the fallback
+# `OXY_TOKEN` — downloads what `build` produced, and runs no
 # package script at all. That includes Oxy Functions: `build` bundles them with
 # `oxyc publish --build-only`, and `publish` runs `oxyc publish --prebuilt`,
 # which checks they arrived rather than running esbuild — so the credential and
@@ -60,9 +71,10 @@
 # fails rather than falling through to the more dangerous of the two.
 #
 # The same resolved name does two jobs: it is the `--env` passed to the CLI AND
-# the GitHub `environment:` the publish job runs in, which is where that env's
-# own `OXY_TOKEN` lives. So the credential and the destination cannot disagree
-# — a production publish can only ever be made with production's token. It is
+# the GitHub `environment:` the publish job runs in — the environment a trust
+# policy is bound to, and where the fallback `OXY_TOKEN` for that env lives. So
+# the credential and the destination cannot disagree — a production publish can
+# only ever be made by a run production's policy (or token) covers. It is
 # resolved ONCE, by `.github/scripts/publish-env.sh` in the `build` job, and
 # read twice; a job's `environment:` can read `needs`, so that is the only
 # place a single value can reach both consumers.
@@ -141,6 +153,13 @@ env:
   # validate.yaml's `OXY_VERSION`: that one is the Rust `oxy` that validates the
   # workspace, a different tool on a different release line. `--build-only` and
   # `--prebuilt`, which the two jobs below depend on, arrived in 0.4.0.
+  #
+  # THE PIN DECIDES WHICH OIDC REGISTRATION THE PUBLISH JOB CAN USE. Through
+  # 0.6.0, `oxyc publish` knows one exchange: the app's own registered
+  # publisher (`/api/customer-apps/<app-id>/publishers`). Trust policies on a
+  # service account are honoured by the first release AFTER 0.6.0, which tries
+  # them first and falls back to the publisher. Raise this to that release to
+  # use them; nothing else in the file changes.
   OXYC_VERSION: "0.4.0"
 
 jobs:
@@ -404,15 +423,17 @@ jobs:
     # The gate, and the credential boundary. `dev` on a push, `production` on
     # a manual dispatch — the SAME string this job passes to `oxyc publish
     # --env` below, resolved once in `build`, so the destination this job
-    # publishes to and the environment it draws its secrets from are the same
-    # thing by construction. Each environment holds its own `OXY_TOKEN`, and a
-    # missing one is caught explicitly below rather than sent as an empty
-    # bearer.
+    # publishes to and the environment it authenticates as are the same thing
+    # by construction. The environment's name is a claim in the job's OIDC
+    # token, so a trust policy registered for `production` cannot be satisfied
+    # by a run in `dev`; and where the fallback is in use, each environment
+    # holds its own `OXY_TOKEN`.
     #
     # The one hole, and it is a human's to close rather than this file's: a
     # repository-level `OXY_TOKEN`, if one exists, is still reachable here —
     # environment secrets take PRECEDENCE over repository secrets, they do not
-    # exclude them. See the note on `OXY_TOKEN` in the publish step.
+    # exclude them — and a token that is set wins over OIDC. See the note on
+    # `OXY_TOKEN` in the publish step.
     #
     # Referencing an environment that does not exist CREATES it on the first
     # run ("Running a workflow that references an environment that does not
@@ -426,6 +447,17 @@ jobs:
     # need GitHub Team or Pro; oxy-hq is on Team.
     environment: ${{ needs.build.outputs.publish-env }}
 
+    # `id-token: write` lets this job ask GitHub for a signed statement of what
+    # it is — repository, workflow file, environment — which is the whole
+    # credential on the default path. It grants nothing in the repository, and
+    # it is job-level: every step below can use it, which is why this job runs
+    # no package script. `contents: read` is restated because a job-level
+    # `permissions` block REPLACES the workflow-level one rather than adding to
+    # it. The `build` job is deliberately not given the token.
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -434,8 +466,8 @@ jobs:
           # bundle built from one commit while claiming another is precisely
           # the confusion the build id exists to prevent.
           ref: ${{ needs.build.outputs.sha }}
-          # This job holds OXY_TOKEN. It has no reason to also be holding a
-          # repository credential in .git/config.
+          # This job holds the publish credential. It has no reason to also be
+          # holding a repository credential in .git/config.
           persist-credentials: false
 
       - uses: actions/download-artifact@v4
@@ -492,6 +524,14 @@ jobs:
 
       - name: Publish each bundle
         env:
+          # THE FALLBACK CREDENTIAL, empty unless somebody set the secret. With
+          # it empty — the default — `oxyc publish` exchanges this job's OIDC
+          # token instead and nothing is stored anywhere. With it set, it WINS:
+          # no OIDC token is requested, and the run authenticates exactly as it
+          # did before OIDC was the default. Any kind of Oxy token works here —
+          # a service account token (`oxy_sat_…`), a personal access token
+          # (`oxy_pat_…`), or a workspace API key from before either existed.
+          #
           # Step-scoped as well as job-isolated. The job split is what keeps
           # this token away from the bundles' own build scripts — those ran
           # in `build`, on a different runner, and nothing in THIS job runs a
@@ -509,15 +549,27 @@ jobs:
           # precedence, not exclusion: an environment secret OVERRIDES a
           # repository one of the same name, it does not suppress it. So a
           # repo still carrying an old repository-level `OXY_TOKEN` serves
-          # BOTH environments from it wherever the environment has none — the
-          # guard below never fires, and each publish looks perfectly healthy
-          # while authenticating with a token nobody scoped to it.
+          # BOTH environments from it wherever the environment has none — OIDC
+          # is never tried, and each publish looks perfectly healthy while
+          # authenticating with a token nobody scoped to it.
           #
           # Nothing here can catch that: GitHub does not tell a job which
           # level a secret came from, so from inside this step the two cases
           # are identical. It has to be a human, once: DELETE any
-          # repository-level `OXY_TOKEN` after adding the environment ones.
+          # repository-level `OXY_TOKEN` — after registering the trust policies
+          # (or adding the environment-level tokens) that replace it. The step
+          # below prints which of the two credentials it used, every run.
           OXY_TOKEN: ${{ secrets.OXY_TOKEN }}
+          # The ID of the service account the OIDC exchange acts as — from the
+          # account's page under Organization settings → API access. REQUIRED
+          # for a trust policy to be used: the deployment matches this run
+          # against that one account's policies and never picks an account on
+          # a run's behalf. Unset, the publish goes through each app's
+          # registered publisher instead. The ID, never `<org-slug>/<name>`: a
+          # name can be taken over by another organization, an ID cannot.
+          # Unused on the `OXY_TOKEN` path. An ENVIRONMENT variable where
+          # `dev` and `production` use different accounts.
+          OXY_SERVICE_ACCOUNT: ${{ vars.OXY_SERVICE_ACCOUNT }}
           # `dev` or `production`, resolved once in the build job. Passed to
           # `oxyc publish --env` below; the identical string selected the
           # environment this job is running in.
@@ -552,8 +604,28 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${OXY_TOKEN:-}" ]; then
-            echo "::error::no OXY_TOKEN reached this job, so there is nothing to authenticate with. Neither the '$PUBLISH_ENV' environment nor the repository holds one — an environment secret takes precedence over a repository secret of the same name, so this fires only when both are absent. Mint a publish-scoped API key in oxy and add it under Settings -> Environments -> $PUBLISH_ENV -> Environment secrets, NOT at repository level: a repository-level token would serve both environments and this check could never tell you." >&2
+          # Which credential this run uses, said out loud on every run — the
+          # two paths fail differently, and "which one was it" should never
+          # need working out from a stack of 403s.
+          if [ -n "${OXY_TOKEN:-}" ]; then
+            echo "authenticating with the OXY_TOKEN secret (the fallback path). To publish with no stored secret instead, register a trust policy for the '$PUBLISH_ENV' environment and delete the secret — see 'Publishing custom apps' in README.md."
+            # A service account is chosen by the OIDC exchange only; leaving
+            # the variable set would be a setting that silently does nothing.
+            unset OXY_SERVICE_ACCOUNT
+          elif [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "authenticating with this job's GitHub OIDC token — no stored secret. oxyc exchanges it for a fifteen-minute token on each publish and revokes that token when the command ends."
+            # An unset secret arrives as an EMPTY variable, not a missing one.
+            # oxyc treats the two alike; unsetting it says so here too.
+            unset OXY_TOKEN
+            if [ -z "${OXY_SERVICE_ACCOUNT:-}" ]; then
+              unset OXY_SERVICE_ACCOUNT
+              echo "no OXY_SERVICE_ACCOUNT variable on the '$PUBLISH_ENV' environment: each app publishes through its registered publisher. To use a trust policy, set the variable to the service account's ID."
+            fi
+          else
+            # Reachable only if this job lost `id-token: write` — an edit to
+            # the `permissions` block above, or an org policy that withholds
+            # it. Fail here, by name, rather than as oxyc's "not authenticated".
+            echo "::error::this job has nothing to authenticate with: GitHub issued it no OIDC token and no OXY_TOKEN secret is set. The publish job needs 'permissions: id-token: write' (see the job's permissions block), and a trust policy registered for the '$PUBLISH_ENV' environment — or, as the fallback, an OXY_TOKEN secret under Settings -> Environments -> $PUBLISH_ENV -> Environment secrets, NOT at repository level." >&2
             exit 1
           fi
 

@@ -56,7 +56,7 @@ export async function call<T>(
     target: ctx.target(),
     path,
     method,
-    bearer: ctx.bearer(),
+    bearer: await ctx.bearer(),
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     timeoutMs: opts.timeoutMs
   });

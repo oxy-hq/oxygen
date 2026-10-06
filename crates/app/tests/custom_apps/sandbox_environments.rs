@@ -296,8 +296,7 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
             pin_for(
                 &conn,
                 &data_request(app_id, environment),
-                staff,
-                STAFF,
+                &oxy_app::server::authz::Caller::without_credential(staff, STAFF),
                 workspace,
             )
             .await
@@ -321,8 +320,7 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
     let customer = pin_for(
         &conn,
         &data_request(app_id, "dev-a1"),
-        Uuid::new_v4(),
-        "customer@example.com",
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         workspace,
     )
     .await;
@@ -330,8 +328,7 @@ async fn a_sandbox_data_request_reads_the_pin_of_the_sandboxs_own_build() {
     let elsewhere = pin_for(
         &conn,
         &data_request(app_id, "dev-a1"),
-        staff,
-        STAFF,
+        &oxy_app::server::authz::Caller::without_credential(staff, STAFF),
         Uuid::new_v4(),
     )
     .await;

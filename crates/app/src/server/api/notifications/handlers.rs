@@ -94,9 +94,20 @@ pub async fn inbox(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let scope = |f: sea_orm::Select<notifications::Entity>| match q.org_id {
-        Some(org) => f.filter(notifications::Column::OrgId.eq(org)),
-        None => f,
+    // An org that ended the request's token's reach (API-tokens design §5) is
+    // left out of the count and the page alike — including when `org_id` asks
+    // for it by name. Nothing is excluded for a session or a legacy key.
+    let blocked = user.blocked_orgs();
+    let scope = |f: sea_orm::Select<notifications::Entity>| {
+        let f = match q.org_id {
+            Some(org) => f.filter(notifications::Column::OrgId.eq(org)),
+            None => f,
+        };
+        if blocked.is_empty() {
+            f
+        } else {
+            f.filter(notifications::Column::OrgId.is_not_in(blocked.iter().copied()))
+        }
     };
 
     let unread = scope(notifications::Entity::find())
@@ -139,8 +150,9 @@ pub async fn mark_read(
         return Err(StatusCode::NOT_FOUND);
     };
     // 404 rather than 403: somebody else's notification must not be confirmed
-    // to exist by the shape of the refusal.
-    if row.user_id != user.id {
+    // to exist by the shape of the refusal. Nor one of an org the request's
+    // token does not reach, which the inbox does not list either.
+    if row.user_id != user.id || !user.reaches_org(row.org_id) {
         return Err(StatusCode::NOT_FOUND);
     }
     // Already read is a no-op rather than an error — a double tap on a phone is
@@ -177,6 +189,12 @@ pub async fn mark_all_read(
         .filter(notifications::Column::ReadAt.is_null());
     if let Some(org) = scope {
         update = update.filter(notifications::Column::OrgId.eq(org));
+    }
+    // "All" is all the request's token reaches: an org that blocked it keeps
+    // its unread, as the inbox keeps it out of the count.
+    let blocked = user.blocked_orgs();
+    if !blocked.is_empty() {
+        update = update.filter(notifications::Column::OrgId.is_not_in(blocked.iter().copied()));
     }
     update
         .exec(&db)

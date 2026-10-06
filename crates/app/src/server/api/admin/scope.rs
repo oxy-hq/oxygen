@@ -23,7 +23,7 @@ use oxy_authz::Scope;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
-use crate::server::authz::{globals, loader};
+use crate::server::authz::{Caller, globals, loader};
 
 /// The caller's platform scope — the **one** read of a grant's scope on this console.
 ///
@@ -41,8 +41,8 @@ async fn caller_scope(
     actor: &AuthenticatedUser,
     doing: &'static str,
 ) -> Result<Option<Scope>, StatusCode> {
-    let email = actor.email.as_deref().unwrap_or("");
-    match loader::load_platform_facts(db, actor.id, email).await {
+    // Credential-aware: a token that carries no platform standing reads as none.
+    match loader::load_platform_facts(db, &Caller::from_user(actor)).await {
         Some(facts) => Ok(facts.platform_scope().cloned()),
         None => {
             tracing::error!(target: "authz", "platform grant unreadable {doing} — refusing");
@@ -73,7 +73,7 @@ pub async fn deny_out_of_scope(
     // The Global Owner is root and holds no grant row — their standing is the env
     // allow-list, which no outage takes away (the rule `platform_cap_guard` states), so
     // they pass before anything is read.
-    if globals::is_global_owner(actor.email.as_deref().unwrap_or("")) {
+    if globals::is_global_owner(&Caller::from_user(actor)) {
         return Ok(());
     }
     match caller_scope(db, actor, "on a scoped admin WRITE").await? {
@@ -109,7 +109,7 @@ pub async fn deny_out_of_scope_opt(
     match org_id {
         Some(org_id) => deny_out_of_scope(db, actor, org_id).await,
         None => {
-            if globals::is_global_owner(actor.email.as_deref().unwrap_or("")) {
+            if globals::is_global_owner(&Caller::from_user(actor)) {
                 return Ok(());
             }
             match caller_scope(db, actor, "fencing an org-less resource").await? {

@@ -181,6 +181,14 @@
   flows:
     - admin-airway-config
 
+- surface: settings-org-api-access
+  paths:
+    - "src/components/settings/SettingsDialog/sections/organization/ApiAccess/"
+    - "src/hooks/api/orgApiAccess/"
+    - "src/services/api/orgApiAccess.ts"
+  flows:
+    - settings-org-api-access
+
 - surface: airway-pipelines
   paths:
     - "src/pages/airway/"
@@ -193,3 +201,31 @@
     - ide-pipeline-quickbooks
     - ide-pipeline-sp-api
     - airway-pipeline-run
+
+# The Extend popover, the Activity drawer and the status badge live here and
+# are shared by every token surface, so a change to them reaches all three flows.
+- surface: settings-api-keys
+  paths:
+    - "src/components/settings/SettingsDialog/sections/workspace/ApiKeys/"
+    - "src/hooks/api/apiKeys/"
+    - "src/services/api/apiKey.ts"
+  flows:
+    - settings-api-key-extend
+    - settings-account-tokens
+    - settings-org-api-access
+
+# Workspace → Legacy API keys (`sections/workspace/LegacyApiKeys/`) has no entry
+# on purpose: no flow drives it. It has no create button and a flow may not
+# seed a key, so there is nothing for a flow to extend or revoke there.
+
+# The expiry field, the token mask and the kind labels here are also used by
+# Organization → API access.
+- surface: settings-account-tokens
+  paths:
+    - "src/components/settings/SettingsDialog/sections/account/PersonalTokens/"
+    - "src/hooks/api/userTokens/"
+    - "src/services/api/apiToken.ts"
+    - "src/types/apiToken.ts"
+  flows:
+    - settings-account-tokens
+    - settings-org-api-access

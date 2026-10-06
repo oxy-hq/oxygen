@@ -6,6 +6,7 @@
  * credential chosen by path. What they share with it is the exit-code mapping.
  */
 
+import { requestGithubIdToken } from "../auth/oidc.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 
 const LOOKUP_TIMEOUT_MS = 30_000;
@@ -127,17 +128,25 @@ export async function uploadBundle(req: UploadRequest): Promise<PublishResult> {
   return json<PublishResult>(response, "publish");
 }
 
-/** The two variables GitHub sets in a job granted `id-token: write`. */
-export function githubOidcAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
-}
-
-/** The audience the server pins. A token minted for any other is refused. */
-export const OIDC_AUDIENCE = "oxy-publish";
+export { githubOidcAvailable } from "../auth/oidc.js";
 
 /**
- * Trusted publishing: a GitHub OIDC token, exchanged for a publish credential
- * scoped to exactly `org/app` and valid for fifteen minutes.
+ * The audience the APP-SCOPED exchange pins — not the general one, which is
+ * the deployment's own, `oxy:<host>` (`auth/oidc.ts`). Each endpoint refuses the other's audience, so a
+ * publish-audience token can never be traded for a broader credential.
+ */
+export const PUBLISH_OIDC_AUDIENCE = "oxy-publish";
+
+/**
+ * The app-scoped exchange: a GitHub OIDC token, traded for a publish
+ * credential scoped to exactly `org/app` and valid for fifteen minutes.
+ *
+ * THE OLDER OF THE TWO EXCHANGES, and now the fallback. `auth/oidc.ts` is
+ * tried first; this one is reached when the deployment has no general exchange
+ * (404), or has one and no trust policy matches the run — in which case the
+ * app may still have a publisher registered the older way. It stays because
+ * every workflow `oxyc init-ci` wrote before trust policies existed depends on
+ * it, and so does a deployment that has not been upgraded.
  *
  * Called immediately before the upload, not at startup: the OIDC token is
  * single-use and the credential short-lived, and a build can take longer than
@@ -164,21 +173,9 @@ export async function exchangeGithubOidc(
   app: string,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<ExchangedCredential> {
-  const requestUrl = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL ?? "");
-  requestUrl.searchParams.set("audience", OIDC_AUDIENCE);
-  const minted = await send(
-    requestUrl.toString(),
-    { headers: { authorization: `bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` } },
-    LOOKUP_TIMEOUT_MS
-  );
-  if (!minted.ok) {
-    throw new CliError(`GitHub refused to mint an OIDC token (${minted.status})`, {
-      code: ExitCode.AUTH,
-      hint: "the publishing job needs `permissions: id-token: write`"
-    });
-  }
-  const oidc = (await json<{ value?: string }>(minted, "GitHub OIDC")).value;
-  if (!oidc) throw new CliError("GitHub returned no OIDC token", { code: ExitCode.AUTH });
+  // A token of its own, never one left over from the general exchange: each
+  // is single-use and minted for one audience.
+  const oidc = await requestGithubIdToken(PUBLISH_OIDC_AUDIENCE, env);
 
   const url = `${base(target)}/api/customer-apps/publish/oidc-exchange`;
   const exchanged = await send(

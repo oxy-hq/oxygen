@@ -145,7 +145,7 @@ pub async fn ask(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let standing = resolve_standing(&db, user.id, req.org_id)
+    let standing = resolve_standing(&db, &user, req.org_id)
         .await
         .map_err(db_err)?;
 

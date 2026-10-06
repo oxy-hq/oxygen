@@ -43,7 +43,6 @@ use chrono::{Duration, Utc};
 use entity::{locations, org_kiosk_devices as devices, organizations};
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, DbErr, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
@@ -1023,7 +1022,7 @@ impl CreatedDevice {
 #[instrument(skip_all, fields(org = %org_id))]
 pub async fn create_device(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     headers: HeaderMap,
     Json(req): Json<CreateDeviceRequest>,
@@ -1047,8 +1046,7 @@ pub async fn create_device(
         Ok((row, token)) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "frontline.device.created")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "frontline.device.created")
                     .org(org_id)
                     .target("frontline_device", row.id.to_string(), row.name.clone()),
             )
@@ -1196,7 +1194,7 @@ pub struct UpdateDeviceRequest {
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn update_device(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateDeviceRequest>,
 ) -> Response {
@@ -1237,7 +1235,7 @@ pub async fn update_device(
 /// the same number.
 async fn record_device_update(
     db: &DatabaseConnection,
-    actor: &oxy_auth::types::AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
     org_id: Uuid,
     before: &devices::Model,
     after: &devices::Model,
@@ -1248,8 +1246,7 @@ async fn record_device_update(
     let state = |r: &devices::Model| serde_json::json!({ "name": r.name, "idle_timeout_seconds": r.idle_timeout_seconds });
     audit::record_best_effort(
         db,
-        audit::AuditEntry::new(actor.label().to_string(), "frontline.device.updated")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(actor, "frontline.device.updated")
             .org(org_id)
             .target("frontline_device", after.id.to_string(), after.name.clone())
             .change(state(before), state(after)),
@@ -1279,7 +1276,7 @@ async fn place_name(db: &DatabaseConnection, org_id: Uuid, id: Option<Uuid>) -> 
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn reissue_enrol_link(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Response {
@@ -1290,8 +1287,7 @@ pub async fn reissue_enrol_link(
         Ok((row, token)) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "frontline.device.link_reissued")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "frontline.device.link_reissued")
                     .org(org_id)
                     .target("frontline_device", row.id.to_string(), row.name.clone()),
             )
@@ -1316,7 +1312,7 @@ pub async fn reissue_enrol_link(
 #[instrument(skip_all, fields(org = %org_id, device = %id))]
 pub async fn revoke_device(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     headers: HeaderMap,
 ) -> Response {
@@ -1328,8 +1324,7 @@ pub async fn revoke_device(
             if changed {
                 audit::record_best_effort(
                     &db,
-                    audit::AuditEntry::new(actor.label().to_string(), "frontline.device.revoked")
-                        .actor(actor.id, audit::ActorType::User)
+                    audit::AuditEntry::for_request(&actor, "frontline.device.revoked")
                         .org(org_id)
                         .target("frontline_device", id.to_string(), String::new()),
                 )

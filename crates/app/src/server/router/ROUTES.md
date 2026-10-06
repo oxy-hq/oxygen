@@ -33,6 +33,15 @@ The protected-route inner stack differs by mode:
 
 `build_global_routes` (org routes) is **not** mounted in local mode.
 
+Inside the cloud auth layer, `token_grant_scope_middleware` answers 404 to a grant-bound API
+token (`all_access = false`) on every flat route that cannot honour its grants. The honoured
+set is the `treatment` match in `api/middlewares/token_grant_scope.rs`; a new flat route is
+refused until it is listed there. An all-access token that an org has blocked keeps the flat
+routes and loses that org's data only: `WHEN_BLOCKED` in the same file says, route by route,
+how each membership-keyed handler leaves the blocked org out, and a route missing from it is
+refused to such a token. Sessions, legacy keys and all-access tokens no org has blocked are
+untouched.
+
 The `/orgs/{org_id}/github/*` and `/user/github/*` subtrees below are no longer
 defined here: they live in the sibling `oxy-api-github` crate and are injected by
 the composition root (`oxy-server`) through `api_router`'s `SurfaceSeams::api` seam,
@@ -59,6 +68,9 @@ GET    /health  /ready  /live  /version
 GET    /auth/config
 POST   /auth/google  /auth/github  /auth/okta
 POST   /auth/magic-link/request  /auth/magic-link/verify
+POST   /auth/cli/exchange        (`oxyc login`: redeem the one-time code for a token)
+POST   /auth/oidc/exchange       (trusted access: a GitHub Actions OIDC token for a 15-minute `oxy_ci_` token; rate-limited per client)
+POST   /auth/tokens/revoke-leaked (leak response: revoke reported new-format tokens, never a legacy key; rate-limited per client)
 GET    /user
 GET|POST /auth/dev-login          (404s unless OXY_DEV_LOGIN_EMAILS is set)
 ```
@@ -81,6 +93,7 @@ POST   /invitations/{token}/accept
 ├── GET /workspaces
 ├── DELETE /workspaces/{id}
 ├── PATCH  /workspaces/{id}/rename
+├── GET|PUT /token-policy                    (org admin; PUT session-only — API-tokens Phase 5)
 └── /github/
     ├── GET /repositories · /branches · /namespaces
     ├── POST /namespaces/pat · /namespaces/installation
@@ -91,6 +104,15 @@ POST   /invitations/{token}/accept
 ├── GET  /account/oauth-url
 ├── GET  /installations · /installations/new-url
 └── POST /callback
+
+/user/tokens/                                 (session only — a token cannot manage tokens)
+├── GET  /   · POST /
+├── GET  /{id} · PATCH /{id} · DELETE /{id}
+├── POST /{id}/extend · /{id}/regenerate
+└── GET  /{id}/activity
+GET    /user/token-options                    (session only)
+GET|DELETE /auth/token                        (the calling token, about itself)
+POST   /auth/cli/authorize                    (session only — `oxyc login`: a one-time code for the CLI's challenge)
 ```
 
 ### 🏢 Workspace — `/{workspace_id}/…`
@@ -115,7 +137,8 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /threads/            list, create, delete-all, bulk-delete, get, delete,
 │                        task, agentic, workflow, workflow-sync, messages, agent, stop
 ├── /agents/             list, get, ask, ask-sync, run-test
-├── /api-keys/           list, create, get, delete
+├── /api-keys/           list, create, get, delete, extend, activity
+├── /api-tokens          the tokens that can reach this workspace (read-only, admin)
 ├── /files/              tree, diff-summary, get, from-git, revert, save,
 │                        delete(-file|-folder), rename-(file|folder), new-(file|folder)
 ├── /databases/          list, create, test-connection, sync, build, clean

@@ -526,15 +526,23 @@ async fn ctx_user_app_role_sees_a_team_granted_member() {
     // team-granted user reporting `None` here would make team grants invisible to
     // every function that asks.
     assert_eq!(
-        resolve_app_role(&conn, plain, &plain_email, &saved)
-            .await
-            .unwrap(),
+        resolve_app_role(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(plain, &plain_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         Some("member")
     );
     assert_eq!(
-        resolve_app_role(&conn, bystander, &bystander_email, &saved)
-            .await
-            .unwrap(),
+        resolve_app_role(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(bystander, &bystander_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         None
     );
 }
@@ -565,7 +573,13 @@ async fn the_access_gate_agrees_with_the_grant_list() {
     oxy_app::server::api::custom_apps_auth::invalidate_access_cache();
     for (id, email) in [(&granted, &granted_email), (&ungranted, &ungranted_email)] {
         assert!(
-            user_can_access_app(&conn, *id, email, &app).await.unwrap(),
+            user_can_access_app(
+                &conn,
+                &oxy_app::server::authz::Caller::without_credential(*id, email),
+                &app
+            )
+            .await
+            .unwrap(),
             "an unrestricted app must admit every org member"
         );
     }
@@ -581,21 +595,33 @@ async fn the_access_gate_agrees_with_the_grant_list() {
     let saved = reload(&conn, app.id).await;
 
     assert!(
-        user_can_access_app(&conn, granted, &granted_email, &saved)
-            .await
-            .unwrap(),
+        user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(granted, &granted_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         "the team-granted member must still get in"
     );
     assert!(
-        !user_can_access_app(&conn, ungranted, &ungranted_email, &saved)
-            .await
-            .unwrap(),
+        !user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(ungranted, &ungranted_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         "a member with no grant must be shut out — the whole point of restricting"
     );
     assert!(
-        user_can_access_app(&conn, officer, &officer_email, &saved)
-            .await
-            .unwrap(),
+        user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(officer, &officer_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         "org officers keep break-glass so an org can't lock itself out"
     );
 }
@@ -625,9 +651,13 @@ async fn deleting_a_team_revokes_what_it_granted() {
     let saved = reload(&conn, app.id).await;
     oxy_app::server::api::custom_apps_auth::invalidate_access_cache();
     assert!(
-        user_can_access_app(&conn, member, &member_email, &saved)
-            .await
-            .unwrap()
+        user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &saved
+        )
+        .await
+        .unwrap()
     );
 
     // `app_team_grants.team_id` cascades. Someone who could ONLY reach the app
@@ -644,9 +674,13 @@ async fn deleting_a_team_revokes_what_it_granted() {
         "deleting a team must revoke the grants it carried"
     );
     assert!(
-        !user_can_access_app(&conn, member, &member_email, &saved)
-            .await
-            .unwrap(),
+        !user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &saved
+        )
+        .await
+        .unwrap(),
         "access must follow the revoked grant"
     );
 }
@@ -685,9 +719,13 @@ async fn leaving_a_team_revokes_access_without_touching_the_grant() {
 
     assert!(!has_app_grant(&conn, member, app.id).await.unwrap());
     assert!(
-        !user_can_access_app(&conn, member, &member_email, &saved)
-            .await
-            .unwrap()
+        !user_can_access_app(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &saved
+        )
+        .await
+        .unwrap()
     );
     assert_eq!(
         service::read_access(&conn, &saved)
@@ -847,9 +885,13 @@ async fn opening_an_app_to_the_org_keeps_grants_and_their_admin_power() {
     .expect("restrict");
     let restricted_app = reload(&conn, app.id).await;
     assert_eq!(
-        resolve_app_role(&conn, member, &member_email, &restricted_app)
-            .await
-            .unwrap(),
+        resolve_app_role(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &restricted_app
+        )
+        .await
+        .unwrap(),
         Some("admin")
     );
 
@@ -878,9 +920,13 @@ async fn opening_an_app_to_the_org_keeps_grants_and_their_admin_power() {
     // dialog's "Roles" section on the open branch has become dead UI and should go.
     let open_app = reload(&conn, app.id).await;
     assert_eq!(
-        resolve_app_role(&conn, member, &member_email, &open_app)
-            .await
-            .unwrap(),
+        resolve_app_role(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &open_app
+        )
+        .await
+        .unwrap(),
         Some("admin"),
         "an admin grant outlives the switch to org-wide visibility — which is why \
          the UI must keep showing it"
@@ -900,9 +946,13 @@ async fn opening_an_app_to_the_org_keeps_grants_and_their_admin_power() {
     .expect("clear");
     assert!(cleared.grants.is_empty());
     assert_eq!(
-        resolve_app_role(&conn, member, &member_email, &reload(&conn, app.id).await)
-            .await
-            .unwrap(),
+        resolve_app_role(
+            &conn,
+            &oxy_app::server::authz::Caller::without_credential(member, &member_email),
+            &reload(&conn, app.id).await
+        )
+        .await
+        .unwrap(),
         None
     );
 }

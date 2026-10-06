@@ -167,8 +167,8 @@ pub async fn list_held(
         .await
         .map_err(internal("app lookup failed"))?
         .ok_or_else(not_found)?;
-    let email = user.email.as_deref().unwrap_or("");
-    if !may_open_non_production(&db, user.id, email, &app).await {
+    let caller = crate::server::authz::Caller::from_user(&user);
+    if !may_open_non_production(&db, &caller, &app).await {
         return Err(not_found());
     }
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);

@@ -2,6 +2,8 @@ import { CanOrgAdmin } from "@/components/auth/Can";
 import type { SettingsSection } from "@/stores/useSettingsDialog";
 import type { Organization, OrgRole } from "@/types/organization";
 import type { Workspace } from "@/types/workspace";
+import PersonalTokens from "../sections/account/PersonalTokens";
+import OrgApiAccess from "../sections/organization/ApiAccess";
 import OrgAppAccess from "../sections/organization/AppAccess";
 import Billing from "../sections/organization/Billing";
 import OrgCrew from "../sections/organization/Crew";
@@ -18,6 +20,7 @@ import ApiKeys from "../sections/workspace/ApiKeys";
 import Apps from "../sections/workspace/Apps";
 import Connections from "../sections/workspace/Connections";
 import Databases from "../sections/workspace/Databases";
+import LegacyApiKeys from "../sections/workspace/LegacyApiKeys";
 import WorkspaceMembers from "../sections/workspace/Members";
 import Oltp from "../sections/workspace/Oltp";
 import OxyAccess from "../sections/workspace/OxyAccess";
@@ -75,6 +78,9 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
       {org && role && activeSection === "organization.positions" && (
         <OrgPositions org={org} viewerRole={role} />
       )}
+      {org && role && activeSection === "organization.api_access" && (
+        <OrgApiAccess org={org} viewerRole={role} />
+      )}
       {org && role && activeSection === "organization.billing" && (
         <CanOrgAdmin
           fallback={
@@ -95,6 +101,7 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
         <Previews workspace={workspace} onOpened={close} />
       )}
       {workspace && activeSection === "workspace.api_keys" && <ApiKeys />}
+      {workspace && activeSection === "workspace.legacy_api_keys" && <LegacyApiKeys />}
       {workspace && activeSection === "workspace.secrets" && <Secrets />}
       {workspace && activeSection === "workspace.connections" && <Connections />}
       {workspace && activeSection === "workspace.apps" && <Apps />}
@@ -110,6 +117,8 @@ export function ActiveSection({ activeSection, org, role, workspace, close }: Ac
         </CanOrgAdmin>
       )}
       {workspace && activeSection === "workspace.activity_logs" && <ActivityLogs />}
+
+      {activeSection === "account.tokens" && <PersonalTokens />}
 
       {activeSection === "preferences.appearance" && <Appearance />}
     </>

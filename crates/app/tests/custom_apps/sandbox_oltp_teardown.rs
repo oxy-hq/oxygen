@@ -43,7 +43,7 @@ async fn begin_delete(
         &app.t.db,
         row,
         &sandbox(handle),
-        Some(app.t.guest_id),
+        Some(&app.t.guest()),
         TeardownReason::Deleted,
     )
     .await

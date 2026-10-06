@@ -54,12 +54,14 @@ pub(crate) async fn scope_org_filter_checked(
     // rather than reading one, so an owner who ALSO carries a bounded row (possible when
     // OXY_OWNER and OXY_GLOBAL_ADMINS overlap) isn't narrowed here while every other
     // path says they reach everything. Mirrors `platform_reaches` / `platform_holds`.
-    if crate::server::authz::globals::is_global_owner(user.email.as_deref().unwrap_or("")) {
+    if crate::server::authz::globals::is_global_owner(&crate::server::authz::Caller::from_user(
+        &user,
+    )) {
         return Ok(None);
     }
     match crate::server::authz::globals::platform_grant_checked(
         db,
-        user.email.as_deref().unwrap_or(""),
+        &crate::server::authz::Caller::from_user(&user),
     )
     .await?
     {
@@ -649,7 +651,15 @@ pub async fn list_my_apps(
             tracing::error!("Failed to query memberships: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-    let org_ids: Vec<Uuid> = memberships.iter().map(|m| m.org_id).collect();
+    // A grant-bound API token lists only the apps of the orgs its grants touch
+    // — the same filter `GET /orgs` applies. A session, a legacy key and an
+    // all-access token touch every org, so they list what they always did.
+    let caller = crate::server::authz::Caller::from_user(&user);
+    let org_ids: Vec<Uuid> = memberships
+        .iter()
+        .map(|m| m.org_id)
+        .filter(|org_id| caller.touches_org(*org_id))
+        .collect();
     if org_ids.is_empty() {
         return Ok(Json(vec![]));
     }
@@ -872,7 +882,7 @@ pub async fn update_app(
 /// [`publish_one`]) and stamp `published_at = now()` so the customer-facing
 /// auth gate flips and the workspace sidebar picks up the entry.
 pub async fn publish_app(
-    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PromoteResponse>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
@@ -889,8 +899,7 @@ pub async fn publish_app(
     // is exactly the question an incident asks first.
     oxy_app_core::audit::record_best_effort(
         &db,
-        oxy_app_core::audit::AuditEntry::new(user.label().to_string(), "app.published")
-            .actor(user.id, oxy_app_core::audit::ActorType::User)
+        oxy_app_core::audit::AuditEntry::for_request(&user, "app.published")
             .org(updated.org_id)
             .target("app", updated.id.to_string(), updated.name.clone()),
     )
@@ -919,7 +928,7 @@ async fn promote_response(
 /// Unpublish: null out `published_at`. Non-app-admins lose access on
 /// next request; the bundle itself stays untouched.
 pub async fn unpublish_app(
-    oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
+    user: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AppResponse>, StatusCode> {
     let db = establish_connection().await.map_err(|e| {
@@ -935,8 +944,7 @@ pub async fn unpublish_app(
     // Taking a customer's app DOWN is at least as auditable as putting it up.
     oxy_app_core::audit::record_best_effort(
         &db,
-        oxy_app_core::audit::AuditEntry::new(user.label().to_string(), "app.unpublished")
-            .actor(user.id, oxy_app_core::audit::ActorType::User)
+        oxy_app_core::audit::AuditEntry::for_request(&user, "app.unpublished")
             .org(updated.org_id)
             .target("app", updated.id.to_string(), updated.name.clone()),
     )

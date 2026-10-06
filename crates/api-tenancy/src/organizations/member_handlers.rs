@@ -8,7 +8,6 @@ use entity::org_members::OrgRole;
 use entity::prelude::*;
 use entity::workspaces;
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
     QuerySelect, TransactionTrait,
@@ -64,7 +63,7 @@ pub async fn list_members(
 /// PATCH /orgs/:org_id/members/:user_id
 pub async fn update_member_role(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, target_user_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateRoleRequest>,
 ) -> Result<Json<MemberResponse>, StatusCode> {
@@ -150,8 +149,7 @@ pub async fn update_member_role(
     // one.
     audit::record_in_txn(
         &txn,
-        audit::AuditEntry::new(actor.label().to_string(), "org.member.role_updated")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "org.member.role_updated")
             .org(ctx.org.id)
             .target("user", target_user_id.to_string(), user.label().to_string())
             .change(
@@ -217,7 +215,7 @@ pub async fn update_member_role(
 /// DELETE /orgs/:org_id/members/:user_id
 pub async fn remove_member(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, target_user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     // Owners cannot remove themselves — use a dedicated "leave org" flow.
@@ -322,8 +320,7 @@ pub async fn remove_member(
     // Admin is precisely the event a compromised-account investigation starts from.
     audit::record_in_txn(
         &txn,
-        audit::AuditEntry::new(actor.label().to_string(), "org.member.removed")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "org.member.removed")
             .org(ctx.org.id)
             .target(
                 "user",

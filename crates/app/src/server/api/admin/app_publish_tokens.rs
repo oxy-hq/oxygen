@@ -157,8 +157,13 @@ pub async fn create_token(
 /// `Cap::OperatePlatform` — the "operates Oxy's own machinery" capability. Held by
 /// Global Admins and owners, not by App Operators, which is exactly the line: fleet
 /// operators audit the token estate; an app publisher manages their own credential.
-async fn sees_all_tokens(db: &sea_orm::DatabaseConnection, email: &str) -> bool {
-    crate::server::authz::globals::platform_holds(db, email, oxy_authz::Cap::OperatePlatform).await
+async fn sees_all_tokens(
+    db: &sea_orm::DatabaseConnection,
+    actor: &oxy_auth::types::AuthenticatedUser,
+) -> bool {
+    let caller = crate::server::authz::Caller::from_user(actor);
+    crate::server::authz::globals::platform_holds(db, &caller, oxy_authz::Cap::OperatePlatform)
+        .await
 }
 
 pub async fn list_tokens(
@@ -169,7 +174,7 @@ pub async fn list_tokens(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let mut query = AppPublishTokens::find().order_by_desc(app_publish_tokens::Column::CreatedAt);
-    if !sees_all_tokens(&db, actor.email.as_deref().unwrap_or("")).await {
+    if !sees_all_tokens(&db, &actor).await {
         query = query.filter(app_publish_tokens::Column::CreatedBy.eq(actor.id));
     }
     let rows = query.all(&db).await.map_err(|e| {
@@ -265,9 +270,7 @@ pub async fn revoke_token(
     // Revoking someone else's token is a fleet-operator action, not an app-publishing
     // one — see the module docs. 404 rather than 403, so a bounded caller can't confirm
     // another operator's token exists by probing ids.
-    if token.created_by != Some(actor.id)
-        && !sees_all_tokens(&db, actor.email.as_deref().unwrap_or("")).await
-    {
+    if token.created_by != Some(actor.id) && !sees_all_tokens(&db, &actor).await {
         return Err(StatusCode::NOT_FOUND);
     }
 

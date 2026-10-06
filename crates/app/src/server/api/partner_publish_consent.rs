@@ -18,12 +18,11 @@ use axum::http::StatusCode;
 use entity::partner_publish_consent;
 use entity::prelude::PartnerPublishConsent;
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 
 use crate::server::api::middlewares::role_guards::{OrgAdmin, OrgAdminStrict};
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 #[derive(Serialize)]
 pub struct ConsentStatus {
@@ -67,7 +66,7 @@ pub async fn get_consent(OrgAdmin(ctx): OrgAdmin) -> Result<Json<ConsentStatus>,
 /// the synthetic override, so only a real Owner/Admin of THIS org reaches here.
 pub async fn set_consent(
     OrgAdminStrict(ctx): OrgAdminStrict,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(body): Json<SetConsentBody>,
 ) -> Result<Json<ConsentStatus>, StatusCode> {
     let db = establish_connection().await.map_err(internal("db"))?;
@@ -102,8 +101,7 @@ pub async fn set_consent(
     };
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), action)
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, action)
             .org(ctx.org.id)
             .target("organization", ctx.org.id.to_string(), ctx.org.name.clone())
             .change(

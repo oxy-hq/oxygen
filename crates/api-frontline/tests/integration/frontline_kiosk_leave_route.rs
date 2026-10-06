@@ -68,6 +68,7 @@ fn as_authenticated(user: &users::Model) -> AuthenticatedUser {
         name: user.name.clone(),
         picture: None,
         status: user.status.clone(),
+        credential: None,
     }
 }
 

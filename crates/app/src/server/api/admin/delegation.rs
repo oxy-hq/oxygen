@@ -41,20 +41,21 @@ pub async fn actor_facts(
     db: &DatabaseConnection,
     actor: &AuthenticatedUser,
 ) -> Result<PrincipalFacts, StatusCode> {
-    let platform = globals::platform_grant_checked(db, actor.email.as_deref().unwrap_or(""))
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                target: "authz",
-                error = %e,
-                "platform grant unreadable on a grant-table decision — refusing"
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let platform =
+        globals::platform_grant_checked(db, &crate::server::authz::Caller::from_user(actor))
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    target: "authz",
+                    error = %e,
+                    "platform grant unreadable on a grant-table decision — refusing"
+                );
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
     Ok(PrincipalFacts {
         user_id: actor.id,
         platform,
-        is_global_owner: globals::is_global_owner(actor.email.as_deref().unwrap_or("")),
+        is_global_owner: globals::is_global_owner(&crate::server::authz::Caller::from_user(actor)),
         ..Default::default()
     })
 }

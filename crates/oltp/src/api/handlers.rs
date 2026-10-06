@@ -19,6 +19,7 @@ use axum::http::StatusCode;
 use entity::org_members;
 use entity::prelude::{OrgMembers, Workspaces};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AuthenticatedUser;
 use oxy_platform::db::establish_connection;
 use sea_orm::DatabaseConnection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -107,12 +108,15 @@ pub async fn get_connection(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(query): Query<WorkspaceQuery>,
 ) -> Result<Json<ConnectionInfoResponse>, StatusCode> {
+    // "My org's database": a surface that acts as the caller. A service
+    // account is refused by default (API-tokens design §3.3).
+    user.refuse_service_account()?;
     let db = establish_connection().await.map_err(|e| {
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let org_id = resolve_caller_org(&db, query.workspace_id, user.id).await?;
+    let org_id = resolve_caller_org(&db, query.workspace_id, &user).await?;
     Ok(Json(status_for_org(&db, org_id).await?))
 }
 
@@ -194,10 +198,15 @@ pub async fn status_for_org(
 ///
 /// Membership is the whole gate here: this endpoint returns no credentials, so
 /// there is nothing an elevated role would unlock.
+///
+/// Both `/oltp/me/*` routes name their workspace in the query and come through
+/// here, so this is also where the request's API token is asked: a workspace
+/// of an org that has blocked it (API-tokens design §5) answers 404, as one
+/// that does not exist.
 pub(super) async fn resolve_caller_org(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
-    user_id: Uuid,
+    user: &AuthenticatedUser,
 ) -> Result<Uuid, StatusCode> {
     // Local mode has a single implicit org at the nil UUID and no membership
     // rows to check. Mirrors `airhouse::api::handlers::resolve_caller_role`.
@@ -211,10 +220,11 @@ pub(super) async fn resolve_caller_org(
         .map_err(internal("query workspace"))?
         .ok_or(StatusCode::NOT_FOUND)?;
     let org_id = workspace.org_id.ok_or(StatusCode::FORBIDDEN)?;
+    user.require_org_reach(org_id)?;
 
     OrgMembers::find()
         .filter(org_members::Column::OrgId.eq(org_id))
-        .filter(org_members::Column::UserId.eq(user_id))
+        .filter(org_members::Column::UserId.eq(user.id))
         .one(db)
         .await
         .map_err(internal("query membership"))?

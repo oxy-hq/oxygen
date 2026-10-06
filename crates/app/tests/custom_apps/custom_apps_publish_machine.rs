@@ -131,6 +131,10 @@ fn input(t: &Tenant, slug: &str, build_id: &str, promote: bool, who: Publisher) 
         manifest: None,
         source_repo: None,
         commit_sha: None,
+        publisher: who
+            .published_by
+            .zip(who.published_by_email.as_deref())
+            .map(|(id, email)| oxy_app::server::authz::Caller::without_credential(id, email)),
         published_by: who.published_by,
         published_by_email: who.published_by_email,
         machine_app_id: who.machine_app_id,
@@ -247,4 +251,193 @@ async fn the_machine_principal_id_cannot_be_recorded_as_a_publisher() {
         ),
         other => panic!("expected the published_by FK violation, got {other:?}"),
     }
+}
+
+// ── Trusted access: a trust policy's `app_publish` grant (API-tokens §3.4) ───
+//
+// The newer way to the same publish. A GitHub Actions run exchanges its OIDC
+// token for an `oxy_ci_` token that acts as a service account of the app's own
+// org; the grant on that token is what authorizes the publish. The legacy
+// path above is unchanged, and still asks for the client's consent.
+
+/// A real `oxy_ci_` credential: an account of `t`'s org, a trust policy
+/// granting `grants`, a token minted from it, and that token admitted through
+/// the same authenticator every request goes through.
+async fn ci_publisher(
+    db: &DatabaseConnection,
+    t: &Tenant,
+    grants: Vec<oxy_auth::token::trust_policy_access::PolicyGrant>,
+) -> (Publisher, Uuid) {
+    use oxy_auth::authenticator::Authenticator;
+    use oxy_auth::token::account_access::{AccountRole, AccountWant};
+    use oxy_auth::token::trust_policy_access::RepoIds;
+    use oxy_auth::token::{ci, service_account, trust_policy};
+
+    oxy_auth::built_in::set_auth_configured(true);
+    oxy_auth::token::cache::clear();
+    let want = AccountWant {
+        name: "publisher".into(),
+        description: None,
+        role: AccountRole::Member,
+    };
+    let account = service_account::create(db, t.org_id, want, t.admin.id)
+        .await
+        .expect("create the service account");
+    let policy = trust_policy::create(
+        db,
+        trust_policy::NewPolicy {
+            org_id: t.org_id,
+            service_account_id: account.user_id,
+            repository: "acme/app".into(),
+            ids: RepoIds {
+                repository_id: 987,
+                repository_owner_id: 42,
+            },
+            workflow_path: ".github/workflows/oxy-publish.yml".into(),
+            environment: Some("production".into()),
+            ref_pattern: None,
+            allow_self_hosted: false,
+            grants: grants.clone(),
+            created_by: t.admin.id,
+        },
+    )
+    .await
+    .expect("register the trust policy");
+    let minted = ci::mint(
+        db,
+        ci::NewCiToken {
+            account_id: account.user_id,
+            policy_id: policy.id,
+            name: IDENTITY.to_string(),
+            grants,
+            claims: serde_json::json!({ "run_id": "7001" }),
+            now: chrono::Utc::now(),
+        },
+    )
+    .await
+    .expect("mint the ci token");
+
+    let mut headers = axum::http::HeaderMap::new();
+    let bearer = format!("Bearer {}", minted.secret);
+    headers.insert("authorization", bearer.parse().unwrap());
+    let (_identity, credential) = oxy_auth::built_in::BuiltInAuthenticator::new()
+        .authenticate_with_credential(&headers)
+        .await
+        .expect("the ci token authenticates");
+    let row = users::Entity::find_by_id(account.user_id)
+        .one(db)
+        .await
+        .expect("query users")
+        .expect("the account's users row");
+    let user = AuthenticatedUser::from(row).with_credential(credential);
+    (Publisher::from_request(&user, None), account.user_id)
+}
+
+/// `input`, carrying the publisher's own credential — as `publish_handler`
+/// hands it on.
+fn input_as(t: &Tenant, slug: &str, build_id: &str, who: Publisher) -> PublishInput {
+    let caller = who.caller.clone();
+    PublishInput {
+        publisher: caller,
+        ..input(t, slug, build_id, false, who)
+    }
+}
+
+async fn revoke_consent(db: &DatabaseConnection, org_id: Uuid) {
+    partner_publish_consent::Entity::delete_by_id(org_id)
+        .exec(db)
+        .await
+        .expect("revoke the client's consent");
+}
+
+#[tokio::test]
+async fn a_trust_policy_grant_publishes_its_app_and_no_other_without_consent() {
+    use oxy_auth::token::trust_policy_access::PolicyGrant;
+
+    let db = test_db().await;
+    let t = seed_tenant(&db).await;
+    let granted = human_first_publish(&db, &t, "granted-app").await;
+    human_first_publish(&db, &t, "other-app").await;
+    // The org never agreed to anyone else publishing into it.
+    revoke_consent(&db, t.org_id).await;
+
+    let grant = PolicyGrant::AppPublish {
+        org_id: t.org_id,
+        app_id: granted,
+    };
+    let (who, account) = ci_publisher(&db, &t, vec![grant]).await;
+    assert_eq!(
+        who.published_by,
+        Some(account),
+        "the account is the publisher"
+    );
+    assert_eq!(who.published_via.as_deref(), Some(IDENTITY));
+
+    // Its own app: published, with no consent row — the org's own policy is
+    // the org publishing its own app.
+    let result = publish(input_as(&t, "granted-app", "ci-grant-1", who.clone()))
+        .await
+        .expect("a trust policy's grant publishes its app without consent");
+    assert_eq!(result.app_id, granted);
+    let build = build_row(&db, granted, "ci-grant-1").await;
+    assert_eq!(
+        build.published_by,
+        Some(account),
+        "the account has a users row, so the build names it"
+    );
+    assert_eq!(build.published_via.as_deref(), Some(IDENTITY));
+
+    // Another app of the same org: refused. The grant names one app.
+    let err = publish(input_as(&t, "other-app", "ci-grant-2", who.clone()))
+        .await
+        .expect_err("the grant does not reach another app");
+    assert!(
+        matches!(err, PublishError::OxyAccessDenied { .. }),
+        "{err:?}"
+    );
+    // And it cannot bring a new app into being.
+    let err = publish(input_as(&t, "brand-new-app", "ci-grant-3", who))
+        .await
+        .expect_err("a grant publishes an app that exists");
+    assert!(
+        matches!(err, PublishError::OxyAccessDenied { .. }),
+        "{err:?}"
+    );
+
+    // The legacy machine path still asks for consent, and is refused without it.
+    let machine = Publisher::from_request(
+        &AuthenticatedUser::machine_publisher(),
+        Some(&machine_marker(granted)),
+    );
+    let err = publish(input(&t, "granted-app", "ci-legacy-1", false, machine))
+        .await
+        .expect_err("the legacy exchange's token still needs the client's consent");
+    assert!(
+        matches!(err, PublishError::OxyAccessDenied { .. }),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_ci_token_without_an_app_publish_grant_cannot_publish() {
+    use oxy_auth::token::personal::GrantSpec;
+    use oxy_auth::token::trust_policy_access::PolicyGrant;
+
+    let db = test_db().await;
+    let t = seed_tenant(&db).await;
+    human_first_publish(&db, &t, "an-app").await;
+    // The whole org, as a member — and no word about publishing.
+    let grant = PolicyGrant::Workspace(GrantSpec {
+        org_id: t.org_id,
+        workspace_id: None,
+        ceiling: oxy_authz::RoleCeiling::Member,
+    });
+    let (who, _account) = ci_publisher(&db, &t, vec![grant]).await;
+    let err = publish(input_as(&t, "an-app", "ci-nogrant-1", who))
+        .await
+        .expect_err("reaching the org is not a grant to publish into it");
+    assert!(
+        matches!(err, PublishError::OxyAccessDenied { .. }),
+        "{err:?}"
+    );
 }

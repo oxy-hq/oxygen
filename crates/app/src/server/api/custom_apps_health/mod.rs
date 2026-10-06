@@ -165,13 +165,7 @@ async fn health_for(
     };
     // A non-production environment's verdict is staff's to read, like its HTML.
     if *environment != AppEnvironment::Production
-        && !may_open_non_production(
-            &db,
-            outcome.user_id,
-            outcome.user_email.as_deref().unwrap_or(""),
-            &outcome.app,
-        )
-        .await
+        && !may_open_non_production(&db, &outcome.caller, &outcome.app).await
     {
         return error_response(StatusCode::FORBIDDEN, reason(StatusCode::FORBIDDEN));
     }

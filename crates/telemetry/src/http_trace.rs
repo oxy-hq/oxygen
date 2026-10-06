@@ -146,6 +146,17 @@ pub fn is_probe(path: &str) -> bool {
     PROBE_PATHS.contains(&path)
 }
 
+/// Response-extension marker: the **id** of the API key or token that
+/// authenticated the request — never the token. The auth stack knows it only
+/// after this layer has made the span, so it rides back on the response and
+/// [`OxyOnResponse`] records it as `oxy.token_id`. Passing it by value this way
+/// names the span explicitly; `Span::current()` from deep inside the router
+/// could be some inner span and would then record nothing, silently.
+///
+/// A plain string so this crate stays free of `oxy-auth`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RequestTokenId(pub String);
+
 #[derive(Clone, Copy, Debug)]
 pub struct OxyMakeSpan {
     request_id_header: &'static str,
@@ -183,6 +194,7 @@ impl<B> MakeSpan<B> for OxyMakeSpan {
             client.address = client_address(headers).as_deref(),
             user_agent.original = header_str(headers, "user-agent"),
             oxy.request_id = header_str(headers, self.request_id_header),
+            oxy.token_id = Empty,
         );
         if let Some(parent) = crate::propagation::extract(headers) {
             adopt_or_link(&span, parent);
@@ -247,6 +259,9 @@ impl<B> OnResponse<B> for OxyOnResponse {
             return;
         }
         span.record("http.response.status_code", status.as_u16());
+        if let Some(RequestTokenId(token_id)) = response.extensions().get::<RequestTokenId>() {
+            span.record("oxy.token_id", token_id.as_str());
+        }
         if status.is_server_error() {
             // Semconv for SERVER spans: only 5xx is an error; a 4xx is the
             // client's problem and leaves the status unset. `on_failure`
@@ -715,6 +730,32 @@ mod tests {
             .iter()
             .find(|kv| kv.key.as_str() == key)
             .map(|kv| kv.value.to_string())
+    }
+
+    #[tokio::test]
+    async fn a_token_authenticated_request_carries_the_token_id_and_a_session_none() {
+        const TOKEN_ID: &str = "3f2a1b9c-0d4e-4f5a-8b6c-7d8e9f0a1b2c";
+        async fn keyed() -> axum::response::Response {
+            let mut res = axum::response::IntoResponse::into_response("ok");
+            res.extensions_mut()
+                .insert(RequestTokenId(TOKEN_ID.to_string()));
+            res
+        }
+        let app = || {
+            Router::new()
+                .route("/keyed", axum::routing::get(keyed))
+                .route("/plain", axum::routing::get(|| async { "ok" }))
+                .layer(trace_layer("x-oxy-request-id"))
+        };
+        let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+
+        let (_, spans) = spans_for_app(app(), get("/keyed")).await;
+        let span = spans.iter().find(|s| s.name == "GET /keyed").unwrap();
+        assert_eq!(attr(span, "oxy.token_id").as_deref(), Some(TOKEN_ID));
+
+        let (_, spans) = spans_for_app(app(), get("/plain")).await;
+        let span = spans.iter().find(|s| s.name == "GET /plain").unwrap();
+        assert_eq!(attr(span, "oxy.token_id"), None);
     }
 
     #[tokio::test]

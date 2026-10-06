@@ -22,6 +22,7 @@ oxy-app = { path = "../app", default-features = false }
 oxy-app-core = { workspace = true }       # AppState (router state) + pagination
 oxy = { workspace = true }                # database client
 oxy-auth = { workspace = true }           # AuthenticatedUserExtractor
+oxy-server-authz = { workspace = true }   # Caller: the reader with the credential they used
 oxy-shared = { workspace = true }         # OxyError + fleet_role::RouteRoleDecl
 agentic-pipeline = { workspace = true }   # run_agentic_answer + PlatformContext (ask)
 entity = { workspace = true }

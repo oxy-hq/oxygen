@@ -1,4 +1,4 @@
-//! Turn a `(user_id, email)` into [`PrincipalFacts`] — the org sets, partner standings
+//! Turn a [`Caller`] into [`PrincipalFacts`] — the org sets, partner standings
 //! and global flags [`oxy_authz::allows`] decides over. This is consolidation, not a new
 //! authority; every fact comes from an existing primitive:
 //!
@@ -17,14 +17,26 @@
 //! request_facts` memoizes it in the request's extensions. The partner queries
 //! short-circuit to empty for the common non-partner user, so a typical request is
 //! three queries: memberships + ws-overrides + app-admins.
+//!
+//! ## A token caps the facts here, at the source
+//!
+//! The facts are loaded for a [`Caller`], which carries the API token the request
+//! arrived with. A token that narrows — grants instead of all-access, `platform` or
+//! `partner` off — gets the same principal's facts **capped** (API-tokens design §4.4):
+//! the org sets shrink to the orgs a grant reaches at each level, the workspace
+//! elevations to the workspaces a grant covers at admin, platform standing to the orgs
+//! the token names (or to nothing), partner standings likewise. `allows()` then applies
+//! the exact, per-target cap from [`PrincipalFacts::token`]. A browser session and a
+//! legacy key load exactly what they always did.
 
 use entity::org_members::OrgRole;
 use entity::prelude::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
-use oxy_authz::{Cap, PartnerStanding, PrincipalFacts};
+use oxy_authz::{Cap, PartnerStanding, PrincipalFacts, RoleCeiling, ServiceAccountStanding};
 
+use crate::caller::Caller;
 use crate::globals;
 use crate::partner_authz;
 
@@ -54,10 +66,9 @@ use crate::partner_authz;
 /// operator reach.
 pub async fn load_principal_facts(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    email: &str,
+    caller: &Caller,
 ) -> Option<PrincipalFacts> {
-    load_principal_facts_scoped(db, user_id, email, true).await
+    load_principal_facts_scoped(db, caller, true).await
 }
 
 /// As [`load_principal_facts`], but `include_workspace_facts = false` skips the
@@ -71,10 +82,13 @@ pub async fn load_principal_facts(
 /// from this one.
 pub async fn load_principal_facts_scoped(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    email: &str,
+    caller: &Caller,
     include_workspace_facts: bool,
 ) -> Option<PrincipalFacts> {
+    if caller.is_service_account() {
+        return Some(service_account_facts(caller));
+    }
+    let user_id = caller.user_id;
     // One query for every org membership; the org sets and the partner check both read
     // from these rows instead of re-querying per membership.
     //
@@ -99,17 +113,25 @@ pub async fn load_principal_facts_scoped(
     // Read the platform sources ONCE: the partner step needs the staff verdict to decide
     // whether to look for assume sessions at all, and the facts need the flags. This
     // runs on the custom-app query hot path.
-    let standing = globals::platform_standing_checked(db, email).await?;
+    //
+    // Read for the CALLER, so a token that does not carry platform standing loads
+    // none, and one narrowed to a list of orgs loads it over those orgs only.
+    let standing = globals::platform_standing_checked(db, caller).await?;
     // NOTE: partner standings still collapse a failed query to "no standing" inside
     // `partner_authz` (operated_partners / standings_for). Same class as the bug this
     // Option fixes — a blip can still cost a partner their reach — but surfacing it
     // means threading fallibility through `resolve_scope`, whose 404-vs-403 existence
     // hiding has to be decided rather than mechanically rewritten. So `Some` here means
     // the loader's OWN reads succeeded, not that every fact in it is known-good.
-    let partners =
-        load_partner_standings(db, &memberships, user_id, standing.flags.is_staff()).await;
+    let partners = if caller.carries_partner() {
+        load_partner_standings(db, &memberships, caller, standing.flags.is_staff()).await
+    } else {
+        // A token without `partner` holds no partner standing: nothing to load.
+        Vec::new()
+    };
     let ws_admin_override = if include_workspace_facts {
-        load_ws_admin_override(db, user_id).await?
+        let elevated = load_ws_admin_override(db, user_id).await?;
+        covered_elevations(db, caller, elevated).await?
     } else {
         Vec::new()
     };
@@ -131,7 +153,7 @@ pub async fn load_principal_facts_scoped(
         load_frontline_workspace_grants(db, user_id).await?
     };
 
-    Some(PrincipalFacts {
+    let facts = PrincipalFacts {
         user_id,
         owned_orgs,
         admin_orgs,
@@ -142,9 +164,81 @@ pub async fn load_principal_facts_scoped(
         app_admin_memberships,
         frontline_orgs,
         frontline_workspace_grants,
+        service_account: None,
         platform: standing.grant,
         is_global_owner: standing.flags.is_global_owner,
+        token: None,
+    };
+    // The cap at the source. A no-op for a session and for a legacy key.
+    Some(caller.narrow(facts))
+}
+
+/// The facts of a **service account** (API-tokens design §3.3) — the loader's other
+/// branch, and it reads none of the tables the person's branch does.
+///
+/// A service account's standing is its `service_accounts` row and nothing else: it has
+/// no `org_members` row, no email for a platform grant to be keyed by, no partner
+/// membership, no workspace elevation, no app grant, no frontline enrolment. So none of
+/// those is loaded — not "loaded and found empty" — and a row someone later adds to any
+/// of them cannot reach a service account through here. The one fact is the standing
+/// the credential carries, which authentication read from the account's row for this
+/// very request (a disabled or deleted account never gets this far).
+///
+/// The token's grants then cap it, as they cap anyone: [`Caller::narrow`].
+fn service_account_facts(caller: &Caller) -> PrincipalFacts {
+    let service_account = caller
+        .account_standing()
+        .map(|standing| ServiceAccountStanding {
+            org_id: standing.org_id,
+            admin: standing.admin,
+        });
+    caller.narrow(PrincipalFacts {
+        user_id: caller.user_id,
+        service_account,
+        ..Default::default()
     })
+}
+
+/// The workspace elevations a narrowing token still carries: those in a workspace a
+/// grant covers at `admin` or above. `ws_admin_override` is keyed by workspace with no
+/// org beside it, and a grant may be org-wide, so the org is looked up — one query, and
+/// only for a token that narrows with elevations to check.
+///
+/// `None` = the lookup errored: unknown, not empty, like every other fact here.
+async fn covered_elevations(
+    db: &DatabaseConnection,
+    caller: &Caller,
+    elevated: Vec<Uuid>,
+) -> Option<Vec<Uuid>> {
+    let Some(reach) = caller.reach().filter(|r| !r.all_access) else {
+        return Some(elevated);
+    };
+    if elevated.is_empty() {
+        return Some(elevated);
+    }
+    let rows = Workspaces::find()
+        .filter(entity::workspaces::Column::Id.is_in(elevated))
+        .all(db)
+        .await
+        .map_err(|e| {
+            tracing::warn!(
+                target: "authz",
+                error = %e,
+                user = %caller.user_id,
+                "workspace org lookup failed — facts are unknown, not empty"
+            );
+        })
+        .ok()?;
+    Some(
+        rows.into_iter()
+            .filter(|ws| {
+                ws.org_id
+                    .and_then(|org| reach.workspace_ceiling(org, ws.id))
+                    .is_some_and(|c| c >= RoleCeiling::Admin)
+            })
+            .map(|ws| ws.id)
+            .collect(),
+    )
 }
 
 /// Facts for a PLATFORM decision (Oxy's operator surfaces): the platform grant only.
@@ -155,16 +249,20 @@ pub async fn load_principal_facts_scoped(
 /// so this is ~free.
 pub async fn load_platform_facts(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    email: &str,
+    caller: &Caller,
 ) -> Option<PrincipalFacts> {
-    let standing = globals::platform_standing_checked(db, email).await?;
-    Some(PrincipalFacts {
-        user_id,
+    // No platform read for a service account: it holds no staff standing by
+    // construction, and its facts say so to the model.
+    if caller.is_service_account() {
+        return Some(service_account_facts(caller));
+    }
+    let standing = globals::platform_standing_checked(db, caller).await?;
+    Some(caller.narrow(PrincipalFacts {
+        user_id: caller.user_id,
         platform: standing.grant,
         is_global_owner: standing.flags.is_global_owner,
         ..Default::default()
-    })
+    }))
 }
 
 /// `(owned, admin, member)` org sets from the user's already-loaded `org_members`
@@ -198,7 +296,7 @@ fn derive_org_roles(
 async fn load_partner_standings(
     db: &DatabaseConnection,
     memberships: &[entity::org_members::Model],
-    user_id: Uuid,
+    caller: &Caller,
     is_staff: bool,
 ) -> Vec<PartnerStanding> {
     // Real operators, plus any partner this user is standing in through a live
@@ -207,7 +305,7 @@ async fn load_partner_standings(
     // would have denied staff the console. That gap is why partner_policy could not
     // retire. Non-staff short-circuit before any query.
     let mut standings = partner_authz::operated_partners(db, memberships).await;
-    let assumed = partner_authz::assumed_partners(db, user_id, is_staff).await;
+    let assumed = partner_authz::assumed_partners(db, caller, is_staff).await;
     for a in assumed {
         // A real operator's standing wins; they are the same ceiling anyway.
         if !standings.iter().any(|p| p.partner_id == a.partner_id) {

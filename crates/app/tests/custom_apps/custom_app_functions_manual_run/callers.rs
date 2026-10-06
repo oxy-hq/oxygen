@@ -34,6 +34,7 @@ pub(super) fn user(id: Uuid, email: &str) -> AuthenticatedUserExtractor {
         name: "Checks".to_string(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     })
 }
 

@@ -14,7 +14,6 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use entity::partner_role_bindings;
 use entity::prelude::{OrgMembers, PartnerGrants, PartnerRoleBindings, Users};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -22,13 +21,13 @@ use uuid::Uuid;
 
 use super::detail::{PartnerDetail, load_detail};
 use super::{db, internal};
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 /// `PUT /admin/partners/{org_id}/people/{org_member_id}` — grant partner access as
 /// staff. Idempotent.
 pub async fn grant_access(
     Path((org_id, org_member_id)): Path<(Uuid, Uuid)>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<Json<PartnerDetail>, StatusCode> {
     let db = db().await?;
     if PartnerGrants::find_by_id(org_id)
@@ -74,8 +73,7 @@ pub async fn grant_access(
 
         audit::record_in_txn(
             &txn,
-            AuditEntry::new(actor.label().to_string(), "partner.access.granted")
-                .actor(actor.id, ActorType::User)
+            AuditEntry::for_request(&actor, "partner.access.granted")
                 .partner(org_id)
                 .org(org_id)
                 .target(
@@ -97,7 +95,7 @@ pub async fn grant_access(
 /// as staff.
 pub async fn revoke_access(
     Path((org_id, org_member_id)): Path<(Uuid, Uuid)>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<Json<PartnerDetail>, StatusCode> {
     let db = db().await?;
     let binding = PartnerRoleBindings::find()
@@ -126,8 +124,7 @@ pub async fn revoke_access(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.access.revoked")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.access.revoked")
             .partner(org_id)
             .org(org_id)
             .target("partner_member", org_member_id.to_string(), String::new())

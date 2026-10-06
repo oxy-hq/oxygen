@@ -44,7 +44,6 @@ use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
 use oxy_auth::authenticator::Authenticator;
 use oxy_auth::built_in::{BuiltInAuthenticator, extract_session_cookie};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::AuthenticatedUser;
 use oxy_auth::user::{LOCAL_GUEST_EMAIL, UserService};
 use sea_orm::DatabaseConnection;
@@ -103,7 +102,7 @@ pub async fn leave(
 #[instrument(skip_all, fields(org = %org_id))]
 pub async fn leave_kiosk(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Response {
@@ -145,14 +144,13 @@ pub async fn leave_kiosk(
 /// apart. Best-effort, like every audit write here.
 async fn record_left(
     db: &DatabaseConnection,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
     org_id: Uuid,
     device: &BoundDevice,
 ) {
     audit::record_best_effort(
         db,
-        audit::AuditEntry::new(actor.label().to_string(), "frontline.device.revoked")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(actor, "frontline.device.revoked")
             .org(org_id)
             .target(
                 "frontline_device",
@@ -221,6 +219,7 @@ mod tests {
             name: "Robert".into(),
             picture: None,
             status,
+            credential: None,
         }
     }
 

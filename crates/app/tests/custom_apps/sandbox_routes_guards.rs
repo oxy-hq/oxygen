@@ -11,6 +11,7 @@ use axum::{Extension, Json};
 use entity::users::UserStatus;
 use oxy_app::server::api::custom_apps_sandboxes::SandboxError;
 use oxy_app::server::api::custom_apps_sandboxes::handlers::{self, CreateEnvironmentRequest};
+use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::{AppPublishTokenAuth, AuthenticatedUser};
 use oxy_auth::user::LOCAL_GUEST_EMAIL;
@@ -29,6 +30,7 @@ fn caller(id: Uuid, email: &str) -> AuthenticatedUserExtractor {
         name: "Sandboxes".to_string(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     })
 }
 
@@ -60,7 +62,16 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
         expected
     );
     assert_eq!(
-        refusal(handlers::create(tenant(), None, Path(app), request("dev-b2")).await).await,
+        refusal(
+            handlers::create(
+                RequestActor::session(tenant().0),
+                None,
+                Path(app),
+                request("dev-b2")
+            )
+            .await
+        )
+        .await,
         expected
     );
     assert_eq!(
@@ -68,7 +79,7 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
         expected
     );
     assert_eq!(
-        refusal(handlers::delete(tenant(), None, named()).await).await,
+        refusal(handlers::delete(RequestActor::session(tenant().0), None, named()).await).await,
         expected
     );
 
@@ -86,7 +97,16 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
         expected
     );
     assert_eq!(
-        refusal(handlers::create(staff(), token(), Path(app), request("dev-b2")).await).await,
+        refusal(
+            handlers::create(
+                RequestActor::session(staff().0),
+                token(),
+                Path(app),
+                request("dev-b2")
+            )
+            .await
+        )
+        .await,
         expected
     );
     assert_eq!(
@@ -94,7 +114,7 @@ async fn a_caller_without_reach_and_a_publish_token_are_refused_by_every_handler
         expected
     );
     assert_eq!(
-        refusal(handlers::delete(staff(), token(), named()).await).await,
+        refusal(handlers::delete(RequestActor::session(staff().0), token(), named()).await).await,
         expected
     );
 

@@ -7,6 +7,10 @@ pub mod billing_past_due;
 pub mod local_test;
 mod mime;
 pub mod ses;
+pub mod token_expiring;
+pub mod token_grant_revoked;
+pub mod token_leaked;
+pub mod token_mail;
 
 pub struct EmailMessage {
     pub subject: String,

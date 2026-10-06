@@ -13,7 +13,6 @@ use axum::extract::Path;
 use axum::http::StatusCode;
 use entity::partner_orgs;
 use entity::prelude::{Organizations, PartnerGrants, PartnerOrgs};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -21,7 +20,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use super::{PartnerDetail, db, internal, load_detail};
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 #[derive(Deserialize)]
 pub struct AttachBody {
@@ -31,7 +30,7 @@ pub struct AttachBody {
 /// `POST /admin/partners/{org_id}/orgs`
 pub async fn attach_org(
     Path(partner_org_id): Path<Uuid>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(body): Json<AttachBody>,
 ) -> Result<Json<PartnerDetail>, StatusCode> {
     if body.managed_org_id == partner_org_id {
@@ -94,8 +93,7 @@ pub async fn attach_org(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.org.attached")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.org.attached")
             .partner(partner_org_id)
             .org(body.managed_org_id)
             .target("organization", body.managed_org_id.to_string(), org.name),
@@ -110,7 +108,7 @@ pub async fn attach_org(
 /// `DELETE /admin/partners/{org_id}/orgs/{managed_org_id}`
 pub async fn detach_org(
     Path((partner_org_id, managed_org_id)): Path<(Uuid, Uuid)>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, StatusCode> {
     let db = db().await?;
     let link = PartnerOrgs::find()
@@ -129,8 +127,7 @@ pub async fn detach_org(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.org.detached")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.org.detached")
             .partner(partner_org_id)
             .org(managed_org_id)
             .target("organization", managed_org_id.to_string(), String::new()),

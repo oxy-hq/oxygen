@@ -434,7 +434,7 @@ pub async fn update_folder(
     // they are one, so resolving standing here is a formality that keeps this
     // going through the same filter as every other count rather than assuming
     // an equivalence.
-    let standing = super::visibility::resolve_standing(&db, user.id, org_id)
+    let standing = super::visibility::resolve_standing(&db, &user, org_id)
         .await
         .map_err(db_err)?;
     let counts = hydrate::folder_counts(&db, org_id, user.id, &standing)

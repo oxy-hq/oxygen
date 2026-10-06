@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "oxy-test-key",
+      "n": "n-ze7Tz4OqvwGVXqnLZUFR6KUtuf4XK-trJ0ze6x5xbZ-DWUs2_wp9Xxlt2awEheg546PXoZfpYGQ8BesPC5jZOOSExK6lMFc3ukgK5y27Yk2k-2adHOwvOMoXzPSzWLELE6OmdnOJ0t0weI62j4TIG1hpOL0VBvPUSHJta7cWsdtKTTR0jJ4At1WIQkaxUZK277gv98wBghcapd-9ZW3XBvVoKcL1Q14pmavBiTVQVY3Nc1gA4pEBQqvqpnqeFrccBV2xEeGH7psl9fhDZxIYVTPxKrC68KhyFDksp50CtqXLNef7y6V_ylbiSR2KfubM5lH-2rP9PD_GcU8X-RVw",
+      "e": "AQAB"
+    }
+  ]
+}

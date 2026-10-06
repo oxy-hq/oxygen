@@ -10,276 +10,50 @@
 //!   * `verify_claims` — given the decoded claims and the set of publisher configs
 //!     for the repo, returns the app ids whose config matches (a monorepo can
 //!     publish several apps from one repo). Every match rule from the design lives
-//!     here.
-//!   * Signature verification (RS256 against GitHub's JWKS), audience pinning,
-//!     `jti` single-use, and the exchange endpoint sit on top in sibling steps.
+//!     there.
+//!   * Signature verification (RS256 against GitHub's JWKS), audience pinning and
+//!     `jti` single-use are the envelope.
+//!
+//! Both now live in `oxy_auth::github_oidc`, the one verifier this exchange
+//! shares with trusted access (`POST /api/auth/oidc/exchange`). What stays here
+//! is this exchange — audience `oxy-publish`, `app_publishers` rows, an
+//! `oxypublish_` token — and the publisher registration routes. It is kept
+//! exactly as it shipped: a trust policy with an `app_publish` grant is the
+//! newer way to the same publish, and converting these rows is a later step.
 //!
 //! The rules that get platforms owned are exactly the ones NOT to leave out:
 //! never match `sub` (immutable-format changeover), require the `environment`
 //! claim, reject `pull_request_target`, require a github-hosted runner, and match
 //! on the numeric `repository_owner_id` (the account-resurrection defence).
 
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
-
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
-use jsonwebtoken::jwk::JwkSet;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use oxy_auth::github_oidc::{self, AUDIENCE_PUBLISH};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
-/// GitHub's OIDC issuer + JWKS. Constants, not config: there is exactly one
-/// GitHub Actions OIDC provider.
-const GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
-const GITHUB_JWKS_URL: &str = "https://token.actions.githubusercontent.com/.well-known/jwks";
-/// The audience WE require. GitHub's default audience is the repo owner's URL;
-/// pinning our own value and rejecting others (strict aud) stops any workflow in
-/// the org replaying an unrelated token into us. The generated workflow requests
-/// exactly this.
-pub const OXY_OIDC_AUDIENCE: &str = "oxy-publish";
+// The verifier — keys, envelope, `jti` burn and the pure claim decision — is
+// shared with trusted access. These names are re-exported because this module
+// was where they lived.
+pub use oxy_auth::github_oidc::{
+    GithubOidcClaims, OidcError, OidcReject, PublisherConfig, machine_identity, verify_claims,
+};
 
-/// The subset of GitHub Actions OIDC claims we verify. Every custom claim GitHub
-/// emits is a **string**, including the numeric-looking `repository_owner_id`.
-#[derive(Clone, Debug, Deserialize)]
-pub struct GithubOidcClaims {
-    /// "owner/repo" — case-insensitive.
-    pub repository: String,
-    pub repository_owner: String,
-    /// GitHub's NUMERIC account id, as a string. The account-resurrection defence:
-    /// a deleted-and-recreated owner with the same name gets a new id.
-    pub repository_owner_id: String,
-    /// e.g. "owner/repo/.github/workflows/oxy-publish.yml@refs/heads/main".
-    pub job_workflow_ref: String,
-    /// The deployment environment. REQUIRED by us — a token minted by a job with no
-    /// `environment:` has no way to be gated behind required-reviewers.
-    pub environment: Option<String>,
-    pub event_name: String,
-    /// "github-hosted" | "self-hosted".
-    pub runner_environment: String,
-    /// One-time id; burned by the replay store on the signature path.
-    pub jti: String,
-}
+/// The audience this exchange requires, and the only one it accepts. Trusted
+/// access requires `oxy`; neither accepts the other's.
+pub const OXY_OIDC_AUDIENCE: &str = AUDIENCE_PUBLISH;
 
-/// One publisher config to match against — the fields of an `app_publishers` row
-/// that participate in the decision, plus the app it authorizes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PublisherConfig {
-    pub app_id: Uuid,
-    pub repo_owner: String,
-    pub repo_owner_id: i64,
-    pub repo_name: String,
-    /// Just the workflow path, e.g. ".github/workflows/oxy-publish.yml".
-    pub workflow_ref: String,
-    pub environment: String,
-}
-
-/// Why a token was refused. The token-envelope reasons (`bad signature`, `wrong
-/// aud`, `expired`, `replayed jti`) are handled on the signature path; these are
-/// the claim-matching reasons.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum OidcReject {
-    /// A fork PR running with base-repo permissions — never a publish identity.
-    PullRequestTarget,
-    /// A self-hosted runner is a standing token-minting box inside the partner's
-    /// network; we only trust github-hosted runners.
-    SelfHostedRunner,
-    /// The token carries no `environment` claim, so no publisher (which all require
-    /// one) can match it.
-    MissingEnvironment,
-    /// No publisher config for this repo matched the token's claims.
-    NoMatchingPublisher,
-}
-
-/// The pure decision. Returns the app ids whose publisher config matches the
-/// token — usually one, more than one only for a monorepo that publishes several
-/// apps from the same repo+workflow+environment.
-///
-/// `publishers` is expected to already be the set of configs for this repo (the
-/// caller narrows by `repository_owner_id` + `repository` at the DB layer); every
-/// rule is nonetheless re-checked here so the decision stands alone.
-pub fn verify_claims(
-    claims: &GithubOidcClaims,
-    publishers: &[PublisherConfig],
-) -> Result<Vec<Uuid>, OidcReject> {
-    // Token-level gates first — these reject regardless of any publisher.
-    if claims.event_name == "pull_request_target" {
-        return Err(OidcReject::PullRequestTarget);
-    }
-    if claims.runner_environment != "github-hosted" {
-        return Err(OidcReject::SelfHostedRunner);
-    }
-    let Some(token_env) = claims.environment.as_deref() else {
-        return Err(OidcReject::MissingEnvironment);
-    };
-
-    let matches: Vec<Uuid> = publishers
-        .iter()
-        .filter(|p| publisher_matches(claims, p, token_env))
-        .map(|p| p.app_id)
-        .collect();
-
-    if matches.is_empty() {
-        Err(OidcReject::NoMatchingPublisher)
-    } else {
-        Ok(matches)
-    }
-}
-
-/// Exact, case-insensitive equality on every claim — never a prefix, never a
-/// wildcard, never `sub`.
-fn publisher_matches(claims: &GithubOidcClaims, p: &PublisherConfig, token_env: &str) -> bool {
-    let expected_repo = format!("{}/{}", p.repo_owner, p.repo_name);
-    // The workflow path portion of job_workflow_ref, before the "@<ref>".
-    let expected_workflow_path = format!("{}/{}/{}", p.repo_owner, p.repo_name, p.workflow_ref);
-    let token_workflow_path = claims
-        .job_workflow_ref
-        .split_once('@')
-        .map(|(path, _ref)| path)
-        .unwrap_or(&claims.job_workflow_ref);
-
-    eq_ci(&claims.repository, &expected_repo)
-        // Numeric owner id — the resurrection defence. Claim is a string.
-        && claims.repository_owner_id == p.repo_owner_id.to_string()
-        && eq_ci(token_workflow_path, &expected_workflow_path)
-        && eq_ci(token_env, &p.environment)
-}
-
-fn eq_ci(a: &str, b: &str) -> bool {
-    a.eq_ignore_ascii_case(b)
-}
-
-/// Cached JWKS keyset. Refreshed only on an unknown `kid` (key rotation) and
-/// served stale on a fetch error — never fetched per request, which would make
-/// GitHub a hard availability dependency and a self-DoS vector.
-struct JwksCache {
-    keys: JwkSet,
-    fetched_at: Instant,
-}
-
-fn jwks_cache() -> &'static RwLock<Option<JwksCache>> {
-    static CACHE: OnceLock<RwLock<Option<JwksCache>>> = OnceLock::new();
-    CACHE.get_or_init(|| RwLock::new(None))
-}
-
-/// The envelope-level outcome (bad signature, wrong issuer/audience, expired,
-/// replayed). Distinct from `OidcReject` (claim-matching) so the caller can log
-/// precisely; both surface to CI as a 401.
-#[derive(Debug)]
-pub enum OidcError {
-    /// Could not reach or parse GitHub's JWKS and had no cached copy.
-    JwksUnavailable,
-    /// Header had no `kid`, or no key matched even after a refresh.
-    UnknownKey,
-    /// Signature / issuer / audience / expiry verification failed.
-    InvalidToken(String),
-    /// The `jti` was already spent — a replay.
-    Replayed,
-    /// A DB error recording the `jti`. Fails closed (we do not accept a token we
-    /// could not mark used).
-    Db(String),
-}
-
-/// Fetch GitHub's JWKS, refreshing the cache. Best-effort: on error, leave any
-/// existing cache in place.
-async fn refresh_jwks() -> Result<(), OidcError> {
-    let set = reqwest::get(GITHUB_JWKS_URL)
-        .await
-        .map_err(|_| OidcError::JwksUnavailable)?
-        .json::<JwkSet>()
-        .await
-        .map_err(|_| OidcError::JwksUnavailable)?;
-    *jwks_cache().write().await = Some(JwksCache {
-        keys: set,
-        fetched_at: Instant::now(),
-    });
-    Ok(())
-}
-
-/// Find the decoding key for `kid`, refreshing the cache once on a miss (a rotated
-/// key), and rate-limiting refreshes to at most once per 30s so a stream of
-/// unknown-kid tokens can't turn into a fetch storm.
-async fn decoding_key_for(kid: &str) -> Result<DecodingKey, OidcError> {
-    if let Some(cache) = jwks_cache().read().await.as_ref()
-        && let Some(jwk) = cache.keys.find(kid)
-    {
-        return DecodingKey::from_jwk(jwk).map_err(|_| OidcError::UnknownKey);
-    }
-
-    // Miss — refresh at most once per 30s, then look again.
-    let stale = jwks_cache()
-        .read()
-        .await
-        .as_ref()
-        .map(|c| c.fetched_at.elapsed() > Duration::from_secs(30))
-        .unwrap_or(true);
-    if stale {
-        refresh_jwks().await?;
-    }
-
-    let guard = jwks_cache().read().await;
-    let cache = guard.as_ref().ok_or(OidcError::JwksUnavailable)?;
-    let jwk = cache.keys.find(kid).ok_or(OidcError::UnknownKey)?;
-    DecodingKey::from_jwk(jwk).map_err(|_| OidcError::UnknownKey)
-}
-
-/// Verify a GitHub Actions OIDC JWT end to end: RS256 signature against GitHub's
-/// JWKS, issuer + audience pinned, expiry checked, and the `jti` burned so the
-/// token cannot be replayed. Returns the decoded claims for `verify_claims` to
-/// match against publisher configs.
-///
-/// `db` is used only to record the `jti`. Fails closed on any DB error — a token
-/// we cannot mark used is a token we do not accept.
+/// Verify a GitHub Actions OIDC JWT for this exchange's audience and burn its
+/// `jti`. See [`oxy_auth::github_oidc::verify`].
 pub async fn verify_token(
     db: &DatabaseConnection,
     token: &str,
 ) -> Result<GithubOidcClaims, OidcError> {
-    let header = decode_header(token).map_err(|e| OidcError::InvalidToken(e.to_string()))?;
-    let kid = header.kid.ok_or(OidcError::UnknownKey)?;
-    let key = decoding_key_for(&kid).await?;
-
-    // RS256 only — never trust the header's alg. Pin issuer + our audience;
-    // `validate_aud` defaults on, and a single required audience with a
-    // non-matching or multi-aud token is rejected.
-    let mut validation = Validation::new(Algorithm::RS256);
-    validation.set_issuer(&[GITHUB_OIDC_ISSUER]);
-    validation.set_audience(&[OXY_OIDC_AUDIENCE]);
-    validation.set_required_spec_claims(&["exp", "iat", "iss", "aud"]);
-    validation.leeway = 30;
-
-    let data = decode::<GithubOidcClaims>(token, &key, &validation)
-        .map_err(|e| OidcError::InvalidToken(e.to_string()))?;
-    let claims = data.claims;
-
-    burn_jti(db, &claims.jti).await?;
-    Ok(claims)
-}
-
-/// Record the `jti` as spent. A PK conflict means it was already used → replay.
-/// TTL is generous (an hour past now) since the token itself expires in minutes;
-/// a sweeper prunes by `expires_at`.
-async fn burn_jti(db: &DatabaseConnection, jti: &str) -> Result<(), OidcError> {
-    let expires_at = (chrono::Utc::now() + chrono::Duration::hours(1)).fixed_offset();
-    let row = entity::oidc_used_jti::ActiveModel {
-        jti: ActiveValue::Set(jti.to_string()),
-        expires_at: ActiveValue::Set(expires_at),
-    };
-    match row.insert(db).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            // A unique/PK violation is the replay case; anything else fails closed.
-            let msg = e.to_string();
-            if msg.contains("duplicate") || msg.contains("unique") {
-                Err(OidcError::Replayed)
-            } else {
-                Err(OidcError::Db(msg))
-            }
-        }
-    }
+    let keys = crate::server::api::github_oidc_keys::github_keys();
+    github_oidc::verify_token(db, keys, token, OXY_OIDC_AUDIENCE).await
 }
 
 /// Load the publisher configs for a repo, for `verify_claims`. Narrowed by the
@@ -440,18 +214,6 @@ async fn resolve_app_by_slugs(
         .map_err(|e| e.to_string())
 }
 
-/// The verified identity a machine publish is attributed to, e.g.
-/// `github-oidc:acme/app/.github/workflows/oxy-publish.yml@refs/heads/main env=production`.
-///
-/// Written as the minted token's `name`; the publish that token authenticates
-/// copies it onto the build as `app_builds.published_via`, because the machine
-/// principal has no `users` row for `published_by` to reference. Only verified
-/// claims go in: `job_workflow_ref` already carries repo, workflow and ref.
-pub fn machine_identity(claims: &GithubOidcClaims) -> String {
-    let env = claims.environment.as_deref().unwrap_or("-");
-    format!("github-oidc:{} env={env}", claims.job_workflow_ref)
-}
-
 /// Insert an app-scoped, expiring, creator-less token row and return its plaintext.
 async fn mint_app_scoped_token(
     db: &DatabaseConnection,
@@ -604,157 +366,4 @@ pub async fn delete_publisher(
         return Err(StatusCode::NOT_FOUND);
     }
     Ok(StatusCode::NO_CONTENT)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn app() -> Uuid {
-        Uuid::from_u128(1)
-    }
-
-    fn publisher() -> PublisherConfig {
-        PublisherConfig {
-            app_id: app(),
-            repo_owner: "acme-consulting".into(),
-            repo_owner_id: 42,
-            repo_name: "northwind-dashboard".into(),
-            workflow_ref: ".github/workflows/oxy-publish.yml".into(),
-            environment: "oxy-publish".into(),
-        }
-    }
-
-    fn claims() -> GithubOidcClaims {
-        GithubOidcClaims {
-            repository: "acme-consulting/northwind-dashboard".into(),
-            repository_owner: "acme-consulting".into(),
-            repository_owner_id: "42".into(),
-            job_workflow_ref:
-                "acme-consulting/northwind-dashboard/.github/workflows/oxy-publish.yml@refs/heads/main"
-                    .into(),
-            environment: Some("oxy-publish".into()),
-            event_name: "push".into(),
-            runner_environment: "github-hosted".into(),
-            jti: "abc123".into(),
-        }
-    }
-
-    #[test]
-    fn machine_identity_names_the_verified_workflow_and_environment() {
-        assert_eq!(
-            machine_identity(&claims()),
-            "github-oidc:acme-consulting/northwind-dashboard/.github/workflows/oxy-publish.yml@refs/heads/main env=oxy-publish"
-        );
-    }
-
-    #[test]
-    fn exact_match_returns_the_app() {
-        assert_eq!(verify_claims(&claims(), &[publisher()]), Ok(vec![app()]));
-    }
-
-    #[test]
-    fn case_insensitive_repo_and_env() {
-        let mut c = claims();
-        c.repository = "Acme-Consulting/Northwind-Dashboard".into();
-        c.environment = Some("OXY-PUBLISH".into());
-        c.job_workflow_ref =
-            "Acme-Consulting/Northwind-Dashboard/.github/workflows/oxy-publish.yml@refs/heads/main"
-                .into();
-        assert_eq!(verify_claims(&c, &[publisher()]), Ok(vec![app()]));
-    }
-
-    #[test]
-    fn wrong_repo_name_does_not_match() {
-        let mut c = claims();
-        c.repository = "acme-consulting/globex-dashboard".into();
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::NoMatchingPublisher)
-        );
-    }
-
-    #[test]
-    fn same_repo_name_different_owner_id_is_rejected() {
-        // The resurrection attack: a new account named "acme-consulting" (new
-        // numeric id) must not match a publisher registered to the old one, even
-        // though the `repository` string is identical.
-        let mut c = claims();
-        c.repository_owner_id = "999".into();
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::NoMatchingPublisher)
-        );
-    }
-
-    #[test]
-    fn wrong_workflow_ref_does_not_match() {
-        // A different workflow file in the same repo — e.g. an attacker's PR adding
-        // `.github/workflows/evil.yml` — must not publish.
-        let mut c = claims();
-        c.job_workflow_ref =
-            "acme-consulting/northwind-dashboard/.github/workflows/evil.yml@refs/heads/main".into();
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::NoMatchingPublisher)
-        );
-    }
-
-    #[test]
-    fn wrong_environment_does_not_match() {
-        let mut c = claims();
-        c.environment = Some("staging".into());
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::NoMatchingPublisher)
-        );
-    }
-
-    #[test]
-    fn missing_environment_is_rejected_outright() {
-        let mut c = claims();
-        c.environment = None;
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::MissingEnvironment)
-        );
-    }
-
-    #[test]
-    fn pull_request_target_is_rejected() {
-        let mut c = claims();
-        c.event_name = "pull_request_target".into();
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::PullRequestTarget)
-        );
-    }
-
-    #[test]
-    fn self_hosted_runner_is_rejected() {
-        let mut c = claims();
-        c.runner_environment = "self-hosted".into();
-        assert_eq!(
-            verify_claims(&c, &[publisher()]),
-            Err(OidcReject::SelfHostedRunner)
-        );
-    }
-
-    #[test]
-    fn monorepo_matches_multiple_apps() {
-        // Two apps published from the same repo+workflow+environment.
-        let a2 = Uuid::from_u128(2);
-        let mut p2 = publisher();
-        p2.app_id = a2;
-        let got = verify_claims(&claims(), &[publisher(), p2]).unwrap();
-        assert!(got.contains(&app()) && got.contains(&a2) && got.len() == 2);
-    }
-
-    #[test]
-    fn no_publishers_never_matches() {
-        assert_eq!(
-            verify_claims(&claims(), &[]),
-            Err(OidcReject::NoMatchingPublisher)
-        );
-    }
 }

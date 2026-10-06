@@ -49,6 +49,9 @@ uuid = { workspace = true }
 
 # Shared infrastructure
 oxy-shared = { workspace = true }
+# The grant and ceiling types a token carries (`uuid` + `tracing` only). The
+# decision stays in `oxy-authz`; this crate only resolves what a token holds.
+oxy-authz = { workspace = true }
 # Platform glue (DB connection pool + user-table filter helpers).
 oxy-platform = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

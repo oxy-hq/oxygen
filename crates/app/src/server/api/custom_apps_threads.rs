@@ -67,8 +67,8 @@ async fn request_thread_source(
     match environment {
         AppEnvironment::Production => Ok(PRODUCTION_THREAD_SOURCE.to_string()),
         AppEnvironment::Staging => {
-            let email = user.email.as_deref().unwrap_or("");
-            staging_app_for(db, headers, user.id, email, project_id)
+            let caller = crate::server::authz::Caller::from_user(user);
+            staging_app_for(db, headers, &caller, project_id)
                 .await
                 .map(|app| staging_thread_source(Some(app.id)))
                 .ok_or_else(|| environment_refused(&environment, "chat history"))

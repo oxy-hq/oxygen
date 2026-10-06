@@ -86,9 +86,12 @@ pub async fn delete_account(
 /// GET /user/github/account/oauth-url?org_id={uuid}
 /// Mints an HMAC-signed state with `flow=oauth` and returns the GitHub authorize URL.
 pub async fn get_oauth_url(
-    AuthenticatedUserExtractor(_user): AuthenticatedUserExtractor,
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(q): Query<OauthUrlQuery>,
 ) -> Result<ResponseJson<OauthUrlResponse>, StatusCode> {
+    // No path names the org, so the request's API token is asked here: an org
+    // that blocked it (API-tokens design §5) is not one it starts a flow for.
+    user.require_org_reach(q.org_id)?;
     let state = encode_state(&StatePayload {
         org_id: q.org_id,
         flow: Flow::Oauth,

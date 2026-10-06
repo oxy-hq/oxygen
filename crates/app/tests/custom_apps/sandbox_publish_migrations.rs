@@ -140,7 +140,7 @@ async fn a_sandbox_publish_queues_its_own_airhouse_migrations_and_applies_no_olt
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await
@@ -189,7 +189,7 @@ async fn sandbox_publishes_do_not_prune_the_builds_production_rolls_back_to() {
     publish_build(&t, slug, demo_workspace_id(), "prod-2", true, &route()).await;
     make_guest_staff();
     let app = app_row(&t.db, app_id).await;
-    ops::create(&t.db, &app, &sandbox("a1"), t.guest_id)
+    ops::create(&t.db, &app, &sandbox("a1"), &t.guest())
         .await
         .expect("create dev-a1");
 

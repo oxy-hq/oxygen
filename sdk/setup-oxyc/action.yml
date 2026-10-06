@@ -1,0 +1,54 @@
+name: Set up oxyc
+description: >-
+  Install the oxyc CLI and sign it in with this job's GitHub OIDC identity.
+  No stored secret: the token lasts fifteen minutes and is revoked when the job ends.
+author: Oxy
+
+inputs:
+  version:
+    description: >-
+      The @oxy-hq/cli version to install: an exact version (recommended, so a
+      release cannot change what the job runs) or `latest`.
+    required: false
+    default: latest
+  service-account:
+    description: >-
+      The ID (a UUID) of the service account to act as — shown in the web app
+      under Organization settings → API access → Service accounts → the
+      account. Required: the deployment matches this run against that
+      account's trust policies and no other. An ID, never `<org-slug>/<name>`:
+      a name can be taken over by another organization, an ID cannot.
+    required: true
+  host:
+    description: >-
+      Base URL of the Oxygen deployment to sign in to. It must be the deployment
+      the later `oxyc` commands talk to: a token is only good where it was minted.
+    required: false
+    default: https://app.oxygen-hq.com
+  export-token:
+    description: >-
+      Export the token as `OXY_TOKEN` for every later step in the job. Set to
+      `false` to receive it only as the `token` output.
+    required: false
+    default: "true"
+
+outputs:
+  token:
+    description: The minted `oxy_ci_…` token. Masked in logs.
+  token-id:
+    description: The token's id, as the deployment records it.
+  expires-at:
+    description: When the token expires on its own (RFC 3339), fifteen minutes after the exchange.
+  service-account:
+    description: The `<org-slug>/<name>` of the account the job is acting as, for a person to read.
+
+runs:
+  using: node24
+  main: src/main.mjs
+  post: src/post.mjs
+  # The default, stated: the token is revoked even when a later step failed.
+  post-if: always()
+
+branding:
+  icon: log-in
+  color: gray-dark

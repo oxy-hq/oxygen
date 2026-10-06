@@ -80,11 +80,14 @@ pub async fn get_erd(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(query): Query<WorkspaceQuery>,
 ) -> Result<Json<ErdResponse>, StatusCode> {
+    // "My org's database", as `get_connection`: a service account is refused
+    // by default (API-tokens design §3.3).
+    user.refuse_service_account()?;
     let db = establish_connection().await.map_err(|e| {
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let org_id = resolve_caller_org(&db, query.workspace_id, user.id).await?;
+    let org_id = resolve_caller_org(&db, query.workspace_id, &user).await?;
 
     let conn = resolve_analyst_connection(&db, query.workspace_id)
         .await

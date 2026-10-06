@@ -394,10 +394,10 @@ async fn a_seeded_org_home_lists_its_published_app() {
             .expect("query user")
             .expect("owner user row");
 
-        let viewer = workspace_custom_apps::Viewer {
-            id: user.id,
-            email: user.email.as_deref().unwrap_or(""),
-        };
+        let viewer = &oxy_app::server::authz::Caller::without_credential(
+            user.id,
+            user.email.as_deref().unwrap_or(""),
+        );
         let names: Vec<String> =
             workspace_custom_apps::published_app_summaries(&db, home_ws, Some(viewer))
                 .await
@@ -487,10 +487,10 @@ async fn the_restricted_seeded_app_is_hidden_from_an_ungranted_member() {
     let granted_slugs: Vec<String> = workspace_custom_apps::published_app_summaries(
         &db,
         home_ws,
-        Some(workspace_custom_apps::Viewer {
-            id: granted_user.id,
-            email: granted_user.email.as_deref().unwrap_or(""),
-        }),
+        Some(&oxy_app::server::authz::Caller::without_credential(
+            granted_user.id,
+            granted_user.email.as_deref().unwrap_or(""),
+        )),
     )
     .await
     .expect("summaries")
@@ -515,10 +515,10 @@ async fn the_restricted_seeded_app_is_hidden_from_an_ungranted_member() {
             .await
             .expect("query user")
             .expect("member user row");
-        let viewer = workspace_custom_apps::Viewer {
-            id: user.id,
-            email: user.email.as_deref().unwrap_or(""),
-        };
+        let viewer = &oxy_app::server::authz::Caller::without_credential(
+            user.id,
+            user.email.as_deref().unwrap_or(""),
+        );
         let slugs: Vec<String> =
             workspace_custom_apps::published_app_summaries(&db, home_ws, Some(viewer))
                 .await

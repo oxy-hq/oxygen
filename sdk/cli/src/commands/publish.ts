@@ -23,7 +23,9 @@ import { spawnSync } from "node:child_process";
 import { join, resolve, sep } from "node:path";
 
 import { APP_ENV_HEADER, requireSandboxName } from "../apps/environment.js";
-import { PUBLISH_TOKEN_PREFIX, UUID_RE } from "../apps/resolve.js";
+import { UUID_RE } from "../apps/resolve.js";
+import { fallsBackToPublisher, OidcExchangeError } from "../auth/oidc.js";
+import { isMachineIdentity } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
 import { loadDotenv } from "../publish/dotenv.js";
 import {
@@ -112,8 +114,14 @@ export function inferOrgApp(cwd: string): { org?: string; app?: string } {
 /** How this publish will authenticate, decided before anything is built. */
 type Credential = { kind: "token"; token: string } | { kind: "oidc" };
 
+/**
+ * `storedBearer`, not `bearer`: this runs before the build, and the OIDC
+ * exchange must not — it spends a single-use token on a fifteen-minute
+ * credential that a slow build would outlive. Only its AVAILABILITY is decided
+ * here; `mintPublishToken` does the exchange, last.
+ */
 function resolveCredential(ctx: Context): Credential {
-  const token = ctx.maybeBearer();
+  const token = ctx.storedBearer();
   if (token) return { kind: "token", token };
   if (githubOidcAvailable()) return { kind: "oidc" };
   throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
@@ -271,14 +279,71 @@ async function uploadToken(
   identity: Identity
 ): Promise<string> {
   if (credential.kind === "token") return credential.token;
+  return mintPublishToken(ctx, identity);
+}
+
+/**
+ * A credential from the job's GitHub OIDC identity. TWO EXCHANGES, IN ORDER:
+ *
+ *   1. the general one (`POST /api/auth/oidc/exchange`, the deployment's own audience) — a
+ *      trust policy on the service account THE WORKFLOW NAMES
+ *      (`OXY_SERVICE_ACCOUNT` / `--service-account`). What every other command
+ *      uses too. A workflow that names none skips this step without a request:
+ *      `ctx.bearer()` raises `no_service_account` on its own.
+ *   2. the app's own publisher (`POST /api/customer-apps/publish/oidc-exchange`,
+ *      audience `oxy-publish`) — reached when no account is named, which is
+ *      every workflow written before trust policies existed; when (1) answers
+ *      404, a deployment with no general exchange; or on `no_matching_policy`,
+ *      where the app may still have a publisher registered the older way.
+ *
+ * Any OTHER refusal from (1) is final. `missing_environment`, a self-hosted
+ * runner: each says something specific is wrong with this run, and quietly
+ * succeeding through the older path would hide it until the day that path is
+ * retired.
+ */
+async function mintPublishToken(ctx: Context, identity: Identity): Promise<string> {
+  log.info("exchanging the GitHub OIDC token for a credential");
+  let refused: OidcExchangeError;
+  try {
+    return await ctx.bearer();
+  } catch (cause) {
+    if (!(cause instanceof OidcExchangeError) || !fallsBackToPublisher(cause)) throw cause;
+    refused = cause;
+  }
+
+  const noPolicy = refused.oidcCode === "no_matching_policy";
+  const unnamed = refused.oidcCode === "no_service_account";
   if (!identity.org || UUID_RE.test(identity.org)) {
+    // The older exchange is keyed by slug. With no trust policy either, the
+    // policy is the thing to fix — the slug only matters to the fallback.
+    if (noPolicy) throw refused;
     throw usageError(
       "trusted publishing needs the org SLUG",
       "set oxy-app.json `orgSlug` or pass --org <slug> — the exchange is registered by slug"
     );
   }
-  log.info("exchanging the GitHub OIDC token for a publish credential");
-  return (await exchangeGithubOidc(ctx.target(), identity.org, identity.app)).token;
+  const publisher = `${identity.org}/${identity.app}'s registered publisher`;
+  if (noPolicy) {
+    log.info(`no trust policy of ${ctx.serviceAccount()} matches this run — trying ${publisher}`);
+  } else if (unnamed) {
+    log.info(`no service account is named (OXY_SERVICE_ACCOUNT) — using ${publisher}`);
+  } else {
+    log.info(`this deployment has no general token exchange — using ${publisher}`);
+  }
+  try {
+    return (await exchangeGithubOidc(ctx.target(), identity.org, identity.app)).token;
+  } catch (cause) {
+    if (!noPolicy || !(cause instanceof CliError)) throw cause;
+    // Both doors were tried and both were shut; say so, and lead with the one
+    // a new registration should go through.
+    throw new CliError("this workflow run is not trusted to publish", {
+      code: cause.code,
+      detail: [refused.detail, `publisher exchange: ${cause.message}`, cause.detail]
+        .filter(Boolean)
+        .join("\n"),
+      hint: `${refused.hint}\n(or, the older way: ${cause.hint ?? "register the workflow as a publisher for the app"})`
+    });
+  }
 }
 
 /** Compile the workspace branch the draft's staging preview will read. */
@@ -389,9 +454,11 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
         "oxyc login, or OXY_TOKEN set to a user token"
       );
     }
-    if (credential.token.startsWith(PUBLISH_TOKEN_PREFIX)) {
+    // A service account's token is a machine too — no staff standing — so the
+    // sandbox route would refuse it after the build rather than before it.
+    if (isMachineIdentity(credential.token)) {
       throw usageError(
-        "--app-env needs a staff credential, not a publish token",
+        "--app-env needs a staff credential, not a publish or service-account token",
         "oxyc login, or OXY_TOKEN set to a user token"
       );
     }

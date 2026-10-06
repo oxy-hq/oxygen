@@ -271,7 +271,7 @@ async fn a_sandbox_publish_is_refused_with_its_status_and_leaves_nothing_behind(
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await
@@ -324,6 +324,11 @@ async fn publish_as_owner(
     );
     let mut publish = input(t, slug, build_id, tarball);
     publish.published_by = Some(owner);
+    // Authority is asked of the publisher, so the twin is the caller too.
+    publish.publisher = Some(oxy_app::server::authz::Caller::without_credential(
+        owner,
+        oxy_auth::user::LOCAL_GUEST_EMAIL,
+    ));
     publish_to(publish, PublishTarget::Sandbox(sandbox(handle))).await
 }
 

@@ -15,7 +15,6 @@ use axum::Json;
 use axum::http::StatusCode;
 use entity::prelude::{OrgMembers, Organizations, PartnerGrants, PartnerOrgs, Users};
 use entity::{org_members, partner_orgs, partner_role_bindings, users};
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -26,7 +25,7 @@ use super::{
     CapabilitiesInput, PartnerDetail, ceiling_model, db, grant_model, internal, load_detail,
     require_owner_for_sensitive_caps,
 };
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 #[derive(Deserialize)]
 pub struct GrantBody {
@@ -43,7 +42,7 @@ pub struct GrantBody {
 }
 
 pub async fn grant_partnership(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(body): Json<GrantBody>,
 ) -> Result<Json<PartnerDetail>, StatusCode> {
     let db = db().await?;
@@ -70,11 +69,7 @@ pub async fn grant_partnership(
         .capabilities
         .clone()
         .unwrap_or_else(CapabilitiesInput::sane_default);
-    require_owner_for_sensitive_caps(
-        actor.email.as_deref().unwrap_or(""),
-        caps.manage_billing,
-        caps.manage_secrets,
-    )?;
+    require_owner_for_sensitive_caps(&actor, caps.manage_billing, caps.manage_secrets)?;
 
     // A client already managed by a DIFFERENT partner is a conflict
     // (`partner_orgs.managed_org_id` is UNIQUE). Check before opening the txn.
@@ -145,8 +140,7 @@ pub async fn grant_partnership(
 
         audit::record_in_txn(
             &txn,
-            AuditEntry::new(actor.label().to_string(), "partner.granted")
-                .actor(actor.id, ActorType::User)
+            AuditEntry::for_request(&actor, "partner.granted")
                 .partner(body.partner_org_id)
                 .org(body.partner_org_id)
                 .target(
@@ -175,8 +169,7 @@ pub async fn grant_partnership(
 
         audit::record_in_txn(
             &txn,
-            AuditEntry::new(actor.label().to_string(), "partner.org.attached")
-                .actor(actor.id, ActorType::User)
+            AuditEntry::for_request(&actor, "partner.org.attached")
                 .partner(body.partner_org_id)
                 .org(client_id)
                 .target("organization", client_id.to_string(), String::new()),
@@ -207,8 +200,7 @@ pub async fn grant_partnership(
 
             audit::record_in_txn(
                 &txn,
-                AuditEntry::new(actor.label().to_string(), "partner.access.granted")
-                    .actor(actor.id, ActorType::User)
+                AuditEntry::for_request(&actor, "partner.access.granted")
                     .partner(body.partner_org_id)
                     .org(body.partner_org_id)
                     .target(

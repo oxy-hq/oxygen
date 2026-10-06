@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { SERVICE_ACCOUNT_ID } from "../testing/stub-fetch.js";
 
 import { ExitCode } from "../util/errors.js";
 import { inferOrgApp } from "./publish.js";
@@ -22,6 +23,7 @@ const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist",
 
 interface Received {
   path: string;
+  method: string;
   authorization?: string;
   fields: Record<string, string>;
   bundle?: Buffer;
@@ -33,6 +35,10 @@ let target: string;
 let received: Received[] = [];
 /** Stand in for a deployment predating `app_id` on the exchange response. */
 let noAppId = false;
+/** What `POST /api/auth/oidc/exchange` answers. Unset: the route does not exist. */
+let generalExchange: { status: number; body: unknown } | undefined;
+/** The app has no publisher registered the older way. */
+let publisherRefuses = false;
 /** What the fake answers the upload with. */
 let uploadStatus = 200;
 /** What the fake answers the project's database list with. */
@@ -53,7 +59,12 @@ beforeAll(async () => {
   server = createServer(async (req, res) => {
     const path = req.url ?? "/";
     const raw = await body(req);
-    const record: Received = { path, authorization: req.headers.authorization, fields: {} };
+    const record: Received = {
+      path,
+      method: req.method ?? "GET",
+      authorization: req.headers.authorization,
+      fields: {}
+    };
     received.push(record);
     const reply = (status: number, value: unknown) => {
       res.writeHead(status, { "content-type": "application/json" });
@@ -78,13 +89,33 @@ beforeAll(async () => {
       });
     }
     if (path.startsWith("/github-oidc")) {
-      return req.headers.authorization === "bearer gh-request-token" &&
-        path.includes("audience=oxy-publish")
-        ? reply(200, { value: "gh-jwt" })
-        : reply(403, {});
+      if (req.headers.authorization !== "bearer gh-request-token") return reply(403, {});
+      // One token per audience, as GitHub mints them: neither exchange accepts
+      // the other's.
+      if (path.includes("audience=oxy-publish")) return reply(200, { value: "gh-jwt" });
+      // The general exchange's audience is `oxy:<host>` of THIS server — the
+      // host the token is about to be posted to. Plain `oxy` is never minted.
+      const ours = encodeURIComponent(`oxy:${new URL(target).host}`);
+      if (path.endsWith(`audience=${ours}`)) return reply(200, { value: "gh-jwt-oxy" });
+      return reply(403, {});
+    }
+    // The general exchange. Absent (404) unless a case installs an answer —
+    // which is what a deployment predating trusted access looks like.
+    if (path === "/api/auth/oidc/exchange") {
+      record.exchangeBody = raw.toString();
+      if (!generalExchange) return reply(404, { error: "not found" });
+      return JSON.parse(record.exchangeBody).token === "gh-jwt-oxy"
+        ? reply(generalExchange.status, generalExchange.body)
+        : reply(401, { error: "bad audience", code: "wrong_audience" });
+    }
+    if (path === "/api/auth/token" && req.method === "DELETE") {
+      res.writeHead(204);
+      res.end();
+      return;
     }
     if (path === "/api/customer-apps/publish/oidc-exchange") {
       record.exchangeBody = raw.toString();
+      if (publisherRefuses) return reply(403, { error: "no publisher registered" });
       return req.headers.authorization === "Bearer gh-jwt"
         ? reply(
             200,
@@ -109,7 +140,11 @@ beforeAll(async () => {
         else record.bundle = Buffer.from(await value.arrayBuffer());
       }
       const token = req.headers.authorization;
-      if (token !== "Bearer good-token" && token !== "Bearer minted") {
+      if (
+        token !== "Bearer good-token" &&
+        token !== "Bearer minted" &&
+        token !== "Bearer oxy_ci_minted"
+      ) {
         return reply(403, { error: "not an app admin" });
       }
       if (uploadStatus !== 200) return reply(uploadStatus, { error: "nope" });
@@ -145,6 +180,8 @@ beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), "oxyc-publish-"));
   received = [];
   noAppId = false;
+  generalExchange = undefined;
+  publisherRefuses = false;
   uploadStatus = 200;
   databasesStatus = 200;
 });
@@ -403,13 +440,149 @@ describe("oxyc publish", () => {
       ACTIONS_ID_TOKEN_REQUEST_TOKEN: "gh-request-token"
     });
 
-    it("exchanges the job's OIDC token for a credential scoped to the app", async () => {
+    const exchanges = () => received.filter((r) => r.path.includes("exchange")).map((r) => r.path);
+    const MINTED = {
+      status: 200,
+      body: {
+        token: "oxy_ci_minted",
+        token_id: "tok-1",
+        expires_at: "2099-01-01T00:00:00Z",
+        service_account: "acme/deployer",
+        grants: []
+      }
+    };
+
+    /**
+     * The older exchange, and the one every workflow written before trust
+     * policies depends on. Such a workflow names no service account, so the
+     * general exchange is NEVER ASKED — even on a deployment that has one,
+     * and even if some policy there would match this run. The publish works
+     * exactly as it did before trust policies existed.
+     */
+    it("with no service account named, goes straight to the app's registered publisher", async () => {
+      // A general exchange that WOULD mint, to show it is not consulted.
+      generalExchange = MINTED;
       const dir = app();
       const result = await publish(dir, ["--dir", "out"], oidcEnv());
       expect(result.status, result.stderr).toBe(0);
       const exchange = received.find((r) => r.path.endsWith("/oidc-exchange"));
       expect(JSON.parse(exchange?.exchangeBody ?? "{}")).toEqual({ app: "acme/sales" });
       expect(uploads()[0]?.authorization).toBe("Bearer minted");
+      expect(exchanges()).toEqual(["/api/customer-apps/publish/oidc-exchange"]);
+      expect(result.stderr).toContain("no service account is named");
+      expect(result.stderr).toContain("OXY_SERVICE_ACCOUNT");
+    });
+
+    /** A deployment with no general exchange answers 404: the app's publisher is next. */
+    it("with an account named, falls back to the app's publisher on a deployment with no general exchange", async () => {
+      const dir = app();
+      const result = await publish(dir, ["--dir", "out"], {
+        ...oidcEnv(),
+        OXY_SERVICE_ACCOUNT: SERVICE_ACCOUNT_ID
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(uploads()[0]?.authorization).toBe("Bearer minted");
+      // Asked in order: the general exchange, then — on its 404 — the app's.
+      expect(exchanges()).toEqual([
+        "/api/auth/oidc/exchange",
+        "/api/customer-apps/publish/oidc-exchange"
+      ]);
+      expect(result.stderr).toContain("no general token exchange");
+    });
+
+    it("acts as a service account when a trust policy matches, and revokes the token after", async () => {
+      generalExchange = MINTED;
+      const dir = app();
+      const result = await publish(
+        dir,
+        ["--dir", "out", "--service-account", SERVICE_ACCOUNT_ID],
+        oidcEnv()
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(uploads()[0]?.authorization).toBe("Bearer oxy_ci_minted");
+      // The general exchange answered, so the app's publisher is never asked.
+      expect(exchanges()).toEqual(["/api/auth/oidc/exchange"]);
+      // The token was asked for this deployment's own host, worked out from the
+      // target — the deployment was never asked which audience to use.
+      expect(received.some((r) => r.path.startsWith("/api/auth/oidc/audience"))).toBe(false);
+      const exchange = received.find((r) => r.path === "/api/auth/oidc/exchange");
+      expect(JSON.parse(exchange?.exchangeBody ?? "{}")).toEqual({
+        token: "gh-jwt-oxy",
+        service_account: SERVICE_ACCOUNT_ID
+      });
+      // Minted by this process, so revoked by it — after the upload.
+      const last = received.at(-1);
+      expect(last).toMatchObject({
+        method: "DELETE",
+        path: "/api/auth/token",
+        authorization: "Bearer oxy_ci_minted"
+      });
+    });
+
+    it("falls back to the app's publisher when no trust policy matches", async () => {
+      generalExchange = { status: 403, body: { error: "no policy", code: "no_matching_policy" } };
+      const dir = app();
+      const result = await publish(
+        dir,
+        ["--dir", "out", "--service-account", SERVICE_ACCOUNT_ID],
+        oidcEnv()
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(uploads()[0]?.authorization).toBe("Bearer minted");
+      expect(result.stderr).toContain(`no trust policy of ${SERVICE_ACCOUNT_ID} matches this run`);
+    });
+
+    it("says both were tried when neither a policy nor a publisher matches", async () => {
+      generalExchange = { status: 403, body: { error: "no policy", code: "no_matching_policy" } };
+      publisherRefuses = true;
+      const dir = app();
+      const result = await publish(
+        dir,
+        ["--dir", "out", "--service-account", SERVICE_ACCOUNT_ID],
+        oidcEnv()
+      );
+      expect(result.status).toBe(ExitCode.AUTH);
+      expect(result.stderr).toContain("not trusted to publish");
+      // The fix it leads with is the current one — a trust policy.
+      expect(result.stderr).toContain("oxyc init-ci");
+      expect(uploads()).toHaveLength(0);
+    });
+
+    /**
+     * With no publisher either, an unnamed run fails as it did before trust
+     * policies existed: the publisher exchange's own refusal, nothing invented.
+     */
+    it("with no service account named and no publisher, reports the publisher's refusal", async () => {
+      generalExchange = MINTED;
+      publisherRefuses = true;
+      const dir = app();
+      const result = await publish(dir, ["--dir", "out"], oidcEnv());
+      expect(result.status).toBe(ExitCode.AUTH);
+      expect(result.stderr).toContain("trusted-publishing exchange failed");
+      expect(exchanges()).toEqual(["/api/customer-apps/publish/oidc-exchange"]);
+      expect(uploads()).toHaveLength(0);
+    });
+
+    /**
+     * Every refusal but "no policy" names something wrong with THIS run.
+     * Getting past it through the older exchange would hide that until the
+     * older exchange is gone.
+     */
+    it("does not fall back on any other refusal", async () => {
+      generalExchange = {
+        status: 403,
+        body: { error: "no environment", code: "missing_environment" }
+      };
+      const dir = app();
+      const result = await publish(
+        dir,
+        ["--dir", "out", "--service-account", SERVICE_ACCOUNT_ID],
+        oidcEnv()
+      );
+      expect(result.status).toBe(ExitCode.AUTH);
+      expect(result.stderr).toContain("environment");
+      expect(exchanges()).toEqual(["/api/auth/oidc/exchange"]);
+      expect(uploads()).toHaveLength(0);
     });
 
     /**

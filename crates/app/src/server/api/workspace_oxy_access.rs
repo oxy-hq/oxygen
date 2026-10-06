@@ -23,7 +23,6 @@ use entity::prelude::{WorkspaceOxyLockdown, Workspaces};
 use entity::workspace_members::WorkspaceRole;
 use entity::workspace_oxy_lockdown;
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -130,8 +129,7 @@ pub async fn get_oxy_access(
 /// org model doesn't apply and the legacy verdict stands.
 async fn enforce_oxy_access(
     db: &sea_orm::DatabaseConnection,
-    actor_id: Uuid,
-    actor_email: &str,
+    caller: &crate::server::authz::Caller,
     workspace_id: Uuid,
     legacy: bool,
 ) -> bool {
@@ -145,8 +143,7 @@ async fn enforce_oxy_access(
         Some(org_id) => {
             crate::server::authz::enforce_for(
                 db,
-                actor_id,
-                actor_email,
+                caller,
                 "workspace.oxy_access",
                 crate::server::authz::Action::WorkspaceOxyAccess,
                 crate::server::authz::Resource::workspace(workspace_id, org_id),
@@ -162,7 +159,7 @@ pub async fn lock_oxy_access(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     ovr: WorkspaceGlobalOverride,
     Path(WorkspaceIdPath { workspace_id }): Path<WorkspaceIdPath>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<Json<OxyLockdownStatus>, StatusCode> {
     let legacy = require_real_org_officer(role, ovr).is_ok();
     let db = establish_connection().await.map_err(|e| {
@@ -171,8 +168,7 @@ pub async fn lock_oxy_access(
     })?;
     if !enforce_oxy_access(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::caller_of(&actor),
         workspace_id,
         legacy,
     )
@@ -220,7 +216,7 @@ pub async fn unlock_oxy_access(
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     ovr: WorkspaceGlobalOverride,
     Path(WorkspaceIdPath { workspace_id }): Path<WorkspaceIdPath>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, StatusCode> {
     let legacy = require_real_org_officer(role, ovr).is_ok();
     let db = establish_connection().await.map_err(|e| {
@@ -229,8 +225,7 @@ pub async fn unlock_oxy_access(
     })?;
     if !enforce_oxy_access(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::caller_of(&actor),
         workspace_id,
         legacy,
     )

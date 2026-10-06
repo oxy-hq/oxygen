@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Create an org service account, mint a token for it, and see that token in
+# the org's token inventory (API tokens design §3.3 Service accounts, §5 Org
+# controls; Phase 3).
+#
+# NOT RECORDED YET. This flow was authored against the wire contract, before
+# the routes it exercises existed:
+#   POST /api/orgs/{org_id}/service-accounts
+#   POST /api/orgs/{org_id}/service-accounts/{sa_id}/tokens
+#   GET  /api/orgs/{org_id}/tokens
+# It has never been run, so it is NOT in any CI bucket and has no recorded
+# action cache. To finish it once the backend lands: record it cold
+# (`HEADED=1 pnpm test:agentic settings-org-api-access`) and add it to a
+# bucket in `.github/workflows/agentic-tests.yaml`.
+#
+# Surface: Settings dialog → Organization → API access, opened by the
+# `?settings=organization.api_access` deep link (useSettingsDeepLink). The
+# section is gated on org admin, so the runner's account (flow@oxy.local) must
+# be an owner or admin of the seeded org; a plain member is shown no such nav
+# item and the deep link falls through.
+#
+# NEEDS A FRESH ORG. A service account's name is unique within its org, and
+# this flow always creates `flow-deployer`. On a backend where an earlier run
+# left that account behind, the create dialog refuses the name before it is
+# even sent. Run it against a freshly seeded backend (the runner's
+# `oxy start --enterprise --clean` + `oxy seed`), not a reused one.
+#
+# Creating the account lands on its own page (the list seeds the new row and
+# the section selects it), which is where the token is minted. The token takes
+# every default: 90 days, the whole organization at the account's role. Its
+# secret is shown once in a dialog that only closes through its own button.
+#
+# What proves it: the token's row on the account page, then the same token in
+# the Tokens tab's inventory, carrying kind `service_account`.
+
+name: settings org api access
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # create account (open, name, submit) + create token (open, name, submit) +
+  # dismiss secret + switch tab ≈ 8 acts + waits.
+  max_steps: 25
+
+setup:
+  - "goto:/home?settings=organization.api_access"
+
+cases:
+  - name: create a service account, mint a token, see it in the inventory
+    tags: [settings, api-access, service-accounts, regression]
+    steps:
+      - wait_for: "selector:[data-testid=settings-api-access]"
+
+      - act: |
+          Create a service account:
+          1. browser_click [data-testid=api-access-account-create].
+          2. In [data-testid=api-access-account-dialog], browser_type
+             "flow-deployer" into [data-testid=api-access-account-name].
+          3. browser_click [data-testid=api-access-account-submit].
+
+      # Creating one opens its page; the handle is `<org_slug>/flow-deployer`.
+      - wait_for: "selector:[data-testid=api-access-account-detail]"
+      - wait_for: "selector:[data-testid=api-access-account-handle]"
+
+      - act: |
+          Create a token for the account, keeping the default expiry and access:
+          1. browser_click [data-testid=api-access-token-create].
+          2. In [data-testid=api-access-token-dialog], browser_type
+             "flow token" into [data-testid=api-access-token-name].
+          3. browser_click [data-testid=api-access-token-submit].
+
+      - wait_for: "selector:[data-testid=api-access-secret-dialog]"
+
+      # The secret dialog ignores Escape and outside clicks by design.
+      - act: |
+          Close the token secret dialog: browser_click
+          [data-testid=api-access-secret-done].
+
+      - wait_for: "selector_hidden:[data-testid=api-access-secret-dialog]"
+      - wait_for: 'selector:[data-testid=api-access-token-row][data-token-name="flow token"]'
+
+      - act: |
+          Open the organization's token inventory: browser_click
+          [data-testid=api-access-tab-tokens].
+
+      - wait_for: "selector:[data-testid=api-access-inventory-table]"
+      - wait_for: 'selector:[data-testid=api-access-inventory-row][data-token-name="flow token"]'
+
+    expect:
+      - assert: 'selector [data-testid=api-access-inventory-row][data-token-name="flow token"][data-token-kind="service_account"] is visible'
+      - assert: "selector [data-testid=api-access-inventory-unavailable] is not visible"
+      - assert: "selector [data-testid=api-access-inventory-error] is not visible"
+      - judge: |
+          The Settings dialog shows Organization → API access with the
+          "Tokens" tab selected. The table lists a token named "flow token"
+          whose owner is "flow-deployer", whose kind reads "Service account",
+          and whose status is "Active" with an expiry about 90 days out. No
+          error message and no "aren't available here yet" notice is shown.

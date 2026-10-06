@@ -371,9 +371,13 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
         assert_eq!(oracle, want, "{label}: the gate's own term");
 
         // "" is what the gate passes for a worker: they have no address.
-        let facts = loader::load_principal_facts_scoped(&db, who, "", false)
-            .await
-            .expect("facts must load for a worker — unknown facts would skip the ring");
+        let facts = loader::load_principal_facts_scoped(
+            &db,
+            &oxy_app::server::authz::Caller::without_credential(who, ""),
+            false,
+        )
+        .await
+        .expect("facts must load for a worker — unknown facts would skip the ring");
         let resource = Resource::workspace(ws, fx.org);
         assert_eq!(
             allows(&facts, Action::WorkspaceDataAccess, &resource),
@@ -400,9 +404,13 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
             .expect("query")
             .expect("seeded app");
         assert_eq!(
-            user_can_access_app(&db, who, "", &app_row)
-                .await
-                .expect("access check"),
+            user_can_access_app(
+                &db,
+                &oxy_app::server::authz::Caller::without_credential(who, ""),
+                &app_row
+            )
+            .await
+            .expect("access check"),
             want,
             "{label}: user_can_access_app — the shell and every function invoke"
         );
@@ -425,9 +433,13 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
         !frontline_worker_with_app_grant(&db, fx.org, granted, fx.workspace_a).await,
         "a grant on a draft app is not reach into its workspace (gate)"
     );
-    let facts = loader::load_principal_facts_scoped(&db, granted, "", false)
-        .await
-        .expect("facts");
+    let facts = loader::load_principal_facts_scoped(
+        &db,
+        &oxy_app::server::authz::Caller::without_credential(granted, ""),
+        false,
+    )
+    .await
+    .expect("facts");
     assert!(
         !allows(
             &facts,
@@ -447,9 +459,13 @@ async fn the_model_and_both_gates_agree_about_a_worker() {
         .expect("query")
         .expect("app");
     assert!(
-        !user_can_access_app(&db, granted, "", &draft)
-            .await
-            .expect("access check"),
+        !user_can_access_app(
+            &db,
+            &oxy_app::server::authz::Caller::without_credential(granted, ""),
+            &draft
+        )
+        .await
+        .expect("access check"),
         "a grant on a draft app does not open the app itself"
     );
 }
@@ -563,9 +579,10 @@ async fn granting_at_enrolment_needs_the_standing_to_manage_app_access() {
     }
     let (_, admin) = standing[0];
     let (_, member) = standing[1];
-    assert!(may_grant_apps(&db, admin, "owner@example.com", fx.org).await);
+    let as_session = oxy_server_authz::Caller::without_credential;
+    assert!(may_grant_apps(&db, &as_session(admin, "owner@example.com"), fx.org).await);
     assert!(
-        !may_grant_apps(&db, member, "member@example.com", fx.org).await,
+        !may_grant_apps(&db, &as_session(member, "member@example.com"), fx.org).await,
         "a plain member cannot decide an app's audience through enrolment either"
     );
 }

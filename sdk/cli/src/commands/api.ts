@@ -127,7 +127,7 @@ export async function runApi(ctx: Context, rawPath: string, flags: ApiFlags): Pr
   // fatal when there is no bearer either. Demanding both would refuse a
   // request that would have worked.
   const apiKey = ctx.apiKey();
-  const bearer = external && apiKey ? ctx.maybeBearer() : ctx.bearer();
+  const bearer = external && apiKey ? ctx.storedBearer() : await ctx.bearer();
 
   if (external && !apiKey && !bearer) {
     throw new CliError(`${path} is the API-key surface and no key is set`, {

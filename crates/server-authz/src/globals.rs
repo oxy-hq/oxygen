@@ -15,6 +15,17 @@
 //!
 //! Keeping both behind this module is what stops the third pattern — a handler
 //! hand-rolling `is_oxy_owner() || is_app_admin()` and quietly inventing a policy.
+//!
+//! ## Every door takes a [`Caller`], not an address
+//!
+//! Standing is stored by email, but it is *held* by a credential: an API token
+//! with `platform = false` holds none, and one narrowed to a few orgs holds it
+//! over those orgs only (API-tokens design §4.4). A door keyed by a bare email
+//! cannot know that, so each one takes the [`Caller`] and answers for the
+//! standing **as that credential carries it**. A browser session and a legacy
+//! key carry all of it, unchanged. The one address-keyed read left,
+//! [`grant_of_email`], is for a *subject* — someone a staff console is looking
+//! at — never for the requester.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -24,6 +35,8 @@ use entity::prelude::AppAdmins;
 use entity::{app_admin_scope_orgs, app_admins};
 use oxy_authz::{PlatformRole, PlatformStanding as Grant, Scope};
 use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
+
+use crate::caller::Caller;
 
 /// What Oxy's platform sources say about a person, **as flags to display**. Not a
 /// decision, and deliberately lossy: it says *that* someone is staff, never what they
@@ -50,10 +63,24 @@ impl PlatformFlags {
     }
 }
 
-/// The owner allow-list alone — an env read with no DB, so sync callers that need only
-/// this half don't have to become async to go through the front door.
-pub fn is_global_owner(email: &str) -> bool {
-    crate::oxy_owner_guard::is_oxy_owner(email)
+/// Is the caller Oxy's root, **as this credential carries it**? The owner allow-list
+/// is an env read with no DB, so sync callers that need only this half don't have to
+/// become async to go through the front door.
+///
+/// A token without `platform` is not root, and neither is one narrowed to a list of
+/// orgs — root is unbounded by definition (`TokenReach::narrow_platform`).
+pub fn is_global_owner(caller: &Caller) -> bool {
+    let listed = crate::oxy_owner_guard::is_oxy_owner(caller.standing_email());
+    listed && caller.reach().is_none_or(|r| r.all_access)
+}
+
+/// The platform sources for `caller`, narrowed to what the credential carries.
+/// `listed` and `grant` are what the sources say about the *address*.
+fn carried(caller: &Caller, listed: bool, grant: Option<Grant>) -> (bool, Option<Grant>) {
+    match caller.reach() {
+        None => (listed, grant),
+        Some(reach) => reach.narrow_platform(listed, grant),
+    }
 }
 
 /// TTL for the `app_admins` membership cache. Matches the 60s the check used before it
@@ -98,18 +125,38 @@ pub fn invalidate_admin_cache() {
     }
 }
 
-/// Is `email` in the `app_admins` table (a Global Admin)? The `app_admins` read; cached
-/// for [`ADMIN_CACHE_TTL`]. `Err` is a lookup failure, distinct from a `false` verdict —
+/// Does the caller hold a platform grant row (`app_admins`), as this credential
+/// carries it? `Err` is a lookup failure, distinct from a `false` verdict —
 /// [`platform_standing_checked`] is what decides how that unknown collapses.
 ///
 /// Moved here from `custom_apps_auth` so authz owns this read outright; the only other
 /// caller is `oxy_app_admin_guard`.
-pub async fn is_app_admin_email(db: &DatabaseConnection, email: &str) -> Result<bool, DbErr> {
-    Ok(platform_grant_checked(db, email).await?.is_some())
+pub async fn is_app_admin(db: &DatabaseConnection, caller: &Caller) -> Result<bool, DbErr> {
+    Ok(platform_grant_checked(db, caller).await?.is_some())
 }
 
-/// The **authorization** read: this person's platform grant, or `None` if they hold
-/// none. Cached for [`ADMIN_CACHE_TTL`] alongside the membership check.
+/// The **authorization** read: the caller's platform grant as their credential carries
+/// it, or `None` if it carries none. A Global Owner on a token narrowed to a list of
+/// orgs reads as a Global Admin over those orgs here — see [`is_global_owner`].
+pub async fn platform_grant_checked(
+    db: &DatabaseConnection,
+    caller: &Caller,
+) -> Result<Option<Grant>, DbErr> {
+    if !caller.carries_platform() {
+        return Ok(None);
+    }
+    let grant = grant_of_email(db, caller.standing_email()).await?;
+    let listed = crate::oxy_owner_guard::is_oxy_owner(caller.standing_email());
+    Ok(carried(caller, listed, grant).1)
+}
+
+/// The platform grant stored for an **address**, or `None` if there is none. Cached
+/// for [`ADMIN_CACHE_TTL`] alongside the membership check.
+///
+/// This is what the sources say about a person, not what a request may do: it knows
+/// nothing of the credential a request arrived with. Use it for a *subject* — a row a
+/// staff console is displaying or editing. For the requester, take
+/// [`platform_grant_checked`].
 ///
 /// Two rules make an unreadable grant deny rather than escalate:
 ///
@@ -118,10 +165,7 @@ pub async fn is_app_admin_email(db: &DatabaseConnection, email: &str) -> Result<
 ///   instead of reinterpreting it as something more powerful;
 /// * `scope_all = false` yields `Scope::Orgs`, which reaches nothing when the child
 ///   table is empty. Unbounded reach is never inferred from missing rows.
-pub async fn platform_grant_checked(
-    db: &DatabaseConnection,
-    email: &str,
-) -> Result<Option<Grant>, DbErr> {
+pub async fn grant_of_email(db: &DatabaseConnection, email: &str) -> Result<Option<Grant>, DbErr> {
     let key = email.trim().to_ascii_lowercase();
     if key.is_empty() {
         return Ok(None);
@@ -168,7 +212,7 @@ pub async fn platform_grant_checked(
     Ok(Some(grant))
 }
 
-/// **Does `email` hold `cap` over `org_id`?** The platform tier's org-scoped question,
+/// **Does the caller hold `cap` over `org_id`?** The platform tier's org-scoped question,
 /// for call sites that resolve an actor rather than enforce a ring.
 ///
 /// Reach for this instead of `platform_standing(..).is_staff()` anywhere the answer
@@ -182,38 +226,41 @@ pub async fn platform_grant_checked(
 /// on and a bare `is_staff()` silently voids scope.
 ///
 /// A Global Owner short-circuits — root holds no grant row. An unreadable grant denies.
+///
+/// A token carries this only into the orgs it covers: one narrowed to org A does not
+/// reach org B, whatever its bearer's scope.
 pub async fn platform_reaches(
     db: &DatabaseConnection,
-    email: &str,
+    caller: &Caller,
     cap: oxy_authz::Cap,
     org_id: uuid::Uuid,
 ) -> bool {
-    if is_global_owner(email) {
+    if is_global_owner(caller) {
         return true;
     }
     matches!(
-        platform_grant_checked(db, email).await,
+        platform_grant_checked(db, caller).await,
         Ok(Some(grant)) if grant.grants(cap, org_id)
     )
 }
 
-/// **Does `email` hold `cap` at all?** Scope is not consulted — the platform-surface
+/// **Does the caller hold `cap` at all?** Scope is not consulted — the platform-surface
 /// question, matching `Ring::PlatformCap`.
 ///
 /// Use for surfaces that belong to Oxy rather than to a tenant (the partner registry,
 /// the console sections). Where the question is reach *into a specific org*, use
 /// [`platform_reaches`] instead so the grant's scope applies.
-pub async fn platform_holds(db: &DatabaseConnection, email: &str, cap: oxy_authz::Cap) -> bool {
-    if is_global_owner(email) {
+pub async fn platform_holds(db: &DatabaseConnection, caller: &Caller, cap: oxy_authz::Cap) -> bool {
+    if is_global_owner(caller) {
         return true;
     }
     matches!(
-        platform_grant_checked(db, email).await,
+        platform_grant_checked(db, caller).await,
         Ok(Some(grant)) if grant.holds(cap)
     )
 }
 
-/// Read the platform sources for `email`, distinguishing **"not staff"** from **"we
+/// Read the platform sources for the caller, distinguishing **"not staff"** from **"we
 /// could not find out"**. `None` is the latter: the `app_admins` lookup errored, so no
 /// verdict here is honest.
 ///
@@ -222,11 +269,14 @@ pub async fn platform_holds(db: &DatabaseConnection, email: &str, cap: oxy_authz
 /// standing rather than inventing it — but under `enforce` it is read as a *fact* that
 /// the principal is not staff, and the model then subtracts access their legacy check
 /// granted. A wrong 403, from a blip.
-pub async fn platform_standing_checked(db: &DatabaseConnection, email: &str) -> Option<Checked> {
-    match platform_grant_checked(db, email).await {
+pub async fn platform_standing_checked(
+    db: &DatabaseConnection,
+    caller: &Caller,
+) -> Option<Checked> {
+    match platform_grant_checked(db, caller).await {
         Ok(grant) => Some(Checked {
             flags: PlatformFlags {
-                is_global_owner: is_global_owner(email),
+                is_global_owner: is_global_owner(caller),
                 is_global_admin: grant.is_some(),
             },
             grant,
@@ -261,15 +311,15 @@ pub struct Checked {
 /// this says "no standing *we needed the database for*" — and the difference is a Global
 /// Owner keeping their owner-tier UI through a DB outage. Owner status never depended on
 /// the DB, so no DB failure should be able to take it away.
-pub fn platform_standing_offline(email: &str) -> PlatformFlags {
+pub fn platform_standing_offline(caller: &Caller) -> PlatformFlags {
     PlatformFlags {
-        is_global_owner: is_global_owner(email),
+        is_global_owner: is_global_owner(caller),
         // Genuinely unknown without the `app_admins` table. Withheld, not invented.
         is_global_admin: false,
     }
 }
 
-/// Read the platform sources for `email`. The `app_admins` lookup is cached and the
+/// Read the platform sources for the caller. The `app_admins` lookup is cached and the
 /// owner check is an env read, so this is cheap enough for a per-request payload.
 ///
 /// Fail-closed **only where it has to be**: an unresolvable `app_admins` lookup reports
@@ -278,10 +328,10 @@ pub fn platform_standing_offline(email: &str) -> PlatformFlags {
 /// behaviour for a **flag to display** (`/me`) and for a call site whose own check reads
 /// these same sources. If you are feeding a ring, take [`platform_standing_checked`] and
 /// decide for yourself what unknown means.
-pub async fn platform_standing(db: &DatabaseConnection, email: &str) -> PlatformFlags {
+pub async fn platform_standing(db: &DatabaseConnection, caller: &Caller) -> PlatformFlags {
     for_display(
-        platform_standing_checked(db, email).await.map(|c| c.flags),
-        email,
+        platform_standing_checked(db, caller).await.map(|c| c.flags),
+        caller,
     )
 }
 
@@ -289,8 +339,8 @@ pub async fn platform_standing(db: &DatabaseConnection, email: &str) -> Platform
 /// only so it is reachable without a database — this one line IS the bug that motivated
 /// the split (`unwrap_or_default()` here silently un-owned a Global Owner), so it should
 /// be pinned by a test rather than reviewed by eye.
-fn for_display(known: Option<PlatformFlags>, email: &str) -> PlatformFlags {
-    known.unwrap_or_else(|| platform_standing_offline(email))
+fn for_display(known: Option<PlatformFlags>, caller: &Caller) -> PlatformFlags {
+    known.unwrap_or_else(|| platform_standing_offline(caller))
 }
 
 #[cfg(test)]
@@ -301,12 +351,107 @@ mod tests {
         // passes `user.email.as_deref().unwrap_or("")` into here. This is the
         // choke point that makes that safe: blank is nobody. `is_oxy_owner`
         // has the matching test for the allow-list side.
-        let flags = super::platform_standing_offline("");
+        let flags = super::platform_standing_offline(&super::Caller::without_credential(
+            uuid::Uuid::nil(),
+            "",
+        ));
         assert!(!flags.is_global_owner);
         assert!(!flags.is_global_admin);
     }
 
     use super::*;
+
+    fn session(email: &str) -> Caller {
+        Caller::without_credential(uuid::Uuid::from_u128(1), email)
+    }
+
+    /// A caller on a new-format token with these flags and one org-wide grant.
+    fn token(email: &str, all_access: bool, platform: bool) -> Caller {
+        use oxy_auth::token::{CredentialContext, StoredKind};
+        let user = oxy_auth::types::AuthenticatedUser {
+            id: uuid::Uuid::from_u128(1),
+            email: Some(email.to_string()),
+            name: "t".into(),
+            picture: None,
+            status: entity::users::UserStatus::Active,
+            credential: None,
+        };
+        let credential = CredentialContext {
+            token_id: uuid::Uuid::from_u128(2),
+            kind: StoredKind::Personal,
+            principal_user_id: user.id,
+            all_access,
+            platform,
+            partner: true,
+            name: "t".into(),
+            display_prefix: "oxy_pat_Ab3x".into(),
+            legacy_api_key_id: None,
+            blocked_orgs: Vec::new(),
+            expires_at: None,
+            service_account: None,
+            grants: vec![oxy_authz::TokenGrant {
+                org_id: uuid::Uuid::from_u128(7),
+                workspace_id: None,
+                ceiling: oxy_authz::RoleCeiling::Owner,
+            }],
+            app_publish: Vec::new(),
+        };
+        Caller::of(&user, Some(&credential))
+    }
+
+    /// The owner allow-list is an env read, so this half of "a token holds only the
+    /// standing it carries" is provable with no database.
+    #[test]
+    #[serial_test::serial(oxy_owner_env)]
+    fn a_token_is_root_only_when_it_is_all_access_and_carries_platform() {
+        unsafe { std::env::set_var("OXY_OWNER", "owner@oxy.tech") };
+        let session_is_root = is_global_owner(&session("owner@oxy.tech"));
+        let unrestricted = is_global_owner(&token("owner@oxy.tech", true, true));
+        let no_platform = is_global_owner(&token("owner@oxy.tech", true, false));
+        let bounded = is_global_owner(&token("owner@oxy.tech", false, true));
+        let offline = platform_standing_offline(&token("owner@oxy.tech", true, false));
+        unsafe { std::env::remove_var("OXY_OWNER") };
+
+        assert!(session_is_root);
+        assert!(
+            unrestricted,
+            "an all-access token with platform is its bearer"
+        );
+        assert!(!no_platform, "platform=false holds no standing");
+        assert!(
+            !bounded,
+            "root is unbounded; a bounded token cannot be root"
+        );
+        assert_eq!(offline, PlatformFlags::default());
+    }
+
+    /// `carried` is the whole narrowing of the grant half, and it is pure.
+    #[test]
+    fn a_token_carries_the_grant_only_as_far_as_it_reaches() {
+        let all = Grant::from_role(PlatformRole::GlobalAdmin, Scope::All);
+        let org = uuid::Uuid::from_u128(7);
+        let other = uuid::Uuid::from_u128(8);
+
+        let (root, grant) = carried(&session("a@oxy.tech"), false, Some(all.clone()));
+        assert!(!root);
+        assert_eq!(
+            grant,
+            Some(all.clone()),
+            "a session carries the grant whole"
+        );
+
+        let (_, grant) = carried(&token("a@oxy.tech", true, false), true, Some(all.clone()));
+        assert_eq!(grant, None, "platform=false carries none");
+
+        let (root, grant) = carried(&token("a@oxy.tech", false, true), true, Some(all.clone()));
+        let grant = grant.expect("a bounded root token carries a bounded grant");
+        assert!(!root);
+        assert!(grant.grants(oxy_authz::Cap::ManageOrgSettings, org));
+        assert!(!grant.grants(oxy_authz::Cap::ManageOrgSettings, other));
+
+        let (_, grant) = carried(&token("a@oxy.tech", false, true), false, Some(all));
+        assert_eq!(grant.unwrap().scope, Scope::Orgs(vec![org]));
+    }
 
     /// The `app_admins` cache moved here with `is_app_admin_email` so that authz no
     /// longer reaches into `custom_apps_auth` for it (that import was a cycle). A
@@ -356,7 +501,7 @@ mod tests {
     #[serial_test::serial(oxy_owner_env)]
     fn offline_standing_keeps_the_owner_flag_it_never_needed_a_database_for() {
         unsafe { std::env::set_var("OXY_OWNER", "owner@oxy.tech") };
-        let standing = platform_standing_offline("owner@oxy.tech");
+        let standing = platform_standing_offline(&session("owner@oxy.tech"));
         unsafe { std::env::remove_var("OXY_OWNER") };
 
         assert!(
@@ -374,7 +519,7 @@ mod tests {
     #[serial_test::serial(oxy_owner_env)]
     fn offline_standing_grants_nothing_to_a_non_owner() {
         unsafe { std::env::set_var("OXY_OWNER", "owner@oxy.tech") };
-        let standing = platform_standing_offline("someone.else@example.com");
+        let standing = platform_standing_offline(&session("someone.else@example.com"));
         unsafe { std::env::remove_var("OXY_OWNER") };
 
         assert_eq!(
@@ -391,13 +536,13 @@ mod tests {
     #[serial_test::serial(oxy_owner_env)]
     fn an_unknown_standing_falls_back_to_the_env_not_to_default() {
         unsafe { std::env::set_var("OXY_OWNER", "owner@oxy.tech") };
-        let unknown = for_display(None, "owner@oxy.tech");
+        let unknown = for_display(None, &session("owner@oxy.tech"));
         let known = for_display(
             Some(PlatformFlags {
                 is_global_owner: true,
                 is_global_admin: true,
             }),
-            "owner@oxy.tech",
+            &session("owner@oxy.tech"),
         );
         unsafe { std::env::remove_var("OXY_OWNER") };
 

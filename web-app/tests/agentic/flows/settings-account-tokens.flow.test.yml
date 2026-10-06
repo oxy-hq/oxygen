@@ -1,0 +1,115 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Create a personal access token narrowed to one workspace, see it listed,
+# then revoke it (API tokens design §3.2 Grants, §8 Phase 2 UI).
+#
+# NOT RECORDED YET. The routes this flow exercises — `GET /user/tokens`,
+# `GET /user/token-options`, `POST /user/tokens` and `DELETE /user/tokens/{id}`
+# — ship in the same PR as this flow. The UI was built against their wire
+# contract and has since been reconciled with the handlers by reading them
+# (`crates/app/src/server/api/user_tokens/`), but the flow has never been run
+# against a live backend. So it is NOT in any CI bucket and has no recorded
+# action cache. To finish it: record it cold
+# (`HEADED=1 pnpm test:agentic settings-account-tokens`) and add it to a
+# cloud-mode bucket in `.github/workflows/agentic-tests.yaml`.
+#
+# Surface: Settings dialog → Account → Personal access tokens, opened by the
+# `?settings=account.tokens` deep link (useSettingsDeepLink). The section needs
+# no workspace or role; `/home` is just a page that mounts the dialog, and
+# OXY_PATH_PREFIX lands it on the Demo workspace. The runner signs in as
+# flow@oxy.local, who owns that workspace, so the grant picker offers it.
+#
+# The flow creates its own token. Same name every run; on a reused backend
+# several rows can share it. The list is newest first, so every step says to
+# use the first, which is the one this run made. The row-scoped steps go
+# through [data-testid=account-token-row][data-token-name="flow selected token"].
+#
+# One thing this assumes about the backend, to check when recording:
+#   - the token-options payload lists the Demo workspace for flow@oxy.local.
+# A revoked token does stay in `GET /user/tokens` with `status: "revoked"`:
+# the list handler does not filter on `revoked_at` (only the workspace
+# inventory drops revoked tokens), so the last gate and asserts hold.
+#
+# What proves it: the one-time secret dialog (with its `export OXY_TOKEN=…`
+# line) after create, the row's access reading "1 workspace in 1 org" rather
+# than "All access", and the same row carrying data-token-status=revoked after
+# the confirm.
+
+name: settings account tokens
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # create (open, name, Selected, tick, submit) + dismiss the secret + revoke
+  # (menu, item, confirm) ≈ 9 clicks and one type, plus waits.
+  max_steps: 25
+
+setup:
+  - "goto:/home?settings=account.tokens"
+
+cases:
+  - name: create a selected-workspace token, see it listed, revoke it
+    tags: [settings, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=settings-account-tokens]"
+
+      # All access is the default, so the click on Selected is what the
+      # recording proves.
+      - act: |
+          Start a token limited to selected workspaces:
+          1. browser_click [data-testid=account-token-create-button].
+          2. In [data-testid=account-token-dialog], browser_type
+             "flow selected token" into [data-testid=account-token-name].
+          3. browser_click [data-testid=account-token-access-selected].
+
+      # The picker is fed by GET /user/token-options; gate on its first
+      # workspace so the next step never clicks into a loading skeleton.
+      - wait_for: "selector:[data-testid=account-token-grant-picker] [data-testid=account-token-workspace-checkbox]"
+
+      - act: |
+          In [data-testid=account-token-grant-picker]:
+          1. browser_click the first [data-testid=account-token-workspace-checkbox].
+          2. browser_click [data-testid=account-token-submit] (it reads
+             "Create token").
+
+      # The secret is shown once. Both gates are $0 and fail the case in 30s
+      # if create did not answer with a secret.
+      - wait_for: "selector:[data-testid=account-token-secret-dialog]"
+      - wait_for: "selector:[data-testid=account-token-export]"
+
+      - act: |
+          Dismiss the secret: browser_click [data-testid=account-token-secret-done]
+          (it reads "I've copied it").
+
+      - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
+      - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow selected token"]'
+
+      - act: |
+          Open the row menu of the new token: browser_click the
+          [data-testid=account-token-menu-button] inside the first
+          [data-testid=account-token-row][data-token-name="flow selected token"].
+          A menu opens; browser_click [data-testid=account-token-revoke] in it.
+
+      # Revoke asks first.
+      - wait_for: "selector:[data-testid=account-token-revoke-confirm]"
+
+      - act: |
+          Confirm: browser_click [data-testid=account-token-revoke-confirm] (it
+          reads "Revoke").
+
+      - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow selected token"][data-token-status=revoked]'
+
+    expect:
+      - assert: 'selector [data-testid=account-token-row][data-token-name="flow selected token"][data-token-status=revoked] is visible'
+      - assert: "selector [data-testid=account-token-secret-dialog] is not visible"
+      - assert: "selector [data-testid=account-token-revoke-confirm] is not visible"
+      - assert: 'text "1 workspace in 1 org" is visible'
+      - judge: |
+          The Settings dialog shows "Personal access tokens" with a table of
+          tokens. A row named "flow selected token" shows a masked token
+          starting "oxy_pat_", an Access of "1 workspace in 1 org" (not "All
+          access"), and a "Revoked" status. No error message and no "aren't
+          available on this server" notice is shown.

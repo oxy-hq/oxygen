@@ -213,11 +213,8 @@ pub async fn list_custom_apps(
     // Optional rather than required: the route is mounted behind auth middleware, so
     // a missing user means the middleware was bypassed — and the fail-closed filter
     // below is a better answer to that than a 401 that hides the misconfiguration.
-    let viewer = viewer.as_ref().map(|u| Viewer {
-        id: u.id,
-        email: u.email.as_deref().unwrap_or(""),
-    });
-    let out = published_app_summaries(&db, workspace_id, viewer)
+    let viewer = viewer.as_ref().map(oxy_server_authz::Caller::from_user);
+    let out = published_app_summaries(&db, workspace_id, viewer.as_ref())
         .await
         .map_err(|e| {
             tracing::error!("list_custom_apps failed: {e}");
@@ -226,15 +223,13 @@ pub async fn list_custom_apps(
     Ok(Json(out))
 }
 
-/// Who is asking, for the visibility filter in [`published_app_summaries`].
+/// Who is asking, for the visibility filter in [`published_app_summaries`]:
+/// the user **with the credential the request arrived with**, so an API token's
+/// grants and standing flags narrow the list as they narrow every other answer.
 ///
 /// `None` at the call site means "nobody authenticated", which drops every
 /// restricted app rather than 401ing — see the handler above.
-#[derive(Clone, Copy)]
-pub struct Viewer<'a> {
-    pub id: Uuid,
-    pub email: &'a str,
-}
+pub type Viewer<'a> = &'a oxy_server_authz::Caller;
 
 /// Published-app summaries for a workspace, **filtered to what `viewer` may open**.
 /// Shared by the workspace sidebar endpoint above and the custom-app shell-context
@@ -282,9 +277,7 @@ pub async fn published_app_summaries(
     // costs nobody their app. Unrestricted apps are unaffected either way, so the
     // degraded case is exactly today's behavior.
     let facts = match viewer.filter(|_| any_restricted) {
-        Some(v) => {
-            oxy_server_authz::loader::load_principal_facts_scoped(db, v.id, v.email, false).await
-        }
+        Some(v) => oxy_server_authz::loader::load_principal_facts_scoped(db, v, false).await,
         None => None,
     };
     let rows: Vec<apps::Model> = rows

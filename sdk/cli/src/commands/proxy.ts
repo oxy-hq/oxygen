@@ -306,7 +306,7 @@ export async function runProxy(ctx: Context, flags: ProxyFlags): Promise<void> {
     });
   }
 
-  const token = ctx.maybeBearer();
+  const token = await ctx.maybeBearer();
   if (!token) {
     log.warn(`no cached token for ${target} — only requests carrying their own auth will work`);
     log.hint(`oxyc login --env ${ctx.flags.env ?? "production"}`);

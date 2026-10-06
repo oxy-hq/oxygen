@@ -14,8 +14,9 @@
  */
 
 import { type ApiResponse, errorForResponse, parseJson, request } from "../api/request.js";
+import { isMachineIdentity } from "../auth/token-kind.js";
 import type { Context } from "../context/resolve.js";
-import { CliError, ExitCode, usageError } from "../util/errors.js";
+import { authError, CliError, ExitCode, usageError } from "../util/errors.js";
 
 export interface Creds {
   target: string;
@@ -43,7 +44,9 @@ const MAX_APP_PAGES = 100;
  * staff console surface a publish token may never reach (D22).
  */
 export function staffCreds(ctx: Context): Creds {
-  const bearer = ctx.maybeBearer();
+  // The STORED bearer, never an OIDC exchange: a minted token is a service
+  // account's, which holds no staff standing and is refused on every route here.
+  const bearer = ctx.storedBearer();
   if (bearer) {
     if (bearer.startsWith(PUBLISH_TOKEN_PREFIX)) {
       throw usageError(
@@ -52,13 +55,19 @@ export function staffCreds(ctx: Context): Creds {
         "it needs a staff credential — `oxyc login`, or OXY_TOKEN set to a user token"
       );
     }
+    // A service account's token is the other machine credential: no staff standing.
+    if (isMachineIdentity(bearer)) {
+      throw usageError(
+        "a service-account token cannot use this command",
+        "it needs a staff credential — `oxyc login`, or OXY_TOKEN set to a user token"
+      );
+    }
     return { target: ctx.target(), bearer };
   }
   const apiKey = ctx.apiKey();
   if (apiKey) return { target: ctx.target(), headers: { "X-API-Key": apiKey } };
-  // Nothing resolved — throws the canonical authError naming the login command.
-  ctx.bearer();
-  return { target: ctx.target() };
+  // Nothing resolved — the canonical authError naming the login command.
+  throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
 }
 
 export function ensureOk(response: ApiResponse): void {

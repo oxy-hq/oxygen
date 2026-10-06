@@ -107,8 +107,8 @@ async fn staging_hold(
     user: &AuthenticatedUser,
     project_id: Uuid,
 ) -> Option<HoldScope> {
-    let email = user.email.as_deref().unwrap_or("");
-    let app = staging_app_for(db, headers, user.id, email, project_id).await?;
+    let caller = crate::server::authz::Caller::from_user(user);
+    let app = staging_app_for(db, headers, &caller, project_id).await?;
     let row = HeldRow {
         app_id: app.id,
         app_slug: app.slug.clone(),

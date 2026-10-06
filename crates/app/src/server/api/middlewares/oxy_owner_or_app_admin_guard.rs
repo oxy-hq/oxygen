@@ -12,7 +12,6 @@ use axum::response::Response;
 use oxy_auth::types::AuthenticatedUser;
 
 use crate::server::api::middlewares::oxy_app_admin_guard::is_oxy_app_admin;
-use crate::server::api::middlewares::oxy_owner_guard::is_oxy_owner;
 
 pub async fn oxy_owner_or_app_admin_guard_middleware(
     request: axum::http::Request<axum::body::Body>,
@@ -26,8 +25,11 @@ pub async fn oxy_owner_or_app_admin_guard_middleware(
     // Owner is a synchronous env-var check; app-admin hits the DB. Order the check so
     // owners (the more common admin caller) get the fast path and we only hit the DB
     // for non-owners.
-    let legacy = is_oxy_owner(user.email.as_deref().unwrap_or(""))
-        || is_oxy_app_admin(user.email.as_deref().unwrap_or("")).await;
+    //
+    // Read for the CALLER, so an API token without platform standing is not staff.
+    let caller = crate::server::authz::Caller::from_user(&user);
+    let legacy =
+        crate::server::authz::globals::is_global_owner(&caller) || is_oxy_app_admin(&caller).await;
 
     // Platform tier through the shared model — see `Ring::GlobalAdminOrOwner` in
     // `oxy_authz`. `existing && unified`; the ring reads only the global flags.
@@ -35,8 +37,7 @@ pub async fn oxy_owner_or_app_admin_guard_middleware(
         Ok(db) => {
             crate::server::authz::loader::load_platform_facts(
                 &db,
-                user.id,
-                user.email.as_deref().unwrap_or(""),
+                &crate::server::authz::Caller::from_user(&user),
             )
             .await
         }

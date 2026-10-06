@@ -1,0 +1,25 @@
+{
+  "name": "@oxy-hq/setup-oxyc",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action: install oxyc and sign it in with the job's OIDC identity — no stored secret",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oxy-hq/oxygen-internal.git",
+    "directory": "sdk/setup-oxyc"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node --input-type=module -e \"await import('./src/setup.mjs'); await import('./src/cleanup.mjs')\"",
+    "test": "node --test \"test/*.test.mjs\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  }
+}

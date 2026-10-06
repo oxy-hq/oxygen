@@ -1,0 +1,129 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Extend a personal access token, then see the extension in the token's
+# Activity drawer (API tokens design §3.6 Extend, §3.7 Activity drawer).
+#
+# NOT RECORDED YET. The routes this flow exercises — `POST /user/tokens`,
+# `POST /user/tokens/{id}/extend` and `GET /user/tokens/{id}/activity` — ship in
+# the same PR as this flow, and the flow has never been run against a live
+# backend. So it is NOT in any CI bucket and has no recorded action cache. To
+# finish it: record it cold (`HEADED=1 pnpm test:agentic settings-api-key-extend`)
+# and add it to a cloud-mode bucket in `.github/workflows/agentic-tests.yaml`.
+#
+# Why a token and not a key: this flow first created a key in the workspace's
+# API section. That section no longer creates anything — legacy API keys have
+# their own section (Workspace → Legacy API keys) with no create button, and a
+# flow may not seed one, so there is no legacy key for a flow to extend. The
+# Extend popover and the Activity drawer are the same components on both
+# surfaces (which is why their testids still read `api-key-*`, and why this
+# file keeps its name); a personal access token is the one a flow can make.
+# NOT COVERED by any flow: Workspace → Legacy API keys itself. Its unit tests
+# are `sections/workspace/LegacyApiKeys/index.test.tsx`.
+#
+# Surface: Settings dialog → Account → Personal access tokens, opened by the
+# `?settings=account.tokens` deep link (useSettingsDeepLink). The section needs
+# no workspace or role; `/home` is just a page that mounts the dialog, and
+# OXY_PATH_PREFIX lands it on the Demo workspace. The runner signs in as
+# flow@oxy.local.
+#
+# The flow creates its own token with the dialog's defaults: all access, and a
+# 90-day expiry. The expiry matters — a token that never expires has nothing to
+# extend, so its row offers no Extend button. Same name every run; on a reused
+# backend several rows can share it. The list is newest first, so every step
+# says to use the first, which is the one this run made. The row-scoped steps
+# go through [data-testid=account-token-row][data-token-name="flow extend token"].
+#
+# Two things this assumes about the backend, to check when recording:
+#   - the Demo org's policy allows an all-access token (the dialog's default);
+#   - creating a personal access token writes a `token.created` lifecycle event,
+#     as extending one writes `token.extended`.
+#
+# What proves the extension: the success toast ("now expires …"), the row's
+# countdown moving out to about 180 days, and a `token.extended` item in the
+# drawer's History (written by the backend's lifecycle audit, §3.7 layer 1).
+# A fresh token has never been used, so the drawer also reads "Never used." and
+# "No requests in the last 30 days." — both deterministic.
+
+name: settings api token extend
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # create (open dialog, name, submit) + dismiss the secret + extend (open,
+  # pick, submit) + activity (open) ≈ 8 clicks and one type, plus waits.
+  max_steps: 25
+
+setup:
+  - "goto:/home?settings=account.tokens"
+
+cases:
+  - name: extend a personal access token by 90 days and see token.extended in its activity
+    tags: [settings, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=settings-account-tokens]"
+
+      # The dialog's defaults (all access, 90 days) are what this flow wants, so
+      # the only input is the name.
+      - act: |
+          Create a personal access token with the dialog's defaults:
+          1. browser_click [data-testid=account-token-create-button].
+          2. In [data-testid=account-token-dialog], browser_type
+             "flow extend token" into [data-testid=account-token-name].
+          3. browser_click [data-testid=account-token-submit] (it reads
+             "Create token").
+
+      # The secret is shown once. The gate is $0 and fails the case in 30s if
+      # create did not answer with a secret.
+      - wait_for: "selector:[data-testid=account-token-secret-dialog]"
+
+      - act: |
+          Dismiss the secret: browser_click [data-testid=account-token-secret-done]
+          (it reads "I've copied it").
+
+      - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
+      - wait_for: 'selector:[data-testid=account-token-row][data-token-name="flow extend token"]'
+
+      # The 90-day option is not the default (30 is), so the click on it is
+      # what the recording proves.
+      - act: |
+          Open Extend on the new token: browser_click the
+          [data-testid=api-key-extend-button] inside the first
+          [data-testid=account-token-row][data-token-name="flow extend token"].
+
+      - wait_for: "selector:[data-testid=api-key-extend-popover]"
+
+      - act: |
+          In [data-testid=api-key-extend-popover]:
+          1. browser_click [data-testid=api-key-extend-option-90].
+          2. browser_click [data-testid=api-key-extend-submit] (its label reads
+             "Extend to <date>").
+          The popover closes and a toast says the token now expires on that date.
+
+      - wait_for: "selector_hidden:[data-testid=api-key-extend-popover]"
+
+      - act: |
+          Open the token's Activity drawer: browser_click the
+          [data-testid=account-token-activity-button] inside the first
+          [data-testid=account-token-row][data-token-name="flow extend token"].
+
+      - wait_for: "selector:[data-testid=api-key-activity-drawer]"
+      - wait_for: 'selector:[data-testid=api-key-activity-history-item][data-action="token.extended"]'
+
+    expect:
+      - assert: 'selector [data-testid=api-key-activity-history-item][data-action="token.extended"] is visible'
+      - assert: 'selector [data-testid=api-key-activity-history-item][data-action="token.created"] is visible'
+      - assert: "selector [data-testid=api-key-activity-unavailable] is not visible"
+      - assert: 'text "Never used." is visible'
+      - assert: 'text "No requests in the last 30 days." is visible'
+      - assert: 'text "Actions with this token" is visible'
+      - judge: |
+          A right-side drawer titled "flow extend token" is open over the
+          "Personal access tokens" settings. Its "History" section lists an
+          "Extended" entry above a "Created" entry, and no error or "Activity
+          isn't available" message is shown. Nothing in the drawer calls the
+          token a key. The token table behind the drawer (dimmed, but in the
+          page text) shows the token as "Active" with "Expires in" more than
+          100 days.

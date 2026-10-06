@@ -209,7 +209,20 @@ const onboardingKeys = {
 const apiKeyKeys = {
   all: ["apiKey"] as const,
   list: (projectId: string) => [...apiKeyKeys.all, "list", projectId] as const,
-  item: (projectId: string, id: string) => [...apiKeyKeys.all, projectId, { id }] as const
+  item: (projectId: string, id: string) => [...apiKeyKeys.all, projectId, { id }] as const,
+  activity: (projectId: string, id: string) =>
+    [...apiKeyKeys.all, "activity", projectId, { id }] as const,
+  /** Every token that can reach the workspace, whoever owns it (`GET /{id}/api-tokens`). */
+  inventory: (projectId: string) => [...apiKeyKeys.all, "inventory", projectId] as const
+};
+
+/** The caller's own personal access tokens (`/user/tokens`). Not workspace-scoped. */
+const userTokenKeys = {
+  all: ["userTokens"] as const,
+  list: () => [...userTokenKeys.all, "list"] as const,
+  item: (id: string) => [...userTokenKeys.all, { id }] as const,
+  activity: (id: string) => [...userTokenKeys.all, "activity", { id }] as const,
+  options: () => [...userTokenKeys.all, "options"] as const
 };
 
 const secretKeys = {
@@ -385,7 +398,26 @@ const orgKeys = {
   assignments: (orgId: string, filter?: { user_id?: string; location_id?: string }) =>
     filter
       ? ([...orgKeys.all, "assignments", orgId, filter] as const)
-      : ([...orgKeys.all, "assignments", orgId] as const)
+      : ([...orgKeys.all, "assignments", orgId] as const),
+  // Organization → API access. Everything about one account nests under
+  // `serviceAccounts(orgId)`, so invalidating that prefix refreshes the list,
+  // each account's tokens and its trusted-access policies together.
+  serviceAccounts: (orgId: string) => [...orgKeys.all, "service-accounts", orgId] as const,
+  serviceAccountTokens: (orgId: string, saId: string) =>
+    [...orgKeys.serviceAccounts(orgId), saId, "tokens"] as const,
+  serviceAccountTokenActivity: (orgId: string, saId: string, tokenId: string) =>
+    [...orgKeys.serviceAccountTokens(orgId, saId), tokenId, "activity"] as const,
+  trustPolicies: (orgId: string, saId: string) =>
+    [...orgKeys.serviceAccounts(orgId), saId, "trust-policies"] as const,
+  /** Prefix of every filtered read of one org's token inventory. */
+  tokenInventoryAll: (orgId: string) => [...orgKeys.all, "token-inventory", orgId] as const,
+  tokenInventory: (
+    orgId: string,
+    filters: { kind?: string; owner?: string; workspace_id?: string }
+  ) => [...orgKeys.tokenInventoryAll(orgId), filters] as const,
+  tokenInventoryActivity: (orgId: string, tokenId: string) =>
+    [...orgKeys.all, "token-inventory-activity", orgId, tokenId] as const,
+  tokenPolicy: (orgId: string) => [...orgKeys.all, "token-policy", orgId] as const
 };
 
 /**
@@ -1088,6 +1120,7 @@ const queryKeys = {
   analytics: analyticsKeys,
   thread: threadKeys,
   apiKey: apiKeyKeys,
+  userToken: userTokenKeys,
   secret: secretKeys,
   spApi: spApiKeys,
   logs: logsKeys,

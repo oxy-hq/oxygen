@@ -76,6 +76,8 @@ use entity::prelude::*;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
+use crate::caller::Caller;
+
 /// A single permission an action can require. Compile-time — Oxy owns this
 /// vocabulary; customers never invent permissions (see the design doc for why we
 /// don't build AWS/GCP-style IAM).
@@ -211,7 +213,16 @@ pub struct PartnerScope {
     /// Every client the partner manages. All operators reach all clients, so this
     /// is the partner's whole managed set — kept on the scope so org-scoped gates
     /// (`require_org_scope`) and the console listings read one field.
+    ///
+    /// Resolved under an API token that names its orgs, this is only the clients
+    /// the token covers.
     pub org_ids: Vec<Uuid>,
+    /// The API token this scope was resolved under, when it has one that can
+    /// narrow. It travels with the scope so [`crate::partner_allows`] decides with
+    /// it: the model then requires an admin ceiling over the client, and refuses a
+    /// capability-only action (creating a client) to a token that names its orgs.
+    /// `None` for a browser session and a legacy key.
+    pub token: Option<oxy_authz::TokenReach>,
 }
 
 impl PartnerScope {
@@ -228,12 +239,19 @@ impl PartnerScope {
 /// The operator + ceiling determination comes from [`operated_partners`] — the single
 /// source that the authz fact loader also reads, so the console and the authz model
 /// cannot drift apart on who operates what.
+///
+/// Takes the [`Caller`], not a bare user: a token that does not carry partner
+/// standing resolves no scope at all, and one that names its orgs resolves a scope
+/// over only the clients it covers.
 pub async fn resolve_scope(
     db: &DatabaseConnection,
     partner_org_id: Uuid,
-    user_id: Uuid,
-    _user_email: &str,
+    caller: &Caller,
 ) -> Option<PartnerScope> {
+    if !caller.carries_partner() {
+        return None;
+    }
+    let user_id = caller.user_id;
     let grant = PartnerGrants::find_by_id(partner_org_id)
         .one(db)
         .await
@@ -257,13 +275,13 @@ pub async fn resolve_scope(
     let standing = match standing {
         Some(p) => Some(p),
         None => {
-            let assumed = assumed_partners(db, user_id, is_oxy_staff(db, _user_email).await)
+            let assumed = assumed_partners(db, caller, is_oxy_staff(db, caller).await)
                 .await
                 .into_iter()
                 .find(|p| p.partner_id == partner_org_id);
             if assumed.is_some() {
                 tracing::warn!(
-                    actor = %_user_email, partner_org_id = %partner_org_id,
+                    actor = %caller.email(), partner_org_id = %partner_org_id,
                     "partner_authz: assume-role session active — acting as this partner's admin"
                 );
             }
@@ -277,7 +295,12 @@ pub async fn resolve_scope(
             partner_id: partner_org_id,
             slug: org.slug,
             capabilities: operated.capabilities,
-            org_ids: operated.managed_org_ids,
+            org_ids: operated
+                .managed_org_ids
+                .into_iter()
+                .filter(|org| caller.touches_org(*org))
+                .collect(),
+            token: caller.reach().cloned(),
         }),
         // Neither a real operator nor a live assume session ⇒ a plain 403, exactly like
         // any other non-member.
@@ -292,8 +315,8 @@ pub async fn resolve_scope(
 /// Operator operate the partner registry. Capability without scope, matching
 /// `Ring::PlatformCap` — the partner registry is Oxy's own surface, and a platform
 /// grant's scope names *client* orgs, which is a different set from partner orgs.
-async fn is_oxy_staff(db: &DatabaseConnection, email: &str) -> bool {
-    crate::globals::platform_holds(db, email, oxy_authz::Cap::ManagePartners).await
+async fn is_oxy_staff(db: &DatabaseConnection, caller: &Caller) -> bool {
+    crate::globals::platform_holds(db, caller, oxy_authz::Cap::ManagePartners).await
 }
 
 /// Every client this partner manages.
@@ -316,14 +339,13 @@ pub async fn partner_org_ids(db: &DatabaseConnection, partner_org_id: Uuid) -> V
 /// serve/proxy share one decision.
 pub async fn partner_grants_app_access(
     db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &Caller,
     org_id: Uuid,
 ) -> bool {
     let Some(partner_id) = partner_for_org(db, org_id).await else {
         return false;
     };
-    let Some(scope) = resolve_scope(db, partner_id, user_id, user_email).await else {
+    let Some(scope) = resolve_scope(db, partner_id, caller).await else {
         return false;
     };
     crate::partner_allows(&scope, Some(org_id), PartnerCapability::DevelopApps)
@@ -470,13 +492,13 @@ async fn standings_for(
 /// custom-app query hot path.
 pub async fn assumed_partners(
     db: &DatabaseConnection,
-    user_id: Uuid,
+    caller: &Caller,
     is_staff: bool,
 ) -> Vec<OperatedPartner> {
     if !is_staff {
         return Vec::new();
     }
-    let assumed = crate::assume_liveness::live_assumed_org_ids(db, user_id).await;
+    let assumed = crate::assume_liveness::live_assumed_org_ids(db, caller).await;
     if assumed.is_empty() {
         return Vec::new();
     }
@@ -510,11 +532,8 @@ pub async fn partner_owns_org(db: &DatabaseConnection, partner_org_id: Uuid, org
 }
 
 /// Every partner this user holds a role in (drives the console entry).
-pub async fn scopes_for_user(
-    db: &DatabaseConnection,
-    user_id: Uuid,
-    user_email: &str,
-) -> Vec<PartnerScope> {
+pub async fn scopes_for_user(db: &DatabaseConnection, caller: &Caller) -> Vec<PartnerScope> {
+    let user_id = caller.user_id;
     let memberships = OrgMembers::find()
         .filter(entity::org_members::Column::UserId.eq(user_id))
         .all(db)
@@ -526,7 +545,7 @@ pub async fn scopes_for_user(
     // Orgs the caller is ACTING AS. Without this a staff member who assumed a
     // partner would resolve a scope on `/partners/{id}` but never see the partner
     // listed — the console would be empty and the mode would look broken.
-    for session in crate::assume_liveness::live_sessions_for(db, user_id).await {
+    for session in crate::assume_liveness::live_sessions_for(db, caller).await {
         if !org_ids.contains(&session.org_id) {
             org_ids.push(session.org_id);
         }
@@ -534,7 +553,7 @@ pub async fn scopes_for_user(
 
     let mut out = Vec::new();
     for org_id in org_ids {
-        if let Some(scope) = resolve_scope(db, org_id, user_id, user_email).await {
+        if let Some(scope) = resolve_scope(db, org_id, caller).await {
             out.push(scope);
         }
     }

@@ -174,10 +174,11 @@ pub async fn reach_for_viewer(
                 .flatten();
             match app {
                 Some(app) => {
+                    // The user WITH their credential: an API token's grants and
+                    // standing flags decide app-admin here as everywhere else.
                     crate::server::api::custom_apps_auth::resolve_app_role(
                         db,
-                        user.id,
-                        user.email.as_deref().unwrap_or(""),
+                        &oxy_server_authz::Caller::from_user(user),
                         &app,
                     )
                     .await

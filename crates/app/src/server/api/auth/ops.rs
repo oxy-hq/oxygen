@@ -449,7 +449,11 @@ pub(super) async fn finalize_login(
     // Reported on the payload, not decided here — the flag door, not a ring.
     let standing = crate::server::authz::globals::platform_standing(
         connection,
-        user.email.as_deref().unwrap_or(""),
+        // A login is a browser session being born: no key or token is involved.
+        &crate::server::authz::Caller::without_credential(
+            user.id,
+            user.email.as_deref().unwrap_or(""),
+        ),
     )
     .await;
     let user_info = UserInfo {

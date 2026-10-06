@@ -159,13 +159,13 @@ async fn a_legacy_double_hyphen_slugs_schema_is_never_a_sandboxs_sibling() {
 
     // The name cannot be created; a handle that collides with nothing can.
     assert_eq!(
-        ops::create(&t.db, &app, &sandbox("a1"), t.guest_id).await,
+        ops::create(&t.db, &app, &sandbox("a1"), &t.guest()).await,
         Err(SandboxError::Reserved {
             name: "dev-a1".into(),
             app: LEGACY.into()
         })
     );
-    ops::create(&t.db, &app, &sandbox("b2"), t.guest_id)
+    ops::create(&t.db, &app, &sandbox("b2"), &t.guest())
         .await
         .expect("dev-b2 collides with nothing");
 
@@ -265,7 +265,7 @@ async fn a_legacy_double_hyphen_slugs_schema_is_never_a_sandboxs_sibling() {
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await

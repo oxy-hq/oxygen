@@ -24,6 +24,8 @@ export interface AuditSearchParams {
   actor?: string;
   org_id?: string;
   outcome?: string;
+  /** One API token: actions performed with it and its lifecycle events. */
+  token_id?: string;
   limit?: number;
   offset?: number;
 }

@@ -173,19 +173,19 @@ async fn a_publish_token_cannot_write_non_production_secrets_either() {
     use entity::users::UserStatus;
     use oxy_app::server::api::custom_apps_secrets::environment::EnvironmentQuery;
     use oxy_app::server::api::custom_apps_secrets::{SetSecretRequest, admin_delete, admin_set};
-    use oxy_auth::extractor::AuthenticatedUserExtractor;
     use oxy_auth::types::AuthenticatedUser;
     use oxy_auth::user::LOCAL_GUEST_EMAIL;
 
     let t = seeded_tenant().await;
     let app = app_with_a_value_everywhere(&t).await;
     let staff = || {
-        AuthenticatedUserExtractor(AuthenticatedUser {
+        oxy_app_core::audit::RequestActor::session(AuthenticatedUser {
             id: t.guest_id,
             email: Some(LOCAL_GUEST_EMAIL.to_string()),
             name: "Secrets".to_string(),
             picture: None,
             status: UserStatus::Active,
+            credential: None,
         })
     };
     let token = || {

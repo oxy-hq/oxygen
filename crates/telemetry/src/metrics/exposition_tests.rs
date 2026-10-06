@@ -289,6 +289,7 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
     i.custom_app_admission_wait.record(0.001, &[]);
     i.custom_app_admission_shed.add(1, &[]);
     i.custom_app_bundle_cache_evictions.add(1, &[]);
+    i.oidc_exchange_rejected.add(1, &[]);
     i.compile_duration.record(0.5, &[]);
     i.compile_fetch_duration.record(1.0, &[]);
 
@@ -327,6 +328,7 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
         ("oxy_custom_app_bundle_cache_bytes", "gauge"),
         ("oxy_custom_app_bundle_cache_limit_bytes", "gauge"),
         ("oxy_custom_app_bundle_cache_evictions_total", "counter"),
+        ("oxy_oidc_exchange_rejected_total", "counter"),
         ("oxy_compile_duration_seconds", "histogram"),
         ("oxy_compile_fetch_duration_seconds", "histogram"),
     ] {
@@ -413,9 +415,13 @@ fn seeding_makes_a_first_event_visible_to_increase() {
 
     let body = render(&reader);
 
+    let exchange_rejections = crate::metrics::record::OIDC_EXCHANGE_REJECT_REASONS
+        .iter()
+        .map(|reason| format!(r#"oxy_oidc_exchange_rejected_total{{oxy_reason="{reason}"}}"#));
     for name in ["oxy_custom_app_bundle_cache_evictions_total".to_owned()]
         .into_iter()
         .chain(probe_failure_series())
+        .chain(exchange_rejections)
     {
         let line = body
             .lines()

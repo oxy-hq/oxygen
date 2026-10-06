@@ -189,8 +189,14 @@ pub async fn check_custom_app_gates(
 
     // ── 1. Authenticate ───────────────────────────────────────────────
     // Session cookie (served by oxy) or a bearer token (external/dev).
-    let identity = match BuiltInAuthenticator::new().authenticate(headers).await {
-        Ok(id) => id,
+    //
+    // With the credential: an API token's grants and standing flags decide the
+    // access check below exactly as they do on `/api`.
+    let (identity, credential) = match BuiltInAuthenticator::new()
+        .authenticate_with_credential(headers)
+        .await
+    {
+        Ok(authenticated) => authenticated,
         Err(_) => return Err(err(StatusCode::UNAUTHORIZED, "authentication required")),
     };
 
@@ -214,6 +220,9 @@ pub async fn check_custom_app_gates(
             ));
         }
     };
+
+    let user = user.with_credential(credential);
+    let caller = authz::Caller::from_user(&user);
 
     // ── 4. DB connection ──────────────────────────────────────────────
     let db = match establish_connection().await {
@@ -271,6 +280,12 @@ pub async fn check_custom_app_gates(
             ));
         }
     };
+    // An API token with no grant on this workspace answers exactly as an unknown
+    // workspace does (step 5 above), so it cannot probe which workspaces exist.
+    // A session and a legacy key have no grants to be outside of.
+    if caller.workspace_ceiling(org_id, project_id).is_none() {
+        return Err(err(StatusCode::NOT_FOUND, "project not found"));
+    }
     // Access: a real org member, an Oxy operator whose grant reaches this org
     // with `develop_apps`, a partner operator whose ceiling grants `develop_apps`
     // over the org's managing partner — or a frontline worker holding a grant on
@@ -305,13 +320,11 @@ pub async fn check_custom_app_gates(
     let allowed = match is_org_member(&db, user.id, org_id).await {
         Ok(true) => true,
         Ok(false) => {
-            let email = user.email.as_deref().unwrap_or("");
             frontline_worker_with_app_grant(&db, org_id, user.id, project_id).await
-                || (authz::globals::platform_reaches(&db, email, authz::Cap::DevelopApps, org_id)
+                || (authz::globals::platform_reaches(&db, &caller, authz::Cap::DevelopApps, org_id)
                     .await
                     && !is_oxy_locked_down(&db, project_id).await.unwrap_or(true))
-                || authz::partner_authz::partner_grants_app_access(&db, user.id, email, org_id)
-                    .await
+                || authz::partner_authz::partner_grants_app_access(&db, &caller, org_id).await
         }
         Err(e) => {
             let failure = DbFailure::classify(&e);
@@ -352,14 +365,7 @@ pub async fn check_custom_app_gates(
     // Unknown facts (a lookup errored) defer to the gate's own verdict rather
     // than denying — the conjunction only subtracts, so deferring can't open a
     // hole, and a blip must not 403 every legitimate app user.
-    let allowed = match authz::loader::load_principal_facts_scoped(
-        &db,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-        false,
-    )
-    .await
-    {
+    let allowed = match authz::loader::load_principal_facts_scoped(&db, &caller, false).await {
         Some(facts) => authz::enforce(
             "gate.custom_app",
             &facts,
@@ -383,11 +389,7 @@ pub async fn check_custom_app_gates(
     // decision, so it can only narrow WHICH revision an already authorized
     // request reads, never whether it may read.
     let staging_pin = crate::server::api::custom_apps_staging_pin::staging_pin_for_data_request(
-        &db,
-        headers,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-        project_id,
+        &db, headers, &caller, project_id,
     )
     .await;
 

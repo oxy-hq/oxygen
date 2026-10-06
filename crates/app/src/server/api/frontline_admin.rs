@@ -21,7 +21,6 @@ use oxy_app_core::audit;
 
 use crate::server::api::operating_graph::assignments;
 use crate::server::api::operating_graph::dto::WorkerAssignment;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy};
 use oxy_shared::errors::OxyError;
 use sea_orm::{
@@ -227,20 +226,15 @@ pub struct WorkerAppsRequest {
 #[instrument(skip_all, fields(org = %org_id, worker = %user_id))]
 pub async fn set_worker_apps(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<WorkerAppsRequest>,
 ) -> Response {
     let Ok(db) = establish_connection().await else {
         return json_error(StatusCode::SERVICE_UNAVAILABLE, "database unavailable");
     };
-    if !frontline_grants::may_grant_apps(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        org_id,
-    )
-    .await
+    if !frontline_grants::may_grant_apps(&db, &crate::server::authz::caller_of(&actor), org_id)
+        .await
     {
         return json_error(
             StatusCode::FORBIDDEN,
@@ -296,7 +290,7 @@ pub struct PinResetRequest {
 #[instrument(skip_all, fields(org = %org_id, worker = %user_id))]
 pub async fn reset_worker_pin(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<PinResetRequest>,
 ) -> Response {
@@ -309,8 +303,7 @@ pub async fn reset_worker_pin(
             // trail suspension leaves. Best-effort, like its neighbours.
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "frontline.worker.pin_reset")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "frontline.worker.pin_reset")
                     .org(ctx.org.id)
                     .target("frontline_worker", user_id.to_string(), String::new()),
             )

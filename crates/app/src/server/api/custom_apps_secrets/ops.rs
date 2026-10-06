@@ -17,7 +17,6 @@ use entity::apps;
 use oxy::service::secret_manager::{SecretManagerService, SecretWrite};
 use oxy_app_core::audit;
 use oxy_app_core::custom_app_environment::AppEnvironment;
-use oxy_auth::types::AuthenticatedUser;
 use oxy_shared::errors::OxyError;
 use sea_orm::DatabaseConnection;
 
@@ -50,15 +49,14 @@ async fn audit_write(
     environment: &AppEnvironment,
     action: &'static str,
     key: &str,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
 ) {
     if *environment == AppEnvironment::Production {
         return;
     }
     audit::record_best_effort(
         db,
-        audit::AuditEntry::new(actor.label().to_string(), action)
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(actor, action)
             .org(app.org_id)
             .workspace(app.project_id)
             .target(
@@ -76,7 +74,7 @@ pub(super) async fn set(
     app: &apps::Model,
     environment: &AppEnvironment,
     body: SetSecretRequest,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, Failure> {
     let key = bare_key(&body.key)?;
     // `trim()`, not `is_empty()`. An empty value resolves to an empty
@@ -136,7 +134,7 @@ pub(super) async fn delete(
     app: &apps::Model,
     environment: &AppEnvironment,
     key: &str,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, Failure> {
     // Trimmed, like `set` — otherwise `DELETE …/secrets/%20SIG` 404s on a key
     // the sibling POST would have normalised to `SIG`.
@@ -182,7 +180,7 @@ pub(super) async fn reveal(
     app: &apps::Model,
     environment: &AppEnvironment,
     key: &str,
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
 ) -> Result<Json<RevealResponse>, Failure> {
     // Parity with project secrets, which are already revealable by id on the
     // existing route — an app-scoped one is not a different kind of secret, and
@@ -201,8 +199,7 @@ pub(super) async fn reveal(
     // helper logs its own failure.
     audit::record_best_effort(
         db,
-        audit::AuditEntry::new(actor.label().to_string(), "custom_app.secret.revealed")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(actor, "custom_app.secret.revealed")
             .org(app.org_id)
             .workspace(app.project_id)
             .target(

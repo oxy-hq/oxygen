@@ -136,6 +136,7 @@ fn actor(f: &Fixture) -> AuthenticatedUserExtractor {
         name: f.owner.name.clone(),
         picture: None,
         status: users::UserStatus::Active,
+        credential: None,
     })
 }
 

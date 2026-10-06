@@ -119,7 +119,22 @@ const TABLES: &[(&str, Placement)] = &[
         "analytics_run_extensions",
         Control("agent id and spec hint per run"),
     ),
-    ("api_keys", Control("API key hashes")),
+    (
+        "api_keys",
+        Control("legacy API keys, plaintext until hashed into api_tokens"),
+    ),
+    (
+        "api_token_grants",
+        Control("which orgs and workspaces an API token covers, and its role ceiling"),
+    ),
+    (
+        "api_token_usage_daily",
+        Control("per-token daily request counts; ids and route templates, no content"),
+    ),
+    (
+        "api_tokens",
+        Control("API credential hashes and reach flags"),
+    ),
     ("app_admin_scope_orgs", Control("platform grant org scope")),
     ("app_admins", Control("platform staff grants")),
     (
@@ -201,6 +216,10 @@ const TABLES: &[(&str, Placement)] = &[
             holds: "chat message bodies",
             belongs: "org OLTP",
         },
+    ),
+    (
+        "cli_auth_codes",
+        Control("hashed single-use codes for the oxyc login exchange"),
     ),
     (
         "compiled_references",
@@ -344,6 +363,14 @@ const TABLES: &[(&str, Placement)] = &[
             belongs: "org OLTP; only the push signal stays",
         },
     ),
+    (
+        "oidc_trust_policies",
+        Control("which GitHub Actions runs may act as a service account"),
+    ),
+    (
+        "oidc_trust_policy_grants",
+        Control("what a run matching a trust policy is granted"),
+    ),
     ("oidc_used_jti", Control("OIDC replay ledger")),
     (
         "oltp_branch_roles",
@@ -383,6 +410,10 @@ const TABLES: &[(&str, Placement)] = &[
         Control("team membership, an authz fact"),
     ),
     ("org_teams", Control("org teams")),
+    (
+        "org_token_policies",
+        Control("what an org asks of the API tokens that reach it, read to authorize them"),
+    ),
     ("organizations", Control("org registry")),
     (
         "partner_capabilities",
@@ -411,6 +442,10 @@ const TABLES: &[(&str, Placement)] = &[
     ("secrets", Control("encrypted workspace secrets")),
     ("semantic_topics", Control("compiled .topic.yml")),
     ("semantic_views", Control("compiled .view.yml")),
+    (
+        "service_accounts",
+        Control("org-owned machine principals: identity and standing for API tokens"),
+    ),
     ("settings", Control("legacy GitHub sync settings")),
     (
         "simulation_definitions",

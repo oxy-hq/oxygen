@@ -75,7 +75,7 @@ pub(crate) async fn published(t: &Tenant, slug: &str) -> (apps::Model, Uuid) {
 /// A sandbox serving `build`, holding one object and one secret.
 pub(crate) async fn furnished_sandbox(t: &Tenant, app: &apps::Model, build: Uuid, handle: &str) {
     let environment = sandbox(handle);
-    ops::create(&t.db, app, &environment, t.guest_id)
+    ops::create(&t.db, app, &environment, &t.guest())
         .await
         .expect("create the sandbox");
     envs::record_move(
@@ -299,7 +299,7 @@ async fn the_queued_teardown_removes_one_sandboxs_homes_and_row_and_keeps_the_re
         &t.db,
         &app,
         &sandbox("a1"),
-        Some(t.guest_id),
+        Some(&t.guest()),
         TeardownReason::Deleted,
     )
     .await
@@ -312,7 +312,7 @@ async fn the_queued_teardown_removes_one_sandboxs_homes_and_row_and_keeps_the_re
         "the task removes it"
     );
     assert_eq!(
-        ops::create(&t.db, &app, &sandbox("a1"), t.guest_id).await,
+        ops::create(&t.db, &app, &sandbox("a1"), &t.guest()).await,
         Err(SandboxError::Deleting("dev-a1".into()))
     );
 

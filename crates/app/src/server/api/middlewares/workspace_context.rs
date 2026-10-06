@@ -749,13 +749,7 @@ pub async fn workspace_middleware(
 
     // Authorize before choosing the revision: a preview pin depends on who is
     // asking. Reads no compiled data, so it needs no pin of its own.
-    let workspace_row = authorize_workspace(
-        workspace_id,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-        &mut request,
-    )
-    .await?;
+    let workspace_row = authorize_workspace(workspace_id, &user, &mut request).await?;
 
     // A preview request (`x-oxy-preview-revision`) from staff, naming a ready
     // staging revision of this workspace, reads that revision. Every other
@@ -949,13 +943,7 @@ pub async fn workspace_access_middleware(
     if workspace_id == Uuid::nil() {
         return Err(StatusCode::NOT_FOUND.into());
     }
-    authorize_workspace(
-        workspace_id,
-        user.id,
-        user.email.as_deref().unwrap_or(""),
-        &mut request,
-    )
-    .await?;
+    authorize_workspace(workspace_id, &user, &mut request).await?;
     Ok(next.run(request).await)
 }
 
@@ -969,11 +957,20 @@ pub async fn workspace_access_middleware(
 /// query errors (INTERNAL_SERVER_ERROR).
 async fn authorize_workspace(
     workspace_id: Uuid,
-    user_id: Uuid,
-    user_email: &str,
+    user: &oxy_auth::types::AuthenticatedUser,
     request: &mut Request<axum::body::Body>,
 ) -> Result<Option<entity::workspaces::Model>, WorkspaceAccessError> {
     use entity::prelude::Workspaces;
+
+    // The user AND the credential the request arrived with: an API token's
+    // grants decide below whether this workspace is reachable at all, and at
+    // what ceiling. `/api` and `/external/api` both come through here.
+    let caller = oxy_server_authz::Caller::of(
+        user,
+        request
+            .extensions()
+            .get::<oxy_auth::token::CredentialContext>(),
+    );
 
     let db = establish_connection().await.map_err(|e| {
         tracing::error!(
@@ -1002,10 +999,12 @@ async fn authorize_workspace(
         StatusCode::FORBIDDEN
     })?;
 
-    request.extensions_mut().insert(workspace_row.clone());
-
+    // Resolved BEFORE the row is attached: a token with no grant here leaves
+    // nothing behind for a later layer to read.
     let (org_membership, effective_role, is_global_override) =
-        resolve_effective_role(&db, workspace_id, org_id, user_id, user_email).await?;
+        resolve_effective_role(&db, workspace_id, org_id, &caller).await?;
+
+    request.extensions_mut().insert(workspace_row.clone());
 
     request
         .extensions_mut()
@@ -1029,38 +1028,67 @@ async fn authorize_workspace(
     Ok(Some(workspace_row))
 }
 
-/// Resolve a user's effective workspace role.
+/// Resolve a caller's effective workspace role.
 ///
 /// `pub(crate)` because the custom-app function path needs it too: that route
 /// does not run behind this middleware, so it cannot read the role out of
 /// request extensions and must ask directly.
+///
+/// **This is where an API token's grant is applied to a workspace** (design
+/// §4.4, "cap the facts at the source"):
+///
+/// - a token with no grant covering this workspace answers **404**, exactly as
+///   an unknown workspace does, so it cannot probe which workspaces exist;
+/// - otherwise the role returned is `min(live role, the grant's ceiling)`, and
+///   the org membership beside it is capped the same way. Every workspace guard
+///   and the ~15 handlers that read `EffectiveWorkspaceRole` see the capped role.
+///
+/// A browser session and a legacy key have no ceiling: they resolve exactly as
+/// before.
 pub(crate) async fn resolve_effective_role(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
     org_id: Uuid,
-    user_id: Uuid,
-    user_email: &str,
+    caller: &oxy_server_authz::Caller,
 ) -> Result<(entity::org_members::Model, WorkspaceRole, bool), WorkspaceAccessError> {
     use entity::org_members::Column as OrgMemberCol;
     use entity::prelude::{OrgMembers, WorkspaceMembers};
     use entity::workspace_members::Column as WsMemberCol;
     use sea_orm::{ColumnTrait, QueryFilter};
 
-    let real_membership = OrgMembers::find()
-        .filter(OrgMemberCol::OrgId.eq(org_id))
-        .filter(OrgMemberCol::UserId.eq(user_id))
-        .one(db)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                "Failed to query org membership (org={}, user={}, workspace={}): {}",
-                org_id,
-                user_id,
-                workspace_id,
-                e
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let ceiling = caller
+        .workspace_ceiling(org_id, workspace_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let user_id = caller.user_id;
+    let user_email = caller.email();
+
+    // A service account's standing is its own row, never `org_members` (design
+    // §3.3): a Member or an Admin of its one org, which then derives the
+    // workspace role below exactly as a person's org role does. Outside its org
+    // it answers 404, like any workspace a token does not cover.
+    let real_membership = if caller.is_service_account() {
+        Some(
+            caller
+                .account_membership(org_id)
+                .ok_or(StatusCode::NOT_FOUND)?,
+        )
+    } else {
+        OrgMembers::find()
+            .filter(OrgMemberCol::OrgId.eq(org_id))
+            .filter(OrgMemberCol::UserId.eq(user_id))
+            .one(db)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to query org membership (org={}, user={}, workspace={}): {}",
+                    org_id,
+                    user_id,
+                    workspace_id,
+                    e
+                );
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+    };
 
     // Mirror `org_middleware`'s global-operator override: a Global Owner
     // (OXY_OWNER) or Global Admin (`app_admins`) who is not a real member of
@@ -1090,8 +1118,12 @@ pub(crate) async fn resolve_effective_role(
             // it: a plain non-member must stay opaque (naming the org to anyone
             // who guesses a workspace id is disclosure), while staff and partners
             // get the explanation and the way through.
-            let authority = assume::may_act_as(db, user_id, user_email, org_id).await;
-            let live = authority.is_some() && assume::is_session_live(db, user_id, org_id).await;
+            //
+            // Both reads take the CALLER: standing is what the credential carries,
+            // and a session belongs to the credential that opened it — a
+            // new-format token does not inherit the browser's.
+            let authority = assume::may_act_as(db, caller, org_id).await;
+            let live = authority.is_some() && assume::is_session_live(db, caller, org_id).await;
 
             if let (Some(authority), true) = (authority, live) {
                 let now = Utc::now().into();
@@ -1155,20 +1187,26 @@ pub(crate) async fn resolve_effective_role(
         }
     };
 
-    let ws_override = WorkspaceMembers::find()
-        .filter(WsMemberCol::WorkspaceId.eq(workspace_id))
-        .filter(WsMemberCol::UserId.eq(user_id))
-        .one(db)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                "Failed to query workspace member override (workspace={}, user={}): {}",
-                workspace_id,
-                user_id,
-                e
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    // A service account holds no per-workspace elevation: its org role is the
+    // ceiling of anything it can be given.
+    let ws_override = if caller.is_service_account() {
+        None
+    } else {
+        WorkspaceMembers::find()
+            .filter(WsMemberCol::WorkspaceId.eq(workspace_id))
+            .filter(WsMemberCol::UserId.eq(user_id))
+            .one(db)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to query workspace member override (workspace={}, user={}): {}",
+                    workspace_id,
+                    user_id,
+                    e
+                );
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+    };
 
     let org_derived_role = match org_membership.role {
         entity::org_members::OrgRole::Owner => WorkspaceRole::Owner,
@@ -1180,6 +1218,14 @@ pub(crate) async fn resolve_effective_role(
     let effective_role = match ws_override {
         Some(ws_member) => std::cmp::max(org_derived_role, ws_member.role),
         None => org_derived_role,
+    };
+
+    // The token's ceiling, applied last so it caps whatever the role came from:
+    // the org role, a workspace elevation, or an assumed one.
+    let effective_role = oxy_server_authz::cap_workspace_role(effective_role, ceiling);
+    let org_membership = entity::org_members::Model {
+        role: oxy_server_authz::cap_org_role(org_membership.role, ceiling),
+        ..org_membership
     };
 
     Ok((org_membership, effective_role, is_global_override))

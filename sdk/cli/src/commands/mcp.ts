@@ -640,7 +640,7 @@ function requireArgs(name: string, args: Record<string, unknown>, required: stri
 async function callTool(ctx: Context, name: string, args: Record<string, unknown>) {
   switch (name) {
     case "oxy_routes": {
-      const catalog = await loadCatalog({ target: ctx.target(), bearer: ctx.maybeBearer() });
+      const catalog = await loadCatalog({ target: ctx.target(), bearer: await ctx.maybeBearer() });
       const filter = (args.filter as string | undefined)?.trim();
       let matches = searchRoutes(catalog, filter || undefined);
       if (!args.all) matches = matches.filter((r) => r.role === "fleet-ok");
@@ -705,7 +705,10 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
 
     case "oxy_schema": {
       requireArgs("oxy_schema", args, ["path"]);
-      const doc = (await loadOpenApi({ target: ctx.target(), bearer: ctx.maybeBearer() })) as {
+      const doc = (await loadOpenApi({
+        target: ctx.target(),
+        bearer: await ctx.maybeBearer()
+      })) as {
         paths?: Record<string, Record<string, unknown>>;
         components?: unknown;
       };
@@ -767,7 +770,7 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
         path,
         method: verb,
         body,
-        bearer: external && apiKey ? ctx.maybeBearer() : ctx.bearer(),
+        bearer: external && apiKey ? ctx.storedBearer() : await ctx.bearer(),
         apiKey
       });
 
@@ -796,7 +799,7 @@ async function callTool(ctx: Context, name: string, args: Record<string, unknown
         target,
         path: "/api/user",
         method: "GET",
-        bearer: ctx.bearer()
+        bearer: await ctx.bearer()
       });
       const payload = parseJson(response.body);
       if (payload === null || payload === undefined) {

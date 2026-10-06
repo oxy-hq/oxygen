@@ -120,6 +120,7 @@ fn routes_as_member_of(db: &DatabaseConnection, workspace_id: Uuid) -> Router {
         name: "Member".into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     };
     Router::new()
         .nest("/analytics", agentic_http::router(state.clone()))

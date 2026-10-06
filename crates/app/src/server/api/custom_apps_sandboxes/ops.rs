@@ -24,9 +24,6 @@ use super::{EnvironmentDto, MAX_SANDBOXES_PER_APP, SandboxError};
 use crate::server::api::custom_apps_env_resolve::load_environment_builds;
 use crate::server::api::custom_apps_migrations::{AirhouseHome, schema_owner};
 
-/// The audit actor of an expiry: no human asked for it.
-const EXPIRY_ACTOR: &str = "system:sandbox-expiry";
-
 /// `environment`, when it is a sandbox; `NotASandbox` for production and
 /// staging, which are never created or deleted.
 pub(super) fn require_sandbox(environment: &AppEnvironment) -> Result<(), SandboxError> {
@@ -36,7 +33,8 @@ pub(super) fn require_sandbox(environment: &AppEnvironment) -> Result<(), Sandbo
     }
 }
 
-/// Create the sandbox `environment` of `app`, owned by `owner`, with **no
+/// Create the sandbox `environment` of `app`, owned by `owner` — the
+/// request's user, and the credential the audit row names — with **no
 /// build**. Refused when the name is taken (`Exists`), still being torn down
 /// (`Deleting`), the app already has [`MAX_SANDBOXES_PER_APP`] — rows being
 /// torn down count — or the sandbox's Airhouse sibling would carry the name
@@ -45,21 +43,16 @@ pub async fn create(
     db: &DatabaseConnection,
     app: &apps::Model,
     environment: &AppEnvironment,
-    owner: Uuid,
+    owner: &audit::RequestActor,
 ) -> Result<app_environments::Model, SandboxError> {
     require_sandbox(environment)?;
     let txn = db.begin().await.map_err(|e| SandboxError::db("begin", e))?;
-    let created = insert_within_limit(&txn, app.id, environment, owner).await?;
+    let created = insert_within_limit(&txn, app.id, environment, owner.user.id).await?;
     txn.commit()
         .await
         .map_err(|e| SandboxError::db("commit", e))?;
-    let actor = actor_label(db, Some(owner)).await;
-    audit::record_best_effort(
-        db,
-        audit_entry(app, environment, actor, "app.environment.created")
-            .actor(owner, audit::ActorType::User),
-    )
-    .await;
+    let entry = audit::AuditEntry::for_request(owner, "app.environment.created");
+    audit::record_best_effort(db, scoped(entry, app, environment)).await;
     Ok(created)
 }
 
@@ -191,29 +184,14 @@ pub async fn get(
         .ok_or(SandboxError::NotFound(name))
 }
 
-/// How an audit row names `actor`: their email, their id when they have none
-/// (or cannot be read), and the expiry's own label when nobody asked.
-pub(super) async fn actor_label(db: &DatabaseConnection, actor: Option<Uuid>) -> String {
-    let Some(user_id) = actor else {
-        return EXPIRY_ACTOR.to_string();
-    };
-    let email: Option<Option<String>> = entity::users::Entity::find_by_id(user_id)
-        .select_only()
-        .column(entity::users::Column::Email)
-        .into_tuple()
-        .one(db)
-        .await
-        .unwrap_or_default();
-    email.flatten().unwrap_or_else(|| user_id.to_string())
-}
-
-pub(super) fn audit_entry(
+/// `entry` — whose actor is the request's, or the expiry's — about the
+/// sandbox `environment` of `app`.
+pub(super) fn scoped(
+    entry: audit::AuditEntry,
     app: &apps::Model,
     environment: &AppEnvironment,
-    actor: String,
-    action: &'static str,
 ) -> audit::AuditEntry {
-    audit::AuditEntry::new(actor, action)
+    entry
         .org(app.org_id)
         .workspace(app.project_id)
         .target(

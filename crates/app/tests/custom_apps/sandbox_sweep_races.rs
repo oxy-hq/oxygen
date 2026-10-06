@@ -120,7 +120,7 @@ async fn a_retry_never_deletes_a_sandbox_created_again_under_the_name() {
     ))
     .await
     .expect("the stale teardown removes its row");
-    ops::create(&t.db, &app, &sandbox("second"), t.guest_id)
+    ops::create(&t.db, &app, &sandbox("second"), &t.guest())
         .await
         .expect("create dev-second again");
     held.commit().await.expect("let the sweep go on");

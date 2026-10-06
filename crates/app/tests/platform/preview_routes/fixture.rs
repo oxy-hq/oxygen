@@ -59,6 +59,7 @@ pub(crate) async fn user(db: &DatabaseConnection, org: Uuid, email: &str) -> Aut
         name: email.into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     }
 }
 

@@ -5,9 +5,7 @@ use std::collections::BTreeMap;
 use chrono::Utc;
 use entity::{org_billing, org_members, organizations, users};
 use reqwest::Method;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
-};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
 use crate::errors::BillingError;
@@ -71,10 +69,7 @@ impl BillingService {
     }
 
     pub async fn member_count(&self, org_id: Uuid) -> Result<i64, BillingError> {
-        let n = org_members::Entity::find()
-            .filter(org_members::Column::OrgId.eq(org_id))
-            .count(&self.db)
-            .await?;
+        let n = super::seats::billable_seats(&self.db, org_id).await?;
         Ok(n as i64)
     }
 

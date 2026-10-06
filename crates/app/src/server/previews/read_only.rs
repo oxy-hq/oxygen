@@ -187,6 +187,7 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
     ("*", "/custom-apps/{app_id}/secrets", SECRETS),
     ("*", "/api-keys", "Managing API keys"),
     ("*", "/api-keys/{id}", "Managing API keys"),
+    ("*", "/api-keys/{id}/extend", "Managing API keys"),
     ("*", "/members/{user_id}", "Changing workspace members"),
     ("*", "/oxy-access", "Changing Oxy access"),
     (

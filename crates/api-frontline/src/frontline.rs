@@ -38,7 +38,6 @@ use oxy_app::server::api::operating_graph::assignments;
 use oxy_app::server::api::operating_graph::dto::AssignmentSpec;
 use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_app_core::audit;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::frontline::{self, KIND_PIN, PinPolicy, PinVerdict};
 use oxy_shared::errors::OxyError;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -1203,7 +1202,7 @@ pub struct EnrolRequest {
 #[instrument(skip_all, fields(org = %org_id))]
 pub async fn enrol(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(req): Json<EnrolRequest>,
 ) -> impl IntoResponse {
@@ -1224,8 +1223,7 @@ pub async fn enrol(
     if !apps.is_empty()
         && !oxy_app::server::api::frontline_grants::may_grant_apps(
             &db,
-            actor.id,
-            actor.email.as_deref().unwrap_or(""),
+            &oxy_server_authz::Caller::of(&actor.user, actor.credential.as_ref()),
             org_id,
         )
         .await
@@ -1437,7 +1435,7 @@ pub struct StandingRequest {
 #[instrument(skip_all, fields(org = %org_id, worker = %user_id))]
 pub async fn set_standing(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, user_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<StandingRequest>,
 ) -> impl IntoResponse {
@@ -1479,8 +1477,7 @@ pub async fn set_standing(
                 };
                 audit::record_best_effort(
                     &db,
-                    audit::AuditEntry::new(actor.label().to_string(), action)
-                        .actor(actor.id, audit::ActorType::User)
+                    audit::AuditEntry::for_request(&actor, action)
                         .org(ctx.org.id)
                         .target("frontline_worker", user_id.to_string(), String::new())
                         .change(

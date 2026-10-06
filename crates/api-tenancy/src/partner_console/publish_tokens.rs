@@ -17,7 +17,6 @@ use chrono::Utc;
 use entity::prelude::{AppPublishTokens, Apps};
 use entity::{app_publish_tokens, apps};
 use oxy_auth::app_publish_token_domain::generate_token;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, QueryOrder,
     TransactionTrait,
@@ -28,7 +27,7 @@ use uuid::Uuid;
 use super::{db, internal, require_org_scope};
 use crate::partner_console::partner_context::PartnerActor;
 use oxy_app::server::api::custom_apps_publish_authz::consent_enabled;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 use oxy_server_authz::partner_authz::{PartnerCapability, PartnerScope};
 
 /// A token this app is allowed to have exists at most 90 days — a partner's CI
@@ -112,7 +111,7 @@ pub async fn list_tokens(
 /// `POST /partners/{id}/apps/{app_id}/publish-tokens` — mint an app-scoped token.
 pub async fn create_token(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_org_id, app_id)): Path<(Uuid, Uuid)>,
     body: Option<Json<CreateBody>>,
 ) -> Result<Json<CreatedToken>, StatusCode> {
@@ -157,8 +156,7 @@ pub async fn create_token(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.publish_token.minted")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.publish_token.minted")
             .partner(scope.partner_id)
             .org(app.org_id)
             .target("app", app_id.to_string(), app.name.clone()),
@@ -180,7 +178,7 @@ pub async fn create_token(
 /// `DELETE /partners/{id}/apps/{app_id}/publish-tokens/{token_id}` — revoke.
 pub async fn revoke_token(
     PartnerActor(scope): PartnerActor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_partner_org_id, app_id, token_id)): Path<(Uuid, Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
     let db = db().await?;
@@ -209,8 +207,7 @@ pub async fn revoke_token(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.publish_token.revoked")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.publish_token.revoked")
             .partner(scope.partner_id)
             .org(app.org_id)
             .target("app_publish_token", token_id.to_string(), app.name.clone()),

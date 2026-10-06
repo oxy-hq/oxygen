@@ -135,8 +135,8 @@ async fn staging_hold(
     if app.project_id != project_id {
         return Err(refusal());
     }
-    let email = user.email.as_deref().unwrap_or("");
-    if !may_open_non_production(db, user.id, email, &app).await {
+    let caller = crate::server::authz::Caller::from_user(user);
+    if !may_open_non_production(db, &caller, &app).await {
         return Err(refusal());
     }
     record_held(

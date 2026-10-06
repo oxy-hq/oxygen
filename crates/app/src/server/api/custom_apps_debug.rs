@@ -72,18 +72,14 @@ pub async fn get_debug(
     Path((org_slug, app_slug)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let AuthOutcome {
-        app,
-        user_id,
-        user_email,
-        ..
-    } = match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
-        Ok(v) => v,
-        Err(status) => return status.into_response(),
-    };
+    let AuthOutcome { app, caller, .. } =
+        match authenticate_and_authorize(&headers, &org_slug, &app_slug).await {
+            Ok(v) => v,
+            Err(status) => return status.into_response(),
+        };
     let db = oxy::database::client::establish_connection().await;
     let on_staging = match &db {
-        Ok(db) => on_staging_host(db, &headers, user_id, user_email.as_deref(), &app).await,
+        Ok(db) => on_staging_host(db, &headers, &caller, &app).await,
         Err(_) => false,
     };
     let channel = pick_channel_for(&app, on_staging);
@@ -140,8 +136,7 @@ pub async fn get_debug(
 async fn on_staging_host(
     db: &sea_orm::DatabaseConnection,
     headers: &HeaderMap,
-    user_id: Uuid,
-    email: Option<&str>,
+    caller: &oxy_server_authz::Caller,
     app: &entity::apps::Model,
 ) -> bool {
     use oxy_app_core::custom_app_environment::AppEnvironment;
@@ -149,12 +144,5 @@ async fn on_staging_host(
         oxy_app_core::custom_app_env_request::request_environment(headers),
         Ok(AppEnvironment::Staging)
     );
-    staging
-        && super::custom_apps_env_resolve::may_open_non_production(
-            db,
-            user_id,
-            email.unwrap_or(""),
-            app,
-        )
-        .await
+    staging && super::custom_apps_env_resolve::may_open_non_production(db, caller, app).await
 }

@@ -19,6 +19,7 @@
 pub use oxy_authz::*;
 
 pub mod assume_liveness;
+pub mod caller;
 pub mod globals;
 pub mod loader;
 pub mod org_context;
@@ -33,8 +34,8 @@ mod differential;
 use axum::http::request::Parts;
 use uuid::Uuid;
 
+pub use crate::caller::{Caller, cap_org_role, cap_workspace_role};
 use crate::partner_authz::{PartnerCapability, PartnerScope};
-use oxy_auth::types::AuthenticatedUser;
 use oxy_platform::db::establish_connection;
 
 /// The principal's facts for THIS request, loaded once and memoized in the request's
@@ -51,14 +52,16 @@ pub async fn request_facts(parts: &mut Parts) -> Option<PrincipalFacts> {
     if let Some(facts) = parts.extensions.get::<PrincipalFacts>() {
         return Some(facts.clone());
     }
-    let user = parts.extensions.get::<AuthenticatedUser>()?.clone();
-    let db = establish_connection().await.ok()?;
+    // The caller is the user AND the credential the request arrived with, so an
+    // API token's narrowing reaches every guard through these facts.
+    //
     // A user with no email holds no platform standing, and that is the only
     // thing the loader reads an address for. `is_oxy_owner` refuses a blank
-    // needle and `platform_grant_checked` short-circuits a blank key, so ""
-    // is the established "no standing" value rather than a hole.
-    let facts =
-        loader::load_principal_facts(&db, user.id, user.email.as_deref().unwrap_or("")).await?;
+    // needle and `grant_of_email` short-circuits a blank key, so "" is the
+    // established "no standing" value rather than a hole.
+    let caller = Caller::from_extensions(&parts.extensions)?;
+    let db = establish_connection().await.ok()?;
+    let facts = loader::load_principal_facts(&db, &caller).await?;
     parts.extensions.insert(facts.clone());
     Some(facts)
 }
@@ -90,10 +93,14 @@ pub async fn enforce_guard(
     }
 }
 
-/// Enforce from a NON-guard call site that already holds a DB handle and the actor's
-/// identity. Loads the actor's facts and returns `existing_allow && allows(..)`.
+/// Enforce from a NON-guard call site that already holds a DB handle and the
+/// [`Caller`]. Loads the caller's facts — capped by the API token the request arrived
+/// with, if any — and returns `existing_allow && allows(..)`.
 ///
-/// Unknown facts defer to `existing_allow`, exactly as in [`enforce_guard`].
+/// Unknown facts defer to `existing_allow` for a session, exactly as in
+/// [`enforce_guard`]. For a **narrowing token** unknown facts deny: `existing_allow`
+/// at these call sites is computed from the bearer's uncapped standing, so deferring
+/// to it would hand the token its bearer's full reach for as long as the blip lasts.
 ///
 /// Call sites on a hot path should instead load scoped facts
 /// ([`loader::load_principal_facts_scoped`]) and call [`enforce`] directly, so they
@@ -101,16 +108,15 @@ pub async fn enforce_guard(
 /// If you do that, handle the `None` the same way: defer, don't deny.
 pub async fn enforce_for(
     db: &sea_orm::DatabaseConnection,
-    actor_id: uuid::Uuid,
-    actor_email: &str,
+    caller: &Caller,
     label: &str,
     action: Action,
     resource: Resource,
     existing_allow: bool,
 ) -> bool {
-    match loader::load_principal_facts(db, actor_id, actor_email).await {
+    match loader::load_principal_facts(db, caller).await {
         Some(facts) => enforce(label, &facts, action, &resource, existing_allow),
-        None => existing_allow,
+        None => existing_allow && !caller.reach().is_some_and(TokenReach::narrows),
     }
 }
 
@@ -160,6 +166,9 @@ fn partner_scope_facts(scope: &PartnerScope) -> PrincipalFacts {
                 .map(cap_of)
                 .collect(),
         }],
+        // The token the scope was resolved under decides with it: coverage, the
+        // partner gate and the ceiling all apply in `allows`.
+        token: scope.token.clone(),
         ..Default::default()
     }
 }

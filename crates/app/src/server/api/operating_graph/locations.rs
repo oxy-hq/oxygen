@@ -8,7 +8,6 @@ use chrono::Utc;
 use entity::{location_external_ids as ext, locations};
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
     QueryOrder, Set,
@@ -369,7 +368,7 @@ pub async fn list_locations(
 #[instrument(skip_all, fields(org = %org_id, location = %id))]
 pub async fn patch_location(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(patch): Json<UpdateLocation>,
 ) -> Response {
@@ -382,8 +381,7 @@ pub async fn patch_location(
     };
     audit::record_best_effort(
         &db,
-        audit::AuditEntry::new(actor.label().to_string(), "org.location.updated")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "org.location.updated")
             .org(org_id)
             .target("location", row.id.to_string(), row.name.clone()),
     )
@@ -398,7 +396,7 @@ pub async fn patch_location(
 #[instrument(skip_all, fields(org = %org_id, location = %id, system = %system))]
 pub async fn put_external_id(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id, system)): Path<(Uuid, Uuid, String)>,
     Json(body): Json<SetExternalId>,
 ) -> Response {
@@ -409,8 +407,7 @@ pub async fn put_external_id(
         Ok(row) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(actor.label().to_string(), "org.location.external_id_set")
-                    .actor(actor.id, audit::ActorType::User)
+                audit::AuditEntry::for_request(&actor, "org.location.external_id_set")
                     .org(org_id)
                     .target("location", id.to_string(), system.clone()),
             )
@@ -430,7 +427,7 @@ pub async fn put_external_id(
 #[instrument(skip_all, fields(org = %org_id, location = %id, system = %system))]
 pub async fn delete_external_id(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id, system)): Path<(Uuid, Uuid, String)>,
 ) -> Response {
     let Ok(db) = establish_connection().await else {
@@ -440,13 +437,9 @@ pub async fn delete_external_id(
         Ok(true) => {
             audit::record_best_effort(
                 &db,
-                audit::AuditEntry::new(
-                    actor.label().to_string(),
-                    "org.location.external_id_removed",
-                )
-                .actor(actor.id, audit::ActorType::User)
-                .org(org_id)
-                .target("location", id.to_string(), system.clone()),
+                audit::AuditEntry::for_request(&actor, "org.location.external_id_removed")
+                    .org(org_id)
+                    .target("location", id.to_string(), system.clone()),
             )
             .await;
             StatusCode::NO_CONTENT.into_response()

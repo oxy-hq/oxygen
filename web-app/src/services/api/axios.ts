@@ -1,6 +1,7 @@
 import axios from "axios";
 import { toast } from "sonner";
 import { getInjectedOrg } from "@/libs/orgSubdomain";
+import { isOrgApiAccessPath, isTokenErrorCode } from "@/libs/tokenErrorCodes";
 import { reportAssumeRequired } from "@/libs/utils/assumeRequired";
 import { clearAuthScopedStorage } from "@/libs/utils/authStorage";
 import { readDetachedHeadBody } from "@/libs/utils/detachedHead";
@@ -44,6 +45,11 @@ const publicAPIPaths = [
   // racing a redirect to /login. (Only gates the 401 handler — the request
   // interceptor still attaches the token, so a valid-token logout works.)
   "/logout",
+  // `oxyc login` (PKCE). A 401 here means the session lapsed while `/cli-auth`
+  // sat open; the page sends the person through login with a `return_to` that
+  // resumes the CLI login. This interceptor's bare `/login` would drop that
+  // and strand the terminal. (As with `/logout`, the token is still attached.)
+  "/auth/cli/authorize",
   "/health",
   "/ready",
   "/live"
@@ -151,7 +157,12 @@ const makeResponseErrorHandler = () => {
           | { org_name?: string | null; message?: string | null }
           | undefined;
         reportAssumeRequired(assumeOrgId, body?.org_name ?? null, body?.message ?? null);
-      } else {
+      } else if (!isTokenErrorCode(error.response?.data?.code) && !isOrgApiAccessPath(url)) {
+        // A token route's refusal names its reason (`session_required`,
+        // `standing_required`), and the surface that made the call toasts that
+        // reason in its own words. The generic denial on top of it would be a
+        // second, vaguer toast for the same click. Organization → API access
+        // words its bare 403 itself too (see `isOrgApiAccessPath`).
         const now = Date.now();
         if (now - last403At > 1500) {
           last403At = now;

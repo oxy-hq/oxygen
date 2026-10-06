@@ -235,7 +235,7 @@ pub struct CreateAppAdminBody {
 
 pub async fn create_app_admin(
     State(_): State<AppState>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(body): Json<CreateAppAdminBody>,
 ) -> Result<Json<AppAdminResponse>, delegation::Refusal> {
     let email = body.email.trim().to_ascii_lowercase();
@@ -453,15 +453,14 @@ pub async fn create_app_admin(
     // is legible as a change and not merely as "touched".
     audit::record_in_txn(
         &txn,
-        audit::AuditEntry::new(
-            actor.label().to_string(),
+        audit::AuditEntry::for_request(
+            &actor,
             if existing.is_some() {
                 "platform.grant.updated"
             } else {
                 "platform.grant.created"
             },
         )
-        .actor(actor.id, audit::ActorType::User)
         .target("platform_grant", admin_id.to_string(), email.clone())
         .change(
             match &existing {
@@ -515,7 +514,7 @@ pub async fn create_app_admin(
 /// Admin strip every peer, and the delegation bound would hold on create while leaking
 /// on delete.
 pub async fn delete_app_admin(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, delegation::Refusal> {
     let db = establish_connection().await.map_err(|e| {
@@ -594,8 +593,7 @@ pub async fn delete_app_admin(
 
     audit::record_in_txn(
         &txn,
-        audit::AuditEntry::new(actor.label().to_string(), "platform.grant.revoked")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "platform.grant.revoked")
             .target("platform_grant", id.to_string(), target.email.clone())
             .change(
                 serde_json::json!({

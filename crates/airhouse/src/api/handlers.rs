@@ -22,6 +22,7 @@ use axum::http::StatusCode;
 use entity::org_members;
 use entity::prelude::{OrgMembers, Workspaces};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AuthenticatedUser;
 use oxy_platform::db::establish_connection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
@@ -125,10 +126,15 @@ pub struct EphemeralTokenResponse {
 /// Resolve `(org_id, oxy role)` for the caller in the workspace's org. The
 /// local nil-UUID workspace bypasses the DB check — there's a seeded local
 /// org and the local guest is unconditionally Owner.
+///
+/// Every `/airhouse/me/*` route names its workspace in the query and comes
+/// through here, so this is also where the request's API token is asked: a
+/// workspace of an org that has blocked it (API-tokens design §5) answers 404,
+/// as one that does not exist.
 async fn resolve_caller_role(
     db: &sea_orm::DatabaseConnection,
     workspace_id: Uuid,
-    user_id: Uuid,
+    user: &AuthenticatedUser,
 ) -> Result<(Uuid, org_members::OrgRole), StatusCode> {
     if workspace_id.is_nil() {
         return Ok((Uuid::nil(), org_members::OrgRole::Owner));
@@ -142,10 +148,11 @@ async fn resolve_caller_role(
         })?
         .ok_or(StatusCode::NOT_FOUND)?;
     let org_id = workspace.org_id.ok_or(StatusCode::FORBIDDEN)?;
+    user.require_org_reach(org_id)?;
 
     let membership = OrgMembers::find()
         .filter(org_members::Column::OrgId.eq(org_id))
-        .filter(org_members::Column::UserId.eq(user_id))
+        .filter(org_members::Column::UserId.eq(user.id))
         .one(db)
         .await
         .map_err(|e| {
@@ -230,7 +237,7 @@ pub async fn get_connection(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
     let workspace_role =
         lookup_effective_workspace_role(&db, query.workspace_id, user.id, &oxy_role).await?;
     let role = airhouse_role_for(workspace_role);
@@ -269,13 +276,16 @@ pub async fn get_credentials(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(query): Query<WorkspaceQuery>,
 ) -> Result<Json<EphemeralTokenResponse>, StatusCode> {
+    // The credential minted here is the caller's own, at the caller's role. A
+    // service account has no person to hold it: refused by default.
+    user.refuse_service_account()?;
     let endpoint = wire_endpoint().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let db = establish_connection().await.map_err(|e| {
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
     let workspace_role =
         lookup_effective_workspace_role(&db, query.workspace_id, user.id, &oxy_role).await?;
     let airhouse_role = airhouse_role_for(workspace_role);
@@ -328,13 +338,14 @@ pub async fn provision(
     Query(query): Query<WorkspaceQuery>,
     Json(body): Json<ProvisionBody>,
 ) -> Result<Json<ConnectionInfoResponse>, StatusCode> {
+    user.refuse_service_account()?;
     let endpoint = wire_endpoint().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let db = establish_connection().await.map_err(|e| {
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
 
     // Provisioning consumes a global tenant-name and mints an SA bearer.
     // Treat it like other org-scoped admin actions and reject plain
@@ -409,7 +420,7 @@ pub async fn get_catalog_indexes(
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
     require_workspace_admin(oxy_role, query.workspace_id, user.id)?;
 
     let tenant_id = lookup_provisioned_tenant(&db, query.workspace_id)
@@ -437,7 +448,7 @@ pub async fn set_catalog_indexes(
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, oxy_role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
     require_workspace_admin(oxy_role, query.workspace_id, user.id)?;
 
     let tenant_id = lookup_provisioned_tenant(&db, query.workspace_id)
@@ -518,7 +529,7 @@ pub async fn revoke_token(
         error!("DB connection error: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let (_org_id, _role) = resolve_caller_role(&db, query.workspace_id, user.id).await?;
+    let (_org_id, _role) = resolve_caller_role(&db, query.workspace_id, &user).await?;
 
     let broker = token_broker().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     broker

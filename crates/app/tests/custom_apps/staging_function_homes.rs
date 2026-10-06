@@ -80,6 +80,10 @@ pub(crate) async fn publish_env_build(
         commit_sha: None,
         published_by: Some(t.guest_id),
         published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
+        publisher: Some(oxy_app::server::authz::Caller::without_credential(
+            t.guest_id,
+            LOCAL_GUEST_EMAIL,
+        )),
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,

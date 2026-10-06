@@ -74,6 +74,21 @@ pub struct UserPartnerRef {
     pub name: String,
 }
 
+/// Which of these users are service accounts. One `IN (...)` read per page.
+async fn service_accounts_in(
+    db: &sea_orm::DatabaseConnection,
+    user_ids: &[Uuid],
+) -> Result<std::collections::HashSet<Uuid>, sea_orm::DbErr> {
+    if user_ids.is_empty() {
+        return Ok(Default::default());
+    }
+    let rows = entity::prelude::ServiceAccounts::find()
+        .filter(entity::service_accounts::Column::UserId.is_in(user_ids.to_vec()))
+        .all(db)
+        .await?;
+    Ok(rows.into_iter().map(|a| a.user_id).collect())
+}
+
 #[derive(Serialize)]
 pub struct AdminUserRow {
     pub id: Uuid,
@@ -95,6 +110,11 @@ pub struct AdminUserRow {
     /// How many orgs a bounded grant reaches. 0 when unbounded or non-staff.
     pub platform_scope_org_count: usize,
     pub org_count: i64,
+    /// An org-owned **service account**, not a person: a `users` row with no
+    /// address and no login, listed and labelled rather than hidden
+    /// (API-tokens design §3.3). Its `email` is its account name, and it is
+    /// in no org by membership — so `org_count` is 0 by design.
+    pub is_service_account: bool,
     /// Partners this user administers. Non-empty ⇒ they are a **Partner Admin**,
     /// a delegated cross-org authority that is invisible from `org_count` alone.
     pub partners: Vec<UserPartnerRef>,
@@ -289,6 +309,9 @@ pub async fn list_users(
     let role_map = lookup_top_org_role_in(&db, &user_ids)
         .await
         .map_err(internal)?;
+    let service_accounts = service_accounts_in(&db, &user_ids)
+        .await
+        .map_err(internal)?;
 
     let mut out = Vec::with_capacity(rows.len());
     for u in rows {
@@ -314,6 +337,7 @@ pub async fn list_users(
             platform_scope_all: grant.is_none_or(|g| g.scope_all),
             platform_scope_org_count: grant.map(|g| g.scope_org_count).unwrap_or(0),
             org_count: org_counts.get(&u.id).copied().unwrap_or(0),
+            is_service_account: service_accounts.contains(&u.id),
             partners: partner_map.get(&u.id).cloned().unwrap_or_default(),
             top_org_role: role_map.get(&u.id).cloned(),
         });
@@ -561,7 +585,7 @@ pub async fn set_user_status(
 /// cannot be recorded does not happen. Best-effort logging would leave exactly the gap
 /// this closes, just narrower.
 pub async fn add_to_org(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(user_id): Path<Uuid>,
     Json(body): Json<AddToOrgBody>,
 ) -> Result<StatusCode, StatusCode> {
@@ -616,8 +640,7 @@ pub async fn add_to_org(
 
     audit::record_in_txn(
         &tx,
-        audit::AuditEntry::new(actor.label().to_string(), "member.added")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "member.added")
             .org(body.org_id)
             .target("user", user_id.to_string(), target.label().to_string())
             // `before: null` reads as "held nothing here" — the fact that makes this row
@@ -633,7 +656,7 @@ pub async fn add_to_org(
 }
 
 pub async fn update_role(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((user_id, org_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateRoleBody>,
 ) -> Result<StatusCode, Response> {
@@ -701,8 +724,7 @@ pub async fn update_role(
     // not an audit trail (it is unqueryable, unretained and not tamper-evident).
     audit::record_in_txn(
         &tx,
-        audit::AuditEntry::new(actor.label().to_string(), "member.role.updated")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "member.role.updated")
             .org(org_id)
             .target(
                 "user",
@@ -731,7 +753,7 @@ pub async fn update_role(
 }
 
 pub async fn remove_from_org(
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((user_id, org_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, Response> {
     let db = establish_connection().await.map_err(internal_resp)?;
@@ -794,8 +816,7 @@ pub async fn remove_from_org(
     }
     audit::record_in_txn(
         &tx,
-        audit::AuditEntry::new(actor.label().to_string(), "member.removed")
-            .actor(actor.id, audit::ActorType::User)
+        audit::AuditEntry::for_request(&actor, "member.removed")
             .org(org_id)
             .target(
                 "user",

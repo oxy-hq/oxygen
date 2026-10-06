@@ -8,7 +8,6 @@ use entity::org_members::OrgRole;
 use entity::prelude::{OrgMembers, Users, WorkspaceMembers};
 use entity::workspace_members::WorkspaceRole;
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use crate::server::authz;
 use sea_orm::{ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
@@ -152,7 +151,7 @@ pub async fn list_workspace_members(
 pub async fn set_workspace_role_override(
     WorkspaceExtractor(workspace): WorkspaceExtractor,
     OrgMembershipExtractor(org_membership): OrgMembershipExtractor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(WorkspaceMemberPath {
         workspace_id: _,
         user_id,
@@ -172,8 +171,7 @@ pub async fn set_workspace_role_override(
     let legacy = matches!(org_membership.role, OrgRole::Owner | OrgRole::Admin);
     let allowed = authz::enforce_for(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::caller_of(&actor),
         "workspace_members.set_role",
         authz::Action::MemberSetRole,
         authz::Resource::org(org_membership.org_id),
@@ -256,7 +254,7 @@ pub async fn set_workspace_role_override(
 pub async fn remove_workspace_role_override(
     WorkspaceExtractor(workspace): WorkspaceExtractor,
     OrgMembershipExtractor(org_membership): OrgMembershipExtractor,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(WorkspaceMemberPath {
         workspace_id: _,
         user_id,
@@ -270,8 +268,7 @@ pub async fn remove_workspace_role_override(
     let legacy = matches!(org_membership.role, OrgRole::Owner | OrgRole::Admin);
     let allowed = authz::enforce_for(
         &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
+        &crate::server::authz::caller_of(&actor),
         "workspace_members.remove_role",
         authz::Action::MemberRemove,
         authz::Resource::org(org_membership.org_id),

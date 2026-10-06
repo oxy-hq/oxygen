@@ -50,7 +50,7 @@ pub(super) fn db_err(e: DbErr) -> StatusCode {
 /// Litigation" is information.
 pub(super) async fn readable(
     db: &DatabaseConnection,
-    caller: Uuid,
+    caller: impl Into<super::visibility::Reader>,
     id: Uuid,
 ) -> Result<documents::Model, StatusCode> {
     // Loaded first only to learn which org to resolve standing in. Nothing
@@ -61,7 +61,9 @@ pub(super) async fn readable(
         .map_err(db_err)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let standing = resolve_standing(db, caller, row.org_id)
+    let reader: super::visibility::Reader = caller.into();
+    let caller = reader.user_id();
+    let standing = resolve_standing(db, reader, row.org_id)
         .await
         .map_err(db_err)?;
 
@@ -111,7 +113,7 @@ pub async fn list(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let standing = resolve_standing(&db, user.id, q.org_id)
+    let standing = resolve_standing(&db, &user, q.org_id)
         .await
         .map_err(db_err)?;
     let mut filter = visible_documents_scoped(
@@ -221,7 +223,7 @@ pub async fn get(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let doc = readable(&db, user.id, id).await?;
+    let doc = readable(&db, &user, id).await?;
 
     let current = match doc.current_version_id {
         Some(v) => document_versions::Entity::find_by_id(v)
@@ -259,7 +261,7 @@ pub async fn download(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let doc = readable(&db, user.id, id).await?;
+    let doc = readable(&db, &user, id).await?;
 
     // A draft with nothing uploaded yet has no current version, and there is
     // nothing to redirect to. `documents_published_has_a_version` means this
@@ -380,7 +382,7 @@ pub async fn list_folders(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let standing = resolve_standing(&db, user.id, q.org_id)
+    let standing = resolve_standing(&db, &user, q.org_id)
         .await
         .map_err(db_err)?;
     let filter = visible_folders_scoped(

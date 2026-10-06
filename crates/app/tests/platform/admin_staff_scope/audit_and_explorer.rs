@@ -42,6 +42,7 @@ async fn audit_as(actor: &AuthenticatedUser, org_id: Option<Uuid>, limit: Option
                 org_id,
                 outcome: None,
                 q: None,
+                token_id: None,
                 limit,
                 offset: None,
             }),
@@ -140,6 +141,7 @@ async fn assume_session(db: &DatabaseConnection, actor: &AuthenticatedUser, org:
         started_at: ActiveValue::Set(now - Duration::minutes(90)),
         expires_at: ActiveValue::Set(now - Duration::minutes(30)),
         ended_at: ActiveValue::Set(Some(now - Duration::minutes(60))),
+        token_id: ActiveValue::Set(None),
     }
     .insert(db)
     .await

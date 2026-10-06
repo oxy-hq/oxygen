@@ -181,6 +181,7 @@ async fn seed_user_workspace_with_role(
         name: user.name,
         picture: user.picture,
         status: user.status,
+        credential: None,
     };
     (workspace_id, user_id, auth)
 }

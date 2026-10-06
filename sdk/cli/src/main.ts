@@ -18,6 +18,7 @@
 
 import { Command } from "commander";
 import { clearAllCaches, unknownCacheEntries } from "./api/cache.js";
+import { runExitRevokes } from "./auth/exit-revoke.js";
 import { runActivity } from "./commands/activity.js";
 import { runApi } from "./commands/api.js";
 import {
@@ -55,6 +56,7 @@ import { runPublish } from "./commands/publish.js";
 import { runImport, runNew, runRemove } from "./commands/registry.js";
 import { runRepos } from "./commands/repos.js";
 import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
+import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
 import { runValidate } from "./commands/validate.js";
 import { runAdopt, runDoctor, runUpdate } from "./commands/workspace.js";
 import { createContext, type GlobalFlags } from "./context/resolve.js";
@@ -70,8 +72,16 @@ function withGlobals(command: Command): Command {
     command
       .option("--env <name|url>", "environment or URL to target", "production")
       .option("--target <url>", "explicit base URL; overrides --env")
-      .option("--token-env <VAR>", "env var holding the bearer token", "OXY_TOKEN")
-      .option("--api-key-env <VAR>", "env var holding the API key for /external/api", "OXY_API_KEY")
+      .option("--token-env <VAR>", "env var holding the bearer: any credential", "OXY_TOKEN")
+      .option(
+        "--api-key-env <VAR>",
+        "env var holding the legacy API key or API token for /external/api",
+        "OXY_API_KEY"
+      )
+      .option(
+        "--service-account <id>",
+        "in GitHub Actions: the ID of the service account to act as via OIDC"
+      )
       .option("--org <slug>", "value for the {org} placeholder")
       .option("--workspace <id>", "value for the {workspace} placeholder")
       .option("--project <id>", "value for the {project} placeholder")
@@ -109,7 +119,8 @@ function globals(opts: Record<string, unknown>): GlobalFlags {
     workspace: opts.workspace as string | undefined,
     project: opts.project as string | undefined,
     customer: opts.customer as string | undefined,
-    refresh: opts.refresh as boolean | undefined
+    refresh: opts.refresh as boolean | undefined,
+    serviceAccount: opts.serviceAccount as string | undefined
   };
 }
 
@@ -392,9 +403,9 @@ function buildProgram(): Command {
   });
 
   withGlobals(
-    program.command("logout").description("drop the cached token for a deployment")
-  ).action((opts: Record<string, unknown>) => {
-    runLogout(createContext(globals(opts)));
+    program.command("logout").description("revoke and drop the cached token for a deployment")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runLogout(createContext(globals(opts)));
   });
 
   withGlobals(
@@ -408,8 +419,37 @@ function buildProgram(): Command {
 
   withGlobals(
     program.command("token").description("print the bearer token, for a raw curl")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runToken(createContext(globals(opts)));
+  });
+
+  // The PLURAL manages; the singular above prints the one in use.
+  const tokens = program
+    .command("tokens")
+    .description("personal access tokens — list, revoke, or open the page that creates one");
+
+  withGlobals(
+    tokens
+      .command("list")
+      .description("your personal access tokens (needs a browser-session login)")
+      .option("--json", "emit the raw /api/user/tokens response")
+  ).action(async (opts: Record<string, unknown>) => {
+    await runTokensList(createContext(globals(opts)), Boolean(opts.json));
+  });
+
+  withGlobals(
+    tokens
+      .command("revoke")
+      .argument("<id>", "the token's id, from `oxyc tokens list`")
+      .description("revoke one of your tokens (needs a browser-session login)")
+  ).action(async (id: string, opts: Record<string, unknown>) => {
+    await runTokensRevoke(createContext(globals(opts)), id);
+  });
+
+  withGlobals(
+    tokens.command("create").description("open Account → Personal access tokens in the browser")
   ).action((opts: Record<string, unknown>) => {
-    runToken(createContext(globals(opts)));
+    runTokensCreate(createContext(globals(opts)));
   });
 
   const checks = program
@@ -975,7 +1015,8 @@ function buildProgram(): Command {
           "the apps/<org>/<app>/ directory). --project pins the workspace; otherwise it is\n" +
           "resolved from the target. .env.local and .env are loaded without overriding.\n" +
           "\nAuth: the --token-env variable, then `oxyc login`'s cache — or, in a GitHub\n" +
-          "Actions job with `id-token: write` and neither, trusted publishing via OIDC.\n" +
+          "Actions job with `id-token: write` and neither, the job's OIDC identity: a\n" +
+          "service account's trust policy first, then the app's registered publisher.\n" +
           "\nBefore the build, each Oxy Function's source is linted for what the host refuses\n" +
           "at the first call: a `ctx.*` call whose capability the manifest lacks, a global\n" +
           "the isolate does not have (Buffer, TextEncoder, process, …), a write outside\n" +
@@ -1009,7 +1050,7 @@ function buildProgram(): Command {
     program
       .command("init-ci")
       .description(
-        "write a GitHub Actions workflow that publishes this app with trusted publishing"
+        "write a GitHub Actions workflow that publishes this app with no stored secret, and register its trust policy"
       )
       .option("--app <org/app>", "the app to publish (default: this directory's oxy-app.json)")
       .option("--environment <name>", "GitHub environment the publish job runs in", "oxy-publish")
@@ -1018,12 +1059,29 @@ function buildProgram(): Command {
         "--promote",
         "publish straight to the live channel, and verify it with the app's checks"
       )
-  ).action((opts: Record<string, unknown>) => {
-    runInitCi(createContext(globals(opts)), {
+      .option("--no-register", "write the workflow only; create nothing on the deployment")
+      .option(
+        "--setup-action",
+        "get the credential from the oxy-hq/setup-oxyc action (not published yet); by default oxyc exchanges the OIDC token itself"
+      )
+      .addHelpText(
+        "after",
+        "\nThe publish job acts as a service account of the app's org — --service-account\n" +
+          "<org>/<name>, else `<org>/deployer`, which is created if it does not exist. Here\n" +
+          "(and only here) the account is given by NAME: its ID is looked up as you and\n" +
+          "written into the workflow, with the name beside it as a comment. As an\n" +
+          "org admin with a browser-session login this also creates the trust policy (this\n" +
+          "repository, the workflow file, the environment), granted publishing this one app.\n" +
+          "When it cannot, it prints the exact steps instead; the workflow is written either way.\n"
+      )
+  ).action(async (opts: Record<string, unknown>) => {
+    await runInitCi(createContext(globals(opts)), {
       app: opts.app as string | undefined,
       environment: opts.environment as string | undefined,
       force: opts.force as boolean | undefined,
-      promote: opts.promote as boolean | undefined
+      promote: opts.promote as boolean | undefined,
+      register: opts.register as boolean | undefined,
+      setupAction: opts.setupAction as boolean | undefined
     });
   });
 
@@ -1117,8 +1175,9 @@ BODIES
   On GET/HEAD/DELETE, fields become query parameters instead of a body.
 
 SURFACES
-  /api/**            bearer, from \`oxyc login\`
-  /external/api/**   X-API-Key, from $OXY_API_KEY — selected automatically
+  /api/**            bearer: $OXY_TOKEN, else \`oxyc login\`, else GitHub OIDC in Actions
+  /external/api/**   X-API-Key: $OXY_API_KEY (a legacy API key or an API token),
+                     else either of those in $OXY_TOKEN
 
 FINDING AN ENDPOINT
   oxyc routes threads          what exists, and what each one does
@@ -1235,13 +1294,23 @@ async function main(): Promise<void> {
   // `expandBareCustomer` can throw (a near-miss command name), so it is inside
   // `main` rather than at the call site — `main().catch(reportAndExit)` is what
   // turns that into the usage exit code and the suggestion.
-  await program.parseAsync(expandBareCustomer(process.argv, program));
+  try {
+    await program.parseAsync(expandBareCustomer(process.argv, program));
+  } finally {
+    // A token this process minted from a GitHub OIDC token is revoked on the
+    // way out, success or failure. In a `finally` so it runs BEFORE
+    // `reportAndExit` on the failure path; it never throws and never changes
+    // the exit code. A no-op for every process that minted nothing.
+    await runExitRevokes();
+  }
 }
 
 // A rejected promise anywhere in the tree has to end the process non-zero —
 // node's default for an unhandled rejection is a warning and exit 0, which is
 // the exact "printed an error, reported success" shape this tool refuses.
-process.on("unhandledRejection", reportAndExit);
+process.on("unhandledRejection", (cause) => {
+  void runExitRevokes().finally(() => reportAndExit(cause));
+});
 
 // Unconditional. There was an `isEntryPoint()` guard here so that importing
 // this module (which the test did, to reach `didYouMeanCommand`) would not

@@ -399,41 +399,41 @@ pub async fn admin_list(
 
 pub async fn admin_set(
     Path(app_id): Path<Uuid>,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
     Json(body): Json<SetSecretRequest>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let caller = Caller::of(&user, &marker);
+    let caller = Caller::of(&actor.user, &marker);
     let environment = environment::resolve(&db, &app, caller, body.environment.as_deref()).await?;
-    ops::set(&db, &app, &environment, body, &user).await
+    ops::set(&db, &app, &environment, body, &actor).await
 }
 
 pub async fn admin_delete(
     Path((app_id, key)): Path<(Uuid, String)>,
     Query(q): Query<EnvironmentQuery>,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let caller = Caller::of(&user, &marker);
+    let caller = Caller::of(&actor.user, &marker);
     let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
-    ops::delete(&db, &app, &environment, &key, &user).await
+    ops::delete(&db, &app, &environment, &key, &actor).await
 }
 
 pub async fn admin_reveal(
     Path((app_id, key)): Path<(Uuid, String)>,
     Query(q): Query<EnvironmentQuery>,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
 ) -> Result<Json<RevealResponse>, Failure> {
     let db = connect().await?;
     let app = load_app(&db, app_id).await?;
-    let caller = Caller::of(&user, &marker);
+    let caller = Caller::of(&actor.user, &marker);
     let environment = environment::resolve(&db, &app, caller, q.environment.as_deref()).await?;
-    ops::reveal(&db, &app, &environment, &key, &user).await
+    ops::reveal(&db, &app, &environment, &key, &actor).await
 }
 
 // ── Tenant-surface handler (`/workspaces/{ws}/custom-apps/{app_id}`) ────────
@@ -451,16 +451,16 @@ pub async fn admin_reveal(
 pub async fn workspace_set(
     _: WorkspaceAdmin,
     Path((workspace_id, app_id)): Path<(Uuid, Uuid)>,
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
     Json(body): Json<SetSecretRequest>,
 ) -> Result<StatusCode, Failure> {
     let db = connect().await?;
     let app = scoped_to_workspace(load_app(&db, app_id).await?, workspace_id)?;
     // Staging here too is staff-only: a workspace admin is refused.
-    let caller = Caller::of(&user, &marker);
+    let caller = Caller::of(&actor.user, &marker);
     let environment = environment::resolve(&db, &app, caller, body.environment.as_deref()).await?;
-    ops::set(&db, &app, &environment, body, &user).await
+    ops::set(&db, &app, &environment, body, &actor).await
 }
 
 #[cfg(test)]

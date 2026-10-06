@@ -59,11 +59,38 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 # `sentry::test::with_captured_events`, so the event filter below is pinned
 # against what sentry-tracing actually does rather than against a reading of it.
 sentry = { workspace = true, features = ["test"] }
+# The API-token suite (`tests/integration/token_auth`) drives the served flat
+# tree, oxy-app's routes and the surfaces' together, which only this crate can
+# compose. It reuses oxy-app's harness (`#[path]`-included from
+# crates/app/tests/common), which clones a per-run template database and needs
+# every migrator `Schema::All` can apply — the same list as oxy-api-tenancy.
+oxy-auth = { workspace = true }
+oxy-authz = { workspace = true }
+oxy-app-core = { workspace = true }
+oxy-oltp = { workspace = true }
+oxy-billing = { workspace = true }
+oxy-cameras = { workspace = true }
+airhouse = { workspace = true, features = ["connector", "rest", "sql-rules", "preview-sql"] }
+agentic-pipeline = { workspace = true }
+agentic-runtime = { workspace = true }
+entity = { workspace = true }
+migration = { workspace = true }
+chrono = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
+sea-orm = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+url = { workspace = true }
+uuid = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
 # `served_router_tests`: build `api_router` (ServeMode, its shutdown token) and
 # drive it with `oneshot`.
-oxy-app-core = { workspace = true }
 tokio-util = { workspace = true }
-tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true

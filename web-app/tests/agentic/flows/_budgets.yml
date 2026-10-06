@@ -304,6 +304,16 @@
   cold_usd: 0.55
   warm_usd: 0.01
 
+- flow: settings-org-api-access
+  # Cloud mode. Four acts (create a service account, create a token with the
+  # defaults, close the shown-once secret dialog, switch to the Tokens tab),
+  # three $0 asserts, one judge. Every step is testid-led and none picks a
+  # date, so cold should land well under the ceiling. Not recorded yet, and in
+  # no CI bucket: it was authored against the wire contract before the
+  # service-account and inventory routes existed, and has never been run.
+  cold_usd: 0.50
+  warm_usd: 0.01
+
 - flow: chat-early-run-failure
   # Local-mode, isolated instance (NOT the docker-compose fleet — see the
   # flow header). One act to switch the `.view.yml` editor out of its
@@ -314,4 +324,26 @@
   # $0.10 depending on how many iterations the selector-picking steps took;
   # warm is the judge floor (~$0.002).
   cold_usd: 0.35
+  warm_usd: 0.01
+
+- flow: settings-api-key-extend
+  # Cloud mode. Five acts (create a personal access token with the dialog's
+  # defaults, dismiss the one-time secret, open Extend, pick 90 days and
+  # submit, open Activity), six $0 asserts, one judge. Every click is
+  # testid-led and none picks a date. It extends a token, not a key: no flow
+  # can create a legacy API key any more, so the stem is historical.
+  # Not recorded yet, and in no CI bucket: it has never been run against a
+  # live backend.
+  cold_usd: 0.50
+  warm_usd: 0.01
+
+- flow: settings-account-tokens
+  # Cloud mode. Five acts (name a token and pick Selected, tick a workspace and
+  # submit, dismiss the one-time secret, open the row menu and pick Revoke,
+  # confirm), four $0 asserts, one judge. Every click is testid-led; the row
+  # menu is the one two-click act.
+  # Not recorded yet, and in no CI bucket: its UI was built against the wire
+  # contract and reconciled with the handlers by reading them, but it has never
+  # been run against a live backend.
+  cold_usd: 0.50
   warm_usd: 0.01

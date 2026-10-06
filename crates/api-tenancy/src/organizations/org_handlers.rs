@@ -47,7 +47,7 @@ pub async fn list_orgs(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let memberships = OrgMembers::find()
+    let mut memberships = OrgMembers::find()
         .filter(org_members::Column::UserId.eq(user.id))
         .all(&db)
         .await
@@ -55,6 +55,20 @@ pub async fn list_orgs(
             tracing::error!("Failed to query memberships: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+    // A service account has no `org_members` row — that is what keeps it out
+    // of seats and member lists — so the read above never finds the one org it
+    // stands in. Its standing is its own row (API-tokens design §3.3), carried
+    // by the credential: an account's token, and the `ci` token a trust policy
+    // minted for it, list that org at the role the account holds. Without it
+    // they listed nothing, and `oxyc --org <slug>` could not resolve the org
+    // the token was minted for.
+    let caller = oxy_server_authz::Caller::from_user(&user);
+    if let Some(standing) = caller.account_standing()
+        && let Some(membership) = caller.account_membership(standing.org_id)
+    {
+        memberships.push(membership);
+    }
 
     let mut org_ids: Vec<Uuid> = memberships.iter().map(|m| m.org_id).collect();
 
@@ -68,7 +82,7 @@ pub async fn list_orgs(
     // closed while acting (`assume::block_admin_while_acting`), which is what
     // broke this. Making the list honest is better than punching a hole in the
     // block: the truth is that you have this org right now.
-    let assumed: Vec<Uuid> = oxy_app::surface::assume::live_sessions_for(&db, user.id)
+    let assumed: Vec<Uuid> = oxy_app::surface::assume::live_sessions_for(&db, &caller)
         .await
         .into_iter()
         .map(|s| s.org_id)
@@ -78,6 +92,11 @@ pub async fn list_orgs(
             org_ids.push(*id);
         }
     }
+
+    // Discovery follows the grant (API-tokens design §4.5): an API token lists
+    // only the orgs it covers, so `oxyc` sees exactly what the token can reach
+    // and nothing it would then be refused. A session lists everything.
+    org_ids.retain(|org_id| caller.touches_org(*org_id));
 
     if org_ids.is_empty() {
         return Ok(Json(vec![]));
@@ -101,17 +120,19 @@ pub async fn list_orgs(
     // server will actually enforce for it — hardcoding "owner" would surface
     // owner-only affordances (delete-org, billing, promote) that then 403, which is
     // exactly the mismatch this block is supposed to avoid.
-    let mut assumed_role: std::collections::HashMap<Uuid, &'static str> = Default::default();
+    let mut assumed_role: std::collections::HashMap<Uuid, org_members::OrgRole> =
+        Default::default();
+    // …and under an API token, never more than its ceiling over the org. A token
+    // granted only workspaces there reaches no org route, so it reads as a member.
+    let capped = |org_id: Uuid, role: org_members::OrgRole| {
+        let ceiling = caller
+            .org_ceiling(org_id)
+            .unwrap_or(oxy_authz::RoleCeiling::Viewer);
+        oxy_server_authz::cap_org_role(role, ceiling)
+    };
     for org_id in &assumed {
-        if let Some(authority) = oxy_app::surface::assume::may_act_as(
-            &db,
-            user.id,
-            user.email.as_deref().unwrap_or(""),
-            *org_id,
-        )
-        .await
-        {
-            assumed_role.insert(*org_id, authority.org_role().as_str());
+        if let Some(authority) = oxy_app::surface::assume::may_act_as(&db, &caller, *org_id).await {
+            assumed_role.insert(*org_id, authority.org_role());
         }
     }
 
@@ -122,9 +143,10 @@ pub async fn list_orgs(
             // acting as it, and the label is the role `org_context` will actually
             // synthesize — never more, never less.
             let role = match memberships.iter().find(|m| m.org_id == org.id) {
-                Some(m) => m.role.as_str().to_string(),
-                None => assumed_role.get(&org.id)?.to_string(),
+                Some(m) => m.role.clone(),
+                None => assumed_role.get(&org.id)?.clone(),
             };
+            let role = capped(org.id, role).as_str().to_string();
             Some(OrgResponse {
                 id: org.id,
                 name: org.name.clone(),

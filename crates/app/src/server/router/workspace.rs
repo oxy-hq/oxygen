@@ -87,6 +87,12 @@ pub(super) fn build_workspace_routes(
         .nest("/threads", build_thread_routes(&app_state))
         .nest("/agents", build_agent_routes(&app_state))
         .nest("/api-keys", build_api_key_routes(&app_state))
+        // Read-only, Postgres only (api_tokens, api_token_grants, org_members,
+        // users): any replica. The tokens that can reach this workspace.
+        .route_fleet(
+            "/api-tokens",
+            get(crate::server::api::user_tokens::inventory::list_workspace_tokens),
+        )
         .nest(
             "/files",
             build_file_routes(&app_state, include_git_features),
@@ -597,6 +603,10 @@ fn build_api_key_routes(app_state: &AppState) -> RoleRouter {
             "/{id}",
             get(api_keys::get_api_key).delete(api_keys::delete_api_key),
         )
+        // Postgres only (api_keys + api_tokens + audit_events): any replica.
+        .route_fleet("/{id}/extend", post(api_keys::extend_api_key))
+        // Reads audit_events, api_token_usage_daily and api_tokens: any replica.
+        .route_fleet("/{id}/activity", get(api_keys::get_api_key_activity))
 }
 
 /// Schedule CRUD + run-now (§12 FU4b). Lives in the app crate so the

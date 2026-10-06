@@ -13,7 +13,6 @@
 
 use axum::{Json, extract::Path, http::StatusCode};
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_server_authz::role_guards::OrgAdmin;
 use uuid::Uuid;
 
@@ -29,16 +28,10 @@ use super::service;
 /// may open, which is the opposite of what an admin managing access needs to see.
 pub async fn list_org_apps(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<Json<Vec<AppAccessSummaryDto>>, StatusCode> {
     let db = establish_connection().await.map_err(service::db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     Ok(Json(
         service::list_org_apps_with_access(&db, ctx.org.id).await?,
     ))
@@ -47,17 +40,11 @@ pub async fn list_org_apps(
 /// `GET /orgs/{org_id}/apps/{app_id}/access`
 pub async fn get_app_access(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, app_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<AppAccessDto>, StatusCode> {
     let db = establish_connection().await.map_err(service::db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     let app = service::load_app_in_org(&db, ctx.org.id, app_id).await?;
     Ok(Json(service::read_access(&db, &app).await?))
 }
@@ -65,18 +52,12 @@ pub async fn get_app_access(
 /// `PUT /orgs/{org_id}/apps/{app_id}/access`
 pub async fn set_app_access(
     OrgAdmin(ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((_org_id, app_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<SetAppAccessRequest>,
 ) -> Result<Json<AppAccessDto>, StatusCode> {
     let db = establish_connection().await.map_err(service::db_err)?;
-    enforce_team_manage(
-        &db,
-        actor.id,
-        actor.email.as_deref().unwrap_or(""),
-        ctx.org.id,
-    )
-    .await?;
+    enforce_team_manage(&db, &crate::caller_of(&actor), ctx.org.id).await?;
     let app = service::load_app_in_org(&db, ctx.org.id, app_id).await?;
     let label = format!("{} ({})", app.name, app.slug);
     let out = service::write_access(&db, &app, actor.id, &req).await?;

@@ -19,6 +19,7 @@ pub(crate) mod recovery;
 pub(crate) mod role_router;
 mod seams;
 mod secrets;
+mod tokens;
 mod workspace;
 pub(crate) mod workspace_cache;
 
@@ -33,6 +34,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub use entry::{api_router, internal_api_router};
 pub use openapi::{build_openapi_doc, openapi_router};
+pub use protected::{api_auth_layers, external_auth_layers};
 pub use seams::{AdminSection, SurfaceSeam, SurfaceSeams};
 
 // `AppState` moved to `oxy-app-core` so the router and future per-surface crates
@@ -57,6 +59,34 @@ pub fn bare_app_state() -> AppState {
         semantic_layer_cache: workspace_cache::new_semantic_layer_cache(),
         semantic_engine_cache: workspace_cache::new_semantic_engine_cache(),
     }
+}
+
+/// The cloud **flat** routes behind the `/api` auth stack, merged with the
+/// public tree: what `api_router` serves for every path outside
+/// `/{workspace_id}/…`, minus the agentic state and worker boot that building
+/// the whole router costs.
+///
+/// `extra_api_routes` and `admin` are the extracted surfaces' share, exactly as
+/// `api_router` takes them from [`SurfaceSeams`]: the `api` seam's routes join
+/// the global tree behind the same auth stack, and the `admin` sections mount
+/// under `/admin`.
+///
+/// Public for the same reason as [`api_auth_layers`]: `oxy-server`'s token
+/// tests drive the real mounts, guards and handlers (`/orgs`, `/user/tokens`,
+/// `/auth/cli/*`, `/admin/*`, `/assume`, …) rather than a copy of them.
+pub fn flat_api_surface(
+    extra_api_routes: axum::Router<AppState>,
+    admin: Vec<AdminSection>,
+) -> axum::Router {
+    let state = bare_app_state();
+    public::build_public_routes(&state)
+        .into_router()
+        .merge(api_auth_layers(
+            global::build_global_routes(&state, admin)
+                .into_router()
+                .merge(extra_api_routes),
+        ))
+        .with_state(state)
 }
 
 /// An `AgenticState` over a disconnected database, for tests that need to build
@@ -581,6 +611,8 @@ mod router_split_tests {
         );
     }
 
+    // `cloud_router_still_has_organizations_mounted` is pinned where the mount
+    // is composed, in `oxy-server`'s `served_router_tests` (#3468).
     // `self_serve_org_creation_is_not_mounted` moved to `oxy-api-tenancy` with
     // `/orgs`, which this tree no longer mounts.
 

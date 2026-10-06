@@ -27,8 +27,7 @@ use axum::response::Response;
 use oxy_auth::types::AuthenticatedUser;
 
 use crate::server::api::middlewares::oxy_app_admin_guard::is_oxy_app_admin;
-use crate::server::api::middlewares::oxy_owner_guard::is_oxy_owner;
-use crate::server::authz::{Action, Resource, enforce, loader};
+use crate::server::authz::{Action, Caller, Resource, enforce, globals, loader};
 
 type GuardFuture = Pin<Box<dyn Future<Output = Result<Response, StatusCode>> + Send>>;
 
@@ -64,12 +63,17 @@ async fn enforce_cap(
     // the admin half is a table lookup that does not — and after this PR the admin half
     // is true for App Operators too, so it is no longer a stand-in for "may use this
     // section". Fusing them is what let the unknown-standing arm below look reasonable.
-    let is_owner = is_oxy_owner(user.email.as_deref().unwrap_or(""));
-    let legacy = is_owner || is_oxy_app_admin(user.email.as_deref().unwrap_or("")).await;
+    //
+    // Both halves are read for the CALLER — the user and the credential the request
+    // arrived with — so an API token that does not carry platform standing is not
+    // staff here, whoever its bearer is.
+    let caller = Caller::from_user(&user);
+    let is_owner = globals::is_global_owner(&caller);
+    let legacy = is_owner || is_oxy_app_admin(&caller).await;
 
     let facts = match oxy::database::client::establish_connection().await {
         Ok(db) => {
-            loader::load_platform_facts(&db, user.id, user.email.as_deref().unwrap_or("")).await
+            loader::load_platform_facts(&db, &crate::server::authz::Caller::from_user(&user)).await
         }
         Err(e) => {
             tracing::error!(

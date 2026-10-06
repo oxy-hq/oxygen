@@ -44,6 +44,7 @@ fn user(id: Uuid, email: &str) -> AuthenticatedUserExtractor {
         email: Some(email.to_string()),
         name: "Developer".to_string(),
         picture: None,
+        credential: None,
         status: UserStatus::Active,
     })
 }

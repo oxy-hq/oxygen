@@ -18,6 +18,18 @@ export function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
+/**
+ * The machine-readable `code` a route put beside `error`, if any. The server's sentence is
+ * written for a log; the code is what the UI keys its own, more useful sentence on.
+ */
+export function apiErrorCode(err: unknown): string | undefined {
+  if (!isAxiosError(err)) return undefined;
+  const data: unknown = err.response?.data;
+  if (!data || typeof data !== "object") return undefined;
+  const code = (data as { code?: unknown }).code;
+  return typeof code === "string" && code ? code : undefined;
+}
+
 export function apiStatus(err: unknown): number | undefined {
   return isAxiosError(err) ? err.response?.status : undefined;
 }

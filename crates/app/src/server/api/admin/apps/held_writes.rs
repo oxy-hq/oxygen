@@ -151,14 +151,7 @@ pub async fn get_held_writes(
     let db = environment_scope::connect().await?;
     let app = environment_scope::load_app(&db, id).await?;
     let invocation = invocation_of(&db, id, invocation_id).await?;
-    environment_scope::require_reach(
-        &db,
-        &app,
-        user.id,
-        user.email.as_deref(),
-        &invocation.environment,
-    )
-    .await?;
+    environment_scope::require_reach(&db, &app, &user, &invocation.environment).await?;
     let held = if environment_scope::is_production(&invocation.environment) {
         Vec::new()
     } else {

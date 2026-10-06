@@ -3,7 +3,7 @@
 `oxyc` — a `gh api`-shaped client for the Oxy HTTP API, plus the tooling that
 manages customer workspace repos.
 
-- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `assume`, `oltp`
+- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `tokens`, `assume`, `oltp`
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
@@ -50,8 +50,9 @@ and `cache`.
 | --- | --- | --- |
 | `--env <name\|url>` | `production` | deployment to target |
 | `--target <url>` | — | explicit base URL; overrides `--env` |
-| `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer token |
-| `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the key for `/external/api` |
+| `--token-env <VAR>` | `OXY_TOKEN` | env var holding the bearer: any credential |
+| `--api-key-env <VAR>` | `OXY_API_KEY` | env var holding the legacy API key or API token for `/external/api` |
+| `--service-account <id>` | `OXY_SERVICE_ACCOUNT` | in GitHub Actions: the **ID** of the service account the OIDC exchange acts as |
 | `--org <slug>` | — | value for the `{org}` placeholder |
 | `--workspace <id>` | — | value for the `{workspace}` placeholder |
 | `--project <id>` | — | value for the `{project}` placeholder |
@@ -112,8 +113,12 @@ to `--env`, or from `--org` / `--workspace` / `--project`. An unresolvable
 placeholder is an error naming the flag that fills it — never a literal sent to
 the server.
 
-**Surfaces.** The path selects the credential: `/api/**` sends the bearer from
-`oxyc login`; `/external/api/**` sends `X-API-Key` from `$OXY_API_KEY`.
+**Surfaces.** The path selects how the credential is sent. `/api/**` sends it
+as a bearer — whichever one [resolves](#authentication). `/external/api/**`
+sends `X-API-Key` from `$OXY_API_KEY`, which holds a legacy API key (`oxy_…`) or
+an API token (`oxy_pat_…`, `oxy_sat_…`, `oxy_ci_…`). With none set, an
+`OXY_TOKEN` holding either of those stands in for it, so one `OXY_TOKEN` covers
+both surfaces. A session token never does.
 
 **`--paginate` is a heuristic.** Oxy sends `Link: rel="next"` on some endpoints
 and nothing on others; where there is no header, `oxyc` reads `next_offset`
@@ -145,13 +150,69 @@ route's surface and fleet role.
 
 ```bash
 oxyc login [--env <e>] [--login-env <e...>] [--assume <org> -r <why>]
-oxyc whoami [--json]
+oxyc whoami [--json]        # who the credential is, and what it can reach
 oxyc token                  # print the bearer, for a raw curl
-oxyc logout
+oxyc logout                 # revoke the cached token, then forget it
+oxyc tokens list [--json]   # your personal access tokens
+oxyc tokens revoke <id>
+oxyc tokens create          # opens Account → Personal access tokens
 ```
 
-`--login-env` is repeatable and comma-separated (`--login-env dev,staging`);
-the browser opens once per environment, in sequence.
+**Every command resolves its credential the same way, first match wins:**
+
+1. **`OXY_TOKEN`** (or the variable `--token-env` names). It holds any
+   credential, and all are sent as a bearer: an API token — a personal access
+   token (`oxy_pat_…`), a service account token (`oxy_sat_…`) or a CI token
+   (`oxy_ci_…`) — a legacy API key (`oxy_…`), a publish token, or a session
+   token. A blank value counts as unset.
+2. **The login cache** — what `oxyc login` stored for this deployment.
+3. **GitHub OIDC**, in a GitHub Actions job granted `id-token: write`: the job's
+   OIDC token is exchanged, once per process, for a fifteen-minute token acting
+   as a service account, and that token is revoked when the command ends. See
+   [CI without a stored secret](#ci-without-a-stored-secret).
+
+`OXY_API_KEY` holds a legacy API key or an API token, and is honoured where it
+always was — the `/external/api` surface, and `checks run`.
+
+**Legacy API keys and API tokens are separate things.** A legacy API key is the
+older `oxy_…` key: it reaches everything its owner can and can't be limited to
+workspaces. It keeps working wherever it works today, but it is not a token —
+`oxyc tokens` never lists or revokes one, and `oxyc whoami` calls it a
+`Legacy API key`. They are extended and revoked in the web app, under
+Settings → Workspace → Legacy API keys. Use an API token for anything new.
+
+**`login`** runs a browser loopback flow. Against a current deployment it
+receives a one-time code and exchanges it (PKCE) for a **personal access
+token** named `oxyc on <hostname>`: revocable, ninety days, and replacing that
+machine's previous one. No credential travels in a URL. Against a deployment
+that predates the exchange it stores the session token the page hands back,
+exactly as before, and says so — nothing needs upgrading first, in either
+direction. `--login-env` is repeatable and comma-separated
+(`--login-env dev,staging`); the browser opens once per environment, in
+sequence.
+
+**`logout`** revokes the cached token on the server, best-effort, then removes
+it from this machine whatever the server said. It never touches `OXY_TOKEN`.
+
+**`whoami`** makes a live call, so an expired or revoked credential fails here
+rather than reading as fine from the cache. For a token it also prints what the
+token is and what it can reach — `all access`, or one line per grant with the
+role it is capped at, and any organization whose policy blocks it. For a legacy
+API key it prints `Legacy API key`, and that it reaches everything its owner
+can.
+
+**`token`** prints the bearer on stdout and nothing else. Inside a GitHub
+Actions job with nothing stored it prints the token the job's OIDC identity
+exchanges for — like `gh auth token` — and that one is **not** revoked on exit,
+since the output is the token. It still expires in fifteen minutes.
+
+**`tokens`** manages personal access tokens, and the server allows that from a
+**browser session only**: a token that could list, mint or revoke tokens could
+outlive its own revocation. Since `login` now stores a token, `tokens list` and
+`tokens revoke` usually answer with a pointer to the web app (Account →
+Personal access tokens, `<deployment>/?settings=account.tokens`); they work
+from a login that stored a session token. `tokens create` always opens that
+page — a new token's secret is shown once, and a terminal is the wrong place.
 
 Credentials live in the OS config directory under **`oxy`** — the same file the
 Rust `oxy login` wrote before it was removed, so an existing login still works:
@@ -159,8 +220,95 @@ Rust `oxy login` wrote before it was removed, so an existing login still works:
 - macOS: `~/Library/Application Support/oxy/credentials.json`
 - Linux: `$XDG_CONFIG_HOME/oxy/credentials.json`
 
-`OXY_CREDENTIALS_PATH` overrides the path. Caches are separate, under `oxyc`
-(`~/.cache/oxyc`). In CI set `OXY_TOKEN` instead of logging in.
+An entry may now also carry `token_id` and `expires_at`; both are optional, and
+a file written before they existed loads unchanged. `OXY_CREDENTIALS_PATH`
+overrides the path. Caches are separate, under `oxyc` (`~/.cache/oxyc`).
+
+### CI without a stored secret
+
+In a GitHub Actions job granted `id-token: write`, with no `OXY_TOKEN` set,
+**any** `oxyc` command signs itself in — **as the service account the workflow
+names, by its ID,** in `OXY_SERVICE_ACCOUNT` (or `--service-account`). It asks
+GitHub for an OIDC token whose audience is `oxy:<the deployment's host>`, posts
+it with the account's ID to `/api/auth/oidc/exchange`, and uses the
+fifteen-minute `oxy_ci_…` token that comes back, revoking it on exit.
+
+The audience is **worked out from the URL `oxyc` is pointed at** — the host of
+the resolved `--env` / `--target`, lowercased, with a port only when it is not
+the scheme's default: `oxy:app.oxygen-hq.com`, `oxy:aip.staging.oxy.tech`. It is
+never asked of the deployment, and nothing a server says can change it. So the
+token a job gives to a host is good at the deployment that calls itself by that
+host and at no other: one handed to staging cannot be replayed at production,
+and a server cannot talk the job into minting a token for somewhere else.
+There is no shared fallback, and plain `oxy` is never requested.
+
+A deployment that answers to a different address than the one `oxyc` was
+pointed at — reached through an alias or a port-forward — refuses with
+`wrong_audience` and names the address it does answer to: point `--target` at
+that. One with no public URL configured (`OXY_API_URL`) takes no GitHub
+sign-in at all; use `OXY_TOKEN` there.
+
+What makes the deployment honour the job is a
+**trust policy** on that service account, naming the repository, the workflow
+file and the job's `environment:` — registered by `oxyc init-ci`, or in the web
+app under Organization settings → API access → Service accounts → *the
+account* → Trusted access.
+
+**The account is always named, never guessed.** Anyone can register a trust
+policy that names a repository they do not own, so the deployment matches a
+run against the policies of the one account its workflow asked for and no
+other. With no account named, `oxyc` attempts no exchange at all: `publish` and
+`checks run` go straight to the app's registered publisher (below), and every
+other command fails with "not authenticated", saying `OXY_SERVICE_ACCOUNT` is
+what is missing.
+
+**By ID, never by `<org>/<name>`.** An org's slug can be changed, and once the
+org renames or is deleted the slug is free for anyone — who could create the
+same account name under it and register a policy on your repository's public
+ids. A workflow that said `acme/deployer` would then be naming *their*
+account. An ID never changes hands, so it is the only thing the deployment
+takes: anything else answers `400 service_account_required`, and `oxyc` does
+not fall back from that. The ID is shown in the web app (Organization settings
+→ API access → Service accounts → *the account*), and `oxyc init-ci` writes it
+for you. `oxyc` passes the value through untouched; the answer still says
+`<org>/<name>`, so the log reads as it did.
+
+```yaml
+permissions: { id-token: write, contents: read }
+jobs:
+  deploy:
+    environment: production          # the trust policy requires it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      # or any oxyc command the grants allow
+      - run: npx --yes @oxy-hq/cli publish --promote
+        env:
+          OXY_SERVICE_ACCOUNT: 3f2504e0-4f89-41d3-9a0c-0305e82c3301   # acme/deployer
+```
+
+Each command exchanges for itself, which is all a job running one command
+needs. Several policies of the named account matching one run is not an error:
+the oldest is used. The exchange is rate-limited per client address (60 a
+minute); a `429` is waited out once, for its `Retry-After` (at most 60 s), and
+retried before it fails.
+
+The `setup-oxyc` action (`sdk/setup-oxyc`) does the exchange once for a whole
+job: it installs `oxyc`, exports `OXY_TOKEN` for the later steps and revokes
+the token in a post step. **It is not published yet** — `uses:
+oxy-hq/setup-oxyc@v1` does not resolve, and a job naming it fails at "Set up
+job" — so nothing here depends on it.
+
+A refused exchange says what to fix: `no_matching_policy` prints the
+repository, workflow, ref and event the run presented and where to register a
+policy on the named account; `missing_environment`, `self_hosted_runner` and
+`pull_request_target` name the rule that was not met. A deployment with no
+exchange route (404) reads as "not authenticated", with that reason — except
+in `publish` and `checks run`, which fall back to the app's registered
+publisher, as they also do on `no_matching_policy` and when no account is
+named.
 
 ## Acting as an organization
 
@@ -243,7 +391,7 @@ the current directory while granting access to the customer's repo.
 
 ```bash
 oxyc publish [--env <e>] [--dir <path>] [--promote] [--build-only | --prebuilt] [--json] [--allow-function-lint] [--app-env <dev-handle>]
-oxyc init-ci [--app <org>/<app>] [--environment <name>] [--force]
+oxyc init-ci [--app <org>/<app>] [--environment <name>] [--promote] [--force] [--no-register] [--setup-action]
 oxyc proxy [--port <n>] [--allow-writes] [--allow-events] [--yes]
 ```
 
@@ -263,10 +411,15 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
   function's `functions/<name>.js` is missing. The pair splits CI so the job that
   runs package scripts never holds the credential.
 - **Auth**: the `--token-env` variable (`OXY_TOKEN`), then the login cache — or,
-  in a GitHub Actions job with `id-token: write` and neither set, **trusted
-  publishing**: the job's OIDC token is exchanged for a credential scoped to this
-  one app. That needs the org **slug** and a publisher registered for the
-  workflow (see `init-ci`).
+  in a GitHub Actions job with `id-token: write` and neither set, the job's OIDC
+  token. Two exchanges are tried, in order, and the exchange happens last, after
+  the build. First the general one (`/api/auth/oidc/exchange`, audience `oxy:<the deployment's host>`):
+  a **trust policy** on a service account (see `init-ci`). Then, only when the
+  deployment has no such route (404) or answers `no_matching_policy`, the app's
+  own **registered publisher** (`/api/customer-apps/publish/oidc-exchange`,
+  audience `oxy-publish`) — the registration every workflow written before trust
+  policies relies on; it needs the org **slug**. Any other refusal is final: it
+  names something wrong with the run, which the older path would only hide.
 - **Provenance**: the checkout's `origin`, `HEAD` and branch (else `GITHUB_SHA` /
   `GITHUB_REF_NAME`) are recorded; a missing half or a dirty app directory is a
   warning, never a failure. The build id defaults to
@@ -287,12 +440,45 @@ channel unless `--promote`. `--env` defaults to **production**; name it.
   skipped. **`--allow-function-lint`** is the way past a false positive: every
   finding becomes a warning that names its rule — please open an issue with it.
 
-**`init-ci`** writes `.github/workflows/oxy-publish.yml` at the repo root: a
-`build` job (no id-token) that runs `publish --build-only`, and an
-environment-gated `publish` job whose only work is `publish --prebuilt` with
-OIDC. `--promote` makes that publish go live and adds a `checks run` step after
-it, when the manifest declares a check. It prints the `oxyc api …/publishers`
-call that registers the workflow.
+**`init-ci`** does two things: writes the workflow, and registers the trust that
+lets it publish.
+
+*The workflow* is `.github/workflows/oxy-publish.yml` at the repo root: a
+`build` job (no id-token) that runs `publish --build-only`, and a `publish` job
+bound to a GitHub `environment:` (`--environment`, default `oxy-publish`) whose
+only work is `publish --prebuilt`. That job uses no third-party action: each
+step runs `npx @oxy-hq/cli@<this version>` and `oxyc` exchanges the job's OIDC
+token for itself, acting as the service account `--service-account <org>/<name>`
+names — by default `<app's org>/deployer`. **Here, and only here, the account is
+given by name:** `init-ci` is run by a person, looks the account's ID up as that
+person, and writes the ID into the workflow with the name beside it as a
+comment (`OXY_SERVICE_ACCOUNT: 3f25…3301   # acme/deployer`). When it cannot
+look the ID up — nobody logged in, no such account yet — it writes a
+`<service-account-id>` placeholder and says so; it never writes the name as
+the value. `--promote` makes the publish go live
+and adds a `checks run` step after it, when the manifest declares a check.
+`--setup-action` writes the same workflow around `uses: oxy-hq/setup-oxyc@v1`
+instead, which exchanges once for the whole job. That action is not published
+yet, so a workflow written with the flag cannot start until it is; `init-ci`
+says so when it writes one.
+
+*The registration* is a trust policy on that service account — this repository,
+the workflow file, the environment — granted publishing this one app and
+nothing else. `init-ci` creates the `deployer` account if none was named and it
+does not exist, then the policy, and is idempotent: a second run finds both. A
+named account is never created, and must be one of the app's own org — an
+account's grants never reach another org, so `init-ci` refuses one. A service
+account's name is lowercase words joined by single hyphens, starting with a
+letter, 2–40 characters.
+
+It can only register **when the caller can**: an org admin, logged in with a
+browser-session credential — the server refuses those two creations to a token,
+which is what a fresh `oxyc login` stores. When it cannot (not an admin, a token
+login, offline, a deployment without trusted access, `--no-register`), the
+workflow is still written and the command prints the exact steps instead: where
+in the web app, the `oxyc api` calls with every id it managed to learn filled
+in, and the older `…/publishers` registration for a deployment without trust
+policies. Registration never fails the command.
 
 **`--app-env <dev-handle>`** moves one sandbox's build pointer instead of the
 draft/live channel — see [Sandboxes](#sandboxes). It needs a staff credential
@@ -420,13 +606,21 @@ difference: `checks run` talks to `/api/admin/**`, which is not the
 `oxyc login` (or `--token-env`) always wins when one is present.
 
 **In CI, nothing is stored.** With neither a token nor an API key set, a job
-holding `id-token: write` exchanges its GitHub OIDC token for the same
-short-lived, app-scoped publish credential `oxyc publish` uses, and drives
-`/api/customer-apps/**` instead — the same three handlers, mounted where a
-publish token may reach them. The exchange returns the app id, so no lookup is
-needed, and `<app>` must be `<org-slug>/<app-slug>` in this mode (a UUID names
-an app the exchange cannot verify a publisher for). A publish token set in
-`OXY_TOKEN` takes the same surface without minting.
+holding `id-token: write` signs itself in from its GitHub OIDC token — the same
+two exchanges `oxyc publish` tries, in the same order: a service account's
+trust policy first, the app's registered publisher second — and drives
+`/api/customer-apps/**` instead: the same three handlers, mounted where a
+machine credential may reach them. A service account's token (`oxy_sat_…`,
+`oxy_ci_…`) or a publish token set in `OXY_TOKEN` takes that surface too,
+without minting; a personal token, a legacy API key or a session takes the admin
+one. `OXY_API_KEY` is read **before** OIDC here: a job that set one has said
+which credential it means.
+
+The app id comes from the credential where it can. The publisher exchange
+returns it, so `<app>` must be `<org-slug>/<app-slug>` on that path (a UUID
+names an app it cannot verify a publisher for). A service account's token names
+the apps it may publish, so a slug resolves against its own grants — and when
+it cannot, the publisher exchange is tried before asking for a UUID.
 
 What that credential may do is deliberately small, and enforced server-side
 rather than by the client. An app-scoped token is **confined to its app**: it
@@ -453,15 +647,16 @@ publish, or staging's — and the report gains `environment` and each check's
 against production, since every non-production operation needs a staff
 credential (see [Sandboxes](#sandboxes)).
 
-With a publish token, `<app>` must be the **UUID** — resolving a slug means
-listing every app, which such a token may not do. The OIDC path needs no id at
-all (the exchange returns it) but does need `<org-slug>/<app-slug>`, since the
-exchange is registered by slug.
+With a publish token (`oxypublish_…`), `<app>` must be the **UUID** — resolving
+a slug means listing every app, which such a token may not do. A service
+account's token takes either: the UUID, or a slug it can match to one of its
+own app-publish grants. The publisher exchange needs no id at all (it returns
+it) but does need `<org-slug>/<app-slug>`, since it is registered by slug.
 
 **Exit codes:** `0` every check passed; `9` (`CHECK_FAILED`) at least one check
 failed or timed out; `1` the app declares no checks; `5` the app was not
 found; `4` no credential resolved, or the API rejected it (401/403 — an
-expired 90-day API key reads this way, not as a missing one); `2` a bad
+expired legacy API key or API token reads this way, not as a missing one); `2` a bad
 `--timeout`, or a slug where the credential needs a UUID; `7` (`UNAVAILABLE`)
 the deployment answered the OIDC exchange without an `app_id`, meaning it
 predates trusted checks.
@@ -703,8 +898,9 @@ once npm reclaims it.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `OXY_TOKEN` | — | bearer token, overriding the login cache (the CI path) |
-| `OXY_API_KEY` | — | key for the `/external/api` surface |
+| `OXY_TOKEN` | — | any credential, sent as a bearer; overrides the login cache and GitHub OIDC |
+| `OXY_API_KEY` | — | a legacy API key or an API token, for the `/external/api` surface and for `checks run` |
+| `OXY_SERVICE_ACCOUNT` | — | the **ID** of the service account a GitHub OIDC exchange acts as (`--service-account`); never `<org>/<name>` |
 | `OXY_CREDENTIALS_PATH` | OS config dir | the shared `credentials.json` |
 | `OXYC_ORG` | `oxy-hq` | GitHub org the customer repos live in |
 | `OXYC_CUSTOMER_TOPIC` | `oxy-customer` | topic that registers a customer repo |

@@ -35,6 +35,13 @@ use axum::routing::{delete, get, patch, post, put};
 use oxy_app::surface::{AdminSection, org_middleware, subscription_guard_middleware};
 use oxy_app_core::AppState;
 
+/// The [`Caller`](oxy_server_authz::Caller) behind a request's actor: its user
+/// and the key or token it authenticated with — what every email-keyed
+/// authorization door takes, so an API token's narrowing reaches it.
+pub(crate) fn caller_of(actor: &oxy_app_core::audit::RequestActor) -> oxy_server_authz::Caller {
+    oxy_server_authz::Caller::of(&actor.user, actor.credential.as_ref())
+}
+
 /// The org-facing tenancy routes: the caller's orgs and invitations at the
 /// root, and one org's settings, members, invitations, teams and app access
 /// under `/orgs/{org_id}`.

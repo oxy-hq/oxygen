@@ -31,6 +31,7 @@ pub async fn openapi_router() -> OpenApiRouter<IdeState> {
         .routes(routes!(api_keys::list_api_keys))
         .routes(routes!(api_keys::get_api_key))
         .routes(routes!(api_keys::delete_api_key))
+        .routes(routes!(api_keys::extend::extend_api_key))
         .routes(routes!(app::list_apps))
         .routes(routes!(app::get_app_result))
         .routes(routes!(app::get_chart_image))

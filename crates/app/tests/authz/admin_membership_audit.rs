@@ -23,7 +23,7 @@ use oxy::database::client::establish_connection;
 use oxy_app::server::api::admin::users_admin::{
     AddToOrgBody, UpdateRoleBody, add_to_org, remove_from_org, update_role,
 };
-use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_app_core::audit::RequestActor;
 use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
@@ -70,13 +70,14 @@ async fn seed_org(conn: &DatabaseConnection) -> organizations::Model {
     .expect("seed org")
 }
 
-fn actor_of(u: &users::Model) -> AuthenticatedUserExtractor {
-    AuthenticatedUserExtractor(AuthenticatedUser {
+fn actor_of(u: &users::Model) -> RequestActor {
+    RequestActor::session(AuthenticatedUser {
         id: u.id,
         email: u.email.clone(),
         name: u.name.clone(),
         picture: u.picture.clone(),
         status: u.status.clone(),
+        credential: None,
     })
 }
 

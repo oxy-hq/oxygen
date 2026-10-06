@@ -130,6 +130,9 @@ fn input(t: &Tenant, slug: &str, project_id: Uuid, build_id: &str) -> PublishInp
         commit_sha: None,
         published_by: Some(t.user_id),
         published_by_email: Some(t.email.clone()),
+        publisher: Some(oxy_app::server::authz::Caller::without_credential(
+            t.user_id, &t.email,
+        )),
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,

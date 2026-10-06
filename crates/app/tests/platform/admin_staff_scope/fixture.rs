@@ -161,6 +161,7 @@ pub async fn seed_user(db: &DatabaseConnection, email: &str) -> AuthenticatedUse
         name: user.name,
         picture: user.picture,
         status: user.status,
+        credential: None,
     }
 }
 

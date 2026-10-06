@@ -32,7 +32,6 @@ use axum::{Json, Router};
 use entity::prelude::{Organizations, PartnerCapabilities, PartnerGrants, PartnerOrgs};
 use entity::{organizations, partner_capabilities, partner_grants};
 use oxy::database::client::establish_connection;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
     TransactionTrait,
@@ -42,7 +41,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::server::router::AppState;
-use oxy_app_core::audit::{self, ActorType, AuditEntry};
+use oxy_app_core::audit::{self, AuditEntry};
 
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
@@ -97,12 +96,13 @@ pub(super) fn internal<E: std::fmt::Display>(ctx: &str) -> impl Fn(E) -> StatusC
 /// of provisioning is open to Global Admins. Handing a partner billing or secrets
 /// power over a tenant is platform *governance*, not ops.
 pub(super) fn require_owner_for_sensitive_caps(
-    actor_email: &str,
+    actor: &oxy_auth::types::AuthenticatedUser,
     manage_billing: bool,
     manage_secrets: bool,
 ) -> Result<(), StatusCode> {
+    let caller = crate::server::authz::Caller::from_user(actor);
     if (manage_billing || manage_secrets)
-        && !crate::server::authz::globals::is_global_owner(actor_email)
+        && !crate::server::authz::globals::is_global_owner(&caller)
     {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -166,7 +166,7 @@ pub async fn get_partner(Path(org_id): Path<Uuid>) -> Result<Json<PartnerDetail>
 /// `PUT /admin/partners/{org_id}/capabilities` — set the CEILING.
 pub async fn set_capabilities(
     Path(org_id): Path<Uuid>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Json(input): Json<CapabilitiesInput>,
 ) -> Result<Json<CapabilitiesDto>, StatusCode> {
     let db = db().await?;
@@ -178,11 +178,7 @@ pub async fn set_capabilities(
     {
         return Err(StatusCode::NOT_FOUND);
     }
-    require_owner_for_sensitive_caps(
-        actor.email.as_deref().unwrap_or(""),
-        input.manage_billing,
-        input.manage_secrets,
-    )?;
+    require_owner_for_sensitive_caps(&actor, input.manage_billing, input.manage_secrets)?;
 
     let existing = PartnerCapabilities::find_by_id(org_id)
         .one(&db)
@@ -225,8 +221,7 @@ pub async fn set_capabilities(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.capabilities.updated")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.capabilities.updated")
             .partner(org_id)
             .org(org_id)
             .target("partner", org_id.to_string(), String::new())
@@ -243,7 +238,7 @@ pub async fn set_capabilities(
 /// (it's a real tenant); only its right to manage others is withdrawn.
 pub async fn revoke_partner(
     Path(org_id): Path<Uuid>,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
 ) -> Result<StatusCode, StatusCode> {
     let db = db().await?;
     let txn = db.begin().await.map_err(internal("begin"))?;
@@ -255,8 +250,7 @@ pub async fn revoke_partner(
 
     audit::record_in_txn(
         &txn,
-        AuditEntry::new(actor.label().to_string(), "partner.revoked")
-            .actor(actor.id, ActorType::User)
+        AuditEntry::for_request(&actor, "partner.revoked")
             .partner(org_id)
             .org(org_id)
             .target("partner", org_id.to_string(), String::new()),

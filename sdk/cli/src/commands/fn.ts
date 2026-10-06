@@ -17,7 +17,7 @@ import { ensureOk, PUBLISH_TOKEN_PREFIX, UUID_RE } from "../apps/resolve.js";
 import type { Context } from "../context/resolve.js";
 import { err } from "../ui/tty.js";
 import { resolveDataInput } from "../util/data-input.js";
-import { CliError, ExitCode, exitCodeForStatus, usageError } from "../util/errors.js";
+import { authError, CliError, ExitCode, exitCodeForStatus, usageError } from "../util/errors.js";
 
 export interface FnCallResult {
   function: string;
@@ -104,12 +104,12 @@ interface FnCreds {
 }
 
 function fnCredential(ctx: Context): FnCreds {
-  const bearer = ctx.maybeBearer();
+  // The stored bearer, then the API key — no OIDC exchange, as before it existed.
+  const bearer = ctx.storedBearer();
   if (bearer) return { target: ctx.target(), bearer };
   const apiKey = ctx.apiKey();
   if (apiKey) return { target: ctx.target(), apiKey };
-  ctx.bearer(); // throws the canonical authError
-  return { target: ctx.target() };
+  throw authError(ctx.target(), ctx.flags.env ?? "production", ctx.flags.tokenEnv ?? "OXY_TOKEN");
 }
 
 /**

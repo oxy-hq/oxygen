@@ -15,27 +15,22 @@
  *
  * Two surfaces, same handlers. A human runs this with their own credential and
  * hits `/api/admin/apps/…`. CI has no credential to store: in a job with
- * `id-token: write` it exchanges a GitHub OIDC token for the same short-lived,
- * app-scoped publish token `oxyc publish` uses, and then hits
- * `/api/customer-apps/…` — the same three handlers, mounted where a publish
- * token may reach them. The app-listing route is NOT one of them (a publish
- * token may not enumerate apps), which is why the exchange returns the app id
- * rather than leaving the CLI to look one up.
+ * `id-token: write` it exchanges a GitHub OIDC token for a short-lived token —
+ * a service account's, or the app-scoped publish token `oxyc publish` falls
+ * back to — and then hits `/api/customer-apps/…`, the same three handlers
+ * mounted where a machine token may reach them. The app-listing route is NOT
+ * one of them (a machine token may not enumerate apps), which is why the app
+ * id comes from the credential rather than a lookup. Which credential, and in
+ * what order: `checks-credentials.ts`.
  */
 
 import { parseJson, request } from "../api/request.js";
-import { isProduction, parseAppEnv } from "../apps/environment.js";
-import {
-  type Creds as BaseCreds,
-  ensureOk,
-  PUBLISH_TOKEN_PREFIX,
-  resolveApp,
-  UUID_RE
-} from "../apps/resolve.js";
+import { parseAppEnv } from "../apps/environment.js";
+import { type Creds as BaseCreds, ensureOk, resolveApp } from "../apps/resolve.js";
 import type { Context } from "../context/resolve.js";
-import { exchangeGithubOidc, githubOidcAvailable } from "../publish/server.js";
 import { err } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
+import { MACHINE_SURFACE, resolveCredentials, UUID_RE } from "./checks-credentials.js";
 
 /** The `--json` report: one object on stdout. */
 export interface ChecksReport {
@@ -108,20 +103,21 @@ export async function runChecksCore(
     surface: machine.surface
   };
 
-  // `resolveApp` pages `/api/admin/apps`, which a publish token may not reach:
-  // sending it there would 403 on a route the caller cannot be given. The OIDC
-  // branch never gets here (the exchange hands back the id); a token supplied
-  // through `OXY_TOKEN` does, and it needs the UUID.
+  // `resolveApp` pages `/api/admin/apps`, which a machine token may not reach:
+  // sending it there would 403 on a route the caller cannot be given. A token
+  // that names its own app (the publisher exchange's `app_id`, a service
+  // account's `app_publish` grant) never gets here; one that does not needs
+  // the UUID.
   if (!machine.appId && creds.surface === MACHINE_SURFACE && !UUID_RE.test(app)) {
     throw usageError(
-      "a publish token cannot resolve <org>/<app> — pass the app UUID",
-      "resolving a slug means listing every app, which a publish token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
+      "this token cannot resolve <org>/<app> — pass the app UUID",
+      "resolving a slug means listing every app, which a publish or service-account token may not do; the id is on the app's admin page, and `oxyc publish --json` reports it"
     );
   }
   const { appId, label } = machine.appId
     ? { appId: machine.appId, label: app }
     : creds.surface === MACHINE_SURFACE && UUID_RE.test(app)
-      ? // Never touch `/api/admin/apps/{id}` with a publish token — it is
+      ? // Never touch `/api/admin/apps/{id}` with a machine token — it is
         // refused there just as the listing is, and the id already names the
         // app, so there is nothing left for `resolveApp` to add.
         { appId: app, label: app }
@@ -162,97 +158,6 @@ export async function runChecks(
       { code: ExitCode.CHECK_FAILED }
     );
   }
-}
-
-/** Where the three function routes live for each kind of credential. */
-const ADMIN_SURFACE = "/api/admin/apps";
-const MACHINE_SURFACE = "/api/customer-apps";
-
-interface ResolvedCredentials {
-  bearer?: string;
-  apiKey?: string;
-  surface: string;
-  /** Set only when the exchange told us which app the token is scoped to. */
-  appId?: string;
-}
-
-/**
- * A stored credential if there is one, a minted one if there is not.
- *
- * Bearer wins when one resolves; otherwise the API key. Neither resolving is
- * not yet an error in CI: a job holding `id-token: write` can mint, so the
- * exchange is tried before giving up. Only when that is unavailable too does
- * this throw the SAME `authError` every other command throws — reusing
- * `ctx.bearer()` for that throw keeps the message and the `oxyc login …` hint
- * defined in exactly one place (`context/resolve.ts`) rather than duplicated
- * here.
- *
- * A publish token — minted here or handed in through `OXY_TOKEN` — reads the
- * machine surface, because the admin one refuses it.
- *
- * `appEnv` is read here, not just at the call site, so the non-production
- * refusal can land BEFORE the OIDC exchange rather than after it. The
- * exchange always mints a publish token, and D22 refuses one outside
- * production — minting one just to throw it away would waste a real network
- * call (and, if the deployment predates trusted checks or the request fails,
- * report the wrong thing: `UNAVAILABLE` instead of the real `USAGE`). A
- * stored `OXY_TOKEN` publish token is checked the same way, inline, so the
- * two paths answer identically.
- */
-async function resolveCredentials(
-  ctx: Context,
-  target: string,
-  app: string,
-  appEnv: string | undefined
-): Promise<ResolvedCredentials> {
-  const refuseNonProduction = (): never => {
-    throw usageError(
-      `a publish token cannot run checks in ${appEnv}`,
-      "sandboxes and staging need a staff credential — oxyc login, or OXY_TOKEN set to a user token"
-    );
-  };
-
-  const bearer = ctx.maybeBearer();
-  if (bearer) {
-    if (bearer.startsWith(PUBLISH_TOKEN_PREFIX) && !isProduction(appEnv)) refuseNonProduction();
-    return {
-      bearer,
-      surface: bearer.startsWith(PUBLISH_TOKEN_PREFIX) ? MACHINE_SURFACE : ADMIN_SURFACE
-    };
-  }
-  const apiKey = ctx.apiKey();
-  if (apiKey) return { apiKey, surface: ADMIN_SURFACE };
-
-  if (githubOidcAvailable()) {
-    // Every exchange yields an `oxypublish_…` bearer — refuse before
-    // minting one that a non-production `--app-env` was always going to
-    // refuse anyway, and before the network call that minting costs.
-    if (!isProduction(appEnv)) refuseNonProduction();
-
-    const [orgSlug, ...rest] = app.split("/");
-    const appSlug = rest.join("/");
-    if (!orgSlug || !appSlug) {
-      throw usageError(
-        'trusted publishing needs <app> as "<org-slug>/<app-slug>"',
-        "the exchange is keyed by slug; a UUID names an app it cannot verify a publisher for"
-      );
-    }
-    const minted = await exchangeGithubOidc(target, orgSlug, appSlug);
-    // Only this caller needs the id — `oxyc publish` takes the token and goes.
-    // So the version check is here, not in the exchange: a deployment without
-    // the field can still be published to.
-    if (!minted.appId) {
-      throw new CliError("the OIDC exchange returned no app_id", {
-        code: ExitCode.UNAVAILABLE,
-        hint: "this deployment predates trusted checks — upgrade it, or set OXY_TOKEN and pass the app UUID"
-      });
-    }
-    return { bearer: minted.token, surface: MACHINE_SURFACE, appId: minted.appId };
-  }
-
-  // Throws — nothing resolved and nothing can be minted.
-  ctx.bearer();
-  return { surface: ADMIN_SURFACE };
 }
 
 interface Creds extends BaseCreds {

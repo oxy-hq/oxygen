@@ -31,6 +31,7 @@ fn as_user(id: Uuid) -> AuthenticatedUserExtractor {
         name: "tester".into(),
         picture: None,
         status: entity::users::UserStatus::Active,
+        credential: None,
     })
 }
 

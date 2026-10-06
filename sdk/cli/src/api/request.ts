@@ -8,6 +8,7 @@
  * `X-API-Key` surface.
  */
 
+import { usableAsApiKey } from "../auth/token-kind.js";
 import { CliError, ExitCode, exitCodeForStatus } from "../util/errors.js";
 import { cacheKey, readCache, writeCache } from "./cache.js";
 import { isExternalSurface } from "./paths.js";
@@ -56,12 +57,20 @@ export function buildUrl(target: string, path: string): string {
  * and everything else is the bearer surface. An `Authorization` header the
  * caller passed by hand wins over both — that is the escape hatch for a
  * credential this tool does not model.
+ *
+ * ANY KIND OF TOKEN IS A BEARER on `/api/**` — a session JWT, `oxy_pat_`,
+ * `oxy_sat_`, `oxy_ci_`, a legacy `oxy_<hex>` key, `oxypublish_`. On the
+ * API-key surface, `OXY_API_KEY` is what goes out as `X-API-Key`; with none
+ * set, a bearer that IS an API token stands in for it, so one `OXY_TOKEN`
+ * covers both surfaces. A session JWT never does — it is not a key, and a
+ * server that reads `X-API-Key` first would reject the request on it.
  */
-function authHeaders(opts: RequestOptions): Record<string, string> {
+export function authHeaders(opts: RequestOptions): Record<string, string> {
   const explicit = Object.keys(opts.headers ?? {}).map((h) => h.toLowerCase());
   const headers: Record<string, string> = {};
   if (isExternalSurface(opts.path)) {
-    if (opts.apiKey && !explicit.includes("x-api-key")) headers["X-API-Key"] = opts.apiKey;
+    const key = opts.apiKey ?? (opts.bearer && usableAsApiKey(opts.bearer) ? opts.bearer : "");
+    if (key && !explicit.includes("x-api-key")) headers["X-API-Key"] = key;
     // The bearer goes along too when there is one: some external routes accept
     // either, and sending both never makes a request that would have worked
     // fail — the server picks the one it recognises.

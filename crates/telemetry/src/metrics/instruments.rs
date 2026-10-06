@@ -239,6 +239,11 @@ pub struct Instruments {
     /// `oxy.custom_app.admission.shed` — invocations rejected because no permit
     /// came free within the queue budget, by `oxy.reason` (`global` / `org`).
     pub custom_app_admission_shed: Counter<u64>,
+    /// `oxy.oidc.exchange.rejected` — trusted-access exchanges refused, by
+    /// `oxy.reason`: the refusal's wire code, a closed set
+    /// (`record::OIDC_EXCHANGE_REJECT_REASONS`). No org label — most refusals
+    /// match no org at all.
+    pub oidc_exchange_rejected: Counter<u64>,
 
     /// `oxy.custom_app.bundle_cache.evictions` — objects dropped from the
     /// bundle cache to stay inside its resident-byte budget.
@@ -370,6 +375,15 @@ impl Instruments {
                      whether the global or the per-org limit bound.",
                 )
                 .with_unit("{invocation}")
+                .build(),
+            oidc_exchange_rejected: meter
+                .u64_counter("oxy.oidc.exchange.rejected")
+                .with_description(
+                    "Trusted-access (GitHub Actions OIDC) exchanges refused, by the refusal's \
+                     reason code. A rise in one reason names what changed: a workflow, a \
+                     policy, or someone probing.",
+                )
+                .with_unit("{exchange}")
                 .build(),
             custom_app_bundle_cache_evictions: meter
                 .u64_counter("oxy.custom_app.bundle_cache.evictions")

@@ -14,8 +14,6 @@ use chrono::Utc;
 use entity::{locations, org_frontline_members, org_members, org_role_members, org_roles, users};
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit;
-use oxy_auth::extractor::AuthenticatedUserExtractor;
-use oxy_auth::types::AuthenticatedUser;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
     QueryOrder, Set,
@@ -216,7 +214,7 @@ pub async fn roster_at_enrolment(
     org_id: Uuid,
     user_id: Uuid,
     specs: &[AssignmentSpec],
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
 ) -> Result<Vec<Uuid>, AssignError> {
     let mut ids = Vec::with_capacity(specs.len());
     for spec in specs {
@@ -404,7 +402,7 @@ pub async fn list(
 #[instrument(skip_all, fields(org = %org_id, user = %req.user_id))]
 pub async fn create(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path(org_id): Path<Uuid>,
     Json(req): Json<CreateAssignment>,
 ) -> Response {
@@ -436,7 +434,7 @@ pub async fn create(
 #[instrument(skip_all, fields(org = %org_id, assignment = %id))]
 pub async fn delete(
     OrgAdmin(_ctx): OrgAdmin,
-    AuthenticatedUserExtractor(actor): AuthenticatedUserExtractor,
+    actor: oxy_app_core::audit::RequestActor,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Response {
     let Ok(db) = establish_connection().await else {
@@ -465,13 +463,12 @@ fn audit_action(assigned: &Assigned) -> Option<&'static str> {
 }
 
 fn entry(
-    actor: &AuthenticatedUser,
+    actor: &oxy_app_core::audit::RequestActor,
     org_id: Uuid,
     row: &org_role_members::Model,
     action: &'static str,
 ) -> audit::AuditEntry {
-    audit::AuditEntry::new(actor.label().to_string(), action)
-        .actor(actor.id, audit::ActorType::User)
+    audit::AuditEntry::for_request(actor, action)
         .org(org_id)
         .target("assignment", row.id.to_string(), row.user_id.to_string())
         .metadata(serde_json::json!({

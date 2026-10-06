@@ -90,6 +90,10 @@ pub(crate) fn input(t: &Tenant, slug: &str, build_id: &str, tarball: Vec<u8>) ->
         commit_sha: None,
         published_by: Some(t.guest_id),
         published_by_email: Some(LOCAL_GUEST_EMAIL.to_string()),
+        publisher: Some(oxy_app::server::authz::Caller::without_credential(
+            t.guest_id,
+            LOCAL_GUEST_EMAIL,
+        )),
         machine_app_id: None,
         published_via: None,
         semantic_revision_id: None,
@@ -201,7 +205,7 @@ pub(crate) async fn app_with_two_sandboxes(t: &Tenant, slug: &str) -> apps::Mode
     unsafe { std::env::set_var("OXY_API_URL", "https://app-dev.oxygen-hq.com") };
     let app = app_row(&t.db, app).await;
     for handle in ["a1", "b2"] {
-        ops::create(&t.db, &app, &sandbox(handle), t.guest_id)
+        ops::create(&t.db, &app, &sandbox(handle), &t.guest())
             .await
             .expect("create the sandbox");
     }

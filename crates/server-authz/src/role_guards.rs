@@ -21,6 +21,7 @@ use axum::http::request::Parts;
 use entity::org_members::OrgRole;
 use entity::workspace_members::WorkspaceRole;
 use std::future::Future;
+use std::marker::PhantomData;
 
 use crate::org_context::OrgContext;
 use crate::workspace_role::EffectiveWorkspaceRole;
@@ -80,26 +81,65 @@ where
         parts: &mut Parts,
         _state: &S,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        // Enforce the whole OrgAdmin ring at its choke point — MemberSetRole is a
+        // representative action of that ring.
         async move {
-            let Some(ctx) = parts.extensions.get::<OrgContext>().cloned() else {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            };
-            let legacy = matches!(ctx.membership.role, OrgRole::Owner | OrgRole::Admin);
-            // Enforce the whole OrgAdmin ring at its choke point — MemberSetRole is a
-            // representative action of that ring.
-            let allowed = authz::enforce_guard(
-                parts,
-                "guard.org_admin",
-                authz::Action::MemberSetRole,
-                authz::Resource::org(ctx.org.id),
-                legacy,
-            )
-            .await;
-            if allowed {
-                Ok(OrgAdmin(ctx))
-            } else {
-                Err(StatusCode::FORBIDDEN)
-            }
+            org_admin(parts, "guard.org_admin", authz::Action::MemberSetRole)
+                .await
+                .map(OrgAdmin)
+        }
+    }
+}
+
+/// The org-admin choke point for one named action: the shipped check (the
+/// request's org role is Owner or Admin) AND the model's verdict on `action`.
+async fn org_admin(
+    parts: &mut Parts,
+    label: &'static str,
+    action: authz::Action,
+) -> Result<OrgContext, StatusCode> {
+    let Some(ctx) = parts.extensions.get::<OrgContext>().cloned() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    let legacy = matches!(ctx.membership.role, OrgRole::Owner | OrgRole::Admin);
+    let resource = authz::Resource::org(ctx.org.id);
+    if authz::enforce_guard(parts, label, action, resource, legacy).await {
+        Ok(ctx)
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
+/// An action that sits on the org-admin ring and wants to be **named** in the
+/// decision, rather than riding [`OrgAdmin`]'s representative `MemberSetRole`.
+/// The differential tests pin each such action to this guard's oracle.
+pub trait OrgAdminAction {
+    /// The `authz` log label of the guard.
+    const LABEL: &'static str;
+    const ACTION: authz::Action;
+}
+
+/// Caller is an Org Owner or Admin, decided on `A`'s own action. Same door as
+/// [`OrgAdmin`] — the same shipped check beside the model — so a surface gets
+/// its own line in the `authz` log and its own differential case without a
+/// hand-written role match.
+pub struct OrgAdminFor<A>(pub OrgContext, pub PhantomData<A>);
+
+impl<S, A> FromRequestParts<S> for OrgAdminFor<A>
+where
+    S: Send + Sync,
+    A: OrgAdminAction,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            org_admin(parts, A::LABEL, A::ACTION)
+                .await
+                .map(|ctx| OrgAdminFor(ctx, PhantomData))
         }
     }
 }
@@ -366,15 +406,11 @@ pub async fn may_preview(parts: &mut Parts) -> bool {
     let Some(org_id) = ws.org_id else {
         return false;
     };
-    let Some(user) = parts
-        .extensions
-        .get::<oxy_auth::types::AuthenticatedUser>()
-        .cloned()
-    else {
+    let Some(caller) = crate::Caller::from_extensions(&parts.extensions) else {
         return false;
     };
     let legacy = match oxy_platform::db::establish_connection().await {
-        Ok(db) => crate::globals::platform_standing(&db, user.email.as_deref().unwrap_or(""))
+        Ok(db) => crate::globals::platform_standing(&db, &caller)
             .await
             .is_staff(),
         // No database, no standing we can vouch for: previews fail closed.

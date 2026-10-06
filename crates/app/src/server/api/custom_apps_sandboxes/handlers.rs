@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use entity::apps;
 use oxy::database::client::establish_connection;
+use oxy_app_core::audit::RequestActor;
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use oxy_auth::types::{AppPublishTokenAuth, AuthenticatedUser};
@@ -67,8 +68,9 @@ async fn admit(
         .await
         .map_err(|e| SandboxError::db("load the app", e))?
         .ok_or(SandboxError::AppNotFound)?;
-    let email = user.email.as_deref().unwrap_or("");
-    if !may_open_non_production(&db, user.id, email, &app).await {
+    // Credential-aware: a token that carries no staff standing is no staff.
+    let caller = crate::server::authz::Caller::from_user(user);
+    if !may_open_non_production(&db, &caller, &app).await {
         return Err(SandboxError::NotStaff);
     }
     let org_slug = entity::organizations::Entity::find_by_id(app.org_id)
@@ -99,14 +101,14 @@ pub async fn list(
 
 /// `POST /api/customer-apps/{id}/environments` — `201` with the new sandbox.
 pub async fn create(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
     Path(id): Path<Uuid>,
     Json(body): Json<CreateEnvironmentRequest>,
 ) -> Result<(StatusCode, Json<EnvironmentDto>), SandboxError> {
-    let Admitted { db, app, org_slug } = admit(&user, marker, id).await?;
+    let Admitted { db, app, org_slug } = admit(&actor.user, marker, id).await?;
     let environment = parse(&body.name)?;
-    ops::create(&db, &app, &environment, user.id).await?;
+    ops::create(&db, &app, &environment, &actor).await?;
     let created = ops::get(&db, &app, &org_slug, &environment).await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
@@ -126,17 +128,17 @@ pub async fn show(
 /// the sandbox is already being deleted: it answers the teardown still on its
 /// way, and queues a new one only once that run has ended (`ops::delete`).
 pub async fn delete(
-    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
+    actor: RequestActor,
     marker: Option<Extension<AppPublishTokenAuth>>,
     Path((id, name)): Path<(Uuid, String)>,
 ) -> Result<(StatusCode, Json<DeleteAccepted>), SandboxError> {
-    let Admitted { db, app, .. } = admit(&user, marker, id).await?;
+    let Admitted { db, app, .. } = admit(&actor.user, marker, id).await?;
     let environment = parse(&name)?;
     let teardown_run_id = ops::begin_delete(
         &db,
         &app,
         &environment,
-        Some(user.id),
+        Some(&actor),
         TeardownReason::Deleted,
     )
     .await?;

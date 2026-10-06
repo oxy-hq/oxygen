@@ -126,6 +126,15 @@ filter = "kind(test) & package(=oxy-api-documents)"
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-server`'s integration binary: the API-token suite (`token_auth`), which
+# drives the served flat tree and owns a database cloned from the per-run
+# template (`common::test_db`, `oxy-app`'s harness by path), so it contends for
+# the server, not a schema.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-server) & binary(=integration)"
+test-group = "db-per-test"
+retries = 2
+
 # The frontline tests that moved out of oxy-app's `platform` binary with the
 # `oxy-api-frontline` extraction. They `#[path]`-include the same
 # `tests/common/mod.rs` harness (own database per test, cloned from the per-run

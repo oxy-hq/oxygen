@@ -14,6 +14,12 @@
 //! those three (and six in `tests/slack/`) into `serial-db`. They skip when the
 //! var is unset, which is why a laptop run looks clean and only CI would show
 //! the race. `shared_db_registry` fails the build if that list drifts.
+//!
+//! The API-token suite (`token_auth`) moved to `oxy-server`'s integration tests:
+//! it drives the served flat tree, and `/orgs` is now `oxy-api-tenancy`'s.
+
+#[path = "../common/mod.rs"]
+mod common;
 
 mod admin_membership_audit;
 mod app_scope_boundary;

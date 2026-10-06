@@ -46,7 +46,7 @@ pub async fn favorite(
     // You may bookmark what you may read, and nothing else. `readable` answers
     // 404 for everything else, so a favorite cannot be used to probe whether a
     // document exists.
-    readable(&db, user.id, id).await?;
+    readable(&db, &user, id).await?;
 
     // `ON CONFLICT DO NOTHING` rather than read-then-insert. The doc above
     // promises the database settles a double tap; a `find` followed by an

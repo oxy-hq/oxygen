@@ -249,8 +249,7 @@ async fn a_staging_request_reads_the_pinned_revision_and_live_reads_the_promoted
     let pin = staging_pin_for_data_request(
         &db,
         &on_host(w.app, &host, false),
-        Uuid::new_v4(),
-        STAFF,
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         w.workspace,
     )
     .await;
@@ -305,8 +304,13 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
     let host = staging_host_of(&db, w.app).await;
 
     for headers in [staging_headers(w.app, false), staging_headers(w.app, true)] {
-        let pin =
-            staging_pin_for_data_request(&db, &headers, Uuid::new_v4(), STAFF, w.workspace).await;
+        let pin = staging_pin_for_data_request(
+            &db,
+            &headers,
+            &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), STAFF),
+            w.workspace,
+        )
+        .await;
         assert_eq!(
             pin, None,
             "off the staging host, with or without oxy_preview_draft, reads the live revision"
@@ -316,8 +320,7 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
     let member = staging_pin_for_data_request(
         &db,
         &on_host(w.app, &host, true),
-        Uuid::new_v4(),
-        "customer@example.com",
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         w.workspace,
     )
     .await;
@@ -330,8 +333,7 @@ async fn the_preview_cookie_no_reach_or_another_workspace_means_no_pin() {
     let elsewhere = staging_pin_for_data_request(
         &db,
         &on_host(w.app, &host, false),
-        Uuid::new_v4(),
-        STAFF,
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         other_ws,
     )
     .await;
@@ -353,16 +355,19 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
     let staging_host = format!("staging--{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
     let production_host = format!("{org_slug}--{app_slug}.customer-apps.oxygen-hq.com");
 
-    let staff =
-        staging_pin_for_data_request(&db, &on(&staging_host), Uuid::new_v4(), STAFF, w.workspace)
-            .await;
+    let staff = staging_pin_for_data_request(
+        &db,
+        &on(&staging_host),
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), STAFF),
+        w.workspace,
+    )
+    .await;
     assert_eq!(staff, Some(w.staging), "the staging build's pin, no cookie");
 
     let customer = staging_pin_for_data_request(
         &db,
         &on(&staging_host),
-        Uuid::new_v4(),
-        "customer@example.com",
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), "customer@example.com"),
         w.workspace,
     )
     .await;
@@ -371,8 +376,7 @@ async fn a_staging_host_request_reads_the_staging_builds_pin() {
     let production = staging_pin_for_data_request(
         &db,
         &on(&production_host),
-        Uuid::new_v4(),
-        STAFF,
+        &oxy_app::server::authz::Caller::without_credential(Uuid::new_v4(), STAFF),
         w.workspace,
     )
     .await;

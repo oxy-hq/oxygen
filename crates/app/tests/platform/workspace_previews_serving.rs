@@ -89,6 +89,7 @@ async fn user(db: &DatabaseConnection, org: Uuid, email: &str) -> AuthenticatedU
         name: email.into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     }
 }
 

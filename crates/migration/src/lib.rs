@@ -188,10 +188,17 @@ mod m20260928_000004_workspace_previews;
 mod m20260929_000001_custom_app_activity_environment;
 mod m20260929_000002_workspace_preview_runs;
 mod m20260929_000003_workspace_preview_registry;
+mod m20261001_000001_api_tokens;
 mod m20261001_000001_app_environment_deleting_at;
+mod m20261001_000002_api_token_usage;
 mod m20261001_000002_function_invocation_environment_index;
+mod m20261001_000003_api_token_grants;
 mod m20261002_000001_app_environment_oltp_schema;
+mod m20261002_000001_service_accounts;
+mod m20261002_000002_oidc_trust_policies;
 mod m20261003_000001_automation_runs_execution_started_at;
+mod m20261003_000001_org_token_policies;
+mod m20261005_000001_audit_events_token_indexes;
 mod m20261005_000001_workspace_default_branch_and_subdir;
 mod m20261006_000001_create_context_document_definitions;
 mod m20261006_000001_workspace_compile_checks;
@@ -199,6 +206,7 @@ mod m20261006_000002_metric_anomaly_notifications;
 mod m20261006_000003_workspace_health_transitions;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
+pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
 pub use m20261006_000003_workspace_health_transitions::BACKFILL_SQL as WORKSPACE_HEALTH_TRANSITIONS_BACKFILL_SQL;
 
 pub struct Migrator;
@@ -400,7 +408,14 @@ impl MigratorTrait for Migrator {
             Box::new(m20261001_000001_app_environment_deleting_at::Migration),
             Box::new(m20261001_000002_function_invocation_environment_index::Migration),
             Box::new(m20261002_000001_app_environment_oltp_schema::Migration),
+            Box::new(m20261001_000001_api_tokens::Migration),
+            Box::new(m20261001_000002_api_token_usage::Migration),
+            Box::new(m20261001_000003_api_token_grants::Migration),
+            Box::new(m20261002_000001_service_accounts::Migration),
+            Box::new(m20261002_000002_oidc_trust_policies::Migration),
             Box::new(m20261003_000001_automation_runs_execution_started_at::Migration),
+            Box::new(m20261003_000001_org_token_policies::Migration),
+            Box::new(m20261005_000001_audit_events_token_indexes::Migration),
             // Applied in this order. The context-document table merged first and is
             // already on deployed databases; the two below are registered after it
             // although one carries an earlier date.

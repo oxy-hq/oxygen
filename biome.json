@@ -110,6 +110,7 @@
       "sdk/typescript/**",
       ".github/scripts/**",
       "sdk/cli/**",
+      "sdk/setup-oxyc/**",
       "scripts/ci/**",
       "!sdk/cli/template",
       "!sdk/cli/skills",

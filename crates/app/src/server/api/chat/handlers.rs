@@ -11,6 +11,7 @@ use entity::{chat_channel_members, chat_channels, chat_messages, users};
 use futures::stream::Stream;
 use oxy::database::client::establish_connection;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AuthenticatedUser;
 use sea_orm::TransactionTrait;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, FromQueryResult,
@@ -56,6 +57,24 @@ pub async fn member_channel(
         return None;
     }
     Some(channel)
+}
+
+/// [`member_channel`] for a request: the channel, unless the credential the
+/// request arrived with does not reach the channel's org.
+///
+/// These routes name no org, so no middleware checks one. An API token that an
+/// org has blocked (API-tokens design §5) keeps chat everywhere else and must
+/// read a channel of that org exactly as it reads one that is not there. A
+/// session and a legacy key reach every org, so this is `member_channel` for
+/// them. **Every handler that takes a channel id goes through here.**
+async fn reachable_channel(
+    db: &DatabaseConnection,
+    channel_id: Uuid,
+    user: &AuthenticatedUser,
+) -> Option<chat_channels::Model> {
+    member_channel(db, channel_id, user.id)
+        .await
+        .filter(|channel| user.reaches_org(channel.org_id))
 }
 
 /// Is this user still in the channel's org?
@@ -477,6 +496,10 @@ pub async fn create_channel(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CreateChannelRequest>,
 ) -> Result<(StatusCode, Json<ChannelSummary>), StatusCode> {
+    // An org the request's token does not reach is not there to create in:
+    // 404, the answer `new_channel` gives for an org the caller has no
+    // standing in.
+    user.require_org_reach(body.org_id)?;
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -519,6 +542,17 @@ pub async fn join_channel(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // Joining is the one channel route that cannot go through
+    // `reachable_channel` — the caller is not a member yet — so the token's
+    // reach is asked of the channel's org here. An unknown channel falls
+    // through to `join_channel_for`, which answers it the same 404.
+    let channel = chat_channels::Entity::find_by_id(channel_id)
+        .one(&db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(channel) = channel {
+        user.require_org_reach(channel.org_id)?;
+    }
     join_channel_for(&db, user.id, channel_id)
         .await
         .map_err(StatusCode::from)?;
@@ -581,9 +615,14 @@ pub async fn list_channels(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let visible = visible_channels(&db, user.id)
+    // Less the orgs the request's token does not reach: a blocked org's
+    // channels are left out here exactly as `reachable_channel` refuses them.
+    let visible: Vec<_> = visible_channels(&db, user.id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter(|(_, channel)| user.reaches_org(channel.org_id))
+        .collect();
     if visible.is_empty() {
         return Ok(Json(Vec::new()));
     }
@@ -656,7 +695,7 @@ pub async fn list_messages(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if member_channel(&db, channel_id, user.id).await.is_none() {
+    if reachable_channel(&db, channel_id, &user).await.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -746,7 +785,7 @@ pub async fn post_message(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let Some(channel) = member_channel(&db, channel_id, user.id).await else {
+    let Some(channel) = reachable_channel(&db, channel_id, &user).await else {
         return Err(StatusCode::NOT_FOUND);
     };
     if !channel.is_writable() {
@@ -817,7 +856,7 @@ pub async fn mark_read(
     // Through `member_channel` like every other handler: this one used to load
     // the membership row directly, which skipped the org-standing check and made
     // it the one door a removed member could still walk through.
-    if member_channel(&db, channel_id, user.id).await.is_none() {
+    if reachable_channel(&db, channel_id, &user).await.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -854,7 +893,7 @@ pub async fn stream(
     let db = establish_connection()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if member_channel(&db, channel_id, user.id).await.is_none() {
+    if reachable_channel(&db, channel_id, &user).await.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 

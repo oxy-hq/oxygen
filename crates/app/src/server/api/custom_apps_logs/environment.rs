@@ -73,8 +73,7 @@ pub(super) async fn log_environment(
             message: "the request could not be completed; retry shortly".to_string(),
         }
     })?;
-    let email = outcome.user_email.as_deref().unwrap_or("");
-    if !may_open_non_production(&db, outcome.user_id, email, &outcome.app).await {
+    if !may_open_non_production(&db, &outcome.caller, &outcome.app).await {
         return Err(EnvironmentRefusal {
             status: StatusCode::FORBIDDEN,
             code: "non_production_refused",

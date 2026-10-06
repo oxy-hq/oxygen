@@ -21,6 +21,7 @@ use crate::server::api::work;
 use oxy_shared::fleet_role::{RouteRole, RouteRoleDecl};
 
 use super::role_router::RoleRouter;
+use super::tokens::{build_org_api_access_routes, build_token_routes};
 use super::{AdminSection, AppState};
 
 pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>) -> RoleRouter {
@@ -41,6 +42,11 @@ pub(super) fn build_global_routes(app_state: &AppState, admin: Vec<AdminSection>
             "/apps/mine",
             get(crate::server::api::admin::apps::handlers::list_my_apps),
         )
+        // Personal access tokens and the calling-token pair. Merged HERE, not in
+        // `build_protected_routes`: this builder is the route catalog's seed for
+        // the global tree, so a merge beside it would serve the routes and leave
+        // them out of `oxyc routes`.
+        .merge(build_token_routes(app_state))
         // ── Chat ────────────────────────────────────────────────────────────
         //
         // Every route here is `route_fleet`, INCLUDING the SSE stream, and that
@@ -472,6 +478,9 @@ fn build_org_routes(app_state: &AppState) -> RoleRouter {
             get(crate::server::api::partner_publish_consent::get_consent)
                 .put(crate::server::api::partner_publish_consent::set_consent),
         )
+        // Organization → API access: service accounts, their tokens, and the
+        // inventory of every token reaching the org. Pure Postgres, FleetOk.
+        .merge(build_org_api_access_routes(app_state))
         // Locations and tenant-defined roles. Under `/orgs/{org_id}` so the
         // `OrgAdmin` extractor can see the org it is guarding — a body-carried
         // org is invisible to a path-resolved guard, which is the hole

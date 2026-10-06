@@ -21,11 +21,27 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { CliError, ExitCode } from "../util/errors.js";
 
-/** One host's cached credential. Field names are the Rust struct's, verbatim. */
+/**
+ * One host's cached credential. The three required field names are the Rust
+ * struct's, verbatim.
+ *
+ * `token` is whatever the deployment handed `oxyc login`: an `oxy_pat_`
+ * personal access token from a deployment with the PKCE exchange, or the
+ * session JWT an older one hands back. Both are sent the same way, so nothing
+ * that reads this file needs to tell them apart.
+ *
+ * THE TWO OPTIONAL FIELDS ARE ADDITIVE. A file written before they existed
+ * has neither and loads unchanged; a session-token login still writes neither,
+ * so that file stays byte-for-byte the shape the Rust binary wrote.
+ */
 export interface HostCredential {
   token: string;
   email: string;
   is_app_admin: boolean;
+  /** The token row's id, when `token` is an `oxy_pat_`. */
+  token_id?: string;
+  /** RFC 3339. Absent means "not recorded", never "does not expire". */
+  expires_at?: string;
 }
 
 /** The file: a flat map of host key to credential. No envelope, no version. */
@@ -169,17 +185,4 @@ export function clearCredential(target: string): boolean {
   delete store[key];
   writeStore(store);
   return true;
-}
-
-/**
- * The bearer for `target`, by the same precedence the Rust CLI uses:
- * the env var first (the CI path), then the login cache.
- *
- * Returns `undefined` rather than throwing so the caller can decide whether
- * missing auth is fatal — `oxyc routes` against a cached catalog is not.
- */
-export function resolveBearer(target: string, tokenEnv = "OXY_TOKEN"): string | undefined {
-  const fromEnv = process.env[tokenEnv]?.trim();
-  if (fromEnv) return fromEnv;
-  return loadToken(target);
 }

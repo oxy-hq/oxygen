@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { gateSatisfied, type NavVisibilityContext, visibleNavGroups } from "./nav";
+import { sectionFromParam } from "./useSettingsDeepLink";
 
 /**
  * The settings nav is the dialog's entire permission surface, and a wrong gate
@@ -35,7 +36,11 @@ describe("visibleNavGroups", () => {
         // Their own read-only `Reader` credential — see the note in nav.ts.
         "workspace.airhouse",
         "workspace.oltp",
+        // Their own legacy API keys: the server lists, extends and shows the
+        // activity of a key to its owner with no admin requirement.
+        "workspace.legacy_api_keys",
         "workspace.activity_logs",
+        "account.tokens",
         "preferences.appearance"
       ]);
     });
@@ -47,6 +52,7 @@ describe("visibleNavGroups", () => {
         "organization.crew",
         "organization.locations",
         "organization.positions",
+        "organization.api_access",
         "organization.billing",
         "organization.integration",
         "workspace.databases",
@@ -59,12 +65,30 @@ describe("visibleNavGroups", () => {
       }
     });
 
-    it("keeps only the Organization and Preferences groups before a workspace loads", () => {
-      expect(groupsFor({ hasWorkspace: false })).toEqual(["Organization", "Preferences"]);
+    it("keeps the Organization, Account and Preferences groups before a workspace loads", () => {
+      expect(groupsFor({ hasWorkspace: false })).toEqual([
+        "Organization",
+        "Account",
+        "Preferences"
+      ]);
       expect(sectionsFor({ hasWorkspace: false })).toEqual([
         "organization.members",
+        "account.tokens",
         "preferences.appearance"
       ]);
+    });
+
+    it("offers their own tokens to anyone signed in, with no org or workspace loaded", () => {
+      // A token belongs to its owner, not to a tenant: no role gates it, and it
+      // must be reachable from the "you're not in an organization yet" state too.
+      expect(sectionsFor({ hasOrg: false, hasWorkspace: false })).toEqual([
+        "account.tokens",
+        "preferences.appearance"
+      ]);
+    });
+
+    it("has no Account group in local mode, which has no sign-in to mint a token for", () => {
+      expect(sectionsFor({ isLocalMode: true, hasOrg: false })).not.toContain("account.tokens");
     });
 
     it("never renders an empty group heading", () => {
@@ -85,6 +109,7 @@ describe("visibleNavGroups", () => {
       const sections = sectionsFor({ isWorkspaceAdmin: true });
       expect(sections).toContain("workspace.databases");
       expect(sections).toContain("workspace.api_keys");
+      expect(sections).toContain("workspace.legacy_api_keys");
       expect(sections).toContain("workspace.secrets");
       expect(sections).toContain("workspace.apps");
       expect(sections).toContain("workspace.airhouse");
@@ -111,6 +136,7 @@ describe("visibleNavGroups", () => {
         "organization.crew",
         "organization.locations",
         "organization.positions",
+        "organization.api_access",
         "organization.billing",
         "organization.integration",
         "workspace.members",
@@ -118,11 +144,13 @@ describe("visibleNavGroups", () => {
         "workspace.airhouse",
         "workspace.oltp",
         "workspace.api_keys",
+        "workspace.legacy_api_keys",
         "workspace.secrets",
         "workspace.connections",
         "workspace.apps",
         "workspace.oxy_access",
         "workspace.activity_logs",
+        "account.tokens",
         "preferences.appearance"
       ]);
     });
@@ -216,6 +244,60 @@ describe("visibleNavGroups", () => {
       expect(sectionsFor({ isStaff: true, hasWorkspace: false })).not.toContain(
         "workspace.previews"
       );
+    });
+  });
+
+  describe("legacy API keys", () => {
+    const labelsFor = (ctx: Partial<NavVisibilityContext>): string[] =>
+      visibleNavGroups({ ...CLOUD_BASE, ...ctx })
+        .filter((g) => g.label === "Workspace")
+        .flatMap((g) => g.items.map((i) => i.label));
+
+    it("sit in their own entry, right after API tokens, for a workspace admin", () => {
+      const labels = labelsFor({ isWorkspaceAdmin: true });
+      expect(labels.indexOf("Legacy API keys")).toBe(labels.indexOf("API tokens") + 1);
+    });
+
+    it("are shown to a member who is no workspace admin: a key belongs to its owner", () => {
+      // The split that matters. The inventory of everyone's tokens stays an
+      // admin's; a person's own legacy keys do not need the role.
+      const sections = sectionsFor({});
+      expect(sections).toContain("workspace.legacy_api_keys");
+      expect(sections).not.toContain("workspace.api_keys");
+      expect(labelsFor({})).toContain("Legacy API keys");
+      expect(labelsFor({})).not.toContain("API tokens");
+    });
+
+    it("carry no gate on any axis", () => {
+      for (const ctx of [
+        {},
+        { isWorkspaceAdmin: true },
+        { isOrgAdmin: true },
+        { isOrgAdmin: true, isWorkspaceAdmin: true },
+        { isStaff: true }
+      ]) {
+        expect(sectionsFor(ctx)).toContain("workspace.legacy_api_keys");
+      }
+    });
+
+    it("go with the Workspace group when no workspace is loaded", () => {
+      expect(sectionsFor({ hasWorkspace: false })).not.toContain("workspace.legacy_api_keys");
+    });
+
+    it("keep their entry in local mode, where the keys used to share API tokens", () => {
+      const labels = visibleNavGroups({ ...CLOUD_BASE, isLocalMode: true, hasOrg: false })
+        .filter((g) => g.label === "Workspace")
+        .flatMap((g) => g.items.map((i) => i.label));
+      expect(labels.indexOf("Legacy API keys")).toBe(labels.indexOf("API tokens") + 1);
+    });
+
+    it("are reachable by the link a legacy key's expiry email carries, admin or not", () => {
+      // `?settings=workspace.legacy_api_keys` is written by the backend: the id is a contract.
+      expect(sectionFromParam("workspace.legacy_api_keys")).toBe("workspace.legacy_api_keys");
+      expect(sectionFromParam("workspace.api_keys")).toBe("workspace.api_keys");
+      // The dialog opens a linked section only if it is in the viewer's nav; anything else falls
+      // to the first visible one. A non-admin owner's link must therefore find it there.
+      expect(sectionsFor({})).toContain(sectionFromParam("workspace.legacy_api_keys"));
     });
   });
 

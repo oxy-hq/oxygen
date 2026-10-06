@@ -80,6 +80,7 @@ fn replica(db: &DatabaseConnection, platform: Arc<dyn PlatformContext>) -> Route
         name: "Operator".into(),
         picture: None,
         status: UserStatus::Active,
+        credential: None,
     };
     Router::new()
         .nest("/agentic-airway", agentic_http::airway_router(state))
