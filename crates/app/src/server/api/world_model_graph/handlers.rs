@@ -19,8 +19,7 @@ use crate::server::api::data::{
     run_with_connector,
 };
 use crate::server::api::middlewares::workspace_context::{
-    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx,
-    WorkspaceManagerWorkingCopy,
+    EffectiveWorkspaceRole, SemanticEngineCacheCtx, SemanticLayerCacheCtx, WorkspaceManagerReadOnly,
 };
 use crate::server::api::semantic::{ErrorResponse, WorkspacePath};
 use entity::workspace_members::WorkspaceRole;
@@ -28,8 +27,9 @@ use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::utils::create_sse_stream;
 
 use super::query::*;
+use super::source::*;
 use super::types::*;
-use oxy::config::WorkingCopy;
+use oxy::config::{ConfigManager, DiskSlot, ResolveWorkspaceFile};
 
 /// `GET /{workspace_id}/semantic/world-model`
 ///
@@ -37,23 +37,19 @@ use oxy::config::WorkingCopy;
 /// semantic model, its own and induced measures (with operator and
 /// additivity metadata), and the promotion edges between entities.
 pub async fn get_world_model(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     layer_cache: SemanticLayerCacheCtx,
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
 ) -> Result<extract::Json<WorldModelResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
-    let semantics_path = workspace_manager.config_manager.semantics_scan_path();
-
-    let layer = layer_cache
-        .get_or_load(None, semantics_path)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                extract::Json(ErrorResponse {
-                    message: format!("Failed to load semantic model: {e}"),
-                }),
-            )
-        })?;
+    let source = ModelSource::resolve(&workspace_manager).await?;
+    let layer = source.layer(&layer_cache).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            extract::Json(ErrorResponse {
+                message: format!("Failed to load semantic model: {e}"),
+            }),
+        )
+    })?;
 
     build_world_model_response(&layer, &workspace_manager.config_manager)
         .await
@@ -209,9 +205,8 @@ fn build_entity_node(
 ///
 /// Shared by the workspace-scoped [`get_world_model`] handler and the
 /// customer-app gate handler
-/// ([`crate::server::api::projects::world_model`]) — they differ only in how
-/// the layer and workspace path are obtained (FS scan-path cache vs. the
-/// compile-boundary materialised tempdir).
+/// ([`crate::server::api::projects::world_model`]) — they differ only in the
+/// gate they enter through; both read the layer from the compile boundary.
 pub(crate) async fn build_world_model_response<S: oxy::config::DiskSlot>(
     layer: &oxy_airlayer_compat::SemanticLayer,
     config_manager: &oxy::config::ConfigManager<S>,
@@ -243,7 +238,7 @@ pub(crate) async fn build_world_model_response<S: oxy::config::DiskSlot>(
 
 /// `GET /{workspace_id}/semantic/world-model/instances`
 pub async fn get_world_model_instances(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
@@ -252,28 +247,27 @@ pub async fn get_world_model_instances(
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
     axum::extract::Query(q): axum::extract::Query<WmInstancesQuery>,
 ) -> Result<extract::Json<WmInstancesResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
-    let semantics_path = workspace_manager.config_manager.semantics_scan_path();
-    let layer = layer_cache
-        .get_or_load(None, semantics_path.clone())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                extract::Json(ErrorResponse {
-                    message: format!("Failed to load layer: {e}"),
-                }),
-            )
-        })?;
-    let engine = Some(CachedEngine::working_copy(
+    let source = ModelSource::resolve(&workspace_manager).await?;
+    let layer = source.layer(&layer_cache).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            extract::Json(ErrorResponse {
+                message: format!("Failed to load layer: {e}"),
+            }),
+        )
+    })?;
+    refuse_entity_database(&workspace_manager, &layer, &q.entity)?;
+    let engine = Some(CachedEngine::for_source(
         &engine_cache,
         &workspace_manager,
+        &source,
     ));
     instances_core(
         &workspace_manager,
         user.id,
         role,
         &layer,
-        semantics_path,
+        source.scan_path(),
         engine,
         &q,
         None,
@@ -296,8 +290,8 @@ pub async fn get_world_model_instances(
 /// holds a `SemanticEngineCacheCtx`, while the customer-app handler enters
 /// through `enter_semantic_boundary`, which carries no `AppState`. `None`
 /// keeps the per-request build both callers used before.
-pub(crate) async fn instances_core(
-    workspace_manager: &WorkspaceManager<WorkingCopy>,
+pub(crate) async fn instances_core<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
     user_id: uuid::Uuid,
     role: WorkspaceRole,
     layer: &oxy_airlayer_compat::SemanticLayer,
@@ -305,7 +299,10 @@ pub(crate) async fn instances_core(
     engine: Option<CachedEngine>,
     q: &WmInstancesQuery,
     graph: Option<&GraphScope>,
-) -> Result<WmInstancesResponse, (StatusCode, extract::Json<ErrorResponse>)> {
+) -> Result<WmInstancesResponse, (StatusCode, extract::Json<ErrorResponse>)>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
     let is_search = q.search.as_deref().is_some_and(|s| !s.is_empty());
     let view = primary_view_of(layer, &q.entity).ok_or_else(|| {
         (
@@ -521,7 +518,7 @@ pub(crate) async fn instances_core(
 /// only previews as a handful of sample chips. Backs the "+N more" sample
 /// browser popover.
 pub async fn get_world_model_filter_instances(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
@@ -531,7 +528,7 @@ pub async fn get_world_model_filter_instances(
 ) -> Result<extract::Json<WmInstancesResponse>, (StatusCode, extract::Json<ErrorResponse>)> {
     let err = |code: StatusCode, message: String| (code, extract::Json(ErrorResponse { message }));
 
-    let (layer, promotions) = load_layer_and_promotions(&workspace_manager, &layer_cache).await?;
+    let (layer, promotions, source) = load_walkable_model(&workspace_manager, &layer_cache).await?;
     let wm_cfg = resolve_world_model_config(&workspace_manager).await;
     let entity_metas = build_entity_metas(&layer, &promotions, wm_cfg.as_ref());
 
@@ -554,12 +551,12 @@ pub async fn get_world_model_filter_instances(
     }
 
     let databases = super::query::database_configs(&workspace_manager);
-    let engine_key = engine_cache.working_copy_key(&databases);
+    let engine_key = source.engine_key(&engine_cache, &databases);
     let exec = WmExecCtx {
         workspace_manager: workspace_manager.clone(),
         user_id: user.id,
         role: role.clone(),
-        scan_path: workspace_manager.config_manager.semantics_scan_path(),
+        scan_path: source.scan_path(),
         databases,
         layer: (*layer).clone(),
         engine_cache: engine_cache.cache.clone(),
@@ -666,7 +663,7 @@ pub async fn get_world_model_filter_instances(
 
 /// `POST /{workspace_id}/semantic/world-model/filter-counts`
 pub async fn post_world_model_filter_counts(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
@@ -678,7 +675,7 @@ pub async fn post_world_model_filter_counts(
     Sse<impl futures::Stream<Item = Result<Event, axum::Error>>>,
     (StatusCode, extract::Json<ErrorResponse>),
 > {
-    let (layer, promotions) = load_layer_and_promotions(&workspace_manager, &layer_cache).await?;
+    let (layer, promotions, source) = load_walkable_model(&workspace_manager, &layer_cache).await?;
 
     // World-model config supplies per-entity display fields used to render sample
     // labels on descendant cards (mirrors the instance-detail handler).
@@ -695,9 +692,9 @@ pub async fn post_world_model_filter_counts(
     // cancelled request could drop mid-compile.
     let cached_engine = engine_cache
         .get_or_build(
-            // These handlers read `semantics_scan_path()` — the working copy —
-            // regardless of which revision the request is pinned to.
-            engine_cache.working_copy_key(&databases),
+            // Keyed by what the scan read: the compiled revision, or the
+            // working copy on a node that owns one.
+            source.engine_key(&engine_cache, &databases),
             layer.clone(),
             databases.clone(),
         )
@@ -1634,7 +1631,7 @@ pub async fn post_world_model_filter_counts(
 /// `init` (attributes) appears first, then `parent`, then individual `child` events,
 /// then `measures`, then `done`.
 pub async fn get_world_model_instance_detail(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
@@ -1645,7 +1642,8 @@ pub async fn get_world_model_instance_detail(
     Sse<impl futures::Stream<Item = Result<Event, axum::Error>>>,
     (StatusCode, extract::Json<ErrorResponse>),
 > {
-    let (layer, promotions) = load_layer_and_promotions(&workspace_manager, &layer_cache).await?;
+    let (layer, promotions, source) =
+        load_entity_model(&workspace_manager, &layer_cache, &q.entity).await?;
 
     let view = primary_view_of(&layer, &q.entity).ok_or_else(|| {
         (
@@ -2051,9 +2049,9 @@ pub async fn get_world_model_instance_detail(
     // workspace revision instead of twice per request.
     let cached_engine = engine_cache
         .get_or_build(
-            // These handlers read `semantics_scan_path()` — the working copy —
-            // regardless of which revision the request is pinned to.
-            engine_cache.working_copy_key(&databases),
+            // Keyed by what the scan read: the compiled revision, or the
+            // working copy on a node that owns one.
+            source.engine_key(&engine_cache, &databases),
             layer.clone(),
             databases.clone(),
         )
@@ -2464,7 +2462,7 @@ pub async fn get_world_model_instance_detail(
 /// Streams the metric-tree subtree for `measure` at `entity`, valued at the
 /// instance `key`: `init` (structure) → per-node `value` events → `done`.
 pub async fn get_world_model_measure_breakdown(
-    WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
+    WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     EffectiveWorkspaceRole(role): EffectiveWorkspaceRole,
     layer_cache: SemanticLayerCacheCtx,
@@ -2475,18 +2473,16 @@ pub async fn get_world_model_measure_breakdown(
     Sse<impl futures::Stream<Item = Result<Event, axum::Error>>>,
     (StatusCode, extract::Json<ErrorResponse>),
 > {
-    let semantics_path = workspace_manager.config_manager.semantics_scan_path();
-    let layer = layer_cache
-        .get_or_load(None, semantics_path)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                extract::Json(ErrorResponse {
-                    message: e.to_string(),
-                }),
-            )
-        })?;
+    let source = ModelSource::resolve(&workspace_manager).await?;
+    let layer = source.layer(&layer_cache).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            extract::Json(ErrorResponse {
+                message: e.to_string(),
+            }),
+        )
+    })?;
+    refuse_breakdown_database(&workspace_manager, &layer, &q)?;
     let databases = super::query::database_configs(&workspace_manager);
     // Surfaced, not swallowed: this is the airlayer validation error for the
     // workspace's own semantic files, and it is what makes an empty driver-tree
@@ -2494,7 +2490,7 @@ pub async fn get_world_model_measure_breakdown(
     let engine = Some(
         engine_cache
             .get_or_build(
-                engine_cache.working_copy_key(&databases),
+                source.engine_key(&engine_cache, &databases),
                 layer.clone(),
                 databases.clone(),
             )
@@ -2532,14 +2528,17 @@ pub async fn get_world_model_measure_breakdown(
 /// handler enters through `enter_semantic_boundary`, which is headers-driven
 /// and has no `AppState` to carry a cache. `None` falls back to building one
 /// for this request, which is what both callers did before.
-pub(crate) async fn measure_breakdown_core(
-    workspace_manager: WorkspaceManager<WorkingCopy>,
+pub(crate) async fn measure_breakdown_core<S: DiskSlot>(
+    workspace_manager: WorkspaceManager<S>,
     user_id: uuid::Uuid,
     role: WorkspaceRole,
     layer: &oxy_airlayer_compat::SemanticLayer,
     engine: Option<std::sync::Arc<oxy_airlayer_compat::SemanticEngine>>,
     q: WmMeasureBreakdownQuery,
-) -> Result<tokio::sync::mpsc::Receiver<WmMeasureBreakdownEvent>, (StatusCode, ErrorResponse)> {
+) -> Result<tokio::sync::mpsc::Receiver<WmMeasureBreakdownEvent>, (StatusCode, ErrorResponse)>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
     let view = primary_view_of(layer, &q.entity).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,

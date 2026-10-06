@@ -1,4 +1,3 @@
-use crate::agentic_wiring::OxyProjectContext;
 use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
 };
@@ -401,16 +400,26 @@ pub(crate) async fn run_with_connector(
 }
 
 /// Build a connector for the given database name, scoped to `user_id`/`role`.
-pub(crate) async fn build_connector(
-    workspace_manager: &WorkspaceManager<WorkingCopy>,
+///
+/// On either capability: what `OxyProjectContext::build_connector_for` does
+/// with a subject and a role, without needing a `WorkingCopy` manager to
+/// build the context from — same builder, same preview hold.
+pub(crate) async fn build_connector<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
     user_id: Uuid,
     role: WorkspaceRole,
     database: &str,
-) -> Result<Arc<dyn DatabaseConnector>, OxyError> {
-    let ctx = OxyProjectContext::new(workspace_manager.clone())
-        .with_subject(user_id)
-        .with_role(role);
-    ctx.build_connector_for(database).await
+) -> Result<Arc<dyn DatabaseConnector>, OxyError>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
+    crate::agentic_wiring::project_ctx::build_connector_for_db(
+        workspace_manager,
+        database,
+        Some(user_id),
+        Some(role),
+    )
+    .await
 }
 
 /// Cap SQL length in structured log fields so one bad query doesn't flood the

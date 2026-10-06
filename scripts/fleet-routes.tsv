@@ -197,12 +197,12 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/semantic/preagg-status	fleet-ok	Now	safe read; see the "differs between nodes" table
 *	/api/{workspace_id}/semantic/topic/{file_path_b64}	fleet-ok	Now	base64 a real `.topic.yml` under `examples/semantics/topics`
 *	/api/{workspace_id}/semantic/view/{file_path_b64}	fleet-ok	Now	base64 a real `.view.yml` under `examples/semantics/views`
-*	/api/{workspace_id}/semantic/world-model	ide-only	Now	`examples/.world-model.yml` exists — real file, real response
-*	/api/{workspace_id}/semantic/world-model/filter-counts	ide-only	Fixture	needs a real filter/entity id, discovered via the row above
-*	/api/{workspace_id}/semantic/world-model/filter-instances	ide-only	Fixture	same
-*	/api/{workspace_id}/semantic/world-model/instance-detail	ide-only	Fixture	needs a real instance id from `/instances`
-*	/api/{workspace_id}/semantic/world-model/instances	ide-only	Fixture	needs a real entity name from `/semantic/world-model`
-*	/api/{workspace_id}/semantic/world-model/measure-breakdown	ide-only	Fixture	same discovery chain
+*	/api/{workspace_id}/semantic/world-model	fleet-ok	Now	`examples/.world-model.yml` exists — real file, real response; structure only, queries no database
+*	/api/{workspace_id}/semantic/world-model/filter-counts	fleet-ok	Fixture	needs a real filter/entity id, discovered via the row above; a replica refuses a workspace-local database by name (503)
+*	/api/{workspace_id}/semantic/world-model/filter-instances	fleet-ok	Fixture	same
+*	/api/{workspace_id}/semantic/world-model/instance-detail	fleet-ok	Fixture	needs a real instance id from `/instances`; a replica refuses a workspace-local database by name (503)
+*	/api/{workspace_id}/semantic/world-model/instances	fleet-ok	Fixture	needs a real entity name from `/semantic/world-model`; a replica refuses a workspace-local database by name (503)
+*	/api/{workspace_id}/semantic/world-model/measure-breakdown	fleet-ok	Fixture	same discovery chain; a replica refuses a workspace-local database by name (503)
 *	/api/{workspace_id}/setup/demo	fleet-ok	Ext	**only mounted in `--local` mode** (`include_local_setup`, `crates/app/src/server/router/workspace.rs:344-348`) — the split fleet always runs `--enterprise`, so this 404s here by construction, not by fixture gap
 *	/api/{workspace_id}/setup/empty	fleet-ok	Ext	same — unreachable in this deployment
 *	/api/{workspace_id}/source-uploads	fleet-ok	Struct	404 verified live — bare prefix

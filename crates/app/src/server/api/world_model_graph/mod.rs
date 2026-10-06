@@ -13,10 +13,13 @@
 //! Module layout (mechanical split of the former single file):
 //! - [`types`]   — the public `Wm*` serde DTOs.
 //! - [`query`]   — internal SQL/traversal helpers and their unit tests.
+//! - [`source`]  — where the model is read from (compile boundary first), and
+//!   which databases a pod with no working copy refuses.
 //! - [`handlers`] — the six HTTP handlers.
 
 mod handlers;
 mod query;
+mod source;
 mod types;
 
 pub use handlers::{

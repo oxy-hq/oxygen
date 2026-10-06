@@ -293,6 +293,36 @@ mod branch_escalation {
             );
         }
     }
+
+    /// The world-model routes read the compiled revision, and the IDE page
+    /// that calls them names its branch on every request. A replica would
+    /// answer a draft branch from the promoted revision and say nothing, so
+    /// a request that names one still goes to the ide.
+    #[test]
+    fn a_world_model_request_naming_a_branch_still_goes_to_the_ide() {
+        install_roles();
+        let ws = "d9830be4-c6a4";
+        for (method, path) in [
+            ("GET", format!("/api/{ws}/semantic/world-model")),
+            ("GET", format!("/api/{ws}/semantic/world-model/instances")),
+            (
+                "POST",
+                format!("/api/{ws}/semantic/world-model/filter-counts"),
+            ),
+        ] {
+            let classified = classify(method, &path);
+            assert_eq!(
+                classified,
+                RouteRole::FleetOk,
+                "{method} {path}: precondition — served by any replica without a branch"
+            );
+            assert_eq!(
+                escalate_for_branch(classified, Some("branch=feature-x")),
+                RouteRole::IdeOnly,
+                "{method} {path}?branch= must reach the node that holds the draft"
+            );
+        }
+    }
 }
 
 /// Workspace previews on a serve replica: a `?branch=` fleet route carrying the

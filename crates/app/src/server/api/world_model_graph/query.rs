@@ -12,59 +12,17 @@ use uuid::Uuid;
 
 use crate::server::api::data::{build_connector, run_with_connector};
 
+use super::source::ModelSource;
 use super::types::*;
-use oxy::config::WorkingCopy;
-
-/// Load the semantic model and build its promotion closure — the preamble the
-/// world-model handlers otherwise repeat verbatim (`semantics_scan_path →
-/// get_or_load → Promotions::build`). Returns the transport error tuple ready to
-/// `?`-propagate from a handler so the load path lives in one place.
-pub(super) async fn load_layer_and_promotions(
-    workspace_manager: &WorkspaceManager<WorkingCopy>,
-    layer_cache: &crate::server::api::middlewares::workspace_context::SemanticLayerCacheCtx,
-) -> Result<
-    (
-        std::sync::Arc<oxy_airlayer_compat::SemanticLayer>,
-        Promotions,
-    ),
-    (
-        axum::http::StatusCode,
-        axum::extract::Json<crate::server::api::semantic::ErrorResponse>,
-    ),
-> {
-    let semantics_path = workspace_manager.config_manager.semantics_scan_path();
-    // `semantics_path` is `semantics_scan_path()` — this family scans the
-    // working copy unconditionally, so it names that source rather than the
-    // revision the request happens to be pinned to.
-    let layer = layer_cache
-        .get_or_load(None, semantics_path)
-        .await
-        .map_err(|e| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                axum::extract::Json(crate::server::api::semantic::ErrorResponse {
-                    message: e.to_string(),
-                }),
-            )
-        })?;
-    let promotions = Promotions::build(&layer.views).map_err(|e| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            axum::extract::Json(crate::server::api::semantic::ErrorResponse {
-                message: e.to_string(),
-            }),
-        )
-    })?;
-    Ok((layer, promotions))
-}
+use oxy::config::ReadOnly;
 
 /// Resolve the `.world-model.yml` display config, tolerating a missing or
 /// unreadable config (`None`). Compile-boundary first (serve replicas have no
 /// working copy), FS fallback — see [`WorldModelConfig::resolve`]. The
 /// world-model handlers otherwise repeat this `resolve(..).ok().flatten()`
 /// incantation verbatim, so it lives here in one place.
-pub(super) async fn resolve_world_model_config(
-    workspace_manager: &WorkspaceManager<WorkingCopy>,
+pub(super) async fn resolve_world_model_config<S: oxy::config::DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
 ) -> Option<oxy_world_model::WorldModelConfig> {
     oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager)
         .await
@@ -90,15 +48,17 @@ pub(crate) struct CachedEngine {
 }
 
 impl CachedEngine {
-    /// For a caller reading this node's working copy.
-    pub(crate) fn working_copy<S: oxy::config::DiskSlot>(
+    /// For a caller that resolved its scan through [`ModelSource`]: keyed by
+    /// what that scan read.
+    pub(super) fn for_source<S: oxy::config::DiskSlot>(
         engine_cache: &crate::server::api::middlewares::workspace_context::SemanticEngineCacheCtx,
         workspace_manager: &WorkspaceManager<S>,
+        source: &ModelSource,
     ) -> Self {
         let databases = database_configs(workspace_manager);
         Self {
             cache: engine_cache.cache.clone(),
-            key: engine_cache.working_copy_key(&databases),
+            key: source.engine_key(engine_cache, &databases),
             databases,
         }
     }
@@ -1362,7 +1322,7 @@ pub(super) fn build_entity_metas(
 /// exists — but it reads the same workspace as the handlers around it, and a
 /// second door here is how the cache stopped meaning anything the first time.
 pub(super) struct WmExecCtx {
-    pub(super) workspace_manager: WorkspaceManager<WorkingCopy>,
+    pub(super) workspace_manager: WorkspaceManager<ReadOnly>,
     pub(super) user_id: Uuid,
     pub(super) role: WorkspaceRole,
     pub(super) scan_path: std::path::PathBuf,

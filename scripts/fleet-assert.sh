@@ -1712,7 +1712,10 @@ if [ -n "$MEASURE_ID" ] && [ -n "$TIME_DIM" ]; then
   addb Now "metric-tree-opportunity" POST "/api/${WS}/semantic/metric-tree/opportunity" workspace_local \
     "$(printf '{"target":"%s","time_dimension":"%s","period":["2026-08-01","2026-08-07"]}' "$MEASURE_ID" "$TIME_DIM")" "/api/{workspace_id}/semantic/metric-tree/opportunity"
 fi
-[ -n "$ENTITY_NAME" ] && add Fixture "world-model-instances" GET "/api/${WS}/semantic/world-model/instances?entity=${ENTITY_NAME}" body "/api/{workspace_id}/semantic/world-model/instances"
+# The world-model drill-down is FleetOk and queries the warehouse: ide=2xx,
+# replica=5xx naming the disk when the database is a file in the working copy
+# and unmirrored (assert_workspace_local_refusal), 2xx from the mirror otherwise.
+[ -n "$ENTITY_NAME" ] && add Fixture "world-model-instances" GET "/api/${WS}/semantic/world-model/instances?entity=${ENTITY_NAME}" workspace_local_named "/api/{workspace_id}/semantic/world-model/instances"
 
 # ── Workspace: onboarding, integrations, tests, misc (Now) ─────────────────
 if [ -n "$TEST_B64" ]; then
@@ -1751,16 +1754,16 @@ add Fixture "scratch-file-read" GET "/api/${WS}/files/${SCRATCH_FILE_CURRENT_B64
 if [ -n "$ENTITY_NAME" ] && [ -n "$WM_SEED_KEY" ]; then
   add Fixture "world-model-instance-detail" GET \
     "/api/${WS}/semantic/world-model/instance-detail?entity=${ENTITY_NAME}&key=${WM_SEED_KEY}" \
-    status "/api/{workspace_id}/semantic/world-model/instance-detail"  # SSE, read to close; status only (see doc's SSE section)
+    workspace_local_named "/api/{workspace_id}/semantic/world-model/instance-detail"  # SSE, read to close; a replica refuses a workspace-local database by name
   add Fixture "world-model-filter-instances" GET \
     "/api/${WS}/semantic/world-model/filter-instances?seed_entity=${ENTITY_NAME}&seed_key=${WM_SEED_KEY}&entity=${ENTITY_NAME}" \
-    body "/api/{workspace_id}/semantic/world-model/filter-instances"
-  addb Fixture "world-model-filter-counts" POST "/api/${WS}/semantic/world-model/filter-counts" status \
+    workspace_local_named "/api/{workspace_id}/semantic/world-model/filter-instances"
+  addb Fixture "world-model-filter-counts" POST "/api/${WS}/semantic/world-model/filter-counts" workspace_local_named \
     "$(printf '{"entity_id":"%s","key_value":"%s"}' "$ENTITY_NAME" "$WM_SEED_KEY")" \
     "/api/{workspace_id}/semantic/world-model/filter-counts"  # SSE, status only
   [ -n "$MEASURE_ID" ] && add Fixture "world-model-measure-breakdown" GET \
     "/api/${WS}/semantic/world-model/measure-breakdown?entity=${ENTITY_NAME}&key=${WM_SEED_KEY}&measure=${MEASURE_ID}" \
-    status "/api/{workspace_id}/semantic/world-model/measure-breakdown"  # SSE, status only
+    workspace_local_named "/api/{workspace_id}/semantic/world-model/measure-breakdown"  # SSE; the same refusal
 else
   skip "no world-model entity/instance discovered — instance-detail, filter-instances, filter-counts, measure-breakdown left uncovered"
 fi

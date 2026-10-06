@@ -2246,11 +2246,19 @@ mod tests {
     /// correctly" from "nobody mentioned it".
     #[test]
     fn layer_sources_match_the_handler_family() {
-        // The world-model family scans `semantics_scan_path()` unconditionally,
-        // so every one of its cache calls must say `None` — the working copy —
-        // rather than the revision the request happens to be pinned to, which
-        // is `Some` on these nodes too.
+        // The boundary readers key on the revision their resolver reports.
+        // A literal at one of their call sites cannot track the fallback arms
+        // (`materialise_semantic_entity` returning None for an unpromoted file,
+        // a `scan_dir` error), each of which yields a working-copy path while
+        // the manager is still pinned to a revision.
+        //
+        // The world-model family is one of them now: it scanned
+        // `semantics_scan_path()` unconditionally and so passed `None`, until
+        // its routes became `FleetOk` and its scan moved to
+        // `world_model_graph::source`.
         for (name, src) in [
+            ("semantic.rs", include_str!("../semantic.rs")),
+            ("preagg.rs", include_str!("../preagg.rs")),
             (
                 "world_model_graph/handlers.rs",
                 include_str!("../world_model_graph/handlers.rs"),
@@ -2259,26 +2267,10 @@ mod tests {
                 "world_model_graph/query.rs",
                 include_str!("../world_model_graph/query.rs"),
             ),
-        ] {
-            let flat = one_line(src);
-            let calls = flat.matches("get_or_load(").count();
-            let working_copy_calls = flat.matches("get_or_load(None,").count();
-            assert!(calls > 0, "{name} should still hold layer cache calls");
-            assert_eq!(
-                working_copy_calls, calls,
-                "{name} reads the working copy directly, so all {calls} of its \
-                 get_or_load calls must pass None — {working_copy_calls} do"
-            );
-        }
-
-        // The boundary readers key on the revision their resolver reports.
-        // A literal at one of their call sites cannot track the fallback arms
-        // (`materialise_semantic_entity` returning None for an unpromoted file,
-        // a `scan_dir` error), each of which yields a working-copy path while
-        // the manager is still pinned to a revision.
-        for (name, src) in [
-            ("semantic.rs", include_str!("../semantic.rs")),
-            ("preagg.rs", include_str!("../preagg.rs")),
+            (
+                "world_model_graph/source.rs",
+                include_str!("../world_model_graph/source.rs"),
+            ),
         ] {
             let flat = one_line(src);
             assert!(

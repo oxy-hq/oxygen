@@ -72,6 +72,34 @@ fn database_is_serve_safe(db: &Database) -> bool {
     }
 }
 
+/// The first database in scope that only a pod holding the working copy can
+/// query, by name — `None` when every one in scope is reachable from anywhere.
+///
+/// `datasources` are the `datasource:` names a caller is about to query. A
+/// `None` among them is a view that names no database: it may resolve to any,
+/// so it puts every configured one in scope. A name `databases` does not list
+/// is not this function's to judge; the query says so itself.
+pub(crate) fn first_needing_working_copy<'a>(
+    databases: &[Database],
+    datasources: impl IntoIterator<Item = Option<&'a str>>,
+) -> Option<String> {
+    let mut every = false;
+    let mut named = std::collections::HashSet::new();
+    for datasource in datasources {
+        match datasource {
+            Some(name) => {
+                named.insert(name);
+            }
+            None => every = true,
+        }
+    }
+    databases
+        .iter()
+        .filter(|db| every || named.contains(db.name.as_str()))
+        .find(|db| !database_is_serve_safe(db))
+        .map(|db| db.name.clone())
+}
+
 /// True when every database in `config` is serve-safe. An agent with no
 /// databases has nothing to execute against and is trivially serve-safe.
 fn config_is_serve_safe(config: &Config) -> bool {
@@ -280,6 +308,75 @@ mod tests {
     fn a_config_that_does_not_deserialise_is_not_proven_safe() {
         let broken = serde_json::json!({ "databases": "not-an-array" });
         assert!(!compiled_config_is_serve_safe(Some(broken)));
+    }
+
+    fn database(entry: serde_json::Value) -> Database {
+        serde_json::from_value(entry).expect("a database entry")
+    }
+
+    /// A remote Postgres, and a DuckDB whose data sits in the working copy.
+    fn remote_and_local() -> Vec<Database> {
+        vec![
+            database(serde_json::json!({
+                "name": "pg", "type": "postgres", "host": "db", "database": "d"
+            })),
+            database(serde_json::json!({ "name": "local", "type": "duckdb", "dataset": ".db/" })),
+        ]
+    }
+
+    #[test]
+    fn a_file_backed_database_about_to_be_queried_is_named() {
+        assert_eq!(
+            first_needing_working_copy(&remote_and_local(), [Some("local")]),
+            Some("local".to_string())
+        );
+    }
+
+    #[test]
+    fn one_nobody_is_about_to_query_refuses_nothing() {
+        let databases = remote_and_local();
+        assert_eq!(first_needing_working_copy(&databases, [Some("pg")]), None);
+        assert_eq!(
+            first_needing_working_copy(&databases, Vec::<Option<&str>>::new()),
+            None
+        );
+        // A name the config does not list is the query's own error to raise.
+        assert_eq!(first_needing_working_copy(&databases, [Some("typo")]), None);
+    }
+
+    /// The refusal does not depend on how a connector happens to fail: a key
+    /// file is a file in the checkout as much as a DuckDB dataset is.
+    #[test]
+    fn a_key_file_database_is_named_and_a_secret_backed_one_is_not() {
+        let databases = vec![
+            database(serde_json::json!({
+                "name": "bq_file", "type": "bigquery", "key_path": "key.json", "dataset": "d"
+            })),
+            database(serde_json::json!({
+                "name": "bq_secret", "type": "bigquery", "key_path_var": "BQ_KEY", "dataset": "d"
+            })),
+        ];
+        assert_eq!(
+            first_needing_working_copy(&databases, [Some("bq_file")]),
+            Some("bq_file".to_string())
+        );
+        assert_eq!(
+            first_needing_working_copy(&databases, [Some("bq_secret")]),
+            None
+        );
+    }
+
+    #[test]
+    fn a_view_naming_no_database_puts_every_one_in_scope() {
+        let databases = remote_and_local();
+        assert_eq!(
+            first_needing_working_copy(&databases, [None]),
+            Some("local".to_string())
+        );
+        assert_eq!(
+            first_needing_working_copy(&databases, [Some("pg"), None]),
+            Some("local".to_string())
+        );
     }
 
     #[test]

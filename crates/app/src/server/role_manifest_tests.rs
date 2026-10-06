@@ -541,10 +541,12 @@ fn unknown_routes_default_to_fleet_ok() {
         classify("GET", "/api/d9830be4-c6a4/world-model/cameras"),
         RouteRole::FleetOk
     );
-    // But `/semantic/world-model*` scan the workspace working copy directly
-    // (config_manager.semantics_scan_path), so they're IdeOnly — a serve
-    // replica has no working copy and 500s ("Failed to load semantic
-    // model"). Regression guard for oxygen-internal 2026-07-27.
+    // `/semantic/world-model*` read the semantic model through the compile
+    // boundary (`world_model_graph::source`), as the metric tree does, so
+    // any replica serves them. They were IdeOnly while the handlers scanned
+    // `semantics_scan_path()`: a serve replica has no working copy and
+    // 500'd ("Failed to load semantic model", oxygen-internal 2026-07-27).
+    // `nothing_here_reads_the_working_copy_directly` keeps that scan out.
     for (method, path) in [
         ("GET", "/api/d9830be4-c6a4/semantic/world-model"),
         ("GET", "/api/d9830be4-c6a4/semantic/world-model/instances"),
@@ -567,8 +569,8 @@ fn unknown_routes_default_to_fleet_ok() {
     ] {
         assert_eq!(
             classify(method, path),
-            RouteRole::IdeOnly,
-            "{method} {path} must be IdeOnly (reads the workspace working copy)"
+            RouteRole::FleetOk,
+            "{method} {path} reads the compiled revision — must serve from any replica"
         );
     }
     // Customer-apps batch mutations touch only Postgres + the S3 build

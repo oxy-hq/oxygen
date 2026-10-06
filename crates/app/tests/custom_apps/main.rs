@@ -185,3 +185,4 @@ mod staging_storage_limits;
 mod staging_write_probe;
 mod storage_history_query;
 mod warehouse_writes_on_engines;
+mod world_model_diskless;

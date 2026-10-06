@@ -236,27 +236,31 @@ pub(super) fn build_workspace_routes(
         // FleetOk like every other read here, and pinning it to the ide
         // would make *viewing* a finished race need the singleton.
         .route_fleet("/simulations/{name}/race", get(simulation::get_profit_race))
-        .route_ide(
+        // The world-model graph reads the semantic model through the compile
+        // boundary (`world_model_graph::source`), as the metric tree does, so
+        // any replica serves it. The handlers take `WorkspaceManagerReadOnly`:
+        // one that reached for the working copy would not compile here.
+        .route_fleet(
             "/semantic/world-model",
             get(world_model_graph::get_world_model),
         )
-        .route_ide(
+        .route_fleet(
             "/semantic/world-model/instances",
             get(world_model_graph::get_world_model_instances),
         )
-        .route_ide(
+        .route_fleet(
             "/semantic/world-model/filter-instances",
             get(world_model_graph::get_world_model_filter_instances),
         )
-        .route_ide(
+        .route_fleet(
             "/semantic/world-model/filter-counts",
             post(world_model_graph::post_world_model_filter_counts),
         )
-        .route_ide(
+        .route_fleet(
             "/semantic/world-model/instance-detail",
             get(world_model_graph::get_world_model_instance_detail),
         )
-        .route_ide(
+        .route_fleet(
             "/semantic/world-model/measure-breakdown",
             get(world_model_graph::get_world_model_measure_breakdown),
         )

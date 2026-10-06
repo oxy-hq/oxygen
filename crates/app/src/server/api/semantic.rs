@@ -802,8 +802,7 @@ pub async fn execute_semantic_query(
         crate::server::preagg_context::RollupFreshness::ServeStale,
     );
     // Keyed on what the scan actually READ, not on the pinned revision: this
-    // node may hold a working copy and still be pinned to a revision, and the
-    // world-model handlers read the working copy on exactly such a node. The
+    // node may hold a working copy and still be pinned to a revision. The
     // preagg key above is workspace-only by design; this one must not be.
     let engine_key = engine_cache.scan_key(source.source_revision(&workspace_manager), &databases);
     let cache = engine_cache.cache.clone();
