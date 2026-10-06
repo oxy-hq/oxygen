@@ -769,6 +769,10 @@ pub async fn workspace_middleware(
     {
         return Ok(response);
     }
+    // From here on `?branch=` means "read this branch's working copy": it
+    // picks the revision and the directory a manager is built on. On a route
+    // where it names what is acted on instead, it means neither.
+    let working_copy_branch = query.branch.filter(|_| !branch_names_a_resource(&request));
 
     // Resolve the one revision this request reads — ONCE — and pin it for the
     // whole downstream (config resolution below + every compiled reader the
@@ -781,7 +785,7 @@ pub async fn workspace_middleware(
         None => {
             crate::server::api::compiled_reader::resolve_request_revision(
                 workspace_id,
-                query.branch.as_deref(),
+                working_copy_branch.as_deref(),
             )
             .await
         }
@@ -809,7 +813,7 @@ pub async fn workspace_middleware(
             Some(workspace_row) => {
                 try_attach_workspace_manager(
                     &workspace_row,
-                    query.branch.as_deref(),
+                    working_copy_branch.as_deref(),
                     workspace_id,
                     user.id,
                     preagg_cache,
@@ -895,6 +899,19 @@ async fn forward_with_original_uri(
         *request.uri_mut() = original;
     }
     crate::server::ide_proxy::forward_to_ide(upstream, request).await
+}
+
+/// Whether this request's `?branch=` names what it acts on — the branch to
+/// compile on `POST /compile/staging` — rather than a working copy to read.
+/// Asked of the URI the outer stack routed on: inside the workspace nest axum
+/// has rewritten `Uri` to the remainder.
+fn branch_names_a_resource(request: &Request<axum::body::Body>) -> bool {
+    request
+        .extensions()
+        .get::<axum::extract::OriginalUri>()
+        .is_some_and(|original| {
+            crate::server::role_middleware::branch_names_a_resource(original.0.path())
+        })
 }
 
 /// Finish the branch escalation `enforce_role` deferred for a request carrying
@@ -1865,6 +1882,44 @@ async fn try_attach_workspace_manager(
 
 #[cfg(test)]
 mod tests {
+    /// `POST /compile/staging?branch=feat/x` names the branch to compile. If
+    /// the middleware read it as a working copy to serve, a replica would
+    /// count a dropped branch hint and the node with the files would build a
+    /// manager on a worktree the request never reads.
+    #[test]
+    fn a_branch_that_names_what_is_compiled_is_not_a_working_copy_to_read() {
+        use axum::extract::OriginalUri;
+        let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+        let arriving = |original: Option<String>| {
+            // What a handler inside the nest sees: the remainder.
+            let mut request = axum::extract::Request::new(axum::body::Body::empty());
+            *request.uri_mut() = "/compile/staging?branch=feat%2Fx".parse().unwrap();
+            if let Some(original) = original {
+                request
+                    .extensions_mut()
+                    .insert(OriginalUri(original.parse().unwrap()));
+            }
+            request
+        };
+        let staging = format!("/api/{ws}/compile/staging?branch=feat%2Fx");
+        assert!(super::branch_names_a_resource(&arriving(Some(staging))));
+        // Every other workspace route keeps reading `?branch=` as it did.
+        for path in [
+            "threads",
+            "compile/status",
+            "compile/staging/status",
+            "files",
+        ] {
+            let other = format!("/api/{ws}/{path}?branch=feat%2Fx");
+            assert!(
+                !super::branch_names_a_resource(&arriving(Some(other))),
+                "{path}"
+            );
+        }
+        // Not routed through a nest: nothing says which route this is.
+        assert!(!super::branch_names_a_resource(&arriving(None)));
+    }
+
     #[test]
     fn self_heal_backoff_doubles_per_consecutive_failure_up_to_six_hours() {
         use super::lazy_compile_backoff_secs as b;

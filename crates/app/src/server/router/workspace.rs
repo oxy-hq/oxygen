@@ -97,10 +97,12 @@ pub(super) fn build_workspace_routes(
         .route_ide("/compile", post(compile::enqueue_compile))
         .route_ide("/compile/status", get(compile::compile_status))
         // Staging branch compile for a custom-app draft build to pin
-        // (`oxyc publish --semantic-branch`). The POST reads the branch's
-        // head + worktree off `.git` → IdeOnly; the status is a pure
-        // `revisions` read → FleetOk.
-        .route_ide(
+        // (`oxyc publish --semantic-branch`). The POST asks GitHub where the
+        // branch is and queues a compile of that commit; the status reads
+        // Postgres. Both FleetOk. A branch GitHub does not have is the one
+        // case that needs a working copy, and the handler sends that request
+        // on itself (`server::factory_replay`).
+        .route_fleet(
             "/compile/staging",
             post(compile_staging::enqueue_staging_compile),
         )
@@ -826,20 +828,21 @@ fn build_app_integration_routes(app_state: &AppState) -> RoleRouter {
 /// preview header must still be able to manage previews, which the read-only
 /// guard inside `workspace_middleware` would refuse.
 ///
-/// Creating and refreshing read `.git` (the branch has to exist and its head is
-/// resolved there), so they are `route_ide`; listing and deleting touch only
-/// Postgres and stay on the fleet.
+/// Every route here is on the fleet. Creating and refreshing ask GitHub where
+/// the branch is and queue a compile of that commit; the rest touch only
+/// Postgres. A branch GitHub does not have is the one case that needs a working
+/// copy, and those two handlers send that request on themselves
+/// (`server::factory_replay`).
 pub(super) fn build_workspace_preview_routes(app_state: &AppState) -> RoleRouter {
     use crate::api::workspace_previews as previews;
     RoleRouter::new(app_state.clone())
-        .route_split(
+        .route_fleet(
             "/",
-            "POST",
-            post(previews::create_preview),
-            "*",
-            get(previews::list_previews).delete(previews::delete_preview),
+            post(previews::create_preview)
+                .get(previews::list_previews)
+                .delete(previews::delete_preview),
         )
-        .route_ide("/refresh", post(previews::refresh_preview))
+        .route_fleet("/refresh", post(previews::refresh_preview))
         // Postgres only (the analyze row and its run outcome): any replica.
         .route_fleet("/checks", get(previews::get_checks))
         // Held procedure dry runs: the handlers write and read rows; the run

@@ -70,6 +70,14 @@ impl PreviewRequestError {
         }
     }
 
+    /// Whether the node that holds the workspace's files could answer what
+    /// this process refused — the one refusal a route sends on to it. Asked
+    /// separately from [`Self::reason`], so a refusal that gains a reason
+    /// later is not replayed by accident.
+    pub fn needs_working_copy(&self) -> bool {
+        matches!(self, Self::NeedsWorkingCopy { .. })
+    }
+
     /// Why this pod cannot compile the branch, when that is the refusal: the
     /// stable name a client branches on (`branch_not_pushed`, …).
     pub fn reason(&self) -> Option<&'static str> {

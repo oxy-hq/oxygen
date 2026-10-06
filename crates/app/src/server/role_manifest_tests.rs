@@ -1985,10 +1985,9 @@ fn airway_policy_preview_is_fleet_ok() {
 }
 
 /// Workspace previews' Airway change check is served from the analyze row and
-/// its run outcome — Postgres only — so viewing it must not need the ide. Its
-/// siblings that read `.git` (create, refresh) stay pinned.
+/// its run outcome — Postgres only — so viewing it must not need the ide.
 #[test]
-fn preview_checks_is_fleet_ok_beside_ide_only_refresh() {
+fn preview_checks_is_fleet_ok() {
     let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
     assert_eq!(
         classify("GET", &format!("/api/{ws}/previews/checks")),
@@ -2009,10 +2008,49 @@ fn preview_checks_is_fleet_ok_beside_ide_only_refresh() {
         )],
         "the checks route is declared once (`route_fleet` declares every method), FleetOk"
     );
-    assert_eq!(
-        classify("POST", &format!("/api/{ws}/previews/refresh")),
-        RouteRole::IdeOnly
-    );
+}
+
+/// Creating or refreshing a preview, and staging a branch for a custom-app
+/// build, look the branch up on GitHub and queue a compile of that commit. No
+/// working copy is read, so they must not need the ide: that pin is what made
+/// every preview go down with it. Declared, not defaulted — an undeclared path
+/// answers `FleetOk` too.
+#[test]
+fn compiling_a_branch_for_a_preview_or_a_staging_build_is_fleet_ok() {
+    let ws = "d9830be4-c6a4-4f89-11d3-9a0c0305e82c";
+    install_route_declarations_for_tests();
+    let manifest = dump_manifest();
+    for path in [
+        "/api/{workspace_id}/previews",
+        "/api/{workspace_id}/previews/refresh",
+        "/api/{workspace_id}/compile/staging",
+        "/api/{workspace_id}/compile/staging/status",
+    ] {
+        // The workspace tree is mounted more than once, so a path in it can be
+        // declared more than once; every declaration has to agree.
+        let declared: Vec<_> = manifest
+            .iter()
+            .filter(|(_, p, _)| p == path)
+            .map(|(method, _, role)| (*method, *role))
+            .collect();
+        assert!(!declared.is_empty(), "{path} is declared");
+        assert!(
+            declared
+                .iter()
+                .all(|d| *d == ("*", RouteRole::FleetOk.as_str())),
+            "{path} is FleetOk for every method: {declared:?}"
+        );
+        let concrete = path.replace("{workspace_id}", ws);
+        assert_eq!(classify("POST", &concrete), RouteRole::FleetOk, "{path}");
+    }
+    // The Compile button and its status still read the working copy.
+    for (method, path) in [("POST", "compile"), ("GET", "compile/status")] {
+        assert_eq!(
+            classify(method, &format!("/api/{ws}/{path}")),
+            RouteRole::IdeOnly,
+            "{method} /{path}"
+        );
+    }
 }
 
 /// Held procedure runs only write and read Postgres rows — the run executes on

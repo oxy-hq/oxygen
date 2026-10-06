@@ -16,6 +16,7 @@ pub mod compile_request;
 pub mod compile_trigger;
 pub mod compile_worker;
 pub mod default_branch;
+pub mod factory_replay;
 pub mod feature_flags;
 pub mod git_fetch_maintenance;
 pub mod health_eval_executor;

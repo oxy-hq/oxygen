@@ -109,6 +109,8 @@ POST	/api/{workspace_id}/app-integrations	ide-only	Fixture	creates a real Toast/
 *	/api/{workspace_id}/charts/{file_path}	fleet-ok	Fixture	needs a chart already produced by a prior run
 *	/api/{workspace_id}/compile	ide-only	Now	enqueues a real, idempotent compile of the shared Demo workspace — produces a new revision, doesn't destroy anything. Could race a concurrent compile from another agent; that's a timing risk, not a destructive one
 *	/api/{workspace_id}/compile/status	ide-only	Now	needs `?branch=` (confirmed live: 400 without it) — buildable with `?branch=main`
+*	/api/{workspace_id}/compile/staging	fleet-ok	Ext	`POST ?branch=<b>` queues a staging compile of the branch's head. A branch that is on GitHub compiles from the commit GitHub has, on any node; one GitHub does not have (the Demo workspace has no remote) is replayed by the replica to the ide, and answers 409 `[no_git_remote]` with the ide down. Its `?branch=` names the branch to compile, so it does not raise the role
+*	/api/{workspace_id}/compile/staging/status	fleet-ok	Now	`GET ?git_sha=<sha>` — Postgres only; `pending` for a commit nothing has compiled, so any 40-hex value is a real read
 *	/api/{workspace_id}/continue-rebase	ide-only	Fixture	same as abort-rebase
 *	/api/{workspace_id}/custom-apps	fleet-ok	Now	verified live 200 — 1 real published app (`oxy-starter`)
 GET	/api/{workspace_id}/databases	fleet-ok	Now	one path, two roles via `route_split` (`workspace.rs:600-606`) — verified live 200, 11 real entries
@@ -162,6 +164,8 @@ POST	/api/{workspace_id}/databases	ide-only	Destr	additive (a new entry doesn't 
 *	/api/{workspace_id}/onboarding/upload-warehouse-files	ide-only	Fixture	needs a real file upload; a disposable scratch CSV is harmless
 *	/api/{workspace_id}/org-subdomain	fleet-ok	Now	reads real workspace subdomain config
 *	/api/{workspace_id}/oxy-access	fleet-ok	Now	verified live 200; `POST` (lock Oxy staff out) is destructive-to-access — avoid on the shared workspace, `DELETE` (unlock) is always safe to run afterward if needed
+*	/api/{workspace_id}/previews	fleet-ok	Ext	staff only. `GET` lists (free); `POST {"branch"}` compiles the branch's head as a staging revision and records the preview — from GitHub when the branch is pushed, replayed to the ide when only its working copy has it; `DELETE ?branch=` removes one. `?branch=` names the preview, so it does not raise the role
+*	/api/{workspace_id}/previews/refresh	fleet-ok	Ext	staff only. `POST ?branch=<b>` moves a preview to the branch's current head; same sources as creating one
 *	/api/{workspace_id}/procedures	fleet-ok	Now	verified live 200 — 23 real automations
 *	/api/{workspace_id}/procedures/{path_b64}	fleet-ok	Now	base64 one of the 23 real paths
 *	/api/{workspace_id}/pull-changes	ide-only	Now	likely a no-op given no configured remote (see `/fetch`); still exercises the route

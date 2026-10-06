@@ -706,6 +706,15 @@ role_for_tpl() { # tpl -> prints the catalog role, or "unknown"
 effective_role() { # tpl concrete_path -> the role that governs THIS request
   local role; role="$(role_for_tpl "$1")"
   [ "$role" = "IdeOnly" ] && { printf 'IdeOnly'; return; }
+  # Where `branch` names what the request acts on — a preview, the branch to
+  # compile — it is not a working copy to read and raises nothing. Mirrors
+  # `branch_names_a_resource` in the same file as `escalate_for_branch`.
+  case "$1" in
+    "/api/{workspace_id}/previews"|"/api/{workspace_id}/previews/refresh"|\
+    "/api/{workspace_id}/previews/checks"|"/api/{workspace_id}/previews/runs"|\
+    "/api/{workspace_id}/compile/staging")
+      printf '%s' "$role"; return ;;
+  esac
   case "$2" in
     *\?*)
       local q="${2#*\?}" pair
@@ -1647,6 +1656,9 @@ add Now  "custom-apps-workspace" GET "/api/${WS}/custom-apps"           body "/a
 add Now  "databases-list"    GET "/api/${WS}/databases?branch=main"     body "/api/{workspace_id}/databases"
 addb Now "compile-post"      POST "/api/${WS}/compile"                 status '{}' "/api/{workspace_id}/compile"
 add Now  "compile-status"    GET "/api/${WS}/compile/status?branch=main" body "/api/{workspace_id}/compile/status"
+# Postgres only: a commit nothing has compiled reads `pending` on every node,
+# with the ide up or down.
+add Now  "compile-staging-status" GET "/api/${WS}/compile/staging/status?git_sha=0000000000000000000000000000000000000000" body "/api/{workspace_id}/compile/staging/status"
 [ -n "$APP_PATHB64" ] && add Now "apps-get"        GET "/api/${WS}/apps/${APP_PATHB64}"          body "/api/{workspace_id}/apps/{pathb64}"
 [ -n "$APP_PATHB64" ] && add Now "apps-displays"   GET "/api/${WS}/apps/${APP_PATHB64}/displays" body "/api/{workspace_id}/apps/{pathb64}/displays"
 [ -n "$APP_PATHB64" ] && add Now "apps-file"       GET "/api/${WS}/apps/file/${APP_PATHB64}"     body "/api/{workspace_id}/apps/file/{pathb64}"

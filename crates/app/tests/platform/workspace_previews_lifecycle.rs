@@ -8,7 +8,7 @@
 //! tables) over a real git repository as the workspace — the Factory's clone,
 //! with the branch committed locally and no remote, which is the case the
 //! working copy still answers. A branch that is on GitHub is covered by
-//! `compile_request`.
+//! `compile_request` and `previews_from_git`.
 
 use std::path::{Path, PathBuf};
 
@@ -169,7 +169,6 @@ async fn setup() -> Fx {
 fn api(user: AuthenticatedUser) -> Router {
     use oxy_app::server::api::middlewares::workspace_context::workspace_access_middleware;
     use oxy_app::server::api::workspace_previews as h;
-    let ide = oxy_app::server::router::IdeState(oxy_app::server::router::bare_app_state());
     let previews = Router::new()
         .route(
             "/",
@@ -178,7 +177,6 @@ fn api(user: AuthenticatedUser) -> Router {
                 .delete(h::delete_preview),
         )
         .route("/refresh", post(h::refresh_preview))
-        .with_state(ide)
         .layer(middleware::from_fn(workspace_access_middleware));
     Router::new()
         .nest("/{workspace_id}/previews", previews)

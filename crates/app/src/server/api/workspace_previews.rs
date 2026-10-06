@@ -2,8 +2,8 @@
 //! `/api/{workspace_id}/previews` behind the workspace access check.
 //!
 //! * `GET    /previews`                    → `{"items":[…]}` — FleetOk
-//! * `POST   /previews` `{"branch":"x"}`   → 202 `{"item":{…}}` — IdeOnly (reads `.git`)
-//! * `POST   /previews/refresh?branch=x`   → 202 `{"item":{…}}` — IdeOnly (reads `.git`)
+//! * `POST   /previews` `{"branch":"x"}`   → 202 `{"item":{…}}` — FleetOk
+//! * `POST   /previews/refresh?branch=x`   → 202 `{"item":{…}}` — FleetOk
 //! * `DELETE /previews?branch=x`           → 204 — FleetOk
 //! * `GET    /previews/checks?branch=x`    → `{branch, revision_id, status, error, pipelines}`
 //!   — FleetOk: the Airway change check of the preview's current revision
@@ -25,22 +25,28 @@
 //! with a `"reason"` beside the code, such as `branch_not_pushed`);
 //! `503 github_unavailable` when GitHub did not say where the branch is;
 //! `404 preview_not_found` for refreshing one that does not exist.
+//!
+//! Create and refresh compile a branch that is on GitHub from the commit
+//! GitHub has, so any pod serves them. A branch only a working copy has is
+//! replayed to the node that holds one (`server::factory_replay`); with none
+//! to ask, the answer is the `409` above.
 
 use axum::Json;
-use axum::extract::{Extension, Path, Query, State};
+use axum::body::Bytes;
+use axum::extract::{Extension, Path, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 use serde::{Deserialize, Serialize};
 
 use crate::server::api::middlewares::role_guards::WorkspacePreviewer;
+use crate::server::factory_replay::Arrived;
 use crate::server::previews::checks::ChecksResponse;
 use crate::server::previews::runs::{
     self as runs, RunDetail, RunRequestError, RunSummary, SubmitRun, Submitted,
 };
 use crate::server::previews::service::{self, PreviewItem, PreviewRequest, PreviewRequestError};
 use crate::server::previews::sources::{self, PutSource, SourceItem, SourceRequestError};
-use crate::server::router::IdeState;
 
 #[derive(Serialize)]
 pub struct PreviewList {
@@ -52,6 +58,10 @@ pub struct PreviewResponse {
     pub item: PreviewItem,
 }
 
+/// `POST /previews`. A request this pod sends on to the node with the working
+/// copy is rebuilt from these fields ([`create_preview`]), not from the bytes
+/// that arrived: a field added here has to be added there, or it is dropped
+/// on the hop.
 #[derive(Deserialize)]
 pub struct CreatePreviewBody {
     pub branch: String,
@@ -147,43 +157,65 @@ pub async fn list_previews(
     }))
 }
 
+/// The preview a create or refresh recorded — or, for a branch only a working
+/// copy has, whatever the node that holds one answers to the same request.
+/// With no such node to ask, the refusal stands.
+async fn staged(
+    db: &sea_orm::DatabaseConnection,
+    outcome: Result<entity::workspace_previews::Model, PreviewRequestError>,
+    arrived: &Arrived,
+    body: Bytes,
+) -> Result<Response, PreviewApiError> {
+    let refusal = match outcome {
+        Ok(row) => return Ok((StatusCode::ACCEPTED, Json(one(db, row).await?)).into_response()),
+        Err(refusal) => refusal,
+    };
+    if refusal.needs_working_copy()
+        && let Some(answer) = arrived.replayed_to_factory(body).await
+    {
+        return Ok(answer);
+    }
+    Err(refusal.into())
+}
+
 /// Preview a branch: compile its head into a staging revision (or reuse the
 /// ready one for that commit).
 pub async fn create_preview(
-    State(_ide): State<IdeState>,
     _: WorkspacePreviewer,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Extension(ws): Extension<entity::workspaces::Model>,
+    arrived: Arrived,
     Json(body): Json<CreatePreviewBody>,
-) -> Result<(StatusCode, Json<PreviewResponse>), PreviewApiError> {
+) -> Result<Response, PreviewApiError> {
     let db = db().await?;
-    let row = service::create(&PreviewRequest {
+    let created = service::create(&PreviewRequest {
         db: &db,
         workspace: &ws,
         branch: body.branch.trim(),
         requested_by: user.id,
     })
-    .await?;
-    Ok((StatusCode::ACCEPTED, Json(one(&db, row).await?)))
+    .await;
+    let replayable = serde_json::json!({ "branch": body.branch }).to_string();
+    staged(&db, created, &arrived, replayable.into()).await
 }
 
 /// Move a preview to its branch's current head.
 pub async fn refresh_preview(
-    State(_ide): State<IdeState>,
     _: WorkspacePreviewer,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Extension(ws): Extension<entity::workspaces::Model>,
+    arrived: Arrived,
     Query(q): Query<BranchParam>,
-) -> Result<(StatusCode, Json<PreviewResponse>), PreviewApiError> {
+) -> Result<Response, PreviewApiError> {
     let db = db().await?;
-    let row = service::refresh(&PreviewRequest {
+    let refreshed = service::refresh(&PreviewRequest {
         db: &db,
         workspace: &ws,
         branch: q.branch.trim(),
         requested_by: user.id,
     })
-    .await?;
-    Ok((StatusCode::ACCEPTED, Json(one(&db, row).await?)))
+    .await;
+    staged(&db, refreshed, &arrived, Bytes::new()).await
 }
 
 /// Stop listing a preview. Its revisions age out under staging retention.

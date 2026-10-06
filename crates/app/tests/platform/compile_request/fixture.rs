@@ -1,5 +1,5 @@
 //! The process, the fake GitHub and the workspace the `compile_request` tests
-//! run against.
+//! run against, shared with `previews_from_git`.
 
 use std::path::Path;
 

@@ -116,14 +116,21 @@ fn escalate_for_branch(role: RouteRole, query: Option<&str>) -> RouteRole {
 
 /// Routes whose `?branch=` names the resource being acted on rather than a
 /// working copy to read — the previews API (`DELETE /previews?branch=X`,
-/// `GET /previews/checks?branch=X`, `GET /previews/runs?branch=X`). The
-/// escalation above would otherwise send a Postgres-only request to the ide.
-fn branch_names_a_resource(path: &str) -> bool {
+/// `POST /previews/refresh?branch=X`, `GET /previews/checks?branch=X`,
+/// `GET /previews/runs?branch=X`) and the staging compile
+/// (`POST /compile/staging?branch=X`, the branch to compile). The escalation
+/// above would otherwise send a request no working copy answers to the ide.
+///
+/// The workspace middleware asks the same question, for the one of these that
+/// is mounted under it: there `?branch=` also picks the revision a request
+/// reads and the working copy a manager is built on.
+pub(crate) fn branch_names_a_resource(path: &str) -> bool {
     const PATTERNS: &[&str] = &[
         "/api/{workspace_id}/previews",
         "/api/{workspace_id}/previews/refresh",
         "/api/{workspace_id}/previews/checks",
         "/api/{workspace_id}/previews/runs",
+        "/api/{workspace_id}/compile/staging",
     ];
     PATTERNS
         .iter()

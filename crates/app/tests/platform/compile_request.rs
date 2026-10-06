@@ -17,7 +17,7 @@
 //! Run with:
 //! `cargo nextest run -p oxy-app --test platform -E 'test(compile_request)'`
 
-mod fixture;
+pub(super) mod fixture;
 
 use oxy::workspace_fs_probe::leaks;
 use oxy_app::server::compile_request::{self, NotFromGit, Refusal, Target};
@@ -331,4 +331,38 @@ async fn a_compile_that_fails_before_it_writes_a_revision_is_reported_failed_wit
     let again = fx.compile(Target::Branch(BRANCH)).await.expect("queued");
     assert!(again.task_id.is_some());
     assert_eq!(fx.status(HEAD).await.status, "pending");
+}
+
+/// A staging request joins a compile of the commit that is already queued,
+/// whatever its kind. When the one it joined is a main compile that then fails
+/// before writing a revision, the staging caller is waiting on that task and
+/// must be told, not left at `pending`.
+#[tokio::test]
+async fn a_joined_main_compile_that_fails_before_a_revision_is_reported_to_the_staging_caller() {
+    let fx = Fx::new(Some("worker")).await;
+    fx.branch_is_at(BRANCH, HEAD).await;
+    fx.serve_commit(HEAD, tarball(&[("README.md", "not a workspace")]))
+        .await;
+    // What the periodic check queues when a branch head moved.
+    oxy_app::server::compile_git::enqueue(
+        &fx.db,
+        fx.ws,
+        HEAD,
+        Some("main"),
+        RevisionKind::Main,
+        true,
+    )
+    .await
+    .expect("queue the main compile");
+
+    let joined = fx.compile(Target::Branch(BRANCH)).await.expect("joined");
+    assert_eq!(joined.status, "pending");
+    assert_eq!(joined.task_id, None, "it queued nothing of its own");
+    fx.drive_until_settled().await;
+
+    assert_eq!(fx.queued().await.len(), 1, "only the main compile ran");
+    let failed = fx.status(HEAD).await;
+    assert_eq!(failed.status, "failed", "{failed:?}");
+    let reason = failed.error.expect("a reason");
+    assert!(reason.contains("[no_config]"), "{reason}");
 }

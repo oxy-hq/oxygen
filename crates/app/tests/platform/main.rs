@@ -89,6 +89,7 @@ mod preview_samples;
 mod preview_sources;
 mod preview_ttl;
 mod previews_e2e;
+mod previews_from_git;
 mod projects_query;
 mod run;
 mod run_routes_workspace_scope;

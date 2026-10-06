@@ -14,7 +14,9 @@
 //! remote or no connection ([`NotFromGit`]) — only a working copy has it. A
 //! process that owns working copies then compiles its own, as every branch
 //! compile did before ([`working_copy`]); a process that owns none answers
-//! [`Refusal::NeedsWorkingCopy`], naming the reason.
+//! [`Refusal::NeedsWorkingCopy`], naming the reason, and its route sends the
+//! request on to the node that has the files when there is one
+//! (`server::factory_replay`).
 //!
 //! **Kinds.** `staging` is the only kind compiled here: a revision that is
 //! never promoted, and that nothing reads unless it is pinned
@@ -87,6 +89,12 @@ pub enum Refusal {
 impl Refusal {
     pub(crate) fn internal(error: impl std::fmt::Display) -> Self {
         Self::Internal(error.to_string())
+    }
+
+    /// Whether the node that holds the workspace's files could answer what
+    /// this process refused.
+    pub fn needs_working_copy(&self) -> bool {
+        matches!(self, Self::NeedsWorkingCopy { .. })
     }
 
     pub fn status(&self) -> StatusCode {

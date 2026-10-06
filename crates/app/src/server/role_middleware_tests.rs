@@ -344,10 +344,15 @@ mod preview_header {
             .route("/threads", get(threads))
             .route(
                 "/previews",
-                get(|| async { "list" }).delete(|| async { "deleted" }),
+                get(|| async { "list" })
+                    .delete(|| async { "deleted" })
+                    .post(|| async { "created" }),
             )
+            .route("/previews/refresh", post(|| async { "refreshed" }))
             .route("/previews/checks", get(|| async { "checks" }))
-            .route("/previews/runs", get(|| async { "runs" }));
+            .route("/previews/runs", get(|| async { "runs" }))
+            .route("/compile/staging", post(|| async { "staged" }))
+            .route("/compile/status", get(|| async { "compile status" }));
         let api_routes = Router::new().nest("/{workspace_id}", workspace_routes);
         Router::new()
             .nest("/api", api_routes)
@@ -421,6 +426,46 @@ mod preview_header {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body, "checks");
+    }
+
+    /// Creating and refreshing a preview, and staging a branch for a custom
+    /// app, compile a pushed branch from the commit GitHub has: a replica
+    /// answers them itself, and their `?branch=` names the branch to compile.
+    /// This is what lets a preview be made with the ide down.
+    #[tokio::test]
+    async fn compiling_a_branch_is_served_by_the_replica_it_lands_on() {
+        as_serve();
+        for (uri, served) in [
+            (format!("/api/{WS}/previews"), "created"),
+            (
+                format!("/api/{WS}/previews/refresh?branch=feat%2Fx"),
+                "refreshed",
+            ),
+            (
+                format!("/api/{WS}/compile/staging?branch=feat%2Fx"),
+                "staged",
+            ),
+        ] {
+            let (status, body) = call("POST", &uri, None).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            assert_eq!(body, served, "{uri}");
+        }
+    }
+
+    /// The Compile button's status describes the working copy — its HEAD, its
+    /// tracking ref, how far the serving revision is from it — so it stays
+    /// with the node that has one.
+    #[tokio::test]
+    async fn the_compile_buttons_status_still_needs_the_node_with_the_files() {
+        as_serve();
+        let (status, _) = call(
+            "GET",
+            &format!("/api/{WS}/compile/status?branch=main"),
+            None,
+        )
+        .await;
+        // No ide upstream in this process, so the pin surfaces as the 421.
+        assert_eq!(status, StatusCode::MISDIRECTED_REQUEST);
     }
 
     /// Same for the held procedure runs list: `?branch=` names the preview

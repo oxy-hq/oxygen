@@ -116,19 +116,32 @@ pub async fn compile_task_in_flight(
     Ok(row.is_some())
 }
 
-/// The reason the newest compile task of this commit and kind failed, when it
-/// did and nothing is queued after it. Only asked when the commit has no
-/// revision row, which is what a compile that never started compiling leaves:
-/// fetching the commit happens before the row is written.
+/// The reason the newest compile task of this commit failed, when it did and
+/// nothing is queued after it. Only asked when the commit has no revision row,
+/// which is what a compile that never started compiling leaves: fetching the
+/// commit happens before the row is written.
 ///
 /// Without it such a failure reads as `pending` for good, and a caller polling
 /// for `ready` waits out its whole timeout on a compile that ended in seconds.
+///
+/// It looks at every kind a compile of `kind` may reuse, as the row lookup
+/// does, not at `kind` alone: [`super::compile`] joins a compile of the commit
+/// that is in flight whatever its kind, so a staging request can be waiting on
+/// a main compile, and has to hear that it failed.
 async fn failed_before_a_revision(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     git_sha: &str,
     kind: RevisionKind,
 ) -> Result<Option<String>, DbErr> {
+    let kinds: Vec<String> = kind
+        .reusable_kinds()
+        .iter()
+        .map(|k| k.to_string())
+        .collect();
+    if kinds.is_empty() {
+        return Ok(None);
+    }
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -137,13 +150,13 @@ async fn failed_before_a_revision(
              WHERE q.spec->>'type' = 'compile' \
                AND q.spec->>'workspace_id' = $1 \
                AND q.spec->>'git_sha' = $2 \
-               AND COALESCE(q.spec->>'kind', 'main') = $3 \
+               AND COALESCE(q.spec->>'kind', 'main') = ANY($3) \
              ORDER BY q.created_at DESC \
              LIMIT 1",
             [
                 workspace_id.to_string().into(),
                 git_sha.into(),
-                kind.as_str().into(),
+                kinds.into(),
             ],
         ))
         .await?;
@@ -158,8 +171,21 @@ async fn failed_before_a_revision(
     Ok(Some(
         reason
             .filter(|r| !r.trim().is_empty())
-            .unwrap_or_else(|| "the compile failed before it produced a revision".to_string()),
+            .unwrap_or_else(|| unexplained(&queue_status).to_string()),
     ))
+}
+
+/// What to say for a task that ended without a reason of its own.
+fn unexplained(queue_status: &str) -> &'static str {
+    match queue_status {
+        // Dead-lettered: its wait or its claims ran out, so no worker ever
+        // reported an outcome for it.
+        "dead" => {
+            "the compile was dead-lettered before it produced a revision: no worker ran it \
+             to an outcome"
+        }
+        _ => "the compile failed before it produced a revision",
+    }
 }
 
 /// Newest revision row of this SHA among the kinds a compile of `kind` may
