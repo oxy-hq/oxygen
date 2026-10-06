@@ -44,7 +44,8 @@ pub(super) async fn enqueue(
             let sha = compile_git::validate_request(db, workspace_id, git_sha.as_deref())
                 .await
                 .map_err(|e| error_body(StatusCode::BAD_REQUEST, e.code(), Some(e.to_string())))?;
-            compile_git::enqueue(db, workspace_id, &sha, branch.as_deref(), promote).await
+            let kind = oxy_compile::RevisionKind::Main;
+            compile_git::enqueue(db, workspace_id, &sha, branch.as_deref(), kind, promote).await
         }
     };
     enqueued.map_err(|e| {

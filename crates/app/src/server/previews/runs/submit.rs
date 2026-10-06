@@ -124,10 +124,13 @@ async fn ready_revision(
     let preview = crate::server::previews::store::find(db, workspace_id, branch)
         .await?
         .ok_or_else(|| RunRequestError::PreviewNotFound(branch.to_string()))?;
-    let staged =
-        crate::server::api::compile_staging::status_for_sha(db, workspace_id, &preview.git_sha)
-            .await
-            .map_err(|(_, message)| RunRequestError::Internal(message))?;
+    let staged = crate::server::compile_request::status(
+        db,
+        workspace_id,
+        &preview.git_sha,
+        oxy_compile::RevisionKind::Staging,
+    )
+    .await?;
     match (staged.status.as_str(), staged.revision_id) {
         ("ready", Some(revision_id)) => Ok(revision_id),
         _ => Err(RunRequestError::NotReady(branch.to_string())),

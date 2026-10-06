@@ -11,6 +11,7 @@ pub mod compile_git;
 pub mod compile_maintenance;
 pub mod compile_oltp;
 pub mod compile_reconcile;
+pub mod compile_request;
 pub mod compile_trigger;
 pub mod compile_worker;
 pub mod default_branch;

@@ -11,8 +11,8 @@ use crate::server::test_support::{SKIP_MSG, test_db};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-fn staged(ws: Uuid, status: &str, revision_id: Option<Uuid>) -> StagingCompileResponse {
-    StagingCompileResponse {
+fn staged(ws: Uuid, status: &str, revision_id: Option<Uuid>) -> CompileState {
+    CompileState {
         workspace_id: ws,
         git_sha: SHA.into(),
         status: status.into(),

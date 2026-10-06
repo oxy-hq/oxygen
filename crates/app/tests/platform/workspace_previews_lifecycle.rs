@@ -1,12 +1,14 @@
 //! The previews API end to end: staff only, the contract's shapes, what cannot
-//! be previewed is refused, a preview compiles through custom-app staging's own
-//! path (`compile_staging::stage_branch`, `kind = 'staging'`, never promoted)
+//! be previewed is refused, a preview compiles through the call custom-app
+//! staging uses (`compile_request::compile`, `kind = 'staging'`, never promoted)
 //! and reuses a ready revision of the same commit, and the listing reads its
 //! status back off `revisions` and the task queue.
 //!
 //! Database-backed (`Schema::All`: the compile run and task land in the runtime
 //! tables) over a real git repository as the workspace — the Factory's clone,
-//! with the branch committed locally, which is what the staging compile reads.
+//! with the branch committed locally and no remote, which is the case the
+//! working copy still answers. A branch that is on GitHub is covered by
+//! `compile_request`.
 
 use std::path::{Path, PathBuf};
 
@@ -418,14 +420,21 @@ async fn the_listing_reads_each_previews_status_off_its_revisions() {
         "queued, no revision yet"
     );
 
-    // The queued task is claimed and fails before it writes anything.
-    fx.db
-        .execute_raw(Statement::from_string(
+    // The queued task is claimed and fails before it writes a revision: that
+    // is a failure with a reason, not a preview still waiting for something.
+    let set_task = |status: &'static str| {
+        fx.db.execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "UPDATE agentic_task_queue SET queue_status = 'failed'",
+            format!("UPDATE agentic_task_queue SET queue_status = '{status}'"),
         ))
-        .await
-        .unwrap();
+    };
+    set_task("failed").await.unwrap();
+    let item = list().await;
+    assert_eq!(item["status"], "failed", "{item}");
+    assert!(item["error"].is_string(), "{item}");
+
+    // The compile was cancelled, or retention took its revision.
+    set_task("cancelled").await.unwrap();
     assert_eq!(
         list().await["status"],
         "stale",

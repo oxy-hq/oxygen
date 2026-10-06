@@ -6,6 +6,7 @@ use std::time::Instant;
 use agentic_core::delegation::TaskSpec;
 use agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE;
 use agentic_runtime::orchestrator::crud::queue::TaskScope;
+use oxy_compile::RevisionKind;
 use oxy_telemetry::metrics::record;
 use sea_orm::{DatabaseConnection, DbErr};
 use tokio_util::sync::CancellationToken;
@@ -13,8 +14,8 @@ use uuid::Uuid;
 
 use super::{CommitSource, CompileGitError, FetchedTree, fetch};
 
-/// Queue a compile of the workspace's main revision at commit `git_sha`, for
-/// any pod to run. Returns the task id, which is also the run id.
+/// Queue a compile of commit `git_sha` as a `kind` revision, for any pod to
+/// run. Returns the task id, which is also the run id.
 ///
 /// The run is stamped [`COMPILE_GIT_SOURCE_TYPE`], which is the whole reason a
 /// worker will take it: selection matches on `source_type`, and a worker
@@ -25,11 +26,15 @@ use super::{CommitSource, CompileGitError, FetchedTree, fetch};
 /// Does not validate `git_sha` or the workspace's remote: the worker does, and
 /// fails the task with a typed message. A caller with a person on the other
 /// end should check first ([`super::commit_sha`]) and answer them directly.
+///
+/// `promote` is only a request: the compiler promotes a `main` revision and no
+/// other kind, whatever is asked here.
 pub async fn enqueue(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     git_sha: &str,
     branch: Option<&str>,
+    kind: RevisionKind,
     promote: bool,
 ) -> Result<String, DbErr> {
     let task_id = Uuid::new_v4().to_string();
@@ -38,13 +43,14 @@ pub async fn enqueue(
     agentic_runtime::crud::insert_run(
         db,
         &task_id,
-        &format!("compile main ({git_sha}) from git"),
+        &format!("compile {} ({git_sha}) from git", kind.as_str()),
         None,
         COMPILE_GIT_SOURCE_TYPE,
         Some(serde_json::json!({
             "workspace_id": workspace_id,
             "git_sha": git_sha,
             "branch": branch,
+            "kind": kind.as_str(),
         })),
         workspace_id,
     )
@@ -54,7 +60,7 @@ pub async fn enqueue(
         git_sha: Some(git_sha.to_string()),
         branch: branch.map(str::to_string),
         promote,
-        kind: Some("main".to_string()),
+        kind: Some(kind.as_str().to_string()),
         owner_user_id: None,
         from_git: true,
     };

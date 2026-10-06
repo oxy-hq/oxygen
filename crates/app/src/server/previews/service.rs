@@ -1,23 +1,26 @@
 //! What the previews API does, behind its thin handlers
-//! (`server::api::workspace_previews`). Compiling goes through custom-app
-//! staging's own path (`compile_staging::stage_branch`); status is read back off
-//! `revisions` (`compile_staging::status_for_sha`), never stored twice.
+//! (`server::api::workspace_previews`). Compiling goes through the call
+//! custom-app staging uses (`compile_request::compile`, `kind = staging`);
+//! status is read back off `revisions` and the task queue
+//! (`compile_request::status`), never stored twice.
 
 use axum::http::StatusCode;
 use chrono::SecondsFormat;
 use entity::workspace_previews::Model;
-use oxy_git::GitClient;
+use oxy_compile::RevisionKind;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait};
 use serde::Serialize;
 use uuid::Uuid;
 
 use super::checks::{CheckSummary, ChecksResponse};
-use crate::server::api::compile_staging::{self, StagingCompileResponse};
+use crate::server::compile_request::{self, CompileState, Refusal, Target};
 
 /// Why a preview request was refused. `InvalidBranch`, `DefaultBranch` and
 /// `UnknownBranch` are the contract's 400s; `CannotCompile` is the staging
 /// compile's own refusal (uncommitted changes in the branch's worktree, or a
-/// workspace with no checkout) and stays a 409.
+/// workspace with no checkout) and stays a 409. `NeedsWorkingCopy` is that
+/// same 409 with a `reason` beside it: the branch is not on GitHub and this
+/// pod has no working copy to read it from.
 #[derive(Debug, thiserror::Error)]
 pub enum PreviewRequestError {
     #[error("{0}")]
@@ -28,6 +31,14 @@ pub enum PreviewRequestError {
     UnknownBranch(String),
     #[error("{0}")]
     CannotCompile(String),
+    #[error("{message}")]
+    NeedsWorkingCopy {
+        reason: &'static str,
+        message: String,
+    },
+    /// GitHub did not say where the branch is; asking again may work.
+    #[error("{0}")]
+    GitHubUnavailable(String),
     #[error("there is no preview of branch {0}")]
     NotFound(String),
     #[error("{0}")]
@@ -40,7 +51,8 @@ impl PreviewRequestError {
             Self::InvalidBranch(_) => "invalid_branch",
             Self::DefaultBranch(_) => "default_branch",
             Self::UnknownBranch(_) => "unknown_branch",
-            Self::CannotCompile(_) => "cannot_compile",
+            Self::CannotCompile(_) | Self::NeedsWorkingCopy { .. } => "cannot_compile",
+            Self::GitHubUnavailable(_) => "github_unavailable",
             Self::NotFound(_) => "preview_not_found",
             Self::Internal(_) => "internal",
         }
@@ -51,19 +63,41 @@ impl PreviewRequestError {
             Self::InvalidBranch(_) | Self::DefaultBranch(_) | Self::UnknownBranch(_) => {
                 StatusCode::BAD_REQUEST
             }
-            Self::CannotCompile(_) => StatusCode::CONFLICT,
+            Self::CannotCompile(_) | Self::NeedsWorkingCopy { .. } => StatusCode::CONFLICT,
+            Self::GitHubUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
-    /// The staging compile answers in `(status, message)`; name its refusals.
-    fn from_staging((status, message): (StatusCode, String)) -> Self {
-        match status {
-            StatusCode::BAD_REQUEST => Self::InvalidBranch(message),
-            StatusCode::NOT_FOUND => Self::UnknownBranch(message),
-            StatusCode::CONFLICT => Self::CannotCompile(message),
-            _ => Self::Internal(message),
+    /// Why this pod cannot compile the branch, when that is the refusal: the
+    /// stable name a client branches on (`branch_not_pushed`, …).
+    pub fn reason(&self) -> Option<&'static str> {
+        match self {
+            Self::NeedsWorkingCopy { reason, .. } => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+/// The compile call's refusals, under the names this API has always used.
+impl From<Refusal> for PreviewRequestError {
+    fn from(refusal: Refusal) -> Self {
+        let message = refusal.to_string();
+        match refusal {
+            Refusal::InvalidBranch(_) => Self::InvalidBranch(message),
+            Refusal::UnknownBranch(_) => Self::UnknownBranch(message),
+            Refusal::Conflict(_) => Self::CannotCompile(message),
+            Refusal::NeedsWorkingCopy { why, .. } => Self::NeedsWorkingCopy {
+                reason: why.code(),
+                message,
+            },
+            Refusal::GitHubUnavailable { .. } => Self::GitHubUnavailable(message),
+            // A preview asks for a branch as a staging revision, so neither of
+            // the first two can come back.
+            Refusal::NotACommit(_) | Refusal::UnsupportedKind(_) | Refusal::Internal(_) => {
+                Self::Internal(message)
+            }
         }
     }
 }
@@ -90,7 +124,7 @@ pub struct PreviewRequest<'a> {
 
 impl PreviewRequest<'_> {
     /// Compile the branch head (or reuse its ready revision) and record the
-    /// preview at that commit. IDE-only: the head and worktree live in `.git`.
+    /// preview at that commit.
     async fn stage(&self) -> Result<Model, PreviewRequestError> {
         // Previewing "the current branch" of a detached workspace: no branch
         // to preview, which is the compile's kind of refusal (409), not a
@@ -99,17 +133,17 @@ impl PreviewRequest<'_> {
             return Err(PreviewRequestError::CannotCompile(detached.to_string()));
         }
         validate_branch_name(self.branch)?;
-        if let Some(root) = self.workspace.path.as_deref() {
-            let default = oxy::github::default_git_client()
-                .get_default_branch(std::path::Path::new(root))
-                .await;
-            if self.branch == default {
-                return Err(PreviewRequestError::DefaultBranch(self.branch.to_string()));
-            }
+        // Local git where there is a checkout, the recorded branch where there
+        // is none (`server::default_branch`).
+        let default =
+            crate::server::default_branch::resolve_default_branch(self.db, self.workspace.id).await;
+        if default.as_deref() == Some(self.branch) {
+            return Err(PreviewRequestError::DefaultBranch(self.branch.to_string()));
         }
-        let staged = compile_staging::stage_branch(self.db, self.workspace, self.branch)
-            .await
-            .map_err(PreviewRequestError::from_staging)?;
+        let target = Target::Branch(self.branch);
+        let staged =
+            compile_request::compile(self.db, self.workspace, target, RevisionKind::Staging)
+                .await?;
         let row = self.record(&staged.git_sha).await?;
         queue_check(self.db, self.workspace.id, self.branch, &staged).await;
         Ok(row)
@@ -150,7 +184,7 @@ impl PreviewRequest<'_> {
 
 /// Queue the Airway change check of a preview's revision once it is ready,
 /// after the preview row is written. A reused revision is ready now and no
-/// compile will finish to ask. A compile that lands between `stage_branch` and
+/// compile will finish to ask. A compile that lands between the compile call and
 /// the upsert found no preview at this commit and asked nothing, so a revision
 /// that was not ready is looked at once more here: of the two, at least one
 /// sees both the ready revision and the preview row. Idempotent per revision;
@@ -159,14 +193,14 @@ pub(crate) async fn queue_check(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     branch: &str,
-    staged: &StagingCompileResponse,
+    staged: &CompileState,
 ) {
     let ready = match (staged.revision_id, staged.status.as_str()) {
         (Some(rev), "ready") => Ok(Some(rev)),
-        _ => compile_staging::status_for_sha(db, workspace_id, &staged.git_sha)
+        _ => compile_request::status(db, workspace_id, &staged.git_sha, RevisionKind::Staging)
             .await
             .map(|s| s.revision_id.filter(|_| s.status == "ready"))
-            .map_err(|(_, message)| message),
+            .map_err(|e| e.to_string()),
     };
     let result = match ready {
         Ok(Some(revision_id)) => {
@@ -262,20 +296,21 @@ fn iso_utc(t: &chrono::DateTime<chrono::FixedOffset>) -> String {
 /// Where a preview's compile stands, from `revisions` and the task queue.
 ///
 /// The staging status is `pending` both for "queued, no revision row yet" and
-/// for "no trace at all" (the compile died before it began, or retention took
-/// the revision). The queue tells them apart: queued or running is still
-/// `compiling`; nothing is `stale`, and a refresh compiles it again.
+/// for "no trace at all" (the compile was cancelled, or retention took the
+/// revision). The queue tells them apart: queued or running is still
+/// `compiling`; nothing is `stale`, and a refresh compiles it again. A compile
+/// that failed before it wrote a revision is neither: the status read already
+/// answered `failed`, with the task's reason.
 async fn status_of(
     db: &DatabaseConnection,
     workspace_id: Uuid,
     git_sha: &str,
-) -> Result<(StagingCompileResponse, Option<String>), PreviewRequestError> {
-    let mut staged = compile_staging::status_for_sha(db, workspace_id, git_sha)
-        .await
-        .map_err(PreviewRequestError::from_staging)?;
+) -> Result<(CompileState, Option<String>), PreviewRequestError> {
+    let mut staged =
+        compile_request::status(db, workspace_id, git_sha, RevisionKind::Staging).await?;
     if staged.status == "pending" {
         staged.status =
-            if compile_staging::compile_task_in_flight(db, workspace_id, git_sha).await? {
+            if compile_request::compile_task_in_flight(db, workspace_id, git_sha).await? {
                 "compiling"
             } else {
                 "stale"

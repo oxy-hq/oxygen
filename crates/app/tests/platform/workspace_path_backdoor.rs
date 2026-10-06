@@ -68,10 +68,12 @@ const ALLOWED: &[(&str, &str)] = &[
          manager exists — the manager is what the compile produces",
     ),
     (
-        "src/server/api/compile_staging.rs",
-        "the staging-compile enqueue route, classified IdeOnly: it creates and \
-         inspects the branch worktree (head SHA, clean check) to decide what to \
-         compile, before any manager for that branch exists",
+        "src/server/compile_request/working_copy.rs",
+        "the branch compile's working-copy arm, for a branch GitHub does not have: \
+         it creates and inspects the branch worktree (head SHA, clean check) to \
+         decide what to compile, before any manager for that branch exists. Only \
+         reached on a process that owns working copies; a process that owns none \
+         refuses before calling it",
     ),
     (
         "src/integrations/slack/chart_render.rs",

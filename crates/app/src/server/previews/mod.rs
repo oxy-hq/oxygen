@@ -7,8 +7,9 @@
 //! beside it — one mechanism:
 //!
 //! * **Compile** — a preview is a **staging revision**: the branch head compiled
-//!   through `compile_staging::stage_branch` (`kind = 'staging'`, never
-//!   promoted; a ready revision of the same SHA is reused).
+//!   through `compile_request::compile` (`kind = 'staging'`, never promoted;
+//!   a ready revision of the same SHA is reused). A branch on GitHub is
+//!   compiled from the commit GitHub has, on any pod.
 //! * **Registry** ([`store`]) — `workspace_previews` remembers only which
 //!   branches staff are previewing, at which commit, and who asked. Everything
 //!   else (status, revision, error) is read off `revisions`, so there is no

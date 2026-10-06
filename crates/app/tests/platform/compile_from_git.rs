@@ -43,6 +43,7 @@ use oxy_app::agentic_wiring::compile_dispatcher::OxyCompileDispatcher;
 use oxy_app::server::compile_git;
 use oxy_app::server::previews::runtime::PreviewRunResolver;
 use oxy_app::server::role_manifest::{init_process_role_from_env, process_can_compile};
+use oxy_compile::RevisionKind;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, Statement,
@@ -63,7 +64,7 @@ const VIEW: &str = "name: orders\ndatasource: pg\nsql: |\n  SELECT 1 AS label\n\
 
 /// A gzipped commit archive the way GitHub serves one: every path under a
 /// single `<owner>-<repo>-<sha>` directory.
-fn tarball(files: &[(&str, &str)]) -> Vec<u8> {
+pub(super) fn tarball(files: &[(&str, &str)]) -> Vec<u8> {
     let mut tar = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::fast()));
     for (rel, body) in files {
         let mut header = tar::Header::new_gnu();
@@ -81,7 +82,7 @@ fn tarball(files: &[(&str, &str)]) -> Vec<u8> {
     gz.finish().expect("finish gzip")
 }
 
-fn workspace_tree() -> Vec<u8> {
+pub(super) fn workspace_tree() -> Vec<u8> {
     tarball(&[
         ("config.yml", CONFIG),
         ("semantics/orders.view.yml", VIEW),
@@ -282,21 +283,37 @@ async fn bound_platform(db: &DatabaseConnection) -> (tempfile::TempDir, Arc<dyn 
 }
 
 /// Tick the worker's selection-and-drive loop until `done` holds.
-async fn drive_queue_until<F, Fut>(fx: &Fx, mut done: F)
+async fn drive_queue_until<F, Fut>(fx: &Fx, done: F)
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    let (_root, platform) = bound_platform(&fx.db).await;
+    if !drive_worker_queue(&fx.db, fx.ws, done).await {
+        panic!("the queue did not settle; tasks: {:?}", tasks(fx).await);
+    }
+}
+
+/// Drive `ws`'s Global runs the way a worker does, until `done` holds.
+/// `false` when it never did.
+pub(super) async fn drive_worker_queue<F, Fut>(
+    db: &DatabaseConnection,
+    ws: Uuid,
+    mut done: F,
+) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let (_root, platform) = bound_platform(db).await;
     reset_leaks();
     let state = Arc::new(RuntimeState::new());
-    let resolver = PreviewRunResolver::shared(&fx.db);
+    let resolver = PreviewRunResolver::shared(db);
     // What `drive_policy_for(Role::Worker, _)` returns; pinned by its own
     // unit tests, spelled here because that function is private to the router.
     let policy = DrivePolicy::Except(&[COMPILE_SOURCE_TYPE]);
     for _ in 0..200 {
         recover_pending_global_runs(
-            fx.db.clone(),
+            db.clone(),
             state.clone(),
             platform.clone(),
             resolver.clone(),
@@ -305,17 +322,17 @@ where
             None,
             None,
             Arc::new(agentic_runtime::router::NoopTaskRouter),
-            Some(fx.ws),
+            Some(ws),
             None,
             policy,
         )
         .await;
         if done().await {
-            return;
+            return true;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("the queue did not settle; tasks: {:?}", tasks(fx).await);
+    false
 }
 
 #[tokio::test]
@@ -323,7 +340,7 @@ async fn a_worker_claims_a_commit_compile_and_promotes_it() {
     let fx = Fx::new(None).await;
     fx.serve_commit(SHA, workspace_tree()).await;
 
-    compile_git::enqueue(&fx.db, fx.ws, SHA, Some("main"), true)
+    compile_git::enqueue(&fx.db, fx.ws, SHA, Some("main"), RevisionKind::Main, true)
         .await
         .expect("enqueue the commit compile");
     assert_eq!(
@@ -355,7 +372,7 @@ async fn a_working_copy_compile_is_still_refused_on_a_worker() {
     let fx = Fx::new(None).await;
     fx.serve_commit(SHA, workspace_tree()).await;
 
-    compile_git::enqueue(&fx.db, fx.ws, SHA, Some("main"), true)
+    compile_git::enqueue(&fx.db, fx.ws, SHA, Some("main"), RevisionKind::Main, true)
         .await
         .expect("enqueue the commit compile");
     let working_copy = Uuid::new_v4().to_string();

@@ -20,7 +20,10 @@
 //!
 //! A refused request answers `{"code":…,"message":…}`: `400` for a bad name,
 //! the default branch or an unknown branch; `409 cannot_compile` when the
-//! staging compile refuses (uncommitted changes in the branch's worktree);
+//! staging compile refuses (uncommitted changes in the branch's worktree; or a
+//! branch that is not on GitHub, asked of a pod with no working copy — then
+//! with a `"reason"` beside the code, such as `branch_not_pushed`);
+//! `503 github_unavailable` when GitHub did not say where the branch is;
 //! `404 preview_not_found` for refreshing one that does not exist.
 
 use axum::Json;
@@ -60,7 +63,7 @@ pub struct BranchParam {
 }
 
 /// A refusal in the contract's shape.
-pub struct PreviewApiError(StatusCode, &'static str, String);
+pub struct PreviewApiError(StatusCode, &'static str, String, Option<&'static str>);
 
 impl From<PreviewRequestError> for PreviewApiError {
     fn from(e: PreviewRequestError) -> Self {
@@ -68,7 +71,7 @@ impl From<PreviewRequestError> for PreviewApiError {
         if status.is_server_error() {
             tracing::error!(error = %e, "previews API failed");
         }
-        Self(status, e.code(), e.to_string())
+        Self(status, e.code(), e.to_string(), e.reason())
     }
 }
 
@@ -78,7 +81,7 @@ impl From<RunRequestError> for PreviewApiError {
         if status.is_server_error() {
             tracing::error!(error = %e, "previews runs API failed");
         }
-        Self(status, e.code(), e.to_string())
+        Self(status, e.code(), e.to_string(), None)
     }
 }
 
@@ -88,13 +91,18 @@ impl From<SourceRequestError> for PreviewApiError {
         if status.is_server_error() {
             tracing::error!(error = %e, "previews sources API failed");
         }
-        Self(status, e.code(), e.to_string())
+        Self(status, e.code(), e.to_string(), None)
     }
 }
 
 impl IntoResponse for PreviewApiError {
     fn into_response(self) -> Response {
-        let body = serde_json::json!({ "code": self.1, "message": self.2 });
+        let mut body = serde_json::json!({ "code": self.1, "message": self.2 });
+        // Only where one code covers several causes a client would act on
+        // differently: why this pod cannot compile the branch.
+        if let Some(reason) = self.3 {
+            body["reason"] = reason.into();
+        }
         (self.0, Json(body)).into_response()
     }
 }
@@ -108,6 +116,7 @@ async fn db() -> Result<sea_orm::DatabaseConnection, PreviewApiError> {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "unavailable",
                 "database temporarily unavailable".into(),
+                None,
             )
         })
 }

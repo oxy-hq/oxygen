@@ -59,6 +59,7 @@ mod compile;
 mod compile_from_git;
 mod compile_oltp_promote;
 mod compile_reconcile;
+mod compile_request;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
 mod context_documents_boundary;
