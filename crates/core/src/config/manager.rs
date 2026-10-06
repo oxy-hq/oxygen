@@ -797,7 +797,19 @@ impl<S: DiskSlot> ConfigManager<S> {
     }
 
     /// The workspace's `.world-model.yml`, compiled or from disk.
+    ///
+    /// On a pod that cannot read a disk the pinned revision is the only source,
+    /// so its answer is final: no row means the workspace declares none, and a
+    /// failed read is the boundary's own error. [`Self::root_singleton`] reports
+    /// both as the missing working copy, which suits a caller that only needs
+    /// "could not look" and is useless to one that must tell a workspace with
+    /// no display config from a read that failed.
     pub async fn world_model_config(&self) -> Result<Option<serde_json::Value>, ArtifactError> {
+        if let Origin::Compiled { revision_id, .. } = self.origin
+            && !self.can_read_disk()
+        {
+            return super::compiled::resolve_world_model_config_at(revision_id).await;
+        }
         self.root_singleton(
             super::compiled::resolve_world_model_config_at,
             ".world-model.yml",

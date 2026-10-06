@@ -38,26 +38,56 @@ pub struct WmFieldConfig {
     pub description: Option<String>,
 }
 
+/// Why [`WorldModelConfig::resolve`] has no answer.
+///
+/// The message is for a log or an operator. It can carry a database error or
+/// a path on this node, so a public route answers with its own words.
+#[derive(Debug, thiserror::Error)]
+pub enum WorldModelConfigError {
+    /// The source could not be read just now. Not "no config": retry.
+    #[error("{0}")]
+    Unavailable(String),
+    /// The config was read and does not parse — today the only read error
+    /// that is not retryable (`ArtifactError::Config`). A caller may degrade
+    /// on it, which it must never do on a read that failed, so a new kind of
+    /// permanent read failure needs its own variant, not this one.
+    #[error("{0}")]
+    Invalid(String),
+}
+
+impl WorldModelConfigError {
+    pub fn retryable(&self) -> bool {
+        matches!(self, Self::Unavailable(_))
+    }
+}
+
 impl WorldModelConfig {
     /// The world-model config, from whichever source the manager reads.
     ///
-    /// `Ok(None)` means "no config" → show all entities. It is NOT the same as
-    /// a replica with nothing to read: `ConfigManager` returns `NoSource`
-    /// there, and mapping that to `None` would report "the tenant configured no
-    /// display overrides" for a node that simply could not look.
+    /// `Ok(None)` means "no config" → show all entities: the file is absent
+    /// from the working copy, or from the revision a pod with no working copy
+    /// is pinned to. A read that FAILED is never `None`. The config is an
+    /// allowlist, so answering "no config" for a source that could not be read
+    /// draws the entities it hides; that is `Unavailable`, and a caller answers
+    /// it as it answers a model it cannot read yet.
     pub async fn resolve<S: oxy::config::DiskSlot>(
         config_manager: &oxy::config::ConfigManager<S>,
-    ) -> Result<Option<Self>, String> {
+    ) -> Result<Option<Self>, WorldModelConfigError> {
         match config_manager.world_model_config().await {
             Ok(Some(value)) => serde_json::from_value::<Self>(value)
                 .map(Some)
-                .map_err(|e| format!("Failed to parse .world-model.yml: {e}")),
+                .map_err(|e| {
+                    WorldModelConfigError::Invalid(format!("Failed to parse .world-model.yml: {e}"))
+                }),
             Ok(None) => Ok(None),
-            Err(e) if e.retryable() => {
-                tracing::debug!(error = %e, "world-model config unavailable here");
-                Ok(None)
-            }
-            Err(e) => Err(format!("world-model config read failed: {e}")),
+            Err(e) if e.retryable() => Err(WorldModelConfigError::Unavailable(format!(
+                "world-model config could not be read just now: {e}"
+            ))),
+            // `ArtifactError::Config`: the source was read and what it holds
+            // did not parse.
+            Err(e) => Err(WorldModelConfigError::Invalid(format!(
+                "world-model config read failed: {e}"
+            ))),
         }
     }
 }

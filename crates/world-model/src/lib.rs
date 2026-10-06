@@ -11,4 +11,6 @@
 
 mod world_model_config;
 
-pub use world_model_config::{WmEntityConfig, WmFieldConfig, WorldModelConfig};
+pub use world_model_config::{
+    WmEntityConfig, WmFieldConfig, WorldModelConfig, WorldModelConfigError,
+};

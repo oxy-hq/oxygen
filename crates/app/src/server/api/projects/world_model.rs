@@ -45,18 +45,54 @@ pub async fn get_world_model(
         Ok(l) => l,
         Err(resp) => return resp,
     };
-    // The manager knows whether there is a working copy to fall back to. On a
-    // replica the compiled row is the only source, and it says `NoSource`
-    // rather than `None` — which is what keeps "not compiled" from reading as
-    // "no display overrides" on the public custom-app router.
     let config_manager = &boundary.proj_ctx.workspace_manager().config_manager;
-    match build_world_model_response(&layer, config_manager).await {
+    let config = match display_config(config_manager, project_id).await {
+        Ok(config) => config,
+        Err(resp) => return resp,
+    };
+    match build_world_model_response(&layer, config.as_ref()) {
         Ok(resp) => cache_store(&boundary, "wm-graph", "", &resp),
         Err(message) => err_with_code(
             StatusCode::INTERNAL_SERVER_ERROR,
             message,
             "world_model_failed",
         ),
+    }
+}
+
+/// What a bundle is told when the display config could not be read. The read
+/// error stays in the log: it can carry a database error or a path on this
+/// node, and this is the public custom-app router.
+const CONFIG_UNAVAILABLE: &str =
+    "the world-model display config could not be read just now; retry shortly";
+
+/// The `.world-model.yml` display config, or the response that refuses.
+///
+/// The manager knows whether there is a working copy to fall back to. On a
+/// replica the pinned revision is the only source: no row there is "no
+/// display overrides", and a read that failed is a retryable 503 — never the
+/// unfiltered graph.
+async fn display_config<S: oxy::config::DiskSlot>(
+    config_manager: &oxy::config::ConfigManager<S>,
+    project_id: Uuid,
+) -> Result<Option<oxy_world_model::WorldModelConfig>, Response> {
+    use oxy_world_model::WorldModelConfigError::{Invalid, Unavailable};
+    match oxy_world_model::WorldModelConfig::resolve(config_manager).await {
+        Ok(config) => Ok(config),
+        Err(Unavailable(e)) => {
+            tracing::warn!(%project_id, error = %e, "world-model display config could not be read");
+            Err(err_with_code(
+                StatusCode::SERVICE_UNAVAILABLE,
+                CONFIG_UNAVAILABLE,
+                "world_model_unavailable",
+            ))
+        }
+        // The workspace's own YAML, and the message this route always gave.
+        Err(Invalid(e)) => Err(err_with_code(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            e,
+            "world_model_failed",
+        )),
     }
 }
 
@@ -152,5 +188,50 @@ pub async fn get_measure_breakdown(
             .keep_alive(KeepAlive::default())
             .into_response(),
         Err((status, body)) => err(status, body.message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxy::adapters::workspace::builder::WorkspaceBuilder;
+
+    /// The refusal is on the public custom-app router. It carries the code a
+    /// bundle matches on, its own words rather than the read error's (which
+    /// names a path here and a database error on a replica), and no header
+    /// that would let a cache keep it.
+    #[tokio::test]
+    async fn an_unreadable_config_is_a_503_in_the_routes_own_words_and_not_cacheable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("config.yml"), "models: []\ndatabases: []\n")
+            .expect("config");
+        // A directory where the file should be: present, and unreadable as a
+        // file whoever runs the test.
+        std::fs::create_dir(dir.path().join(".world-model.yml")).expect("mkdir");
+        let id = Uuid::new_v4();
+        let manager = WorkspaceBuilder::new(id)
+            .with_working_copy(dir.path(), None, oxy::config::OnMissing::Empty)
+            .await
+            .expect("builder")
+            .build()
+            .await
+            .expect("manager");
+
+        let refusal = display_config(&manager.config_manager, id)
+            .await
+            .expect_err("a read that failed is not `None`");
+
+        assert_eq!(refusal.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            !refusal
+                .headers()
+                .contains_key(axum::http::header::CACHE_CONTROL)
+        );
+        let body = axum::body::to_bytes(refusal.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(body["code"], "world_model_unavailable", "{body}");
+        assert_eq!(body["message"], CONFIG_UNAVAILABLE, "{body}");
     }
 }

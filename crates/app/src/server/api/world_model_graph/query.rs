@@ -16,18 +16,24 @@ use super::source::ModelSource;
 use super::types::*;
 use oxy::config::ReadOnly;
 
-/// Resolve the `.world-model.yml` display config, tolerating a missing or
-/// unreadable config (`None`). Compile-boundary first (serve replicas have no
-/// working copy), FS fallback — see [`WorldModelConfig::resolve`]. The
-/// world-model handlers otherwise repeat this `resolve(..).ok().flatten()`
-/// incantation verbatim, so it lives here in one place.
+/// Resolve the `.world-model.yml` display config for a handler that labels
+/// with it, tolerating a config that is missing or does not parse (`None`):
+/// the display degrades. Compile-boundary first (serve replicas have no
+/// working copy), FS fallback — see [`WorldModelConfig::resolve`].
+///
+/// A read that FAILED is not tolerated. It is not "no config", and the
+/// config carries allowlists; the handler answers the retryable 503.
 pub(super) async fn resolve_world_model_config<S: oxy::config::DiskSlot>(
     workspace_manager: &WorkspaceManager<S>,
-) -> Option<oxy_world_model::WorldModelConfig> {
-    oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager)
-        .await
-        .ok()
-        .flatten()
+) -> Result<Option<oxy_world_model::WorldModelConfig>, super::source::WmError> {
+    use oxy_world_model::WorldModelConfigError::{Invalid, Unavailable};
+    // By variant, not `retryable()`: a third kind of failure must be given an
+    // answer here before it compiles, not fall into the one that degrades.
+    match oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager).await {
+        Ok(config) => Ok(config),
+        Err(e @ Unavailable(_)) => Err(super::source::config_unavailable(e)),
+        Err(Invalid(_)) => Ok(None),
+    }
 }
 
 // ── World Model — SQL helpers ─────────────────────────────────────────────────

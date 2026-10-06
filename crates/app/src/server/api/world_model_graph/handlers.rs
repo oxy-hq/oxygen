@@ -51,8 +51,8 @@ pub async fn get_world_model(
         )
     })?;
 
-    build_world_model_response(&layer, &workspace_manager.config_manager)
-        .await
+    let config = display_config(&workspace_manager).await?;
+    build_world_model_response(&layer, config.as_ref())
         .map(extract::Json)
         .map_err(|message| {
             (
@@ -207,9 +207,9 @@ fn build_entity_node(
 /// customer-app gate handler
 /// ([`crate::server::api::projects::world_model`]) — they differ only in the
 /// gate they enter through; both read the layer from the compile boundary.
-pub(crate) async fn build_world_model_response<S: oxy::config::DiskSlot>(
+pub(crate) fn build_world_model_response(
     layer: &oxy_airlayer_compat::SemanticLayer,
-    config_manager: &oxy::config::ConfigManager<S>,
+    config: Option<&oxy_world_model::WorldModelConfig>,
 ) -> Result<WorldModelResponse, String> {
     let promotions = Promotions::build(&layer.views)
         .map_err(|e| format!("Failed to build promotion closure: {e}"))?;
@@ -225,11 +225,11 @@ pub(crate) async fn build_world_model_response<S: oxy::config::DiskSlot>(
         }
     }
 
-    // Apply .world-model.yml display config if present (filter + label
-    // overrides). Compile boundary first (serve replicas have no working
-    // copy), FS fallback — see `WorldModelConfig::resolve`.
-    if let Some(cfg) = oxy_world_model::WorldModelConfig::resolve(config_manager).await? {
-        apply_world_model_config(&mut entities, &mut edges, &cfg);
+    // Apply the .world-model.yml display config when the workspace has one
+    // (filter + label overrides). The caller resolved it, because a read that
+    // failed is its to answer — see `WorldModelConfig::resolve`.
+    if let Some(cfg) = config {
+        apply_world_model_config(&mut entities, &mut edges, cfg);
     }
 
     entities.sort_by_key(|e| e.depth);
@@ -529,7 +529,7 @@ pub async fn get_world_model_filter_instances(
     let err = |code: StatusCode, message: String| (code, extract::Json(ErrorResponse { message }));
 
     let (layer, promotions, source) = load_walkable_model(&workspace_manager, &layer_cache).await?;
-    let wm_cfg = resolve_world_model_config(&workspace_manager).await;
+    let wm_cfg = resolve_world_model_config(&workspace_manager).await?;
     let entity_metas = build_entity_metas(&layer, &promotions, wm_cfg.as_ref());
 
     let target_view = primary_view_of(&layer, &q.entity).ok_or_else(|| {
@@ -679,7 +679,7 @@ pub async fn post_world_model_filter_counts(
 
     // World-model config supplies per-entity display fields used to render sample
     // labels on descendant cards (mirrors the instance-detail handler).
-    let wm_cfg = resolve_world_model_config(&workspace_manager).await;
+    let wm_cfg = resolve_world_model_config(&workspace_manager).await?;
 
     // Collect per-entity metadata needed to build semantic queries (struct
     // hoisted to module scope so the expansion-plan helpers can share it).
@@ -1657,9 +1657,9 @@ pub async fn get_world_model_instance_detail(
     let datasource = view.datasource.clone().unwrap_or_default();
 
     // Load .world-model.yml config once — used for display_field across primary, child,
-    // and parent entities. Silently ignore load errors (display degrades to PK fallback).
-    // Compile boundary first (serve replicas have no working copy), FS fallback.
-    let wm_cfg = resolve_world_model_config(&workspace_manager).await;
+    // and parent entities. A config that is absent or does not parse degrades the display
+    // to the PK fallback; a read that FAILED answers the retryable 503 (it is an allowlist).
+    let wm_cfg = resolve_world_model_config(&workspace_manager).await?;
     // Per-entity allowlist + labels for the PRIMARY entity, used to filter and relabel
     // the attribute and measure sections (mirrors apply_world_model_config for the graph).
     // `None` means no allowlist → show everything observed in the view (current behavior).

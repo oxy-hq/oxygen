@@ -199,6 +199,30 @@ pub(super) fn refuse_breakdown_database<S: DiskSlot>(
     }
 }
 
+/// A read of the display config that failed, as the retryable 503 a model
+/// this pod cannot read yet answers.
+pub(super) fn config_unavailable(e: oxy_world_model::WorldModelConfigError) -> WmError {
+    semantic_err(StatusCode::SERVICE_UNAVAILABLE, e.to_string())
+}
+
+/// The `.world-model.yml` display config, for the graph — which must not be
+/// drawn without knowing it. The config is an allowlist as well as a set of
+/// labels, so a read that failed is not "no config"; one that was read and
+/// is wrong is the 500 it has always been.
+pub(super) async fn display_config<S: DiskSlot>(
+    workspace_manager: &WorkspaceManager<S>,
+) -> Result<Option<oxy_world_model::WorldModelConfig>, WmError> {
+    oxy_world_model::WorldModelConfig::resolve(&workspace_manager.config_manager)
+        .await
+        .map_err(|e| {
+            if e.retryable() {
+                config_unavailable(e)
+            } else {
+                internal(e)
+            }
+        })
+}
+
 #[cfg(test)]
 #[path = "source_tests.rs"]
 mod tests;
