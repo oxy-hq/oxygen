@@ -15,6 +15,7 @@ use agentic_http::AgenticState;
 use oxy_auth::middleware::{AuthState, api_key_only_middleware, auth_middleware};
 use oxy_shared::errors::OxyError;
 
+use crate::api::custom_apps_agent_body::shape_for_agent;
 use crate::api::middlewares::api_key_query::api_key_query_middleware;
 use crate::api::middlewares::app_grant_scope::app_grant_scope_middleware;
 use crate::api::middlewares::app_publish_token_scope::app_publish_token_scope_middleware;
@@ -154,6 +155,11 @@ pub fn api_auth_layers<S: Clone + Send + Sync + 'static>(routes: Router<S>) -> R
         // Inside auth (it reads the credential auth attached), outside the
         // timeout (so a timed-out request is counted with its real status).
         .layer(middleware::from_fn(token_usage_middleware))
+        // Directly inside auth, so it wraps every fence and handler above: a
+        // sandbox agent token's refusal, whichever of them answers it, is given
+        // the one JSON shape. It changes a body and never a status, and passes
+        // every other credential's response through untouched.
+        .layer(middleware::from_fn(shape_for_agent))
         .layer(middleware::from_fn_with_state(
             AuthState::built_in(oxy_auth::token::SandboxAgent::Admit),
             auth_middleware,

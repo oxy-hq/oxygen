@@ -2308,7 +2308,12 @@ pub async fn publish_handler(
     };
 
     let target = sandbox_publish::target_of(environment.as_deref(), promote, credential)?;
-    let published = publish_to(input, target).await?;
+    // A sandbox agent token is told a sandbox that is not its own as its
+    // other routes tell it; everyone else reads the text they always did.
+    let agent = credential == sandbox_publish::PublishCredential::SandboxAgent;
+    let published = publish_to(input, target)
+        .await
+        .map_err(|refused| PublishRefusal::told(refused, agent))?;
     // One audit row for every publish that succeeded, whatever the credential.
     if let Ok(db) = oxy::database::client::establish_connection().await {
         super::custom_apps_publish_audit::published(&db, &actor, marker, &published).await;

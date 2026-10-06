@@ -144,11 +144,13 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
 
     // A sandbox agent token reaches one shape on this tree, `/fn` of a `dev-*`
     // sandbox on the product host. Asked first, before any authentication, so
-    // nothing below has to remember the kind exists.
+    // nothing below has to remember the kind exists. It is refused only for
+    // presenting the token, so the refusal is in the token's one body: the
+    // `404` that `/fn` answers for an app or a sandbox that is not its own.
     if crate::server::api::middlewares::app_grant_scope::serve_tree_refuses(
         &method, &headers, &path,
     ) {
-        return StatusCode::NOT_FOUND.into_response();
+        return crate::server::api::custom_apps_agent_body::Refusal::not_found().into_response();
     }
 
     // Strip the leading slash that axum hands us for a `{*path}` capture
@@ -190,7 +192,13 @@ pub async fn serve_dispatch(Path(path): Path<String>, request: axum::extract::Re
         }
         let body_bytes = match axum::body::to_bytes(body, FUNCTION_BODY_LIMIT).await {
             Ok(b) => b,
-            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+            Err(_) => {
+                // The bare status, but for a sandbox agent token (its one body).
+                let refused = StatusCode::BAD_REQUEST;
+                return crate::server::api::custom_apps_agent_body::status_response(
+                    &headers, refused,
+                );
+            }
         };
         // The function query executor is injected at the serve router (an
         // Extension layer) so this runtime never imports `projects::query`.

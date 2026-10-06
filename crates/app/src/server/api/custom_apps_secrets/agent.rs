@@ -23,6 +23,7 @@ use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 use uuid::Uuid;
 
 use super::Failure;
+use crate::server::api::custom_apps_agent_body::Refusal;
 use crate::server::api::custom_apps_env_resolve::may_open_environment;
 use crate::server::api::custom_apps_sandboxes::own::lock_own;
 
@@ -35,11 +36,17 @@ pub(super) fn token_of(user: &AuthenticatedUser) -> Option<Uuid> {
         .map(|credential| credential.token_id)
 }
 
+/// `404 environment_not_found`, the code the token's other routes give a
+/// sandbox that is not its own. This surface's refusals are text, so it is
+/// stated `<code>: <sentence>` and read back into the token's one body on the
+/// way out (`custom_apps_agent_body`).
 fn not_found(environment: &AppEnvironment) -> Failure {
-    (
+    Refusal::new(
         StatusCode::NOT_FOUND,
+        "environment_not_found",
         format!("this app has no environment {environment}"),
     )
+    .into_text()
 }
 
 /// Hold the token to `environment` being a sandbox it created, of `app`.
@@ -93,12 +100,13 @@ pub(super) async fn hold_own(
 /// Every other caller stores what they send, as before.
 pub(super) fn refuse_credential(user: &AuthenticatedUser, value: &str) -> Result<(), Failure> {
     if token_of(user).is_some() && holds_oxy_credential(value) {
-        return Err((
+        let refusal = Refusal::new(
             StatusCode::BAD_REQUEST,
-            "credential_shaped_value: a sandbox agent token cannot store a value shaped like an \
-             Oxy credential (an API token or key, a publish token, or a session token)"
-                .to_string(),
-        ));
+            "credential_shaped_value",
+            "a sandbox agent token cannot store a value shaped like an Oxy credential (an API \
+             token or key, a publish token, or a session token)",
+        );
+        return Err(refusal.into_text());
     }
     Ok(())
 }
@@ -132,6 +140,46 @@ fn is_jwt(piece: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::api::custom_apps_agent_fixture as fixture;
+
+    fn agent() -> AuthenticatedUser {
+        let token =
+            fixture::credential(Uuid::from_u128(0x70), Uuid::nil(), Uuid::nil(), Uuid::nil());
+        fixture::user(Some(token))
+    }
+
+    /// The token's two refusals here leave as this surface's text, each with
+    /// a code the token's one body reads back.
+    #[test]
+    fn its_refusals_are_text_that_reads_back_as_a_code() {
+        let sandbox = AppEnvironment::parse("dev-a").expect("a sandbox name");
+        let (status, text) = not_found(&sandbox);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            text,
+            "environment_not_found: this app has no environment dev-a"
+        );
+
+        let secret = oxy_auth::token::generate_sandbox_agent().plaintext;
+        let (status, text) = refuse_credential(&agent(), &secret).expect_err("refused");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(text.starts_with("credential_shaped_value: "), "{text}");
+        let read = Refusal::read(status, text.as_bytes());
+        let stated = Refusal::new(
+            status,
+            "credential_shaped_value",
+            &text["credential_shaped_value: ".len()..],
+        );
+        assert_eq!(read, stated);
+    }
+
+    /// Anyone else stores what they send: the check is the token's alone.
+    #[test]
+    fn no_other_caller_is_refused_a_value() {
+        let secret = oxy_auth::token::generate_sandbox_agent().plaintext;
+        assert_eq!(refuse_credential(&fixture::user(None), &secret), Ok(()));
+        assert_eq!(refuse_credential(&agent(), "thirdparty_live_4eC39"), Ok(()));
+    }
 
     /// §6.4's four shapes, bare and carried inside a larger value.
     #[test]

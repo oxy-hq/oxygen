@@ -15,6 +15,7 @@ pub mod compile_staging;
 pub mod compiled_reader;
 pub mod custom_apps_activity;
 pub(crate) mod custom_apps_agent;
+pub mod custom_apps_agent_body;
 #[cfg(test)]
 pub(crate) mod custom_apps_agent_fixture;
 pub mod custom_apps_agent_refusal;

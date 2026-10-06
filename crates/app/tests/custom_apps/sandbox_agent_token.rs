@@ -5,6 +5,8 @@
 //! - `the_loop`: the whole sandbox loop, A1 to S3, and what each step records.
 //! - `refusals`: everything outside the token's own sandbox, and that nothing
 //!   moved.
+//! - `refusal_shape`: each of those refusals is one JSON shape for the token,
+//!   and the body the route always answered for its minter's other credentials.
 //! - `second_refusal`: with the route allow-list gone, a channel publish, a
 //!   production call and a production run are still refused.
 //! - `second_refusal_writes`: so are promote, rollback, unpublish, delete and
@@ -22,6 +24,7 @@
 mod fixture;
 mod instance;
 mod ownership;
+mod refusal_shape;
 mod refusals;
 mod revocation;
 mod second_refusal;

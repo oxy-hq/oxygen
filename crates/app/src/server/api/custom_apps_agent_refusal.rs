@@ -24,13 +24,14 @@
 //! pass through untouched, as does a request nothing authenticated: each
 //! handler's own checks decide those exactly as before.
 
-use axum::Json;
 use axum::extract::FromRequestParts;
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use oxy_auth::token::CredentialContext;
 use oxy_auth::types::AuthenticatedUser;
+
+use super::custom_apps_agent_body::Refusal;
 
 /// The refusal's machine-readable code: the one a channel publish answers.
 pub const CODE: &str = "sandbox_token_refused";
@@ -134,10 +135,10 @@ fn is_sandbox_agent(parts: &Parts) -> bool {
         .any(CredentialContext::is_sandbox_agent)
 }
 
-/// `403 {code, error, message}`: the body a refused channel publish has.
+/// `403 sandbox_token_refused`, in the one body the token is refused with
+/// (`custom_apps_agent_body`): the answer a refused channel publish has.
 pub fn refusal() -> Response {
-    let body = serde_json::json!({ "code": CODE, "error": CODE, "message": MESSAGE });
-    (StatusCode::FORBIDDEN, Json(body)).into_response()
+    Refusal::new(StatusCode::FORBIDDEN, CODE, MESSAGE).into_response()
 }
 
 impl<S: Send + Sync> FromRequestParts<S> for RefuseSandboxAgent {
@@ -199,6 +200,8 @@ mod tests {
             let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
             assert_eq!(body["code"], "sandbox_token_refused");
             assert_eq!(body["error"], "sandbox_token_refused");
+            assert_eq!(body["message"], MESSAGE);
+            assert_eq!(body.as_object().map(serde_json::Map::len), Some(3));
         }
     }
 

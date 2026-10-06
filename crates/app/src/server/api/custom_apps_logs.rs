@@ -155,8 +155,16 @@ pub async fn get_logs(
     // An API token's read is counted as its `/api` requests are; a session, an
     // anonymous request and a legacy key run the handler untouched.
     let probe = super::custom_apps_agent::UsageProbe::of(&headers);
+    // This route authenticates in its handler, so no layer knows the caller.
+    // A request that presents a sandbox agent token is refused in the token's
+    // one body (a `401` aside); everyone else's response is returned as it is.
+    let agent = oxy_auth::token::presents_sandbox_agent(&headers);
     let handler = read_logs(org_slug, app_slug, q, headers);
-    probe.counted(LOGS_ROUTE, handler).await
+    let response = probe.counted(LOGS_ROUTE, handler).await;
+    if agent {
+        return super::custom_apps_agent_body::shaped(response).await;
+    }
+    response
 }
 
 /// The route template an API token's log read is counted under.

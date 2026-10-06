@@ -1094,7 +1094,12 @@ async fn invoke_function(
     .await
     {
         Ok(o) => o,
-        Err(status) => return status.into_response(),
+        // The bare status, for everyone but a sandbox agent token: it is told
+        // an app that is not its own in the body the gate below tells it a
+        // sandbox that is not its own, so the two read the same.
+        Err(status) => {
+            return super::custom_apps_agent_body::status_response(&headers, status);
+        }
     };
     let app = outcome.app;
 

@@ -102,11 +102,13 @@ impl EnvironmentRefused {
     }
 
     /// `403` with the reason — except to a sandbox agent token, which is
-    /// answered as an unknown app is: a bare `404`, so it learns nothing of
+    /// answered as an unknown app is: `404 not_found` in the token's one body
+    /// (`custom_apps_agent_body`), the same bytes, so it learns nothing of
     /// production, staging or another creator's sandbox.
     pub(crate) fn into_response(self) -> Response {
         if self.reason == RefusedReason::NotOwnSandbox {
-            return StatusCode::NOT_FOUND.into_response();
+            return crate::server::api::custom_apps_agent_body::Refusal::not_found()
+                .into_response();
         }
         (
             StatusCode::FORBIDDEN,
