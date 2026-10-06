@@ -5,8 +5,10 @@
 
 pub(crate) mod crud;
 pub(crate) mod entity;
+pub mod execution;
 pub mod migration;
 
+pub use execution::{RunExecution, beat_execution, begin_execution};
 pub use migration::AnalyticsMigrator;
 
 use sea_orm::{DatabaseConnection, DbErr};
@@ -57,6 +59,18 @@ pub async fn get_run_metas(
     crud::get_extensions_by_run_ids(db, run_ids)
         .await
         .map(|v| v.into_iter().map(AnalyticsRunMeta::from).collect())
+}
+
+/// What a run's extension row records about its execution: whether an attempt
+/// has begun it, and when that attempt was last alive. `None` when the run has
+/// no extension row.
+pub async fn get_run_execution(
+    db: &DatabaseConnection,
+    run_id: &str,
+) -> Result<Option<RunExecution>, DbErr> {
+    crud::get_extension(db, run_id)
+        .await
+        .map(|opt| opt.map(RunExecution::from))
 }
 
 /// Insert an analytics extension row for a run.

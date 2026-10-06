@@ -8,6 +8,11 @@ pub struct Model {
     pub agent_id: String,
     pub spec_hint: Option<Json>,
     pub thinking_mode: Option<String>,
+    /// When an attempt began executing the run; `None` until one does. See
+    /// `super::execution`.
+    pub execution_started_at: Option<DateTimeWithTimeZone>,
+    /// The executing attempt's newest proof of life.
+    pub execution_heartbeat_at: Option<DateTimeWithTimeZone>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

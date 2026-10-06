@@ -86,6 +86,7 @@ pub mod crud {
         user_facing_status,
     };
     pub use crate::lifecycle::crud::{events, queries, runs, suspension};
+    pub use crate::orchestrator::crud::adopt_queued_task;
     pub use crate::orchestrator::crud::{
         DeadTask, DeferOutcome, QueueStats, QueueTaskRow, ReapOutcome, StuckRun,
         TASKS_DEAD_LETTERED, TASKS_REQUEUED, TaskScope, TerminalWrite, cancel_queued_task,

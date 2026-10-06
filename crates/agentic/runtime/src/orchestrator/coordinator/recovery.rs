@@ -21,6 +21,45 @@ use super::{
 pub struct PendingResume {
     pub parent_task_id: String,
     pub answer: String,
+    /// Whether the coordinator holds a checkpoint to resume this parent from.
+    /// Without one `resume_parent` can only log and leave it waiting, so a
+    /// caller deciding who continues the parent must not count on the resume.
+    pub has_checkpoint: bool,
+    /// Set by the caller, never by `from_db`: this resume was assigned before
+    /// the crash and its queue entry survived. `from_db` cannot tell — the
+    /// outcomes are the same rows, and a boot may have stamped the parent
+    /// `needs_resume` — so it reports the parent as pending either way.
+    /// `process_pending_resumes` then records the task as running instead of
+    /// assigning the resume a second time over the one a worker is claiming.
+    pub already_assigned: bool,
+}
+
+/// The outcomes on record for the children `parent_id` is waiting on **now**.
+///
+/// `agentic_task_outcomes` keeps every outcome a parent has ever been sent,
+/// and a parent that delegates more than once — an automation does, once per
+/// step — still has the rows from its earlier delegations. Only the children
+/// of the delegation it is parked at count. Counting all of them made a parent
+/// whose one child was still running read as "every child in" (one old outcome
+/// against one expected child), and recovery resumed it with an answer
+/// aggregated from children that had not reported.
+async fn completed_children(
+    db: &DatabaseConnection,
+    parent_id: &str,
+    child_task_ids: &[String],
+) -> Result<HashMap<String, ChildResult>, sea_orm::DbErr> {
+    let outcomes = crud::get_outcomes_for_parent(db, parent_id).await?;
+    Ok(outcomes
+        .into_iter()
+        .filter(|o| child_task_ids.contains(&o.child_id))
+        .map(|o| {
+            let result = match o.status.as_str() {
+                "done" => ChildResult::Done(o.answer.unwrap_or_default()),
+                _ => ChildResult::Failed(o.answer.unwrap_or_default()),
+            };
+            (o.child_id, result)
+        })
+        .collect())
 }
 
 impl Coordinator {
@@ -73,17 +112,7 @@ impl Coordinator {
 
                     // Rebuild `completed` from the task_outcomes table — the
                     // atomic source of truth — instead of task_metadata JSONB.
-                    let outcomes = crud::get_outcomes_for_parent(&db, &row.id).await?;
-                    let completed: HashMap<String, ChildResult> = outcomes
-                        .into_iter()
-                        .map(|o| {
-                            let result = match o.status.as_str() {
-                                "done" => ChildResult::Done(o.answer.unwrap_or_default()),
-                                _ => ChildResult::Failed(o.answer.unwrap_or_default()),
-                            };
-                            (o.child_id, result)
-                        })
-                        .collect();
+                    let completed = completed_children(&db, &row.id, &child_task_ids).await?;
 
                     let failure_policy = meta
                         .and_then(|m| serde_json::from_value(m["failure_policy"].clone()).ok())
@@ -127,17 +156,7 @@ impl Coordinator {
                             })
                             .unwrap_or_default();
 
-                        let outcomes = crud::get_outcomes_for_parent(&db, &row.id).await?;
-                        let completed: HashMap<String, ChildResult> = outcomes
-                            .into_iter()
-                            .map(|o| {
-                                let result = match o.status.as_str() {
-                                    "done" => ChildResult::Done(o.answer.unwrap_or_default()),
-                                    _ => ChildResult::Failed(o.answer.unwrap_or_default()),
-                                };
-                                (o.child_id, result)
-                            })
-                            .collect();
+                        let completed = completed_children(&db, &row.id, &child_task_ids).await?;
 
                         let failure_policy = meta
                             .and_then(|m| serde_json::from_value(m["failure_policy"].clone()).ok())
@@ -278,9 +297,14 @@ impl Coordinator {
             if all_done {
                 // Aggregate the answer exactly as the live code path does.
                 let answer = Self::aggregate_child_results_static(&tasks, task_id);
+                let has_checkpoint = tasks
+                    .get(task_id)
+                    .is_some_and(|node| node.suspend_data.is_some());
                 pending_resumes.push(PendingResume {
                     parent_task_id: task_id.clone(),
                     answer,
+                    has_checkpoint,
+                    already_assigned: false,
                 });
             }
         }
@@ -316,6 +340,19 @@ impl Coordinator {
             },
             pending_resumes,
         ))
+    }
+
+    /// Leave `task_id` as `resume_parent` does, minus what belongs to an
+    /// assignment that already happened (the status write, the
+    /// `input_resolved` event, the queue entry). See
+    /// [`PendingResume::already_assigned`].
+    pub(super) fn resume_already_assigned(&mut self, task_id: &str) {
+        let Some(node) = self.tasks.get_mut(task_id) else {
+            return;
+        };
+        node.status = TaskStatus::Running;
+        node.suspended_at = None;
+        node.suspend_data = None;
     }
 
     /// Aggregate child results without needing `&self` (used during recovery).

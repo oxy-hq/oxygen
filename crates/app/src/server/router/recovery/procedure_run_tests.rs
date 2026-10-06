@@ -117,6 +117,7 @@ fn the_driver_registry_executes_procedure_runs() {
     let registry = build_custom_task_registry(
         &sea_orm::DatabaseConnection::default(),
         &PreaggCacheCtx::default(),
+        None,
     );
     assert!(
         registry.get(PROCEDURE_RUN_KIND).is_some(),

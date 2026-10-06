@@ -24,6 +24,8 @@ use tokio_util::sync::CancellationToken;
 use crate::crud;
 use crate::orchestrator::router::{NoopTaskRouter, TaskRouter};
 
+mod adopt;
+
 /// Default interval for polling the queue when no notification arrives.
 ///
 /// 10s is the backstop, *not* the dispatch latency target. With a real

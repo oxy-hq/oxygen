@@ -103,6 +103,7 @@ mod custom_app_access_control;
 mod custom_app_activity_roles;
 mod custom_app_agent_ask_caller;
 mod custom_app_agent_ask_cancel;
+mod custom_app_agent_ask_queue;
 mod custom_app_functions_clickhouse;
 mod custom_app_functions_diskless;
 mod custom_app_functions_e2e;

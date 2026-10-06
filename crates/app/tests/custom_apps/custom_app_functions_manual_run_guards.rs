@@ -91,7 +91,9 @@ fn the_production_registry_registers_the_app_function_executor_and_the_driver_us
     );
     let driver = fn_body(&src, "drive_pending");
     assert!(
-        driver.contains("letcustom_executors=Some(build_custom_task_registry(db,preagg));"),
+        // The arguments after `preagg` are the registry's own business (today
+        // the driver's schema cache, for the queued-ask executor).
+        driver.contains("letcustom_executors=Some(build_custom_task_registry(db,preagg,"),
         "`drive_pending` no longer builds its executors with `build_custom_task_registry`"
     );
     assert!(

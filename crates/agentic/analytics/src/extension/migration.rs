@@ -14,6 +14,7 @@ impl MigratorTrait for AnalyticsMigrator {
         vec![
             Box::new(CreateAnalyticsRunExtensions),
             Box::new(BackfillFromLegacyColumns),
+            Box::new(AddExecutionStamp),
         ]
     }
 
@@ -66,6 +67,8 @@ enum AnalyticsRunExtension {
     AgentId,
     SpecHint,
     ThinkingMode,
+    ExecutionStartedAt,
+    ExecutionHeartbeatAt,
 }
 
 #[derive(Iden)]
@@ -172,6 +175,85 @@ impl MigrationTrait for BackfillFromLegacyColumns {
 
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
         // Backfill is not reversible — the legacy columns still have the data.
+        Ok(())
+    }
+}
+
+// ── Migration 3: Execution stamp + heartbeat ────────────────────────────────
+
+/// Adds `execution_started_at` — the moment an attempt began executing the
+/// run — and `execution_heartbeat_at`, that attempt's proof it is still alive.
+///
+/// A run started from the task queue can be claimed more than once, and an
+/// analytics run keeps no checkpoint until it suspends, so a second attempt
+/// would start it again from the top. The stamp is what lets that attempt
+/// refuse; the heartbeat is what tells it whether the first is dead or still
+/// running. See `extension::execution` for the statements that write them.
+///
+/// Why columns here and not the queue's `claim_count` or the driver lease: a
+/// graceful release *decrements* the count and it moves at claim time, before
+/// anything ran; and a claim can be handed on under a driver whose lease never
+/// lapsed. The same reasoning as `customer_app_automation_runs`, whose columns
+/// these mirror.
+///
+/// Both nullable with no default, so a binary from before this migration —
+/// which names its columns on insert — keeps inserting, and one rolled back
+/// past it never reads them. No route serves either.
+struct AddExecutionStamp;
+
+impl MigrationName for AddExecutionStamp {
+    fn name(&self) -> &str {
+        "m20261006_000001_add_execution_stamp_to_analytics_run_extensions"
+    }
+}
+
+const EXTENSIONS_TABLE: &str = "analytics_run_extensions";
+
+/// Both columns, as `(name, iden)`: each is added and dropped the same way.
+fn execution_columns() -> [(&'static str, AnalyticsRunExtension); 2] {
+    [
+        (
+            "execution_started_at",
+            AnalyticsRunExtension::ExecutionStartedAt,
+        ),
+        (
+            "execution_heartbeat_at",
+            AnalyticsRunExtension::ExecutionHeartbeatAt,
+        ),
+    ]
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for AddExecutionStamp {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        for (name, column) in execution_columns() {
+            if !column_exists(manager, EXTENSIONS_TABLE, name).await? {
+                manager
+                    .alter_table(
+                        Table::alter()
+                            .table(AnalyticsRunExtension::Table)
+                            .add_column(ColumnDef::new(column).timestamp_with_time_zone().null())
+                            .to_owned(),
+                    )
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        for (name, column) in execution_columns() {
+            if column_exists(manager, EXTENSIONS_TABLE, name).await? {
+                manager
+                    .alter_table(
+                        Table::alter()
+                            .table(AnalyticsRunExtension::Table)
+                            .drop_column(column)
+                            .to_owned(),
+                    )
+                    .await?;
+            }
+        }
         Ok(())
     }
 }

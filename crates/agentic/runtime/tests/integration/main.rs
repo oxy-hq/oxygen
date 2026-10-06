@@ -7,9 +7,11 @@
 //!
 //! See `internal-docs/testing.md` for the cost model.
 
+mod adopt_queued_task_test;
 mod duplicate_delegation_test;
 mod eviction_safety_test;
 mod integration_tests;
+mod pending_resume_test;
 mod reset_task_to_queued_test;
 mod router_test;
 mod run_feed_test;

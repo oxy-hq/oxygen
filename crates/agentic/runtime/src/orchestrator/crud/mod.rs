@@ -6,10 +6,12 @@
 //! and `transition_run` from `lifecycle::crud` rather than duplicating
 //! them.
 
+pub mod adopt;
 pub mod outcomes;
 pub mod queue;
 pub mod recovery;
 
+pub use adopt::adopt_queued_task;
 pub use outcomes::{
     complete_child_done_txn, complete_child_failed_txn, get_outcomes_for_parent, get_run_answer,
     insert_child_run, insert_task_outcome, suspend_with_data_txn,

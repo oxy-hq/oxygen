@@ -360,14 +360,21 @@ Server Startup
     │     │   ├─ Detect PendingResumes (children done, parent not resumed)
     │     │   └─ Initialize child_counter from existing children (collision-safe)
     │     │
+    │     ├─ Pick ONE continuation for each task that has two descriptions:
+    │     │   ├─ root at a suspension vs. its own queue entry (recovery/root_entry.rs)
+    │     │   └─ parent whose children all reported → the resume that carries
+    │     │      their answer, never also a re-launch (recovery/children_done.rs)
+    │     │
     │     ├─ Walk tree, classify each task:
     │     │   ├─ done/failed → skip
     │     │   ├─ awaiting_input → leave as-is (user answers via HTTP)
-    │     │   ├─ delegating + pending resume → re-launch
+    │     │   ├─ children all reported → leave to the pending resume
+    │     │   ├─ delegating, children still out → leave waiting
     │     │   ├─ running + suspend data → re-launch from checkpoint
     │     │   └─ stale (no checkpoint) → mark failed
     │     │
-    │     ├─ Process pending resumes (send answers to orchestrator channels)
+    │     ├─ Process pending resumes (assign Resume / AutomationDecision
+    │     │   carrying the children's answer)
     │     ├─ Register in RuntimeState (SSE notifiers, cancel channels)
     │     ├─ Spawn Worker (claims child tasks from durable queue)
     │     └─ Spawn Coordinator.run() (main event loop)

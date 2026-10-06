@@ -18,6 +18,10 @@ pub async fn insert_extension(
         agent_id: Set(agent_id.to_string()),
         spec_hint: Set(None),
         thinking_mode: Set(thinking_mode),
+        // Left out of the insert: an attempt stamps them when it begins
+        // executing (`super::execution::begin_execution`), never the seed.
+        execution_started_at: NotSet,
+        execution_heartbeat_at: NotSet,
     };
     match entity::Entity::insert(model)
         .on_conflict(

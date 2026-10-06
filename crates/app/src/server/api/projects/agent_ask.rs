@@ -24,7 +24,6 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use agentic_pipeline::PipelineBuilder;
 use agentic_pipeline::platform::PlatformContext;
 use axum::Json;
 use axum::extract::{Path, State};
@@ -46,6 +45,9 @@ use crate::server::router::AppState;
 
 pub mod caller;
 mod cancel;
+pub mod executor;
+mod pipeline;
+pub mod task;
 
 pub use cancel::cancel_ask;
 
@@ -339,16 +341,21 @@ pub async fn start_ask(
     //    whatever drives this run later without this request (recovery, after
     //    a restart) rebuilds the context from that record instead of running
     //    it on its own subject-less platform — see `caller`.
-    let builder = PipelineBuilder::new(platform.clone())
-        .workspace_id(project_id)
-        .question(&req.question)
-        .schema_cache(Arc::clone(&agentic_state.schema_cache))
-        .thread(thread_uuid)
-        .run_metadata(
-            caller::RUN_CALLER_KEY,
-            caller::RunCaller::of(&gates_ctx).to_metadata(),
-        )
-        .analytics(&agent_id);
+    //
+    //    `ask_pipeline` is the one definition of an ask's pipeline; a driver
+    //    that claims a queued ask builds from it too (`executor`).
+    let builder = pipeline::ask_pipeline(
+        platform.clone(),
+        project_id,
+        &req.question,
+        Some(thread_uuid),
+        Some(Arc::clone(&agentic_state.schema_cache)),
+        &agent_id,
+    )
+    .run_metadata(
+        caller::RUN_CALLER_KEY,
+        caller::RunCaller::of(&gates_ctx).to_metadata(),
+    );
 
     // 7. Start — inside the hold too, so the run row is stamped.
     let started = match boxed(|| scope_if(hold, builder.start(&agentic_state.db))).await {

@@ -2,10 +2,12 @@
 //!
 //! Uses a top-down tree-walk approach:
 //! 1. Reconstruct coordinator from DB via `from_db()`
-//! 2. Walk the task tree, classify each task
-//! 3. Re-launch tasks that have checkpoints
-//! 4. Mark stale tasks as failed (parent will re-delegate)
-//! 5. Process PendingResumes (children done, parent not yet resumed)
+//! 2. Decide what continues the root (`root_entry`) and each parent whose
+//!    children have all reported (`children_done`) — one continuation each
+//! 3. Walk the task tree, classify each task
+//! 4. Re-launch tasks that have checkpoints and that nothing else continues
+//! 5. Mark stale tasks as failed (parent will re-delegate)
+//! 6. Process PendingResumes (children done, parent not yet resumed)
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -21,6 +23,11 @@ use crate::drive_policy::report_fallback_takes;
 use crate::executor::PipelineTaskExecutor;
 use crate::platform::preview::platform_for_root;
 use crate::platform::{BuilderBridges, PlatformContext, RunPlatformResolver};
+
+mod children_done;
+mod root_entry;
+
+use root_entry::RootEntry;
 
 /// How many times the recovery *loops* may re-drive one run before retiring it.
 ///
@@ -893,10 +900,19 @@ async fn recover_single_run_owned(
         .await
         .map_err(|e| format!("failed to load task tree: {e}"))?;
 
-    let pending_parent_ids: std::collections::HashSet<String> = pending_resumes
-        .iter()
-        .map(|pr| pr.parent_task_id.clone())
-        .collect();
+    // A root that has reached a suspension continues from it — resumed below,
+    // or left parked. Its own queue entry must agree before the worker in
+    // step 4 exists: a `queued` entry that predates the suspension would start
+    // the run again from the top, and one that *is* the resume must not be
+    // doubled by a re-launch here. See `root_entry`.
+    let root_entry = root_entry::reconcile(&db, &transport, &root.id).await?;
+
+    // A parent whose children have all reported is continued by the resume
+    // that carries their answer — the one the coordinator assigns in step 4,
+    // or the one already on the queue, which it is only told about — and by
+    // nothing else. Re-launching it here as well was a second continuation of
+    // the run, with an empty answer. See `children_done`.
+    let children_done = children_done::settle(&root.id, root_entry, pending_resumes);
 
     for task_run in &tree {
         match task_run.task_status.as_deref() {
@@ -907,8 +923,23 @@ async fn recover_single_run_owned(
                 continue;
             }
 
+            // Whatever status the row was left in: `delegating` when a queued
+            // run is picked up, `needs_resume` once a boot has stamped it.
+            _ if children_done.resumes(&task_run.id) => {
+                tracing::debug!(
+                    target: "recovery",
+                    task_id = %task_run.id,
+                    "children have all reported; continued by the resume that carries their answer"
+                );
+            }
+
             Some("delegating") => {
-                if pending_parent_ids.contains(&task_run.id) {
+                if children_done.cannot_resume(&task_run.id) {
+                    // Every child in and no checkpoint: nothing can hand the
+                    // parent its answer. The re-launch says so — an analytics
+                    // or builder run has nothing to resume from — and that
+                    // closes the run as interrupted instead of leaving it
+                    // parked until the suspend ceiling.
                     re_launch_task(&db, &state, &executor, &transport, task_run).await?;
                 } else {
                     tracing::debug!(target: "recovery", task_id = %task_run.id, "parent still waiting");
@@ -967,7 +998,18 @@ async fn recover_single_run_owned(
                         Ok(Some(q)) if q.queue_status == "queued"
                     );
 
-                if suspend_data.is_some() {
+                // Only ever the root, and only when its entry is the resume
+                // from the suspension it is at (a resumed root is `running`,
+                // so this arm is the one that sees it).
+                let entry_resumes_it = task_run.id == root.id && root_entry == RootEntry::Continues;
+
+                if suspend_data.is_some() && entry_resumes_it {
+                    tracing::debug!(
+                        target: "recovery",
+                        run_id = %task_run.id,
+                        "root's queued entry resumes it from this suspension; worker will claim it"
+                    );
+                } else if suspend_data.is_some() {
                     re_launch_task(&db, &state, &executor, &transport, task_run).await?;
                 } else if is_root_with_queued_entry {
                     tracing::debug!(
@@ -1009,8 +1051,8 @@ async fn recover_single_run_owned(
     // in-memory channel needed. For analytics/builder runs, resume_parent
     // assigns a TaskSpec::Resume which the worker handles.
     //
-    // The pending_resumes are processed by the coordinator when it starts up
-    // (via its from_db logic), so no explicit action is needed here.
+    // The coordinator processes them when it starts, in step 4. They are the
+    // only continuation of those parents: the walk above skipped every one.
 
     // ── Step 4: Register in RuntimeState + spawn coordinator + worker ───
     // Without registration the SSE endpoint finds no notifier and exits
@@ -1124,6 +1166,7 @@ async fn recover_single_run_owned(
     let worker = Worker::new(transport.clone() as Arc<dyn WorkerTransport>, executor);
     spawn_with_hub(async move { worker.run().await });
 
+    let pending_resumes = children_done.for_coordinator;
     let pending_count = pending_resumes.len();
     let retire_transport = transport.clone();
     spawn_with_hub(async move {

@@ -602,12 +602,12 @@ async fn recover_local(
             platform,
             CallerRunResolver::shared(db),
             bridges,
-            schema_cache,
+            schema_cache.clone(),
             builder_test_runner,
             builder_app_runner,
             router,
             Some(LOCAL_WORKSPACE_ID),
-            Some(build_custom_task_registry(db, &preagg)),
+            Some(build_custom_task_registry(db, &preagg, schema_cache)),
             policy,
         )
         .await;
@@ -661,12 +661,12 @@ async fn recover_local(
             platform,
             CallerRunResolver::shared(db),
             bridges,
-            schema_cache,
+            schema_cache.clone(),
             builder_test_runner,
             builder_app_runner,
             router,
             Some(LOCAL_WORKSPACE_ID),
-            Some(build_custom_task_registry(db, &preagg)),
+            Some(build_custom_task_registry(db, &preagg, schema_cache)),
             policy,
         )
         .await
@@ -750,7 +750,11 @@ async fn recover_all_workspaces(
                 builder_app_runner.clone(),
                 router.clone(),
                 Some(ws.id),
-                Some(build_custom_task_registry(db, &preagg)),
+                Some(build_custom_task_registry(
+                    db,
+                    &preagg,
+                    schema_cache.clone(),
+                )),
                 policy,
             )
             .await;
@@ -795,7 +799,11 @@ async fn recover_all_workspaces(
                 builder_app_runner.clone(),
                 router.clone(),
                 Some(ws.id),
-                Some(build_custom_task_registry(db, &preagg)),
+                Some(build_custom_task_registry(
+                    db,
+                    &preagg,
+                    schema_cache.clone(),
+                )),
                 policy,
             )
             .await
@@ -1279,6 +1287,7 @@ async fn retire_orphaned_runs(
 fn build_custom_task_registry(
     db: &sea_orm::DatabaseConnection,
     preagg: &PreaggCacheCtx,
+    schema_cache: Option<crate::server::api::projects::agent_ask::executor::SchemaCache>,
 ) -> Arc<agentic_runtime::worker::CustomTaskRegistry> {
     use crate::server::app_function_executor::{APP_FUNCTION_KIND, AppFunctionTaskExecutor};
     use crate::server::health_eval_executor::{HEALTH_EVAL_KIND, HealthEvalTaskExecutor};
@@ -1310,6 +1319,21 @@ fn build_custom_task_registry(
         reg.register(
             task::PROCEDURE_RUN_KIND,
             Arc::new(executor::ProcedureRunExecutor { db: db.clone() }),
+        );
+    }
+    // A custom app's ask, once its start enqueues it. Registered a release
+    // ahead of that enqueue, so that by then no driver is left that would fail
+    // the kind as unknown: nothing queues one yet. Like the procedure run it
+    // builds its own context from the caller the request authenticated — read
+    // off the run row — and never from this driver's subject-less platform.
+    {
+        use crate::server::api::projects::agent_ask::{executor, task};
+        reg.register(
+            task::AGENT_ASK_KIND,
+            Arc::new(executor::AgentAskExecutor {
+                db: db.clone(),
+                schema_cache,
+            }),
         );
     }
     // Same shape as health eval: one executor instance, workspace context
@@ -1420,7 +1444,11 @@ async fn drive_pending(
     // The latency worker is where freshly-seeded Global runs (incl. per-workspace
     // `health_eval_workspace` Custom tasks) are drained, so inject the host's
     // Custom-kind executors here. Cheap to build per call (a few Arc clones).
-    let custom_executors = Some(build_custom_task_registry(db, preagg));
+    let custom_executors = Some(build_custom_task_registry(
+        db,
+        preagg,
+        schema_cache.cloned(),
+    ));
     // The real gate: `policy` is checked inside `recover_pending_global_runs`,
     // immediately before `try_acquire_driver`, so a declined run keeps
     // `driver_id IS NULL` and stays selectable by a node that can take it. It
@@ -2046,6 +2074,9 @@ async fn bootstrap_monitor_schedules(
         }
     }
 }
+
+#[cfg(test)]
+mod agent_ask_tests;
 
 #[cfg(test)]
 mod procedure_run_tests;

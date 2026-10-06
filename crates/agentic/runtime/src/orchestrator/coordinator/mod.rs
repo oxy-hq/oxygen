@@ -304,9 +304,14 @@ impl Coordinator {
 
     /// Process pending resumes from crash recovery. Call this after `from_db`
     /// to resume parents that were waiting on children that completed before
-    /// the crash.
+    /// the crash. One the caller marked [`PendingResume::already_assigned`] is
+    /// recorded as running and not assigned again.
     pub async fn process_pending_resumes(&mut self, resumes: Vec<PendingResume>) {
         for resume in resumes {
+            if resume.already_assigned {
+                self.resume_already_assigned(&resume.parent_task_id);
+                continue;
+            }
             tracing::info!(
                 target: "coordinator",
                 parent_id = %resume.parent_task_id,

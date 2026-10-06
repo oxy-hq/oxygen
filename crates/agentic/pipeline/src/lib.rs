@@ -20,6 +20,7 @@ pub mod platform;
 pub mod recovery;
 pub mod retry;
 pub mod revert;
+pub mod run_execution;
 mod run_metadata;
 pub mod scheduler;
 pub mod usage;

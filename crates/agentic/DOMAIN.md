@@ -300,7 +300,9 @@ Five-stage pipeline: Clarifying → Specifying → Solving → Executing → Int
 run_id TEXT PK FK,
 agent_id TEXT NOT NULL,    -- which .agentic.yml
 spec_hint JSONB,           -- prior turn's spec, for cross-turn continuity
-thinking_mode TEXT         -- NULL | "extended_thinking"
+thinking_mode TEXT,        -- NULL | "extended_thinking"
+execution_started_at TIMESTAMPTZ,   -- stamped once, by the attempt that begins a queued run
+execution_heartbeat_at TIMESTAMPTZ  -- that attempt's proof of life (extension/execution.rs)
 ```
 Migrator: `AnalyticsMigrator` with tracking table `seaql_migrations_analytics`.
 
