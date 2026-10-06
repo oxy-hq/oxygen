@@ -231,9 +231,7 @@ export const DossierBody = ({
           title='Issues'
           badge={<IssuesBadge appId={app.id} />}
         >
-          <div className='p-4 pt-0'>
-            <Issues app={app} onOpenFunction={openFunction} />
-          </div>
+          <Issues app={app} onOpenFunction={openFunction} />
         </DossierSection>
         <DossierSection {...section("logs")} title='Logs'>
           <AppLogs orgSlug={app.org_slug} appSlug={app.slug} />

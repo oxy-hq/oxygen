@@ -71,6 +71,25 @@ describe("FunctionLogs", () => {
     expect(screen.queryByTestId("admin-app-logs-truncated")).not.toBeInTheDocument();
   });
 
+  // The level used to be colour alone — two greys and a red. It is a word
+  // now, and an ordinary line carries none: a column of "info" would bury the
+  // two that matter.
+  it("says a line's level in words, and only when it is not an ordinary one", () => {
+    answerWith({
+      data: [
+        line({ seq: 0, level: "info", message: "started" }),
+        line({ seq: 1, level: "warn", message: "retrying" }),
+        line({ seq: 2, level: "error", message: "gave up" })
+      ]
+    });
+    mount();
+
+    const text = screen.getByTestId("admin-app-logs-invocation").textContent ?? "";
+    expect(text).toContain("warnretrying");
+    expect(text).toContain("errorgave up");
+    expect(text).not.toContain("info");
+  });
+
   it("leaves out an id the line does not have", () => {
     answerWith({ data: [line({ trace_id: "", request_id: "" })] });
     mount();

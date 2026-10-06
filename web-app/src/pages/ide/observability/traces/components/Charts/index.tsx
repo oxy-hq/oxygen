@@ -1,3 +1,4 @@
+import { Info } from "lucide-react";
 import { useMemo } from "react";
 import ChartCard from "./ChartCard";
 import type { TraceChartsProps } from "./types";
@@ -28,46 +29,50 @@ export default function TraceCharts({ traces, total, isLoading }: TraceChartsPro
   const tokensChartOptions = useTokensChartOptions(timeBuckets);
 
   return (
-    <div className='mb-4'>
-      <div className='grid grid-cols-4 gap-4'>
+    // One band. The sentence that limits the figures is its first line, so
+    // it is read before the numbers it qualifies and cannot be scrolled apart
+    // from them.
+    <div className='mb-4 overflow-hidden rounded-lg border'>
+      {capped && (
+        <p
+          className='flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm'
+          data-testid='traces-charts-capped'
+        >
+          <Info className='size-3.5 shrink-0 text-muted-foreground' aria-hidden />
+          <span>
+            Charts and totals cover the newest{" "}
+            <span className='font-medium tabular-nums'>{shown.toLocaleString()}</span> of{" "}
+            <span className='font-medium tabular-nums'>{total.toLocaleString()}</span> traces in
+            this view.
+          </span>
+        </p>
+      )}
+      <div className='grid grid-cols-4 divide-x'>
         <ChartCard
-          title='Automation Runs'
-          value={`${stats.automationRuns} Automation Runs`}
-          subtitle=''
+          label='Automation runs'
+          value={stats.automationRuns}
           options={automationRunsChartOptions}
           isLoading={isLoading}
         />
-
         <ChartCard
-          title='Analytics Runs'
-          value={`${stats.analyticsRuns} Analytics Runs`}
-          subtitle=''
+          label='Analytics runs'
+          value={stats.analyticsRuns}
           options={analyticsRunsChartOptions}
           isLoading={isLoading}
         />
-
         <ChartCard
-          title='Duration'
-          value={`${stats.avgDuration} Average Execution Time`}
-          subtitle=''
+          label='Average execution time'
+          value={stats.avgDuration}
           options={durationChartOptions}
           isLoading={isLoading}
         />
-
         <ChartCard
-          title='Tokens'
-          value={`${stats.totalTokens.toLocaleString()} Total Tokens Used`}
-          subtitle=''
+          label='Total tokens used'
+          value={stats.totalTokens.toLocaleString()}
           options={tokensChartOptions}
           isLoading={isLoading}
         />
       </div>
-      {capped && (
-        <p className='mt-2 px-3 text-muted-foreground text-xs' data-testid='traces-charts-capped'>
-          Charts and totals cover the newest {shown.toLocaleString()} of {total.toLocaleString()}{" "}
-          traces in this view.
-        </p>
-      )}
     </div>
   );
 }

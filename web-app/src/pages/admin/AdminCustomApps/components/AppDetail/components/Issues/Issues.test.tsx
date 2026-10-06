@@ -68,10 +68,10 @@ describe("Issues", () => {
 
     const live = screen.getByTestId("admin-app-issues-row-upload-report-5c1e0b8a9d2f4e71");
     const replaced = screen.getByTestId("admin-app-issues-row-sync-orders-5c1e0b8a9d2f4e71");
-    expect(live).toHaveTextContent("1,234×");
-    expect(live).toHaveTextContent("on the live build");
-    expect(live).not.toHaveTextContent("not on the live build");
-    expect(replaced).toHaveTextContent("not on the live build");
+    expect(live).toHaveTextContent("1,234");
+    expect(live).toHaveTextContent("On the live build");
+    expect(live).not.toHaveTextContent("Not on the live build");
+    expect(replaced).toHaveTextContent("Not on the live build");
     expect(screen.queryByTestId("admin-app-issues-truncated")).not.toBeInTheDocument();
   });
 
@@ -96,11 +96,36 @@ describe("Issues", () => {
     );
   });
 
+  // Function plus fingerprint is what the pager quotes, so both have to be
+  // readable before anything is opened — two failures of one function would
+  // otherwise be the same row twice. Grouping is spacing only: the text is
+  // still the one unbroken value a search or a paste would look for.
+  it("identifies a closed row by function and fingerprint, and keeps the failure text for the open one", () => {
+    answerWith({ data: listOf([issue()]) });
+    render(<Issues app={APP} onOpenFunction={vi.fn()} />);
+    const row = screen.getByTestId("admin-app-issues-row-upload-report-5c1e0b8a9d2f4e71");
+    const toggle = screen.getByTestId("admin-app-issues-row-toggle");
+
+    expect(row).toHaveTextContent("upload-report5c1e0b8a9d2f4e71");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("admin-app-issues-row-error")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("admin-app-issues-row-error")).toHaveTextContent(
+      "function threw: Error: warehouse insert failed"
+    );
+    expect(row).toHaveTextContent("0b7a1c2e-5d3f-4a6b-8c9d-0e1f2a3b4c5d");
+    expect(row).toHaveTextContent("2, last on b2");
+  });
+
   it("opens the failing function's invocations", () => {
     const onOpenFunction = vi.fn();
     answerWith({ data: listOf([issue()]) });
     render(<Issues app={APP} onOpenFunction={onOpenFunction} />);
 
+    fireEvent.click(screen.getByTestId("admin-app-issues-row-toggle"));
     fireEvent.click(screen.getByTestId("admin-app-issues-row-open-function"));
     expect(onOpenFunction).toHaveBeenCalledWith("upload-report");
   });
@@ -111,6 +136,7 @@ describe("Issues", () => {
     answerWith({ data: listOf([issue()]) });
     render(<Issues app={APP} onOpenFunction={vi.fn()} />);
 
+    fireEvent.click(screen.getByTestId("admin-app-issues-row-toggle"));
     fireEvent.click(screen.getByTestId("admin-app-issues-row-copy"));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));

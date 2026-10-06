@@ -72,11 +72,8 @@ export default function TracesPage() {
         <div className='scrollbar-gutter-auto min-h-0 flex-1 overflow-auto p-4'>
           {observabilityConfigured ? (
             <>
-              <TraceCharts
-                traces={ctl.chartTraces}
-                total={ctl.chartTotal}
-                isLoading={ctl.isChartLoading}
-              />
+              {/* Filters first: the search and the status filter narrow the
+                  charts as well as the list beneath them. */}
               <TracesToolbar
                 search={ctl.searchInput}
                 onSearchChange={ctl.setSearchInput}
@@ -86,6 +83,11 @@ export default function TracesPage() {
                 onLiveChange={ctl.setLive}
                 view={ctl.view}
                 onViewChange={ctl.setView}
+              />
+              <TraceCharts
+                traces={ctl.chartTraces}
+                total={ctl.chartTotal}
+                isLoading={ctl.isChartLoading}
               />
               <CompareSelectionBar
                 count={ctl.compareTraces.length}

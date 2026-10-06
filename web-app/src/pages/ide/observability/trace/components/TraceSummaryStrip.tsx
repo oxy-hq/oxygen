@@ -28,17 +28,17 @@ interface StatTileProps {
 
 function StatTile({ label, value, unit, tone = "default", icon, title }: StatTileProps) {
   return (
-    <div className='flex flex-col gap-0.5 rounded-lg border bg-card px-3 py-2' title={title}>
-      <span className='text-[10px] text-muted-foreground uppercase tracking-wide'>{label}</span>
+    <div className='flex flex-col gap-1 bg-card px-4 py-3' title={title}>
+      <span className='t-label text-muted-foreground'>{label}</span>
       <span
         className={cn(
-          "flex items-center gap-1 font-semibold text-lg tabular-nums leading-tight",
+          "t-h2 flex items-center gap-1 tabular-nums",
           tone === "error" && "text-destructive"
         )}
       >
         {icon}
         {value}
-        {unit && <span className='font-medium text-muted-foreground text-xs'>{unit}</span>}
+        {unit && <span className='t-small text-muted-foreground'>{unit}</span>}
       </span>
     </div>
   );
@@ -55,7 +55,10 @@ export function TraceSummaryStrip({
   // The /cost endpoint owns authoritative cost; show tokens here, dash cost.
 
   return (
-    <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8'>
+    // One ruled strip, not eight cards: the gap between cells is a hairline
+    // of the border colour showing through, so the rules stay whole however
+    // the grid wraps.
+    <div className='grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-4 xl:grid-cols-8'>
       <StatTile label='Spans' value={summary.spanCount} />
       <StatTile
         label='Errors'

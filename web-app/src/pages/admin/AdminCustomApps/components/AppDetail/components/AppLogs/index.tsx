@@ -25,8 +25,10 @@ export const AppLogs = ({ orgSlug, appSlug }: { orgSlug: string; appSlug: string
 
   return (
     <div className='space-y-4 p-4 pt-0' data-testid='admin-app-logs'>
-      <div className='flex items-center justify-between gap-2'>
-        <p className='text-muted-foreground text-xs'>Times are UTC.</p>
+      <div className='flex items-center gap-2'>
+        <span className='text-[10px] text-muted-foreground uppercase tracking-[0.16em]'>
+          Window
+        </span>
         <ToggleGroup
           type='single'
           size='sm'
@@ -45,14 +47,19 @@ export const AppLogs = ({ orgSlug, appSlug }: { orgSlug: string; appSlug: string
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        {/* In the foreground, not grey: every time on both lists is read
+            against it. */}
+        <p className='ml-auto text-xs'>Times are UTC.</p>
       </div>
-      <section className='space-y-2'>
-        <h3 className='font-semibold text-sm'>Client errors</h3>
-        <ClientErrors orgSlug={orgSlug} appSlug={appSlug} hours={hours} />
-      </section>
+      {/* Function output first: it is what a page about a failing function
+          sends an operator here to read. */}
       <section className='space-y-2'>
         <h3 className='font-semibold text-sm'>Function output</h3>
         <FunctionLogs orgSlug={orgSlug} appSlug={appSlug} hours={hours} />
+      </section>
+      <section className='space-y-2'>
+        <h3 className='font-semibold text-sm'>Client errors</h3>
+        <ClientErrors orgSlug={orgSlug} appSlug={appSlug} hours={hours} />
       </section>
     </div>
   );

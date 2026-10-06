@@ -68,7 +68,9 @@ export function TracesTable({
                   {row.isError ? (
                     <AlertCircle className='size-4 text-destructive' />
                   ) : (
-                    <CheckCircle2 className='size-4 text-success' />
+                    // Grey, not green: almost every row is healthy, and a
+                    // column of green ticks hides the red one.
+                    <CheckCircle2 className='size-4 text-muted-foreground' />
                   )}
                 </TableCell>
                 <TableCell className='max-w-0'>
@@ -85,18 +87,18 @@ export function TracesTable({
                     {row.spanLabel}
                   </Badge>
                 </TableCell>
-                <TableCell className='truncate text-muted-foreground text-xs'>
+                <TableCell className='truncate font-mono text-muted-foreground text-xs'>
                   {row.entityRef ?? "—"}
                 </TableCell>
                 <TableCell
                   className={cn(
-                    "text-right text-xs tabular-nums",
+                    "text-right text-sm tabular-nums",
                     row.isError && "text-destructive"
                   )}
                 >
                   {formatDuration(row.durationMs)}
                 </TableCell>
-                <TableCell className='text-right text-muted-foreground text-xs tabular-nums'>
+                <TableCell className='text-right text-muted-foreground text-sm tabular-nums'>
                   {row.tokensTotal ? row.tokensTotal.toLocaleString() : "—"}
                 </TableCell>
                 <TableCell className='text-right text-muted-foreground text-xs tabular-nums'>

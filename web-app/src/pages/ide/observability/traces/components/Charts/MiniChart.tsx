@@ -56,7 +56,7 @@ function MiniChartInner({ options, isLoading }: MiniChartProps) {
   }, [isLoading]);
 
   return (
-    <div className='flex flex-col rounded-lg border border-border p-3'>
+    <div className='flex flex-col'>
       <div ref={chartRef} className='h-[100px] w-full' />
     </div>
   );

@@ -4,6 +4,15 @@ import { type MouseEvent, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { cn } from "@/libs/shadcn/utils";
 
+/** `text` cut into runs of `size`, each remembering where it started. */
+function chunksOf(text: string, size: number): { at: number; text: string }[] {
+  const out = [];
+  for (let at = 0; at < text.length; at += size) out.push({ at, text: text.slice(at, at + size) });
+  return out;
+}
+
+const Chunk = ({ text }: { text: string }) => <span className='not-first:ml-1'>{text}</span>;
+
 /**
  * Monospace, truncated identifier that copies its FULL value to the
  * clipboard on click. The on-the-wire value is never lost: it's exposed
@@ -20,11 +29,20 @@ export const CopyableId = ({
   head = 8,
   /** When true, render the full value instead of truncating. */
   full = false,
+  /**
+   * Set the shown characters in groups of this many, by spacing alone. A
+   * 16-character fingerprint read off a Slack page is compared by eye, and four
+   * groups of four can be held where one run of sixteen cannot. Nothing is
+   * added to the text: the clipboard, the tooltip and a text search all still
+   * see one unbroken value.
+   */
+  group,
   className
 }: {
   value: string | null | undefined;
   head?: number;
   full?: boolean;
+  group?: number;
   className?: string;
 }) => {
   const [copied, setCopied] = useState(false);
@@ -63,7 +81,11 @@ export const CopyableId = ({
             className
           )}
         >
-          <span className='truncate tabular-nums'>{display}</span>
+          <span className='truncate tabular-nums'>
+            {group
+              ? chunksOf(display, group).map((c) => <Chunk key={c.at} text={c.text} />)
+              : display}
+          </span>
           {copied ? (
             <Check className='size-3 shrink-0 text-primary' aria-hidden />
           ) : (

@@ -1,3 +1,4 @@
+import { Info } from "lucide-react";
 import { ISSUE_WINDOW_DAYS, useAppIssues } from "@/hooks/api/customApps/useAppIssues";
 import { cn } from "@/libs/shadcn/utils";
 import { AdminAsync } from "@/pages/admin/components/AdminAsync";
@@ -33,6 +34,9 @@ export const Issues = ({
       query={issues}
       noun='this app&rsquo;s issues'
       rows={2}
+      // The list runs edge to edge and owns its gutter; the three states that
+      // are not the list take the section's inset instead.
+      className='mx-4 mb-4'
       isEmpty={(data) => data.issues.length === 0}
       empty={
         <p className='text-muted-foreground text-xs' data-testid='admin-app-issues-empty'>
@@ -42,8 +46,23 @@ export const Issues = ({
       }
     >
       {(data) => (
-        <div className='space-y-2'>
-          <ul className='flex flex-col gap-1.5' data-testid='admin-app-issues-list'>
+        <>
+          {/* The one grid container: the heading row and every issue are
+              subgrids of it, which is what makes the figures a column. */}
+          <div
+            className='grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4'
+            data-testid='admin-app-issues-list'
+          >
+            <div className='col-span-full grid grid-cols-subgrid border-border/60 border-b px-4 py-1.5 text-[10px] text-muted-foreground uppercase tracking-[0.16em]'>
+              <span className='pl-4.5'>Function / fingerprint</span>
+              <span className='text-right'>
+                <span className='@lg:inline hidden'>Occurrences · </span>
+                {data.window_days}d
+              </span>
+              <span className='text-right'>
+                Last<span className='@lg:inline hidden'> seen</span>
+              </span>
+            </div>
             {data.issues.map((issue) => (
               <IssueRow
                 key={`${issue.function_name}:${issue.fingerprint}`}
@@ -53,14 +72,22 @@ export const Issues = ({
                 onOpenFunction={onOpenFunction}
               />
             ))}
-          </ul>
+          </div>
           {data.truncated && (
-            <p className='text-muted-foreground text-xs' data-testid='admin-app-issues-truncated'>
-              Showing the {data.issues.length} most recently seen. More distinct failures happened
-              in the last {data.window_days} days than are listed.
+            // The foot of the list it cuts, not a paragraph somewhere after it.
+            <p
+              className='flex items-start gap-1.5 border-border/60 border-t bg-muted/40 px-4 py-2 text-xs'
+              data-testid='admin-app-issues-truncated'
+            >
+              <Info className='mt-0.5 size-3 shrink-0 text-muted-foreground' aria-hidden />
+              <span>
+                Showing the <span className='font-medium tabular-nums'>{data.issues.length}</span>{" "}
+                most recently seen. More distinct failures happened in the last {data.window_days}{" "}
+                days than are listed.
+              </span>
             </p>
           )}
-        </div>
+        </>
       )}
     </AdminAsync>
   );
