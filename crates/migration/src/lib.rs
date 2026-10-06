@@ -196,8 +196,10 @@ mod m20261005_000001_workspace_default_branch_and_subdir;
 mod m20261006_000001_create_context_document_definitions;
 mod m20261006_000001_workspace_compile_checks;
 mod m20261006_000002_metric_anomaly_notifications;
+mod m20261006_000003_workspace_health_transitions;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
+pub use m20261006_000003_workspace_health_transitions::BACKFILL_SQL as WORKSPACE_HEALTH_TRANSITIONS_BACKFILL_SQL;
 
 pub struct Migrator;
 
@@ -406,6 +408,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261005_000001_workspace_default_branch_and_subdir::Migration),
             Box::new(m20261006_000001_workspace_compile_checks::Migration),
             Box::new(m20261006_000002_metric_anomaly_notifications::Migration),
+            Box::new(m20261006_000003_workspace_health_transitions::Migration),
         ]
     }
 

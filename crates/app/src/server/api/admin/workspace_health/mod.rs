@@ -3,11 +3,13 @@
 //! `evaluator` is pure (signal counts -> status); `queries` gathers signals
 //! from shared Postgres; `alert` decides what is worth telling Slack — status
 //! transitions, plus a recurring reminder for as long as a workspace stays
-//! unhealthy — and pushes it.
+//! unhealthy — and pushes it. `history` keeps each status change, which the
+//! state row overwrites.
 pub(crate) mod alert;
 pub(crate) mod app_availability;
 pub(crate) mod eval_pass;
 pub(crate) mod evaluator;
+pub mod history;
 pub(crate) mod queries;
 pub(crate) mod reconcile;
 pub(crate) mod smoke;
@@ -110,6 +112,10 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/workspace-health/{workspace_id}/eval",
             post(trigger_workspace_health_eval),
+        )
+        .route(
+            "/workspace-health/{workspace_id}/history",
+            get(history::workspace_health_history),
         )
 }
 

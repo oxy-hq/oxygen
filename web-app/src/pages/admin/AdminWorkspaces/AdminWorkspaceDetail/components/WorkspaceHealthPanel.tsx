@@ -16,6 +16,7 @@ import { AdminSectionLabel } from "../../../components/AdminSectionLabel";
 import { AdminStatusPill } from "../../../components/AdminStatusPill";
 import { ADMIN_TONE } from "../../../components/adminTone";
 import { workspaceHealthTone } from "../../../components/workspaceHealthTone";
+import { HealthHistory } from "./HealthHistory";
 import { SmokeTestSection } from "./SmokeTestSection";
 
 const DIMENSION_LABELS: Record<WorkspaceHealthDimensionKey, string> = {
@@ -26,6 +27,11 @@ const DIMENSION_LABELS: Record<WorkspaceHealthDimensionKey, string> = {
   smoke_test: "Smoke test",
   custom_app_availability: "Custom apps"
 };
+
+/** A dimension's display name; a name not in the table (one retired since a
+ *  history row was written) is shown as it was stored. */
+const dimensionLabel = (dimension: string): string =>
+  DIMENSION_LABELS[dimension as WorkspaceHealthDimensionKey] ?? dimension;
 
 /** Numeric signal counts, in display order. Airway flags are rendered separately. */
 const SIGNAL_ROWS: { key: keyof WorkspaceHealthSignals; label: string }[] = [
@@ -150,6 +156,10 @@ export default function WorkspaceHealthPanel({ workspaceId }: { workspaceId: str
                   </ul>
                 </div>
               </section>
+
+              {/* What is wrong now is above; whether that is new, and how long
+                  each time lasted, is this. */}
+              <HealthHistory workspaceId={workspaceId} labelOf={dimensionLabel} />
 
               <section className='space-y-3 rounded-lg border border-border/60 bg-card p-6'>
                 <AdminSectionLabel>Signals (recent window)</AdminSectionLabel>

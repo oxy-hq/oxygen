@@ -18,7 +18,8 @@
 //!
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `context_documents_boundary`, `anomaly_bulk_status`,
-//!   `anomaly_notify`, `simulation_routes`, `simulation_lifecycle`, the two
+//!   `anomaly_notify`, `workspace_health_history`, `simulation_routes`,
+//!   `simulation_lifecycle`, the two
 //!   `workspace_previews_*` modules, `preview_routes` and `preview_ttl` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
@@ -98,6 +99,7 @@ mod toast_webhook_compile_boundary;
 mod walker_storage_divergence;
 mod work_item_gates;
 mod workspace_details_fields;
+mod workspace_health_history;
 mod workspace_path_backdoor;
 mod workspace_path_escape_hatch;
 mod workspace_path_needs_is_dir;

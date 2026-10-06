@@ -746,7 +746,9 @@ const adminWorkspacesKeys = {
 
 const workspaceHealthKeys = {
   all: ["admin", "workspace-health"] as const,
-  list: () => [...workspaceHealthKeys.all, "list"] as const
+  list: () => [...workspaceHealthKeys.all, "list"] as const,
+  history: (workspaceId: string, days: number) =>
+    [...workspaceHealthKeys.all, "history", workspaceId, days] as const
 };
 
 const airwayConfigKeys = {

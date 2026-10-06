@@ -138,6 +138,21 @@ async fn eval_and_persist(ctx: &EvalCtx<'_>, signals: &mut WorkspaceSignals) -> 
     });
 
     let alerted = notify(ctx, &health, &prev, decision).await;
+    // The trail of status changes. Never in the way of the page or the state
+    // row: a history row that cannot be written must not stop the evaluation
+    // that found the change, and the next pass writes the one that was missed.
+    let recorded = super::history::record(
+        ctx.db,
+        workspace_id,
+        prev.status.map(HealthStatus::as_str),
+        health.status.as_str(),
+        serde_json::to_value(&failures).unwrap_or_else(|_| serde_json::json!([])),
+        ctx.now,
+    )
+    .await;
+    if let Err(e) = recorded {
+        tracing::warn!(target: "health_eval", %workspace_id, error = %e, "health history not recorded");
+    }
     upsert_state(
         ctx.db,
         &StateWrite {

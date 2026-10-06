@@ -40,6 +40,9 @@ pub mod users_admin;
 // `tests/platform/admin_staff_scope` drives as a bounded grant.
 pub(crate) mod workspace_health;
 
+/// The trail of workspace status changes, re-exported for the tests that drive
+/// it against a database (`tests/platform/workspace_health_history.rs`).
+pub use workspace_health::history as workspace_health_history;
 pub use workspace_health::{
     TriggerEvalParams, WorkspaceHealthResponse, WorkspaceHealthRow, health_rollup,
     list_workspace_health, trigger_workspace_health_eval,
@@ -102,6 +105,7 @@ use crate::server::router::{AdminSection, AppState};
 ///   - DELETE /admin/workspaces/{workspace_id}
 ///   - POST   /admin/workspaces/{workspace_id}/transfer-org
 ///   - POST   /admin/workspace-health/{workspace_id}/eval
+///   - GET    /admin/workspace-health/{workspace_id}/history
 ///   - GET    /admin/airway/config
 ///   - PUT    /admin/airway/config/{source_kind}
 ///   - DELETE /admin/airway/config/{source_kind}

@@ -140,7 +140,39 @@ export interface TriggerEvalResponse {
   run_id: string;
 }
 
+/** One change of a workspace's status. */
+export interface WorkspaceHealthTransition {
+  at: string;
+  /** `null` for the first evaluation, and for a state that began before
+   *  history was kept. */
+  from_status: WorkspaceHealthStatus | null;
+  to_status: WorkspaceHealthStatus;
+  /** The dimensions failing at that moment. A name the console no longer
+   *  knows (a retired dimension) is still listed, as written. */
+  failures: { dimension: string; status: string }[];
+}
+
+export interface WorkspaceHealthHistory {
+  window_days: number;
+  /** Changes inside the window, newest first. */
+  transitions: WorkspaceHealthTransition[];
+  /** The last change before the window: the state it opened in. `null` when
+   *  nothing was recorded before the window, and when `truncated`. */
+  opening: WorkspaceHealthTransition | null;
+  /** More changes happened in the window than are listed. */
+  truncated: boolean;
+}
+
 export const WorkspaceHealthService = {
+  /** A workspace's status changes over the last `days` (at most 90 are kept). */
+  async history(workspaceId: string, days: number): Promise<WorkspaceHealthHistory> {
+    const response = await apiClient.get<WorkspaceHealthHistory>(
+      `/admin/workspace-health/${workspaceId}/history`,
+      { params: { days } }
+    );
+    return response.data;
+  },
+
   async list(): Promise<WorkspaceHealthResponse> {
     const response = await apiClient.get<WorkspaceHealthResponse>("/admin/workspace-health");
     return response.data;

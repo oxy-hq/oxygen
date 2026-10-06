@@ -499,6 +499,10 @@ const TABLES: &[(&str, Placement)] = &[
     ),
     ("workspace_compiled_configs", Control("compiled config.yml")),
     ("workspace_health_state", Control("workspace health")),
+    (
+        "workspace_health_transitions",
+        Control("workspace health status changes, as dimension names and statuses"),
+    ),
     ("workspace_members", Control("workspace membership")),
     (
         "workspace_compile_checks",
