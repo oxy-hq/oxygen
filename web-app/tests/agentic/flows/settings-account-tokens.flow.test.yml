@@ -109,7 +109,7 @@ cases:
       - assert: 'text "1 workspace in 1 org" is visible'
       - judge: |
           The Settings dialog shows "Personal access tokens" with a table of
-          tokens. A row named "flow selected token" shows a masked token
-          starting "oxy_pat_", an Access of "1 workspace in 1 org" (not "All
-          access"), and a "Revoked" status. No error message and no "aren't
-          available on this server" notice is shown.
+          tokens. A row named "flow selected token" has the kind "Personal",
+          an Access of "1 workspace in 1 org" (not "All access"), and a
+          "Revoked" status. No error message and no "aren't available on this
+          server" notice is shown.

@@ -126,7 +126,7 @@ cases:
       - assert: "selector [data-testid=account-token-revoke-confirm] is not visible"
       - judge: |
           The Settings dialog shows "Personal access tokens" with a table of
-          tokens. A row named "flow sandbox agent token" carries a "Sandbox
-          agent" badge, shows a masked token starting "oxy_sbx_", an Access
-          that starts "Sandboxes of", and a "Revoked" status. No error message
-          and no "aren't available on this server" notice is shown.
+          tokens. A row named "flow sandbox agent token" has the kind "Sandbox
+          agent", an Access that names one app as org/app (for example
+          "acme/oxy-starter"), and a "Revoked" status. No error message and no
+          "aren't available on this server" notice is shown.
