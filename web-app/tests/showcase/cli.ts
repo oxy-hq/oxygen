@@ -29,7 +29,13 @@ import { compareSubjects, findShowcaseComment, prFacts, upsertShowcaseComment } 
 import { type PipelineEnv, showcasePr } from "./pipeline";
 import { parsePointer, readRecord, renderComment, writeRecord } from "./record";
 import { shippedPrs } from "./release";
-import { type ReleaseRow, type ReleaseTarget, releaseOne, summaryTable } from "./release-run";
+import {
+  NOT_POSTED,
+  type ReleaseRow,
+  type ReleaseTarget,
+  releaseOne,
+  summaryTable
+} from "./release-run";
 import type { RecordPointer, ShowcaseRecord } from "./types";
 
 function need(name: string): string {
@@ -181,8 +187,9 @@ async function cmdRelease(
   }
   const table = rows.length ? summaryTable(rows) : "_No new features or fixes in this range._";
   const pictured = rows.filter((r) => r.outcome === "captured").length;
+  const refused = rows.filter((r) => r.reason.startsWith(NOT_POSTED)).length;
   const posted = target.slackToken
-    ? `${pictured} pictured in the thread.`
+    ? `${pictured} pictured in the thread.${refused ? ` **${refused} captured and refused by Slack** — see the rows.` : ""}`
     : `Dry run: ${pictured} captured, nothing posted — the media is in this run's artifact.`;
   summary(
     `### Release showcase — ${from.slice(0, 7)}…${to.slice(0, 7)}\n\n${posted}\n\n${table}\n\n` +

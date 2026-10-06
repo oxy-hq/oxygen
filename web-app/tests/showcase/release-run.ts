@@ -42,6 +42,9 @@ export interface ReleaseTarget {
   total: CostMeter;
 }
 
+/** How a row reads when the capture succeeded and Slack refused it. */
+export const NOT_POSTED = "captured, not posted";
+
 export interface ReleaseRow {
   item: ShippedPr;
   outcome: Outcome | "skipped";
@@ -155,7 +158,14 @@ export async function releaseOne(
   writeRecord(dir, record);
   const files = mediaFor(record, dir);
   if (!files) return row(record.outcome, record.reason, record.cost_usd);
-  await post(target, env, item, record, files);
+  try {
+    await post(target, env, item, record, files);
+  } catch (err) {
+    // The picture exists and was paid for — it is in the run's artifact — and
+    // the PR is not marked posted, so a re-run after the fix posts it.
+    const why = err instanceof Error ? err.message : String(err);
+    return row("failed", `${NOT_POSTED} — ${why}`, record.cost_usd);
+  }
   if (target.slackToken) remember(env, item, pointer, record, target);
   return row("captured", record.reason, record.cost_usd);
 }

@@ -138,9 +138,9 @@ jobs:
           [[ "$CHANNEL" =~ ^[CG][A-Z0-9]{6,}$ ]] || fail "channel is not a channel ID"
           [[ "$THREAD_TS" =~ ^[0-9]{10}\.[0-9]{6}$ ]] || fail "thread_ts is not a Slack ts"
 
-      # Before anything is booted or paid for. A bot that cannot upload files
-      # captures every feature and then posts none of them: a green run under
-      # an empty thread. auth.test names the token's scopes in a header, so
+      # Before anything is booted or paid for. A bot that cannot upload files,
+      # or is not in the channel, captures every feature and then posts none of
+      # them: a green run under an empty thread. auth.test names the token's scopes in a header, so
       # the missing one is known up front — and this run goes red saying so.
       # No header at all proves nothing, and is let through.
       - name: Can the bot post pictures?
@@ -157,6 +157,18 @@ jobs:
           echo "bot scopes: ${scopes:-<not reported>}"
           if [ -n "$scopes" ] && [[ ",${scopes}," != *",files:write,"* ]]; then
             fail "The Slack bot cannot upload files: it needs the files:write scope and has ${scopes}. Add files:write to the app, reinstall it to the workspace, then re-run this job."
+          fi
+          # A file lands only in a channel the bot is a member of — chat:write.public
+          # does not cover uploads. The first two prod releases on this code captured
+          # four pictures under a green scope check and were refused every upload
+          # with not_in_channel. The bot has no channels:join scope, so a person
+          # invites it.
+          info="$(curl -sS --max-time 20 -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" "https://slack.com/api/conversations.info?channel=${CHANNEL}" || true)"
+          if [ "$(jq -r '.ok // false' <<<"$info" 2>/dev/null)" != "true" ]; then
+            fail "Slack would not describe channel ${CHANNEL} to the bot: $(jq -r '.error // "no answer"' <<<"$info" 2>/dev/null || echo "no answer"). It cannot post there."
+          fi
+          if [ "$(jq -r '.channel.is_member // false' <<<"$info")" != "true" ]; then
+            fail "The Slack bot is not a member of #$(jq -r '.channel.name // "?"' <<<"$info") (${CHANNEL}), so every upload there is refused. Invite it to the channel (/invite @<the bot>), then re-run this job."
           fi
 
       # The tooling from the default branch, so a release cut before this

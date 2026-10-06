@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMeter } from "../agentic/runner/budget";
-import { findShowcaseComment, prFacts } from "./github";
+import { findShowcaseComment, prFacts, upsertShowcaseComment } from "./github";
 import { showcasePr } from "./pipeline";
 import { renderComment } from "./record";
 import { type ReleaseTarget, releaseOne } from "./release-run";
+import { uploadToThread } from "./slack";
 import type { Outcome, RecordPointer, ShowcaseRecord } from "./types";
 
 vi.mock("./github", async (original) => ({
@@ -19,6 +20,7 @@ vi.mock("./github", async (original) => ({
   upsertShowcaseComment: vi.fn()
 }));
 vi.mock("./pipeline", () => ({ showcasePr: vi.fn() }));
+vi.mock("./slack", () => ({ uploadToThread: vi.fn() }));
 
 const env = {
   repo: "o/r",
@@ -146,6 +148,33 @@ describe("releaseOne", () => {
     await releaseOne(env, target(), item, out);
     const written = JSON.parse(readFileSync(join(out, "pr-7", "record.json"), "utf-8"));
     expect(written).toMatchObject({ pr: 7, outcome: "captured" });
+  });
+
+  // The first two prod releases on this code: four pictures captured, every
+  // upload refused with not_in_channel, and each row read `failed … $0.000`
+  // as if nothing had been tried or paid for.
+  it("says when Slack refused a picture it captured, with what the capture cost", async () => {
+    vi.mocked(showcasePr).mockImplementation(capturing);
+    vi.mocked(uploadToThread).mockRejectedValue(
+      new Error("Slack files.completeUploadExternal: not_in_channel")
+    );
+    const row = await releaseOne(env, { ...target(), slackToken: "xoxb-test" }, item, out);
+    expect(row).toMatchObject({ outcome: "failed", cost_usd: 0.2 });
+    expect(row.reason).toBe(
+      "captured, not posted — Slack files.completeUploadExternal: not_in_channel"
+    );
+    expect(upsertShowcaseComment).not.toHaveBeenCalled();
+  });
+
+  it("marks the PR posted only once Slack has the picture", async () => {
+    vi.mocked(showcasePr).mockImplementation(capturing);
+    vi.mocked(uploadToThread).mockResolvedValue(undefined);
+    const row = await releaseOne(env, { ...target(), slackToken: "xoxb-test" }, item, out);
+    expect(row.outcome).toBe("captured");
+    expect(upsertShowcaseComment).toHaveBeenCalledOnce();
+    expect(vi.mocked(upsertShowcaseComment).mock.calls[0][2]).toContain(
+      "Pictured under the release announcement"
+    );
   });
 
   it("spends nothing on a PR with no screen, and says why", async () => {
