@@ -380,6 +380,8 @@ pub enum LoadError {
          (it looks like C0123ABCDEF; copy it from the channel's details in Slack)"
     )]
     InvalidNotifyChannel { path: PathBuf, value: String },
+    #[error("invalid monitor config: {0}")]
+    Definition(#[source] serde_json::Error),
 }
 
 /// Load a single `.monitor.yml` from disk. A missing file returns an empty
@@ -408,12 +410,26 @@ pub fn load_from_file(path: &Path) -> Result<MonitorConfig, LoadError> {
     if text.trim().is_empty() {
         return Ok(MonitorConfig::default());
     }
-    let mut cfg: MonitorConfig =
-        serde_yaml::from_str(&text).map_err(|source| LoadError::Parse {
-            path: path.to_path_buf(),
-            source,
-        })?;
+    let cfg: MonitorConfig = serde_yaml::from_str(&text).map_err(|source| LoadError::Parse {
+        path: path.to_path_buf(),
+        source,
+    })?;
 
+    finish(cfg, path)
+}
+
+/// Parse a config that has already been read into JSON — the compile
+/// boundary's `monitor_configs.definition`. Runs the same checks and applies
+/// the same defaults as [`load_from_file`], so an entry taken from the boundary
+/// is the entry a scan of the file would run.
+pub fn from_definition(definition: serde_json::Value) -> Result<MonitorConfig, LoadError> {
+    let cfg = serde_json::from_value(definition).map_err(LoadError::Definition)?;
+    finish(cfg, Path::new(".monitor.yml"))
+}
+
+/// What every source of a config goes through after it parses: the checks a
+/// type cannot make, then the file-level defaults.
+fn finish(mut cfg: MonitorConfig, path: &Path) -> Result<MonitorConfig, LoadError> {
     // Validate BEFORE resolving defaults so the error names the field the user
     // actually wrote, and so a bad name can never silently degrade to UTC.
     let declared = cfg
@@ -447,6 +463,23 @@ pub fn default_config_path(workspace_root: &Path) -> PathBuf {
 }
 
 impl MonitorEntry {
+    /// One segment of this `group_by` entry: the entry narrowed to a single
+    /// value of the fan-out dimension.
+    ///
+    /// The value is ANDed with any filters already declared, so
+    /// `filters: [{region: US}]` + `group_by: restaurant_id` scans each
+    /// restaurant scoped to US only. The result carries no `group_by` of its
+    /// own — it is a plain entry, and is scanned as one.
+    pub fn segment_for(&self, dimension: &str, value: String) -> MonitorEntry {
+        let mut segment = self.clone();
+        segment.group_by = None;
+        segment.filters.push(MonitorFilter {
+            member: dimension.to_string(),
+            values: vec![value],
+        });
+        segment
+    }
+
     /// Resolved seasonal periods — explicit override wins over the
     /// granularity default.
     pub fn effective_seasonality(&self) -> Vec<usize> {
@@ -670,6 +703,32 @@ monitors:
     time_dimension: a.t
 "#;
         assert!(serde_yaml::from_str::<MonitorConfig>(yaml).is_err());
+    }
+
+    /// The compile boundary hands the config over as JSON. It has to come out
+    /// the same as the file would: defaults applied, and the same refusals.
+    #[test]
+    fn a_definition_from_the_boundary_gets_the_files_defaults_and_checks() {
+        let definition = serde_json::json!({
+            "timezone": "America/Los_Angeles",
+            "monitors": [{ "measure": "a.b", "time_dimension": "a.t" }],
+        });
+        let cfg = from_definition(definition).unwrap();
+        assert_eq!(
+            cfg.monitors[0].effective_timezone(),
+            chrono_tz::America::Los_Angeles
+        );
+
+        let bad_zone = serde_json::json!({ "timezone": "Mars/Olympus_Mons", "monitors": [] });
+        assert!(matches!(
+            from_definition(bad_zone),
+            Err(LoadError::InvalidTimezone { .. })
+        ));
+        let unknown = serde_json::json!({ "monitors": [], "notfiy": {} });
+        assert!(matches!(
+            from_definition(unknown),
+            Err(LoadError::Definition(_))
+        ));
     }
 
     #[test]

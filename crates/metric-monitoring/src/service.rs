@@ -193,16 +193,7 @@ pub async fn scan_workspace(
                         );
                     }
                     for value in values {
-                        let mut segment = entry.clone();
-                        segment.group_by = None;
-                        // AND the group_by filter with any existing filters so
-                        // e.g. `filters: [{region: US}]` + `group_by: restaurant_id`
-                        // queries each restaurant scoped to US only.
-                        segment.filters.push(MonitorFilter {
-                            member: dim.clone(),
-                            values: vec![value],
-                        });
-                        expanded.push(segment);
+                        expanded.push(entry.segment_for(dim, value));
                     }
                 }
                 Err(e) => {
@@ -650,7 +641,7 @@ fn pick_test_window(observations: &[Observation], granularity: Granularity) -> u
 
 /// How many tail buckets a scan of this granularity scores, before clamping to
 /// the series length. Also sizes the headroom in [`effective_lookback`].
-fn default_test_window(granularity: Granularity) -> usize {
+pub(crate) fn default_test_window(granularity: Granularity) -> usize {
     match granularity {
         Granularity::Day => 7,
         Granularity::Week => 1,

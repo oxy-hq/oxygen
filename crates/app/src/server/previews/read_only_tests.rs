@@ -110,6 +110,8 @@ fn queries_and_chat_stay_allowed() {
         "/semantic",
         "/semantic/compile",
         "/semantic/metric-tree/explain",
+        // The monitor dry run writes nothing; the scan beside it is refused.
+        "/semantic/anomalies/preview",
         "/apps/Zm9v/run",
         "/threads",
         "/threads/t1/stop",

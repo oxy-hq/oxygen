@@ -15,6 +15,8 @@
 //! - [`notify`] — the `notify:` block: which events a scan should announce,
 //!   the once-per-event claim on them, and the Slack message. Posting it is
 //!   the host's.
+//! - [`preview`] — a dry run of one monitor: what the next scan would flag,
+//!   with nothing written.
 //! - [`service`] — orchestrator that loads the config, fetches each
 //!   series via a [`MetricTreeRunner`], runs the detector, and returns
 //!   a flat list of [`detect::DetectedAnomaly`] paired with the monitor
@@ -29,13 +31,15 @@ pub mod forecast;
 pub mod gates;
 pub mod notify;
 pub mod persist;
+pub mod preview;
 pub mod service;
 pub mod store;
 pub mod tick;
 
 pub use config::{
     Direction, Granularity, LoadError as ConfigLoadError, MonitorConfig, MonitorEntry,
-    MonitorScheduleConfig, Sensitivity, WeekStart, default_config_path, load_from_file,
+    MonitorScheduleConfig, Sensitivity, WeekStart, default_config_path, from_definition,
+    load_from_file,
 };
 pub use detect::{
     Continuation, DetectError, DetectInputs, DetectedAnomaly, Observation, Severity, detect,

@@ -612,6 +612,10 @@ fn build_metric_anomaly_routes(
         // the runner reads the semantic model off the workspace root, so
         // FleetOk was a promise a replica could not keep.
         .route_ide("/scan", post(metric_anomalies::run_scan))
+        // The dry run of one monitor. Unlike `/scan` it asks for no working
+        // copy: the file comes from the compile boundary and the semantic
+        // model through `resolve_scan`, so any replica can answer.
+        .route_fleet("/preview", post(metric_anomalies::preview_monitor))
         // Static `/status` (bulk) and `/{anomaly_id}/status` (single) differ in
         // segment count, so they don't compete for a match. Bulk triage writes
         // Postgres rows only — any replica can take it.

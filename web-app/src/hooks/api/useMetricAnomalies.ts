@@ -8,6 +8,7 @@ import type {
   ListMonitorsResponse,
   MonitorCoverage,
   MonitorEntry,
+  MonitorSelector,
   StatusWriteGroup
 } from "@/types/metricAnomalies";
 import type { ExplainResult } from "@/types/metricTree";
@@ -318,6 +319,18 @@ export function useMonitorCoverage() {
  *  inbox. */
 export function useMonitorNotify() {
   return useMonitorsQuery((data) => data.notify ?? null);
+}
+
+/** Dry-run one monitor. A mutation rather than a query: it runs because
+ *  someone asked, costs a warehouse query each time, and its answer is about
+ *  this moment — nothing should cache it or re-run it on focus. */
+export function useMonitorPreview() {
+  const { project } = useCurrentProjectBranch();
+  const projectId = project.id;
+  return useMutation({
+    mutationFn: (selector: MonitorSelector) =>
+      MetricAnomaliesService.previewMonitor(projectId, selector)
+  });
 }
 
 /** Force-refresh the cached explain for an anomaly. Calls the same

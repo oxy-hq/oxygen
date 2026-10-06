@@ -1,6 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
+import { Button } from "@/components/ui/shadcn/button";
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import {
   Table,
@@ -14,10 +15,12 @@ import {
   useMetricAnomalies,
   useMonitorCoverage,
   useMonitorNotify,
+  useMonitorPreview,
   useMonitors
 } from "@/hooks/api/useMetricAnomalies";
 import { cn } from "@/libs/shadcn/utils";
 import type { MonitorCoverage, MonitorEntry, MonitorNotify } from "@/types/metricAnomalies";
+import { MonitorPreviewPanel } from "./components/MonitorPreviewPanel";
 import { announcedSeverity } from "./monitorNotify";
 import {
   coverageFor,
@@ -83,6 +86,9 @@ function TwoLine({ first, second, mono }: { first: string; second?: string; mono
   );
 }
 
+/** Columns of the table; the preview under a row spans all of them. */
+const COLUMNS = 6;
+
 function MonitorRow({
   monitor: m,
   coverage,
@@ -93,47 +99,85 @@ function MonitorRow({
   lastAt: string | undefined;
 }) {
   const warming = warmingSummary(coverageFor(m, coverage));
+  // One dry run per row, kept under the row that asked for it. Idle until the
+  // button is pressed: a preview costs a warehouse query.
+  const preview = useMonitorPreview();
+  const shown = !preview.isIdle;
+  const run = () =>
+    preview.mutate({
+      measure: m.measure,
+      time_dimension: m.time_dimension,
+      granularity: m.granularity,
+      dimension_key: filterKey(m.filters),
+      group_by: m.group_by ?? null
+    });
   return (
-    <TableRow className='align-top'>
-      <TableCell className='py-2.5 pl-4'>
-        {/* An unlabelled monitor has only its measure to go by, so the measure
-            is the headline and is not repeated beneath itself. */}
-        {m.label ? (
-          <TwoLine first={m.label} second={m.measure} />
-        ) : (
-          <TwoLine first={m.measure} mono />
-        )}
-      </TableCell>
-      <TableCell className='py-2.5'>
-        <p>{m.granularity}</p>
-        <p className='font-mono text-muted-foreground text-xs'>{m.time_dimension}</p>
-      </TableCell>
-      <TableCell className='py-2.5'>
-        <Badge
-          variant={sensitivityVariant(m.sensitivity)}
-          className={cn(m.sensitivity === "low" && "text-muted-foreground")}
-        >
-          {m.sensitivity}
-        </Badge>
-      </TableCell>
-      <TableCell className='py-2.5'>
-        {warming ? (
-          <>
-            <Badge variant='secondary'>{warming.label}</Badge>
-            <p className='mt-1 flex flex-wrap gap-x-3 text-muted-foreground text-xs tabular-nums'>
-              {warming.detail.map((fact) => (
-                <span key={fact}>{fact}</span>
-              ))}
-            </p>
-          </>
-        ) : (
-          <span className='text-muted-foreground'>—</span>
-        )}
-      </TableCell>
-      <TableCell className='py-2.5 pr-4 text-right tabular-nums'>
-        {lastAt ? relativeTime(lastAt) : <span className='text-muted-foreground'>—</span>}
-      </TableCell>
-    </TableRow>
+    <>
+      <TableRow className={cn("align-top", shown && "border-b-0")}>
+        <TableCell className='py-2.5 pl-4'>
+          {/* An unlabelled monitor has only its measure to go by, so the measure
+              is the headline and is not repeated beneath itself. */}
+          {m.label ? (
+            <TwoLine first={m.label} second={m.measure} />
+          ) : (
+            <TwoLine first={m.measure} mono />
+          )}
+        </TableCell>
+        <TableCell className='py-2.5'>
+          <p>{m.granularity}</p>
+          <p className='font-mono text-muted-foreground text-xs'>{m.time_dimension}</p>
+        </TableCell>
+        <TableCell className='py-2.5'>
+          <Badge
+            variant={sensitivityVariant(m.sensitivity)}
+            className={cn(m.sensitivity === "low" && "text-muted-foreground")}
+          >
+            {m.sensitivity}
+          </Badge>
+        </TableCell>
+        <TableCell className='py-2.5'>
+          {warming ? (
+            <>
+              <Badge variant='secondary'>{warming.label}</Badge>
+              <p className='mt-1 flex flex-wrap gap-x-3 text-muted-foreground text-xs tabular-nums'>
+                {warming.detail.map((fact) => (
+                  <span key={fact}>{fact}</span>
+                ))}
+              </p>
+            </>
+          ) : (
+            <span className='text-muted-foreground'>—</span>
+          )}
+        </TableCell>
+        <TableCell className='py-2.5 text-right tabular-nums'>
+          {lastAt ? relativeTime(lastAt) : <span className='text-muted-foreground'>—</span>}
+        </TableCell>
+        <TableCell className='py-2 pr-4 text-right'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={run}
+            disabled={preview.isPending}
+            data-testid='monitor-preview-run'
+          >
+            {preview.isPending ? "Running…" : "Preview"}
+          </Button>
+        </TableCell>
+      </TableRow>
+      {shown && (
+        <TableRow className='hover:bg-transparent'>
+          <TableCell colSpan={COLUMNS} className='p-0'>
+            <MonitorPreviewPanel
+              granularity={m.granularity}
+              preview={preview.data}
+              isPending={preview.isPending}
+              error={preview.error}
+              onClose={preview.reset}
+            />
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -233,7 +277,10 @@ export default function MonitorsTab() {
             <TableHead className='w-56'>Granularity / time dimension</TableHead>
             <TableHead className='w-28'>Sensitivity</TableHead>
             <TableHead className='w-60'>Coverage</TableHead>
-            <TableHead className='w-32 pr-4 text-right'>Last anomaly</TableHead>
+            <TableHead className='w-32 text-right'>Last anomaly</TableHead>
+            <TableHead className='w-28 pr-4'>
+              <span className='sr-only'>Preview</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

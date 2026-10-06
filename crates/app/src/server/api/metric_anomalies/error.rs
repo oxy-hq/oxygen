@@ -34,6 +34,13 @@ pub enum AnomalyError {
         limit: u64,
     },
     OffsetTooDeep(u64),
+    /// The body named a monitor the file does not have — or there is no file.
+    NoSuchMonitor,
+    /// Something this request needs has not been compiled, or is not on this
+    /// node yet. Retryable, and said as such.
+    Unavailable(String),
+    /// The work outran the handler's own budget, in seconds.
+    TimedOut(u64),
     Internal(String),
 }
 
@@ -82,6 +89,25 @@ impl IntoResponse for AnomalyError {
             AnomalyError::OffsetTooDeep(n) => (
                 StatusCode::BAD_REQUEST,
                 format!("offset {n} is past the maximum depth of {MAX_OFFSET}"),
+            )
+                .into_response(),
+            AnomalyError::NoSuchMonitor => (
+                StatusCode::NOT_FOUND,
+                "that monitor is not in .monitor.yml — the file may have changed; reload",
+            )
+                .into_response(),
+            AnomalyError::Unavailable(msg) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(axum::http::header::RETRY_AFTER, "5")],
+                msg,
+            )
+                .into_response(),
+            AnomalyError::TimedOut(secs) => (
+                StatusCode::GATEWAY_TIMEOUT,
+                format!(
+                    "the warehouse did not answer within {secs}s; nothing was written, and the \
+                     same query would run in a scan"
+                ),
             )
                 .into_response(),
             AnomalyError::Internal(msg) => {

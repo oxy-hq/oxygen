@@ -78,6 +78,12 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/semantic/metric-tree/opportunity"),
     ("POST", "/semantic/metric-tree/predict"),
     ("POST", "/semantic/metric-tree/projection"),
+    // The dry run of one monitor: a time-series read through the same runner
+    // as the metric-tree analyses above, with nothing persisted by design. A
+    // branch that edits `.monitor.yml` is exactly where someone wants to see
+    // what an entry would flag before it is merged. (`/semantic/anomalies/scan`
+    // stays refused: it files what it finds.)
+    ("POST", "/semantic/anomalies/preview"),
     ("POST", "/semantic/world-model/filter-counts"),
     ("POST", "/simulations/validate"),
     ("POST", "/world-model/competitors"),

@@ -190,6 +190,49 @@ export interface MonitorNotify {
   min_severity: AnomalySeverity;
 }
 
+/** Names one entry of `.monitor.yml`: the triple the scanner keys on, plus
+ *  the two things that tell apart entries sharing it — the entry's own filters
+ *  as a `dimension_key` (empty when it has none), and its `group_by`. */
+export interface MonitorSelector {
+  measure: string;
+  time_dimension: string;
+  granularity: MonitorEntry["granularity"];
+  dimension_key: string;
+  /** A total and the same measure split per location differ in nothing else. */
+  group_by: string | null;
+}
+
+/** One bucket a scan would flag. Mirrors `DetectedAnomaly` on the server. */
+export interface PreviewFlag {
+  timestamp: string;
+  observed: number;
+  expected: number;
+  lower: number;
+  upper: number;
+  residual: number;
+  z_score: number;
+  severity: AnomalySeverity;
+}
+
+/** What a scan would make of one segment. The three states are kept apart on
+ *  purpose: an empty `flagged` means "looked, found nothing" only when
+ *  `state` is `scored`. */
+export type SegmentPreview = { dimension_key: string } & (
+  | { state: "scored"; measured_buckets: number; required_buckets: number; flagged: PreviewFlag[] }
+  | { state: "warming_up"; measured_buckets: number; required_buckets: number }
+  | { state: "failed"; error: string }
+);
+
+/** A dry run of one monitor — nothing was written to produce it. */
+export interface MonitorPreview {
+  /** How many of the most recent buckets a scan of this grain scores. */
+  window_buckets: number;
+  /** Segments the entry fans out to; `1` without `group_by`. */
+  segments_total: number;
+  /** The segments scanned: all of them, or the first few of a large fan-out. */
+  segments: SegmentPreview[];
+}
+
 export interface ListMonitorsResponse {
   monitors: MonitorEntry[];
   coverage: MonitorCoverage[];

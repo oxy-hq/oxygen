@@ -4,6 +4,8 @@ import type {
   BulkUpdateStatusResponse,
   ListAnomaliesResponse,
   ListMonitorsResponse,
+  MonitorPreview,
+  MonitorSelector,
   ScanAnomaliesResponse,
   StatusWriteGroup
 } from "@/types/metricAnomalies";
@@ -90,6 +92,23 @@ export class MetricAnomaliesService {
         `/${projectId}/semantic/anomalies/scan`,
         null,
         { params: asOf ? { as_of: asOf } : {} }
+      );
+      return response.data;
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  /** Dry-run one `.monitor.yml` entry: what the next scan would flag, with
+   *  nothing written — no inbox rows, no run, no Slack post. */
+  static async previewMonitor(
+    projectId: string,
+    selector: MonitorSelector
+  ): Promise<MonitorPreview> {
+    try {
+      const response = await apiClient.post<MonitorPreview>(
+        `/${projectId}/semantic/anomalies/preview`,
+        selector
       );
       return response.data;
     } catch (error) {
