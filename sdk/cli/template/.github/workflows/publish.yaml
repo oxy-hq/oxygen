@@ -157,10 +157,10 @@ env:
   # THE PIN DECIDES WHICH OIDC REGISTRATION THE PUBLISH JOB CAN USE. Through
   # 0.6.0, `oxyc publish` knows one exchange: the app's own registered
   # publisher (`/api/customer-apps/<app-id>/publishers`). Trust policies on a
-  # service account are honoured by the first release AFTER 0.6.0, which tries
-  # them first and falls back to the publisher. Raise this to that release to
-  # use them; nothing else in the file changes.
-  OXYC_VERSION: "0.4.0"
+  # service account are honoured from 0.7.0, which tries them first and falls
+  # back to the publisher. A pin older than that still publishes, through the
+  # publisher alone.
+  OXYC_VERSION: "0.7.0"
 
 jobs:
   build:
