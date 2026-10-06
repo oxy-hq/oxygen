@@ -28,6 +28,34 @@ jobs:
     runs-on: ubuntu-latest
     # Agent-driven PR review; cap the LLM loop so a stuck turn can't run away.
     timeout-minutes: 30
+    env:
+      # Hard cap on what one review may spend, in USD. Before this the only
+      # limit was the timeout above. The prompt tells the reviewer this number
+      # through this variable, so the prompt and the cap cannot drift.
+      #
+      # Measured: the two finished reviews in the logs cost $0.77 and $1.17,
+      # both by one agent with no subagents. The $1.17 one reviewed #3408 when
+      # it was about 200 files, and posted a verdict with findings. So a
+      # #3511-sized diff is now expected to cost about that, with the cap as
+      # the ceiling. That figure is one observation, not a measurement of this
+      # prompt.
+      #
+      # Split across four subagents, a diff that size was estimated at about
+      # $9 (the one such run in the logs was cancelled at ~$6.50, half done).
+      # That is why the reviewer no longer starts any.
+      #
+      # The cap is checked after each model call, not reserved before it, so
+      # the call already in flight lands on top: $0.22 for the largest seen.
+      # Reaching the cap fails the check and the PR comment says so. Raise it
+      # on purpose, never to make a red check go away.
+      REVIEW_BUDGET_USD: "5"
+      # Second guard behind `--disallowedTools` below. If a subagent is started
+      # anyway, it runs in the foreground and the call that starts it blocks
+      # until it reports. By default Claude Code starts them in the background
+      # and the action stops at the first end of turn: on #3511 that killed all
+      # four reviewers ~50s in, on three pushes, while the check stayed green
+      # and nothing was reviewed.
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -50,7 +78,12 @@ jobs:
       - id: mark
         run: echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
+      - id: review
+        uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
+        # Inside the job's 30 minutes, so a review that runs out of time still
+        # reaches the step below and gets an honest comment. The longest
+        # finished review in a 60-run sample took 3m05s.
+        timeout-minutes: 20
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           show_full_output: true
@@ -90,12 +123,30 @@ jobs:
             - Conflicts with existing repo guidance (root and crate-local
               CLAUDE.md, internal-docs)
 
+            Do this review yourself, in one pass, and start no subagents. On a
+            large diff, parallel reviewers cost several times what one pass
+            does, and they were being killed before they reported, so a review
+            split that way ended with nothing posted.
+
+            You have $${{ env.REVIEW_BUDGET_USD }} to spend on this review, and
+            the run is stopped at that amount. On a diff too large to read in
+            full, start with what is most likely to hurt: authentication and
+            authorization, migrations, handlers over tenant data, and anything
+            that touches credentials or money. Name in your verdict comment
+            what you did not read. A review that says "I read these areas and
+            not those" is a finished review; one that silently skips is not.
+
             Post one summary via `gh pr comment` with:
             - one-line verdict: `LGTM` / `LGTM with nits` / `Needs changes` / `Blocking`
             - concise bullets with file:line references
             - for each finding: why it matters + concrete fix suggestion
 
             If no actionable issues remain, post `No actionable issues found`.
+
+            A later step fails this check when your comment has no verdict or
+            still shows an unticked checklist item. Tick an item only when it
+            is done. If you could not do one, replace it with a line saying
+            what was not reviewed.
 
             Do not post inline review comments.
             Only post findings you can defend from the diff and existing repo guidance.
@@ -104,8 +155,149 @@ jobs:
             (e.g. `#1234`, `oxy-hq/oxy-internal#1234`) — bare refs create
             noisy cross-links.
 
+          # `--disallowedTools` takes the tools that start other agents away
+          # from the reviewer. `Agent` is the subagent tool's name and `Task`
+          # its older alias: Claude Code 2.1.283 calls it `Agent` in a
+          # transcript and lists it as `Task` at start-up, so both are named.
+          # `Workflow` is the other tool that fans work out, and the run record
+          # does not count the agents it starts.
           claude_args: |
             --allowedTools "Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(ast-grep:*),Bash(jq:*)"
+            --disallowedTools "Agent,Task,Workflow"
+            --max-budget-usd ${{ env.REVIEW_BUDGET_USD }}
+
+      # A green check has to mean the review finished. The action reports
+      # success whenever the model's turn ends cleanly, and "four reviewers are
+      # running, I'll wait for them" is a clean end of turn. So this step passes
+      # only when the reviewer's comments say it finished AND the run's own
+      # record does not say otherwise: the review step succeeded, this run's
+      # comments carry a verdict and no unticked checklist item, and every
+      # reviewer it started reported back. Anything else is said on the PR and
+      # fails the check. How a comment is worded can fail it, never pass it
+      # alone.
+      #
+      # Skipped when a newer push cancels this run (that run owns the answer)
+      # and when the review never started.
+      - name: Fail if the review did not finish
+        if: ${{ !cancelled() && steps.review.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          SINCE: ${{ steps.mark.outputs.since }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          owner="${REPO%/*}"
+          name="${REPO#*/}"
+
+          # shellcheck disable=SC2016 # GraphQL variables, not shell ones
+          gh api graphql -f query='
+            query($owner:String!, $name:String!, $pr:Int!) {
+              repository(owner:$owner, name:$name) {
+                pullRequest(number:$pr) {
+                  comments(last:100) {
+                    nodes { createdAt body author { login __typename } }
+                  }
+                }
+              }
+            }' -f owner="$owner" -f name="$name" -F pr="$PR" > review-comments.json
+
+          # What the reviewer posted in this run, progress tracker included.
+          # It writes through the action's app token, so its comments are the
+          # `claude` bot's; `github-actions` comments belong to other workflows
+          # and to the notice below.
+          jq --arg since "$SINCE" '[
+            .data.repository.pullRequest.comments.nodes[]
+            | select(.createdAt >= $since)
+            | select(.author.__typename == "Bot")
+            | select(.author.login | test("^claude(\\[bot\\])?$"))
+            | .body // ""]' review-comments.json > review-bodies.json
+
+          # The verdict words are the ones the prompt above asks for. Lines are
+          # split before matching so the test does not depend on how the regex
+          # engine treats `^` in a multi-line string.
+          verdicts=$(jq '[.[] | select(test("LGTM|Needs changes|Blocking|No actionable issues found"))] | length' review-bodies.json)
+          open_items=$(jq '[.[] | split("\n")[] | select(test("^\\s*[-*] \\[ \\]"))] | length' review-bodies.json)
+
+          # The action's own record of the run. It can fail the check (a
+          # reviewer that never reported back) and it explains a failure (the
+          # reason, the spend), but it can never pass one. Every read is
+          # tolerant: the file is absent when the step was killed by its
+          # timeout, and `subagent_stats` is an internal field that may change.
+          # A missing file or field counts as no unreported reviewer, so the
+          # comment rules and the step's outcome still decide.
+          record="${EXECUTION_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+          result='{}'
+          if [ -s "$record" ]; then
+            result=$(jq -c '[.[] | select(.type == "result")] | last // {}' "$record" 2>/dev/null) || result='{}'
+          fi
+          read_result() { jq -r "$1" <<<"$result" 2>/dev/null || true; }
+          count() { read_result "$1" | grep -E '^[0-9]+$' || echo 0; }
+          subtype=$(read_result '.subtype // "none" | tostring | gsub("[^a-z_]"; "")')
+          subtype="${subtype:-none}"
+          spent=$(read_result '.total_cost_usd | numbers | . * 100 | round / 100')
+          spent="${spent:+\$$spent}"
+          spent="${spent:-an unrecorded amount}"
+          spawned=$(count '.subagent_stats.spawned // 0')
+          # Started and never completed: still working when the run ended,
+          # stopped, or failed. Either way their findings were not collected.
+          # Counted only when both numbers are present.
+          unreported=$(count '.subagent_stats
+            | if (.spawned | type) == "number" and (.completed | type) == "number"
+              then .spawned - .completed else 0 end
+            | if . > 0 then . else 0 end')
+
+          echo "verdicts=$verdicts open_items=$open_items outcome=$REVIEW_OUTCOME result=$subtype reviewers=$spawned unreported=$unreported spent=$spent"
+
+          if [ "$REVIEW_OUTCOME" = "success" ] && [ "$verdicts" -gt 0 ] \
+            && [ "$open_items" -eq 0 ] && [ "$unreported" -eq 0 ]; then
+            echo "Review finished: the step succeeded, a verdict is posted, no checklist item is open, every reviewer reported."
+            exit 0
+          fi
+
+          if [ "$subtype" = "error_max_budget_usd" ]; then
+            reason="It reached the \$${REVIEW_BUDGET_USD} spending cap for one review before it could finish."
+          elif [ "$REVIEW_OUTCOME" != "success" ] && [ "$subtype" = "none" ]; then
+            reason="The reviewer stopped without reporting a result: it ran out of time or crashed."
+          elif [ "$REVIEW_OUTCOME" != "success" ] && [ "$subtype" != "success" ]; then
+            reason="The reviewer ended with an error (\`${subtype}\`)."
+          elif [ "$REVIEW_OUTCOME" != "success" ]; then
+            reason="The review step failed after the reviewer stopped."
+          elif [ "$unreported" -gt 0 ]; then
+            reason="${unreported} of ${spawned} parallel reviewers never reported back, so what they found was never collected."
+          elif [ "$open_items" -gt 0 ]; then
+            reason="The run ended with ${open_items} checklist item(s) still open."
+          else
+            reason="The run ended without posting a verdict."
+          fi
+
+          # A verdict-looking comment can exist and the run still not have
+          # finished; say which of the two the reader is looking at.
+          if [ "$verdicts" -gt 0 ]; then
+            standing="A comment from this run reads like a verdict, but the run did not finish, so do not rely on it."
+          else
+            standing="No verdict was posted for it, and any earlier verdict on this PR is for an older push."
+          fi
+
+          {
+            echo "<!-- claude-review-incomplete -->"
+            echo "### The automated review did not finish"
+            echo
+            echo "**This push (\`${HEAD_SHA:0:9}\`) has not had a complete review.** ${reason} ${standing}"
+            echo
+            echo "**What to do:** re-run the \`claude-review\` job, or push again, to retry. A change that keeps stopping at the spending cap is too large for one automated review: split it, or ask a person to review it."
+            echo
+            echo "[Run log](${RUN_URL}) · spent ${spent} of a \$${REVIEW_BUDGET_USD} cap"
+          } > review-incomplete.md
+
+          gh pr comment "$PR" --repo "$REPO" --body-file review-incomplete.md \
+            || echo "::warning::Could not post the did-not-finish notice on the PR."
+          echo "::error title=Claude review did not finish::${reason}"
+          exit 1
 
       # Keep one live review comment per PR. Every push re-runs the review, so
       # without this the PR accumulates a stack of stale verdicts and readers
