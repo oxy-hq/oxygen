@@ -172,11 +172,9 @@ pub fn environment_url_for(
 /// Auto-derives the customer-apps zone from `OXY_API_URL` by stripping
 /// the leading `app` (`app-dev`/`app-staging`/`app` → `customer-apps-dev`
 /// /`customer-apps-staging`/`customer-apps`). Returns `None` when:
-/// - `OXY_API_URL` is unset / malformed (no env var fallback exists),
-/// - the admin host has no `.` (e.g. `localhost`),
-/// - the admin host's first label doesn't start with `app` (custom
-///   branded host — operator should configure DNS + UI separately if
-///   they want subdomain URLs in this case).
+/// - no zone is configured or derivable — see [`custom_apps_zone`] for the
+///   order (`OXY_CUSTOM_APPS_ZONE`, an `app…` admin host, then
+///   `customer-apps.` under `OXY_ORG_SUBDOMAIN_ZONE`), e.g. `localhost`.
 ///
 /// In any of those cases the admin UI hides the "Subdomain URL" row;
 /// the path-prefix URL still works for both v0 and S3 sources.
@@ -197,9 +195,35 @@ pub fn subdomain_url_for(org_slug: &str, app_slug: &str) -> Option<String> {
 ///   → first label `app`, suffix ``
 ///   → zone `customer-apps.oxygen-hq.com`
 ///
-/// Cluster operators on a custom-branded host (no `app` prefix) get
-/// `None`; subdomain URLs are simply not surfaced.
+/// In order:
+/// - `OXY_CUSTOM_APPS_ZONE` (leading dot tolerated) wins, the same shape as
+///   `OXY_ORG_SUBDOMAIN_ZONE`.
+/// - An admin host whose first label starts with `app` maps as above.
+/// - Otherwise `customer-apps.` under the org-subdomain zone
+///   ([`org_subdomain_zone`](crate::org_host_dispatch::org_subdomain_zone)):
+///   dev's `aip.dev.oxy.tech` sets `OXY_ORG_SUBDOMAIN_ZONE=dev.oxy.tech`, so
+///   its apps live under `customer-apps.dev.oxy.tech`, the wildcard its DNS
+///   already serves. Without that fallback dev and staging had no zone, and
+///   the console's staging preview was unavailable there.
+///
+/// A custom-branded host with neither variable set gets `None`; subdomain
+/// URLs are simply not surfaced.
 fn custom_apps_zone() -> Option<String> {
+    if let Ok(z) = std::env::var("OXY_CUSTOM_APPS_ZONE") {
+        let z = z.trim().trim_start_matches('.').trim_end_matches('.');
+        if !z.is_empty() {
+            return Some(z.to_ascii_lowercase());
+        }
+    }
+    if let Some(zone) = zone_from_admin_host() {
+        return Some(zone);
+    }
+    let org_zone = crate::org_host_dispatch::org_subdomain_zone()?;
+    Some(format!("customer-apps.{org_zone}"))
+}
+
+/// `app{-env}.<rest>` → `customer-apps{-env}.<rest>`, from `OXY_API_URL`.
+fn zone_from_admin_host() -> Option<String> {
     let api_url = std::env::var("OXY_API_URL").ok()?;
     let parsed: url::Url = api_url.parse().ok()?;
     let admin_host = parsed.host_str()?;
@@ -554,6 +578,89 @@ mod tests {
         assert_eq!(
             got,
             Some("https://acme--store.customer-apps.oxygen-hq.com/".to_string())
+        );
+    }
+
+    /// Run `f` with exactly these zone variables set, the rest removed.
+    fn with_zone_env<T>(vars: &[(&str, &str)], f: impl FnOnce() -> T) -> T {
+        const KEYS: [&str; 3] = [
+            "OXY_API_URL",
+            "OXY_ORG_SUBDOMAIN_ZONE",
+            "OXY_CUSTOM_APPS_ZONE",
+        ];
+        let _g = env_lock().lock().unwrap();
+        unsafe {
+            for k in KEYS {
+                std::env::remove_var(k);
+            }
+            for (k, v) in vars {
+                std::env::set_var(k, v);
+            }
+        }
+        let out = f();
+        unsafe {
+            for k in KEYS {
+                std::env::remove_var(k);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn url_helper_derives_dev_aip_from_the_org_zone() {
+        let got = with_zone_env(
+            &[
+                ("OXY_API_URL", "https://aip.dev.oxy.tech/api"),
+                ("OXY_ORG_SUBDOMAIN_ZONE", "dev.oxy.tech"),
+            ],
+            || environment_url_for(&AppEnvironment::Staging, "pokehouse-dev", "store"),
+        );
+        assert_eq!(
+            got,
+            Some("https://staging--pokehouse-dev--store.customer-apps.dev.oxy.tech/".to_string())
+        );
+    }
+
+    #[test]
+    fn url_helper_explicit_zone_wins() {
+        let got = with_zone_env(
+            &[
+                ("OXY_API_URL", "https://app-dev.oxygen-hq.com/api"),
+                ("OXY_ORG_SUBDOMAIN_ZONE", "dev.oxy.tech"),
+                ("OXY_CUSTOM_APPS_ZONE", ".Apps.Example.COM."),
+            ],
+            || subdomain_url_for("acme", "store"),
+        );
+        assert_eq!(
+            got,
+            Some("https://acme--store.apps.example.com/".to_string())
+        );
+    }
+
+    #[test]
+    fn url_helper_none_without_any_zone() {
+        let got = with_zone_env(&[("OXY_API_URL", "https://aip.dev.oxy.tech/api")], || {
+            subdomain_url_for("acme", "store")
+        });
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn a_derived_dev_host_parses_back_to_its_app() {
+        let url = with_zone_env(
+            &[
+                ("OXY_API_URL", "https://aip.dev.oxy.tech/api"),
+                ("OXY_ORG_SUBDOMAIN_ZONE", "dev.oxy.tech"),
+            ],
+            || environment_url_for(&AppEnvironment::Staging, "pokehouse-dev", "store"),
+        )
+        .expect("a zone");
+        let host = url.trim_start_matches("https://").trim_end_matches('/');
+        let parsed = parse_app_host(host).expect("the serve path recognises the host it minted");
+        assert_eq!(parsed.environment, AppEnvironment::Staging);
+        assert_eq!(
+            (parsed.org_slug.as_str(), parsed.app_slug.as_str()),
+            ("pokehouse-dev", "store")
         );
     }
 
