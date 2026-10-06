@@ -552,7 +552,9 @@ impl DatabaseConnector for AirhouseConnector {
                 );
                 match client.simple_query(&page_sql).await {
                     Err(e) => {
-                        yield Err(TypedRowError::DriverError(e.to_string()));
+                        // Not `e.to_string()`: that is the bare "db error" and
+                        // drops the server's message — see `format_pg_error`.
+                        yield Err(TypedRowError::DriverError(format_pg_error(&e)));
                         break;
                     }
                     Ok(messages) => {
