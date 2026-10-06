@@ -1,4 +1,20 @@
 import "@testing-library/jest-dom/vitest";
+import { vi } from "vitest";
+
+// `persist-and-sync` (the IDE-branch and database-operation stores) restores a
+// store from storage on a 100 ms timer, and the callback reads `document`. A
+// jsdom file that finishes sooner has had its environment torn down by then, so
+// the read throws `document is not defined` as an unhandled error and vitest
+// fails the run with every test green. Which file trips it is worker timing —
+// `useWorldModel.breakdown.test.ts` on one run, nothing on the next.
+//
+// No unit test is about cross-tab persistence (none seeds either store's
+// storage key), so under test these are plain zustand stores: no timer, no
+// `storage` listener left on `window`. `stores/persistedStores.test.ts` pins it.
+vi.mock("persist-and-sync", () => ({
+  persistNSync: (stateCreator: unknown) => stateCreator,
+  clearStorage: () => {}
+}));
 
 // Radix observes its triggers (Tooltip, Popover, Select), and jsdom has no
 // ResizeObserver — without this a component test renders but its trigger's
