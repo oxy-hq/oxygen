@@ -1909,9 +1909,9 @@ if [ -n "$AUTOMATION_RUN_ID" ]; then
   add Fixture "automations-run-get" GET "/api/${WS}/agentic-automations/runs/${AUTOMATION_RUN_ID}" body "/api/{workspace_id}/agentic-automations/runs/{id}"
   add Fixture "workflows-run-get"   GET "/api/${WS}/agentic-workflows/runs/${AUTOMATION_RUN_ID}"   body "/api/{workspace_id}/agentic-workflows/runs/{id}"
 fi
-add Fixture "coordinator-active-runs" GET "/api/${WS}/analytics/coordinator/active-runs" body "/api/{workspace_id}/analytics/{*rest}"
-add Fixture "coordinator-runs-list"   GET "/api/${WS}/analytics/coordinator/runs"        body "/api/{workspace_id}/analytics/{*rest}"
-add Fixture "coordinator-queue"       GET "/api/${WS}/analytics/coordinator/queue"       body "/api/{workspace_id}/analytics/{*rest}"
+add Fixture "coordinator-active-runs" GET "/api/${WS}/analytics/coordinator/active-runs" body "/api/{workspace_id}/analytics/coordinator/active-runs"
+add Fixture "coordinator-runs-list"   GET "/api/${WS}/analytics/coordinator/runs"        body "/api/{workspace_id}/analytics/coordinator/runs"
+add Fixture "coordinator-queue"       GET "/api/${WS}/analytics/coordinator/queue"       body "/api/{workspace_id}/analytics/coordinator/queue"
 # status-only: a live run measured serve-1 and serve-2 bodies genuinely
 # differing (both 200, same instant, four other agents' runs live on this
 # shared fleet at the time) while serve matched ide — "recovery" is a scan
@@ -1921,7 +1921,7 @@ add Fixture "coordinator-queue"       GET "/api/${WS}/analytics/coordinator/queu
 # any two calls regardless of which node answers. active-runs/queue/runs
 # above stay body-compared: this run's data showed THEM agreeing, so
 # downgrading them isn't supported by evidence, only this one is.
-add Fixture "coordinator-recovery"    GET "/api/${WS}/analytics/coordinator/recovery"    status "/api/{workspace_id}/analytics/{*rest}"
+add Fixture "coordinator-recovery"    GET "/api/${WS}/analytics/coordinator/recovery"    status "/api/{workspace_id}/analytics/coordinator/recovery"
 # Legacy RunsManager cancel — always returns 200 whether or not a task is
 # found (task_manager.rs's no-entry case is Ok(false), never Err), so any
 # real workflow path + plausible index is a safe, deterministic real request.

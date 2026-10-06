@@ -12,10 +12,10 @@
 //!
 //! - **No row contradicts the code.** A row naming a method + path `oxy-app`
 //!   declares must carry the declared role.
-//! - **The airway rows are the airway declarations, exactly** — both
-//!   directions, against `agentic_http::airway_router_roles()`. The one nest
-//!   where a missing row is a failure, because it is the one that was rebuilt
-//!   row by row.
+//! - **The airway and analytics rows are those routers' declarations,
+//!   exactly** — both directions, against `agentic_http::airway_router_roles()`
+//!   and `agentic_http::router_roles()`. The two nests where a missing row is a
+//!   failure, because they are the ones that were rebuilt row by row.
 //!
 //! What is not: completeness of the rest. The table has rows for about two
 //! thirds of what `route_declarations()` returns, and a route added elsewhere
@@ -30,8 +30,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use oxy_shared::fleet_role::RouteRoleDecl;
+
 /// Where `oxy-app` mounts the airway router, as its declarations spell it.
 const AIRWAY_NEST: &str = "/api/{workspace_id}/agentic-airway";
+/// And the analytics router.
+const ANALYTICS_NEST: &str = "/api/{workspace_id}/analytics";
 
 /// Rows naming a method + path that `oxy-app` does not declare, so the role
 /// check has nothing to hold them to: the org, team and invitation trees and
@@ -184,28 +188,28 @@ fn no_row_contradicts_the_role_the_code_declares() {
     );
 }
 
-#[test]
-fn the_airway_rows_are_exactly_the_airway_declarations() {
-    let in_code: BTreeSet<(String, String, String)> = agentic_http::airway_router_roles()
+/// The rows under `nest` are `decls` mounted there — both directions.
+fn assert_rows_are_exactly(nest: &str, decls: &[RouteRoleDecl], declared_by: &str) {
+    let in_code: BTreeSet<(String, String, String)> = decls
         .iter()
         .map(|d| {
             (
                 d.method.to_string(),
-                format!("{AIRWAY_NEST}{}", d.path),
+                format!("{nest}{}", d.path),
                 d.role.as_str().to_string(),
             )
         })
         .collect();
     assert!(
         in_code.len() > 1,
-        "airway_router_roles() declares {} route(s) — nothing to compare",
+        "{declared_by} declares {} route(s) — nothing to compare",
         in_code.len()
     );
 
-    let nest = format!("{AIRWAY_NEST}/");
+    let under = format!("{nest}/");
     let in_table: BTreeSet<(String, String, String)> = table()
         .into_iter()
-        .filter(|row| row.path.starts_with(&nest))
+        .filter(|row| row.path.starts_with(&under))
         .map(|row| (row.method, row.path, row.role))
         .collect();
 
@@ -213,9 +217,31 @@ fn the_airway_rows_are_exactly_the_airway_declarations() {
     let stale: Vec<_> = in_table.difference(&in_code).collect();
     assert!(
         missing.is_empty() && stale.is_empty(),
-        "scripts/fleet-routes.tsv and agentic_http::airway_router_roles() \
-         disagree about the airway nest.\n\
+        "scripts/fleet-routes.tsv and {declared_by} disagree about {nest}.\n\
          declared, with no matching row (add it, with a bucket and a note): {missing:#?}\n\
          rows matching no declaration (the route's method, path or role changed): {stale:#?}"
+    );
+}
+
+#[test]
+fn the_airway_rows_are_exactly_the_airway_declarations() {
+    assert_rows_are_exactly(
+        AIRWAY_NEST,
+        agentic_http::airway_router_roles(),
+        "agentic_http::airway_router_roles()",
+    );
+}
+
+/// The second nest rebuilt row by row: three coordinator reads and the
+/// thinking-mode save left the `/analytics` wildcard, and four routes were
+/// pinned by name. `fleet-assert.sh` replays a case with the ide down by the
+/// role of ITS row, so a read still filed under the wildcard would be reported
+/// as an IdeOnly route answering from a replica.
+#[test]
+fn the_analytics_rows_are_exactly_the_analytics_declarations() {
+    assert_rows_are_exactly(
+        ANALYTICS_NEST,
+        agentic_http::router_roles(),
+        "agentic_http::router_roles()",
     );
 }

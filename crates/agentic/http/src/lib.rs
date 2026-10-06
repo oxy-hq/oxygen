@@ -84,6 +84,64 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/threads/{thread_id}/runs",
             role: FleetOk,
         },
+        // One UPDATE of the run's `analytics_run_extensions` row, after a
+        // workspace-scope read of the run. Nothing in this process is told;
+        // the thread reads above load the row back.
+        RouteRoleDecl {
+            method: "PATCH",
+            path: "/runs/{id}/thinking_mode",
+            role: FleetOk,
+        },
+        // Ops dashboard — run history, recovery counts and queue health are
+        // SELECTs over `agentic_runs`, `agentic_run_events` and
+        // `agentic_task_queue`. With the Factory down these are how an
+        // operator sees what the queue is doing.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/runs",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/recovery",
+            role: FleetOk,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/queue",
+            role: FleetOk,
+        },
+        // Postgres rows too, but each row's status is overlaid from
+        // `RuntimeState::statuses` and the map WINS. It is right only in the
+        // process driving the run: a replica that accepted an airway submit
+        // `register`s the run `Running` and is never told it ended, so two
+        // replicas would answer differently. Pinned until the overlay goes.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/active-runs",
+            role: IdeOnly,
+        },
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/runs/{id}/tree",
+            role: IdeOnly,
+        },
+        // Writes Postgres and enqueues a `Global` task, but when an airway
+        // run's task was reaped it re-resolves the spec and reports a ref the
+        // promoted revision lacks as a 500 — where `POST /agentic-airway/runs`
+        // answers the retryable 503 and asks for a compile.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/coordinator/runs/{id}/retry",
+            role: IdeOnly,
+        },
+        // SSE over `RuntimeState::statuses` and nothing else: a replica that
+        // drives no run would stream an empty snapshot for ever.
+        RouteRoleDecl {
+            method: "GET",
+            path: "/coordinator/live",
+            role: IdeOnly,
+        },
         // Everything else executes a run in-process against the local connector,
         // or streams one that is executing.
         RouteRoleDecl {
@@ -371,6 +429,10 @@ where
 #[cfg(test)]
 #[path = "airway_role_tests.rs"]
 mod airway_role_tests;
+
+#[cfg(test)]
+#[path = "analytics_role_tests.rs"]
+mod analytics_role_tests;
 
 // The schedule routes were relocated to the `app` crate (§12 FU4b):
 // they require `WorkspaceAdmin` from `crate::api::middlewares::role_guards`

@@ -14,15 +14,16 @@
 # two false alarms moved to bucket=Ext, see their notes).
 #
 # That match no longer holds, and the table is NOT complete. As of 2026-10-05
-# route_declarations() returns 303 routes and 203 of them have a row here; 32 rows name a
+# route_declarations() returns 311 routes and 211 of them have a row here; 32 rows name a
 # route oxy-app does not declare itself (the org, onboarding and source-upload trees moved
 # to the surface crates oxy-server mounts; a few workspace routes were removed or
-# re-nested). The agentic-airway rows were rebuilt from a fresh dump after #3451.
+# re-nested). The agentic-airway rows were rebuilt from a fresh dump after #3451, and the
+# analytics rows when its coordinator routes were declared one by one.
 #
 # What holds the rows to the code: crates/app/tests/routing/fleet_routes_table.rs fails
 #   when a row states a role other than the one declared for its method + path, when the
-#   agentic-airway rows are not exactly agentic_http::airway_router_roles(), or when a row
-#   is not five tab-separated columns. It does NOT fail when a route is added elsewhere
+#   agentic-airway or analytics rows are not exactly agentic_http::airway_router_roles() /
+#   router_roles(), or when a row is not five tab-separated columns. It does NOT fail when a route is added elsewhere
 #   without a row -- nothing does; fleet-assert.sh reports coverage of the rows it is given.
 #
 # To regenerate the method/path/role columns: add a temporary #[test] to
@@ -70,7 +71,15 @@ GET	/api/{workspace_id}/agentic-workflows/runs/{id}	fleet-ok	Fixture	same
 GET	/api/{workspace_id}/agentic-workflows/threads/{thread_id}/run	fleet-ok	Now	same
 *	/api/{workspace_id}/agents	fleet-ok	Now	verified live 200 — 4 real agents
 *	/api/{workspace_id}/airway-pipelines	fleet-ok	Now	verified live 200 — 5 real pipelines (`sql_ingest`, `toast_pos`, `weather`, `clickhouse_ingest`, `ubereats`)
-*	/api/{workspace_id}/analytics/{*rest}	ide-only	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value (present as env pass-through in the compose file, value unverified); `/coordinator/*` (active-runs, tree, retry, recovery, queue, live) are pure Postgres reads folded under this same IdeOnly wildcard by declaration — buildable via the ide directly even though they need no disk
+*	/api/{workspace_id}/analytics/{*rest}	ide-only	Fixture	`POST /runs` against one of 4 real agents — needs a real `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` value (present as env pass-through in the compose file, value unverified); the catch-all for the execution routes (start, events, answer, cancel, revert-file-changes) and for a route added without a declaration — the coordinator routes and `thinking_mode` have rows of their own below
+GET	/api/{workspace_id}/analytics/coordinator/active-runs	ide-only	Fixture	Postgres rows, but each row's status is overlaid from the answering process's in-memory run map, which wins — a replica that only accepted an airway submit holds that run as `running` for good, so this stays on the ide until the overlay is gone
+GET	/api/{workspace_id}/analytics/coordinator/live	ide-only	Now	SSE over the answering process's in-memory run map and nothing else — a plain GET that never ends, not yet in this script's case table
+GET	/api/{workspace_id}/analytics/coordinator/queue	fleet-ok	Fixture	Postgres only (`agentic_task_queue` joined to `agentic_runs`)
+GET	/api/{workspace_id}/analytics/coordinator/recovery	fleet-ok	Fixture	Postgres only; the body differs between any two calls on a busy fleet, so the case compares status
+GET	/api/{workspace_id}/analytics/coordinator/runs	fleet-ok	Fixture	Postgres only (run history, with LLM cost and duration baselines from the event rows)
+POST	/api/{workspace_id}/analytics/coordinator/runs/{id}/retry	ide-only	Fixture	needs a failed workflow or airway run id; writes Postgres only, but a reaped airway task re-resolves the spec and answers a 500 where the start route answers a retryable 503 — not yet in this script's case table
+GET	/api/{workspace_id}/analytics/coordinator/runs/{id}/tree	ide-only	Fixture	needs a real run id; the same in-memory status overlay as `active-runs` — not yet in this script's case table
+PATCH	/api/{workspace_id}/analytics/runs/{id}/thinking_mode	fleet-ok	Fixture	needs a real analytics run id; one UPDATE of its `analytics_run_extensions` row — not yet in this script's case table
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/run	fleet-ok	Now	use a real thread id — all 3 fixture threads are `source_type: analytics`, real history expected
 GET	/api/{workspace_id}/analytics/threads/{thread_id}/runs	fleet-ok	Now	same
 *	/api/{workspace_id}/api-keys	fleet-ok	Now	verified live 200, empty; `POST` create is disposable

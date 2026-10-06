@@ -307,6 +307,81 @@ fn agentic_run_history_reads_are_fleet_ok() {
     }
 }
 
+/// The ops dashboard's run history, recovery counts and queue health are
+/// SELECTs, and saving a chat's thinking mode is one UPDATE. They sat under
+/// the `/analytics` IdeOnly wildcard, so with the ide down the page that shows
+/// what the queue is doing could not load any of it.
+#[test]
+fn coordinator_postgres_reads_are_fleet_ok() {
+    let ws = "d9830be4-c6a4";
+    for (method, path) in [
+        ("GET", format!("/api/{ws}/analytics/coordinator/runs")),
+        ("GET", format!("/api/{ws}/analytics/coordinator/recovery")),
+        ("GET", format!("/api/{ws}/analytics/coordinator/queue")),
+        (
+            "PATCH",
+            format!("/api/{ws}/analytics/runs/r-1/thinking_mode"),
+        ),
+        // The same router is mounted on the external API surface.
+        (
+            "GET",
+            format!("/external/api/{ws}/analytics/coordinator/queue"),
+        ),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::FleetOk,
+            "{method} {path} reads or writes Postgres only — must serve from any replica"
+        );
+    }
+}
+
+/// What that carve-out must NOT sweep along.
+///
+/// `active-runs` and `tree` overlay each row with this process's in-memory run
+/// status and prefer it, and `live` streams that map alone; `retry` is a write
+/// with a 500 where its sibling start route answers a retryable 503. The
+/// reasons are beside each declaration in `agentic_http::router_roles`.
+#[test]
+fn coordinator_routes_that_need_the_driving_process_stay_ide_only() {
+    let ws = "d9830be4-c6a4";
+    for (method, path) in [
+        (
+            "GET",
+            format!("/api/{ws}/analytics/coordinator/active-runs"),
+        ),
+        // Two MORE segments than the carved-out `/coordinator/runs`, so that
+        // declaration cannot answer for these.
+        (
+            "GET",
+            format!("/api/{ws}/analytics/coordinator/runs/r-1/tree"),
+        ),
+        (
+            "POST",
+            format!("/api/{ws}/analytics/coordinator/runs/r-1/retry"),
+        ),
+        ("GET", format!("/api/{ws}/analytics/coordinator/live")),
+        // The execution routes that share `/runs/{id}/…` with thinking_mode.
+        ("GET", format!("/api/{ws}/analytics/runs/r-1/events")),
+        ("POST", format!("/api/{ws}/analytics/runs/r-1/answer")),
+        ("POST", format!("/api/{ws}/analytics/runs/r-1/cancel")),
+        // A carved-out path under a method it was not declared for.
+        ("POST", format!("/api/{ws}/analytics/coordinator/runs")),
+        ("DELETE", format!("/api/{ws}/analytics/coordinator/queue")),
+        ("GET", format!("/api/{ws}/analytics/runs/r-1/thinking_mode")),
+        // Not routes today. One added under this mount without a declaration
+        // of its own must land here, not on the fleet.
+        ("GET", format!("/api/{ws}/analytics/coordinator/runs/r-1")),
+        ("GET", format!("/api/{ws}/analytics/coordinator/workers")),
+    ] {
+        assert_eq!(
+            classify(method, &path),
+            RouteRole::IdeOnly,
+            "{method} {path} must stay IdeOnly"
+        );
+    }
+}
+
 /// Starting, stopping and resetting an Airway pipeline must not need the
 /// Factory. None of these handlers runs the pipeline or reads a working copy:
 /// start and single-window backfill enqueue a `Global` task the worker fleet

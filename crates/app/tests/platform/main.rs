@@ -60,6 +60,7 @@ mod compile_oltp_promote;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
 mod context_documents_boundary;
+mod coordinator_any_replica;
 mod data_placement;
 mod feature_flag_refresh;
 mod frontline_app_grant;

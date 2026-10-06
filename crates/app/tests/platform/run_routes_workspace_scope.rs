@@ -39,8 +39,10 @@ const WORKFLOW_REF: &str = "automations/daily.automation.yml";
 
 /// The workspace the request is scoped to — what the workspace middleware
 /// hands every agentic route. Nothing else on it is reachable from these routes.
-struct Platform {
-    workspace_id: Uuid,
+/// It has no path on disk (`workspace_path()` is `None`), which is also what a
+/// replica's context looks like — `coordinator_any_replica` reuses it for that.
+pub(super) struct Platform {
+    pub(super) workspace_id: Uuid,
 }
 
 #[async_trait]
@@ -95,7 +97,7 @@ impl agentic_automation::WorkspaceContext for Platform {
 }
 
 /// Every run here is threadless, like scheduled and manual runs.
-struct NoThreads;
+pub(super) struct NoThreads;
 
 #[async_trait]
 impl ThreadOwnerLookup for NoThreads {
