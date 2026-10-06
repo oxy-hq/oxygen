@@ -66,6 +66,18 @@ fn classify_pipeline_error_message(raw: &str) -> String {
     }
 }
 
+/// `503` for a start the caller can simply retry — the workspace is not
+/// compiled yet, or the compile boundary did not answer — and `400` for
+/// everything else. A `400` tells a client the request was wrong; for a
+/// pod that could not read its inputs, it was not.
+fn start_failure_status(error: &agentic_pipeline::PipelineError) -> StatusCode {
+    if error.is_retryable() {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::BAD_REQUEST
+    }
+}
+
 /// `run_id` is included when the failed run was persisted, so the frontend
 /// can reconcile its live failed state with the run that appears in thread
 /// history (otherwise it renders the question + error twice).
@@ -230,7 +242,11 @@ pub async fn create_run(
                 error = %e,
                 "create_run: pipeline start failed"
             );
-            return pipeline_error_response(StatusCode::BAD_REQUEST, &e, e.run_id.as_deref());
+            return pipeline_error_response(
+                start_failure_status(&e.source),
+                &e,
+                e.run_id.as_deref(),
+            );
         }
     };
 

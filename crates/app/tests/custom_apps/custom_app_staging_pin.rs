@@ -49,7 +49,10 @@ async fn seed_revision(
         workspace_id: ActiveValue::Set(workspace),
         git_sha: ActiveValue::Set(sha.into()),
         branch: ActiveValue::Set(Some(if kind == "main" { "main" } else { "feat" }.into())),
-        schema_version: ActiveValue::Set(1),
+        // The compiler's own version, not a literal: reuse is keyed on it
+        // (`find_reusable_revision`), so a hard-coded `1` stopped being
+        // reusable the day the version moved.
+        schema_version: ActiveValue::Set(oxy_compile::CURRENT_SCHEMA_VERSION),
         status: ActiveValue::Set("ready".into()),
         kind: ActiveValue::Set(kind.into()),
         owner_user_id: ActiveValue::Set(None),

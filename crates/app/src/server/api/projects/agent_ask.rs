@@ -382,7 +382,14 @@ pub async fn start_ask(
                     ),
                 );
             }
-            return err(StatusCode::INTERNAL_SERVER_ERROR, msg);
+            // Not compiled yet, or the compile boundary did not answer:
+            // the same ask succeeds later, so say so rather than `500`.
+            let status = if e.source.is_retryable() {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            return err(status, msg);
         }
     };
 

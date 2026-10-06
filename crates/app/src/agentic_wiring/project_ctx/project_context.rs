@@ -208,6 +208,16 @@ impl ProjectContext for OxyProjectContext {
             .and_then(|definition| serde_yaml::to_string(&definition).ok())
     }
 
+    /// From the revision this context is pinned to, or the working copy on
+    /// a node reading one — `ConfigManager` decides, on every role. See
+    /// `context_documents.rs`.
+    async fn resolve_context_documents(
+        &self,
+        patterns: &[String],
+    ) -> Result<Option<Vec<String>>, agentic_automation::WorkspaceReadError> {
+        self.context_documents(patterns).await
+    }
+
     async fn resolve_secret(&self, var_name: &str) -> Option<String> {
         match self
             .workspace_manager

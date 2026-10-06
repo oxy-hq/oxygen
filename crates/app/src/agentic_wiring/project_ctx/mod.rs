@@ -28,6 +28,7 @@ use oxy_shared::errors::OxyError;
 // they need no re-export — the trait impls are visible wherever the trait and
 // `OxyProjectContext` are in scope.
 mod compile_cooldown;
+mod context_documents;
 mod function_context;
 mod monitor_scan;
 mod preview_hold;

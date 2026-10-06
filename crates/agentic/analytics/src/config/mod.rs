@@ -91,6 +91,8 @@ pub mod error;
 pub mod yaml;
 
 #[cfg(test)]
+mod domain_docs_tests;
+#[cfg(test)]
 mod tests;
 
 pub use error::ConfigError;
@@ -254,6 +256,14 @@ pub struct BuildContext {
     /// agent, tenant and conversation for per-tenant accounting in the
     /// platform trace store. See `agentic_llm::genai`.
     pub genai: agentic_llm::GenAiContext,
+    /// The agent's `.md` context documents, already resolved by the host.
+    ///
+    /// `Some` REPLACES whatever [`AgentConfig::resolve_context`] globbed from
+    /// `base_dir`, including with an empty list: the host has answered, and
+    /// its answer is the same on a pod with no working copy as on one with
+    /// the files. `None` means no host answered (the CLI's default context,
+    /// a test), and the documents come from `base_dir` as before.
+    pub domain_docs: Option<Vec<String>>,
 }
 
 // ── AgentConfig methods ───────────────────────────────────────────────────────
@@ -434,6 +444,11 @@ impl AgentConfig {
     /// Glob-expand `context` patterns and bucket files by extension.
     ///
     /// Patterns are resolved relative to `base_dir`.
+    ///
+    /// `domain_docs` here is what `base_dir` happens to hold. A host that
+    /// answers for the agent's markdown (`BuildContext::domain_docs`) replaces
+    /// it, because `base_dir` is not the same directory on every node and
+    /// markdown is not in all of them.
     pub fn resolve_context(&self, base_dir: &Path) -> Result<ResolvedContext, ConfigError> {
         let mut ctx = ResolvedContext::default();
 
@@ -681,7 +696,7 @@ impl AgentConfig {
             .with_global_instructions(self.instructions.clone())
             .with_timezone(timezone)
             .with_sql_examples(ctx.sql_examples)
-            .with_domain_docs(ctx.domain_docs)
+            .with_domain_docs(build_ctx.domain_docs.unwrap_or(ctx.domain_docs))
             .with_state_configs(self.states.clone())
             .with_state_clients(state_clients)
             .with_validator(validator)

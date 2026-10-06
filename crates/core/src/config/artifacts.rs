@@ -98,6 +98,47 @@ pub struct VerifiedQueryEntry {
     pub content: String,
 }
 
+/// A markdown context document (`.md`) an agent's `context:` reaches. Like a
+/// verified query, its body IS the artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextDocument {
+    /// Workspace-relative, `/`-separated — the same string on both arms.
+    pub file_path: String,
+    pub content: String,
+}
+
+/// What a manager can say about the context documents an agent reads.
+///
+/// Three different things can be true and each has its own shape, because a
+/// caller does something different with each: `Read` is an answer, an `Err` is
+/// "could not look", and `NotCompiled` is neither.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextDocuments {
+    /// Looked. These are the agent's documents, in its pattern order. An empty
+    /// list is an answer too: the agent reads none.
+    Read(Vec<ContextDocument>),
+    /// Nobody looked, and nobody can from here. The pinned revision was
+    /// compiled before documents were a compiled kind, so it says nothing
+    /// about them, and this node holds no files to read instead.
+    ///
+    /// Not an error: it is the state every revision was in before documents
+    /// were compiled, and a run on such a pod has always gone ahead without
+    /// them. Not `Read(vec![])` either: that would claim the agent has none,
+    /// when the next compile may well carry some. A caller that proceeds
+    /// should say so and ask for that compile.
+    NotCompiled,
+}
+
+impl ContextDocuments {
+    /// The documents, when this is an answer.
+    pub fn read(self) -> Option<Vec<ContextDocument>> {
+        match self {
+            Self::Read(documents) => Some(documents),
+            Self::NotCompiled => None,
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
     #[error("workspace is not available on this node: {0}")]

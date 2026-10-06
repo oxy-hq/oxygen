@@ -40,7 +40,9 @@
 //!
 //! Boundaries:
 //!
-//!   - `walker.rs` is the only module that touches the filesystem.
+//!   - `walker.rs` is the only module that lists the filesystem, with one
+//!     exception it calls into: `context_documents.rs`, the markdown walk it
+//!     shares with the working-copy reader so the two cannot disagree.
 //!   - `writer.rs` is the only module that touches the database.
 //!   - `compile.rs` orchestrates and holds the parsing logic; no I/O
 //!     of either kind except via the other two modules.
@@ -52,6 +54,7 @@
 
 pub mod blob_store;
 pub mod compile;
+pub mod context_documents;
 pub mod duckdb_mirror;
 pub mod errors;
 pub mod outcome;

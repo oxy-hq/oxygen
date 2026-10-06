@@ -554,6 +554,7 @@ async fn write_compiled_rows(
     let mut reconcile_cfgs = Vec::new();
     let mut world_model_cfgs = Vec::new();
     let mut simulations = Vec::new();
+    let mut context_documents = Vec::new();
 
     for row in rows {
         match row {
@@ -651,6 +652,14 @@ async fn write_compiled_rows(
                     definition: Set(s.definition.clone()),
                 })
             }
+            CompiledRow::ContextDocument(d) => {
+                context_documents.push(entity::context_document_definitions::ActiveModel {
+                    revision_id: Set(revision_id),
+                    file_path: Set(d.file_path.clone()),
+                    content_sha256: Set(d.content_sha256.clone()),
+                    content: Set(d.content.clone()),
+                })
+            }
             CompiledRow::Reference(r) => {
                 references.push(entity::compiled_references::ActiveModel {
                     revision_id: Set(revision_id),
@@ -728,6 +737,11 @@ async fn write_compiled_rows(
     }
     if !simulations.is_empty() {
         entity::simulation_definitions::Entity::insert_many(simulations)
+            .exec(txn)
+            .await?;
+    }
+    if !context_documents.is_empty() {
+        entity::context_document_definitions::Entity::insert_many(context_documents)
             .exec(txn)
             .await?;
     }

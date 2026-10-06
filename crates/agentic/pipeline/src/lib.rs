@@ -12,6 +12,7 @@ pub mod airway_run;
 pub mod app_function_task;
 pub mod automation_run;
 pub mod backfill;
+mod context_documents;
 mod db_transient;
 pub mod drive_policy;
 pub mod executor;
@@ -184,6 +185,19 @@ pub enum PipelineError {
     Config(String),
     Build(String),
     Db(sea_orm::DbErr),
+    /// Something the run needs could not be read right now — the workspace is
+    /// not compiled yet, or the compile boundary did not answer. The one
+    /// variant a caller should retry rather than report as the request's
+    /// fault. See [`PipelineError::is_retryable`].
+    Unavailable(String),
+}
+
+impl PipelineError {
+    /// Whether the same request can succeed later with nothing changed by the
+    /// caller. Callers answering over HTTP map this to `503`, not `400`.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Unavailable(_))
+    }
 }
 
 impl std::fmt::Display for PipelineError {
@@ -192,6 +206,7 @@ impl std::fmt::Display for PipelineError {
             Self::Config(msg) => write!(f, "config error: {msg}"),
             Self::Build(msg) => write!(f, "build error: {msg}"),
             Self::Db(e) => write!(f, "db error: {e}"),
+            Self::Unavailable(msg) => write!(f, "temporarily unavailable, retry: {msg}"),
         }
     }
 }
@@ -611,6 +626,11 @@ impl PipelineBuilder {
             }
         };
 
+        // Before the run row exists, on purpose: "not compiled yet" is a
+        // retryable start, and a retry should not find a failed run of its own
+        // question already in the thread.
+        let domain_docs = context_documents::resolve(&*self.platform, &config).await?;
+
         // Insert run + extension (skipped for delegation children — the
         // coordinator already created the run via insert_run_with_parent).
         let source_type = "analytics";
@@ -700,6 +720,7 @@ impl PipelineBuilder {
 
         // Build params.
         let params = agentic_analytics::PipelineParams {
+            domain_docs,
             config,
             base_dir: base_dir.to_path_buf(),
             agent_id: agent_id.to_string(),
@@ -795,6 +816,13 @@ impl PipelineBuilder {
             }
         };
 
+        // The same documents the original run was built with, asked the same
+        // way: a resumed run rebuilds its solver from scratch. A failure here
+        // closes the run like any other failure of a resume. It is a read of a
+        // revision that carries documents failing outright; a revision that
+        // predates them is not a failure at all.
+        let domain_docs = context_documents::resolve(&*self.platform, &config).await?;
+
         // Resolve project model + connectors via the platform port.
         let project_model = self
             .platform
@@ -857,6 +885,7 @@ impl PipelineBuilder {
         };
 
         let params = agentic_analytics::PipelineParams {
+            domain_docs,
             config,
             base_dir: base_dir.to_path_buf(),
             agent_id: agent_id.to_string(),
@@ -2020,6 +2049,12 @@ async fn run_agentic_headless(
     })?;
 
     let mut ctx = BuildContext::default();
+    // Flattened to a string like every other failure of this function, which
+    // loses "retryable". Its callers have no retry to give it to: they return
+    // the string to a person (an eval, a health probe, a Slack reply).
+    ctx.domain_docs = context_documents::resolve(&*platform, &config)
+        .await
+        .map_err(|e| format!("failed to read the agent's context documents: {e}"))?;
     ctx.project_model_info = platform
         .resolve_model(config.llm.model_ref.as_deref(), config.llm.model.is_some())
         .await;

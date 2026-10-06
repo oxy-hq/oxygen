@@ -98,6 +98,9 @@ pub struct PipelineParams {
     /// the Specifying stage can serve from local Parquet. `None` when no
     /// rebuild worker is running.
     pub preagg: Option<agentic_semantic::compile::PreaggContext>,
+    /// The agent's `.md` context documents as the host resolved them, or
+    /// `None` to read them from `base_dir`. See [`BuildContext::domain_docs`].
+    pub domain_docs: Option<Vec<String>>,
 }
 
 // ── start_pipeline ───────────────────────────────────────────────────────────
@@ -169,6 +172,7 @@ pub async fn start_pipeline(
         model_override,
         preagg: params.preagg,
         timezone: params.timezone,
+        domain_docs: params.domain_docs,
     };
 
     let (solver, _automation_files) = params
@@ -354,6 +358,7 @@ pub async fn resume_pipeline(
         model_override,
         preagg: params.preagg,
         timezone: params.timezone,
+        domain_docs: params.domain_docs,
     };
 
     let (solver, _automation_files) = params

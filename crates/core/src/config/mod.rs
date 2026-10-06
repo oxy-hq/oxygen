@@ -13,6 +13,7 @@ mod artifacts;
 mod builder;
 mod compiled;
 pub mod constants;
+mod context_documents;
 mod manager;
 mod naming;
 pub mod oxy;
@@ -29,8 +30,8 @@ use validate::{DataAppValidationContext, ValidationContext, ValidationContextMet
 use oxy_shared::errors::OxyError;
 
 pub use artifacts::{
-    AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry,
-    SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,
+    AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocument,
+    ContextDocuments, PipelineEntry, SimulationEntry, VerifiedQueryEntry, pipeline_source_kind,
 };
 pub use builder::{ConfigBuilder, OnMissing};
 pub use manager::{ConfigManager, DiskSlot, Origin, ReadOnly, ResolveWorkspaceFile, WorkingCopy};

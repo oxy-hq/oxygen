@@ -15,7 +15,7 @@ use super::artifacts::{
     SimulationEntry, VerifiedQueryEntry,
 };
 
-async fn conn() -> Result<DatabaseConnection, ArtifactError> {
+pub(super) async fn conn() -> Result<DatabaseConnection, ArtifactError> {
     crate::database::client::establish_connection()
         .await
         .map_err(|e| ArtifactError::Backend(e.to_string()))

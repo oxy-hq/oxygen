@@ -36,8 +36,11 @@ impl WorkspaceContext for OxyProjectContext {
     /// (materialised into a tempdir) instead of globbing an absent filesystem —
     /// otherwise context resolution finds nothing and the run fails "no
     /// databases configured". `Ide` / `All` keep the FS path (they hold the
-    /// working copy), so context the boundary doesn't serve yet (verified
-    /// `.sql`, `.md`, automations) isn't lost there.
+    /// working copy).
+    ///
+    /// Markdown documents do not come from this root on any role. The run
+    /// asks `resolve_context_documents` for them, which reads the pinned
+    /// revision wherever there is one — see `context_documents.rs`.
     async fn context_root(&self) -> ContextRoot {
         use crate::server::role_manifest::{Role, current_process_role};
         if matches!(current_process_role(), Role::Serve | Role::Worker) {

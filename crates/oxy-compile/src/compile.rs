@@ -33,7 +33,20 @@ use std::path::Path;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
-pub const CURRENT_SCHEMA_VERSION: i32 = 1;
+/// Which generation of the compiled row set a revision carries, stamped on
+/// `revisions.schema_version`.
+///
+/// Bump it when a compile starts writing a kind that a reader must be able to
+/// tell from "this revision was never asked". An empty table cannot say which:
+///
+/// * `1` — everything up to `schema_migration_definitions`.
+/// * `2` — plus `context_document_definitions`
+///   ([`crate::context_documents::SINCE_SCHEMA_VERSION`]).
+///
+/// Reuse is keyed on it too (`lookup_idempotent_revision`,
+/// `find_reusable_revision`), so a bump stops an older revision of the same
+/// SHA being handed back as if it carried the new kind.
+pub const CURRENT_SCHEMA_VERSION: i32 = 2;
 
 /// How recent a successful revision has to be for an idempotent
 /// re-compile to reuse it. Hardcoded to one hour; a same-SHA re-compile
@@ -60,6 +73,16 @@ pub enum CompiledRow {
     ReconcileConfig(CompiledReconcileConfig),
     WorldModelConfig(CompiledWorldModelConfig),
     Simulation(CompiledSimulation),
+    ContextDocument(CompiledContextDocument),
+}
+
+/// One `.md` an agent's `context:` reaches. The body IS the artifact, as it is
+/// for a verified query: there is nothing to parse.
+#[derive(Debug, Clone)]
+pub struct CompiledContextDocument {
+    pub file_path: String,
+    pub content_sha256: String,
+    pub content: String,
 }
 
 /// One `.simulation.yml`.
@@ -671,6 +694,7 @@ async fn compile_one(file: &DiscoveredFile) -> Result<Vec<CompiledRow>, FileFail
             })
         }),
         FileKind::VerifiedQuery => compile_verified_query(file, &content),
+        FileKind::ContextDocument => compile_context_document(file, &content),
         FileKind::SchemaMigration => compile_schema_migration(file, &content),
         FileKind::MonitorConfig => compile_monitor_config(file, &content),
         FileKind::ReconcileConfig => compile_reconcile_config(file, &content),
@@ -1283,6 +1307,26 @@ fn compile_schema_migration(
     )])
 }
 
+/// A markdown context document, as the text an agent is given.
+///
+/// Never fails: there is nothing to parse, and the one thing Postgres cannot
+/// store (a NUL byte) is dropped by [`crate::context_documents::document_text`]
+/// rather than allowed to fail the revision. The hash is of what is stored.
+fn compile_context_document(
+    file: &DiscoveredFile,
+    content: &str,
+) -> Result<Vec<CompiledRow>, FileFailure> {
+    let content = crate::context_documents::document_text(content.as_bytes());
+    let hash = hex::encode(Sha256::digest(content.as_bytes()));
+    Ok(vec![CompiledRow::ContextDocument(
+        CompiledContextDocument {
+            file_path: file.rel_path.clone(),
+            content_sha256: hash,
+            content,
+        },
+    )])
+}
+
 fn compile_verified_query(
     file: &DiscoveredFile,
     content: &str,
@@ -1383,6 +1427,7 @@ fn row_dedupe_key(row: &CompiledRow, _kind: &FileKind) -> Option<String> {
         CompiledRow::ReconcileConfig(_) => None,
         CompiledRow::WorldModelConfig(_) => None,
         CompiledRow::Simulation(s) => Some(format!("simulation:{}", s.name)),
+        CompiledRow::ContextDocument(d) => Some(format!("doc:{}", d.file_path)),
     }
 }
 
@@ -1726,6 +1771,81 @@ mod tests {
                 assert!(q.content_sha256.chars().all(|c| c.is_ascii_hexdigit()));
             }
             other => panic!("expected VerifiedQuery, got {:?}", other),
+        }
+    }
+
+    /// The body is carried verbatim with its hash, and a document nobody
+    /// references is not a row at all.
+    #[tokio::test]
+    async fn compile_one_context_document_carries_the_body_verbatim() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        let body = "# Glossary\n\n**GMV** is gross merchandise value.\n";
+        write(root, "docs/glossary.md", body);
+        write(root, "README.md", "# nobody's context reaches this\n");
+        write(
+            root,
+            "analyst.agentic.yml",
+            "name: analyst\ncontext:\n  - ./docs/*.md\n",
+        );
+
+        let documents: Vec<_> = discover(root)
+            .unwrap()
+            .into_iter()
+            .filter(|f| matches!(f.kind, FileKind::ContextDocument))
+            .collect();
+        assert_eq!(documents.len(), 1, "the README is not a context document");
+
+        let rows = compile_one(&documents[0]).await.unwrap();
+        match &rows[0] {
+            CompiledRow::ContextDocument(d) => {
+                assert_eq!(d.file_path, "docs/glossary.md");
+                assert_eq!(d.content, body);
+                assert_eq!(
+                    d.content_sha256,
+                    hex::encode(Sha256::digest(body.as_bytes()))
+                );
+                assert_eq!(
+                    row_dedupe_key(&rows[0], &documents[0].kind).as_deref(),
+                    Some("doc:docs/glossary.md")
+                );
+            }
+            other => panic!("expected ContextDocument, got {:?}", other),
+        }
+    }
+
+    /// Postgres `TEXT` cannot hold a NUL, and any file failure fails the whole
+    /// revision. So a NUL is dropped rather than refused: one odd `.md` under
+    /// a broad glob must not stop every promotion of the workspace.
+    #[tokio::test]
+    async fn a_nul_byte_in_a_context_document_is_dropped_not_a_failed_revision() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        write(root, "docs/odd.md", "looks like text\0and mostly is");
+        write(
+            root,
+            "analyst.agentic.yml",
+            "name: analyst\ncontext:\n  - ./docs/*.md\n",
+        );
+
+        let file = discover(root)
+            .unwrap()
+            .into_iter()
+            .find(|f| matches!(f.kind, FileKind::ContextDocument))
+            .expect("the document is discovered");
+        let rows = compile_one(&file)
+            .await
+            .expect("a NUL does not fail the file");
+        match &rows[0] {
+            CompiledRow::ContextDocument(d) => {
+                assert_eq!(d.content, "looks like textand mostly is");
+                assert_eq!(
+                    d.content_sha256,
+                    hex::encode(Sha256::digest(d.content.as_bytes())),
+                    "the hash is of what is stored"
+                );
+            }
+            other => panic!("expected ContextDocument, got {:?}", other),
         }
     }
 

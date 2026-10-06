@@ -420,6 +420,69 @@ async fn pipelines_and_semantic_files_agree() {
     // through SemanticManager on one side and compiled_reader on the other.
 }
 
+/// Markdown context documents are enumerated by ONE walk
+/// (`oxy_compile::context_documents::discover`), which the compile walker and
+/// the working copy both call. So where every other kind here pins an
+/// agreement between two implementations, this pins that there is still only
+/// one — and that it carries both skip rules, which the walker's own
+/// `push_glob` would otherwise have applied for it.
+#[tokio::test]
+async fn context_documents_agree_because_both_arms_share_one_walk() {
+    let dir = fixture();
+    let root = dir.path();
+    write(
+        root,
+        "analyst.agentic.yml",
+        "name: analyst\ncontext:\n  - ./**/*.md\n",
+    );
+    write(root, "docs/glossary.md", "# Glossary\n");
+    write(
+        root,
+        "docs/v1.test.cases/real.md",
+        "# a fixtures DIRECTORY\n",
+    );
+    write(root, "docs/draft.test.md", "# a fixture FILE\n");
+    write(root, "sub/build/stray.md", "# build output\n");
+    write(root, ".hidden/secret.md", "# hidden\n");
+    write(root, "node_modules/pkg/README.md", "# vendored\n");
+
+    let mut from_disk: Vec<String> = manager(root)
+        .await
+        .context_documents(&["./**/*.md".to_string()])
+        .await
+        .unwrap()
+        .read()
+        .expect("the working copy answers")
+        .into_iter()
+        .map(|document| document.file_path)
+        .collect();
+    from_disk.sort();
+
+    assert_eq!(
+        from_disk,
+        vec!["docs/glossary.md", "docs/v1.test.cases/real.md"],
+        "the working copy prunes skipped directories and drops the `.test.` \
+         file name, and keeps a real file under a `.test.` directory"
+    );
+    assert_eq!(
+        walked(root, FileKind::ContextDocument),
+        from_disk,
+        "and the walker compiles exactly the same set"
+    );
+
+    // The kind exists only by reference. Narrow the one agent's `context:` and
+    // the README-shaped files stop being documents on both arms at once.
+    write(
+        root,
+        "analyst.agentic.yml",
+        "name: analyst\ncontext:\n  - ./docs/*.md\n",
+    );
+    assert_eq!(
+        walked(root, FileKind::ContextDocument),
+        vec!["docs/glossary.md"]
+    );
+}
+
 /// The incident shape, stated directly: a workspace root that is not on this
 /// disk must not read as a workspace that has nothing in it.
 ///
@@ -443,6 +506,13 @@ async fn an_absent_workspace_root_is_an_error_not_an_empty_workspace() {
         ("pipelines", manager.list_pipelines().await.is_err()),
         ("apps", manager.list_apps(false).await.is_err()),
         ("tests", manager.list_tests().await.is_err()),
+        (
+            "context documents",
+            manager
+                .context_documents(&["./docs/*.md".to_string()])
+                .await
+                .is_err(),
+        ),
     ] {
         assert!(
             result,
@@ -460,6 +530,15 @@ async fn an_empty_workspace_root_still_lists_nothing() {
 
     assert!(manager.list_analytics_agents().await.unwrap().is_empty());
     assert!(manager.list_apps(false).await.unwrap().is_empty());
+    assert!(
+        manager
+            .context_documents(&["./docs/*.md".to_string()])
+            .await
+            .unwrap()
+            .read()
+            .expect("the working copy answers")
+            .is_empty()
+    );
 }
 
 /// Building a manager must not bring a workspace root into existence.

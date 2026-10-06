@@ -59,6 +59,10 @@ pub enum FileKind {
     /// what makes the grid versioned and reviewable rather than a set of CLI
     /// flags nobody can diff.
     Simulation,
+    /// A `.md` file some agent's `context:` reaches. The one kind not found by
+    /// extension alone: a README nobody references is not one. See
+    /// [`crate::context_documents`].
+    ContextDocument,
 }
 
 /// The kind of automation file. `.procedure.yml` is kept for back-compat;
@@ -201,9 +205,29 @@ pub fn discover(workspace_root: &Path) -> Result<Vec<DiscoveredFile>, CompileErr
         FileKind::SchemaMigration,
         &mut out,
     )?;
+    push_context_documents(workspace_root, &mut out)?;
 
     out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     Ok(out)
+}
+
+/// Markdown reached by an agent's `context:`. Must follow the agent glob: which
+/// documents exist as a kind is decided by the agents already in `out`.
+///
+/// Not a `push_glob`, because there is no pattern to give it — the patterns are
+/// the agents' own. The two skip rules it would have applied are applied by
+/// the walk this shares with the working-copy arm, so the enumerations cannot
+/// disagree.
+fn push_context_documents(root: &Path, out: &mut Vec<DiscoveredFile>) -> Result<(), CompileError> {
+    let agents: Vec<DiscoveredFile> = out
+        .iter()
+        .filter(|file| file.kind == FileKind::AgenticAgent)
+        .cloned()
+        .collect();
+    let documents = crate::context_documents::reachable_from_agents(root, &agents)
+        .map_err(|e| CompileError::Walk(format!("context documents: {e}")))?;
+    out.extend(documents);
+    Ok(())
 }
 
 /// Glob expansion + skip filter + classification helper.

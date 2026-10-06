@@ -214,6 +214,10 @@ const TABLES: &[(&str, Placement)] = &[
         },
     ),
     (
+        "context_document_definitions",
+        Control("compiled .md context documents an agent's context: reaches"),
+    ),
+    (
         "custom_app_event",
         Backlog {
             holds: "app SDK events with a free-form payload",

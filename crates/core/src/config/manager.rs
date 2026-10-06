@@ -10,8 +10,8 @@ use oxy_shared::errors::OxyError;
 
 use super::{
     artifacts::{
-        AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, PipelineEntry,
-        SimulationEntry, VerifiedQueryEntry,
+        AgentEntry, AppEntry, ArtifactError, AutomationEntry, CompiledArtifact, ContextDocuments,
+        PipelineEntry, SimulationEntry, VerifiedQueryEntry,
     },
     model::{
         AppConfig, Automation, AutomationWithRawVariables, BuilderAgentConfig, Config, Database,
@@ -1017,6 +1017,71 @@ impl<S: DiskSlot> ConfigManager<S> {
             .into_iter()
             .find(|s| s.name == name)
             .map(|s| s.definition))
+    }
+
+    /// The markdown documents an analytics agent's `context:` patterns reach,
+    /// from whichever source this manager reads.
+    ///
+    /// `Origin` decides, as for every other artifact, and not the process
+    /// role: a node that owns the files and serves a promoted revision reads
+    /// the revision, the same one the agent's own definition came from.
+    ///
+    /// Three outcomes, and keeping them apart is the point:
+    ///
+    /// - `Ok(Read(documents))`, possibly empty: looked, and this is what the
+    ///   agent reads. A pattern list that cannot name a `.md` at all is
+    ///   answered here without reading anything.
+    /// - `Ok(NotCompiled)`: the revision was compiled before documents were a
+    ///   compiled kind, and this node has no files to read instead. Nobody
+    ///   looked. See [`ContextDocuments::NotCompiled`] for why that is neither
+    ///   an error nor an empty answer.
+    /// - `Err`: could not look. A revision that DOES carry documents is
+    ///   strict: a failed read of it is an error, never an empty list.
+    ///
+    /// An older revision on a node that holds the files reads them, which is
+    /// exactly what that node did before documents were compiled.
+    pub async fn context_documents(
+        &self,
+        patterns: &[String],
+    ) -> Result<ContextDocuments, ArtifactError> {
+        let patterns = oxy_compile::context_documents::ContextPatterns::new(patterns);
+        if !patterns.may_reach_documents() {
+            return Ok(ContextDocuments::Read(Vec::new()));
+        }
+        if let Origin::Compiled { revision_id, .. } = self.origin {
+            match super::context_documents::documents_at(revision_id).await {
+                Ok(Some(documents)) => {
+                    let documents = super::context_documents::select(&patterns, documents);
+                    return Ok(ContextDocuments::Read(documents));
+                }
+                // Both fallbacks ask `disk()`, not `working_copy()`. The slot
+                // is full on a replica too (it names a directory that is not
+                // there), so asking it would send a boundary fault on to a disk
+                // read that fails, and report the fault as "workspace not on
+                // this node" instead of what it was.
+                Ok(None) if self.disk().is_err() => return Ok(ContextDocuments::NotCompiled),
+                Ok(None) => tracing::debug!(
+                    %revision_id,
+                    "revision predates context documents; reading the working copy"
+                ),
+                Err(e) if self.disk().is_err() => return Err(e),
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "compile boundary failed; falling back to the working copy"
+                ),
+            }
+        }
+        // Every failure of this listing is the node failing to look (`disk()`
+        // has already established the root is here), so none of them is the
+        // customer's configuration.
+        let files = self
+            .disk()?
+            .list_context_documents(&patterns)
+            .await
+            .map_err(|e| ArtifactError::WorkspaceUnavailable(e.to_string()))?;
+        Ok(ContextDocuments::Read(
+            super::context_documents::read(files).await?,
+        ))
     }
 
     async fn list_apps_from_disk(

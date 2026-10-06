@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use crate::state_dir::resolve_state_dir_with_fallback;
+use oxy_compile::context_documents::{ContextPatterns, DocumentFile};
 use oxy_shared::errors::OxyError;
 
 use super::artifacts::{AgentEntry, AppEntry, AutomationEntry, PipelineEntry, SimulationEntry};
@@ -90,6 +91,13 @@ pub(super) trait ConfigStorage {
     async fn list_workflows(&self) -> Result<Vec<AutomationEntry>, OxyError>;
     async fn list_pipelines(&self) -> Result<Vec<PipelineEntry>, OxyError>;
     async fn list_simulations(&self) -> Result<Vec<SimulationEntry>, OxyError>;
+    /// The markdown files `patterns` reach. Paths only: the caller reads them,
+    /// so that an unreadable file is classified where the other read faults
+    /// are.
+    async fn list_context_documents(
+        &self,
+        patterns: &ContextPatterns,
+    ) -> Result<Vec<DocumentFile>, OxyError>;
     async fn load_app_config<P: AsRef<Path>>(&self, app_path: P) -> Result<AppConfig, OxyError>;
     async fn get_charts_dir(&self) -> Result<PathBuf, OxyError>;
     async fn get_results_dir(&self) -> Result<PathBuf, OxyError>;
@@ -656,6 +664,25 @@ impl ConfigStorage for FsStorage {
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    /// The working-copy half of `context_document_definitions`.
+    ///
+    /// It does not walk the tree itself. `oxy_compile::context_documents` owns
+    /// the walk and both skip rules, and the compile walker calls the same
+    /// function, so this arm and the compiled one enumerate the same files by
+    /// construction rather than by two lists kept in step.
+    async fn list_context_documents(
+        &self,
+        patterns: &ContextPatterns,
+    ) -> Result<Vec<DocumentFile>, OxyError> {
+        self.require_root()?;
+        oxy_compile::context_documents::discover(&self.project_path, patterns).map_err(|e| {
+            OxyError::IOError(format!(
+                "could not list context documents under {}: {e}",
+                self.project_path.display()
+            ))
+        })
     }
 
     async fn list_apps(&self) -> Result<Vec<AppEntry>, OxyError> {

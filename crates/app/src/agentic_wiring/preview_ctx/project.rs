@@ -61,6 +61,16 @@ impl ProjectContext for PreviewPlatformContext {
         self.pinned(self.inner.resolve_agent_yaml(name)).await
     }
 
+    /// The staging revision's documents: `inner` is a manager at that
+    /// revision, so this is the branch's markdown and never production's.
+    async fn resolve_context_documents(
+        &self,
+        patterns: &[String],
+    ) -> Result<Option<Vec<String>>, agentic_automation::WorkspaceReadError> {
+        self.pinned(self.inner.resolve_context_documents(patterns))
+            .await
+    }
+
     /// Never production's QuickBooks credentials, and on a rotate-on-use
     /// sample's platform nothing but its registered sandbox's
     /// (`sample_secrets`).

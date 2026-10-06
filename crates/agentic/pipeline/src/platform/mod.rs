@@ -26,7 +26,7 @@ pub use preview::{AirwayStepMode, IdentityResolver, PreviewScope, RunPlatformRes
 
 use agentic_analytics::config::{LlmVendor, ResolvedModelInfo};
 use agentic_analytics::{MetricTreeRunner, SharedMetricSink};
-use agentic_automation::WorkspaceContext;
+use agentic_automation::{WorkspaceContext, WorkspaceReadError};
 use agentic_builder::{
     BuilderDatabaseProvider, BuilderProjectValidator, BuilderSchemaProvider,
     BuilderSecretsProvider, BuilderSemanticCompiler,
@@ -156,6 +156,31 @@ pub trait ProjectContext: Send + Sync {
     /// the form their compiled-definitions table is keyed by.
     async fn resolve_agent_yaml(&self, _agent_id: &str) -> Option<String> {
         None
+    }
+
+    /// The `.md` documents an analytics agent's `context:` patterns reach,
+    /// read from wherever the host serves the workspace: the compiled revision
+    /// the agent's own definition came from, or the working copy on a node
+    /// that is reading one.
+    ///
+    /// - `Ok(None)` — this host does not answer (the default: test fakes, a
+    ///   host with no compile boundary). The solver then globs the context
+    ///   root for them, as it did before this port existed.
+    /// - `Ok(Some(documents))` — the answer, in the agent's pattern order. An
+    ///   empty list is an answer too: this agent reads no documents.
+    /// - `Err` — the host could not find out. `Unavailable` means come back;
+    ///   it is what "not compiled yet" must arrive as. The run is not started
+    ///   on an error: an agent quietly missing its documents answers anyway,
+    ///   and nothing downstream can tell.
+    ///
+    /// `patterns` are the agent's `context:` entries verbatim. Which of them
+    /// name markdown, and what they match, is the host's to decide in one
+    /// place for the compiler and the reader alike.
+    async fn resolve_context_documents(
+        &self,
+        _patterns: &[String],
+    ) -> Result<Option<Vec<String>>, WorkspaceReadError> {
+        Ok(None)
     }
 
     async fn resolve_secret(&self, var_name: &str) -> Option<String>;

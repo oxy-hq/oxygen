@@ -17,8 +17,8 @@
 //! Mixed three ways, and the split is in `.config/nextest.toml`:
 //!
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
-//!   `airway_compile_boundary`, `anomaly_bulk_status`, `simulation_routes`,
-//!   `simulation_lifecycle`, the two `workspace_previews_*` modules,
+//!   `airway_compile_boundary`, `context_documents_boundary`, `anomaly_bulk_status`,
+//!   `simulation_routes`, `simulation_lifecycle`, the two `workspace_previews_*` modules,
 //!   `preview_routes` and `preview_ttl` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
@@ -59,6 +59,7 @@ mod compile;
 mod compile_oltp_promote;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
+mod context_documents_boundary;
 mod data_placement;
 mod feature_flag_refresh;
 mod frontline_app_grant;

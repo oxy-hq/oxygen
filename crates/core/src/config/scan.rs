@@ -727,9 +727,12 @@ fn context_cache() -> &'static Mutex<LruCache<(Uuid, Uuid), MaterialisedContext>
 /// globbing an absent filesystem and silently ending up with "no databases
 /// configured".
 ///
-/// Scope: semantic views + topics + automations + verified `.sql` — the complete
-/// `context:` set an analytics run globs. The result is cached per
-/// (workspace, revision), so the materialise runs once per promoted revision.
+/// Scope: semantic views + topics + automations + verified `.sql` — everything
+/// in a `context:` set that an analytics run reads by PATH. Markdown documents
+/// are deliberately not here: the run takes those by value from
+/// [`ConfigManager::context_documents`], on every role, so they need no
+/// directory. The result is cached per (workspace, revision), so the
+/// materialise runs once per promoted revision.
 ///
 /// `Ok(None)` when the workspace isn't promoted or has no semantic rows — the
 /// caller then falls through to the FS workspace path.
