@@ -190,10 +190,35 @@ fn where_to_look(failure: &Failure) -> String {
              point at the platform rather than the app.",
             hc.op, hc.kind
         ),
+        // Every heap kill carries the same message, so every function that is
+        // killed has one fingerprint, in every app. The line below would read
+        // that as the platform failing; it is each app going over the limit on
+        // its own.
+        None if failure.kind == "exceeded_memory" => format!(
+            "The function went over the per-invocation heap limit{limit}: it was holding more \
+             in memory at once than one invocation may. `request_body_bytes` on the \
+             invocation's span is the size of the request, which is the first thing to check. \
+             Every function that hits the limit has this fingerprint, so the same fingerprint \
+             on other functions does not point at the platform.",
+            limit = heap_limit(),
+        ),
         None => "The message is in `app_function_invocations.error`; the same fingerprint on \
                  other functions points at the platform rather than the app."
             .to_string(),
     }
+}
+
+/// The heap limit in force in this process, as ` (128 MiB)` — the process that
+/// finalizes an invocation is the one that ran it. Empty when no limit is set
+/// or the runtime is not compiled in; neither produces an `exceeded_memory`.
+fn heap_limit() -> String {
+    #[cfg(feature = "custom-app-functions")]
+    {
+        if let Some(bytes) = super::runtime::heap_limit_bytes() {
+            return format!(" ({} MiB)", bytes / (1024 * 1024));
+        }
+    }
+    String::new()
 }
 
 /// The ops Slack bot token and the channel custom-app pages go to.
@@ -288,5 +313,27 @@ mod tests {
 
         let threw = Failure::of("error", 0, Some("function threw: Error: x"), None).unwrap();
         assert!(where_to_look(&threw).starts_with("The message is in"));
+    }
+
+    /// Every heap kill carries the same message, so every function that is
+    /// killed has the same fingerprint, in every app. The generic last line
+    /// reads a fingerprint shared between functions as the platform failing,
+    /// which is backwards for this kind: the first such page (2026-10-05) sent
+    /// its reader to look for a platform fault behind two upload handlers.
+    #[test]
+    fn an_exceeded_memory_page_does_not_read_a_shared_fingerprint_as_a_platform_fault() {
+        let killed =
+            Failure::of("error", 0, Some("function exceeded its memory limit"), None).unwrap();
+        assert_eq!(killed.kind, "exceeded_memory");
+
+        let line = where_to_look(&killed);
+        assert!(line.contains("heap limit"), "{line}");
+        assert!(line.contains("does not point at the platform"), "{line}");
+        assert!(
+            !line.contains("points at the platform rather than the app"),
+            "{line}"
+        );
+        // What to read next is the size of the request, and where it is.
+        assert!(line.contains("`request_body_bytes`"), "{line}");
     }
 }

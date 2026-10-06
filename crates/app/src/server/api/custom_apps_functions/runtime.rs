@@ -1139,9 +1139,32 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     acc == 0
 }
 
+/// The request body, parked in `OpState` for the invoke script to collect.
+///
+/// It is handed over by [`op_req_take_body`] rather than written into the
+/// invoke script as a literal. V8 keeps a script's source for as long as the
+/// script runs, so a body spliced into it sat on the isolate's heap twice
+/// before the handler's first line — once as source, once as the literal's
+/// value — and both counted against [`heap_limit_bytes`]. For the largest body
+/// the route accepts that was half the default ceiling.
+struct RequestBody(String);
+
+/// Hand the request body to the invoke script, once. Any later call gets an
+/// empty string — and only app code could make one, since the artifact shares
+/// a global with the bootstrap; by then the body is its own `req.body`.
+#[op2]
+#[string]
+fn op_req_take_body(state: &mut OpState) -> String {
+    state
+        .try_take::<RequestBody>()
+        .map(|body| body.0)
+        .unwrap_or_default()
+}
+
 deno_core::extension!(
     oxy_functions_ext,
     ops = [
+        op_req_take_body,
         op_ctx_log,
         op_ctx_query,
         op_ctx_query_stream,
@@ -2423,13 +2446,17 @@ async fn execute_isolate_inner(
 
     let ctx_json = serde_json::to_string(&ctx)
         .map_err(|e| RuntimeError::Internal(format!("ctx serialize failed: {e}")))?;
-    let req_body_str = String::from_utf8_lossy(&req.body);
-    let req_json = serde_json::json!({
-        "method": req.method,
-        "headers": req.headers,
-        "body": req_body_str,
-    })
-    .to_string();
+    let FnRequest {
+        method,
+        headers,
+        body,
+    } = req;
+    // `req` without its body, which the script collects from `RequestBody`.
+    let req_json = serde_json::json!({ "method": method, "headers": headers }).to_string();
+    // Valid UTF-8 is moved, not copied. Anything else is decoded lossily, as it
+    // always was: `req.body` is text.
+    let body = String::from_utf8(body)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
 
     let specifier = deno_core::resolve_url("oxy:function")
         .map_err(|e| RuntimeError::Internal(format!("bad module specifier: {e}")))?;
@@ -2459,11 +2486,18 @@ async fn execute_isolate_inner(
     eval.await
         .map_err(|e| RuntimeError::Js(format!("module evaluation failed: {e}")))?;
 
+    // Parked only now, after the module's top-level statements have run. The
+    // script below collects it before it awaits anything, so the handler's
+    // `req.body` is the one place app code ever finds it. `body` is assigned
+    // last, which keeps `req`'s keys in the order they have always had.
+    runtime.op_state().borrow_mut().put(RequestBody(body));
+
     let invoke_script = format!(
         r#"
         (async () => {{
             const ctx = globalThis.__buildCtx({ctx_json});
             const req = {req_json};
+            req.body = Deno.core.ops.op_req_take_body();
             const mod = await import("oxy:function");
             const handler = mod.default;
             if (typeof handler !== "function") {{
@@ -3076,6 +3110,17 @@ mod tests {
         ctx: InvocationCtx,
         host: Arc<MockHost>,
     ) -> Result<FnResponse, RuntimeError> {
+        run_request(artifact, ctx, host, FnRequest::from_body(b"{}".to_vec())).await
+    }
+
+    /// [`run_on`] with a caller-supplied request, for a test about how the
+    /// request reaches the handler or what it costs to deliver.
+    async fn run_request(
+        artifact: &str,
+        ctx: InvocationCtx,
+        host: Arc<MockHost>,
+        req: FnRequest,
+    ) -> Result<FnResponse, RuntimeError> {
         let (_cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         run(
             artifact.to_string(),
@@ -3083,7 +3128,7 @@ mod tests {
             // one org's admission semaphore and time each other out.
             uuid::Uuid::new_v4(),
             ctx,
-            FnRequest::from_body(b"{}".to_vec()),
+            req,
             host,
             cancel_rx,
             std::time::Duration::from_secs(10),
@@ -3140,6 +3185,85 @@ mod tests {
     fn a_zero_heap_limit_disables_the_ceiling() {
         unsafe { std::env::set_var(HEAP_LIMIT_MB_ENV, "0") };
         assert_eq!(heap_limit_bytes(), None);
+    }
+
+    /// Delivering the request body must cost the isolate's heap one copy of it.
+    ///
+    /// The body used to be spliced into the invoke script as a string literal,
+    /// and V8 keeps a script's source for as long as the script runs. So the
+    /// body was on the heap twice before the handler's first line — once as
+    /// source, once as the literal's value — and both counted against the
+    /// ceiling the handler then had to work under.
+    ///
+    /// Measured that way, under a 64 MiB ceiling: with no body a handler held
+    /// 40 MiB, and beside a 28 MiB body it was terminated holding 2. Here it
+    /// holds 12 MiB beside the same body, in pieces small enough that V8 has to
+    /// find room for each — the ceiling is enforced by collections that free
+    /// nothing, so one large allocation that crosses it and returns would not
+    /// show the difference.
+    #[tokio::test]
+    async fn delivering_the_request_body_costs_the_heap_one_copy_of_it() {
+        // Set before the first `heap_limit_bytes()` call in this process, as in
+        // `a_runaway_allocation_kills_the_isolate_not_the_process`.
+        unsafe { std::env::set_var(HEAP_LIMIT_MB_ENV, "64") };
+        assert_eq!(heap_limit_bytes(), Some(64 * 1024 * 1024));
+
+        const BODY_BYTES: usize = 28 * 1024 * 1024;
+        let result = run_request(
+            r#"
+            export default async (req) => {
+              const held = [];
+              // 64 KiB a piece, 12 MiB in all.
+              for (let i = 0; i < 12 * 16; i++) held.push(new Array(8192).fill(i));
+              return Response.json({ chars: req.body.length, pieces: held.length });
+            };
+            "#,
+            test_ctx(),
+            Arc::new(MockHost::default()),
+            FnRequest::from_body(vec![b'A'; BODY_BYTES]),
+        )
+        .await;
+
+        let resp = result.expect("12 MiB of work fits beside one copy of a 28 MiB body");
+        let parsed: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
+        assert_eq!(parsed["chars"], BODY_BYTES);
+        assert_eq!(parsed["pieces"], 12 * 16);
+    }
+
+    /// However the body is handed over, `req` must read exactly as it did when
+    /// it was a JSON literal: the same three keys in the same order, and a body
+    /// that is the request's bytes as text — including the characters a string
+    /// literal has to escape, and U+FFFD wherever the bytes were not UTF-8.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn req_reads_the_same_however_the_body_is_handed_over() {
+        let mut body = "quote \" backslash \\ newline \n nul \0 tag </script> \
+                        separators \u{2028}\u{2029} astral \u{1F600} ${not} `a template`"
+            .as_bytes()
+            .to_vec();
+        // A lone continuation byte: not UTF-8 on its own.
+        body.extend_from_slice(b" invalid \x80 end");
+        let expected = String::from_utf8_lossy(&body).into_owned();
+        assert!(expected.contains('\u{FFFD}'));
+
+        let resp = run_request(
+            r#"
+            export default async (req) =>
+              Response.json({ keys: Object.keys(req), body: req.body, type: typeof req.body });
+            "#,
+            test_ctx(),
+            Arc::new(MockHost::default()),
+            FnRequest::from_body(body),
+        )
+        .await
+        .expect("handler must complete");
+
+        let parsed: serde_json::Value = serde_json::from_str(&resp.body).unwrap();
+        assert_eq!(
+            parsed["keys"],
+            serde_json::json!(["method", "headers", "body"])
+        );
+        assert_eq!(parsed["type"], "string");
+        assert_eq!(parsed["body"], expected);
     }
 
     /// A handler that catches a failed `ctx.*` call and answers 200 is the

@@ -2062,6 +2062,11 @@ fn isolate_span(
         invocation_id = %args.invocation_id,
         function = %args.function_name,
         mode = %args.mode,
+        // What the handler receives as `req.body`, and the first thing to read
+        // an `exceeded_memory` failure against. The first ones in production
+        // were uploads held whole, and the size of a request was recorded
+        // nowhere.
+        request_body_bytes = args.body.len(),
         request_id = tracing::field::Empty,
         status = tracing::field::Empty,
         duration_ms = tracing::field::Empty,
