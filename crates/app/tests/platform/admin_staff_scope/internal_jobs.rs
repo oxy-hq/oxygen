@@ -41,6 +41,7 @@ async fn task(
         promote: false,
         kind: Some("main".to_string()),
         owner_user_id: None,
+        from_git: false,
     };
     agentic_runtime::crud::queue::enqueue_task(db, &id, &id, None, &spec, None, TaskScope::Global)
         .await

@@ -1,11 +1,15 @@
 pub mod app_auth;
 pub mod auth;
+pub mod branch_head;
 pub mod client;
+pub mod tarball;
 pub mod types;
 
 pub use app_auth::*;
 pub use auth::*;
+pub use branch_head::BranchHeadError;
 pub use client::*;
+pub use tarball::{TarballError, transport_error};
 pub use types::*;
 
 use oxy_git::cli::CliGitClient;

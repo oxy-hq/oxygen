@@ -192,7 +192,9 @@ mod m20261001_000001_app_environment_deleting_at;
 mod m20261001_000002_function_invocation_environment_index;
 mod m20261002_000001_app_environment_oltp_schema;
 mod m20261003_000001_automation_runs_execution_started_at;
+mod m20261005_000001_workspace_default_branch_and_subdir;
 mod m20261006_000001_create_context_document_definitions;
+mod m20261006_000001_workspace_compile_checks;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 
@@ -396,7 +398,12 @@ impl MigratorTrait for Migrator {
             Box::new(m20261001_000002_function_invocation_environment_index::Migration),
             Box::new(m20261002_000001_app_environment_oltp_schema::Migration),
             Box::new(m20261003_000001_automation_runs_execution_started_at::Migration),
+            // Applied in this order. The context-document table merged first and is
+            // already on deployed databases; the two below are registered after it
+            // although one carries an earlier date.
             Box::new(m20261006_000001_create_context_document_definitions::Migration),
+            Box::new(m20261005_000001_workspace_default_branch_and_subdir::Migration),
+            Box::new(m20261006_000001_workspace_compile_checks::Migration),
         ]
     }
 

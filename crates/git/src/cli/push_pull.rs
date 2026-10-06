@@ -200,8 +200,29 @@ pub async fn get_ahead_behind_counts(root: &Path, local_sha: &str, remote_sha: &
     if local_sha.is_empty() || remote_sha.is_empty() {
         return (0, 0);
     }
+    // rev-list failed (parse error, transient git, unreachable remote
+    // SHA). Returning `(0, 1)` would surface a phantom ↓1 with an
+    // enabled Pull button that just fails again; `(0, 0)` lets an
+    // explicit Fetch recover real counts.
+    try_ahead_behind_counts(root, local_sha, remote_sha)
+        .await
+        .unwrap_or((0, 0))
+}
+
+/// [`get_ahead_behind_counts`] for a caller that must tell "level" from
+/// "cannot be compared": `None` when git cannot relate the two — one of them
+/// is not a commit this clone has (a synthetic revision id, a commit that was
+/// never fetched) — rather than the `(0, 0)` that reads as "in sync".
+pub async fn try_ahead_behind_counts(
+    root: &Path,
+    local_sha: &str,
+    remote_sha: &str,
+) -> Option<(u64, u64)> {
+    if local_sha.is_empty() || remote_sha.is_empty() {
+        return None;
+    }
     if local_sha == remote_sha {
-        return (0, 0);
+        return Some((0, 0));
     }
     let range = format!("{local_sha}...{remote_sha}");
     match run::run(root, &["rev-list", "--left-right", "--count", &range]).await {
@@ -215,17 +236,11 @@ pub async fn get_ahead_behind_counts(root: &Path, local_sha: &str, remote_sha: &
                 .next()
                 .and_then(|s| s.parse::<u64>().ok())
                 .unwrap_or(0);
-            (ahead, behind)
+            Some((ahead, behind))
         }
-        // rev-list failed (parse error, transient git, unreachable remote
-        // SHA). Returning `(0, 1)` would surface a phantom ↓1 with an
-        // enabled Pull button that just fails again; `(0, 0)` lets an
-        // explicit Fetch recover real counts.
         Err(err) => {
-            tracing::warn!(
-                "get_ahead_behind_counts: rev-list failed for {range}: {err}; reporting (0, 0)"
-            );
-            (0, 0)
+            tracing::warn!("ahead/behind: rev-list failed for {range}: {err}; not comparable");
+            None
         }
     }
 }

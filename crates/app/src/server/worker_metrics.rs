@@ -824,6 +824,7 @@ mod tests {
                     promote: false,
                     kind: None,
                     owner_user_id: None,
+                    from_git: false,
                 },
                 "compile",
             ),

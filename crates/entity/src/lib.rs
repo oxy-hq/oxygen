@@ -153,6 +153,7 @@ pub mod threads;
 pub mod user_credentials;
 pub mod users;
 pub mod work_items;
+pub mod workspace_compile_checks;
 pub mod workspace_health_state;
 pub mod workspace_members;
 pub mod workspace_oxy_lockdown;

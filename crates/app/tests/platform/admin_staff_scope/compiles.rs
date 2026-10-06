@@ -14,6 +14,7 @@ use oxy_app::server::api::admin::compiles::batch::{
 use oxy_app::server::api::admin::compiles::crud::{
     ListQuery, RunCompileRequest, get_compile, list_compiles, promote_to_revision, run_compile_now,
 };
+use oxy_app::server::api::admin::compiles::source::CompileSource;
 use oxy_app::server::api::admin::compiles::workspaces::{WorkspacesQuery, list_workspaces};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, DatabaseBackend, DatabaseConnection, EntityTrait,
@@ -156,6 +157,7 @@ async fn a_bounded_grant_cannot_compile_or_repoint_another_orgs_workspace() {
                     git_sha: None,
                     branch: None,
                     promote: true,
+                    source: Default::default(),
                 }),
             )
             .await,
@@ -258,4 +260,67 @@ async fn unbounded_staff_operate_every_tenants_compiles() {
     assert_eq!(current_revision(&w.db, w.ws_b).await, Some(rev.b));
     let promoted = reply(promote_to_revision(as_actor(&w.owner), Path(rev.orphan)).await).await;
     assert_eq!(promoted.status, StatusCode::OK, "{}", promoted.body);
+}
+
+async fn runs_of(db: &DatabaseConnection, workspace: Uuid, source_type: &str) -> i64 {
+    Count::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT COUNT(*) AS n FROM agentic_runs WHERE workspace_id = $1 AND source_type = $2",
+        [workspace.into(), source_type.into()],
+    ))
+    .one(db)
+    .await
+    .expect("count runs")
+    .map_or(0, |c| c.n)
+}
+
+/// `"source": "git"` is opt-in, and a request that could never compile is
+/// answered with a 400 instead of being queued to fail: there is an operator
+/// waiting on the response. One that can is queued as the kind a worker takes.
+#[tokio::test]
+async fn a_git_source_compile_is_checked_then_queued_as_its_own_kind() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let w = world().await;
+    let run = |git_sha: &str| {
+        run_compile_now(
+            as_actor(&w.bounded),
+            Json(RunCompileRequest {
+                workspace_id: w.ws_a,
+                git_sha: Some(git_sha.to_string()),
+                branch: Some("main".into()),
+                promote: true,
+                source: CompileSource::Git,
+            }),
+        )
+    };
+
+    let no_remote = reply(run(SHA).await).await;
+    assert_eq!(no_remote.status, StatusCode::BAD_REQUEST);
+    assert_eq!(no_remote.body["code"], "no_remote");
+
+    let mut backed: workspaces::ActiveModel = workspaces::Entity::find_by_id(w.ws_a)
+        .one(&w.db)
+        .await
+        .unwrap()
+        .unwrap()
+        .into();
+    backed.git_remote_url = ActiveValue::Set(Some("https://github.com/acme/analytics.git".into()));
+    backed
+        .update(&w.db)
+        .await
+        .expect("give the workspace a remote");
+
+    let not_a_commit = reply(run("main").await).await;
+    assert_eq!(not_a_commit.status, StatusCode::BAD_REQUEST);
+    assert_eq!(not_a_commit.body["code"], "not_a_commit");
+    assert_eq!(runs_of(&w.db, w.ws_a, "compile_git").await, 0);
+
+    let queued = reply(run(SHA).await).await;
+    assert_eq!(queued.status, StatusCode::OK, "{}", queued.body);
+    assert_eq!(runs_of(&w.db, w.ws_a, "compile_git").await, 1);
+    assert_eq!(
+        runs_of(&w.db, w.ws_a, "compile").await,
+        0,
+        "a git compile must not be queued as the kind only the Factory takes"
+    );
 }

@@ -317,6 +317,14 @@ pub enum TaskSpec {
         /// Required when `kind == "draft"`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         owner_user_id: Option<Uuid>,
+        /// When true, `git_sha` names a real commit and the worker fetches
+        /// it from the workspace's remote instead of reading a working copy,
+        /// so a pod with no checkout can run the task. Its run is stamped
+        /// `compile_git` rather than `compile`, which is what selection keys
+        /// on. Absent = false, so a row queued before this key existed is a
+        /// working-copy compile, as it always was.
+        #[serde(default, skip_serializing_if = "is_false")]
+        from_git: bool,
     },
 }
 

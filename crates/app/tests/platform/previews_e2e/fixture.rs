@@ -176,6 +176,7 @@ async fn compile_main(db: &DatabaseConnection, ws: Uuid) -> Uuid {
             true,
             Some("main".into()),
             None,
+            false,
         )
         .await
         .expect("dispatch the main compile");

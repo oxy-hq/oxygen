@@ -71,6 +71,7 @@ pub use super::threads::Entity as Threads;
 pub use super::user_credentials::Entity as UserCredentials;
 pub use super::users::Entity as Users;
 pub use super::work_items::Entity as WorkItems;
+pub use super::workspace_compile_checks::Entity as WorkspaceCompileChecks;
 pub use super::workspace_members::Entity as WorkspaceMembers;
 pub use super::workspace_oxy_lockdown::Entity as WorkspaceOxyLockdown;
 pub use super::workspace_preview_runs::Entity as WorkspacePreviewRuns;

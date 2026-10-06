@@ -22,6 +22,7 @@ use oxy_app_core::AppState;
 
 use super::dto::*;
 use super::ops::*;
+use crate::workspace_provisioning::RepositoryOrigin;
 
 /// POST /orgs/{org_id}/onboarding/demo — copy embedded demo workspace files and trigger background reindex.
 pub async fn setup_demo(
@@ -64,7 +65,6 @@ pub async fn setup_demo(
         Some(user.id),
         Some(ctx.org.id),
         entity::workspaces::WorkspaceStatus::Ready,
-        None,
         None,
     )
     .await
@@ -253,8 +253,11 @@ pub async fn setup_github(
         Some(user.id),
         Some(ctx.org.id),
         entity::workspaces::WorkspaceStatus::Cloning,
-        Some(req.namespace_id),
-        Some(repo.clone_url.clone()),
+        Some(RepositoryOrigin::from_github(
+            req.namespace_id,
+            &repo,
+            subdir.as_deref(),
+        )),
     )
     .await
     {

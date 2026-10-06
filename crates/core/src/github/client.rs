@@ -60,8 +60,8 @@ pub async fn exchange_oauth_code(code: &str) -> Result<String, OxyError> {
 }
 
 pub struct GitHubClient {
-    client: Client,
-    base_url: String,
+    pub(super) client: Client,
+    pub(super) base_url: String,
 }
 
 impl GitHubClient {

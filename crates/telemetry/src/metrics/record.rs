@@ -26,6 +26,22 @@ const FUNCTION: &str = "oxy.function";
 const OUTCOME: &str = "oxy.outcome";
 const STATUS: &str = "http.response.status_code";
 const REASON: &str = "oxy.reason";
+const SOURCE: &str = "oxy.source";
+
+/// Where a compile read its tree from — the `source` label of
+/// [`compile_duration`]. Two values, spelled here so the recorder and any
+/// query agree: the working copy on the node that holds one, or a commit
+/// fetched for the purpose.
+pub const COMPILE_SOURCE_WORKING_COPY: &str = "working_copy";
+pub const COMPILE_SOURCE_GIT: &str = "git";
+
+/// How a compile ended — the `outcome` label of [`compile_duration`].
+/// `ready` and `failed` are the revision's own status (a `failed` revision
+/// compiled and recorded per-file failures); `error` is a compile that
+/// returned no revision at all.
+pub const COMPILE_OUTCOME_READY: &str = "ready";
+pub const COMPILE_OUTCOME_FAILED: &str = "failed";
+pub const COMPILE_OUTCOME_ERROR: &str = "error";
 
 /// The `reason` values [`db_pool_probe_failure`] can carry.
 ///
@@ -248,6 +264,35 @@ pub fn bundle_cache_evictions(count: u64) {
     with_instruments(|i| i.custom_app_bundle_cache_evictions.add(count, &[]));
 }
 
+/// One compile of a workspace finished, however it ended.
+///
+/// `source` and `outcome` take the constants above. Deliberately not labelled
+/// by workspace or org: the question this answers is "how long does a compile
+/// take here", and a per-tenant label would spend the series budget on a
+/// number that is half a second for all of them.
+pub fn compile_duration(source: &'static str, outcome: &'static str, seconds: f64) {
+    with_instruments(|i| {
+        i.compile_duration.record(
+            seconds,
+            &[
+                KeyValue::new(SOURCE, source),
+                KeyValue::new(OUTCOME, outcome),
+            ],
+        );
+    });
+}
+
+/// One fetch of a commit for a compile finished. `ok` is whether a tree came
+/// back; a failed fetch is recorded too, because a fetch that fails slowly
+/// (a timeout) and one that fails at once (a 404) are different problems.
+pub fn compile_fetch_duration(ok: bool, seconds: f64) {
+    let outcome = if ok { "ok" } else { "error" };
+    with_instruments(|i| {
+        i.compile_fetch_duration
+            .record(seconds, &[KeyValue::new(OUTCOME, outcome)]);
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +308,7 @@ mod tests {
         custom_app_heap_termination("org");
         custom_app_admission_wait("org", 0.0);
         custom_app_admission_shed("org", "global");
+        compile_duration(COMPILE_SOURCE_GIT, COMPILE_OUTCOME_READY, 0.5);
+        compile_fetch_duration(true, 1.2);
     }
 }

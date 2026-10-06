@@ -11,10 +11,8 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Qu
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{
-    PromoteError, connect, db_err, error_body, insert_run_and_enqueue_compile, listing_scope,
-    promote_one,
-};
+use super::source::{self, CompileSource};
+use super::{PromoteError, connect, db_err, error_body, listing_scope, promote_one};
 use crate::server::api::admin::scope;
 
 // GET /admin/compiles
@@ -299,6 +297,9 @@ pub struct RunCompileRequest {
     pub branch: Option<String>,
     #[serde(default)]
     pub promote: bool,
+    /// `working_copy` (default) or `git` — see [`CompileSource`].
+    #[serde(default)]
+    pub source: CompileSource,
 }
 
 #[derive(Serialize, Debug)]
@@ -329,22 +330,15 @@ pub async fn run_compile_now(
             other => error_body(other, "scope_unreadable", None),
         })?;
 
-    let task_id = insert_run_and_enqueue_compile(
+    let task_id = source::enqueue(
         &db,
+        req.source,
         req.workspace_id,
         req.git_sha.clone(),
         req.branch.clone(),
         req.promote,
     )
-    .await
-    .map_err(|e| {
-        tracing::error!(?e, "admin/compiles: enqueue failed");
-        error_body(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "enqueue_failed",
-            Some(format!("{e}")),
-        )
-    })?;
+    .await?;
 
     Ok(Json(RunCompileResponse {
         task_id,

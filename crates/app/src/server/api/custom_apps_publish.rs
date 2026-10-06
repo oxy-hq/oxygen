@@ -448,7 +448,7 @@ impl PublishError {
 /// A tar entry path is safe iff it's relative and contains no `..`
 /// component — guards against an archive member escaping the build
 /// prefix (`../../etc/...`) when its files are later keyed into S3.
-fn is_safe_relative_path(path: &std::path::Path) -> bool {
+pub(crate) fn is_safe_relative_path(path: &std::path::Path) -> bool {
     !path.is_absolute()
         && !path
             .components()

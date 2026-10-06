@@ -432,6 +432,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                 promote,
                 kind,
                 owner_user_id,
+                from_git,
             } => {
                 self.execute_compile(
                     *workspace_id,
@@ -440,6 +441,7 @@ impl TaskExecutor for PipelineTaskExecutor {
                     *promote,
                     kind.as_deref(),
                     *owner_user_id,
+                    *from_git,
                 )
                 .await
             }
@@ -1095,6 +1097,7 @@ impl PipelineTaskExecutor {
     /// `entity` crate for the compile boundary schema) lives in the host
     /// — pipeline keeps no `oxy-compile` / `entity` deps per the
     /// layering rules.
+    #[allow(clippy::too_many_arguments)]
     async fn execute_compile(
         &self,
         workspace_id: uuid::Uuid,
@@ -1103,6 +1106,7 @@ impl PipelineTaskExecutor {
         promote: bool,
         kind: Option<&str>,
         owner_user_id: Option<uuid::Uuid>,
+        from_git: bool,
     ) -> Result<ExecutingTask, String> {
         let dispatcher = self.platform.compile_dispatcher().ok_or_else(|| {
             "compile: PlatformContext::compile_dispatcher() returned None — the host \
@@ -1117,6 +1121,7 @@ impl PipelineTaskExecutor {
                 promote,
                 kind.map(str::to_string),
                 owner_user_id,
+                from_git,
             )
             .await
     }

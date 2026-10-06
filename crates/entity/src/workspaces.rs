@@ -84,6 +84,13 @@ pub struct Model {
     /// NOT promote it here. Phase 1.6b will start promoting on each
     /// successful compile (Vercel-style atomic publish).
     pub current_revision_id: Option<Uuid>,
+    /// The branch the repository's `origin/HEAD` names. Local git is the
+    /// authority on a node with a checkout; this is what a node without one
+    /// reads. NULL for a workspace with no remote, or not yet recorded.
+    pub default_branch: Option<String>,
+    /// Where the workspace root sits inside its repository, `/`-separated.
+    /// NULL or empty = the repository root.
+    pub repo_subdir: Option<String>,
     #[sea_orm(
         belongs_to,
         from = "git_namespace_id",

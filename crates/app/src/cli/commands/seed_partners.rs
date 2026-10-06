@@ -728,6 +728,8 @@ async fn ensure_workspace(
         error: ActiveValue::Set(None),
         monthly_vlm_budget_micros: ActiveValue::Set(None),
         current_revision_id: ActiveValue::Set(None),
+        default_branch: ActiveValue::Set(None),
+        repo_subdir: ActiveValue::Set(None),
     }
     .insert(conn)
     .await

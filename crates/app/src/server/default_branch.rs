@@ -20,6 +20,21 @@
 //! serving the promoted main revision to a request that can't be
 //! classified would violate that contract. The cache + GitClient
 //! both fail to FS, never to stale Postgres.
+//!
+//! ## A process with no checkout
+//!
+//! A serve or worker pod has no `.git` to ask, so the git client can only
+//! return its `"main"` guess there. Such a process reads
+//! `workspaces.default_branch` instead — what the node holding the checkout
+//! last saw `origin/HEAD` name, or what GitHub onboarding recorded. A node
+//! that owns its files never reads the column: local git stays the authority
+//! there, and each fresh lookup writes the column back when it has drifted
+//! (see [`super::workspace_repo_facts`]).
+//!
+//! `GIT_DEFAULT_BRANCH` still wins on both. The git client applies that
+//! override before it looks at anything, so the stored branch is only read
+//! when the override is unset — otherwise a fleet with the variable set
+//! everywhere would classify the same `?branch=` differently by pod.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -27,8 +42,11 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use oxy_git::GitClient;
+use oxy_git::cli::repo::default_branch_override;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use uuid::Uuid;
+
+use super::workspace_repo_facts::{record_from_checkout, stored_default_branch};
 
 /// How long a per-workspace default-branch entry is reused before we
 /// re-discover it from the git client. Short enough to pick up a
@@ -64,11 +82,20 @@ pub async fn resolve_default_branch(db: &DatabaseConnection, workspace_id: Uuid)
     let path = workspace_row.path.as_deref()?;
     let workspace_path = std::path::Path::new(path);
 
+    if !oxy::workspace_fs_probe::process_owns_workspace_files()
+        && default_branch_override().is_none()
+        && let Some(stored) = stored_default_branch(&workspace_row)
+    {
+        write_cache(workspace_id, &stored);
+        return Some(stored);
+    }
+
     let client = oxy::github::default_git_client();
     let branch = client.get_default_branch(workspace_path).await;
     if branch.is_empty() {
         return None;
     }
+    record_from_checkout(db, &workspace_row, workspace_path, &branch).await;
     write_cache(workspace_id, &branch);
     Some(branch)
 }

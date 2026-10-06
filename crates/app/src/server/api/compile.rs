@@ -84,9 +84,24 @@ pub struct CompileStatus {
     /// a revision compiled from a local-only commit (every restore mints one,
     /// and restore now auto-compiles) is *ahead* of origin and fails the same
     /// equality. Without ancestry the UI would tell an operator to compile
-    /// toward an older origin SHA. Both `None` when either end is unknown.
+    /// toward an older origin SHA. Both `None` when either end is unknown —
+    /// and when the serving revision is not a commit git can place: a disk
+    /// snapshot (`local-…`), or a commit this clone never fetched. Those used
+    /// to come back as `0` / `0`, which reads as "in step with origin".
     pub compiled_ahead: Option<u64>,
     pub compiled_behind: Option<u64>,
+    /// Whether the serving revision was compiled from the commit the working
+    /// copy's default branch is on now.
+    ///
+    /// `Some(false)` is "not known to match": it was compiled from another
+    /// commit, or from a snapshot of the disk that names no commit at all, so
+    /// nothing says the files in the IDE are the ones being served. `None`
+    /// when there is no repository or nothing is promoted.
+    ///
+    /// This is not a freshness verdict against origin (see `head_sha`); it
+    /// answers the narrower question that 0-ahead / 0-behind used to answer
+    /// wrongly for a revision that could not be compared.
+    pub compiled_matches_head: Option<bool>,
     /// Workspace's default branch (`"main"` / `"master"` / custom).
     /// `None` matches `head_sha = None`.
     pub default_branch: Option<String>,
@@ -260,6 +275,7 @@ pub(crate) async fn enqueue_compile_task(
         promote,
         kind: Some(kind.as_str().to_string()),
         owner_user_id: None,
+        from_git: false,
     };
 
     // `agentic_task_queue.run_id` has a FK to `agentic_runs.id`; the
@@ -403,6 +419,7 @@ pub async fn compile_status(
         remote_fetched_at: git.remote_fetched_at,
         compiled_ahead: git.compiled_ahead,
         compiled_behind: git.compiled_behind,
+        compiled_matches_head: git.compiled_matches_head,
         default_branch,
         boundary_active: crate::server::role_manifest::current_process_role()
             != crate::server::role_manifest::Role::All,
@@ -417,6 +434,7 @@ struct GitFacts {
     remote_fetched_at: Option<DateTime<Utc>>,
     compiled_ahead: Option<u64>,
     compiled_behind: Option<u64>,
+    compiled_matches_head: Option<bool>,
 }
 
 /// Read HEAD, the cached remote tip, its age, and the serving revision's
@@ -441,21 +459,32 @@ async fn read_git_facts(
     // Ancestry of the SERVING revision against origin — not of HEAD. The
     // question is "does origin have anything that isn't live yet", and HEAD is
     // not what is live.
-    let (compiled_ahead, compiled_behind) = match (compiled_sha, remote_sha.as_deref()) {
+    //
+    // `try_`, so a revision git cannot place answers "unknown" rather than
+    // the 0 / 0 that reads as "level with origin".
+    let comparison = match (compiled_sha, remote_sha.as_deref()) {
         (Some(compiled), Some(remote)) => {
-            let (ahead, behind) = git.get_ahead_behind_counts(path, compiled, remote).await;
-            (Some(ahead), Some(behind))
+            oxy_git::cli::push_pull::try_ahead_behind_counts(path, compiled, remote).await
         }
-        _ => (None, None),
+        _ => None,
     };
+    let head_sha = if head.is_empty() { None } else { Some(head) };
 
     GitFacts {
-        head_sha: if head.is_empty() { None } else { Some(head) },
+        compiled_matches_head: compiled_matches_head(compiled_sha, head_sha.as_deref()),
+        head_sha,
         remote_sha,
         remote_fetched_at,
-        compiled_ahead,
-        compiled_behind,
+        compiled_ahead: comparison.map(|(ahead, _)| ahead),
+        compiled_behind: comparison.map(|(_, behind)| behind),
     }
+}
+
+/// Whether the serving revision is the commit the working copy is on. `None`
+/// when either is absent; a synthetic `local-…` revision is never equal to a
+/// commit, which is the point — nothing says it matches.
+fn compiled_matches_head(compiled_sha: Option<&str>, head_sha: Option<&str>) -> Option<bool> {
+    Some(compiled_sha? == head_sha?)
 }
 
 fn summarise(r: entity::revisions::Model) -> RevisionSummary {
@@ -483,3 +512,7 @@ fn internal<E: std::fmt::Debug>(err: E) -> (StatusCode, String) {
         "internal server error".into(),
     )
 }
+
+#[cfg(test)]
+#[path = "compile_status_tests.rs"]
+mod status_tests;

@@ -392,6 +392,14 @@ pub(super) enum RetryAction {
 /// instead of four.
 pub const COMPILE_SOURCE_TYPE: &str = "compile";
 
+/// The `source_type` of a compile that fetches its commit instead of reading
+/// a working copy (`TaskSpec::Compile { from_git: true }`).
+///
+/// A separate kind, not a flag on [`COMPILE_SOURCE_TYPE`], because selection
+/// matches on `source_type` and nothing else: a worker declines `compile`,
+/// which needs a checkout it does not have, and must not decline this.
+pub const COMPILE_GIT_SOURCE_TYPE: &str = "compile_git";
+
 /// The `source_type` an airway pipeline run is stamped with.
 ///
 /// Named for the same reason as [`COMPILE_SOURCE_TYPE`], and used by the
@@ -426,7 +434,12 @@ pub(crate) fn source_type_for_spec(spec: &TaskSpec) -> String {
         // Match agentic_airway::SOURCE_TYPE — inlined here to keep the
         // runtime free of a dep on the airway domain crate.
         TaskSpec::Airway { .. } => AIRWAY_SOURCE_TYPE.to_string(),
+        TaskSpec::Compile { from_git: true, .. } => COMPILE_GIT_SOURCE_TYPE.to_string(),
         TaskSpec::Compile { .. } => COMPILE_SOURCE_TYPE.to_string(),
         TaskSpec::Custom { kind, .. } => kind.clone(),
     }
 }
+
+#[cfg(test)]
+#[path = "source_type_tests.rs"]
+mod source_type_tests;

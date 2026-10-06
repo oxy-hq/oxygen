@@ -33,7 +33,11 @@ const OUTCOME_BUFFER: usize = 4;
 #[derive(Debug, Clone)]
 pub struct CompileSpec {
     pub workspace_id: Uuid,
+    /// The working copy to compile. Unused when [`Self::from_git`] is set.
     pub workspace_path: PathBuf,
+    /// A commit compile (`TaskSpec::Compile::from_git`): fetch `git_sha` from
+    /// the workspace's remote and compile that, on whatever role this is.
+    pub from_git: bool,
     pub git_sha: Option<String>,
     pub branch: Option<String>,
     pub promote: bool,
@@ -126,7 +130,9 @@ async fn drive(
         return;
     }
 
-    if !crate::server::role_manifest::process_can_compile() {
+    // A commit compile brings its own tree, so the role's working copy — the
+    // thing this check is about — is not involved.
+    if !spec.from_git && !crate::server::role_manifest::process_can_compile() {
         // FAIL, do not defer.
         //
         // An earlier revision deferred here, reasoning that "cannot compile" is
@@ -188,10 +194,29 @@ async fn drive(
         None
     };
 
+    // Fetched here, not in the dispatcher: the claim's heartbeat and the
+    // cancel token only exist once the task is executing. The directory lives
+    // exactly as long as this function — it is dropped on every return below,
+    // and with the future if the task is aborted.
+    let fetched = match fetch_commit(&spec, &db, &cancel).await {
+        Ok(tree) => tree,
+        Err(message) => {
+            let _ = event_tx
+                .send(("compile_finished".to_string(), json!({ "error": &message })))
+                .await;
+            let _ = outcome_tx.send(TaskOutcome::Failed(message)).await;
+            return;
+        }
+    };
+    let workspace_path = fetched
+        .as_ref()
+        .map_or(spec.workspace_path.as_path(), |tree| tree.root());
+
+    let compile_started = std::time::Instant::now();
     let outcome = compile_workspace(CompileRequest {
         db: &db,
         workspace_id: spec.workspace_id,
-        workspace_path: &spec.workspace_path,
+        workspace_path,
         git_sha: spec.git_sha.clone(),
         branch: spec.branch.clone(),
         compiler_version: compiler_version(),
@@ -203,6 +228,7 @@ async fn drive(
         config_gate: Some(crate::server::compile_config_gate::runtime_config_gate()),
     })
     .await;
+    record_compile_duration(&spec, &outcome, compile_started.elapsed());
 
     match outcome {
         Ok(o) => {
@@ -681,6 +707,45 @@ fn compile_error_to_string(e: &CompileError) -> String {
     format!("compile error: {e}")
 }
 
+/// The fetched commit for a commit compile; `None` for a working-copy one.
+/// `Err` is the task's failure message.
+async fn fetch_commit(
+    spec: &CompileSpec,
+    db: &DatabaseConnection,
+    cancel: &CancellationToken,
+) -> Result<Option<crate::server::compile_git::FetchedTree>, String> {
+    if !spec.from_git {
+        return Ok(None);
+    }
+    crate::server::compile_git::fetch_for_task(
+        db,
+        spec.workspace_id,
+        spec.git_sha.as_deref(),
+        cancel,
+    )
+    .await
+    .map(Some)
+}
+
+fn record_compile_duration(
+    spec: &CompileSpec,
+    outcome: &Result<CompileOutcome, CompileError>,
+    elapsed: std::time::Duration,
+) {
+    use oxy_telemetry::metrics::record;
+    let source = if spec.from_git {
+        record::COMPILE_SOURCE_GIT
+    } else {
+        record::COMPILE_SOURCE_WORKING_COPY
+    };
+    let outcome = match outcome {
+        Ok(o) if matches!(o.status, RevisionStatus::Ready) => record::COMPILE_OUTCOME_READY,
+        Ok(_) => record::COMPILE_OUTCOME_FAILED,
+        Err(_) => record::COMPILE_OUTCOME_ERROR,
+    };
+    record::compile_duration(source, outcome, elapsed.as_secs_f64());
+}
+
 /// Parse a `TaskSpec::Compile` payload into a `CompileSpec` the worker
 /// can drive. Stays in this module so the executor stays clean of
 /// payload-shape decisions.
@@ -703,6 +768,7 @@ pub fn spec_from_taskspec(
     Ok(CompileSpec {
         workspace_id,
         workspace_path,
+        from_git: false,
         git_sha,
         branch,
         promote,

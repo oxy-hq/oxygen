@@ -31,6 +31,10 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+mod repository;
+
+pub use repository::RepositoryOrigin;
+
 /// Display name of the workspace every new org is created with.
 pub const DEFAULT_WORKSPACE_NAME: &str = "Default";
 
@@ -185,8 +189,7 @@ async fn scaffold_and_register<C: ConnectionTrait>(
         created_by: Some(spec.created_by),
         org_id: Some(spec.org_id),
         status: WorkspaceStatus::Ready,
-        git_namespace_id: None,
-        git_remote_url: None,
+        repository: None,
     };
     // The directory is named after a fresh UUID, so this always creates.
     register_workspace(conn, &staged.dir, staged.id, row).await?;
@@ -250,8 +253,10 @@ pub struct NewWorkspaceRow<'a> {
     pub created_by: Option<Uuid>,
     pub org_id: Option<Uuid>,
     pub status: WorkspaceStatus,
-    pub git_namespace_id: Option<Uuid>,
-    pub git_remote_url: Option<String>,
+    /// `None` for a workspace with no git remote: its four repository columns
+    /// (`git_namespace_id`, `git_remote_url`, `default_branch`, `repo_subdir`)
+    /// all stay NULL.
+    pub repository: Option<RepositoryOrigin>,
 }
 
 /// What [`register_workspace`] found or wrote.
@@ -299,11 +304,14 @@ pub async fn register_workspace<C: ConnectionTrait>(
     }
 
     let now = chrono::Utc::now();
+    let repository = row.repository.map(RepositoryOrigin::into_columns);
+    let (git_namespace_id, git_remote_url, default_branch, repo_subdir) =
+        repository.unwrap_or_default();
     workspaces::ActiveModel {
         id: Set(workspace_id),
         name: Set(row.name.to_string()),
-        git_namespace_id: Set(row.git_namespace_id),
-        git_remote_url: Set(row.git_remote_url),
+        git_namespace_id: Set(git_namespace_id),
+        git_remote_url: Set(git_remote_url),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),
         path: Set(Some(path.clone())),
@@ -314,6 +322,8 @@ pub async fn register_workspace<C: ConnectionTrait>(
         error: Set(None),
         monthly_vlm_budget_micros: Set(None),
         current_revision_id: Set(None),
+        default_branch: Set(default_branch),
+        repo_subdir: Set(repo_subdir),
     }
     .insert(conn)
     .await

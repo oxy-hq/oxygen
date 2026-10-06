@@ -137,6 +137,26 @@ const POOL_PROBE_BUCKETS: &[f64] = &[0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25
 /// distinguishable from one that merely came close.
 const ADMISSION_WAIT_BUCKETS: &[f64] = &[0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0];
 
+/// Seconds buckets for one compile of a workspace.
+///
+/// Production over 200 compiles (read 2026-10-05): median 0.5 s, slowest
+/// 1.5 s, at most 169 files. The resolution is under two seconds, where every
+/// compile so far has landed; the tail is there to tell a slow compile from
+/// one that is stuck.
+const COMPILE_DURATION_BUCKETS: &[f64] = &[
+    0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.5, 5.0, 10.0, 30.0, 60.0,
+];
+
+/// Seconds buckets for fetching a commit before compiling it.
+///
+/// The budget for a pushed commit to be promoted is 10 s at the 95th
+/// percentile, and with compile at half a second the fetch is that budget, so
+/// an edge sits exactly on it. The top edge is the archive request's own
+/// timeout (`oxy::github::tarball`): a fetch cannot take longer and succeed.
+const COMPILE_FETCH_BUCKETS: &[f64] = &[
+    0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.5, 10.0, 20.0, 30.0, 60.0, 120.0,
+];
+
 /// The instrument set, built once and reached through [`super::instruments`].
 ///
 /// Observable instruments are held here rather than dropped after
@@ -228,6 +248,16 @@ pub struct Instruments {
     /// is too small for the working set, and raising it is cheaper than the
     /// store round-trips it is costing.
     pub custom_app_bundle_cache_evictions: Counter<u64>,
+
+    /// `oxy.compile.duration` — wall time of one `compile_workspace` call, by
+    /// where the tree came from and how it ended. Until this existed a
+    /// compile's duration was only derivable from two timestamps on its
+    /// `revisions` row, which a compile that errored never writes.
+    pub compile_duration: Histogram<f64>,
+    /// `oxy.compile.fetch.duration` — downloading and unpacking a commit for
+    /// a compile that has no working copy to read. Separate from the compile
+    /// itself because it is the part that depends on GitHub.
+    pub compile_fetch_duration: Histogram<f64>,
 
     /// Observable handles. Never read; held so their callbacks stay registered.
     _observables: Vec<ObservableHandle>,
@@ -349,6 +379,24 @@ impl Instruments {
                      and is costing store round-trips.",
                 )
                 .with_unit("{object}")
+                .build(),
+            compile_duration: meter
+                .f64_histogram("oxy.compile.duration")
+                .with_description(
+                    "Wall time of one workspace compile, by tree source (working_copy or git) \
+                     and outcome.",
+                )
+                .with_unit("s")
+                .with_boundaries(COMPILE_DURATION_BUCKETS.to_vec())
+                .build(),
+            compile_fetch_duration: meter
+                .f64_histogram("oxy.compile.fetch.duration")
+                .with_description(
+                    "Time to download and unpack a commit before compiling it, by outcome. \
+                     Only commit compiles record it.",
+                )
+                .with_unit("s")
+                .with_boundaries(COMPILE_FETCH_BUCKETS.to_vec())
                 .build(),
 
             _observables: observables(meter),
@@ -737,6 +785,8 @@ mod tests {
             ("host_calls", HOST_CALL_BUCKETS),
             ("pool_probe", POOL_PROBE_BUCKETS),
             ("admission_wait", ADMISSION_WAIT_BUCKETS),
+            ("compile", COMPILE_DURATION_BUCKETS),
+            ("compile_fetch", COMPILE_FETCH_BUCKETS),
         ] {
             assert!(
                 buckets.windows(2).all(|w| w[0] < w[1]),
@@ -753,6 +803,16 @@ mod tests {
         assert!(
             FUNCTION_DURATION_BUCKETS.contains(&10.0),
             "the default wall timeout needs its own bucket edge"
+        );
+    }
+
+    /// The fetch is the promote budget, so the budget needs its own edge: a
+    /// p95 read off this histogram is only as sharp as the nearest boundary.
+    #[test]
+    fn fetch_buckets_have_an_edge_on_the_promote_budget() {
+        assert!(
+            COMPILE_FETCH_BUCKETS.contains(&10.0),
+            "a pushed commit is budgeted to be promoted within 10 s"
         );
     }
 

@@ -141,6 +141,94 @@ describe("deriveView", () => {
     expect(view.kind).toBe("stale");
   });
 
+  describe("a serving revision that is not known to match the working copy", () => {
+    // The workspace this was found on: it served a snapshot of its disk
+    // compiled months earlier, the files had since been renamed, and the
+    // server reported 0 ahead / 0 behind for a SHA git cannot compare.
+    const snapshot = {
+      compiled_sha: "local-ce83e24f-0000-0000-0000-000000000000",
+      head_sha: "91d0c74f00000000000000000000000000000000",
+      remote_sha: "2cb1956700000000000000000000000000000000",
+      compiled_ahead: null,
+      compiled_behind: null,
+      compiled_matches_head: false
+    };
+
+    it("is out of date, pointing at the working copy's commit", () => {
+      const view = deriveView(status(snapshot));
+      expect(view.kind).toBe("stale");
+      expect(view.verb).toBe("Compile");
+      expect(view.sha).toBe("91d0c74 ↑");
+    });
+
+    it("is out of date even when origin cannot be checked", () => {
+      // Without the flag this rests on a neutral "Compiled local-c…", which
+      // is how the snapshot went unnoticed.
+      expect(deriveView(status({ ...snapshot, remote_sha: null })).kind).toBe("stale");
+      const anHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      expect(deriveView(status({ ...snapshot, remote_fetched_at: anHourAgo })).kind).toBe("stale");
+    });
+
+    it("is not mistaken for a revision ahead of origin", () => {
+      const view = deriveView(status({ ...snapshot, compiled_ahead: 1, compiled_behind: 0 }));
+      expect(view.kind).toBe("stale");
+    });
+
+    it("stays fresh when it is level with origin and only this clone is behind", () => {
+      // Compiled from the commit origin is on; the working copy has not
+      // pulled it. What was merged is live, so there is nothing to compile.
+      const view = deriveView(
+        status({
+          head_sha: "0c9ad8f0000000000000000000000000000000000",
+          compiled_sha: "cbe3089000000000000000000000000000000000",
+          remote_sha: "cbe3089000000000000000000000000000000000",
+          compiled_matches_head: false
+        })
+      );
+      expect(view.kind).toBe("fresh");
+    });
+
+    it("does not prompt a compile when a newer commit is served than this clone has", () => {
+      // Origin moved to H and H was compiled and promoted before this clone
+      // fetched: head and the cached origin tip are both still the old commit,
+      // and git here has never seen H. "Compile" would ship the old commit
+      // over the new one.
+      const view = deriveView(
+        status({
+          head_sha: "0c9ad8f0000000000000000000000000000000000",
+          remote_sha: "0c9ad8f0000000000000000000000000000000000",
+          compiled_sha: "cbe3089000000000000000000000000000000000",
+          compiled_ahead: null,
+          compiled_behind: null,
+          compiled_matches_head: false
+        })
+      );
+      expect(view.kind).toBe("unverified");
+      expect(view.verb).toBe("Compiled");
+      expect(view.sha).toBe("cbe3089");
+    });
+
+    it("still reports a placeable commit that origin has moved past as stale", () => {
+      const view = deriveView(
+        status({
+          head_sha: "cbe3089000000000000000000000000000000000",
+          remote_sha: "cbe3089000000000000000000000000000000000",
+          compiled_sha: "0c9ad8f0000000000000000000000000000000000",
+          compiled_ahead: 0,
+          compiled_behind: 2,
+          compiled_matches_head: false
+        })
+      );
+      expect(view.kind).toBe("stale");
+      expect(view.sha).toBe("cbe3089 ↑");
+    });
+
+    it("changes nothing for a server that does not send the flag", () => {
+      const { compiled_matches_head: _unsent, ...older } = snapshot;
+      expect(deriveView(status({ ...older, remote_sha: null })).kind).toBe("unverified");
+    });
+  });
+
   it("collapses to no-git for blank / no-remote workspaces", () => {
     expect(deriveView(status({ head_sha: null })).kind).toBe("no-git");
   });

@@ -117,7 +117,7 @@ async fn fetch_all_workspaces(db: &DatabaseConnection) {
         // Sequential on purpose: these are network calls against (usually) the
         // same forge, and this is a background freshness sweep with no deadline.
         // Fanning out would add rate-limit pressure to buy latency nobody waits on.
-        match fetch_one(&ws).await {
+        match fetch_one(db, &ws).await {
             Ok(Outcome::Fetched) => ok += 1,
             Ok(Outcome::Unlinked) => unlinked += 1,
             Ok(Outcome::Nothing) => {}
@@ -157,6 +157,7 @@ enum Outcome {
 
 /// Fetch one workspace's default branch.
 async fn fetch_one(
+    db: &DatabaseConnection,
     ws: &entity::workspaces::Model,
 ) -> Result<Outcome, oxy_shared::errors::OxyError> {
     let Some(path) = ws.path.as_deref() else {
@@ -178,6 +179,13 @@ async fn fetch_one(
         return Ok(Outcome::Nothing);
     }
 
+    // Every remote-backed workspace with a checkout passes through here once
+    // an interval, opened or not — which makes this the one place that reaches
+    // a workspace nobody touches. Its default branch and subdirectory are
+    // otherwise recorded only when something asks for its default branch, and
+    // the compile reconcile cannot check a workspace whose branch is unknown.
+    crate::server::workspace_repo_facts::record_from_checkout(db, ws, path, &branch).await;
+
     // No requesting user here, so only the workspace's own `git_namespace_id`
     // link can supply a token. Skip rather than fetch unauthenticated: git no
     // longer falls back to the host's credential helper, so an unlinked
@@ -197,5 +205,90 @@ async fn fetch_one(
             "fetch timed out after {}s",
             PER_WORKSPACE_TIMEOUT.as_secs()
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::process::Command;
+
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    use uuid::Uuid;
+
+    use super::{Outcome, fetch_one};
+    use crate::server::test_support::{SKIP_MSG, test_db};
+
+    fn git(cwd: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .current_dir(cwd)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .args(["-c", "user.name=test", "-c", "user.email=test@example.com"])
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// The workspace the reconcile loop exists for is one nobody opens, so
+    /// nothing ever asks for its default branch. The sweep reaches it anyway.
+    /// No GitHub connection is linked, so the sweep stops before any network.
+    #[tokio::test]
+    async fn the_sweep_records_the_repository_facts_of_a_workspace_nobody_opened() {
+        let Some(db) = test_db().await else {
+            eprintln!("{SKIP_MSG}");
+            return;
+        };
+        // SAFETY: nextest runs each test in its own process.
+        unsafe { std::env::remove_var("GIT_DEFAULT_BRANCH") };
+        let repo = tempfile::tempdir().expect("tempdir");
+        git(repo.path(), &["init", "-q", "-b", "trunk"]);
+        git(
+            repo.path(),
+            &["commit", "-q", "--allow-empty", "-m", "init"],
+        );
+        let origin = "https://example.invalid/acme/analytics.git";
+        git(repo.path(), &["remote", "add", "origin", origin]);
+        git(
+            repo.path(),
+            &["update-ref", "refs/remotes/origin/trunk", "HEAD"],
+        );
+        let head = [
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/trunk",
+        ];
+        git(repo.path(), &head);
+        let workspace = repo.path().join("data").join("oxy");
+        std::fs::create_dir_all(&workspace).expect("workspace dir");
+
+        let id = Uuid::new_v4();
+        let row = entity::workspaces::ActiveModel {
+            id: Set(id),
+            name: Set(format!("fetch-sweep-{id}")),
+            path: Set(Some(workspace.to_string_lossy().into_owned())),
+            git_remote_url: Set(Some(origin.into())),
+            status: Set(entity::workspaces::WorkspaceStatus::Ready),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .expect("seed workspace");
+
+        let outcome = fetch_one(&db, &row).await.expect("sweep one workspace");
+
+        assert!(matches!(outcome, Outcome::Unlinked));
+        let recorded = entity::workspaces::Entity::find_by_id(id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(recorded.default_branch.as_deref(), Some("trunk"));
+        assert_eq!(recorded.repo_subdir.as_deref(), Some("data/oxy"));
     }
 }

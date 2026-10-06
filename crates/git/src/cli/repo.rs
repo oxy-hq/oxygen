@@ -37,6 +37,26 @@ pub fn is_git_repo(workspace_root: &Path) -> bool {
     find_git_root(workspace_root).is_some()
 }
 
+/// Where `workspace_root` sits inside the repository that contains it, as a
+/// `/`-separated relative path. `None` at the repository root, outside any
+/// repository, or when the path is not UTF-8.
+///
+/// Both paths are canonicalized first so a symlink or a `..` component cannot
+/// make `strip_prefix` answer with an empty or wrong remainder.
+pub fn subdir_in_repo(workspace_root: &Path) -> Option<String> {
+    let git_root = find_git_root(workspace_root)?;
+    let canon_workspace = workspace_root
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canon_root = git_root.canonicalize().unwrap_or(git_root);
+    canon_workspace
+        .strip_prefix(&canon_root)
+        .ok()
+        .and_then(|p| p.to_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.replace('\\', "/"))
+}
+
 /// Initialises a git repository at `workspace_root` if one does not already
 /// exist, then creates an initial commit so the repo has at least one
 /// reachable commit on `main`.
@@ -141,6 +161,25 @@ mod tests {
     }
 
     #[test]
+    fn subdir_in_repo_is_the_slash_separated_path_below_the_git_root() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        let sub = dir.path().join("data").join("oxy");
+        fs::create_dir_all(&sub).unwrap();
+        assert_eq!(subdir_in_repo(&sub).as_deref(), Some("data/oxy"));
+    }
+
+    #[test]
+    fn subdir_in_repo_is_none_at_the_root_and_outside_a_repository() {
+        let repo = TempDir::new().unwrap();
+        fs::create_dir(repo.path().join(".git")).unwrap();
+        assert_eq!(subdir_in_repo(repo.path()), None);
+
+        let bare = TempDir::new().unwrap();
+        assert_eq!(subdir_in_repo(bare.path()), None);
+    }
+
+    #[test]
     fn is_git_repo_in_subfolder() {
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join(".git")).unwrap();
@@ -195,6 +234,34 @@ mod tests {
     }
 }
 
+/// The process-wide default-branch override, `GIT_DEFAULT_BRANCH`, when it is
+/// set to something. It answers for every workspace before git is asked
+/// ([`get_default_branch`]), so anything that answers the same question from
+/// another source has to give way to it too, or two nodes with the same
+/// environment disagree.
+pub fn default_branch_override() -> Option<String> {
+    std::env::var("GIT_DEFAULT_BRANCH")
+        .ok()
+        .filter(|b| !b.is_empty())
+}
+
+/// The branch `origin/HEAD` names in the checkout at `workspace_root`, or
+/// `None` when git cannot say (no repository, no remote, `origin/HEAD` unset).
+///
+/// This is the one answer [`get_default_branch`] gives that is a fact about
+/// the repository: its other two are a process-wide override and a guess. A
+/// caller that records the default branch somewhere durable wants only this.
+pub async fn remote_default_branch(workspace_root: &Path) -> Option<String> {
+    let out = run::run(
+        workspace_root,
+        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    )
+    .await
+    .ok()?;
+    let s = out.trim().to_string();
+    Some(s.strip_prefix("origin/").map(str::to_string).unwrap_or(s))
+}
+
 /// Returns the default branch name for `workspace_root`.
 ///
 /// Resolution order:
@@ -215,25 +282,12 @@ pub async fn get_default_branch(workspace_root: &Path) -> String {
     // `main` after a single transient error. Returning (but not caching) the
     // fallback keeps behaviour unchanged for genuinely git-less paths while
     // letting a transient error self-heal on the next call.
-    let (resolved, value) = if let Ok(b) = std::env::var("GIT_DEFAULT_BRANCH")
-        && !b.is_empty()
-    {
+    let (resolved, value) = if let Some(b) = default_branch_override() {
         (true, b)
     } else {
-        match run::run(
-            workspace_root,
-            &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-        )
-        .await
-        {
-            Ok(out) => {
-                let s = out.trim().to_string();
-                (
-                    true,
-                    s.strip_prefix("origin/").map(str::to_string).unwrap_or(s),
-                )
-            }
-            Err(_) => (false, "main".to_string()),
+        match remote_default_branch(workspace_root).await {
+            Some(branch) => (true, branch),
+            None => (false, "main".to_string()),
         }
     };
     if resolved {

@@ -1310,6 +1310,50 @@ pub(crate) async fn enqueue_compile_deduped(
     branch: Option<String>,
     reason: &str,
 ) {
+    let how = CompileEnqueue {
+        from_git: false,
+        new_content: git_sha.is_some(),
+    };
+    enqueue_compile_deduped_as(db, workspace_id, git_sha, branch, reason, how).await
+}
+
+/// The two things an automatic trigger decides about the compile it queues.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CompileEnqueue {
+    /// Queue a commit compile (`compile_git`, fetched by whichever pod claims
+    /// it) rather than a working-copy one. Needs `git_sha` to be a commit.
+    pub from_git: bool,
+    /// Whether this is source the workspace has not tried to compile before.
+    /// New content keeps the flat retry window after a failure — it may be the
+    /// fix. The same content again backs off exponentially, so a commit that
+    /// cannot compile is not retried every few minutes for good.
+    pub new_content: bool,
+}
+
+impl CompileEnqueue {
+    /// The `source_type` the run is stamped with, which is what decides which
+    /// pods may take it.
+    fn source_type(self) -> &'static str {
+        if self.from_git {
+            agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE
+        } else {
+            agentic_runtime::coordinator::COMPILE_SOURCE_TYPE
+        }
+    }
+}
+
+/// [`enqueue_compile_deduped`] with the kind and the backoff chosen by the
+/// caller. Every check — the per-workspace lock, both failure backoffs, the
+/// in-flight test — is the same for both kinds, and sees both kinds: a commit
+/// compile is not queued behind a working-copy one, or the other way round.
+pub(crate) async fn enqueue_compile_deduped_as(
+    db: &sea_orm::DatabaseConnection,
+    workspace_id: Uuid,
+    git_sha: Option<String>,
+    branch: Option<String>,
+    reason: &str,
+    how: CompileEnqueue,
+) {
     use sea_orm::{
         ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryOrder, QuerySelect,
         Statement, TransactionTrait,
@@ -1393,7 +1437,7 @@ pub(crate) async fn enqueue_compile_deduped(
         };
     let consecutive_failures =
         leading_failure_count(recent.iter().map(|(s, _)| s.as_str()), |s| s == "failed");
-    let backoff_secs = lazy_compile_backoff_secs(consecutive_failures, git_sha.is_some());
+    let backoff_secs = lazy_compile_backoff_secs(consecutive_failures, how.new_content);
     let last_failed_at = recent.first().and_then(|(_, finished_at)| *finished_at);
     if let Some(finished_at) = last_failed_at
         && backoff_secs > 0
@@ -1462,7 +1506,7 @@ pub(crate) async fn enqueue_compile_deduped(
         recent_tasks.iter().map(|(s, _)| s.as_str()),
         compile_task_status_is_failure,
     );
-    let task_backoff_secs = lazy_compile_backoff_secs(consecutive_task_failures, git_sha.is_some());
+    let task_backoff_secs = lazy_compile_backoff_secs(consecutive_task_failures, how.new_content);
     if let Some((_, Some(updated_at))) = recent_tasks.first()
         && task_backoff_secs > 0
         && Utc::now().fixed_offset() - *updated_at < chrono::Duration::seconds(task_backoff_secs)
@@ -1499,7 +1543,7 @@ pub(crate) async fn enqueue_compile_deduped(
         &task_id,
         &format!("compile main ({reason})"),
         None,
-        "compile",
+        how.source_type(),
         Some(serde_json::json!({
             "workspace_id": workspace_id,
             "lazy": true,
@@ -1521,6 +1565,7 @@ pub(crate) async fn enqueue_compile_deduped(
         promote: true,
         kind: Some("main".to_string()),
         owner_user_id: None,
+        from_git: how.from_git,
     };
     if let Err(e) = agentic_runtime::crud::enqueue_task(
         &txn,

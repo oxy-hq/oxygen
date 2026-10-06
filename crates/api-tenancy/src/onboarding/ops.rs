@@ -60,8 +60,8 @@ pub(super) async fn unique_display_name(
 }
 
 /// Register the workspace in the DB and seed its health schedule. Returns the
-/// workspace's UUID. Does NOT activate the workspace.
-#[allow(clippy::too_many_arguments)]
+/// workspace's UUID. Does NOT activate the workspace. `repository` is `None`
+/// for a workspace with no git remote.
 pub(super) async fn register_project(
     project_dir: &std::path::Path,
     name: &str,
@@ -69,8 +69,7 @@ pub(super) async fn register_project(
     created_by: Option<Uuid>,
     org_id: Option<Uuid>,
     status: entity::workspaces::WorkspaceStatus,
-    git_namespace_id: Option<Uuid>,
-    git_remote_url: Option<String>,
+    repository: Option<provisioning::RepositoryOrigin>,
 ) -> Result<Uuid, (StatusCode, String)> {
     let db = connect().await?;
     let row = provisioning::NewWorkspaceRow {
@@ -78,8 +77,7 @@ pub(super) async fn register_project(
         created_by,
         org_id,
         status,
-        git_namespace_id,
-        git_remote_url,
+        repository,
     };
     let registered = provisioning::register_workspace(&db, project_dir, workspace_id, row).await?;
     if registered.created {

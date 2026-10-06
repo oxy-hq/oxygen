@@ -12,7 +12,7 @@ use oxy::github::{
     default_git_client, github_token_for_workspace_as_user, require_github_token_for_workspace,
     unlinked_remote_failure,
 };
-use oxy_git::{GitClient, cli::repo::find_git_root};
+use oxy_git::{GitClient, cli::repo::subdir_in_repo};
 use oxy_shared::errors::OxyError;
 
 use super::dto::*;
@@ -204,20 +204,7 @@ pub(super) async fn git_revision_info(
         .map(|entries| entries.len() as u64)
         .unwrap_or(0);
 
-    let git_subfolder = find_git_root(worktree).and_then(|git_root| {
-        // Canonicalize both paths so symlinks and `..` components don't
-        // cause strip_prefix to return an empty or incorrect result.
-        let canon_worktree = worktree
-            .canonicalize()
-            .unwrap_or_else(|_| worktree.to_path_buf());
-        let canon_root = git_root.canonicalize().unwrap_or(git_root);
-        canon_worktree
-            .strip_prefix(&canon_root)
-            .ok()
-            .and_then(|p| p.to_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.replace('\\', "/"))
-    });
+    let git_subfolder = subdir_in_repo(worktree);
 
     RevisionInfoResponse {
         base_sha: sha.clone(),

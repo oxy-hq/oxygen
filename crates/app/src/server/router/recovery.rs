@@ -362,6 +362,7 @@ pub(crate) fn spawn_recovery(
     // worker per workspace.
     if inproc_global_worker_enabled() {
         super::drive_policy::announce(policy);
+        crate::server::compile_reconcile::announce();
         spawn_latency_worker(
             db.clone(),
             runtime.clone(),
@@ -840,6 +841,9 @@ async fn recover_all_workspaces(
         if preagg_fired > 0 {
             tracing::info!(target: "preagg", "cloud preagg schedule fired");
         }
+        // Does nothing unless `OXY_COMPILE_RECONCILE` is set. Each check is
+        // claimed in Postgres, so it does not matter how many nodes run this.
+        crate::server::compile_reconcile::tick(db).await;
     }
     total
 }

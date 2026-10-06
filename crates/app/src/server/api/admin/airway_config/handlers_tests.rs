@@ -92,6 +92,8 @@ async fn seed_workspace_in_org(db: &DatabaseConnection, org_id: Option<Uuid>) ->
         error: Set(None),
         monthly_vlm_budget_micros: Set(None),
         current_revision_id: Set(None),
+        default_branch: Set(None),
+        repo_subdir: Set(None),
     }
     .insert(db)
     .await

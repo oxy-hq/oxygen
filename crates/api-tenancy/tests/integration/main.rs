@@ -14,3 +14,4 @@ mod admin_route_roles;
 mod admin_staff_scope_directories;
 mod onboarding_route_roles;
 mod org_default_workspace;
+mod workspace_repository_columns;

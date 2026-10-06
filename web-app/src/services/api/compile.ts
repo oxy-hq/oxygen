@@ -49,6 +49,14 @@ export interface CompileStatus {
    */
   compiled_ahead: number | null;
   compiled_behind: number | null;
+  /**
+   * Whether the serving revision was compiled from the commit the working
+   * copy's default branch is on now. `false` means "not known to match": it
+   * was compiled from another commit, or from a snapshot of the disk that
+   * names no commit at all. Null when there is no repository or nothing is
+   * promoted; absent from a server that predates the field.
+   */
+  compiled_matches_head?: boolean | null;
   /** Workspace's default branch (`main` / `master` / custom). Null
    * matches `head_sha = null`. */
   default_branch: string | null;

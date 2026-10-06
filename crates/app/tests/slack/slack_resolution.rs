@@ -136,6 +136,8 @@ async fn seed_workspace(org_id: Uuid, name: &str) -> Uuid {
         error: ActiveValue::Set(None),
         monthly_vlm_budget_micros: ActiveValue::Set(None),
         current_revision_id: ActiveValue::Set(None),
+        default_branch: ActiveValue::Set(None),
+        repo_subdir: ActiveValue::Set(None),
         created_at: ActiveValue::NotSet,
         updated_at: ActiveValue::NotSet,
     }

@@ -289,6 +289,8 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
     i.custom_app_admission_wait.record(0.001, &[]);
     i.custom_app_admission_shed.add(1, &[]);
     i.custom_app_bundle_cache_evictions.add(1, &[]);
+    i.compile_duration.record(0.5, &[]);
+    i.compile_fetch_duration.record(1.0, &[]);
 
     let body = render(&reader);
     let types: BTreeMap<&str, &str> = body
@@ -325,6 +327,8 @@ fn every_instrument_renders_with_its_intended_prometheus_type() {
         ("oxy_custom_app_bundle_cache_bytes", "gauge"),
         ("oxy_custom_app_bundle_cache_limit_bytes", "gauge"),
         ("oxy_custom_app_bundle_cache_evictions_total", "counter"),
+        ("oxy_compile_duration_seconds", "histogram"),
+        ("oxy_compile_fetch_duration_seconds", "histogram"),
     ] {
         assert_eq!(
             types.get(name),

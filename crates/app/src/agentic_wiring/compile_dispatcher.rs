@@ -73,7 +73,28 @@ impl CompileDispatcher for OxyCompileDispatcher {
         promote: bool,
         kind: Option<String>,
         owner_user_id: Option<Uuid>,
+        from_git: bool,
     ) -> Result<ExecutingTask, String> {
+        if from_git {
+            // A commit compile reads no working copy, so none of the checks
+            // below apply: there is no path to resolve and no directory that
+            // has to be on this node. The worker fetches the commit itself,
+            // once the task is executing and can be heartbeated and cancelled.
+            let spec = compile_worker::spec_from_taskspec(
+                workspace_id,
+                std::path::PathBuf::new(),
+                git_sha,
+                branch,
+                promote,
+                kind.as_deref(),
+                owner_user_id,
+            )?;
+            let spec = compile_worker::CompileSpec {
+                from_git: true,
+                ..spec
+            };
+            return Ok(compile_worker::CompileWorker::new(self.db.clone()).execute(spec));
+        }
         let workspace_path = oxy_compile::resolve_workspace_path(&self.db, workspace_id)
             .await
             .map_err(|e| format!("compile: {e}"))?;
@@ -87,10 +108,10 @@ impl CompileDispatcher for OxyCompileDispatcher {
         if !workspace_path.is_dir() {
             return Err(format!(
                 "compile: workspace {workspace_id} path {} does not exist on this worker — \
-                 compiles run only on a node that already holds the workspace working copy \
-                 (the IDE/build singleton with OXY_INPROC_GLOBAL_WORKER=1). Per-worker \
-                 clone-on-demand is NOT planned \
-                 (see internal-docs/multi-instance-fleet.md).",
+                 a working-copy compile runs only on a node that already holds the files \
+                 (the IDE/build singleton with OXY_INPROC_GLOBAL_WORKER=1). A pod without \
+                 them can compile a pushed commit instead (a `compile_git` task; see \
+                 internal-docs/factory-retirement.md).",
                 workspace_path.display()
             ));
         }

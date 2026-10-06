@@ -63,6 +63,10 @@ pub trait MonitorScanPort: Send + Sync {
 pub trait CompileDispatcher: Send + Sync {
     /// Dispatch a compile task. Returns the in-flight `ExecutingTask` so
     /// the runtime worker can drive it through to completion.
+    ///
+    /// `from_git` is `TaskSpec::Compile::from_git`: fetch the commit `git_sha`
+    /// names rather than read a working copy.
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
         workspace_id: uuid::Uuid,
@@ -71,6 +75,7 @@ pub trait CompileDispatcher: Send + Sync {
         promote: bool,
         kind: Option<String>,
         owner_user_id: Option<uuid::Uuid>,
+        from_git: bool,
     ) -> Result<agentic_runtime::worker::ExecutingTask, String>;
 }
 

@@ -555,6 +555,7 @@ async fn seed_pending_global(db: &DatabaseConnection, source_type: &str) -> Stri
             promote: false,
             kind: None,
             owner_user_id: None,
+            from_git: false,
         },
         other => panic!("unsupported source_type {other:?}"),
     };

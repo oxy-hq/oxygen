@@ -42,6 +42,7 @@ async fn compile_staging(db: &DatabaseConnection, ws: Uuid, root: &std::path::Pa
     let mut task = worker.execute(CompileSpec {
         workspace_id: ws,
         workspace_path: root.to_path_buf(),
+        from_git: false,
         git_sha: Some(SHA.into()),
         branch: Some(BRANCH.into()),
         promote: false,

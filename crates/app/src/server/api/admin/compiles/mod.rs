@@ -20,6 +20,7 @@
 pub mod backfill;
 pub mod batch;
 pub mod crud;
+pub mod source;
 pub mod workspaces;
 
 use axum::Json;
@@ -109,6 +110,7 @@ pub(super) async fn insert_run_and_enqueue_compile(
         promote,
         kind: Some("main".to_string()),
         owner_user_id: None,
+        from_git: false,
     };
     agentic_runtime::crud::enqueue_task(
         db,

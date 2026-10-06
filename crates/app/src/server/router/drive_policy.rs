@@ -51,6 +51,12 @@ const IDE_DEFER_QUEUE_WORK_ENV: &str = "OXY_IDE_DEFER_QUEUE_WORK";
 ///   the ROLE (#2822) — every other node declines it, so if the `ide` did too
 ///   nothing would ever compile.
 ///
+/// **`compile_git` is deliberately not here.** It is a compile that fetches
+/// its commit instead of reading a working copy, so it needs no particular
+/// node — which is the point of it. Being a different `source_type` is what
+/// carries that: a deferring `ide` leaves it for the fleet like any other
+/// kind, and a worker, which declines `compile`, takes it.
+///
 /// Every other kind on the Global queue is one a worker already drives today
 /// (a worker declines `compile` and nothing else), so no other *kind* belongs
 /// here by construction. A kind that turns out to need the Factory's disk
@@ -130,7 +136,10 @@ pub(super) fn drive_policy() -> DrivePolicy {
 /// Three different reasons to leave a run, and they must not be collapsed:
 ///
 /// - **`compile` on `worker` / `serve`** — a node that *cannot* run it. Absolute
-///   ([`DrivePolicy::Except`]): waiting does not produce a working copy.
+///   ([`DrivePolicy::Except`]): waiting does not produce a working copy. This
+///   names the working-copy kind only. A commit compile is `compile_git`
+///   (`agentic_runtime::coordinator::COMPILE_GIT_SOURCE_TYPE`), which every
+///   role may drive, so it falls through each arm below as an ordinary kind.
 /// - **`airway` on a deferring `ide`** — the one node that *can*, declining as
 ///   a placement preference. Airway submit routes are `IdeOnly`, so every
 ///   interactive pipeline is enqueued by the IDE singleton, whose own latency

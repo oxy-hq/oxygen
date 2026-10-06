@@ -7,8 +7,10 @@ pub mod audit_anchor;
 pub mod authz;
 pub mod builder_test_runner;
 pub mod compile_config_gate;
+pub mod compile_git;
 pub mod compile_maintenance;
 pub mod compile_oltp;
+pub mod compile_reconcile;
 pub mod compile_trigger;
 pub mod compile_worker;
 pub mod default_branch;
@@ -44,6 +46,7 @@ pub mod worker_health;
 pub mod worker_metrics;
 pub mod worker_runtime;
 pub mod workspace_fs;
+pub mod workspace_repo_facts;
 pub mod worktree_registry;
 
 pub use router::{AppState, WorkspaceExtractor, api_router, openapi_router};

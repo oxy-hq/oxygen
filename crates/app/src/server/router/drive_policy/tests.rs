@@ -4,7 +4,9 @@ use super::{
 };
 use crate::server::role_manifest::Role;
 use agentic_pipeline::recovery::{DrivePolicy, STRANDED_GRACE_SECS, may_drive};
-use agentic_runtime::coordinator::{AIRWAY_SOURCE_TYPE, COMPILE_SOURCE_TYPE};
+use agentic_runtime::coordinator::{
+    AIRWAY_SOURCE_TYPE, COMPILE_GIT_SOURCE_TYPE, COMPILE_SOURCE_TYPE,
+};
 
 const NEITHER: IdeDeferral = IdeDeferral {
     airway: false,
@@ -25,11 +27,12 @@ const BOTH: IdeDeferral = IdeDeferral {
 const EVERY_GATE: [IdeDeferral; 4] = [NEITHER, AIRWAY, QUEUE_WORK, BOTH];
 const EVERY_ROLE: [Role; 4] = [Role::Ide, Role::Serve, Role::Worker, Role::All];
 
-/// A spread of what `source_type` can hold: the two named kinds, the queued
+/// A spread of what `source_type` can hold: the named kinds, the queued
 /// domains, the system kind, host-registered Custom kinds, a kind nobody has
 /// written yet, and a row with none.
-const KINDS: [Option<&str>; 9] = [
+const KINDS: [Option<&str>; 10] = [
     Some(COMPILE_SOURCE_TYPE),
+    Some(COMPILE_GIT_SOURCE_TYPE),
     Some(AIRWAY_SOURCE_TYPE),
     Some("workflow"),
     Some("analytics"),
@@ -75,6 +78,54 @@ fn every_role_and_gate_combination_resolves_to_its_policy() {
         assert_eq!(
             drive_policy_for(role, defer),
             want,
+            "{role:?} with {defer:?}"
+        );
+    }
+}
+
+/// A commit compile against a working-copy compile, for every role under every
+/// gate, at the moment it is queued and once it has gone unclaimed for the
+/// grace. Written out for the same reason as the table above.
+///
+/// The two columns that matter are the last four rows of each: a `worker` or
+/// `serve` takes `compile_git` at once and never takes `compile`, however long
+/// it waits. That is what lets a commit compile leave the Factory while a
+/// working-copy compile cannot.
+#[test]
+fn a_commit_compile_is_drivable_everywhere_and_a_working_copy_compile_is_not() {
+    // (role, gate, compile_git fresh, compile_git aged, compile fresh, compile aged)
+    let expected = [
+        (Role::Ide, NEITHER, true, true, true, true),
+        (Role::Ide, AIRWAY, true, true, true, true),
+        // A deferring ide leaves the commit compile for the fleet, and takes it
+        // only once nobody else has — it keeps the working-copy one throughout.
+        (Role::Ide, QUEUE_WORK, false, true, true, true),
+        (Role::Ide, BOTH, false, true, true, true),
+        (Role::All, NEITHER, true, true, true, true),
+        (Role::All, AIRWAY, true, true, true, true),
+        (Role::All, QUEUE_WORK, true, true, true, true),
+        (Role::All, BOTH, true, true, true, true),
+        (Role::Worker, NEITHER, true, true, false, false),
+        (Role::Worker, AIRWAY, true, true, false, false),
+        (Role::Worker, QUEUE_WORK, true, true, false, false),
+        (Role::Worker, BOTH, true, true, false, false),
+        (Role::Serve, NEITHER, true, true, false, false),
+        (Role::Serve, AIRWAY, true, true, false, false),
+        (Role::Serve, QUEUE_WORK, true, true, false, false),
+        (Role::Serve, BOTH, true, true, false, false),
+    ];
+    assert_eq!(expected.len(), EVERY_ROLE.len() * EVERY_GATE.len());
+    for (role, defer, git_fresh, git_aged, copy_fresh, copy_aged) in expected {
+        let policy = drive_policy_for(role, defer);
+        let drives = |kind, unclaimed| may_drive(Some(kind), unclaimed, policy);
+        assert_eq!(
+            (
+                drives(COMPILE_GIT_SOURCE_TYPE, FRESH),
+                drives(COMPILE_GIT_SOURCE_TYPE, STRANDED_GRACE_SECS),
+                drives(COMPILE_SOURCE_TYPE, FRESH),
+                drives(COMPILE_SOURCE_TYPE, STRANDED_GRACE_SECS),
+            ),
+            (git_fresh, git_aged, copy_fresh, copy_aged),
             "{role:?} with {defer:?}"
         );
     }

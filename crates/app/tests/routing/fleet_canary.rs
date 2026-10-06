@@ -252,6 +252,8 @@ fn fake_workspace() -> entity::workspaces::Model {
         error: None,
         monthly_vlm_budget_micros: None,
         current_revision_id: None,
+        default_branch: None,
+        repo_subdir: None,
     }
 }
 
