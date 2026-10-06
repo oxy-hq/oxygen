@@ -5,6 +5,7 @@ use oxy_shared::errors::OxyError;
 use serde::{Deserialize, Serialize};
 
 use super::ClickHouseObservabilityStorage;
+use crate::scope::WorkspaceScope;
 use crate::types::{
     ContextTypeBreakdownData, MetricAnalyticsData, MetricDetailData, MetricListItem,
     MetricUsageRecord, MetricsListData, RecentUsageData, RelatedMetricData,
@@ -13,6 +14,13 @@ use crate::types::{
 
 fn escape_sql_literal(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+/// The predicate every usage read in this file carries: rows whose trace is
+/// `scope`'s. Wide enough for the previous period the trend figures compare
+/// against (`2 × days`), so one predicate serves every query of a request.
+fn usage_in_scope(scope: &WorkspaceScope, days: u32) -> String {
+    scope.rollup_predicate(days.saturating_mul(2))
 }
 
 #[derive(Debug, Serialize, Row)]
@@ -129,8 +137,10 @@ pub(super) async fn store_metric_usages(
 
 pub(super) async fn get_metrics_analytics(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<MetricAnalyticsData, OxyError> {
+    let in_scope = usage_in_scope(scope, days);
     let agg_sql = format!(
         "SELECT
             count() AS total,
@@ -139,7 +149,8 @@ pub(super) async fn get_metrics_analytics(
                count() / uniqExact(metric_name),
                0.0) AS avg
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {days} DAY"
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY"
     );
 
     let agg: AggregateRow = storage
@@ -152,7 +163,8 @@ pub(super) async fn get_metrics_analytics(
     let popular_sql = format!(
         "SELECT metric_name, count() AS cnt
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {days} DAY
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY
         GROUP BY metric_name
         ORDER BY cnt DESC
         LIMIT 1"
@@ -174,7 +186,8 @@ pub(super) async fn get_metrics_analytics(
     let prev_sql = format!(
         "SELECT count() AS count
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {} DAY
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {} DAY
           AND created_at < now() - INTERVAL {days} DAY",
         days * 2
     );
@@ -206,7 +219,8 @@ pub(super) async fn get_metrics_analytics(
     let source_sql = format!(
         "SELECT source_type, count() AS cnt
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {days} DAY
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY
         GROUP BY source_type"
     );
 
@@ -235,7 +249,8 @@ pub(super) async fn get_metrics_analytics(
         "SELECT ct AS context_type, count() AS cnt
         FROM observability_metric_usage
         ARRAY JOIN JSONExtractArrayRaw(context_types) AS ct
-        WHERE created_at >= now() - INTERVAL {days} DAY
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY
         GROUP BY context_type"
     );
 
@@ -285,14 +300,17 @@ pub(super) async fn get_metrics_analytics(
 
 pub(super) async fn get_metrics_list(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
     limit: usize,
     offset: usize,
 ) -> Result<MetricsListData, OxyError> {
+    let in_scope = usage_in_scope(scope, days);
     let count_sql = format!(
         "SELECT uniqExact(metric_name) AS count
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {days} DAY"
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY"
     );
 
     let total = storage
@@ -309,7 +327,8 @@ pub(super) async fn get_metrics_list(
             count() AS cnt,
             formatDateTime(max(created_at), '%Y-%m-%d') AS last_used
         FROM observability_metric_usage
-        WHERE created_at >= now() - INTERVAL {days} DAY
+        WHERE {in_scope}
+          AND created_at >= now() - INTERVAL {days} DAY
         GROUP BY metric_name
         ORDER BY cnt DESC
         LIMIT {limit} OFFSET {offset}"
@@ -347,7 +366,7 @@ pub(super) async fn get_metrics_list(
 /// `RecentUsageRow::created_at_iso`. `WHERE`/`ORDER BY` stay on the bare,
 /// unaliased `created_at`, which now unambiguously means the real DateTime
 /// column. `escaped_metric_name` must already be [`escape_sql_literal`]-ed.
-fn recent_usage_sql(escaped_metric_name: &str, days: u32) -> String {
+fn recent_usage_sql(in_scope: &str, escaped_metric_name: &str, days: u32) -> String {
     let ca = super::iso_utc("created_at");
     format!(
         "SELECT
@@ -358,7 +377,8 @@ fn recent_usage_sql(escaped_metric_name: &str, days: u32) -> String {
             {ca} AS created_at_iso,
             context
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped_metric_name}'
+        WHERE {in_scope}
+          AND metric_name = '{escaped_metric_name}'
           AND created_at >= now() - INTERVAL {days} DAY
         ORDER BY created_at DESC
         LIMIT 20"
@@ -367,15 +387,18 @@ fn recent_usage_sql(escaped_metric_name: &str, days: u32) -> String {
 
 pub(super) async fn get_metric_detail(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     metric_name: &str,
     days: u32,
 ) -> Result<MetricDetailData, OxyError> {
+    let in_scope = usage_in_scope(scope, days);
     let escaped = escape_sql_literal(metric_name);
 
     let total_sql = format!(
         "SELECT count() AS count
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped}'
+        WHERE {in_scope}
+          AND metric_name = '{escaped}'
           AND created_at >= now() - INTERVAL {days} DAY"
     );
     let total_queries = storage
@@ -389,7 +412,8 @@ pub(super) async fn get_metric_detail(
     let prev_sql = format!(
         "SELECT count() AS count
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped}'
+        WHERE {in_scope}
+          AND metric_name = '{escaped}'
           AND created_at >= now() - INTERVAL {} DAY
           AND created_at < now() - INTERVAL {days} DAY",
         days * 2
@@ -421,7 +445,8 @@ pub(super) async fn get_metric_detail(
     let via_agent_sql = format!(
         "SELECT count() AS count
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped}' AND source_type = 'agent'
+        WHERE {in_scope}
+          AND metric_name = '{escaped}' AND source_type = 'agent'
           AND created_at >= now() - INTERVAL {days} DAY"
     );
     let via_agent = storage
@@ -437,7 +462,8 @@ pub(super) async fn get_metric_detail(
     let via_workflow_sql = format!(
         "SELECT count() AS count
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped}' AND source_type = 'workflow'
+        WHERE {in_scope}
+          AND metric_name = '{escaped}' AND source_type = 'workflow'
           AND created_at >= now() - INTERVAL {days} DAY"
     );
     let via_workflow = storage
@@ -455,7 +481,8 @@ pub(super) async fn get_metric_detail(
             formatDateTime(created_at, '%Y-%m-%d') AS date,
             count() AS cnt
         FROM observability_metric_usage
-        WHERE metric_name = '{escaped}'
+        WHERE {in_scope}
+          AND metric_name = '{escaped}'
           AND created_at >= now() - INTERVAL {days} DAY
         GROUP BY date
         ORDER BY date ASC"
@@ -478,7 +505,8 @@ pub(super) async fn get_metric_detail(
         FROM observability_metric_usage m1
         INNER JOIN observability_metric_usage m2
             ON m1.trace_id = m2.trace_id AND m1.metric_name != m2.metric_name
-        WHERE m1.metric_name = '{escaped}'
+        WHERE m1.{in_scope}
+          AND m1.metric_name = '{escaped}'
           AND m1.created_at >= now() - INTERVAL {days} DAY
         GROUP BY m2.metric_name
         ORDER BY co_count DESC
@@ -497,7 +525,7 @@ pub(super) async fn get_metric_detail(
         })
         .collect();
 
-    let recent_sql = recent_usage_sql(&escaped, days);
+    let recent_sql = recent_usage_sql(&in_scope, &escaped, days);
     let recent_usage = storage
         .read_client()
         .query(&recent_sql)
@@ -529,7 +557,38 @@ pub(super) async fn get_metric_detail(
 
 #[cfg(test)]
 mod tests {
-    use super::recent_usage_sql;
+    use super::{recent_usage_sql, usage_in_scope};
+    use crate::scope::WorkspaceScope;
+
+    fn scope() -> WorkspaceScope {
+        WorkspaceScope::of(uuid::Uuid::parse_str("70787bb2-e11b-5488-b2c3-02e60d5fc7d3").unwrap())
+    }
+
+    /// A usage row carries the question that used the metric. The predicate
+    /// every read in this file takes has to reach back over the previous
+    /// period too — the trend figures compare against it — or last period's
+    /// rows would be dropped and every trend would read as "new".
+    #[test]
+    fn the_usage_predicate_covers_both_periods_a_request_reads() {
+        assert_eq!(usage_in_scope(&scope(), 30), scope().rollup_predicate(60));
+        // No overflow at the widest window a caller can name.
+        assert_eq!(
+            usage_in_scope(&scope(), u32::MAX),
+            scope().rollup_predicate(u32::MAX)
+        );
+    }
+
+    #[test]
+    fn recent_usage_is_read_inside_the_workspace() {
+        let in_scope = usage_in_scope(&scope(), 7);
+        let sql = recent_usage_sql(&in_scope, "oxymart.total_sales", 7);
+        assert!(
+            sql.contains(&format!(
+                "WHERE {in_scope}\n          AND metric_name = 'oxymart.total_sales'"
+            )),
+            "{sql}"
+        );
+    }
 
     /// Regression for "Recent Usage" swallowing a `NO_COMMON_TYPE` (ClickHouse
     /// error code 386) through `.unwrap_or_default()` with no error path: the
@@ -541,7 +600,7 @@ mod tests {
     /// `created_at` reproduces the collision this asserts against.
     #[test]
     fn recent_usage_sql_alias_does_not_shadow_the_where_column() {
-        let sql = recent_usage_sql("oxymart.total_sales", 7);
+        let sql = recent_usage_sql(&usage_in_scope(&scope(), 7), "oxymart.total_sales", 7);
         assert!(
             sql.contains("AS created_at_iso"),
             "expected the formatted column aliased to a name distinct from \

@@ -21,6 +21,7 @@ use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::server::router::AppState;
+use oxy_observability::WorkspaceScope;
 
 #[derive(Debug)]
 pub enum ExecutionAnalyticsError {
@@ -122,7 +123,7 @@ fn default_agent_limit() -> usize {
 )]
 pub async fn get_summary(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<SummaryQuery>,
 ) -> Result<Json<ExecutionSummary>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -130,7 +131,7 @@ pub async fn get_summary(
     })?;
 
     let data = storage
-        .get_execution_summary(params.days)
+        .get_execution_summary(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 
@@ -195,7 +196,7 @@ pub async fn get_summary(
 )]
 pub async fn get_time_series(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<TimeSeriesQuery>,
 ) -> Result<Json<Vec<ExecutionTimeBucket>>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -203,7 +204,7 @@ pub async fn get_time_series(
     })?;
 
     let data = storage
-        .get_execution_time_series(params.days)
+        .get_execution_time_series(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 
@@ -238,7 +239,7 @@ pub async fn get_time_series(
 )]
 pub async fn get_agent_stats(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<AgentStatsQuery>,
 ) -> Result<Json<Vec<AgentExecutionStats>>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -246,7 +247,7 @@ pub async fn get_agent_stats(
     })?;
 
     let data = storage
-        .get_execution_agent_stats(params.days, params.limit)
+        .get_execution_agent_stats(&WorkspaceScope::of(workspace_id), params.days, params.limit)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 
@@ -297,7 +298,7 @@ pub async fn get_agent_stats(
 )]
 pub async fn get_executions(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<ExecutionsQuery>,
 ) -> Result<Json<ExecutionListResponse>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -306,6 +307,7 @@ pub async fn get_executions(
 
     let data = storage
         .get_execution_list(
+            &WorkspaceScope::of(workspace_id),
             params.days,
             params.limit,
             params.offset,
@@ -368,7 +370,7 @@ fn non_empty(s: String) -> Option<String> {
 )]
 pub async fn get_percentiles(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<LatencyPercentilesResponse>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -376,7 +378,7 @@ pub async fn get_percentiles(
     })?;
 
     let data = storage
-        .get_latency_percentiles(params.days)
+        .get_latency_percentiles(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 
@@ -408,7 +410,7 @@ pub async fn get_percentiles(
 )]
 pub async fn get_histogram(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<LatencyHistogramResponse>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -416,7 +418,7 @@ pub async fn get_histogram(
     })?;
 
     let data = storage
-        .get_latency_histogram(params.days)
+        .get_latency_histogram(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 
@@ -444,7 +446,7 @@ pub async fn get_histogram(
 )]
 pub async fn get_cost(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<DaysQuery>,
 ) -> Result<Json<ExecutionCostResponse>, ExecutionAnalyticsError> {
     let storage = state.observability().ok_or_else(|| {
@@ -452,7 +454,7 @@ pub async fn get_cost(
     })?;
 
     let data = storage
-        .get_model_usage(params.days)
+        .get_model_usage(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| ExecutionAnalyticsError::QueryFailed(e.to_string()))?;
 

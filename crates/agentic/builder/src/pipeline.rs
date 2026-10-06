@@ -31,6 +31,21 @@ use crate::test_runner::BuilderTestRunner;
 use crate::types::BuilderIntent;
 use crate::validator::BuilderProjectValidator;
 
+/// Claim a run's trace for the workspace its LLM client was built for.
+///
+/// The product store serves a workspace only the span rows stamped with it,
+/// and the collector hands a root's `oxy.workspace_id` down to every span
+/// beneath it (`oxy_observability::scope`). The builder's params carry no
+/// workspace of their own, so the root takes the one the host already put on
+/// the client — recorded before any child opens, since a child opened earlier
+/// would inherit nothing. A client with no workspace leaves the trace
+/// unclaimed, which is in nobody's console rather than everybody's.
+fn claim_for_workspace(run_span: &tracing::Span, client: &LlmClient) {
+    if let Some(workspace_id) = &client.genai_context().workspace_id {
+        run_span.record("oxy.workspace_id", workspace_id.as_str());
+    }
+}
+
 /// Parameters for starting a builder pipeline.
 pub struct BuilderPipelineParams {
     pub client: LlmClient,
@@ -82,8 +97,10 @@ pub fn start_pipeline(params: BuilderPipelineParams) -> PipelineHandle<BuilderEv
         "builder.run",
         oxy.name = "builder.run",
         oxy.span_type = "builder",
+        oxy.workspace_id = tracing::field::Empty,
         question = %params.question,
     );
+    claim_for_workspace(&run_span, &params.client);
     // A root for the product console (`ParentSpanId = ''`), but not an
     // orphan in HyperDX: `follows_from` becomes an OpenTelemetry span link to
     // whatever started the run — the HTTP request, or the `agentic_task` a
@@ -207,9 +224,11 @@ pub fn resume_pipeline(
         "builder.run",
         oxy.name = "builder.run",
         oxy.span_type = "builder",
+        oxy.workspace_id = tracing::field::Empty,
         question = %params.question,
         resumed = true,
     );
+    claim_for_workspace(&run_span, &params.client);
     // A root for the product console (`ParentSpanId = ''`), but not an
     // orphan in HyperDX: `follows_from` becomes an OpenTelemetry span link to
     // whatever started the run — the HTTP request, or the `agentic_task` a

@@ -85,6 +85,8 @@ pub async fn start_brief_pipeline(
         oxy.name = "analytics.run.brief",
         oxy.span_type = "analytics",
         oxy.agent.ref = %params.agent_id,
+        // See `start_pipeline` in `pipeline.rs`.
+        oxy.workspace_id = %params.workspace_id,
         agent.prompt = %params.question,
         question = %params.question,
     );

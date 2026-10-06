@@ -11,6 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::server::router::AppState;
+use oxy_observability::WorkspaceScope;
 
 /// Custom error type for trace endpoints
 #[derive(Debug)]
@@ -194,6 +195,7 @@ fn extract_event_names(json: &str) -> Vec<String> {
 )]
 pub async fn list_traces(
     State(state): State<AppState>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<TraceListQuery>,
 ) -> Result<extract::Json<PaginatedTraceResponse>, TracesError> {
     let storage = state
@@ -202,6 +204,7 @@ pub async fn list_traces(
 
     let (traces, total) = storage
         .search_traces(
+            &WorkspaceScope::of(workspace_id),
             params.limit,
             params.offset,
             params.agent_ref.as_deref(),
@@ -256,17 +259,20 @@ pub async fn list_traces(
 )]
 pub async fn get_trace_detail(
     State(state): State<AppState>,
-    Path((_workspace_id, trace_id)): Path<(Uuid, String)>,
+    Path((workspace_id, trace_id)): Path<(Uuid, String)>,
 ) -> Result<extract::Json<Vec<TraceDetailSpan>>, TracesError> {
     let storage = state
         .observability()
         .ok_or_else(|| TracesError::QueryFailed("Observability not configured".into()))?;
 
     let rows = storage
-        .get_trace_detail(&trace_id)
+        .get_trace_detail(&WorkspaceScope::of(workspace_id), &trace_id)
         .await
         .map_err(|e| TracesError::QueryFailed(e.to_string()))?;
 
+    // Another workspace's trace id lands here too: it matches no row, so it
+    // is not found — the same answer as an id nobody ever had, and no way to
+    // tell the two apart from outside.
     if rows.is_empty() {
         return Err(TracesError::NotFound(trace_id));
     }
@@ -382,14 +388,16 @@ fn default_cluster_map_days() -> u32 {
 )]
 pub async fn get_cluster_map(
     State(state): State<AppState>,
+    Path(workspace_id): Path<Uuid>,
     Query(query): Query<ClusterMapQuery>,
 ) -> Result<extract::Json<ClusterMapResponse>, TracesError> {
     let storage = state
         .observability()
         .ok_or_else(|| TracesError::QueryFailed("Observability not configured".into()))?;
+    let scope = WorkspaceScope::of(workspace_id);
 
     let embeddings = storage
-        .get_cluster_map_data(query.days, query.limit, query.source.as_deref())
+        .get_cluster_map_data(&scope, query.days, query.limit, query.source.as_deref())
         .await
         .map_err(|e| TracesError::QueryFailed(e.to_string()))?;
 
@@ -425,7 +433,7 @@ pub async fn get_cluster_map(
 
     // Fetch trace status and duration from spans table
     let enrichments = storage
-        .get_trace_enrichments(&trace_ids)
+        .get_trace_enrichments(&scope, &trace_ids)
         .await
         .unwrap_or_default();
 
@@ -476,8 +484,10 @@ pub async fn get_cluster_map(
         });
     }
 
-    let parse_sample_questions =
-        |sq: &str| -> Vec<String> { serde_json::from_str(sq).unwrap_or_default() };
+    // A cluster is fitted over every tenant's questions, so the samples stored
+    // with it are other workspaces' prompts. The ones shown are this
+    // workspace's own, taken from the points just read.
+    let own_samples = own_sample_questions(&points);
 
     let mut clusters: Vec<ClusterSummary> = cluster_infos
         .iter()
@@ -490,7 +500,7 @@ pub async fn get_cluster_map(
                 .get(&c.cluster_id)
                 .cloned()
                 .unwrap_or_else(|| "#6b7280".to_string()),
-            sample_questions: parse_sample_questions(&c.sample_questions),
+            sample_questions: own_samples.get(&c.cluster_id).cloned().unwrap_or_default(),
         })
         .filter(|c| c.count > 0)
         .collect();
@@ -522,6 +532,22 @@ pub async fn get_cluster_map(
         total_points,
         outlier_count,
     }))
+}
+
+/// Questions shown as a cluster's samples.
+const SAMPLE_QUESTIONS_PER_CLUSTER: usize = 5;
+
+/// Up to [`SAMPLE_QUESTIONS_PER_CLUSTER`] distinct questions per cluster,
+/// taken from `points` — which are already one workspace's.
+fn own_sample_questions(points: &[ClusterMapPoint]) -> HashMap<i32, Vec<String>> {
+    let mut samples: HashMap<i32, Vec<String>> = HashMap::new();
+    for point in points {
+        let questions = samples.entry(point.cluster_id).or_default();
+        if questions.len() < SAMPLE_QUESTIONS_PER_CLUSTER && !questions.contains(&point.question) {
+            questions.push(point.question.clone());
+        }
+    }
+    samples
 }
 
 // ── PCA projection and color helpers (pure computation) ──────────────────
@@ -640,4 +666,56 @@ pub fn traces_routes() -> Router<AppState> {
         .route("/", get(list_traces))
         .route("/{trace_id}", get(get_trace_detail))
         .route("/clusters/map", get(get_cluster_map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(cluster_id: i32, question: &str) -> ClusterMapPoint {
+        ClusterMapPoint {
+            trace_id: format!("trace-{question}"),
+            question: question.to_string(),
+            x: 0.0,
+            y: 0.0,
+            cluster_id,
+            intent_name: "revenue".to_string(),
+            confidence: 0.9,
+            timestamp: "2026-10-01T00:00:00.000000Z".to_string(),
+            duration_ms: None,
+            status: None,
+        }
+    }
+
+    /// A cluster's stored samples are drawn from every tenant's questions.
+    /// What a workspace is shown instead comes from its own points, so the
+    /// only questions that can appear are ones it asked.
+    #[test]
+    fn cluster_samples_are_the_workspaces_own_questions() {
+        let points = vec![
+            point(1, "revenue by store"),
+            point(1, "revenue by month"),
+            point(1, "revenue by store"),
+            point(2, "top customers"),
+            point(-1, "what is the weather"),
+        ];
+        let samples = own_sample_questions(&points);
+
+        assert_eq!(samples[&1], ["revenue by store", "revenue by month"]);
+        assert_eq!(samples[&2], ["top customers"]);
+        assert_eq!(samples[&-1], ["what is the weather"]);
+        assert!(
+            !samples.contains_key(&3),
+            "a cluster with no points here has no samples"
+        );
+    }
+
+    #[test]
+    fn cluster_samples_are_capped() {
+        let points: Vec<ClusterMapPoint> = (0..20).map(|i| point(1, &format!("q{i}"))).collect();
+        assert_eq!(
+            own_sample_questions(&points)[&1].len(),
+            SAMPLE_QUESTIONS_PER_CLUSTER
+        );
+    }
 }

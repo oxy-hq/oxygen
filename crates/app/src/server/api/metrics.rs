@@ -19,6 +19,7 @@ use utoipa::IntoParams;
 use uuid::Uuid;
 
 use crate::server::router::AppState;
+use oxy_observability::WorkspaceScope;
 
 /// Custom error type for metrics endpoints
 #[derive(Debug)]
@@ -91,7 +92,7 @@ pub struct MetricDetailQuery {
 )]
 pub async fn get_analytics(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<MetricsAnalyticsQuery>,
 ) -> Result<Json<MetricAnalyticsResponse>, MetricsError> {
     let storage = state
@@ -99,7 +100,7 @@ pub async fn get_analytics(
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage
-        .get_metrics_analytics(params.days)
+        .get_metrics_analytics(&WorkspaceScope::of(workspace_id), params.days)
         .await
         .map_err(|e| MetricsError::QueryFailed(e.to_string()))?;
 
@@ -137,7 +138,7 @@ pub async fn get_analytics(
 )]
 pub async fn get_metrics_list(
     State(state): State<AppState>,
-    Path(_workspace_id): Path<Uuid>,
+    Path(workspace_id): Path<Uuid>,
     Query(params): Query<MetricsListQuery>,
 ) -> Result<Json<MetricsListResponse>, MetricsError> {
     let storage = state
@@ -145,7 +146,12 @@ pub async fn get_metrics_list(
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage
-        .get_metrics_list(params.days, params.limit, params.offset)
+        .get_metrics_list(
+            &WorkspaceScope::of(workspace_id),
+            params.days,
+            params.limit,
+            params.offset,
+        )
         .await
         .map_err(|e| MetricsError::QueryFailed(e.to_string()))?;
 
@@ -181,7 +187,7 @@ pub async fn get_metrics_list(
 )]
 pub async fn get_metric_detail(
     State(state): State<AppState>,
-    Path((_workspace_id, metric_name)): Path<(Uuid, String)>,
+    Path((workspace_id, metric_name)): Path<(Uuid, String)>,
     Query(params): Query<MetricDetailQuery>,
 ) -> Result<Json<MetricDetailResponse>, MetricsError> {
     let storage = state
@@ -189,7 +195,7 @@ pub async fn get_metric_detail(
         .ok_or_else(|| MetricsError::QueryFailed("Observability not configured".into()))?;
 
     let data = storage
-        .get_metric_detail(&metric_name, params.days)
+        .get_metric_detail(&WorkspaceScope::of(workspace_id), &metric_name, params.days)
         .await
         .map_err(|e| MetricsError::QueryFailed(e.to_string()))?;
 

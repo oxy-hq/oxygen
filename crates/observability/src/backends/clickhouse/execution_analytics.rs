@@ -13,14 +13,21 @@ use oxy_shared::errors::OxyError;
 use serde::Deserialize;
 
 use super::ClickHouseObservabilityStorage;
+use crate::scope::WorkspaceScope;
 use crate::types::{
     AgentExecutionStatsData, ExecutionDetailData, ExecutionListData, ExecutionSummaryData,
     ExecutionTimeBucketData,
 };
 
-/// Common time bound applied to every rollup read.
-fn since(days: u32) -> String {
-    format!("timestamp >= now() - INTERVAL {days} DAY")
+/// What every rollup read starts from: `scope`'s executions of the last
+/// `days`. The time bound and the tenant bound travel together on purpose —
+/// each query in this file builds its `WHERE` from this one function, so there
+/// is no way to write one that has the window and not the workspace.
+fn since(scope: &WorkspaceScope, days: u32) -> String {
+    format!(
+        "timestamp >= now() - INTERVAL {days} DAY AND {}",
+        scope.rollup_predicate(days)
+    )
 }
 
 fn escape_sql_literal(s: &str) -> String {
@@ -79,7 +86,13 @@ struct ExecutionDetailDbRow {
     // (ClickHouse error code 386). See `execution_list_sql`.
     timestamp_iso: String,
     execution_type: String,
-    is_verified: String,
+    // Deliberately NOT named `is_verified`, for the reason `timestamp_iso`
+    // above is not named `timestamp`: the `?is_verified=` filter adds `AND
+    // is_verified = 0` to the `WHERE`, ClickHouse resolves that name to this
+    // SELECT-list alias (a String) instead of the UInt8 column, and the query
+    // fails with `NO_COMMON_TYPE` — so filtering the list by verified answered
+    // a 500 every time.
+    is_verified_label: String,
     source_type: String,
     source_ref: String,
     status: String,
@@ -116,6 +129,7 @@ const TYPE_COUNTS: &str = "\
 
 pub(super) async fn get_execution_summary(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<ExecutionSummaryData, OxyError> {
     let sql = format!(
@@ -128,7 +142,7 @@ pub(super) async fn get_execution_summary(
             {TYPE_COUNTS}
         FROM observability_executions FINAL
         WHERE {}",
-        since(days)
+        since(scope, days)
     );
 
     let row = storage
@@ -166,6 +180,7 @@ pub(super) async fn get_execution_summary(
 
 pub(super) async fn get_execution_time_series(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<Vec<ExecutionTimeBucketData>, OxyError> {
     let sql = format!(
@@ -178,7 +193,7 @@ pub(super) async fn get_execution_time_series(
         WHERE {}
         GROUP BY date
         ORDER BY date ASC",
-        since(days)
+        since(scope, days)
     );
 
     let rows: Vec<ExecutionTimeBucketDbRow> =
@@ -206,6 +221,7 @@ pub(super) async fn get_execution_time_series(
 
 pub(super) async fn get_execution_agent_stats(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
     limit: usize,
 ) -> Result<Vec<AgentExecutionStatsData>, OxyError> {
@@ -222,7 +238,7 @@ pub(super) async fn get_execution_agent_stats(
         GROUP BY agent_ref
         ORDER BY total_executions DESC
         LIMIT {limit}",
-        since(days)
+        since(scope, days)
     );
 
     let rows: Vec<AgentStatsDbRow> = storage
@@ -257,16 +273,22 @@ pub(super) async fn get_execution_agent_stats(
 /// `ExecutionDetailDbRow::timestamp_iso`. `WHERE`/`ORDER BY` stay on the bare,
 /// unaliased `timestamp`, which now unambiguously means the real DateTime
 /// column `since()` filters on.
-fn execution_list_data_sql(extra_where: &str, days: u32, limit: usize, offset: usize) -> String {
+fn execution_list_data_sql(
+    scope: &WorkspaceScope,
+    extra_where: &str,
+    days: u32,
+    limit: usize,
+    offset: usize,
+) -> String {
     let ts = super::iso_utc("timestamp");
-    let since_clause = since(days);
+    let since_clause = since(scope, days);
     format!(
         "SELECT
             trace_id,
             span_id,
             {ts} AS timestamp_iso,
             execution_type,
-            if(is_verified = 1, 'true', 'false') AS is_verified,
+            if(is_verified = 1, 'true', 'false') AS is_verified_label,
             source_type,
             source_ref,
             if(is_success = 1, 'success', 'error') AS status,
@@ -296,6 +318,7 @@ fn execution_list_data_sql(extra_where: &str, days: u32, limit: usize, offset: u
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn get_execution_list(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
     limit: usize,
     offset: usize,
@@ -331,7 +354,7 @@ pub(super) async fn get_execution_list(
 
     let count_sql = format!(
         "SELECT count() AS count FROM observability_executions FINAL WHERE {}{extra_where}",
-        since(days)
+        since(scope, days)
     );
 
     let total = storage
@@ -342,7 +365,7 @@ pub(super) async fn get_execution_list(
         .map(|r| r.count)
         .map_err(|e| OxyError::RuntimeError(format!("Count query failed: {e}")))?;
 
-    let data_sql = execution_list_data_sql(&extra_where, days, limit, offset);
+    let data_sql = execution_list_data_sql(scope, &extra_where, days, limit, offset);
 
     let rows: Vec<ExecutionDetailDbRow> = storage
         .read_client()
@@ -358,7 +381,7 @@ pub(super) async fn get_execution_list(
             span_id: r.span_id,
             timestamp: r.timestamp_iso,
             execution_type: r.execution_type,
-            is_verified: r.is_verified,
+            is_verified: r.is_verified_label,
             source_type: r.source_type,
             source_ref: r.source_ref,
             status: r.status,
@@ -391,7 +414,33 @@ pub(super) async fn get_execution_list(
 
 #[cfg(test)]
 mod tests {
-    use super::execution_list_data_sql;
+    use super::{execution_list_data_sql, since};
+    use crate::scope::WorkspaceScope;
+
+    fn scope() -> WorkspaceScope {
+        WorkspaceScope::of(uuid::Uuid::parse_str("70787bb2-e11b-5488-b2c3-02e60d5fc7d3").unwrap())
+    }
+
+    /// The rollup carries questions, generated SQL and tool output for every
+    /// tenant. Each read in this file takes its `WHERE` from `since`, so this
+    /// is the one place the workspace can be dropped from all of them at once.
+    #[test]
+    fn every_rollup_read_starts_inside_the_workspace() {
+        let window = since(&scope(), 30);
+        assert_eq!(
+            window,
+            format!(
+                "timestamp >= now() - INTERVAL 30 DAY AND {}",
+                scope().rollup_predicate(30)
+            )
+        );
+        // The page query is built separately; it has to start from the same place.
+        let page = execution_list_data_sql(&scope(), " AND is_success = 0", 30, 10, 0);
+        assert!(
+            page.contains(&format!("WHERE {window} AND is_success = 0")),
+            "{page}"
+        );
+    }
 
     /// Regression for "Recent Executions" swallowing a `NO_COMMON_TYPE`
     /// (ClickHouse error code 386): `since(days)` filters `WHERE timestamp >=
@@ -405,7 +454,7 @@ mod tests {
     /// asserts against.
     #[test]
     fn execution_list_sql_alias_does_not_shadow_the_where_column() {
-        let sql = execution_list_data_sql("", 7, 10, 0);
+        let sql = execution_list_data_sql(&scope(), "", 7, 10, 0);
         assert!(
             sql.contains("AS timestamp_iso"),
             "expected the formatted column aliased to a name distinct from \
@@ -415,6 +464,15 @@ mod tests {
             !sql.contains("AS timestamp,") && !sql.contains("AS timestamp\n"),
             "the SELECT list re-introduced `timestamp` as an alias, which \
              shadows the bare `timestamp` filtered in WHERE:\n{sql}"
+        );
+        // The same collision one column over: `?is_verified=` puts the bare
+        // `is_verified` in the WHERE, so the label cannot be aliased to it.
+        // Found by running the filtered list against a real server
+        // (`scope_live_tests`), where it had been failing with code 386.
+        assert!(
+            sql.contains("AS is_verified_label,") && !sql.contains("AS is_verified,"),
+            "the verified label is aliased over the `is_verified` column the \
+             filter compares:\n{sql}"
         );
     }
 }

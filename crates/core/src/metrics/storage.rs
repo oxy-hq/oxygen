@@ -2,6 +2,7 @@
 //!
 //! Delegates to the ObservabilityStore backend for metric usage data.
 
+use oxy_observability::WorkspaceScope;
 use std::sync::Arc;
 
 use oxy_observability::ObservabilityStore;
@@ -76,8 +77,12 @@ impl MetricStorage {
     }
 
     /// Get analytics summary for a time period
-    pub async fn get_analytics(&self, days: u32) -> Result<MetricAnalyticsResponse, OxyError> {
-        let data = self.storage.get_metrics_analytics(days).await?;
+    pub async fn get_analytics(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<MetricAnalyticsResponse, OxyError> {
+        let data = self.storage.get_metrics_analytics(scope, days).await?;
 
         Ok(MetricAnalyticsResponse {
             total_queries: data.total_queries,
@@ -103,11 +108,15 @@ impl MetricStorage {
 
     pub async fn get_metrics_list(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
     ) -> Result<MetricsListResponse, OxyError> {
-        let data = self.storage.get_metrics_list(days, limit, offset).await?;
+        let data = self
+            .storage
+            .get_metrics_list(scope, days, limit, offset)
+            .await?;
 
         let metrics: Vec<MetricAnalytics> = data
             .metrics
@@ -130,10 +139,14 @@ impl MetricStorage {
 
     pub async fn get_metric_detail(
         &self,
+        scope: &WorkspaceScope,
         metric_name: &str,
         days: u32,
     ) -> Result<MetricDetailResponse, OxyError> {
-        let data = self.storage.get_metric_detail(metric_name, days).await?;
+        let data = self
+            .storage
+            .get_metric_detail(scope, metric_name, days)
+            .await?;
 
         let usage_trend: Vec<UsageTrendPoint> = data
             .usage_trend

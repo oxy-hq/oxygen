@@ -400,6 +400,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::intent_types::IntentCluster;
+    use crate::scope::WorkspaceScope;
     use crate::types::*;
 
     /// Records every `insert_spans` batch; all other methods are unreachable
@@ -413,6 +414,7 @@ mod tests {
     impl ObservabilityStore for RecordingStore {
         async fn list_traces(
             &self,
+            _: &WorkspaceScope,
             _: i64,
             _: i64,
             _: Option<&str>,
@@ -421,11 +423,16 @@ mod tests {
         ) -> Result<(Vec<TraceRow>, i64), OxyError> {
             unimplemented!()
         }
-        async fn get_trace_detail(&self, _: &str) -> Result<Vec<TraceDetailRow>, OxyError> {
+        async fn get_trace_detail(
+            &self,
+            _: &WorkspaceScope,
+            _: &str,
+        ) -> Result<Vec<TraceDetailRow>, OxyError> {
             unimplemented!()
         }
         async fn get_cluster_map_data(
             &self,
+            _: &WorkspaceScope,
             _: u32,
             _: usize,
             _: Option<&str>,
@@ -437,6 +444,7 @@ mod tests {
         }
         async fn get_trace_enrichments(
             &self,
+            _: &WorkspaceScope,
             _: &[String],
         ) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
             unimplemented!()
@@ -509,31 +517,47 @@ mod tests {
         async fn store_metric_usages(&self, _: Vec<MetricUsageRecord>) -> Result<(), OxyError> {
             unimplemented!()
         }
-        async fn get_metrics_analytics(&self, _: u32) -> Result<MetricAnalyticsData, OxyError> {
+        async fn get_metrics_analytics(
+            &self,
+            _: &WorkspaceScope,
+            _: u32,
+        ) -> Result<MetricAnalyticsData, OxyError> {
             unimplemented!()
         }
         async fn get_metrics_list(
             &self,
+            _: &WorkspaceScope,
             _: u32,
             _: usize,
             _: usize,
         ) -> Result<MetricsListData, OxyError> {
             unimplemented!()
         }
-        async fn get_metric_detail(&self, _: &str, _: u32) -> Result<MetricDetailData, OxyError> {
+        async fn get_metric_detail(
+            &self,
+            _: &WorkspaceScope,
+            _: &str,
+            _: u32,
+        ) -> Result<MetricDetailData, OxyError> {
             unimplemented!()
         }
-        async fn get_execution_summary(&self, _: u32) -> Result<ExecutionSummaryData, OxyError> {
+        async fn get_execution_summary(
+            &self,
+            _: &WorkspaceScope,
+            _: u32,
+        ) -> Result<ExecutionSummaryData, OxyError> {
             unimplemented!()
         }
         async fn get_execution_time_series(
             &self,
+            _: &WorkspaceScope,
             _: u32,
         ) -> Result<Vec<ExecutionTimeBucketData>, OxyError> {
             unimplemented!()
         }
         async fn get_execution_agent_stats(
             &self,
+            _: &WorkspaceScope,
             _: u32,
             _: usize,
         ) -> Result<Vec<AgentExecutionStatsData>, OxyError> {
@@ -542,6 +566,7 @@ mod tests {
         #[allow(clippy::too_many_arguments)]
         async fn get_execution_list(
             &self,
+            _: &WorkspaceScope,
             _: u32,
             _: usize,
             _: usize,
@@ -572,6 +597,7 @@ mod tests {
             status_message: String::new(),
             event_data: "[]".into(),
             timestamp: "2026-01-01T00:00:00Z".into(),
+            workspace_id: String::new(),
         }
     }
 

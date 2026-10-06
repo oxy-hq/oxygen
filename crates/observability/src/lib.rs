@@ -14,6 +14,7 @@ pub mod global;
 pub mod heartbeat;
 pub mod intent_types;
 pub mod layer;
+pub mod scope;
 pub mod store;
 pub mod telemetry;
 pub mod types;
@@ -29,6 +30,7 @@ pub use custom_app_sink::{
 pub use duration::{DURATIONS, DurationWindow, RETENTION_DAYS};
 pub use global::{get_global, set_global};
 pub use layer::{SpanCollectorLayer, current_trace_id};
+pub use scope::{WORKSPACE_ATTRIBUTE, WorkspaceScope};
 pub use store::ObservabilityStore;
 pub use telemetry::{
     build_layer_and_receiver, build_observability_layer, init_observability, init_stdout,

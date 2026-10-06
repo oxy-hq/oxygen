@@ -123,6 +123,13 @@ pub async fn start_pipeline(
         oxy.name = "analytics.run",
         oxy.span_type = "analytics",
         oxy.agent.ref = %params.agent_id,
+        // Whose trace this is. The product store keeps every tenant's spans in
+        // one table and serves a workspace only the rows stamped with it; the
+        // collector hands this field down to every span under the root
+        // (`oxy_observability::scope`). Set here, at creation, because a child
+        // opened before a later `record` would inherit nothing — and a trace
+        // with no workspace is in nobody's console.
+        oxy.workspace_id = %params.workspace_id,
         agent.prompt = %params.question,
         question = %params.question,
     );
@@ -305,6 +312,8 @@ pub async fn resume_pipeline(
         oxy.name = "analytics.run",
         oxy.span_type = "analytics",
         oxy.agent.ref = %params.agent_id,
+        // See `start_pipeline`: the resumed run is the same workspace's trace.
+        oxy.workspace_id = %params.workspace_id,
         agent.prompt = %params.question,
         question = %params.question,
         resumed = true,

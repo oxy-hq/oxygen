@@ -24,6 +24,9 @@ pub struct SpanRecord {
     pub event_data: String,
     /// ISO 8601 timestamp string
     pub timestamp: String,
+    /// The workspace the span's trace belongs to, or `""` when its root never
+    /// said. An unstamped row is in no workspace's reads — see [`crate::scope`].
+    pub workspace_id: String,
 }
 
 #[derive(Debug, Clone)]

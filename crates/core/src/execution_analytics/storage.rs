@@ -2,6 +2,7 @@
 //!
 //! Delegates to the observability store for execution analytics data.
 
+use oxy_observability::WorkspaceScope;
 use std::sync::Arc;
 
 use oxy_observability::{
@@ -35,8 +36,12 @@ impl ExecutionAnalyticsStorage {
         Ok(Self { storage })
     }
 
-    pub async fn get_summary(&self, days: u32) -> Result<ExecutionSummary, OxyError> {
-        let data: ExecutionSummaryData = self.storage.get_execution_summary(days).await?;
+    pub async fn get_summary(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<ExecutionSummary, OxyError> {
+        let data: ExecutionSummaryData = self.storage.get_execution_summary(scope, days).await?;
 
         let total = data.total_executions.max(1) as f64;
         let verified_percent = (data.verified_count as f64 / total) * 100.0;
@@ -85,9 +90,13 @@ impl ExecutionAnalyticsStorage {
         })
     }
 
-    pub async fn get_time_series(&self, days: u32) -> Result<Vec<ExecutionTimeBucket>, OxyError> {
+    pub async fn get_time_series(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<Vec<ExecutionTimeBucket>, OxyError> {
         let rows: Vec<ExecutionTimeBucketData> =
-            self.storage.get_execution_time_series(days).await?;
+            self.storage.get_execution_time_series(scope, days).await?;
 
         Ok(rows
             .into_iter()
@@ -107,11 +116,14 @@ impl ExecutionAnalyticsStorage {
     /// Get per-agent execution statistics
     pub async fn get_agent_stats(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
     ) -> Result<Vec<AgentExecutionStats>, OxyError> {
-        let rows: Vec<AgentExecutionStatsData> =
-            self.storage.get_execution_agent_stats(days, limit).await?;
+        let rows: Vec<AgentExecutionStatsData> = self
+            .storage
+            .get_execution_agent_stats(scope, days, limit)
+            .await?;
 
         Ok(rows
             .into_iter()
@@ -146,6 +158,7 @@ impl ExecutionAnalyticsStorage {
     /// Get paginated execution details
     pub async fn get_executions(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
@@ -157,6 +170,7 @@ impl ExecutionAnalyticsStorage {
         let data: ExecutionListData = self
             .storage
             .get_execution_list(
+                scope,
                 days,
                 limit,
                 offset,

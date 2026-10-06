@@ -51,12 +51,33 @@ CREATE TABLE IF NOT EXISTS observability_spans (
     status_code LowCardinality(String) DEFAULT 'UNSET',
     status_message String DEFAULT '',
     event_data String DEFAULT '[]',
-    timestamp DateTime64(9) DEFAULT now64(9)
+    timestamp DateTime64(9) DEFAULT now64(9),
+    workspace_id LowCardinality(String) DEFAULT ''
 ) ENGINE = MergeTree()
 PARTITION BY toDate(timestamp)
 ORDER BY (trace_id, span_id, timestamp)
 SETTINGS ttl_only_drop_parts = 1
 "#;
+
+/// The tenant column on `observability_spans`, for a table created before it
+/// (2026-10). Idempotent, run on every boot after `ALL_DDL`.
+///
+/// `DEFAULT ''` is the point, not a convenience: rows written before the
+/// column — and rows a not-yet-upgraded instance writes during a rolling
+/// deploy — read as unstamped, and an unstamped row is in no workspace's reads
+/// (`crate::scope`). So the column arriving *hides* history rather than
+/// exposing it. Whether it is actually there is probed afterwards and decides
+/// the insert shape and whether trace reads run at all; see
+/// `ClickHouseObservabilityStorage::spans_are_scoped`.
+pub const SPANS_WORKSPACE_ALTERS: &[&str] = &[
+    "ALTER TABLE observability_spans ADD COLUMN IF NOT EXISTS workspace_id LowCardinality(String) DEFAULT ''",
+];
+
+/// Whether `observability_spans` has its tenant column, answered by the server
+/// rather than inferred from the ALTER's result: an ALTER refused for want of
+/// the privilege says nothing about a column another instance already added.
+pub const SPANS_WORKSPACE_PROBE: &str = "SELECT count() AS c FROM system.columns \
+     WHERE database = currentDatabase() AND table = 'observability_spans' AND name = 'workspace_id'";
 
 pub const CREATE_INTENT_CLUSTERS_TABLE: &str = r#"
 CREATE TABLE IF NOT EXISTS observability_intent_clusters (

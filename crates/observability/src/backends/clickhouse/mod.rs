@@ -9,6 +9,8 @@ mod intents;
 mod latency_cost;
 mod metrics;
 pub mod schema;
+#[cfg(test)]
+mod scope_live_tests;
 mod traces;
 
 use std::collections::HashMap;
@@ -238,6 +240,7 @@ mod retention_ttl_tests {
 }
 
 use crate::intent_types::IntentCluster;
+use crate::scope::WorkspaceScope;
 use crate::store::ObservabilityStore;
 use crate::types::{
     AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
@@ -253,6 +256,16 @@ pub struct ClickHouseObservabilityStorage {
     /// Target database (from `OXY_CLICKHOUSE_DATABASE`). Kept so `ensure_schema`
     /// can `CREATE DATABASE` it before the unqualified table DDL runs.
     database: String,
+    /// Whether `observability_spans` has its `workspace_id` column, as probed
+    /// by [`Self::ensure_schema`]. False until then.
+    ///
+    /// It decides two things, and both have to fail the safe way when the
+    /// column is missing (the ALTER needs a privilege `CREATE` does not imply):
+    /// spans are still **written**, in the shape the table has, so capture is
+    /// never lost over a column; and tenant-facing reads are **refused**,
+    /// because a read that cannot say whose rows it wants would return
+    /// everyone's.
+    spans_scoped: std::sync::atomic::AtomicBool,
 }
 
 impl std::fmt::Debug for ClickHouseObservabilityStorage {
@@ -273,6 +286,7 @@ impl ClickHouseObservabilityStorage {
         Ok(Self {
             client,
             database: database.to_string(),
+            spans_scoped: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -304,6 +318,67 @@ impl ClickHouseObservabilityStorage {
     /// Accessor for the underlying ClickHouse client.
     pub(crate) fn client(&self) -> &Client {
         &self.client
+    }
+
+    /// See the `spans_scoped` field.
+    pub(crate) fn spans_are_scoped(&self) -> bool {
+        self.spans_scoped.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The error a tenant-facing trace read answers with while the table has
+    /// no tenant column: a refusal that names the fix, not an empty list that
+    /// would read as "no traces".
+    pub(crate) fn require_scoped_spans(&self) -> Result<(), OxyError> {
+        if self.spans_are_scoped() {
+            return Ok(());
+        }
+        Err(OxyError::RuntimeError(
+            "observability_spans has no workspace_id column, so traces cannot be read per \
+             workspace. Grant the ClickHouse user ALTER on the observability database and \
+             restart, or run the ALTER in SPANS_WORKSPACE_ALTERS by hand."
+                .to_string(),
+        ))
+    }
+
+    /// Add the tenant column to a spans table that predates it, then ask the
+    /// server whether it is there.
+    ///
+    /// A refused ALTER and a probe that answers "no such column" do not fail
+    /// the open: without the column the store still captures (in the old
+    /// shape) and still serves the custom-app tables, and trace reads refuse
+    /// until it exists.
+    ///
+    /// A probe that **cannot be answered** does fail it. The answer is latched
+    /// for the life of the process, so treating a dropped connection as "no
+    /// column" would have this instance write every span unstamped — hidden
+    /// from every console, for good — on a table that has the column, with one
+    /// log line to show for it. An open that fails is retried; a wrong answer
+    /// is not.
+    async fn ensure_scoped_spans(&self) -> Result<(), OxyError> {
+        for alter in schema::SPANS_WORKSPACE_ALTERS {
+            if let Err(e) = self.client.query(alter).execute().await {
+                tracing::error!(error = %e, alter, "ClickHouse tenant-column ALTER failed");
+            }
+        }
+        let scoped = self
+            .client
+            .query(schema::SPANS_WORKSPACE_PROBE)
+            .fetch_one::<RowCount>()
+            .await
+            .map_err(|e| {
+                OxyError::RuntimeError(format!("ClickHouse tenant-column probe failed: {e}"))
+            })?
+            .c
+            > 0;
+        if !scoped {
+            tracing::error!(
+                "observability_spans has no workspace_id column: spans are captured \
+                 unscoped and trace reads are refused until it exists"
+            );
+        }
+        self.spans_scoped
+            .store(scoped, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
     }
 
     /// A client clone carrying server-side guards for user-facing **read**
@@ -363,6 +438,7 @@ impl ClickHouseObservabilityStorage {
                 tracing::warn!(error = %e, alter, "ClickHouse schema ALTER skipped");
             }
         }
+        self.ensure_scoped_spans().await?;
 
         // The execution rollup MV shares its flatten logic with the backfill via
         // `EXECUTIONS_SELECT`, so it's assembled here rather than sitting in
@@ -522,6 +598,7 @@ impl ClickHouseObservabilityStorage {
 impl ObservabilityStore for ClickHouseObservabilityStorage {
     async fn list_traces(
         &self,
+        scope: &WorkspaceScope,
         limit: i64,
         offset: i64,
         agent_ref: Option<&str>,
@@ -530,6 +607,7 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
     ) -> Result<(Vec<TraceRow>, i64), OxyError> {
         traces::list_traces(
             self,
+            scope,
             limit,
             offset,
             agent_ref,
@@ -544,6 +622,7 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
 
     async fn search_traces(
         &self,
+        scope: &WorkspaceScope,
         limit: i64,
         offset: i64,
         agent_ref: Option<&str>,
@@ -555,6 +634,7 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
     ) -> Result<(Vec<TraceRow>, i64), OxyError> {
         traces::list_traces(
             self,
+            scope,
             limit,
             offset,
             agent_ref,
@@ -567,19 +647,24 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         .await
     }
 
-    async fn get_trace_detail(&self, trace_id: &str) -> Result<Vec<TraceDetailRow>, OxyError> {
-        traces::get_trace_detail(self, trace_id).await
+    async fn get_trace_detail(
+        &self,
+        scope: &WorkspaceScope,
+        trace_id: &str,
+    ) -> Result<Vec<TraceDetailRow>, OxyError> {
+        traces::get_trace_detail(self, scope, trace_id).await
     }
 
     async fn get_cluster_map_data(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         source: Option<&str>,
     ) -> Result<Vec<ClusterMapDataRow>, OxyError> {
         with_query_timeout(
             "get_cluster_map_data",
-            traces::get_cluster_map_data(self, days, limit, source),
+            traces::get_cluster_map_data(self, scope, days, limit, source),
         )
         .await
     }
@@ -590,11 +675,12 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
 
     async fn get_trace_enrichments(
         &self,
+        scope: &WorkspaceScope,
         trace_ids: &[String],
     ) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
         with_query_timeout(
             "get_trace_enrichments",
-            traces::get_trace_enrichments(self, trace_ids),
+            traces::get_trace_enrichments(self, scope, trace_ids),
         )
         .await
     }
@@ -706,72 +792,91 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         metrics::store_metric_usages(self, metrics).await
     }
 
-    async fn get_metrics_analytics(&self, days: u32) -> Result<MetricAnalyticsData, OxyError> {
+    async fn get_metrics_analytics(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<MetricAnalyticsData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_metrics_analytics",
-            metrics::get_metrics_analytics(self, days),
+            metrics::get_metrics_analytics(self, scope, days),
         )
         .await
     }
 
     async fn get_metrics_list(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
     ) -> Result<MetricsListData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_metrics_list",
-            metrics::get_metrics_list(self, days, limit, offset),
+            metrics::get_metrics_list(self, scope, days, limit, offset),
         )
         .await
     }
 
     async fn get_metric_detail(
         &self,
+        scope: &WorkspaceScope,
         metric_name: &str,
         days: u32,
     ) -> Result<MetricDetailData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_metric_detail",
-            metrics::get_metric_detail(self, metric_name, days),
+            metrics::get_metric_detail(self, scope, metric_name, days),
         )
         .await
     }
 
-    async fn get_execution_summary(&self, days: u32) -> Result<ExecutionSummaryData, OxyError> {
+    async fn get_execution_summary(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<ExecutionSummaryData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_execution_summary",
-            execution_analytics::get_execution_summary(self, days),
+            execution_analytics::get_execution_summary(self, scope, days),
         )
         .await
     }
 
     async fn get_execution_time_series(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
     ) -> Result<Vec<ExecutionTimeBucketData>, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_execution_time_series",
-            execution_analytics::get_execution_time_series(self, days),
+            execution_analytics::get_execution_time_series(self, scope, days),
         )
         .await
     }
 
     async fn get_execution_agent_stats(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
     ) -> Result<Vec<AgentExecutionStatsData>, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_execution_agent_stats",
-            execution_analytics::get_execution_agent_stats(self, days, limit),
+            execution_analytics::get_execution_agent_stats(self, scope, days, limit),
         )
         .await
     }
 
     async fn get_execution_list(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
@@ -780,10 +885,12 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         source_ref: Option<&str>,
         status: Option<&str>,
     ) -> Result<ExecutionListData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_execution_list",
             execution_analytics::get_execution_list(
                 self,
+                scope,
                 days,
                 limit,
                 offset,
@@ -796,24 +903,43 @@ impl ObservabilityStore for ClickHouseObservabilityStorage {
         .await
     }
 
-    async fn get_latency_percentiles(&self, days: u32) -> Result<LatencyPercentilesData, OxyError> {
+    async fn get_latency_percentiles(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<LatencyPercentilesData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_latency_percentiles",
-            latency_cost::get_latency_percentiles(self, days),
+            latency_cost::get_latency_percentiles(self, scope, days),
         )
         .await
     }
 
-    async fn get_latency_histogram(&self, days: u32) -> Result<LatencyHistogramData, OxyError> {
+    async fn get_latency_histogram(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<LatencyHistogramData, OxyError> {
+        self.require_scoped_spans()?;
         with_query_timeout(
             "get_latency_histogram",
-            latency_cost::get_latency_histogram(self, days),
+            latency_cost::get_latency_histogram(self, scope, days),
         )
         .await
     }
 
-    async fn get_model_usage(&self, days: u32) -> Result<Vec<ModelUsageData>, OxyError> {
-        with_query_timeout("get_model_usage", latency_cost::get_model_usage(self, days)).await
+    async fn get_model_usage(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<Vec<ModelUsageData>, OxyError> {
+        self.require_scoped_spans()?;
+        with_query_timeout(
+            "get_model_usage",
+            latency_cost::get_model_usage(self, scope, days),
+        )
+        .await
     }
 
     async fn insert_spans(&self, spans: Vec<SpanRecord>) -> Result<(), OxyError> {

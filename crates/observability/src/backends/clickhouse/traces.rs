@@ -5,6 +5,7 @@ use oxy_shared::errors::OxyError;
 use serde::Deserialize;
 
 use super::ClickHouseObservabilityStorage;
+use crate::scope::WorkspaceScope;
 use crate::types::{
     ClusterInfoRow, ClusterMapDataRow, SpanRecord, TraceDetailRow, TraceEnrichmentRow, TraceRow,
 };
@@ -95,6 +96,44 @@ struct SpanInsertRow {
     event_data: String,
     /// Unix nanoseconds (DateTime64(9) stored as Int64 on the wire).
     timestamp: i64,
+    workspace_id: String,
+}
+
+/// [`SpanInsertRow`] for a table that has no `workspace_id` column yet. An
+/// insert names every column it writes, so writing the tenant column to a
+/// table without one fails the whole batch — and a missing ALTER privilege
+/// must not cost the deployment its traces. See `spans_are_scoped`.
+#[derive(Debug, serde::Serialize, Row)]
+struct UnscopedSpanInsertRow {
+    trace_id: String,
+    span_id: String,
+    parent_span_id: String,
+    span_name: String,
+    service_name: String,
+    span_attributes: String,
+    duration_ns: i64,
+    status_code: String,
+    status_message: String,
+    event_data: String,
+    timestamp: i64,
+}
+
+impl From<SpanInsertRow> for UnscopedSpanInsertRow {
+    fn from(row: SpanInsertRow) -> Self {
+        Self {
+            trace_id: row.trace_id,
+            span_id: row.span_id,
+            parent_span_id: row.parent_span_id,
+            span_name: row.span_name,
+            service_name: row.service_name,
+            span_attributes: row.span_attributes,
+            duration_ns: row.duration_ns,
+            status_code: row.status_code,
+            status_message: row.status_message,
+            event_data: row.event_data,
+            timestamp: row.timestamp,
+        }
+    }
 }
 
 fn duration_interval(dur: Option<&str>) -> Option<&'static str> {
@@ -130,19 +169,22 @@ fn escape_like_pattern(s: &str) -> String {
     out
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn list_traces(
-    storage: &ClickHouseObservabilityStorage,
-    limit: i64,
-    offset: i64,
+/// The `WHERE` of the trace list: `scope`'s root spans, narrowed by the
+/// caller's filters. One clause set for both the count and the page, so the
+/// two cannot disagree about whose rows they are counting.
+fn trace_list_where(
+    scope: &WorkspaceScope,
     agent_ref: Option<&str>,
     status: Option<&str>,
     duration_filter: Option<&str>,
     search: Option<&str>,
     from_ts: Option<i64>,
     to_ts: Option<i64>,
-) -> Result<(Vec<TraceRow>, i64), OxyError> {
+) -> String {
     let mut conditions = vec![
+        // First, and not optional: every other condition narrows a set that is
+        // already this workspace's.
+        scope.spans_predicate("s."),
         "s.span_name IN ('workflow.run_workflow', 'agent.run_agent', 'analytics.run')".to_string(),
         "s.parent_span_id = ''".to_string(),
     ];
@@ -188,7 +230,32 @@ pub(super) async fn list_traces(
         ));
     }
 
-    let where_clause = conditions.join(" AND ");
+    conditions.join(" AND ")
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn list_traces(
+    storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
+    limit: i64,
+    offset: i64,
+    agent_ref: Option<&str>,
+    status: Option<&str>,
+    duration_filter: Option<&str>,
+    search: Option<&str>,
+    from_ts: Option<i64>,
+    to_ts: Option<i64>,
+) -> Result<(Vec<TraceRow>, i64), OxyError> {
+    storage.require_scoped_spans()?;
+    let where_clause = trace_list_where(
+        scope,
+        agent_ref,
+        status,
+        duration_filter,
+        search,
+        from_ts,
+        to_ts,
+    );
 
     let count_sql =
         format!("SELECT count() AS count FROM observability_spans s WHERE {where_clause}");
@@ -277,17 +344,21 @@ pub(super) async fn list_traces(
     Ok((traces, total as i64))
 }
 
-pub(super) async fn get_trace_detail(
-    storage: &ClickHouseObservabilityStorage,
-    trace_id: &str,
-) -> Result<Vec<TraceDetailRow>, OxyError> {
+/// Every span of one trace, if the trace is `scope`'s.
+///
+/// The workspace predicate is on each row rather than on the root alone: the
+/// layer stamps a trace's every span, so this cannot return a mixed trace, and
+/// a trace id from another workspace matches no row — the same answer as an id
+/// that does not exist, which is what lets the handler 404 both alike.
+fn trace_detail_sql(scope: &WorkspaceScope, trace_id: &str) -> String {
     // A single trace should never approach this many spans; the cap guards the
     // request path (and the instance's memory) against a pathological or
     // colliding trace_id returning an unbounded result set.
     const MAX_SPANS: usize = 100_000;
     let ts = super::iso_utc("timestamp");
     let trace = escape_sql_literal(trace_id);
-    let sql = format!(
+    let in_scope = scope.spans_predicate("");
+    format!(
         "SELECT
             {ts} AS timestamp,
             trace_id,
@@ -301,10 +372,19 @@ pub(super) async fn get_trace_detail(
             status_message,
             event_data
         FROM observability_spans
-        WHERE trace_id = '{trace}'
+        WHERE trace_id = '{trace}' AND {in_scope}
         ORDER BY timestamp ASC
         LIMIT {MAX_SPANS}"
-    );
+    )
+}
+
+pub(super) async fn get_trace_detail(
+    storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
+    trace_id: &str,
+) -> Result<Vec<TraceDetailRow>, OxyError> {
+    storage.require_scoped_spans()?;
+    let sql = trace_detail_sql(scope, trace_id);
 
     let rows: Vec<TraceDetailQueryRow> = super::with_query_timeout("trace detail", async {
         storage
@@ -361,18 +441,33 @@ fn cluster_map_sql(where_clause: &str, limit: usize) -> String {
     )
 }
 
+/// The `WHERE` of the cluster map: classifications of questions asked in
+/// `scope`. The classification table has a `trace_id` and no tenant column, so
+/// the workspace comes from the spans that trace is made of — windowed like
+/// the map itself, or every page load would walk the whole retention of the
+/// largest table to find them. A question classified more than a day after
+/// the window its run started in is left out: hidden, never leaked, the same
+/// rule the rollup reads follow.
+fn cluster_map_where(scope: &WorkspaceScope, days: u32, source: Option<&str>) -> String {
+    let mut conditions = vec![
+        scope.rollup_predicate(days),
+        format!("classified_at >= now() - INTERVAL {days} DAY"),
+    ];
+    if let Some(src) = source {
+        conditions.push(format!("source = '{}'", escape_sql_literal(src)));
+    }
+    conditions.join(" AND ")
+}
+
 pub(super) async fn get_cluster_map_data(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
     limit: usize,
     source: Option<&str>,
 ) -> Result<Vec<ClusterMapDataRow>, OxyError> {
-    let mut conditions = vec![format!("classified_at >= now() - INTERVAL {days} DAY")];
-    if let Some(src) = source {
-        conditions.push(format!("source = '{}'", escape_sql_literal(src)));
-    }
-
-    let where_clause = conditions.join(" AND ");
+    storage.require_scoped_spans()?;
+    let where_clause = cluster_map_where(scope, days, source);
     let sql = cluster_map_sql(&where_clause, limit);
 
     let rows: Vec<ClusterMapQueryRow> = storage
@@ -422,26 +517,36 @@ pub(super) async fn get_cluster_infos(
         .collect())
 }
 
-pub(super) async fn get_trace_enrichments(
-    storage: &ClickHouseObservabilityStorage,
-    trace_ids: &[String],
-) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
-    if trace_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
+/// Status and duration of those of `trace_ids` that are `scope`'s. An id from
+/// another workspace is simply not enriched.
+fn trace_enrichments_sql(scope: &WorkspaceScope, trace_ids: &[String]) -> String {
     let list = trace_ids
         .iter()
         .map(|id| format!("'{}'", escape_sql_literal(id)))
         .collect::<Vec<_>>()
         .join(", ");
+    let in_scope = scope.spans_predicate("");
 
-    let sql = format!(
+    format!(
         "SELECT trace_id, status_code, duration_ns
         FROM observability_spans
         WHERE parent_span_id = ''
+          AND {in_scope}
           AND trace_id IN ({list})"
-    );
+    )
+}
+
+pub(super) async fn get_trace_enrichments(
+    storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
+    trace_ids: &[String],
+) -> Result<Vec<TraceEnrichmentRow>, OxyError> {
+    if trace_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    storage.require_scoped_spans()?;
+
+    let sql = trace_enrichments_sql(scope, trace_ids);
 
     let rows: Vec<TraceEnrichmentQueryRow> = storage
         .read_client()
@@ -460,6 +565,33 @@ pub(super) async fn get_trace_enrichments(
         .collect())
 }
 
+/// Write `rows` to `observability_spans` in one insert.
+async fn write_span_rows<T>(
+    storage: &ClickHouseObservabilityStorage,
+    rows: Vec<T>,
+) -> Result<(), OxyError>
+where
+    T: clickhouse::RowOwned + clickhouse::RowWrite,
+{
+    let mut insert = storage
+        .client()
+        .insert::<T>("observability_spans")
+        .await
+        .map_err(|e| OxyError::RuntimeError(format!("ClickHouse insert init failed: {e}")))?;
+
+    for row in &rows {
+        insert
+            .write(row)
+            .await
+            .map_err(|e| OxyError::RuntimeError(format!("ClickHouse span write failed: {e}")))?;
+    }
+
+    insert
+        .end()
+        .await
+        .map_err(|e| OxyError::RuntimeError(format!("ClickHouse span insert end failed: {e}")))
+}
+
 pub(super) async fn insert_spans(
     storage: &ClickHouseObservabilityStorage,
     spans: Vec<SpanRecord>,
@@ -468,15 +600,10 @@ pub(super) async fn insert_spans(
         return Ok(());
     }
 
-    let mut insert = storage
-        .client()
-        .insert::<SpanInsertRow>("observability_spans")
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("ClickHouse insert init failed: {e}")))?;
-
-    for span in spans {
-        let ts_ns = parse_timestamp_ns(&span.timestamp);
-        let row = SpanInsertRow {
+    let rows: Vec<SpanInsertRow> = spans
+        .into_iter()
+        .map(|span| SpanInsertRow {
+            timestamp: parse_timestamp_ns(&span.timestamp),
             trace_id: span.trace_id,
             span_id: span.span_id,
             parent_span_id: span.parent_span_id,
@@ -487,21 +614,19 @@ pub(super) async fn insert_spans(
             status_code: span.status_code,
             status_message: span.status_message,
             event_data: span.event_data,
-            timestamp: ts_ns,
-        };
+            workspace_id: span.workspace_id,
+        })
+        .collect();
 
-        insert
-            .write(&row)
-            .await
-            .map_err(|e| OxyError::RuntimeError(format!("ClickHouse span write failed: {e}")))?;
+    // The shape the table has. Without the tenant column the spans are still
+    // kept — nobody can read them per workspace until it exists, and nothing
+    // reads them across workspaces either.
+    if storage.spans_are_scoped() {
+        write_span_rows(storage, rows).await
+    } else {
+        let unscoped: Vec<UnscopedSpanInsertRow> = rows.into_iter().map(Into::into).collect();
+        write_span_rows(storage, unscoped).await
     }
-
-    insert
-        .end()
-        .await
-        .map_err(|e| OxyError::RuntimeError(format!("ClickHouse span insert end failed: {e}")))?;
-
-    Ok(())
 }
 
 /// Parse an RFC3339 timestamp into nanoseconds since Unix epoch.
@@ -515,7 +640,147 @@ fn parse_timestamp_ns(ts: &str) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{cluster_map_sql, escape_like_pattern, escape_sql_literal};
+    use super::{
+        ClickHouseObservabilityStorage, cluster_map_sql, cluster_map_where, escape_like_pattern,
+        escape_sql_literal, trace_detail_sql, trace_enrichments_sql, trace_list_where,
+    };
+    use crate::scope::WorkspaceScope;
+
+    const WORKSPACE: &str = "70787bb2-e11b-5488-b2c3-02e60d5fc7d3";
+
+    fn scope() -> WorkspaceScope {
+        WorkspaceScope::of(uuid::Uuid::parse_str(WORKSPACE).unwrap())
+    }
+
+    /// The agent tables are shared by every tenant, so a tenant-facing read
+    /// that does not name its workspace returns everyone's rows. Each query a
+    /// handler under `/{workspace_id}/traces` can reach is listed here; a new
+    /// one belongs in this list before it belongs in a route.
+    #[test]
+    fn every_trace_read_names_its_workspace() {
+        let on_spans = format!("workspace_id = '{WORKSPACE}'");
+        let reads = [
+            (
+                "list",
+                trace_list_where(&scope(), None, None, None, None, None, None),
+            ),
+            (
+                "list, every filter set",
+                trace_list_where(
+                    &scope(),
+                    Some("agents/sales"),
+                    Some("Error"),
+                    Some("7d"),
+                    Some("revenue"),
+                    Some(1_700_000_000),
+                    Some(1_700_003_600),
+                ),
+            ),
+            ("detail", trace_detail_sql(&scope(), "abc123")),
+            (
+                "enrichments",
+                trace_enrichments_sql(&scope(), &["abc123".to_string()]),
+            ),
+            (
+                "cluster map",
+                cluster_map_where(&scope(), 30, Some("agent")),
+            ),
+        ];
+        for (read, sql) in reads {
+            assert!(sql.contains(&on_spans), "{read} is not scoped:\n{sql}");
+        }
+    }
+
+    /// The caller's filters are `AND`ed onto a set that is already the
+    /// workspace's. The search clause is the only `OR` in the list, and it has
+    /// to stay inside its own parentheses: bare, `a AND b OR c` would let any
+    /// search match rows outside the workspace.
+    #[test]
+    fn list_filters_narrow_the_workspace_and_cannot_widen_it() {
+        let sql = trace_list_where(&scope(), None, None, None, Some("revenue"), None, None);
+        assert!(
+            sql.starts_with(&format!("s.workspace_id = '{WORKSPACE}' AND ")),
+            "{sql}"
+        );
+        let search = sql
+            .find("(s.trace_id = 'revenue'")
+            .expect("the search group");
+        assert!(sql[search..].ends_with(')'), "{sql}");
+        assert_eq!(
+            sql[..search].matches(" OR ").count(),
+            0,
+            "an OR outside the search group:\n{sql}"
+        );
+    }
+
+    /// A trace id is caller input sitting next to the tenant predicate. It
+    /// stays inside its literal, and the predicate still follows it.
+    #[test]
+    fn a_trace_id_cannot_argue_its_way_out_of_the_workspace() {
+        let hostile = "x' OR workspace_id != '";
+        let sql = trace_detail_sql(&scope(), hostile);
+        assert!(
+            sql.contains(&format!(
+                "WHERE trace_id = '{}' AND workspace_id = '{WORKSPACE}'",
+                escape_sql_literal(hostile)
+            )),
+            "{sql}"
+        );
+        let enrich = trace_enrichments_sql(&scope(), &[hostile.to_string()]);
+        assert!(
+            enrich.contains(&format!("trace_id IN ('{}')", escape_sql_literal(hostile))),
+            "{enrich}"
+        );
+    }
+
+    /// The classification table has no tenant column, so the cluster map is
+    /// confined through the spans its traces are made of — and by nothing
+    /// looser than this workspace's own roots.
+    #[test]
+    fn the_cluster_map_is_confined_through_this_workspaces_traces() {
+        let sql = cluster_map_where(&scope(), 30, None);
+        assert!(
+            sql.starts_with(&format!("trace_id IN ({}", scope().trace_ids())),
+            "{sql}"
+        );
+        // …and through no more of the spans table than the window it shows: an
+        // unbounded subquery reads all 90 days of it on every page load.
+        assert!(
+            sql.starts_with(&scope().rollup_predicate(30)),
+            "the scope subquery is not windowed:\n{sql}"
+        );
+    }
+
+    /// The probe's answer is latched for the life of the process. "The server
+    /// did not answer" must not be recorded as "the column is absent": that
+    /// instance would then write every span unstamped — in nobody's console,
+    /// permanently — against a table that has the column.
+    #[tokio::test]
+    async fn a_probe_that_cannot_be_answered_fails_the_open_instead_of_latching_unscoped() {
+        // Nothing listens here, so the ALTER and the probe both fail to connect.
+        let storage =
+            ClickHouseObservabilityStorage::new("http://127.0.0.1:1", "u", "p", "observability")
+                .unwrap();
+        let failed = storage
+            .ensure_scoped_spans()
+            .await
+            .expect_err("an unanswered probe is an error, not a `false`")
+            .to_string();
+        assert!(failed.contains("tenant-column probe failed"), "{failed}");
+        assert!(!storage.spans_are_scoped());
+    }
+
+    /// Until `ensure_schema` has seen the tenant column, a read is refused. An
+    /// empty list here would be read as "this workspace has no traces".
+    #[test]
+    fn trace_reads_are_refused_until_the_tenant_column_is_known_to_exist() {
+        let storage =
+            ClickHouseObservabilityStorage::new("http://127.0.0.1:1", "u", "p", "observability")
+                .unwrap();
+        assert!(!storage.spans_are_scoped());
+        let refused = storage.require_scoped_spans().unwrap_err().to_string();
+        assert!(refused.contains("workspace_id"), "{refused}");
+    }
 
     /// Regression for the cluster map's `NO_COMMON_TYPE` (ClickHouse error
     /// code 386): the query filters `WHERE classified_at >= now() - INTERVAL

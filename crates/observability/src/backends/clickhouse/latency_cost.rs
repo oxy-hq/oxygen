@@ -10,6 +10,7 @@ use oxy_shared::errors::OxyError;
 use serde::Deserialize;
 
 use super::ClickHouseObservabilityStorage;
+use crate::scope::WorkspaceScope;
 use crate::types::{
     HistogramBucketData, LatencyHistogramData, LatencyPercentilePoint, LatencyPercentiles,
     LatencyPercentilesData, ModelUsageData,
@@ -57,11 +58,13 @@ const QUANTILES: &str = "\
 
 async fn overall_percentiles(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<LatencyPercentiles, OxyError> {
+    let in_scope = scope.rollup_predicate(days);
     let sql = format!(
         "SELECT {QUANTILES} FROM observability_executions FINAL \
-         WHERE timestamp >= now() - INTERVAL {days} DAY"
+         WHERE timestamp >= now() - INTERVAL {days} DAY AND {in_scope}"
     );
     let row = storage
         .read_client()
@@ -80,14 +83,16 @@ async fn overall_percentiles(
 
 pub(super) async fn get_latency_percentiles(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<LatencyPercentilesData, OxyError> {
-    let overall = overall_percentiles(storage, days).await?;
+    let in_scope = scope.rollup_predicate(days);
+    let overall = overall_percentiles(storage, scope, days).await?;
 
     let series_sql = format!(
         "SELECT formatDateTime(toDate(timestamp), '%Y-%m-%d') AS date, {QUANTILES} \
          FROM observability_executions FINAL \
-         WHERE timestamp >= now() - INTERVAL {days} DAY \
+         WHERE timestamp >= now() - INTERVAL {days} DAY AND {in_scope} \
          GROUP BY date ORDER BY date ASC"
     );
     let rows: Vec<SeriesRow> = storage
@@ -112,8 +117,10 @@ pub(super) async fn get_latency_percentiles(
 
 pub(super) async fn get_latency_histogram(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<LatencyHistogramData, OxyError> {
+    let in_scope = scope.rollup_predicate(days);
     // Log2 buckets clamped to [0, 15]; bucket b holds durations in
     // (2^b, 2^(b+1)] ms, so its inclusive upper bound is 2^(b+1) ms.
     let sql = format!(
@@ -121,7 +128,7 @@ pub(super) async fn get_latency_histogram(
             toUInt16(least(15, greatest(0, toInt32(floor(log2(greatest(duration_ns / 1000000.0, 1.0))))))) AS bucket,
             count() AS count
         FROM observability_executions FINAL
-        WHERE timestamp >= now() - INTERVAL {days} DAY
+        WHERE timestamp >= now() - INTERVAL {days} DAY AND {in_scope}
         GROUP BY bucket ORDER BY bucket ASC"
     );
     let rows: Vec<BucketRow> = storage
@@ -139,7 +146,7 @@ pub(super) async fn get_latency_histogram(
         })
         .collect();
 
-    let percentiles = overall_percentiles(storage, days).await?;
+    let percentiles = overall_percentiles(storage, scope, days).await?;
     Ok(LatencyHistogramData {
         buckets,
         percentiles,
@@ -148,8 +155,10 @@ pub(super) async fn get_latency_histogram(
 
 pub(super) async fn get_model_usage(
     storage: &ClickHouseObservabilityStorage,
+    scope: &WorkspaceScope,
     days: u32,
 ) -> Result<Vec<ModelUsageData>, OxyError> {
+    let on_spans = scope.spans_predicate("");
     // Tokens are stringified event fields on the `llm.usage` event; model is a
     // span attribute. Extract per span, then aggregate per model.
     let sql = format!(
@@ -170,7 +179,8 @@ pub(super) async fn get_model_usage(
                     JSONExtractArrayRaw(event_data)), 'attributes', 'completion_tokens')) AS output_tokens,
                 duration_ns
             FROM observability_spans
-            WHERE JSONExtractString(span_attributes, 'oxy.span_type') = 'llm'
+            WHERE {on_spans}
+              AND JSONExtractString(span_attributes, 'oxy.span_type') = 'llm'
               AND timestamp >= now() - INTERVAL {days} DAY
         )
         WHERE model != ''

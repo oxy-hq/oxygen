@@ -10,6 +10,7 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use uuid::Uuid;
 
+use crate::scope::{WORKSPACE_ATTRIBUTE, stamped_workspace};
 use crate::types::SpanRecord;
 
 /// Internal data attached to each span via extensions.
@@ -22,6 +23,19 @@ struct SpanData {
     events: Vec<EventRecord>,
     service_name: String,
     has_error_event: bool,
+    /// The workspace this span's trace belongs to; `""` until something says.
+    /// Decided once, at the top: a root that names a workspace hands it to
+    /// everything beneath it, and a span whose parent already has one cannot
+    /// take another — a trace is one tenant's or nobody's, never split.
+    workspace_id: String,
+}
+
+/// The workspace `attributes` claim, if they claim one.
+fn workspace_of(attributes: &HashMap<String, String>) -> String {
+    attributes
+        .get(WORKSPACE_ATTRIBUTE)
+        .and_then(|raw| stamped_workspace(raw))
+        .unwrap_or_default()
 }
 
 /// A single event captured within a span.
@@ -178,23 +192,30 @@ where
             None => return,
         };
 
-        // Inherit trace_id from parent, or generate a new one.
-        let trace_id = if let Some(parent) = span.parent() {
+        // Inherit the trace — its id and its workspace — from the parent, or
+        // start a new one that belongs to nobody yet.
+        let inherited = span.parent().and_then(|parent| {
             let extensions = parent.extensions();
             extensions
                 .get::<SpanData>()
-                .map(|d| d.trace_id.clone())
-                .unwrap_or_else(new_trace_id)
-        } else {
-            new_trace_id()
-        };
+                .map(|d| (d.trace_id.clone(), d.workspace_id.clone()))
+        });
+        let (trace_id, inherited_workspace) =
+            inherited.unwrap_or_else(|| (new_trace_id(), String::new()));
 
         // Collect initial span attributes.
         let mut visitor = FieldVisitor::new();
         attrs.record(&mut visitor);
 
+        let workspace_id = if inherited_workspace.is_empty() {
+            workspace_of(&visitor.fields)
+        } else {
+            inherited_workspace
+        };
+
         let data = SpanData {
             trace_id,
+            workspace_id,
             span_id: new_span_id(),
             start: Instant::now(),
             start_wall: chrono::Utc::now(),
@@ -219,6 +240,12 @@ where
         let mut extensions = span.extensions_mut();
         if let Some(data) = extensions.get_mut::<SpanData>() {
             data.attributes.extend(visitor.fields);
+            // A span that declared the field `Empty` and filled it in later.
+            // Children opened before this line were handed nothing, which is
+            // why a root should name its workspace when it is created.
+            if data.workspace_id.is_empty() {
+                data.workspace_id = workspace_of(&data.attributes);
+            }
         }
     }
 
@@ -340,6 +367,7 @@ where
             status_message,
             event_data: event_data_str,
             timestamp: data.start_wall.to_rfc3339(),
+            workspace_id: data.workspace_id,
         };
 
         // Send to writer; ignore errors (receiver dropped means shutdown).
@@ -370,6 +398,9 @@ pub fn current_trace_id() -> Option<String> {
         None
     })?
 }
+
+#[cfg(test)]
+mod workspace_tests;
 
 #[cfg(test)]
 mod tests {

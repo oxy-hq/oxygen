@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use oxy_shared::errors::OxyError;
 
 use crate::intent_types::IntentCluster;
+use crate::scope::WorkspaceScope;
 use crate::types::{
     AgentExecutionStatsData, AppAvailabilityWindow, ClientErrorGroup, ClusterInfoRow,
     ClusterMapDataRow, CustomAppClientErrorRecord, CustomAppEventRecord, CustomAppLogRecord,
@@ -33,10 +34,15 @@ use crate::types::{
 pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     // ── Traces ────────────────────────────────────────────────────────────
 
-    /// List traces with pagination and filtering.
+    /// List `scope`'s traces with pagination and filtering.
     /// Returns `(traces, total_count)`.
+    ///
+    /// Every read in this section is confined to one workspace: the agent
+    /// tables are shared by all tenants, and a read that does not say whose
+    /// rows it wants returns everyone's. See [`crate::scope`].
     async fn list_traces(
         &self,
+        scope: &WorkspaceScope,
         limit: i64,
         offset: i64,
         agent_ref: Option<&str>,
@@ -51,6 +57,7 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     #[allow(clippy::too_many_arguments)]
     async fn search_traces(
         &self,
+        scope: &WorkspaceScope,
         limit: i64,
         offset: i64,
         agent_ref: Option<&str>,
@@ -61,15 +68,23 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
         to_ts: Option<i64>,
     ) -> Result<(Vec<TraceRow>, i64), OxyError> {
         let _ = (search, from_ts, to_ts);
-        self.list_traces(limit, offset, agent_ref, status, duration_filter)
+        self.list_traces(scope, limit, offset, agent_ref, status, duration_filter)
             .await
     }
 
-    async fn get_trace_detail(&self, trace_id: &str) -> Result<Vec<TraceDetailRow>, OxyError>;
+    /// Every span of `trace_id`, if the trace is `scope`'s. Another
+    /// workspace's trace id answers the same as one that does not exist.
+    async fn get_trace_detail(
+        &self,
+        scope: &WorkspaceScope,
+        trace_id: &str,
+    ) -> Result<Vec<TraceDetailRow>, OxyError>;
 
-    /// Get embeddings with classification data for cluster map visualization.
+    /// Get embeddings with classification data for cluster map visualization,
+    /// for questions asked in `scope`.
     async fn get_cluster_map_data(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         source: Option<&str>,
@@ -77,13 +92,21 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
 
     async fn get_cluster_infos(&self) -> Result<Vec<ClusterInfoRow>, OxyError>;
 
-    /// Get trace enrichment data (status, duration) for a set of trace IDs.
+    /// Get trace enrichment data (status, duration) for those of `trace_ids`
+    /// that are `scope`'s.
     async fn get_trace_enrichments(
         &self,
+        scope: &WorkspaceScope,
         trace_ids: &[String],
     ) -> Result<Vec<TraceEnrichmentRow>, OxyError>;
 
     // ── Intents ───────────────────────────────────────────────────────────
+    //
+    // Not scoped, on purpose: these feed the classifier job and the
+    // `oxy intent` CLI, which fit clusters over every tenant's questions.
+    // None of them may be reached from a route under `/{workspace_id}/`
+    // without taking a `WorkspaceScope` first — what a workspace is shown of
+    // the clusters goes through `get_cluster_map_data`, which is.
 
     /// Fetch unprocessed questions from spans that lack classifications.
     /// Returns tuples of `(trace_id, question, source)`.
@@ -154,10 +177,15 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     async fn store_metric_usages(&self, metrics: Vec<MetricUsageRecord>) -> Result<(), OxyError>;
 
     /// Get analytics summary for the last N days.
-    async fn get_metrics_analytics(&self, days: u32) -> Result<MetricAnalyticsData, OxyError>;
+    async fn get_metrics_analytics(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<MetricAnalyticsData, OxyError>;
 
     async fn get_metrics_list(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
@@ -165,22 +193,29 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
 
     async fn get_metric_detail(
         &self,
+        scope: &WorkspaceScope,
         metric_name: &str,
         days: u32,
     ) -> Result<MetricDetailData, OxyError>;
 
     // ── Execution Analytics ───────────────────────────────────────────────
 
-    async fn get_execution_summary(&self, days: u32) -> Result<ExecutionSummaryData, OxyError>;
+    async fn get_execution_summary(
+        &self,
+        scope: &WorkspaceScope,
+        days: u32,
+    ) -> Result<ExecutionSummaryData, OxyError>;
 
     /// Get execution time series (daily buckets).
     async fn get_execution_time_series(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
     ) -> Result<Vec<ExecutionTimeBucketData>, OxyError>;
 
     async fn get_execution_agent_stats(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
     ) -> Result<Vec<AgentExecutionStatsData>, OxyError>;
@@ -188,6 +223,7 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     /// Get paginated execution details.
     async fn get_execution_list(
         &self,
+        scope: &WorkspaceScope,
         days: u32,
         limit: usize,
         offset: usize,
@@ -202,18 +238,27 @@ pub trait ObservabilityStore: Send + Sync + std::fmt::Debug {
     /// it (only ClickHouse does).
     async fn get_latency_percentiles(
         &self,
+        _scope: &WorkspaceScope,
         _days: u32,
     ) -> Result<LatencyPercentilesData, OxyError> {
         Ok(LatencyPercentilesData::default())
     }
 
     /// Latency histogram (log-spaced buckets) plus p50/p95/p99 markers.
-    async fn get_latency_histogram(&self, _days: u32) -> Result<LatencyHistogramData, OxyError> {
+    async fn get_latency_histogram(
+        &self,
+        _scope: &WorkspaceScope,
+        _days: u32,
+    ) -> Result<LatencyHistogramData, OxyError> {
         Ok(LatencyHistogramData::default())
     }
 
     /// Per-model LLM token usage (for cost estimation). Aggregates `llm` spans.
-    async fn get_model_usage(&self, _days: u32) -> Result<Vec<ModelUsageData>, OxyError> {
+    async fn get_model_usage(
+        &self,
+        _scope: &WorkspaceScope,
+        _days: u32,
+    ) -> Result<Vec<ModelUsageData>, OxyError> {
         Ok(Vec::new())
     }
 
