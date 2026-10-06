@@ -1,16 +1,16 @@
 ---
-title: "Air Conductor"
-sidebarTitle: "Air Conductor"
+title: "Airconductor"
+sidebarTitle: "Airconductor"
 description: "Oxygen's durable task engine, which queues background work in Postgres and runs it to completion through restarts and deploys"
 ---
 
-**Air Conductor** is Oxygen's durable task engine. It runs the work that
+**Airconductor** is Oxygen's durable task engine. It runs the work that
 happens after a request returns, such as
 [Airway](/guide/build/data-infrastructure/airway) loads into
 [Airhouse](/guide/build/data-infrastructure/airhouse), automation runs, and
 scheduled agents, and it keeps that work going when a process stops partway
 through. Where [Airform](/guide/build/data-infrastructure/airform) shapes
-tables, Air Conductor decides when work runs and makes sure it finishes. It
+tables, Airconductor decides when work runs and makes sure it finishes. It
 has three parts:
 
 - A **queue** in Oxygen's own Postgres database, where every piece of work is
@@ -21,7 +21,7 @@ has three parts:
   refreshes into queued work when they come due.
 
 <Frame caption="Work is recorded in Postgres before any worker runs it, so a worker that stops never takes the work with it: another worker claims it, and the run continues from the steps already finished.">
-  <img src="../../images/air-conductor-figure-1.svg" alt="Air Conductor architecture. Triggers, such as Run now, a schedule coming due, or an automation step, enqueue work into a task queue that lives in Oxygen's Postgres database. The scheduler queues scheduled work, and each due time fires once even when several schedulers run. A Postgres notification wakes idle workers, with a 10-second poll as a backstop. Workers run either inside oxy serve or as a standalone fleet started with oxy worker. Each worker claims a task, sends a heartbeat while it runs, and records the result. The work they run includes Airway loads, automation steps, scheduled agents, and pre-aggregation refreshes. A highlighted loop shows recovery: if a worker stops, its claim expires and the task returns to the queue in about 90 seconds, and the run continues from the steps already finished." />
+  <img src="../../images/airconductor-figure-1.svg" alt="Airconductor architecture. Triggers, such as Run now, a schedule coming due, or an automation step, enqueue work into a task queue that lives in Oxygen's Postgres database. The scheduler queues scheduled work, and each due time fires once even when several schedulers run. A Postgres notification wakes idle workers, with a 10-second poll as a backstop. Workers run either inside oxy serve or as a standalone fleet started with oxy worker. Each worker claims a task, sends a heartbeat while it runs, and records the result. The work they run includes Airway loads, automation steps, scheduled agents, and pre-aggregation refreshes. A highlighted loop shows recovery: if a worker stops, its claim expires and the task returns to the queue in about 90 seconds, and the run continues from the steps already finished." />
 </Frame>
 
 ## Why it matters

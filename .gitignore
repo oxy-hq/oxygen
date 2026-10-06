@@ -26,6 +26,10 @@ __pycache__/
 env/
 bin/
 build/
+# docs/build/ is the docs' "Build" section, not a build output. Left ignored,
+# a new page there stages nothing on a plain `git add` and never reaches the
+# docs site.
+!docs/build/
 develop-eggs/
 eggs/
 lib/
