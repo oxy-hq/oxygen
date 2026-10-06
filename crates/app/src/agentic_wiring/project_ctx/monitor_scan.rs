@@ -51,6 +51,7 @@ impl MonitorScanPort for OxyProjectContext {
         let persisted = oxy_metric_monitoring::persist_scan(db, workspace_id, &scan)
             .await
             .map_err(|e| e.to_string())?;
+        crate::server::anomaly_notify::enqueue_if_due(db, workspace_id, scan.notify.as_ref()).await;
         let summary = format!(
             "scanned={} failed={} persisted={}",
             scan.outcomes.len(),

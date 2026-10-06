@@ -74,6 +74,10 @@ pub struct MonitorConfig {
     /// chain's includes local events no library carries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<std::collections::HashMap<chrono::NaiveDate, String>>,
+    /// Where a scan announces the insights it newly found. Absent = nowhere;
+    /// the Insights Inbox is then the only place they appear.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notify: Option<crate::notify::NotifyConfig>,
     #[serde(default)]
     pub monitors: Vec<MonitorEntry>,
 }
@@ -371,6 +375,11 @@ pub enum LoadError {
     },
     #[error("invalid IANA timezone {name:?} in monitor config at {path}")]
     InvalidTimezone { path: PathBuf, name: String },
+    #[error(
+        "notify.slack_channel {value:?} in monitor config at {path} is not a Slack channel id \
+         (it looks like C0123ABCDEF; copy it from the channel's details in Slack)"
+    )]
+    InvalidNotifyChannel { path: PathBuf, value: String },
 }
 
 /// Load a single `.monitor.yml` from disk. A missing file returns an empty
@@ -418,6 +427,13 @@ pub fn load_from_file(path: &Path) -> Result<MonitorConfig, LoadError> {
                 name: name.clone(),
             });
         }
+    }
+
+    if let Some(notify) = cfg.notify.as_ref().filter(|n| !n.has_channel_id()) {
+        return Err(LoadError::InvalidNotifyChannel {
+            path: path.to_path_buf(),
+            value: notify.slack_channel.clone(),
+        });
     }
 
     cfg.apply_defaults();

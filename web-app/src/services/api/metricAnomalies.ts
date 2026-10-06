@@ -124,8 +124,15 @@ export class MetricAnomaliesService {
     try {
       const response = await apiClient.get<ListMonitorsResponse>(`/${projectId}/semantic/monitors`);
       // `coverage` is absent from responses served before it shipped, and from
-      // workspaces that have never been scanned.
-      return { monitors: response.data.monitors ?? [], coverage: response.data.coverage ?? [] };
+      // workspaces that have never been scanned. `notify` is absent whenever
+      // the file has no such block. Each field is carried over by name, so one
+      // left off this list is dropped without a type error — which is how the
+      // delivery note came to say "only in this inbox" for every workspace.
+      return {
+        monitors: response.data.monitors ?? [],
+        coverage: response.data.coverage ?? [],
+        notify: response.data.notify ?? null
+      };
     } catch (error) {
       rethrow(error);
     }

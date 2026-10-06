@@ -18,8 +18,8 @@
 //!
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `context_documents_boundary`, `anomaly_bulk_status`,
-//!   `simulation_routes`, `simulation_lifecycle`, the two `workspace_previews_*` modules,
-//!   `preview_routes` and `preview_ttl` are database-backed
+//!   `anomaly_notify`, `simulation_routes`, `simulation_lifecycle`, the two
+//!   `workspace_previews_*` modules, `preview_routes` and `preview_ttl` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `projects_query` and `local_mode_router` call `api_router(..)`, which
@@ -52,6 +52,7 @@ mod admin_staff_scope;
 mod airway_compile_boundary;
 mod airway_fleet_control;
 mod anomaly_bulk_status;
+mod anomaly_notify;
 mod artifact_naming_agrees;
 mod build;
 mod chat_org_standing;

@@ -102,6 +102,10 @@ pub struct ListMonitorsResponse {
     /// inbox. Empty until the first scan after this shipped.
     #[serde(default)]
     pub coverage: Vec<entity::metric_monitor_coverage::Model>,
+    /// The file's `notify:` block, so the tab can say whether new insights go
+    /// anywhere but this inbox. Absent when the file has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notify: Option<monitoring::NotifyConfig>,
 }
 
 /// Per-segment scan coverage for a workspace.
@@ -153,6 +157,7 @@ pub async fn list_monitors(
             return Ok(Json(ListMonitorsResponse {
                 monitors: vec![],
                 coverage,
+                notify: None,
             }));
         }
         // Retryable means no source could be read — not compiled yet, or no
@@ -181,6 +186,7 @@ pub async fn list_monitors(
     Ok(Json(ListMonitorsResponse {
         monitors: cfg.monitors,
         coverage,
+        notify: cfg.notify,
     }))
 }
 

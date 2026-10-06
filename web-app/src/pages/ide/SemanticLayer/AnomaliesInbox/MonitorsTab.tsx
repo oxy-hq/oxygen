@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { CircleAlert } from "lucide-react";
+import { type ReactNode, useMemo } from "react";
 import { Badge } from "@/components/ui/shadcn/badge";
+import { Skeleton } from "@/components/ui/shadcn/skeleton";
 import {
   Table,
   TableBody,
@@ -11,94 +13,157 @@ import {
 import {
   useMetricAnomalies,
   useMonitorCoverage,
+  useMonitorNotify,
   useMonitors
 } from "@/hooks/api/useMetricAnomalies";
-import type { AnomalyFilter, MonitorCoverage, MonitorEntry } from "@/types/metricAnomalies";
+import { cn } from "@/libs/shadcn/utils";
+import type { MonitorCoverage, MonitorEntry, MonitorNotify } from "@/types/metricAnomalies";
+import { announcedSeverity } from "./monitorNotify";
+import {
+  coverageFor,
+  filterKey,
+  relativeTime,
+  sensitivityVariant,
+  warmingSummary
+} from "./monitorRows";
 
-/** Mirror of `MonitorFilter::key_for` (crates/metric-monitoring/src/config.rs):
- *  `member=v1,v2` pairs with values sorted, pairs sorted, joined by `;`. This
- *  is the string the scanner stores as a coverage row's `dimension_key`. */
-function filterKey(filters: AnomalyFilter[] | null | undefined): string {
-  if (!filters || filters.length === 0) return "";
-  return filters
-    .map((f) => `${f.member}=${[...f.values].sort().join(",")}`)
-    .sort()
-    .join(";");
-}
+const inlineCode = "rounded bg-muted px-1.5 py-px font-mono text-xs";
 
-/** The coverage rows belonging to one monitor entry, within rows already
- *  narrowed to its (measure, time_dimension, granularity) triple.
- *
- *  An entry without `group_by` has exactly one segment, so it matches its own
- *  filter key exactly — that is what keeps two entries differing only by
- *  `filters` (region=US vs region=EU) from rendering each other's segments. A
- *  `group_by` entry fans out at scan time, so its segments carry its filters
- *  *plus* the discovered value and are matched by containment instead. */
-function coverageFor(entry: MonitorEntry, rows: MonitorCoverage[]): MonitorCoverage[] {
-  const own = filterKey(entry.filters);
-  if (!entry.group_by) return rows.filter((c) => c.dimension_key === own);
-  if (own === "") return rows;
-  const required = own.split(";");
-  return rows.filter((c) => {
-    const pairs = new Set(c.dimension_key ? c.dimension_key.split(";") : []);
-    return required.every((p) => pairs.has(p));
-  });
-}
-
-function sensitivityVariant(s: MonitorEntry["sensitivity"]) {
-  if (s === "high") return "destructive" as const;
-  if (s === "low") return "secondary" as const;
-  return "outline" as const;
-}
-
-function bucketNoun(granularity: string, n: number): string {
-  const base = granularity === "week" ? "week" : granularity === "month" ? "month" : "day";
-  return n === 1 ? base : `${base}s`;
-}
-
-/** What to show in the Coverage column for one monitor's segments.
- *
- *  `null` means "nothing to say" — either the monitor is being scored normally
- *  or it has never been scanned. Only the warming-up case earns a badge, since
- *  that is the state an empty inbox would otherwise hide. */
-function warmingSummary(rows: MonitorCoverage[]): { label: string; detail: string } | null {
-  const warming = rows.filter((c) => c.measured_buckets < c.required_buckets);
-  if (warming.length === 0) return null;
-
-  // A monitor without group_by has exactly one segment, so name the real
-  // numbers rather than an unhelpful "1 of 1 segments".
-  if (rows.length === 1) {
-    const only = warming[0];
-    return {
-      label: "Warming up",
-      detail: `${only.measured_buckets} of ${only.required_buckets} ${bucketNoun(
-        only.granularity,
-        only.required_buckets
-      )}`
-    };
-  }
-
-  // Fanned out by group_by. The count alone hides how long the wait is, so
-  // report the segment furthest from clearing the floor alongside it.
-  const furthest = warming.reduce((a, b) =>
-    a.required_buckets - a.measured_buckets >= b.required_buckets - b.measured_buckets ? a : b
+/** The band every state of the tab opens with: a label and one sentence. The
+ *  table's rules run from it, so it reads as the table's own first line. */
+function Band({
+  label,
+  children,
+  testId
+}: {
+  label: string;
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className='flex items-baseline gap-4 border-b bg-muted/40 px-4 py-3 text-sm'
+      data-testid={testId}
+    >
+      <span className='t-label w-16 shrink-0 text-muted-foreground'>{label}</span>
+      <p className='min-w-0 text-foreground'>{children}</p>
+    </div>
   );
-  return {
-    label: warming.length === rows.length ? "Warming up" : "Partly warming up",
-    detail: `${warming.length} of ${rows.length} segments · furthest ${furthest.measured_buckets} of ${furthest.required_buckets}`
-  };
 }
 
-function relativeTime(isoDate: string): string {
-  const days = Math.floor((Date.now() - new Date(isoDate).getTime()) / 86_400_000);
-  if (days === 0) return "today";
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
+/** Where new insights go besides this inbox. Said either way: an inbox nobody
+ *  is told about and one that posts to a channel look identical otherwise. */
+function DeliveryNote({ notify }: { notify: MonitorNotify | null }) {
+  return (
+    <Band label='Delivery' testId='monitors-delivery-note'>
+      {notify ? (
+        <>
+          New insights <span className='font-medium'>{announcedSeverity(notify)}</span> are posted
+          to Slack channel <code className={inlineCode}>{notify.slack_channel}</code>, once each.
+        </>
+      ) : (
+        <>
+          New insights appear <span className='font-medium'>only in this inbox</span>. Add a{" "}
+          <code className={inlineCode}>notify:</code> block to{" "}
+          <code className={inlineCode}>.monitor.yml</code> to post them to a Slack channel.
+        </>
+      )}
+    </Band>
+  );
+}
+
+/** A cell that says two things: what a person calls it, and what the file
+ *  calls it. The second line is always the machine's spelling, in mono. */
+function TwoLine({ first, second, mono }: { first: string; second?: string; mono?: boolean }) {
+  return (
+    <>
+      <p className={cn("font-medium", mono && "font-mono")}>{first}</p>
+      {second && <p className='font-mono text-muted-foreground text-xs'>{second}</p>}
+    </>
+  );
+}
+
+function MonitorRow({
+  monitor: m,
+  coverage,
+  lastAt
+}: {
+  monitor: MonitorEntry;
+  coverage: MonitorCoverage[];
+  lastAt: string | undefined;
+}) {
+  const warming = warmingSummary(coverageFor(m, coverage));
+  return (
+    <TableRow className='align-top'>
+      <TableCell className='py-2.5 pl-4'>
+        {/* An unlabelled monitor has only its measure to go by, so the measure
+            is the headline and is not repeated beneath itself. */}
+        {m.label ? (
+          <TwoLine first={m.label} second={m.measure} />
+        ) : (
+          <TwoLine first={m.measure} mono />
+        )}
+      </TableCell>
+      <TableCell className='py-2.5'>
+        <p>{m.granularity}</p>
+        <p className='font-mono text-muted-foreground text-xs'>{m.time_dimension}</p>
+      </TableCell>
+      <TableCell className='py-2.5'>
+        <Badge
+          variant={sensitivityVariant(m.sensitivity)}
+          className={cn(m.sensitivity === "low" && "text-muted-foreground")}
+        >
+          {m.sensitivity}
+        </Badge>
+      </TableCell>
+      <TableCell className='py-2.5'>
+        {warming ? (
+          <>
+            <Badge variant='secondary'>{warming.label}</Badge>
+            <p className='mt-1 flex flex-wrap gap-x-3 text-muted-foreground text-xs tabular-nums'>
+              {warming.detail.map((fact) => (
+                <span key={fact}>{fact}</span>
+              ))}
+            </p>
+          </>
+        ) : (
+          <span className='text-muted-foreground'>—</span>
+        )}
+      </TableCell>
+      <TableCell className='py-2.5 pr-4 text-right tabular-nums'>
+        {lastAt ? relativeTime(lastAt) : <span className='text-muted-foreground'>—</span>}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function SkeletonRow() {
+  return (
+    <div className='flex items-center gap-6 border-b px-4 py-3'>
+      <div className='flex-1 space-y-2'>
+        <Skeleton className='h-3.5 w-40' />
+        <Skeleton className='h-3 w-56' />
+      </div>
+      <Skeleton className='h-3.5 w-16' />
+      <Skeleton className='h-3.5 w-20' />
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div data-testid='monitors-loading'>
+      <Band label='Delivery'>Loading monitors…</Band>
+      <SkeletonRow />
+      <SkeletonRow />
+    </div>
+  );
 }
 
 export default function MonitorsTab() {
   const { data: monitors = [], isLoading, error } = useMonitors();
   const { data: coverage = [] } = useMonitorCoverage();
+  const { data: notify = null } = useMonitorNotify();
   // Fetch anomalies latest-first (no status filter), then take the max
   // `period_start` (the anomaly's bucket date — what the column shows) per
   // measure across all statuses. `order="recent"` is required: the Inbox's
@@ -136,94 +201,56 @@ export default function MonitorsTab() {
     return map;
   }, [coverage]);
 
-  if (isLoading) {
-    return (
-      <div className='flex h-32 items-center justify-center text-muted-foreground text-sm'>
-        Loading monitors…
-      </div>
-    );
-  }
+  if (isLoading) return <LoadingState />;
 
   if (error) {
     return (
-      <div className='px-4 py-3 text-destructive text-sm'>
-        {error instanceof Error ? error.message : "Failed to load monitor config."}
+      <div className='flex items-start gap-2 p-4 text-destructive text-sm'>
+        <CircleAlert className='mt-0.5 size-4 shrink-0' aria-hidden />
+        <p>{error instanceof Error ? error.message : "Failed to load monitor config."}</p>
       </div>
     );
   }
 
   if (monitors.length === 0) {
     return (
-      <div className='flex h-48 flex-col items-center justify-center gap-2 text-center text-muted-foreground text-sm'>
-        <p>No monitors configured.</p>
-        <p>
-          Drop a{" "}
-          <code className='rounded bg-muted px-1 py-0.5 font-mono text-xs'>.monitor.yml</code> at
-          the workspace root to start.
+      <div className='space-y-1 p-4 text-sm'>
+        <p className='font-medium'>No monitors configured.</p>
+        <p className='text-muted-foreground'>
+          Drop a <code className={inlineCode}>.monitor.yml</code> at the workspace root to start.
         </p>
       </div>
     );
   }
 
   return (
-    <div className='flex-1 overflow-auto px-4 py-3'>
+    <div className='flex-1 overflow-auto'>
+      <DeliveryNote notify={notify} />
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Metric</TableHead>
-            <TableHead className='w-24'>Granularity</TableHead>
+            <TableHead className='pl-4'>Metric / measure</TableHead>
+            <TableHead className='w-56'>Granularity / time dimension</TableHead>
             <TableHead className='w-28'>Sensitivity</TableHead>
-            <TableHead className='w-48'>Coverage</TableHead>
-            <TableHead className='w-32 text-right'>Last anomaly</TableHead>
+            <TableHead className='w-60'>Coverage</TableHead>
+            <TableHead className='w-32 pr-4 text-right'>Last anomaly</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {monitors.map((m) => {
-            const lastAt = lastAnomalyByMeasure.get(m.measure);
-            const warming = warmingSummary(
-              coverageFor(
-                m,
+          {monitors.map((m) => (
+            // Two entries can share a measure and time-dimension and differ
+            // only by granularity or filters, so the key carries both. That is
+            // the full identity of an entry — a .monitor.yml that repeats one
+            // verbatim declares the same monitor twice.
+            <MonitorRow
+              key={`${m.measure}:${m.time_dimension}:${m.granularity}:${filterKey(m.filters)}`}
+              monitor={m}
+              coverage={
                 coverageByMonitor.get(`${m.measure}:${m.time_dimension}:${m.granularity}`) ?? []
-              )
-            );
-            return (
-              // Two entries can share a measure and time-dimension and differ
-              // only by granularity or filters, so the key carries both. That is
-              // the full identity of an entry — a .monitor.yml that repeats one
-              // verbatim declares the same monitor twice.
-              <TableRow
-                key={`${m.measure}:${m.time_dimension}:${m.granularity}:${filterKey(m.filters)}`}
-              >
-                <TableCell>
-                  <p className='font-medium'>{m.label ?? m.measure}</p>
-                  <p className='text-muted-foreground text-xs'>
-                    {m.measure} · {m.time_dimension}
-                  </p>
-                </TableCell>
-                <TableCell className='text-muted-foreground'>{m.granularity}</TableCell>
-                <TableCell>
-                  <Badge variant={sensitivityVariant(m.sensitivity)}>{m.sensitivity}</Badge>
-                </TableCell>
-                <TableCell>
-                  {warming ? (
-                    <>
-                      <Badge variant='secondary'>{warming.label}</Badge>
-                      <p className='mt-0.5 text-muted-foreground text-xs'>{warming.detail}</p>
-                    </>
-                  ) : (
-                    <span className='text-muted-foreground text-sm'>—</span>
-                  )}
-                </TableCell>
-                <TableCell className='text-right text-sm'>
-                  {lastAt ? (
-                    <span className='text-muted-foreground'>{relativeTime(lastAt)}</span>
-                  ) : (
-                    <span className='text-muted-foreground'>—</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
+              }
+              lastAt={lastAnomalyByMeasure.get(m.measure)}
+            />
+          ))}
         </TableBody>
       </Table>
     </div>

@@ -38,6 +38,10 @@ pub struct ScanResult {
     /// segments, so the label belongs to the scan that observed it, and
     /// `apply_defaults` would otherwise clone the whole map per segment.
     pub calendar: Option<HashMap<NaiveDate, String>>,
+    /// The file-level `notify:`, carried through so whoever persists this scan
+    /// announces under the block the scan itself read — not a second read of a
+    /// file that may have moved on.
+    pub notify: Option<crate::notify::NotifyConfig>,
 }
 
 /// What one monitor produced.
@@ -156,6 +160,7 @@ pub async fn scan_workspace(
     let cfg: MonitorConfig = load_from_file(config_path)?;
     let mut result = ScanResult {
         calendar: cfg.calendar.clone(),
+        notify: cfg.notify.clone(),
         ..Default::default()
     };
 

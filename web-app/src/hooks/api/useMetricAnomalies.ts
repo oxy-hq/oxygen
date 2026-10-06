@@ -314,6 +314,12 @@ export function useMonitorCoverage() {
   return useMonitorsQuery((data) => data.coverage ?? ([] as MonitorCoverage[]));
 }
 
+/** The file's `notify:` block, or `null` when new insights go nowhere but the
+ *  inbox. */
+export function useMonitorNotify() {
+  return useMonitorsQuery((data) => data.notify ?? null);
+}
+
 /** Force-refresh the cached explain for an anomaly. Calls the same
  *  endpoint with `?refresh=true`, then writes the fresh payload into
  *  the React Query cache so subscribers re-render. */

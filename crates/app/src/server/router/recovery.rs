@@ -1314,6 +1314,18 @@ fn build_custom_task_registry(
         crate::server::simulation::SIMULATION_RUN_KIND,
         Arc::new(crate::server::simulation::SimulationTaskExecutor { db: db.clone() }),
     );
+    // Insights delivery, queued after a monitor scan whose `.monitor.yml` has a
+    // `notify:` block. Nothing can queue one before every pod parses that
+    // block — an older pod refuses the file outright — so the kind and its
+    // enqueue ship together; a pod without it fails the task (unknown kind) and
+    // the events stay due for the next scan.
+    {
+        use crate::server::anomaly_notify::{ANOMALY_NOTIFY_KIND, executor::AnomalyNotifyExecutor};
+        reg.register(
+            ANOMALY_NOTIFY_KIND,
+            Arc::new(AnomalyNotifyExecutor { db: db.clone() }),
+        );
+    }
     // A custom app's procedure run, queued by `POST …/procedures/{id}/runs`.
     // It builds its own context from the caller the request authenticated —
     // never from this driver's platform, which has no subject. A pod without

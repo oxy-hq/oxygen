@@ -25,6 +25,9 @@ use super::evaluator::{HealthThresholds, WorkspaceSignals};
 ///   workspace looks like.
 /// - `monitor_scan` only runs if the workspace defined a `.monitor.yml`, and
 ///   fails on that monitor's definition or warehouse.
+/// - `anomaly_notify` (Insights delivery) only runs if that file has a
+///   `notify:` block and a scan found something to announce, and fails on the
+///   block's channel or the org's Slack connection.
 ///
 /// Deliberately kept local instead of folded into `agentic_runtime`'s
 /// `SYSTEM_SOURCE_TYPES`: that list also drives the coordinator run feed and the

@@ -716,7 +716,7 @@ async fn upsert_one(
     Ok(())
 }
 
-fn severity_to_str(s: Severity) -> &'static str {
+pub(crate) fn severity_to_str(s: Severity) -> &'static str {
     match s {
         Severity::Low => "low",
         Severity::Medium => "medium",
@@ -910,6 +910,7 @@ mod tests {
                 .collect(),
             failures: vec![],
             calendar: None,
+            notify: None,
         }
     }
 
@@ -1023,6 +1024,7 @@ mod tests {
                     .map(|(d, l)| (*d, (*l).to_string()))
                     .collect(),
             ),
+            notify: None,
         }
     }
 
@@ -1076,6 +1078,7 @@ mod tests {
             outcomes: vec![outcome(segment(Granularity::Day, "x.store", "1"))],
             failures: vec![failure(segment(Granularity::Day, "x.store", "2"))],
             calendar: None,
+            notify: None,
         };
 
         let keep = prune_keep_lists(&scan);
@@ -1098,6 +1101,7 @@ mod tests {
             outcomes: vec![],
             failures: vec![failure(entry_at(Granularity::Day, "UTC"))],
             calendar: None,
+            notify: None,
         };
 
         assert!(

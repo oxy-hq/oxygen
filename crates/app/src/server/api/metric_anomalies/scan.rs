@@ -156,6 +156,7 @@ pub async fn run_scan(
         .map(|m| m.config_path.clone())
         .unwrap_or(fs_config_path);
     let now = parse_as_of(q.as_of.as_deref())?;
+    let backdated = q.as_of.is_some();
     let db = state.db.clone();
 
     // Create a run row so the scan appears in the coordinator.
@@ -198,6 +199,16 @@ pub async fn run_scan(
             let persisted = monitoring::persist_scan(&db_bg, workspace_id, &result)
                 .await
                 .map_err(AnomalyError::Db)?;
+            // A scan pinned to a past date is a demo or a backfill; it says
+            // nothing new about today, so it announces nothing.
+            if !backdated {
+                crate::server::anomaly_notify::enqueue_if_due(
+                    &db_bg,
+                    workspace_id,
+                    result.notify.as_ref(),
+                )
+                .await;
+            }
             Ok::<(monitoring::ScanResult, usize), AnomalyError>((result, persisted))
         }
         .await;

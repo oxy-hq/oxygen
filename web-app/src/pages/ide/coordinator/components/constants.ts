@@ -185,6 +185,9 @@ export const sourceTypeToJobType = (source: string | null | undefined): JobType 
     case "airway":
       return "elt";
     case "monitor_scan":
+    // Insights delivery: the Slack post a scan queues when `.monitor.yml` has
+    // a `notify:` block. Part of monitoring, not an agent run.
+    case "anomaly_notify":
       return "monitor";
     case "app_function":
       return "function";

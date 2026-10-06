@@ -182,7 +182,17 @@ export interface MonitorCoverage {
   last_scanned_at: string;
 }
 
+/** The `notify:` block of `.monitor.yml`: where a scan posts the insights it
+ *  newly found, and from what severity. */
+export interface MonitorNotify {
+  /** A Slack channel id in the org's connected Slack, e.g. `C0123ABCDEF`. */
+  slack_channel: string;
+  min_severity: AnomalySeverity;
+}
+
 export interface ListMonitorsResponse {
   monitors: MonitorEntry[];
   coverage: MonitorCoverage[];
+  /** Absent when the file has no `notify:` block. */
+  notify?: MonitorNotify | null;
 }

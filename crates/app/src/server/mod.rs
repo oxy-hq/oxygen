@@ -1,6 +1,7 @@
 //! HTTP server and API endpoints
 
 pub mod admission;
+pub mod anomaly_notify;
 pub mod api;
 pub mod app_function_executor;
 pub mod audit_anchor;

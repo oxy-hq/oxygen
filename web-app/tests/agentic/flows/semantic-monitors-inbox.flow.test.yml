@@ -65,7 +65,8 @@
 #
 # COST: no agent/builder run, no query execution — pure navigation + reads.
 # Two cases, ~4 act steps each. No testids exist anywhere in
-# AnomaliesInbox/index.tsx or MonitorsTab.tsx (grepped; none found), so
+# AnomaliesInbox/index.tsx, and MonitorsTab.tsx had none when this was
+# written (it has one now: `monitors-delivery-note`), so
 # several selectors below are text-based rather than testid — a real gap in
 # the source, flagged rather than routed around, since this task's file
 # scope is `flows/` only.
@@ -144,6 +145,10 @@ cases:
       - assert: "selector text=No monitors configured. is not visible"
       # Rules out the Monitors read's own error path.
       - assert: "selector text=Failed to load monitor config. is not visible"
+      # The line above the table that says where new insights go. Present
+      # whether or not the file has a `notify:` block, so it is asserted by
+      # testid rather than by either wording.
+      - assert: "selector [data-testid=monitors-delivery-note] is visible"
       - judge: |
           The Semantic Model's Anomalies tab is open on its Monitors
           sub-tab, showing a table of configured monitors (columns include

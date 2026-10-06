@@ -329,6 +329,10 @@ const TABLES: &[(&str, Placement)] = &[
         },
     ),
     (
+        "metric_anomaly_notifications",
+        Control("at-most-once insight announcement ledger"),
+    ),
+    (
         "metric_monitor_coverage",
         Control("scan coverage bookkeeping per segment"),
     ),
