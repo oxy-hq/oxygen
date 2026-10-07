@@ -2519,19 +2519,21 @@ mod tests {
         ))
         .expect("build");
         assert_eq!(source.name(), "quickbooks");
-        // All 9 resources are advertised. Naming the newest one as well as the
+        // All 10 resources are advertised. Naming the newest one as well as the
         // count: a bare count says a resource was added or removed but not
         // which, and this assertion's whole job is to notice an airway bump
-        // changing the surface — it caught `journal_entries` arriving in 0.1.28.
+        // changing the surface — it caught `journal_entries` arriving in 0.1.28,
+        // and `classes` in 0.1.50.
         // Bind the Vec: `resources()` returns owned, so borrowing `&str` out of
         // a temporary would not outlive the statement.
         let resources = source.resources();
         let names: Vec<&str> = resources.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names.len(), 9, "resource surface changed: {names:?}");
+        assert_eq!(names.len(), 10, "resource surface changed: {names:?}");
         assert!(
             names.contains(&"journal_entries"),
             "journal_entries missing: {names:?}"
         );
+        assert!(names.contains(&"classes"), "classes missing: {names:?}");
     }
 
     #[test]

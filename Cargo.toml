@@ -1114,7 +1114,7 @@ airform-core = { git = "https://github.com/oxy-hq/airform.git", rev = "3e3e82886
 # connected `NoTls` and could not.) That note said "Pinned at 0.1.35" through
 # every bump since, which is how a running log goes stale: the surrounding prose
 # stayed true and only the version was wrong.
-airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.49", default-features = false, features = [
+airway = { git = "https://github.com/oxy-hq/airway-internal.git", tag = "0.1.51", default-features = false, features = [
   "duckdb",
   "postgres",
 ] }
