@@ -105,10 +105,15 @@ jobs:
           labels: autorelease
 
   # Create git tag and GitHub release when a release PR is merged.
-  # Triggered when the merge commit message starts with "chore: release".
+  # Triggered when the merge commit message is "chore: release X.Y.Z". Other
+  # packages release from main with the same prefix — `chore: release @oxy-hq/cli
+  # 0.7.0` — and before this guard their version was tagged as an Oxy release
+  # (bogus 0.6.0 / 0.7.0), which then drove the next bump.
   release:
     name: Tag and Release
-    if: "startsWith(github.event.head_commit.message, 'chore: release')"
+    if: >-
+      startsWith(github.event.head_commit.message, 'chore: release') &&
+      !startsWith(github.event.head_commit.message, 'chore: release @')
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' ||
       'ubuntu-latest' }}
     timeout-minutes: 20
@@ -135,9 +140,17 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
       - name: Extract version from commit message
         id: version
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
         run: |
-          VERSION=$(echo "${{ github.event.head_commit.message }}" | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          # Only the exact Oxy shape; anything else must not become a bare semver tag.
+          SUBJECT=$(printf '%s\n' "$MESSAGE" | head -1)
+          if [[ ! "$SUBJECT" =~ ^chore:\ release\ ([0-9]+\.[0-9]+\.[0-9]+)( |$) ]]; then
+            echo "::error::'${SUBJECT}' is not an Oxy release commit (chore: release X.Y.Z); not tagging"
+            exit 1
+          fi
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
       - name: Create and push git tag
         run: |
           git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
