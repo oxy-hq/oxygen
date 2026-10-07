@@ -58,6 +58,7 @@ import DevLogin from "./pages/auth/DevLogin";
 import GoogleCallback from "./pages/auth/GoogleCallback";
 import MagicLinkCallback from "./pages/auth/MagicLinkCallback";
 import OktaCallback from "./pages/auth/OktaCallback";
+import TokenLogin from "./pages/auth/TokenLogin";
 import DashboardsPage from "./pages/dashboards";
 import GitHubCallback from "./pages/github/callback";
 import InvitePage from "./pages/Invite";
@@ -575,6 +576,13 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
             to explain it. Hiding the route buys no probe-resistance either: the
             bundle ships the page and its strings to every caller regardless. */}
         <Route path={ROUTES.AUTH.DEV_LOGIN} element={<DevLogin />} />
+
+        {/* API-token sign-in — `/dev-login`'s sibling for a deployed
+            environment, and public for the same reason: it IS the sign-in, so
+            it has to render for a browser that holds no session. The gate is
+            the one-time ticket in the URL fragment, which the server checks;
+            a bare visit just renders the page's "link didn't work" card. */}
+        <Route path={ROUTES.AUTH.TOKEN_LOGIN} element={<TokenLogin />} />
 
         {/* GitHub callback must always be accessible (used during the workspace import popup flow) */}
         <Route path='/github/callback' element={<GitHubCallback />} />

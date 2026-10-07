@@ -49,6 +49,11 @@ pub async fn get_session(
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {
     let jwt =
         oxy_auth::built_in::extract_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    // A session a token opened hydrates as itself — never into the fresh
+    // thirty-day login minted below.
+    if oxy_auth::token::browser_session::token_id_of(&jwt).is_some() {
+        return super::token_session::hydrate(&headers, jwt).await;
+    }
     let claims = decode::<Claims>(
         &jwt,
         &DecodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),

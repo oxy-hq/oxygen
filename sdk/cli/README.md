@@ -3,7 +3,7 @@
 `oxyc` — a `gh api`-shaped client for the Oxy HTTP API, plus the tooling that
 manages customer workspace repos.
 
-- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `tokens`, `assume`, `oltp`
+- **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
@@ -152,6 +152,7 @@ route's surface and fleet role.
 oxyc login [--env <e>] [--login-env <e...>] [--assume <org> -r <why>]
 oxyc whoami [--json]        # who the credential is, and what it can reach
 oxyc token                  # print the bearer, for a raw curl
+oxyc login-link [--next <path>] [--json] [--open]   # a one-time URL that signs a browser in
 oxyc logout                 # revoke the cached token, then forget it
 oxyc tokens list [--json]   # your personal access tokens
 oxyc tokens revoke <id>
@@ -284,6 +285,46 @@ Rust `oxy login` wrote before it was removed, so an existing login still works:
 An entry may now also carry `token_id` and `expires_at`; both are optional, and
 a file written before they existed loads unchanged. `OXY_CREDENTIALS_PATH`
 overrides the path. Caches are separate, under `oxyc` (`~/.cache/oxyc`).
+
+### A signed-in browser for an agent
+
+Sign-in is passwordless — Google or GitHub OAuth, or a magic link — and an
+automation agent can finish neither. **`login-link`** prints a one-time URL
+that signs a browser in with the credential `oxyc` is running on, so the whole
+sign-in is one navigation:
+
+```bash
+browser_navigate("$(oxyc login-link --env dev --next /ide)")     # Playwright MCP
+```
+
+```ts
+// a Playwright script
+const link = execFileSync("oxyc", ["login-link", "--env", "dev", "--next", "/ide"], { encoding: "utf8" });
+await page.goto(link.trim());
+```
+
+Stdout is the URL and nothing else; what the link is goes to stderr.
+
+- **The link works once and expires in minutes** (five, at the time of
+  writing — the server's `expires_at`). The bearer is never in it: `oxyc`
+  trades the token for a single-use ticket (`POST /api/auth/browser-ticket`),
+  and the ticket and `--next` ride the URL's fragment, which is not sent to a
+  server and so reaches no access log.
+- **The session is bounded by the token.** It reaches what the token reaches
+  and nothing more, lasts at most the `session_seconds` the server answers
+  (stderr states it in hours), ends sooner if the token is revoked or expires,
+  and cannot manage tokens.
+- **It needs a personal access token** (`oxy_pat_…`) — what `oxyc login`
+  stores. Any other credential is exit `4` with the next step: a session token
+  from an older login, a service account, CI or publish token, a legacy API
+  key. A sandbox agent token is exit `2`, before any request. A deployment that
+  predates sign-in links is exit `5`.
+- **`--next <path>`** is where the browser lands: a path on the deployment
+  starting with a single `/`. A URL, `//host` or a backslash is exit `2`, and
+  no ticket is spent on it.
+- **`--json`** prints `{ "url", "expires_at", "session_seconds" }` instead.
+  **`--open`** also opens the link in your default browser — which uses it, so
+  the printed URL will not work a second time.
 
 ### CI without a stored secret
 

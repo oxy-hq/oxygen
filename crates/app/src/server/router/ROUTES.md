@@ -69,6 +69,7 @@ GET    /auth/config
 POST   /auth/google  /auth/github  /auth/okta
 POST   /auth/magic-link/request  /auth/magic-link/verify
 POST   /auth/cli/exchange        (`oxyc login`: redeem the one-time code for a token)
+POST   /auth/browser-ticket/redeem (`oxyc login-link`: a browser redeems a token's one-time ticket for a session that acts as that token)
 POST   /auth/oidc/exchange       (trusted access: a GitHub Actions OIDC token for a 15-minute `oxy_ci_` token; rate-limited per client)
 POST   /auth/tokens/revoke-leaked (leak response: revoke reported new-format tokens, never a legacy key; rate-limited per client)
 GET    /user
@@ -113,6 +114,7 @@ POST   /invitations/{token}/accept
 GET    /user/token-options                    (session only)
 GET|DELETE /auth/token                        (the calling token, about itself)
 POST   /auth/cli/authorize                    (session only — `oxyc login`: a one-time code for the CLI's challenge; with `mint`, a code for a sandbox agent token)
+POST   /auth/browser-ticket                   (a personal token only — `oxyc login-link`: a one-time ticket that signs a browser in as the calling token)
 
 /admin/sandbox-agent-tokens                   (`operate_platform`; rows narrowed to the grant's orgs)
 ├── GET  /

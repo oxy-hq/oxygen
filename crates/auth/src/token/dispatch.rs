@@ -14,6 +14,10 @@
 //!    deliberately limited to new prefixes: nothing sends one today.
 //! 2. **A session** (Session surface only): the `Authorization` JWT, else the
 //!    `oxy_session` cookie — exactly today's `BuiltInAuthenticator` order.
+//!    A **token session** — the JWT a browser holds after redeeming a
+//!    token's ticket (`super::browser_session`) — is read from the same two
+//!    places and decides as its token does: the request carries the token's
+//!    `CredentialContext`, and a session that fails answers 401.
 //! 3. **A legacy key** from `X-API-Key` — today's fallback, so a valid cookie
 //!    still beats a bad legacy key — or, newly, an `oxy_<32 hex>` bearer.
 //!
@@ -31,12 +35,13 @@ use axum::http::HeaderMap;
 use oxy_platform::db::establish_connection;
 use oxy_shared::errors::OxyError;
 
+use super::browser_session;
 use super::cache;
 use super::credential::CredentialContext;
 use super::format::{TokenFormat, hash_token, new_prefix_format, parse_format, verify_checksum};
 use super::store;
 use crate::api_key_infra::require_active_owner;
-use crate::built_in::{auth_configured, guest_identity, session_identity};
+use crate::built_in::{auth_configured, extract_session_cookie, guest_identity, session_identity};
 use crate::constants::{AUTHENTICATION_HEADER_KEY, DEFAULT_API_KEY_HEADER};
 use crate::types::Identity;
 
@@ -89,6 +94,12 @@ pub async fn authenticate_request(
     }
 
     if surface == AuthSurface::Session {
+        if let Some(jwt) = session_jwt(headers)
+            && browser_session::token_id_of(&jwt).is_some()
+        {
+            let (identity, credential) = authenticate_browser_session(&jwt).await?;
+            return Ok((identity, Some(credential)));
+        }
         match session_identity(headers) {
             Ok(identity) => return Ok((identity, None)),
             Err(err) => tracing::debug!("JWT validation failed, will try API key: {}", err),
@@ -158,6 +169,12 @@ fn api_key_header(headers: &HeaderMap) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// What a session is read from: the `Authorization` value, else the
+/// `oxy_session` cookie — `BuiltInAuthenticator`'s own order.
+fn session_jwt(headers: &HeaderMap) -> Option<String> {
+    bearer(headers).or_else(|| extract_session_cookie(headers))
+}
+
 /// A new-prefix token from `Authorization: Bearer`, else from `X-API-Key`.
 fn new_prefix_token(headers: &HeaderMap) -> Option<(String, TokenFormat)> {
     [bearer(headers), api_key_header(headers)]
@@ -204,6 +221,37 @@ async fn authenticate_token(
             resolved.expires_at,
         );
     }
+    record_use(&resolved.credential).await;
+    Ok((resolved.identity, resolved.credential))
+}
+
+/// Authenticate a **token session** (`super::browser_session`): the JWT a
+/// browser holds after redeeming a personal token's ticket. It decides as that
+/// token — the same row, the same grants, the same ≤30 s cache and the same
+/// record of use — and `Err` for anything else, a login session included.
+///
+/// `pub` for the one caller outside the dispatch: cookie hydration, which
+/// reads the cookie alone and must not turn a token session into a login.
+pub async fn authenticate_browser_session(
+    jwt: &str,
+) -> Result<(Identity, CredentialContext), OxyError> {
+    let token_id = browser_session::token_id_of(jwt)
+        .ok_or_else(|| OxyError::AuthenticationError("Not a token session".to_string()))?;
+    let key = browser_session::cache_key(jwt);
+    if let Some((identity, credential)) = cache::get(&key) {
+        let credential = live_principal(credential).await?;
+        record_use(&credential).await;
+        return Ok((identity, credential));
+    }
+
+    let db = connect().await?;
+    let resolved = browser_session::resolve(&db, jwt, token_id).await?;
+    cache::put(
+        key,
+        resolved.identity.clone(),
+        resolved.credential.clone(),
+        resolved.expires_at,
+    );
     record_use(&resolved.credential).await;
     Ok((resolved.identity, resolved.credential))
 }

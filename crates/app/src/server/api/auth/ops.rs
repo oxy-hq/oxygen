@@ -446,16 +446,26 @@ pub(super) async fn finalize_login(
         tracing::error!("Failed to create auth token: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    // A login is a browser session being born: no key or token is involved.
+    let caller = crate::server::authz::Caller::without_credential(
+        user.id,
+        user.email.as_deref().unwrap_or(""),
+    );
+    let (user_info, orgs) = session_payload(&user, &caller, connection).await?;
+    Ok((token, user_info, orgs))
+}
+
+/// What a session's response says about who it is: the profile, and the orgs
+/// `caller` reaches. For a login that is every org the user belongs to; for a
+/// session a token opened (`super::token_session`) it is the orgs the token
+/// touches, so the web app lands somewhere the session can actually read.
+pub(super) async fn session_payload(
+    user: &users::Model,
+    caller: &crate::server::authz::Caller,
+    connection: &DatabaseConnection,
+) -> Result<(UserInfo, Vec<OrgInfo>), StatusCode> {
     // Reported on the payload, not decided here — the flag door, not a ring.
-    let standing = crate::server::authz::globals::platform_standing(
-        connection,
-        // A login is a browser session being born: no key or token is involved.
-        &crate::server::authz::Caller::without_credential(
-            user.id,
-            user.email.as_deref().unwrap_or(""),
-        ),
-    )
-    .await;
+    let standing = crate::server::authz::globals::platform_standing(connection, caller).await;
     let user_info = UserInfo {
         id: user.id.to_string(),
         email: user.label().to_string(),
@@ -468,14 +478,17 @@ pub(super) async fn finalize_login(
     use entity::org_members::{self, Entity as OrgMembers};
     use entity::organizations::{self, Entity as Organizations};
 
-    let memberships = OrgMembers::find()
+    let memberships: Vec<org_members::Model> = OrgMembers::find()
         .filter(org_members::Column::UserId.eq(user.id))
         .all(connection)
         .await
         .map_err(|e| {
             tracing::error!("Failed to query org memberships: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        })?
+        .into_iter()
+        .filter(|m| caller.touches_org(m.org_id))
+        .collect();
 
     let org_ids: Vec<uuid::Uuid> = memberships.iter().map(|m| m.org_id).collect();
     let orgs = if org_ids.is_empty() {
@@ -504,7 +517,7 @@ pub(super) async fn finalize_login(
             .collect()
     };
 
-    Ok((token, user_info, orgs))
+    Ok((user_info, orgs))
 }
 
 pub fn extract_base_url_from_headers(headers: &HeaderMap) -> String {

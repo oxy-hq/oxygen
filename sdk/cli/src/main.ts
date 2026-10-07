@@ -41,6 +41,7 @@ import { runGuide } from "./commands/guide.js";
 import { runInitCi } from "./commands/init-ci.js";
 import { runInvocationsHeld, runInvocationsList } from "./commands/invocations.js";
 import { runLaunch } from "./commands/launch.js";
+import { runLoginLink } from "./commands/login-link.js";
 import { runLogs } from "./commands/logs.js";
 import { runOltpProvision, runOltpStatus } from "./commands/oltp.js";
 import { runOltpReset } from "./commands/oltp-branch.js";
@@ -429,6 +430,31 @@ function buildProgram(): Command {
     program.command("token").description("print the bearer token, for a raw curl")
   ).action(async (opts: Record<string, unknown>) => {
     await runToken(createContext(globals(opts)));
+  });
+
+  withGlobals(
+    program
+      .command("login-link")
+      .description("print a one-time URL that signs a browser in as this token")
+      .option("--next <path>", "where the browser lands once signed in, e.g. /ide")
+      .option("--json", "emit { url, expires_at, session_seconds }")
+      .option("--open", "also open it in your browser, which uses the link up")
+      .addHelpText(
+        "after",
+        "\nFor a browser nobody is sitting at. An agent cannot finish Google/GitHub OAuth or\n" +
+          "read a magic-link inbox; with this the whole sign-in is one navigation:\n\n" +
+          '    browser_navigate("$(oxyc login-link --env dev --next /ide)")\n\n' +
+          "Stdout is the URL and nothing else. The link works once and expires in minutes.\n" +
+          "The session it opens can do what the token can do and nothing more, cannot manage\n" +
+          "tokens, and ends when the token is revoked. It needs a personal access token\n" +
+          "(oxy_pat_…) — what `oxyc login` stores.\n"
+      )
+  ).action(async (opts: Record<string, unknown>) => {
+    await runLoginLink(createContext(globals(opts)), {
+      next: opts.next as string | undefined,
+      json: Boolean(opts.json),
+      open: Boolean(opts.open)
+    });
   });
 
   // The PLURAL manages; the singular above prints the one in use.

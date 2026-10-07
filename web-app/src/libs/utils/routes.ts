@@ -18,7 +18,9 @@ const ROUTES = {
     MAGIC_LINK_CALLBACK: "/auth/magic-link/callback",
     GITHUB_AUTH_CALLBACK: "/auth/github/callback",
     /** Dev-only bypass; mounted only when `authConfig.dev_login` is true. */
-    DEV_LOGIN: "/dev-login"
+    DEV_LOGIN: "/dev-login",
+    /** API-token sign-in: redeems the one-time ticket in the URL fragment. */
+    TOKEN_LOGIN: "/token-login"
   },
   GITHUB: {
     CALLBACK: "/github/callback"

@@ -78,6 +78,20 @@ export class AuthService {
   }
 
   /**
+   * Trade a one-time browser ticket for a session — the `/token-login` path,
+   * where an automation agent holding a personal API token is handed a URL
+   * that signs a browser in. Answers with the same `AuthResponse` every login
+   * returns and sets the `oxy_session` cookie itself. Public: the ticket is
+   * the credential. Every refusal — unknown, already used, expired (tickets
+   * work once and last 5 minutes), or the token behind it revoked — is one
+   * `400 { code: "invalid_ticket" }`, deliberately indistinguishable.
+   */
+  static async redeemBrowserTicket(ticket: string): Promise<AuthResponse> {
+    const response = await apiClient.post("/auth/browser-ticket/redeem", { ticket });
+    return response.data;
+  }
+
+  /**
    * Ask the server whether `url` is safe to redirect a logged-in user to.
    * Returns true on 200, false on 403, false on any other response (treat
    * server errors as not-safe).

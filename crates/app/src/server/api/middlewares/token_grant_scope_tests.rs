@@ -175,13 +175,15 @@ fn a_param_stands_for_exactly_one_segment() {
 #[test]
 fn token_management_answers_for_itself() {
     // These must reach their handler: the contract answers a token 403
-    // `session_required` there, and `/auth/token` describes the calling token.
+    // `session_required` there, `/auth/token` describes the calling token, and
+    // `/auth/browser-ticket` signs a browser in as it — narrowed as it is.
     for path in [
         "/user/tokens",
         "/user/tokens/3f2504e0-4f89-11d3-9a0c-0305e82c3301/regenerate",
         "/user/token-options",
         "/auth/token",
         "/auth/cli/authorize",
+        "/auth/browser-ticket",
     ] {
         assert_eq!(treatment(path), Treatment::Honoured, "{path}");
     }

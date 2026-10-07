@@ -8,7 +8,10 @@
 //! - `GET /api/{workspace_id}/api-tokens` — the tokens that can reach one
 //!   workspace, for its admins ([`inventory`]);
 //! - `GET|DELETE /api/auth/token` — the calling token, about itself
-//!   ([`introspect`]).
+//!   ([`introspect`]);
+//! - `POST /api/auth/browser-ticket` and its public `/redeem` — a personal
+//!   token trades a one-time ticket for a browser session that acts as it
+//!   ([`browser_session`]).
 //!
 //! **Management is session-only** (§4.6): every `/api/user/…` route here takes
 //! [`ManageTokens`], so a token cannot mint, widen, extend or revoke a token.
@@ -25,6 +28,7 @@
 // lifecycle-event writer.
 pub(crate) mod access_audit;
 pub(crate) mod audit;
+pub mod browser_session;
 pub mod cli_login;
 pub(crate) mod dto;
 pub mod error;

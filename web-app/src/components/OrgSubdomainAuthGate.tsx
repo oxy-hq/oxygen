@@ -4,6 +4,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useAuth } from "@/contexts/AuthContext";
 import { getInjectedOrg, redirectToCentralLogin } from "@/libs/orgSubdomain";
 import { isAuthTokenExpired } from "@/libs/utils/authStorage";
+import ROUTES from "@/libs/utils/routes";
 import { AuthService } from "@/services/api";
 
 // Retry transient (network / 5xx) hydration failures a few times before
@@ -20,7 +21,8 @@ const MAX_ATTEMPTS = 4;
  * So before the router mounts, hydrate auth from the cookie via
  * `GET /auth/session`:
  *   - success → populate localStorage so the SPA is authenticated;
- *   - 401 (no/expired cookie) → bounce to the centralized app-host login;
+ *   - 401 (no/expired cookie) → bounce to the centralized app-host login
+ *     (unless the page is a sign-in link, which signs in where it stands);
  *   - transient error → retry, then show a retry prompt (never bounce a
  *     possibly-valid session out to login over a blip).
  *
@@ -53,8 +55,13 @@ export default function OrgSubdomainAuthGate({ children }: { children: React.Rea
         .catch((err: { response?: { status?: number } }) => {
           // 401 = no valid session cookie → centralized app-host login. If
           // there's no app host to bounce to (local dev), fall through.
+          //
+          // Except on a sign-in link (`/token-login#ticket=…`), which is its
+          // own login: the page redeems it right here. Bouncing it would also
+          // copy the whole URL into `return_to` — fragment included — and the
+          // one-time ticket would land in a query string every proxy logs.
           if (err?.response?.status === 401) {
-            if (!redirectToCentralLogin()) setPhase("ready");
+            if (isSignInLink() || !redirectToCentralLogin()) setPhase("ready");
             return;
           }
           // Transient (network / 5xx): retry, then surface a retry prompt
@@ -96,6 +103,10 @@ export default function OrgSubdomainAuthGate({ children }: { children: React.Rea
   }
 
   return <>{children}</>;
+}
+
+function isSignInLink(): boolean {
+  return window.location.pathname === ROUTES.AUTH.TOKEN_LOGIN;
 }
 
 function safeGetItem(key: string): string | null {

@@ -127,6 +127,11 @@ then one `browser_navigate("http://127.0.0.1:5173/dev-login?as=<persona>&next=<p
 navigation is the whole sign-in, no OAuth. Personas, routes, and what a 403/409/503 means:
 the `oxy-run-and-verify` skill.
 
+That is local only. On a deployment (dev, staging, prod) the same one navigation is
+`browser_navigate("$(oxyc login-link --env dev --next <path>)")` — a one-time link that
+opens a browser session bounded by your `oxyc` token. Never script Google or a password:
+`internal-docs/dev-sign-in.md`.
+
 ## `oxyc` — talking to a running deployment
 
 `npm i -g @oxy-hq/cli` (published; `npx @oxy-hq/cli` also works). It is the

@@ -18,6 +18,7 @@ mod assume_binding;
 mod audit_actions;
 mod audit_per_org;
 mod blocked_reach;
+mod browser_session;
 mod cli_login;
 mod deactivated_owner;
 mod discovery;

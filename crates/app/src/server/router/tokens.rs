@@ -13,11 +13,15 @@
 //! `oxyc login` is two routes on two sides of the auth gate: the browser asks
 //! for a code under its session ([`build_token_routes`]), and the CLI, which
 //! has no credential yet, redeems it ([`build_public_token_routes`]).
+//! `oxyc login-link` is the same pair pointed the other way: a token asks for
+//! a ticket, and a browser, which has no credential yet, redeems it.
 
 use axum::routing::{delete, get, patch, post};
 
 use crate::server::api::org_api_access::handlers as org_handlers;
-use crate::server::api::user_tokens::{cli_login, handlers, introspect, leak, options};
+use crate::server::api::user_tokens::{
+    browser_session, cli_login, handlers, introspect, leak, options,
+};
 
 use super::AppState;
 use super::role_router::RoleRouter;
@@ -53,6 +57,9 @@ pub(super) fn build_token_routes(app_state: &AppState) -> RoleRouter {
             "/auth/token",
             get(introspect::get_calling_token).delete(introspect::revoke_calling_token),
         )
+        // A personal token asks for the one-time ticket that signs a browser
+        // in as it. A session gets 404: there is no token to sign in as.
+        .route_fleet("/auth/browser-ticket", post(browser_session::issue_ticket))
 }
 
 /// Organization → API access (design §8 Phase 3): the org's service accounts,
@@ -131,6 +138,13 @@ pub(super) fn build_org_api_access_routes(app_state: &AppState) -> RoleRouter {
 pub(super) fn build_public_token_routes(app_state: &AppState) -> RoleRouter {
     RoleRouter::new(app_state.clone())
         .route_fleet("/auth/cli/exchange", post(cli_login::exchange))
+        // The browser's half of a token's sign-in link: it holds no credential
+        // yet, and the ticket it redeems is the only thing that names one.
+        // Postgres only (`cli_auth_codes`, `api_tokens`, `audit_events`).
+        .route_fleet(
+            "/auth/browser-ticket/redeem",
+            post(browser_session::redeem_ticket),
+        )
         // Trusted access: a GitHub Actions run trades its OIDC token for a
         // 15-minute `oxy_ci_` token. Public by construction — the JWT is the
         // credential, and the claims are what gate it.

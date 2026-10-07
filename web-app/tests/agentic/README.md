@@ -299,8 +299,8 @@ Two structural limits worth knowing before trying to widen fleet coverage:
   mode) so flow text names a surface, not a workspace (`runner/backend.ts`,
   `applyPathPrefix`). Routes that hang
   off the app root instead of a workspace — `TOP_LEVEL_SURFACES`: `/admin`,
-  `/partners`, `/customer-apps`, `/login`, `/dev-login`, `/invite`, `/cli-auth`
-  (`runner/backend.ts:101-109`) — must be listed there, or the prefix produces a URL
+  `/partners`, `/customer-apps`, `/login`, `/dev-login`, `/token-login`, `/invite`,
+  `/cli-auth` (`runner/backend.ts`) — must be listed there, or the prefix produces a URL
   that routes nowhere. Three admin flows failed exactly that way before the list
   existed, each looking like an unrelated broken page rather than one misconfigured
   harness.

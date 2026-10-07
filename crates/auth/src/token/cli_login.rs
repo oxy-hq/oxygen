@@ -87,12 +87,12 @@ pub fn token_name(hostname: &str) -> String {
     format!("oxyc on {hostname}")
 }
 
-fn hash_code(code: &str) -> Vec<u8> {
+pub(super) fn hash_code(code: &str) -> Vec<u8> {
     Sha256::digest(code.as_bytes()).to_vec()
 }
 
 /// The hash a **mint** code is stored under: never the one a login code is.
-fn hash_mint_code(code: &str) -> Vec<u8> {
+pub(super) fn hash_mint_code(code: &str) -> Vec<u8> {
     Sha256::digest(format!("{MINT_DOMAIN}{code}").as_bytes()).to_vec()
 }
 
@@ -149,8 +149,9 @@ async fn issue<C: ConnectionTrait>(
     Ok(code)
 }
 
-/// Best-effort: the table holds only rows a login is waiting on.
-async fn sweep<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) {
+/// Best-effort: the table holds only rows a login is waiting on. Shared with
+/// `browser_session`, whose tickets are rows of the same table.
+pub(super) async fn sweep<C: ConnectionTrait>(db: &C, now: DateTime<Utc>) {
     let cutoff = (now - Duration::seconds(SWEEP_AFTER_SECS)).fixed_offset();
     if let Err(e) = CliAuthCodes::delete_many()
         .filter(cli_auth_codes::Column::ExpiresAt.lt(cutoff))
@@ -174,7 +175,7 @@ pub struct Redeemed {
 /// Mark the code stored under `hash` spent and return its row. `None` when
 /// there is no such unspent code. One conditional `UPDATE`, so two concurrent
 /// exchanges cannot both win.
-async fn spend<C: ConnectionTrait>(
+pub(super) async fn spend<C: ConnectionTrait>(
     db: &C,
     hash: Vec<u8>,
     now: DateTime<Utc>,

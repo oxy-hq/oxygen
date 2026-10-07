@@ -33,6 +33,13 @@ const publicAPIPaths = [
   // toast, which is the wrong register for a sign-in attempt: nothing has
   // been denied to a *session*, the identity was simply never on the list.
   "/auth/dev-login",
+  // API-token sign-in (`/token-login`). Its one refusal is a 400 the page
+  // renders itself, so nothing here fires today — the entry is for what must
+  // never happen on this route: the 401 handler clears the stored session and
+  // hard-navigates to /login, and this request is made while the *previous*
+  // session is still stored (it is replaced only once the ticket redeems). A
+  // refused link must leave whoever was signed in exactly as they were.
+  "/auth/browser-ticket/redeem",
   // Crew (frontline) sign-in. A wrong PIN answers 401 — the page renders it
   // inline and clears the PIN; a hard navigate to /login would wipe the
   // kiosk's roster picker mid-attempt. The other two always answer 200 but

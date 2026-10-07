@@ -51,7 +51,47 @@ export function storedTokenSubject(): string | null {
   return typeof sub === "string" && sub !== "" ? sub : null;
 }
 
+/**
+ * True when the stored session was opened with a personal API token (the
+ * `/token-login` path) rather than by a person signing in. The server stamps
+ * those session JWTs with a JOSE header `kid` of `tok:<token id>`; a session
+ * from any other login carries no `kid`. Never throws: no token, or one that
+ * can't be parsed, is simply not a token session. Like its siblings here this
+ * is a pure client-side read — it decides what the UI asks, never what the
+ * server allows.
+ */
+export function isStoredTokenSession(): boolean {
+  const kid = readStoredTokenHeader()?.kid;
+  return typeof kid === "string" && kid.startsWith("tok:");
+}
+
+/**
+ * Who the stored session says is signed in — the stored user's email, else
+ * their name — for copy that has to name them. Null when there is no stored
+ * user or it can't be read.
+ */
+export function storedUserLabel(): string | null {
+  try {
+    const user: unknown = JSON.parse(localStorage.getItem("user") ?? "null");
+    if (!user || typeof user !== "object") return null;
+    const { email, name } = user as { email?: unknown; name?: unknown };
+    if (typeof email === "string" && email !== "") return email;
+    return typeof name === "string" && name !== "" ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function readStoredTokenClaims(): { exp?: unknown; sub?: unknown } | null {
+  return decodeStoredTokenSegment(1);
+}
+
+function readStoredTokenHeader(): { kid?: unknown } | null {
+  return decodeStoredTokenSegment(0);
+}
+
+/** One base64url JSON segment of the stored JWT: 0 is the JOSE header, 1 the claims. */
+function decodeStoredTokenSegment(index: 0 | 1): object | null {
   let token: string | null = null;
   try {
     token = localStorage.getItem("auth_token");
@@ -60,9 +100,9 @@ function readStoredTokenClaims(): { exp?: unknown; sub?: unknown } | null {
   }
   if (!token) return null;
   try {
-    const payload = token.split(".")[1];
-    const claims: unknown = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    return claims && typeof claims === "object" ? claims : null;
+    const segment = token.split(".")[index];
+    const decoded: unknown = JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/")));
+    return decoded && typeof decoded === "object" ? decoded : null;
   } catch {
     return null;
   }

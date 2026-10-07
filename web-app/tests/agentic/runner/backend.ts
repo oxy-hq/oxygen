@@ -126,6 +126,7 @@ const TOP_LEVEL_SURFACES = [
   "/customer-apps",
   "/login",
   "/dev-login",
+  "/token-login",
   "/invite",
   "/cli-auth"
 ];

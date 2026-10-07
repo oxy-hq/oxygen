@@ -54,6 +54,10 @@ describe("applyPathPrefix", () => {
     );
     expect(applyPathPrefix("/admin/tenants?tab=partners")).toBe("/admin/tenants?tab=partners");
     expect(applyPathPrefix("/login#returnTo=/home")).toBe("/login#returnTo=/home");
+    // `/token-login` carries everything in the fragment, never a query string.
+    expect(applyPathPrefix("/token-login#ticket=abc&next=%2Fide")).toBe(
+      "/token-login#ticket=abc&next=%2Fide"
+    );
   });
 
   // …and a workspace-scoped path with a query string must still be prefixed,

@@ -7,12 +7,15 @@
 //! - [`ops`]: internal helpers — session-cookie construction, OAuth code
 //!   exchange, magic-link email + rate limiting, and login finalization.
 //! - [`handlers`]: the HTTP handler functions themselves.
+//! - [`token_session`]: the login response of a session a personal access
+//!   token opened, and its cookie hydration.
 
 mod cookie_session;
 mod dev_login;
 mod dto;
 mod handlers;
 mod ops;
+mod token_session;
 
 // Frontline sign-in mints the same session cookie as the magic-link path, so
 // the installed PWA carries it on navigation without the page holding a token.
@@ -28,7 +31,11 @@ pub(crate) use dev_login::{
 };
 pub use handlers::*;
 pub(crate) use ops::clear_session_cookie;
+// The ticket redemption (`api::user_tokens::browser_session`) answers as a
+// login does: one function and the type it returns cross the boundary.
+pub(crate) use dto::AuthResponse;
 pub use ops::validate_return_to_url;
+pub(crate) use token_session::token_session_response;
 // `pub`: reused by the extracted `oxy-api-partner-console` surface (invite links).
 pub use ops::{extract_base_url_from_headers, extract_link_base_for_authenticated_request};
 

@@ -37,6 +37,14 @@ pub enum TokenError {
     /// the code is unknown, spent or expired, or the verifier does not match.
     /// One answer for all of them, so a caller cannot tell which.
     InvalidCode,
+    /// 400 `invalid_ticket` — a browser ticket that opens nothing: unknown,
+    /// spent or expired, or its token has since been revoked or has lapsed.
+    /// One answer for all of them, as for a login code.
+    InvalidTicket,
+    /// 403 `personal_token_required` — only a personal access token opens a
+    /// browser session; a legacy key, a service account's token, a CI token
+    /// and a sandbox agent token do not.
+    PersonalTokenRequired,
     /// 422 `repository_unresolved` — a trust policy's `owner/repo` could not
     /// be resolved to GitHub's ids, and the body supplied none.
     RepositoryUnresolved,
@@ -134,6 +142,16 @@ impl TokenError {
                 StatusCode::BAD_REQUEST,
                 "the login code is invalid or has expired".into(),
                 Some("invalid_code"),
+            ),
+            Self::InvalidTicket => (
+                StatusCode::BAD_REQUEST,
+                "the sign-in link is invalid, has been used or has expired".into(),
+                Some("invalid_ticket"),
+            ),
+            Self::PersonalTokenRequired => (
+                StatusCode::FORBIDDEN,
+                "only a personal access token opens a browser session".into(),
+                Some("personal_token_required"),
             ),
             Self::RepositoryUnresolved => (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -243,6 +261,12 @@ mod tests {
                 Some("use_service_account_routes"),
             ),
             (TokenError::InvalidCode, 400, Some("invalid_code")),
+            (TokenError::InvalidTicket, 400, Some("invalid_ticket")),
+            (
+                TokenError::PersonalTokenRequired,
+                403,
+                Some("personal_token_required"),
+            ),
             (
                 TokenError::RepositoryUnresolved,
                 422,

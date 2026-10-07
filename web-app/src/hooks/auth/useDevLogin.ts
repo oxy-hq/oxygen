@@ -3,26 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthService } from "@/services/api";
 import type { AuthResponse, DevLoginRequest } from "@/types/auth";
-import { handlePostLoginOrgs, resolveReturnTo } from "./postLoginRedirect";
+import { type RequestedDestination, resolvePostLoginDestination } from "./postLoginRedirect";
 
-/**
- * A `?next=` destination is only followed when it is a same-origin path — one
- * leading slash, no protocol-relative `//host` — so the dev-login URL can't be
- * turned into an open redirect. Cross-origin destinations go through
- * `return_to`, which the server validates.
- */
-export const sanitizeNextPath = (next: string | null | undefined): string | null => {
-  if (!next?.startsWith("/") || next.startsWith("//")) {
-    return null;
-  }
-  return next;
-};
-
-interface DevLoginOptions {
-  /** Cross-origin post-login destination; validated server-side. */
-  returnTo?: string;
-  /** Same-origin path to land on, e.g. `/ide`. Wins over the org dispatcher. */
-  next?: string | null;
+interface DevLoginOptions extends RequestedDestination {
   /**
    * Called when the server refuses. This has to be a **hook-level** callback,
    * not the `mutate(vars, { onError })` form: React Query skips the per-call
@@ -51,14 +34,12 @@ export const useDevLogin = ({ returnTo, next, onFailure }: DevLoginOptions = {})
     onSuccess: async (data) => {
       login(data.token, data.user);
 
-      const resolved = await resolveReturnTo(returnTo);
-      if (resolved) {
-        window.location.href = resolved;
+      const destination = await resolvePostLoginDestination(data, { returnTo, next });
+      if (destination.kind === "external") {
+        window.location.href = destination.url;
         return;
       }
-
-      const destination = sanitizeNextPath(next) ?? handlePostLoginOrgs(data.user, data.orgs);
-      navigate(destination, { replace: true });
+      navigate(destination.path, { replace: true });
     }
   });
 };

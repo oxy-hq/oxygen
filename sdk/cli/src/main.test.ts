@@ -134,6 +134,23 @@ describe("exit codes", () => {
     expect(r.stderr).toMatch(/oxyc login/);
   });
 
+  /**
+   * `login-link`'s stdout is read by `$(…)` and handed to a browser, so every
+   * failure has to leave it empty: the usage error that comes before the
+   * credential is asked for, and the missing credential itself.
+   */
+  it("login-link: a --next off the deployment is USAGE before the credential; no login is AUTH", () => {
+    const usage = oxyc("login-link", "--next", "//evil.test/ide", "--env", "production");
+    expect(usage.status).toBe(ExitCode.USAGE);
+    expect(usage.stderr).toMatch(/not a path on the deployment/);
+    expect(usage.stdout).toBe("");
+
+    const auth = oxyc("login-link", "--next", "/ide", "--env", "production");
+    expect(auth.status).toBe(ExitCode.AUTH);
+    expect(auth.stderr).toMatch(/oxyc login/);
+    expect(auth.stdout).toBe("");
+  });
+
   it("refuses an unresolvable placeholder before making a request", () => {
     const r = oxyc("api", "{workspace}/threads", "--env", "production");
     expect(r.status).toBe(ExitCode.USAGE);
@@ -315,7 +332,8 @@ describe("help", () => {
       ["fn", "--help"],
       ["fn", "call", "--help"],
       ["invocations", "--help"],
-      ["logs", "--help"]
+      ["logs", "--help"],
+      ["login-link", "--help"]
     ]) {
       const r = oxyc(...args);
       expect(r.status, `oxyc ${args.join(" ")}`).toBe(ExitCode.OK);
@@ -437,10 +455,12 @@ describe("guide", () => {
    * to 85, deliberately, when the sandbox-MCP note and a six-line "Workspace
    * previews" block (mirroring "Sandboxes") were added — both loops are new
    * capabilities worth their lines, not padding; the ceiling still catches
-   * the next addition that is not.
+   * the next addition that is not. And from 85 to 86 for `login-link`: one
+   * line, and the only place an agent learns it can have a signed-in browser
+   * on a deployed environment before it has gone looking for one.
    */
   it("stays short enough to sit in a context file", () => {
-    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(85);
+    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(86);
   });
 });
 

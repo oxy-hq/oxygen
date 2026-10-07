@@ -68,6 +68,7 @@ never sent to the server as a literal.
 
     oxyc validate                  # check the workspace YAML — no network, no token
     oxyc proxy --env dev           # local app dev against cloud data
+    oxyc login-link --next /ide    # one-time URL that signs a browser in as your token
     oxyc guide                     # this page, to paste into a context file
 
 `oxyc validate` is the one command that works entirely offline. It checks
@@ -75,6 +76,11 @@ never sent to the server as a literal.
 `.agent.test.yml` against the schemas the Rust config types generate. It is
 STRUCTURAL only — `oxy validate` also resolves `databases:` and `llm.ref`, and
 wins where the two disagree.
+
+To look at a deployed environment in a browser, navigate your browser tool to
+`$(oxyc login-link --env dev --next /ide)`. It is a one-time link that signs
+the browser in as your token — no OAuth, no inbox — and it needs a personal
+access token, which is what `oxyc login` stores.
 
 If your runtime speaks MCP, `oxyc mcp` serves the same API surface as four
 tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead. It

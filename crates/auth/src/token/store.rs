@@ -46,7 +46,7 @@ fn db_err(what: &str) -> impl FnOnce(sea_orm::DbErr) -> OxyError + '_ {
     move |e| OxyError::DBError(format!("{what}: {e}"))
 }
 
-fn invalid(reason: impl std::fmt::Display) -> OxyError {
+pub(super) fn invalid(reason: impl std::fmt::Display) -> OxyError {
     tracing::debug!(%reason, "API token refused");
     OxyError::AuthenticationError("Invalid API key".to_string())
 }

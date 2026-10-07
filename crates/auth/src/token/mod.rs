@@ -28,6 +28,8 @@
 //! - [`access`] — the request bodies of those routes, parsed and checked;
 //! - [`grant_plan`] — how an edit's `grants` replaces the stored set;
 //! - [`cli_login`] — the `oxyc login` PKCE code store;
+//! - [`browser_session`] — the ticket a token trades for a browser session,
+//!   and the session, which authenticates as that token;
 //! - [`leak`] — what a leak report revokes; [`hygiene`] — the expiry notice
 //!   and the unused-token sweep;
 //! - [`sandbox`] — the sandbox agent token (`oxy_sbx_`): what a mint asks
@@ -36,6 +38,7 @@
 pub mod access;
 pub mod account_access;
 pub mod admission;
+pub mod browser_session;
 pub mod cache;
 pub mod ci;
 pub mod ci_mint;
@@ -65,8 +68,8 @@ pub use credential::{
     AccountStanding, AppPublishGrant, AppSandboxGrant, CredentialContext, StoredKind,
 };
 pub use dispatch::{
-    AuthSurface, Authenticated, SandboxAgent, authenticate_request, presents_api_token,
-    presents_sandbox_agent,
+    AuthSurface, Authenticated, SandboxAgent, authenticate_browser_session, authenticate_request,
+    presents_api_token, presents_sandbox_agent,
 };
 pub use format::{
     TokenFormat, generate_ci, generate_personal, generate_sandbox_agent, generate_service_account,

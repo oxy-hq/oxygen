@@ -45,6 +45,9 @@ pub(crate) const EXTENDED: &str = "token.extended";
 pub(crate) const REGENERATED: &str = "token.regenerated";
 pub(crate) const REVOKED: &str = "token.revoked";
 pub(crate) const GRANTS_CHANGED: &str = "token.grants_changed";
+/// A ticket was redeemed: a browser now holds a session of this token
+/// (`super::browser_session`).
+pub(crate) const BROWSER_SESSION_OPENED: &str = "token.browser_session_opened";
 /// An org ended a personal token's reach into it. Written to that org only.
 pub(crate) const GRANT_REVOKED_BY_ORG: &str = "token.grant_revoked_by_org";
 /// The sweeper expired a new-format token nobody used for a year.
