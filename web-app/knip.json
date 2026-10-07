@@ -2,5 +2,5 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "ignore": ["src/vitest.d.ts", "src/types/*.d.ts", "src/components/ui/shadcn/**"],
   "ignoreBinaries": ["biome"],
-  "ignoreDependencies": ["dotenv", "memfs"]
+  "ignoreDependencies": ["dotenv", "memfs", "@playwright/mcp"]
 }
