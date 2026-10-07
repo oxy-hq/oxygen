@@ -160,7 +160,7 @@ env:
   # service account are honoured from 0.7.0, which tries them first and falls
   # back to the publisher. A pin older than that still publishes, through the
   # publisher alone.
-  OXYC_VERSION: "0.7.0"
+  OXYC_VERSION: "0.8.0"
 
 jobs:
   build:
