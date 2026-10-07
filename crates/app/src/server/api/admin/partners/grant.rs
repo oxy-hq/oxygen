@@ -14,7 +14,8 @@
 use axum::Json;
 use axum::http::StatusCode;
 use entity::prelude::{OrgMembers, Organizations, PartnerGrants, PartnerOrgs, Users};
-use entity::{org_members, partner_orgs, partner_role_bindings, users};
+use entity::{org_members, partner_orgs, partner_role_bindings};
+use oxy::database::filters::UserQueryFilterExt;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -102,7 +103,7 @@ pub async fn grant_partnership(
     let admin_member = match body.partner_admin_email.as_deref().map(str::trim) {
         Some(e) if !e.is_empty() => {
             let user = Users::find()
-                .filter(users::Column::Email.eq(e.to_ascii_lowercase()))
+                .filter_by_email(e)
                 .one(&db)
                 .await
                 .map_err(internal("load admin user"))?

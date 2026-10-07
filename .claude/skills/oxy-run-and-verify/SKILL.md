@@ -122,6 +122,20 @@ Seeded orgs: `local` (Demo `70787bb2-e11b-5488-b2c3-02e60d5fc7d3` from `./exampl
 - Missing browser: `pnpm --dir web-app/node_modules/@playwright/mcp exec playwright install chromium`.
 - API-only check: `TOKEN=$(curl -s --noproxy '*' 'http://127.0.0.1:3000/api/auth/dev-login?as=member' | jq -r .token)`, then `curl -s --noproxy '*' -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3000/api/orgs`.
 
+## A deployment (dev, staging, prod), not this machine
+
+Everything above is local. On a deployment there is no dev-login, and Google, GitHub and a magic link are not things a script can finish. The one navigation there is a sign-in link from your `oxyc` token:
+
+```bash
+browser_navigate("$(oxyc login-link --env dev --next <path>)")
+```
+
+- Needs `oxyc` ≥ 0.8.0 and a person to have run `oxyc login --env <env>` once. No token: exit `4`. A deployment too old to have the route: exit `5`.
+- The link works once, for 5 minutes. A dead one shows `[data-testid=token-login-error]`; mint another.
+- The session is your token: 12 hours at most, your token's reach and nothing more. A page that answers `403 session_required` (token management) or `404` is the token's limit, not a bug.
+- Never script the provider's sign-in page, and never ask for a password: there is none.
+- Details and the reasoning: `internal-docs/dev-sign-in.md` → "On a deployment".
+
 ## Gotchas
 
 - **`127.0.0.1`, not `localhost`.** Vite binds IPv4 loopback only, and macOS resolves `localhost` to `::1` first.

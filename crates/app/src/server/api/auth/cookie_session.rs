@@ -9,27 +9,26 @@
 //! else.
 
 use axum::http::HeaderMap;
-use jsonwebtoken::{DecodingKey, Validation, decode};
-use oxy::config::constants::AUTHENTICATION_SECRET_KEY;
+use jsonwebtoken::{Validation, decode};
+use oxy_auth::session_key::{self, Purpose};
 
 use super::dto::Claims;
 
 /// The user id (`sub`) of the `oxy_session` cookie on this request, when that
-/// cookie holds a token the server would accept: signed with our key and not
-/// expired. `None` for no cookie, an empty one, a forged one, an expired one.
+/// cookie holds a token the server would accept: signed with this deployment's
+/// session key and not expired. `None` for no cookie, an empty one, a forged
+/// one, an expired one — and when the key itself cannot be read, which is
+/// answered as "no session" rather than as an error a probe has to handle.
 ///
 /// The cookie alone. An `Authorization` header is ignored on purpose: the web
 /// app attaches its stored bearer token to every call, and the question this
 /// answers is whether the *cookie* still backs that token.
-pub fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
+pub async fn session_cookie_user_id(headers: &HeaderMap) -> Option<String> {
     let jwt = oxy_auth::built_in::extract_session_cookie(headers)?;
-    decode::<Claims>(
-        &jwt,
-        &DecodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-        &Validation::default(),
-    )
-    .ok()
-    .map(|data| data.claims.sub)
+    let key = session_key::decoding_key(Purpose::Session).await.ok()?;
+    decode::<Claims>(&jwt, &key, &Validation::default())
+        .ok()
+        .map(|data| data.claims.sub)
 }
 
 #[cfg(test)]
@@ -39,7 +38,13 @@ mod tests {
     use chrono::Utc;
     use jsonwebtoken::{EncodingKey, Header, encode};
 
-    fn jwt(sub: &str, key: &str, exp_offset_secs: i64) -> String {
+    /// This process's session key, with a root fixed so no database is read.
+    async fn session_key_bytes() -> [u8; 32] {
+        session_key::install_root_for_tests([7; 32]);
+        session_key::key(Purpose::Session).await.expect("a key")
+    }
+
+    fn jwt(sub: &str, key: &[u8], exp_offset_secs: i64) -> String {
         let now = Utc::now().timestamp();
         encode(
             &Header::default(),
@@ -49,7 +54,7 @@ mod tests {
                 exp: (now + exp_offset_secs) as usize,
                 iat: now as usize,
             },
-            &EncodingKey::from_secret(key.as_bytes()),
+            &EncodingKey::from_secret(key),
         )
         .expect("encode")
     }
@@ -62,44 +67,44 @@ mod tests {
         h
     }
 
-    #[test]
-    fn a_valid_session_cookie_names_its_user() {
-        let tok = jwt("user-a", AUTHENTICATION_SECRET_KEY, 3600);
+    #[tokio::test]
+    async fn a_valid_session_cookie_names_its_user() {
+        let tok = jwt("user-a", &session_key_bytes().await, 3600);
         let h = headers(&[("cookie", format!("oxy_kiosk=k.s; oxy_session={tok}"))]);
-        assert_eq!(session_cookie_user_id(&h).as_deref(), Some("user-a"));
+        assert_eq!(session_cookie_user_id(&h).await.as_deref(), Some("user-a"));
     }
 
-    #[test]
-    fn the_authorization_header_is_not_the_cookie() {
-        let tok = jwt("user-a", AUTHENTICATION_SECRET_KEY, 3600);
+    #[tokio::test]
+    async fn the_authorization_header_is_not_the_cookie() {
+        let key = session_key_bytes().await;
+        let tok = jwt("user-a", &key, 3600);
         // A bearer alone — the web app after `/api/logout` cleared the cookie.
         let h = headers(&[("authorization", tok.clone())]);
-        assert_eq!(session_cookie_user_id(&h), None);
+        assert_eq!(session_cookie_user_id(&h).await, None);
         // Both, naming different people: the cookie's answer, not the bearer's.
-        let other = jwt("user-b", AUTHENTICATION_SECRET_KEY, 3600);
+        let other = jwt("user-b", &key, 3600);
         let h = headers(&[
             ("authorization", tok),
             ("cookie", format!("oxy_session={other}")),
         ]);
-        assert_eq!(session_cookie_user_id(&h).as_deref(), Some("user-b"));
+        assert_eq!(session_cookie_user_id(&h).await.as_deref(), Some("user-b"));
     }
 
-    #[test]
-    fn an_expired_forged_or_empty_cookie_names_nobody() {
-        let expired = jwt("user-a", AUTHENTICATION_SECRET_KEY, -3600);
-        assert_eq!(
-            session_cookie_user_id(&headers(&[("cookie", format!("oxy_session={expired}"))])),
-            None
-        );
-        let forged = jwt("user-a", "not-our-key", 3600);
-        assert_eq!(
-            session_cookie_user_id(&headers(&[("cookie", format!("oxy_session={forged}"))])),
-            None
-        );
-        assert_eq!(
-            session_cookie_user_id(&headers(&[("cookie", "oxy_session=; x=y".into())])),
-            None
-        );
-        assert_eq!(session_cookie_user_id(&HeaderMap::new()), None);
+    #[tokio::test]
+    async fn an_expired_forged_or_empty_cookie_names_nobody() {
+        let key = session_key_bytes().await;
+        let cookie = |value: String| headers(&[("cookie", format!("oxy_session={value}"))]);
+
+        let expired = jwt("user-a", &key, -3600);
+        assert_eq!(session_cookie_user_id(&cookie(expired)).await, None);
+        // Signed with a key that is not this deployment's — the string every
+        // session was once signed with among them.
+        for not_ours in [&b"not-our-key"[..], &b"authentication_secret"[..]] {
+            let forged = jwt("user-a", not_ours, 3600);
+            assert_eq!(session_cookie_user_id(&cookie(forged)).await, None);
+        }
+        let empty = headers(&[("cookie", "oxy_session=; x=y".into())]);
+        assert_eq!(session_cookie_user_id(&empty).await, None);
+        assert_eq!(session_cookie_user_id(&HeaderMap::new()).await, None);
     }
 }

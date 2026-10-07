@@ -4,8 +4,8 @@ use crate::integrations::slack::services::user_links::{CreateLink, LinkMethod, U
 use entity::org_members;
 use entity::prelude::Users;
 use entity::slack_installations::Model as InstallationRow;
-use entity::users;
 use oxy::database::client::establish_connection;
+use oxy::database::filters::UserQueryFilterExt;
 use oxy_shared::errors::OxyError;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::collections::HashMap;
@@ -83,11 +83,11 @@ pub async fn try_auto_match(
         return Ok(AutoMatchResult::NoEmail);
     };
 
-    // users.email is stored lowercased (see auth.rs magic-link handlers), so an
-    // exact-match lookup is case-safe after normalising the Slack email above.
+    // Not every stored address is lowercase — one made by Google or GitHub
+    // sign-in kept the provider's capitals — so the lookup ignores case.
     let conn = establish_connection().await?;
     let user = Users::find()
-        .filter(users::Column::Email.eq(&email))
+        .filter_by_email(&email)
         .one(&conn)
         .await
         .map_err(|e| OxyError::DBError(e.to_string()))?;

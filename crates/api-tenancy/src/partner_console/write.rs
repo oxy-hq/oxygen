@@ -15,7 +15,7 @@ use chrono::Utc;
 use entity::org_invitations::{self, InviteStatus};
 use entity::org_members::{self, OrgRole};
 use entity::prelude::{OrgMembers, Organizations, Users};
-use entity::users;
+use oxy::database::filters::UserQueryFilterExt;
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
 };
@@ -83,7 +83,7 @@ pub async fn invite_member(
 
     // Reject if the email already belongs to a member of this org.
     if let Some(user) = Users::find()
-        .filter(users::Column::Email.eq(&email))
+        .filter_by_email(&email)
         .one(&db)
         .await
         .map_err(internal("lookup invited user"))?

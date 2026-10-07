@@ -43,6 +43,7 @@ use super::store;
 use crate::api_key_infra::require_active_owner;
 use crate::built_in::{auth_configured, extract_session_cookie, guest_identity, session_identity};
 use crate::constants::{AUTHENTICATION_HEADER_KEY, DEFAULT_API_KEY_HEADER};
+use crate::session_key::{self, Purpose};
 use crate::types::Identity;
 
 /// Which credentials a surface accepts.
@@ -100,7 +101,7 @@ pub async fn authenticate_request(
             let (identity, credential) = authenticate_browser_session(&jwt).await?;
             return Ok((identity, Some(credential)));
         }
-        match session_identity(headers) {
+        match login_session(headers).await {
             Ok(identity) => return Ok((identity, None)),
             Err(err) => tracing::debug!("JWT validation failed, will try API key: {}", err),
         }
@@ -167,6 +168,19 @@ fn api_key_header(headers: &HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// A login session: the JWT [`session_jwt`] finds, verified with this
+/// deployment's session key. The key is asked for only when there is a JWT to
+/// check, so a request that carries none never waits on it.
+async fn login_session(headers: &HeaderMap) -> Result<Identity, OxyError> {
+    if session_jwt(headers).is_none() {
+        return Err(OxyError::AuthenticationError(
+            "Missing or invalid authentication header".to_string(),
+        ));
+    }
+    let key = session_key::decoding_key(Purpose::Session).await?;
+    session_identity(headers, &key)
 }
 
 /// What a session is read from: the `Authorization` value, else the

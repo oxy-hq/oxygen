@@ -757,7 +757,7 @@ async fn bound_status(
     };
     // Whose session the tablet's cookie carries, read and never renewed. The
     // web app on a kiosk compares it with the account it holds a token for.
-    let session_user_id = oxy_app::surface::session::session_cookie_user_id(headers);
+    let session_user_id = oxy_app::surface::session::session_cookie_user_id(headers).await;
     Ok(Some(bound_status_json(
         &device,
         &org,

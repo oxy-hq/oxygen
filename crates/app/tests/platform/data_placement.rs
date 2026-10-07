@@ -451,6 +451,10 @@ const TABLES: &[(&str, Placement)] = &[
     ("semantic_topics", Control("compiled .topic.yml")),
     ("semantic_views", Control("compiled .view.yml")),
     (
+        "server_keys",
+        Control("secrets the deployment generates for itself: the session-signing root"),
+    ),
+    (
         "service_accounts",
         Control("org-owned machine principals: identity and standing for API tokens"),
     ),

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::constants::{AUTHENTICATION_HEADER_KEY, AUTHENTICATION_SECRET_KEY, SESSION_COOKIE_NAME};
+use crate::constants::{AUTHENTICATION_HEADER_KEY, SESSION_COOKIE_NAME};
 use oxy_shared::errors::OxyError;
 
 use crate::token::{AuthSurface, Authenticated, SandboxAgent, authenticate_request};
@@ -50,11 +50,18 @@ pub(crate) fn guest_identity() -> Identity {
 
 /// The session a request carries: the `Authorization` JWT, else the
 /// `oxy_session` cookie. Step 2 of [`authenticate_request`]'s order.
-pub(crate) fn session_identity(header: &axum::http::HeaderMap) -> Result<Identity, OxyError> {
+///
+/// `key` is the deployment's session key ([`crate::session_key`]); the caller
+/// loads it, because that is the one part of reading a session that can wait
+/// on the database.
+pub(crate) fn session_identity(
+    header: &axum::http::HeaderMap,
+    key: &DecodingKey,
+) -> Result<Identity, OxyError> {
     // Reading a session never involves a token, so the choice is not used here.
     let authenticator = BuiltInAuthenticator::new(SandboxAgent::Refuse);
     let token = authenticator.extract_token(header)?;
-    authenticator.validate(&token)
+    authenticator.validate(&token, key)
 }
 
 /// The built-in authenticator, with its entry point's answer to a sandbox
@@ -130,13 +137,8 @@ impl BuiltInAuthenticator {
         ))
     }
 
-    fn validate(&self, value: &str) -> Result<Identity, OxyError> {
-        let token_data = decode::<Claims>(
-            value,
-            &DecodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-            &Validation::default(),
-        )
-        .map_err(|err| {
+    fn validate(&self, value: &str, key: &DecodingKey) -> Result<Identity, OxyError> {
+        let token_data = decode::<Claims>(value, key, &Validation::default()).map_err(|err| {
             tracing::error!("JWT validation failed: {}", err);
             OxyError::AuthenticationError(format!("Invalid JWT token: {err}"))
         })?;
@@ -270,7 +272,10 @@ mod session_identity_tests {
     use super::*;
     use jsonwebtoken::{EncodingKey, Header, encode};
 
-    fn token(sub: &str, email: &str) -> String {
+    /// A deployment's session key, as `session_key` would hand it over.
+    const KEY: &[u8] = b"a-deployments-own-session-key-00";
+
+    fn token_signed_with(key: &[u8], sub: &str, email: &str) -> String {
         let now = chrono::Utc::now().timestamp() as usize;
         encode(
             &Header::default(),
@@ -280,9 +285,14 @@ mod session_identity_tests {
                 exp: now + 3600,
                 iat: now,
             },
-            &EncodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
+            &EncodingKey::from_secret(key),
         )
         .expect("sign")
+    }
+
+    fn validate(token: &str) -> Result<Identity, OxyError> {
+        BuiltInAuthenticator::new(SandboxAgent::Refuse)
+            .validate(token, &DecodingKey::from_secret(KEY))
     }
 
     #[test]
@@ -292,21 +302,28 @@ mod session_identity_tests {
         // finds nobody — `sub` is the only identifier that works, and it has
         // carried the user id since tokens were introduced.
         let id = uuid::Uuid::new_v4();
-        let identity = BuiltInAuthenticator::new(SandboxAgent::Refuse)
-            .validate(&token(&id.to_string(), ""))
-            .expect("validate");
+        let identity = validate(&token_signed_with(KEY, &id.to_string(), "")).expect("validate");
         assert_eq!(identity.user_id, Some(id));
     }
 
     #[test]
-    fn a_token_minted_before_this_change_still_resolves() {
-        // Deploy safety: a `sub` that is not a uuid must fall back to the email
-        // claim rather than being rejected, or every session in flight breaks
-        // the moment this ships.
-        let identity = BuiltInAuthenticator::new(SandboxAgent::Refuse)
-            .validate(&token("legacy-subject", "ada@acme.com"))
-            .expect("validate");
+    fn a_subject_that_is_not_a_uuid_resolves_by_its_email_claim() {
+        // Lenient on purpose: such a token names nobody by id and falls back
+        // to the address. Safe only because the signature is checked first.
+        let identity =
+            validate(&token_signed_with(KEY, "legacy-subject", "ada@acme.com")).expect("validate");
         assert_eq!(identity.user_id, None);
         assert_eq!(identity.email, "ada@acme.com");
+    }
+
+    #[test]
+    fn a_session_signed_with_the_old_constant_is_refused() {
+        // Every session used to be signed with this string, which is in the
+        // source and so in anyone's hands. It signs nothing any more.
+        let id = uuid::Uuid::new_v4().to_string();
+        let forged = token_signed_with(b"authentication_secret", &id, "owner@acme.com");
+        assert!(validate(&forged).is_err());
+        // The control: the same claims under the deployment's key are a session.
+        assert!(validate(&token_signed_with(KEY, &id, "owner@acme.com")).is_ok());
     }
 }

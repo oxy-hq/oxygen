@@ -6,15 +6,13 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use entity::{prelude::Users, users, users::UserStatus};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{Header, Validation, decode, encode};
+use oxy_auth::session_key::{self, Purpose};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use uuid::Uuid;
 
 use crate::server::router::AppState;
-use oxy::{
-    config::constants::AUTHENTICATION_SECRET_KEY,
-    database::{client::establish_connection, filters::UserQueryFilterExt},
-};
+use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 
 use super::dto::*;
 use super::ops::*;
@@ -54,16 +52,15 @@ pub async fn get_session(
     if oxy_auth::token::browser_session::token_id_of(&jwt).is_some() {
         return super::token_session::hydrate(&headers, jwt).await;
     }
-    let claims = decode::<Claims>(
-        &jwt,
-        &DecodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-        &Validation::default(),
-    )
-    .map_err(|e| {
-        tracing::debug!("session hydrate: cookie JWT rejected: {e}");
-        StatusCode::UNAUTHORIZED
-    })?
-    .claims;
+    let key = session_key::decoding_key(Purpose::Session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let claims = decode::<Claims>(&jwt, &key, &Validation::default())
+        .map_err(|e| {
+            tracing::debug!("session hydrate: cookie JWT rejected: {e}");
+            StatusCode::UNAUTHORIZED
+        })?
+        .claims;
 
     let user_id = Uuid::parse_str(&claims.sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
@@ -96,12 +93,10 @@ pub async fn issue_oauth_state() -> Result<Json<OAuthStateResponse>, StatusCode>
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-    )
-    .map_err(|e| {
+    let key = session_key::encoding_key(Purpose::OAuthState)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = encode(&Header::default(), &claims, &key).map_err(|e| {
         tracing::error!("Failed to sign OAuth state: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -231,12 +226,10 @@ pub async fn create_auth_token_with_ttl(
         iat: now.timestamp() as usize,
     };
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-    )
-    .map_err(|e| {
+    let key = session_key::encoding_key(Purpose::Session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = encode(&Header::default(), &claims, &key).map_err(|e| {
         tracing::error!("Failed to generate JWT token: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -248,7 +241,7 @@ pub async fn google_auth(
     headers: HeaderMap,
     extract::Json(google_request): extract::Json<GoogleAuthRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {
-    verify_oauth_state(&google_request.state)?;
+    verify_oauth_state(&google_request.state).await?;
     let base_url = extract_base_url_from_headers(&headers);
     let user_info = exchange_google_code_for_user_info(&google_request.code, &base_url)
         .await
@@ -304,7 +297,9 @@ pub async fn google_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                email: Set(Some(user_info.email.clone())),
+                // Lowercase, as a magic link's address is stored: one spelling per
+                // mailbox for every account made from here on.
+                email: Set(Some(user_info.email.to_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),
@@ -327,7 +322,7 @@ pub async fn okta_auth(
     headers: HeaderMap,
     extract::Json(okta_request): extract::Json<OktaAuthRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {
-    verify_oauth_state(&okta_request.state)?;
+    verify_oauth_state(&okta_request.state).await?;
     let base_url = extract_base_url_from_headers(&headers);
     let user_info = exchange_okta_code_for_user_info(&okta_request.code, &base_url)
         .await
@@ -371,7 +366,9 @@ pub async fn okta_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                email: Set(Some(user_info.email.clone())),
+                // Lowercase, as a magic link's address is stored: one spelling per
+                // mailbox for every account made from here on.
+                email: Set(Some(user_info.email.to_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),
@@ -394,7 +391,7 @@ pub async fn github_auth(
     headers: HeaderMap,
     extract::Json(payload): extract::Json<GitHubAuthRequest>,
 ) -> Result<(HeaderMap, Json<AuthResponse>), StatusCode> {
-    verify_oauth_state(&payload.state)?;
+    verify_oauth_state(&payload.state).await?;
     let base_url = extract_base_url_from_headers(&headers);
     let user_info = exchange_github_code_for_user_info(&payload.code, &base_url)
         .await
@@ -437,7 +434,9 @@ pub async fn github_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                email: Set(Some(user_info.email.clone())),
+                // Lowercase, as a magic link's address is stored: one spelling per
+                // mailbox for every account made from here on.
+                email: Set(Some(user_info.email.to_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),

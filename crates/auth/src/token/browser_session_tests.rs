@@ -3,9 +3,12 @@
 //! `oxy-server`'s `token_auth::browser_session`.
 
 use super::*;
-use crate::constants::AUTHENTICATION_SECRET_KEY;
 use crate::token::credential::source;
 use crate::token::format::hash_token;
+
+/// The string every login session was once signed with. It is still in the
+/// repository's history, so it stands for "a key an outsider holds".
+const AUTHENTICATION_SECRET_KEY: &str = "authentication_secret";
 
 fn token_row(secret: &str) -> api_tokens::Model {
     api_tokens::Model {

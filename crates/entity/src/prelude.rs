@@ -60,6 +60,7 @@ pub use super::partner_publish_consent::Entity as PartnerPublishConsent;
 pub use super::partner_role_bindings::Entity as PartnerRoleBindings;
 pub use super::run_sequences::Entity as RunSequences;
 pub use super::secrets::Entity as Secrets;
+pub use super::server_keys::Entity as ServerKeys;
 pub use super::service_accounts::Entity as ServiceAccounts;
 pub use super::settings::Entity as Settings;
 pub use super::slack_channel_defaults::Entity as SlackChannelDefaults;

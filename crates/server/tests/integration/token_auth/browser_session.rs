@@ -514,7 +514,7 @@ async fn a_session_forged_with_the_login_key_is_refused() {
         kid: Some(format!("tok:{token_id}")),
         ..Header::default()
     };
-    let key = EncodingKey::from_secret(oxy_auth::constants::AUTHENTICATION_SECRET_KEY.as_bytes());
+    let key = EncodingKey::from_secret(b"authentication_secret");
     let forged = encode(&header, &claims, &key).unwrap();
 
     let (status, _) = in_token_session(&forged, "GET", "/auth/token").await;

@@ -4,7 +4,7 @@
 //! `crates/server/tests/integration/token_auth`.
 
 use super::*;
-use crate::constants::AUTHENTICATION_SECRET_KEY;
+use crate::session_key::test_key;
 use crate::token::format::generate_personal;
 use axum::http::HeaderValue;
 use jsonwebtoken::{EncodingKey, Header, encode};
@@ -35,7 +35,7 @@ fn session_jwt(user_id: uuid::Uuid) -> String {
             exp: now + 3600,
             iat: now,
         },
-        &EncodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
+        &EncodingKey::from_secret(&test_key(Purpose::Session)),
     )
     .unwrap()
 }

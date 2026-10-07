@@ -9,9 +9,6 @@ pub const DEFAULT_API_KEY_HEADER: &str = "X-API-Key";
 /// HTTP header carrying the bearer JWT.
 pub const AUTHENTICATION_HEADER_KEY: &str = "authorization";
 
-/// HMAC secret used for signing/verifying built-in JWTs.
-pub const AUTHENTICATION_SECRET_KEY: &str = "authentication_secret";
-
 /// Cookie name carrying the JWT for browser sessions. Set by every login
 /// finalize path (Google/GitHub/Okta/magic-link) so that `*.oxygen-hq.com`
 /// subdomains can be gated by the external auth proxy at

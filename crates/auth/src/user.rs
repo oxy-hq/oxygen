@@ -95,7 +95,8 @@ impl UserService {
 
         let new_user = users::ActiveModel {
             id: Set(Uuid::new_v4()),
-            email: Set(Some(identity.email.clone())),
+            // Lowercase: one spelling per mailbox (`oxy_platform::filters`).
+            email: Set(Some(identity.email.to_lowercase())),
             name: Set(identity
                 .name
                 .clone()

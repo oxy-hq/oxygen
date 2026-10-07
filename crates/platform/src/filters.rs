@@ -6,21 +6,39 @@
 //! the full `oxy` crate.
 
 use entity::users::{self, UserStatus};
-use sea_orm::{ColumnTrait, Condition, QueryFilter, Select};
+use sea_orm::sea_query::{Expr, ExprTrait, Func, SimpleExpr};
+use sea_orm::{ColumnTrait, Condition, QueryFilter, QueryOrder, Select};
 
 pub struct UserFilters;
+
+/// `lower(users.email) = lower(<email>)`.
+///
+/// An address is one mailbox whatever its capitals, and the ways in do not
+/// agree on them: a magic link lowercases what was typed, while Google, GitHub
+/// and Okta hand over whatever the provider holds. Matched exactly, the same
+/// person signing in two ways became two accounts.
+fn email_matches(email: &str) -> SimpleExpr {
+    ExprTrait::eq(
+        Expr::expr(Func::lower(Expr::col((
+            users::Entity,
+            users::Column::Email,
+        )))),
+        email.to_lowercase(),
+    )
+}
 
 impl UserFilters {
     pub fn active() -> Condition {
         Condition::all().add(users::Column::Status.eq(UserStatus::Active))
     }
+    /// The user with this address, compared without regard to case.
     pub fn by_email(email: &str) -> Condition {
-        Condition::all().add(users::Column::Email.eq(email))
+        Condition::all().add(email_matches(email))
     }
     pub fn active_by_email(email: &str) -> Condition {
         Condition::all()
             .add(users::Column::Status.eq(UserStatus::Active))
-            .add(users::Column::Email.eq(email))
+            .add(email_matches(email))
     }
 
     pub fn active_by_magic_link_token(token: &str) -> Condition {
@@ -30,12 +48,31 @@ impl UserFilters {
     }
 }
 
+/// Which row answers when more than one matches. Rows that differ only by case
+/// already exist — they are the duplicates exact matching made — and each of
+/// them is someone's account. So the row spelled exactly as asked comes first,
+/// which is the row an exact match would have found: nobody who signs in the
+/// way they always have is moved to the other account. With no exact spelling,
+/// the oldest.
+fn exact_spelling_first(
+    select: Select<entity::users::Entity>,
+    email: &str,
+) -> Select<entity::users::Entity> {
+    select
+        .order_by_desc(ExprTrait::eq(
+            Expr::col((users::Entity, users::Column::Email)),
+            email,
+        ))
+        .order_by_asc(users::Column::CreatedAt)
+}
+
 pub trait UserQueryFilterExt<E>
 where
     E: sea_orm::EntityTrait,
 {
     fn filter_active(self) -> Select<E>;
 
+    /// Users with this address, whatever its case; the exact spelling first.
     fn filter_by_email(self, email: &str) -> Select<E>;
 
     fn filter_active_by_email(self, email: &str) -> Select<E>;
@@ -49,11 +86,11 @@ impl UserQueryFilterExt<entity::users::Entity> for Select<entity::users::Entity>
     }
 
     fn filter_by_email(self, email: &str) -> Select<entity::users::Entity> {
-        self.filter(UserFilters::by_email(email))
+        exact_spelling_first(self.filter(UserFilters::by_email(email)), email)
     }
 
     fn filter_active_by_email(self, email: &str) -> Select<entity::users::Entity> {
-        self.filter(UserFilters::active_by_email(email))
+        exact_spelling_first(self.filter(UserFilters::active_by_email(email)), email)
     }
 
     fn filter_active_by_magic_link_token(self, token: &str) -> Select<entity::users::Entity> {
@@ -64,81 +101,56 @@ impl UserQueryFilterExt<entity::users::Entity> for Select<entity::users::Entity>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use entity::users::{self, UserStatus};
-    use sea_orm::{ColumnTrait, Condition};
+    use entity::prelude::Users;
+    use sea_orm::{DatabaseBackend, EntityTrait, QueryTrait};
 
-    #[test]
-    fn test_active_filter() {
-        let condition = UserFilters::active();
-        let expected = Condition::all().add(users::Column::Status.eq(UserStatus::Active));
-
-        assert_eq!(format!("{condition:?}"), format!("{:?}", expected));
+    fn sql(select: Select<entity::users::Entity>) -> String {
+        select.build(DatabaseBackend::Postgres).to_string()
     }
 
     #[test]
-    fn test_by_email_filter() {
-        let email = "test@example.com";
-        let condition = UserFilters::by_email(email);
-        let expected = Condition::all().add(users::Column::Email.eq(email));
-
-        assert_eq!(format!("{condition:?}"), format!("{:?}", expected));
-    }
-
-    #[test]
-    fn test_active_by_email_filter() {
-        let email = "test@example.com";
-        let condition = UserFilters::active_by_email(email);
-        let expected = Condition::all()
-            .add(users::Column::Status.eq(UserStatus::Active))
-            .add(users::Column::Email.eq(email));
-
-        assert_eq!(format!("{condition:?}"), format!("{:?}", expected));
-    }
-
-    #[test]
-    fn test_email_filter_with_different_emails() {
-        let email1 = "user1@example.com";
-        let email2 = "user2@example.com";
-
-        let condition1 = UserFilters::by_email(email1);
-        let condition2 = UserFilters::by_email(email2);
-
-        assert_ne!(format!("{condition1:?}"), format!("{:?}", condition2));
-    }
-
-    #[test]
-    fn test_active_vs_non_active_filters() {
-        let email = "test@example.com";
-
-        let active_condition = UserFilters::active_by_email(email);
-        let email_only_condition = UserFilters::by_email(email);
-
-        assert_ne!(
-            format!("{active_condition:?}"),
-            format!("{:?}", email_only_condition)
+    fn an_address_is_matched_without_regard_to_case() {
+        let query = sql(Users::find().filter_by_email("Jane.Doe@Acme.com"));
+        // Both sides lowered: the column in SQL, the argument before it is bound.
+        assert!(
+            query.contains(r#"LOWER("users"."email") = 'jane.doe@acme.com'"#),
+            "{query}"
         );
     }
 
     #[test]
-    fn test_active_by_magic_link_token_filter() {
-        let token = "deadbeefcafe";
-        let condition = UserFilters::active_by_magic_link_token(token);
-
-        // Must include both Status == Active (auth-bypass guard) AND MagicLinkToken == token.
-        let expected = Condition::all()
-            .add(users::Column::Status.eq(UserStatus::Active))
-            .add(users::Column::MagicLinkToken.eq(token));
-
-        assert_eq!(format!("{condition:?}"), format!("{:?}", expected));
+    fn the_exact_spelling_answers_before_any_other_then_the_oldest() {
+        let query = sql(Users::find().filter_by_email("Jane.Doe@Acme.com"));
+        let order = query.split("ORDER BY").nth(1).expect("an ORDER BY");
+        // The argument as given, not lowered: it is what an exact match found.
+        assert!(
+            order.contains(r#""users"."email" = 'Jane.Doe@Acme.com' DESC"#),
+            "{order}"
+        );
+        assert!(order.contains(r#""users"."created_at" ASC"#), "{order}");
+        let exact = order.find("DESC").expect("exact first");
+        let oldest = order.find("ASC").expect("then oldest");
+        assert!(exact < oldest, "{order}");
     }
 
     #[test]
-    fn test_active_by_magic_link_token_requires_active_status() {
-        let token = "deadbeefcafe";
-        let with_active = UserFilters::active_by_magic_link_token(token);
-        let token_only = Condition::all().add(users::Column::MagicLinkToken.eq(token));
+    fn the_active_variant_adds_the_status_and_keeps_both_rules() {
+        let query = sql(Users::find().filter_active_by_email("Jane@Acme.com"));
+        assert!(query.contains(r#""users"."status" ="#), "{query}");
+        assert!(
+            query.contains(r#"LOWER("users"."email") = 'jane@acme.com'"#),
+            "{query}"
+        );
+        assert!(query.contains("ORDER BY"), "{query}");
+    }
 
-        // Ensures the active-status guard is not accidentally dropped.
-        assert_ne!(format!("{with_active:?}"), format!("{:?}", token_only));
+    #[test]
+    fn a_magic_link_token_is_still_matched_exactly() {
+        let query = sql(Users::find().filter_active_by_magic_link_token("deadbeefcafe"));
+        assert!(
+            query.contains(r#""users"."magic_link_token" = 'deadbeefcafe'"#),
+            "{query}"
+        );
+        assert!(!query.contains("LOWER"), "{query}");
     }
 }

@@ -9,7 +9,7 @@ use governor::{
     clock::{Clock, DefaultClock},
 };
 use handlebars::Handlebars;
-use jsonwebtoken::{DecodingKey, Validation, decode};
+use jsonwebtoken::{Validation, decode};
 use once_cell::sync::Lazy;
 use oxy::config::auth::MagicLinkAuth;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
@@ -19,10 +19,7 @@ use url::Url;
 use uuid::Uuid;
 
 use oxy::database::errors::is_unique_violation;
-use oxy::{
-    config::constants::AUTHENTICATION_SECRET_KEY,
-    database::{client::establish_connection, filters::UserQueryFilterExt},
-};
+use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_auth::constants::SESSION_COOKIE_NAME;
 use oxy_shared::errors::OxyError;
 
@@ -258,14 +255,14 @@ pub(super) const OAUTH_STATE_TTL_SECS: i64 = 10 * 60;
 
 pub(super) const OAUTH_STATE_PURPOSE: &str = "oauth-state";
 
-pub(super) fn verify_oauth_state(state: &str) -> Result<(), StatusCode> {
+pub(super) async fn verify_oauth_state(state: &str) -> Result<(), StatusCode> {
     let validation = Validation::default();
-    let data = decode::<OAuthStateClaims>(
-        state,
-        &DecodingKey::from_secret(AUTHENTICATION_SECRET_KEY.as_bytes()),
-        &validation,
-    )
-    .map_err(|e| {
+    // Its own key, not the session's: a `state` can never be presented as a
+    // session, and a session never as a `state`.
+    let key = oxy_auth::session_key::decoding_key(oxy_auth::session_key::Purpose::OAuthState)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let data = decode::<OAuthStateClaims>(state, &key, &validation).map_err(|e| {
         tracing::warn!("OAuth state rejected: {}", e);
         StatusCode::UNAUTHORIZED
     })?;

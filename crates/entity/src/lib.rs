@@ -143,6 +143,7 @@ pub mod quickbooks_oauth_states;
 pub mod reconcile_configs;
 pub mod run_sequences;
 pub mod secrets;
+pub mod server_keys;
 pub mod service_accounts;
 pub mod settings;
 pub mod slack_channel_defaults;
