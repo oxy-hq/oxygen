@@ -595,9 +595,10 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
         {/* Invitation accept — public; the page itself redirects to /login if needed */}
         <Route path='/invite/:token' element={<InvitePage />} />
 
-        {/* `oxyc login` browser handoff — public; reads the session token and
-            hands it to the CLI's loopback listener, bouncing through /login
-            first when not yet signed in. */}
+        {/* `oxyc login` browser handoff — public; asks the signed-in person,
+            then hands the CLI's loopback listener a one-time code (an older
+            oxyc: the session token), bouncing through /login first when not
+            yet signed in. */}
         <Route path='/cli-auth' element={<CliAuth />} />
 
         {/* Auth-gated routes. `ActingShell` wraps EVERY authenticated page so the

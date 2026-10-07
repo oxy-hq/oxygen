@@ -106,7 +106,7 @@ describe("parseCliAuthRequest, with a kind", () => {
   });
 
   it("never runs the token handoff for a mint that lost its code_challenge", () => {
-    // With no `kind` this is the legacy flow, which hands over the session token with no click.
+    // With no `kind` this is the legacy flow, which offers the session token: more than a mint asks.
     expect(parse("port=53124&state=abc&kind=sandbox_agent&apps=acme/store-ops")).toMatchObject({
       kind: "invalid",
       title: "Token request failed"

@@ -105,6 +105,27 @@ const open = (url: string) =>
     </MemoryRouter>
   );
 
+describe("/cli-auth inside another page", () => {
+  // A frame lets the outer page cover the card and steer a click onto the approving button.
+  const frame = () => vi.spyOn(window, "top", "get").mockReturnValue({} as Window);
+
+  it.each([
+    ["an old login", "/cli-auth?port=53124&state=nonce"],
+    [
+      "a login",
+      "/cli-auth?port=53124&state=nonce&code_challenge=" + "a".repeat(43) + "&hostname=luong-mbp"
+    ],
+    ["a token request", mintUrl()]
+  ])("asks nothing and sends nothing for %s", async (_what, url) => {
+    const top = frame();
+    open(url);
+    expect(await screen.findByText("Open this page in its own tab")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cli-auth-confirm")).not.toBeInTheDocument();
+    top.mockRestore();
+  });
+});
+
 describe("/cli-auth with a code_challenge (PKCE)", () => {
   it("names the computer and waits: no request and no redirect without a click", async () => {
     open(PKCE_URL);
@@ -725,7 +746,7 @@ describe("/cli-auth with a kind it can't mint", () => {
   it("never hands the session token to a mint link that lost its code_challenge", async () => {
     open(`${LEGACY_URL}&kind=sandbox_agent&apps=acme/store-ops`);
     expect(screen.getByTestId("cli-auth-card")).toHaveTextContent("Token request failed");
-    // The legacy handoff navigates on its own once the session is read; give it the chance to.
+    // The legacy handoff reads the session before it shows anything; give it the chance to.
     await act(async () => {
       await Promise.resolve();
     });
@@ -734,14 +755,19 @@ describe("/cli-auth with a kind it can't mint", () => {
 });
 
 describe("/cli-auth without a code_challenge (older oxyc)", () => {
-  it("hands the session token to the loopback at once, with no confirm step", async () => {
+  it("asks before it hands over the session token, then completes the login on one click", async () => {
+    const user = userEvent.setup({ delay: null });
     open(LEGACY_URL);
-    await waitFor(() =>
-      expect(leaveTo).toHaveBeenCalledWith(
-        "http://127.0.0.1:53124/callback?token=session.jwt&state=nonce"
-      )
+    const handOver = await screen.findByTestId("cli-auth-confirm");
+    // The page used to navigate on its own once the session was read; give it every chance to.
+    await attend(5000);
+    expect(leaveTo).not.toHaveBeenCalled();
+
+    await user.click(handOver);
+    expect(leaveTo).toHaveBeenCalledTimes(1);
+    expect(leaveTo).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/callback?token=session.jwt&state=nonce"
     );
-    expect(screen.queryByTestId("cli-auth-confirm")).not.toBeInTheDocument();
     expect(mutate).not.toHaveBeenCalled();
   });
 
