@@ -42,6 +42,7 @@ pub mod hygiene;
 pub mod introspect;
 pub mod inventory;
 pub mod leak;
+mod login_lifetime;
 pub mod options;
 pub(crate) mod policy_cap;
 mod policy_view;

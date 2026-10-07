@@ -7,13 +7,14 @@
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Duration, Utc};
-use entity::cli_auth_codes;
+use entity::org_members::OrgRole;
+use entity::{cli_auth_codes, org_token_policies};
 use oxy_auth::token::cli_login::challenge_of;
-use sea_orm::EntityTrait;
 use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::{Value, json};
 
-use super::stack::{flat_api, get_as, make_staff};
+use super::stack::{flat_api, get_as, join_org, make_staff};
 use super::{Fixture, call, fixture};
 
 /// RFC 7636 appendix B's verifier.
@@ -53,6 +54,54 @@ fn assert_invalid_code((status, body): (StatusCode, Value), why: &str) {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
     assert_eq!(body["code"], "invalid_code", "{why}: {body}");
     assert!(body.get("secret").is_none(), "{why}");
+}
+
+/// A login is all-access, and an all-access token that outlives an org's
+/// lifetime cap is not refused: it goes inert in that org. So a login is
+/// minted no longer than the tightest cap among its owner's orgs, and works
+/// there.
+#[tokio::test]
+async fn a_login_lasts_no_longer_than_the_tightest_cap_of_its_owners_orgs() {
+    let fx = fixture().await;
+    join_org(&fx.db, fx.org_id, fx.user.id, OrgRole::Member).await;
+    org_token_policies::ActiveModel {
+        org_id: Set(fx.org_id),
+        max_lifetime_days: Set(Some(180)),
+        allow_all_access_tokens: Set(true),
+        require_environment_on_trust_policies: Set(false),
+        updated_by: Set(None),
+        updated_at: Set(Utc::now().into()),
+    }
+    .insert(&fx.db)
+    .await
+    .expect("cap the org's tokens at 180 days");
+
+    let (status, minted) = exchange(&code_for(&fx, "build-box").await, VERIFIER).await;
+    assert_eq!(status, StatusCode::OK, "{minted}");
+    let token = &minted["token"];
+    let expires = DateTime::parse_from_rfc3339(token["expires_at"].as_str().expect("an expiry"))
+        .unwrap()
+        .with_timezone(&Utc);
+    let lifetime = expires - Utc::now();
+    assert!(
+        lifetime > Duration::days(179) && lifetime <= Duration::days(180),
+        "the org's 180 days, not a year: got {lifetime}"
+    );
+    // And so no org's policy makes it inert: the read the request path uses.
+    let id = token["id"]
+        .as_str()
+        .expect("an id")
+        .parse()
+        .expect("a uuid");
+    let row = super::pat_row(&fx.db, id).await;
+    let inert_in = oxy_auth::token::policy_store::blocks(&fx.db, &row, &[])
+        .await
+        .expect("the policy read");
+    assert!(
+        inert_in.is_empty(),
+        "the login is inert in {} org(s) it was minted to reach",
+        inert_in.len()
+    );
 }
 
 #[tokio::test]

@@ -8,7 +8,8 @@
 //!   for an `oxy_pat_`. The code is the only thing that names the user, so
 //!   every failure answers the same 400 `invalid_code`.
 //!
-//! The token is `oxyc on <hostname>`: all-access, a year, carrying `platform`
+//! The token is `oxyc on <hostname>`: all-access, a year (less where an org of
+//! its owner caps lifetimes tighter, see `login_lifetime`), carrying `platform`
 //! and `partner` only where its owner holds that standing. Logging in again
 //! from the same host retires the earlier token of that name.
 //!
@@ -33,7 +34,7 @@
 use axum::Json;
 use axum::body::Bytes;
 use axum::http::HeaderMap;
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use entity::prelude::Users;
 use entity::users::UserStatus;
 use oxy::database::client::establish_connection;
@@ -41,7 +42,7 @@ use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::SessionOnly;
 use oxy_auth::token::cli_login::{self, Redeemed};
 use oxy_auth::token::credential::source;
-use oxy_auth::token::personal::{self, LOGIN_LIFETIME_DAYS, NewToken};
+use oxy_auth::token::personal::{self, NewToken};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -53,7 +54,7 @@ use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
 use super::service::{self, Minted};
-use super::{reach, sandbox, view};
+use super::{login_lifetime, reach, sandbox, view};
 use crate::server::authz;
 
 /// Why an earlier `oxyc on <hostname>` token was revoked.
@@ -201,7 +202,7 @@ async fn mint(
         platform,
         partner,
         grants: Vec::new(),
-        expires_at: Some(Utc::now() + Duration::days(LOGIN_LIFETIME_DAYS)),
+        expires_at: Some(Utc::now() + login_lifetime::of(&txn, actor.id).await?),
         source: source::OXYC_LOGIN,
     };
     let minted = personal::create(&txn, new).await?;
