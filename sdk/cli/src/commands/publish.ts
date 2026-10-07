@@ -530,7 +530,9 @@ export async function publish(ctx: Context, flags: PublishFlags): Promise<Publis
   const who = identity.org
     ? `${identity.org}/${identity.app}`
     : `${identity.app} → workspace ${project}`;
-  log.info(`publishing ${who} (${tarball.length} bytes) → ${target} [${channel}]`);
+  // A sandbox publish still sends `channel=draft`; saying "draft" here would name the wrong place.
+  const destination = flags.appEnv !== undefined ? `sandbox ${flags.appEnv}` : channel;
+  log.info(`publishing ${who} (${tarball.length} bytes) → ${target} [${destination}]`);
 
   const token = await uploadToken(ctx, credential, identity);
   if (lint && manifest) {

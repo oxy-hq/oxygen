@@ -430,6 +430,17 @@ const MINT = {
 const stillAsking = () =>
   expect(screen.getByTestId("cli-auth-card")).toHaveTextContent("Approve a sandbox agent token?");
 
+describe("/cli-auth with kind=sandbox_agent: the two names a person checks stay whole", () => {
+  // `break-all` split an email across lines in the middle of a word (production showed
+  // "luong@oxy.te" / "ch"). These wrap as one word and break only when a line cannot hold them.
+  it.each(["cli-auth-hostname", "cli-auth-approver"])("%s wraps as a word", async (testId) => {
+    open(mintUrl());
+    const name = await screen.findByTestId(testId);
+    expect(name).toHaveClass("break-words");
+    expect(name).not.toHaveClass("break-all");
+  });
+});
+
 describe("/cli-auth with kind=sandbox_agent: every state is the same sheet", () => {
   /** The sheet: a page with one heading under the product's name, and no card around it. */
   const sheet = (status: string, title: string) => {

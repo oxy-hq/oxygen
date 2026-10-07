@@ -313,6 +313,25 @@ describe("oxyc publish", () => {
     expect(parsed.environment_url).toContain("dev-a1");
   });
 
+  it("says which sandbox it publishes to, not the draft channel the upload still names", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out", "--app-env", "dev-a1"], {
+      OXY_TOKEN: "good-token"
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain("[sandbox dev-a1]");
+    expect(result.stderr).not.toContain("[draft]");
+    // The wire field is unchanged: the server reads `channel=draft` plus the environment.
+    expect(uploads()[0]?.fields.channel).toBe("draft");
+  });
+
+  it("still says draft for a publish to the draft channel", async () => {
+    const dir = app();
+    const result = await publish(dir, ["--dir", "out"], { OXY_TOKEN: "good-token" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain("[draft]");
+  });
+
   it("rejects a malformed --app-env before any request", async () => {
     const dir = app();
     const result = await publish(dir, ["--dir", "out", "--app-env", "not-a-sandbox"], {

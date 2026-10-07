@@ -88,11 +88,14 @@ const MintApproval: React.FC<Props> = ({
       lead={
         <>
           Asked from the computer{" "}
-          <b className='break-all font-medium text-foreground' data-testid='cli-auth-hostname'>
+          <b className='break-words font-medium text-foreground' data-testid='cli-auth-hostname'>
             {request.hostname}
           </b>
           , for an agent that will act as{" "}
-          <b className='break-all font-medium text-foreground'>{email ?? "you"}</b>.
+          <b className='break-words font-medium text-foreground' data-testid='cli-auth-approver'>
+            {email ?? "you"}
+          </b>
+          .
         </>
       }
     >

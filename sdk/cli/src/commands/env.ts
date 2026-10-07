@@ -77,8 +77,8 @@ function printEnvironment(env: unknown, asJson: boolean): void {
     return;
   }
   const e = env as Environment;
-  const build = e.build_id ?? "no build";
-  process.stdout.write(`${e.name} (${e.kind}) — ${e.status}, build ${build}\n`);
+  const build = e.build_id ? `build ${e.build_id}` : "no build yet";
+  process.stdout.write(`${e.name} (${e.kind}) — ${e.status}, ${build}\n`);
   if (e.url) process.stdout.write(`  ${e.url}\n`);
   if (e.oltp_schema) process.stdout.write(`  ${describeOltpSchema(e.oltp_schema)}\n`);
 }

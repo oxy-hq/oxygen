@@ -92,7 +92,7 @@ const PkceAuthorize: React.FC<{ request: PkceRequest }> = ({ request }) => {
       title={
         <>
           Sign in to oxyc on{" "}
-          <span className='break-all' data-testid='cli-auth-hostname'>
+          <span className='break-words' data-testid='cli-auth-hostname'>
             {request.hostname}
           </span>
           ?

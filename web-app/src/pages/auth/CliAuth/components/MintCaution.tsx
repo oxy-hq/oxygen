@@ -4,7 +4,7 @@ import type React from "react";
 const MintCaution: React.FC<{ hostname: string }> = ({ hostname }) => (
   <div className='mt-2 text-sm leading-5.5'>
     <p>
-      Continue only if you just ran this on <b className='break-all font-medium'>{hostname}</b>
+      Continue only if you just ran this on <b className='break-words font-medium'>{hostname}</b>
     </p>
     <div className='mt-2 flex h-9 items-center overflow-x-auto whitespace-nowrap rounded-md bg-accent px-3 font-mono'>
       <span aria-hidden='true' className='mr-2.5 select-none text-muted-foreground'>

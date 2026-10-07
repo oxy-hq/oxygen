@@ -131,6 +131,32 @@ describe("runEnvCreate", () => {
     expect(post?.url).toBe(`${TARGET}/api/customer-apps/${APP_ID}/environments`);
   });
 
+  it.each([
+    [null, "dev-a1 (dev) — active, no build yet"],
+    ["b-7", "dev-a1 (dev) — active, build b-7"]
+  ])("describes a sandbox whose build is %s in words that read", async (buildId, line) => {
+    stubFetch(
+      {
+        ...appsRoutes(),
+        [`POST /api/customer-apps/${APP_ID}/environments`]: () => ({
+          status: 201,
+          body: { ...ENVIRONMENT, build_id: buildId }
+        })
+      },
+      calls
+    );
+    let printed = "";
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      printed += String(chunk);
+      return true;
+    });
+
+    await runEnvCreate(fakeContext({ bearer: "tok" }), "acme/store", "dev-a1", { json: false });
+    write.mockRestore();
+
+    expect(printed.split("\n")[0]).toBe(line);
+  });
+
   it("rejects a malformed name before any request (exit 2)", async () => {
     stubFetch({}, calls);
     const err = await runEnvCreate(fakeContext({ bearer: "tok" }), "acme/store", "not-a-sandbox", {
