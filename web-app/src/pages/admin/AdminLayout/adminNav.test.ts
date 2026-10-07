@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import ROUTES from "@/libs/utils/routes";
 import type { PlatformCapability } from "@/types/auth";
 import {
+  ADMIN_NAV,
   adminPageGroup,
   adminPageTitle,
+  adminSettingsReachable,
   canReachAdminRoute,
   firstReachableAdminRoute,
-  navItemReachable
+  navItemReachable,
+  usageReportRecipientsReachable
 } from "./adminNav";
 
 /**
@@ -278,5 +281,87 @@ describe("navItemReachable", () => {
   });
   it("answers false for a path with no rail entry — a fetch nobody may see", () => {
     expect(navItemReachable("/admin/nowhere", { isOwner: true, capabilities: [] })).toBe(false);
+  });
+});
+
+/**
+ * The weekly custom-app usage report. It sits beside Custom apps in the rail but is gated
+ * like the other fleet-wide readouts: the server mounts every `/admin/usage-report` route
+ * under `operate_platform`, so an App Operator — `manage_apps` and nothing else — must not
+ * be offered a link the API answers with a 403.
+ */
+describe("the usage report", () => {
+  it("is offered to operate_platform and to the owner", () => {
+    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, staff("operate_platform"))).toBe(true);
+    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, owner)).toBe(true);
+  });
+
+  it("is not offered to staff holding only manage_apps, and the guard agrees", () => {
+    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, staff("manage_apps"))).toBe(false);
+    expect(navItemReachable(ROUTES.ADMIN.USAGE_REPORT, nobody)).toBe(false);
+    // The rail and the route guard read one map, so a hidden link is also a bounced URL.
+    expect(canReachAdminRoute(ROUTES.ADMIN.USAGE_REPORT, staff("manage_apps"))).toBe(false);
+    expect(canReachAdminRoute(ROUTES.ADMIN.USAGE_REPORT, staff("operate_platform"))).toBe(true);
+  });
+
+  it("is named by the map and sits right after Custom apps in the operations group", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.USAGE_REPORT)).toBe("Usage report");
+    expect(adminPageGroup(ROUTES.ADMIN.USAGE_REPORT)).toBe("operations");
+    const order = ADMIN_NAV.map((i) => i.to);
+    expect(order.indexOf(ROUTES.ADMIN.USAGE_REPORT)).toBe(
+      order.indexOf(ROUTES.ADMIN.CUSTOMER_APPS) + 1
+    );
+  });
+});
+
+/**
+ * Settings holds one person's preferences, so it has a title but no rail entry and no
+ * group. An unlisted page used to fall through to "tenants", which would have made its
+ * breadcrumb read `Admin / Tenants / Settings`.
+ */
+describe("the settings page", () => {
+  it("is named by the map", () => {
+    expect(adminPageTitle(ROUTES.ADMIN.SETTINGS)).toBe("Settings");
+  });
+
+  it("belongs to no rail group", () => {
+    expect(adminPageGroup(ROUTES.ADMIN.SETTINGS)).toBeNull();
+    // The exclusion is for Settings alone: the directories it sits beside keep theirs.
+    expect(adminPageGroup(ROUTES.ADMIN.ORGS)).toBe("tenants");
+  });
+
+  it("has no rail entry, so it is not in the rail or the palette", () => {
+    expect(ADMIN_NAV.some((i) => i.to.split("?")[0] === ROUTES.ADMIN.SETTINGS)).toBe(false);
+  });
+
+  it("is offered to whoever can use it: operate_platform, or the owner", () => {
+    expect(adminSettingsReachable(staff("operate_platform"))).toBe(true);
+    expect(adminSettingsReachable(owner)).toBe(true);
+    expect(adminSettingsReachable(staff("manage_apps", "develop_apps"))).toBe(false);
+    expect(adminSettingsReachable(nobody)).toBe(false);
+  });
+});
+
+/**
+ * Deciding who *else* is emailed the usage report. The server gates the two `recipients`
+ * routes on `manage_platform_grants`, which is narrower than the Settings page those
+ * controls sit on — so holding the page's capability must not be enough.
+ */
+describe("who gets the usage report", () => {
+  it("is for manage_platform_grants, and for the owner", () => {
+    expect(usageReportRecipientsReachable(staff("manage_platform_grants"))).toBe(true);
+    expect(usageReportRecipientsReachable(owner)).toBe(true);
+  });
+
+  it("is not for someone who holds only the page's own capability", () => {
+    // The assertion this rule exists for: `operate_platform` opens Settings and reads
+    // the report, and still does not get to switch off another person's email.
+    expect(usageReportRecipientsReachable(staff("operate_platform"))).toBe(false);
+    expect(adminSettingsReachable(staff("operate_platform"))).toBe(true);
+  });
+
+  it("is not for an App Operator, or for staff holding nothing", () => {
+    expect(usageReportRecipientsReachable(staff("manage_apps", "develop_apps"))).toBe(false);
+    expect(usageReportRecipientsReachable(nobody)).toBe(false);
   });
 });

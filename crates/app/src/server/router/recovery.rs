@@ -498,6 +498,11 @@ pub(crate) fn spawn_recovery(
                     // tokens. Idempotent deletes, throttled per process, so
                     // every driver running it is harmless.
                     crate::server::token_sweep::sweep(&db).await;
+                    // The weekly custom-app usage report: written once a week
+                    // and emailed to the staff who want it. Claimed by a unique
+                    // row per week and per address, throttled per process, so
+                    // every driver running it writes and sends once between them.
+                    crate::server::api::admin::usage_report::job::tick(&db).await;
                 }
             }
         }

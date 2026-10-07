@@ -23,9 +23,10 @@
 //! over those orgs only (API-tokens design §4.4). A door keyed by a bare email
 //! cannot know that, so each one takes the [`Caller`] and answers for the
 //! standing **as that credential carries it**. A browser session and a legacy
-//! key carry all of it, unchanged. The one address-keyed read left,
-//! [`grant_of_email`], is for a *subject* — someone a staff console is looking
-//! at — never for the requester.
+//! key carry all of it, unchanged. The two address-keyed reads,
+//! [`grant_of_email`] and [`staff_holding`], are for a *subject* — someone a
+//! staff console is looking at, an address a notification goes to — never for
+//! the requester.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -236,6 +237,94 @@ async fn read_grant(db: &DatabaseConnection, key: String) -> Result<Option<Grant
     let grant = Grant::from_role(role, scope);
     set_cached_admin(key, Some(grant.clone()));
     Ok(Some(grant))
+}
+
+/// A staff address and where its standing reaches — for **notifying** staff, never for
+/// deciding what a request may do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StaffAddress {
+    pub email: String,
+    pub scope: Scope,
+    /// The role the standing was granted as; `None` for the Global Owner, who is root
+    /// by the allow-list and holds no grant.
+    pub role: Option<PlatformRole>,
+}
+
+/// Every address whose stored standing holds `cap`: the `OXY_OWNER` allow-list (root, so
+/// unbounded) and each `app_admins` grant whose role expands to it.
+///
+/// About addresses, like [`grant_of_email`], and the one enumeration of the two sources —
+/// here so a job that emails staff does not read them itself. Uncached: its callers are
+/// periodic jobs, not requests.
+///
+/// A grant's scope travels with the address because the caller must narrow what it sends:
+/// a grant bounded to two orgs is told about those two.
+pub async fn staff_holding(
+    db: &DatabaseConnection,
+    cap: oxy_authz::Cap,
+) -> Result<Vec<StaffAddress>, DbErr> {
+    let rows = AppAdmins::find().all(db).await?;
+    let bounded: Vec<uuid::Uuid> = rows.iter().filter(|r| !r.scope_all).map(|r| r.id).collect();
+    let mut orgs_of: HashMap<uuid::Uuid, Vec<uuid::Uuid>> = HashMap::new();
+    if !bounded.is_empty() {
+        let scopes = app_admin_scope_orgs::Entity::find()
+            .filter(app_admin_scope_orgs::Column::AppAdminId.is_in(bounded))
+            .all(db)
+            .await?;
+        for s in scopes {
+            orgs_of.entry(s.app_admin_id).or_default().push(s.org_id);
+        }
+    }
+    let grants = rows.into_iter().map(|row| {
+        let scope = if row.scope_all {
+            Scope::All
+        } else {
+            Scope::Orgs(orgs_of.remove(&row.id).unwrap_or_default())
+        };
+        (row.email, row.role, scope)
+    });
+    Ok(staff_from(
+        crate::oxy_owner_guard::oxy_owner_emails(),
+        grants,
+        cap,
+    ))
+}
+
+/// [`staff_holding`] without the reads. Owners first; an address in both sources is
+/// listed once, as root. A role this build cannot expand holds nothing — the rule
+/// [`grant_of_email`] applies to a single grant.
+fn staff_from(
+    owners: Vec<String>,
+    grants: impl IntoIterator<Item = (String, String, Scope)>,
+    cap: oxy_authz::Cap,
+) -> Vec<StaffAddress> {
+    let mut staff: Vec<StaffAddress> = Vec::new();
+    for email in owners {
+        if !staff.iter().any(|s| s.email == email) {
+            staff.push(StaffAddress {
+                email,
+                scope: Scope::All,
+                role: None,
+            });
+        }
+    }
+    for (email, role, scope) in grants {
+        let email = email.trim().to_ascii_lowercase();
+        let Some(role) = PlatformRole::from_str(&role) else {
+            continue;
+        };
+        if email.is_empty() || staff.iter().any(|s| s.email == email) {
+            continue;
+        }
+        if Grant::from_role(role, scope.clone()).holds(cap) {
+            staff.push(StaffAddress {
+                email,
+                scope,
+                role: Some(role),
+            });
+        }
+    }
+    staff
 }
 
 /// The caller's platform standing **read now**, past the 60 s grant cache: for a
@@ -453,6 +542,58 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn staff_holding_a_capability_is_root_plus_the_roles_that_expand_to_it() {
+        use oxy_authz::Cap;
+        let org = uuid::Uuid::from_u128(9);
+        let grants = || {
+            vec![
+                (
+                    "Admin@oxy.tech ".to_string(),
+                    "global_admin".to_string(),
+                    Scope::All,
+                ),
+                (
+                    "bounded@oxy.tech".to_string(),
+                    "global_admin".to_string(),
+                    Scope::Orgs(vec![org]),
+                ),
+                (
+                    "operator@oxy.tech".to_string(),
+                    "app_operator".to_string(),
+                    Scope::All,
+                ),
+                (
+                    "root@oxy.tech".to_string(),
+                    "global_admin".to_string(),
+                    Scope::Orgs(vec![]),
+                ),
+                (
+                    "future@oxy.tech".to_string(),
+                    "a_role_from_later".to_string(),
+                    Scope::All,
+                ),
+            ]
+        };
+        let owners = || vec!["root@oxy.tech".to_string()];
+
+        let operate = staff_from(owners(), grants(), Cap::OperatePlatform);
+        let emails: Vec<&str> = operate.iter().map(|s| s.email.as_str()).collect();
+        // An App Operator does not operate the platform; an unknown role holds nothing.
+        assert_eq!(
+            emails,
+            ["root@oxy.tech", "admin@oxy.tech", "bounded@oxy.tech"]
+        );
+        // Root is listed once, and unbounded whatever its grant row says.
+        assert_eq!(operate[0].scope, Scope::All);
+        assert_eq!(operate[0].role, None, "root holds no grant");
+        assert_eq!(operate[1].role, Some(PlatformRole::GlobalAdmin));
+        assert_eq!(operate[2].scope, Scope::Orgs(vec![org]));
+
+        let apps = staff_from(owners(), grants(), Cap::ManageApps);
+        assert!(apps.iter().any(|s| s.email == "operator@oxy.tech"));
+    }
 
     fn session(email: &str) -> Caller {
         Caller::without_credential(uuid::Uuid::from_u128(1), email)

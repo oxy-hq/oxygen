@@ -42,10 +42,6 @@ pub async fn oxy_owner_guard_middleware(
 /// user payload so the frontend can route owners to the admin shell. The
 /// server-side middleware remains the authoritative gate for `/admin/*`.
 pub fn is_oxy_owner(email: &str) -> bool {
-    let allow = std::env::var("OXY_OWNER").unwrap_or_default();
-    if allow.is_empty() {
-        return false;
-    }
     let needle = email.trim().to_ascii_lowercase();
     // A blank needle is never an owner.
     //
@@ -59,9 +55,22 @@ pub fn is_oxy_owner(email: &str) -> bool {
     if needle.is_empty() {
         return false;
     }
-    allow
+    oxy_owner_emails().contains(&needle)
+}
+
+/// The `OXY_OWNER` allow-list as addresses: lowercased, trimmed, blanks dropped,
+/// in the order listed.
+///
+/// **For addressing people, never for deciding.** The one caller outside this
+/// file is `globals::staff_holding`, which lists who a platform notification
+/// goes to.
+pub fn oxy_owner_emails() -> Vec<String> {
+    std::env::var("OXY_OWNER")
+        .unwrap_or_default()
         .split(',')
-        .any(|e| e.trim().to_ascii_lowercase() == needle)
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -118,6 +127,14 @@ mod tests {
                 None => unsafe { std::env::remove_var(self.key) },
             }
         }
+    }
+
+    #[test]
+    fn the_allow_list_reads_as_clean_addresses_in_order() {
+        let _g = EnvGuard::set("OXY_OWNER", " Root@Oxy.Tech ,, second@oxy.tech,");
+        assert_eq!(oxy_owner_emails(), ["root@oxy.tech", "second@oxy.tech"]);
+        let _g = EnvGuard::unset("OXY_OWNER");
+        assert!(oxy_owner_emails().is_empty());
     }
 
     #[test]

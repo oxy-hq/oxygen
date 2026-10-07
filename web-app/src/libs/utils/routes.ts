@@ -52,7 +52,11 @@ const ROUTES = {
     WORKSPACES: "/admin/workspaces",
     WORKSPACE_DETAIL: (workspaceId: string) => `/admin/workspaces/${workspaceId}`,
     WORKSPACE_HEALTH: "/admin/workspace-health",
-    AIRWAY: "/admin/airway"
+    AIRWAY: "/admin/airway",
+    /** The weekly report on how each organization used its custom apps. */
+    USAGE_REPORT: "/admin/usage-report",
+    /** The signed-in staff member's own preferences. Not a rail entry. */
+    SETTINGS: "/admin/settings"
   },
 
   // Org-scoped routes. Passing an empty `orgSlug` degrades to flat local-mode

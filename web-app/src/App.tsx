@@ -167,6 +167,8 @@ const AdminWorkspaceDetail = React.lazy(
 );
 const AdminWorkspaceHealth = React.lazy(() => import("./pages/admin/AdminWorkspaceHealth"));
 const AdminAirway = React.lazy(() => import("./pages/admin/AdminAirway"));
+const AdminUsageReport = React.lazy(() => import("./pages/admin/AdminUsageReport"));
+const AdminSettings = React.lazy(() => import("./pages/admin/AdminSettings"));
 
 const CheckoutSuccessPage = React.lazy(() => import("./pages/billing/CheckoutSuccess"));
 const CheckoutCancelledPage = React.lazy(() => import("./pages/billing/CheckoutCancelled"));
@@ -684,6 +686,11 @@ const getCloudRouter = (authConfig: AuthConfigResponse) =>
                 ownerOnly gate and AdminLayout's APP_ADMIN_ROUTE_PREFIXES, which
                 deliberately omits this route). */}
             <Route path='admin/airway' element={<AdminAirway />} />
+            {/* ROUTES.ADMIN.USAGE_REPORT — the weekly custom-app usage report. */}
+            <Route path='admin/usage-report' element={<AdminUsageReport />} />
+            {/* ROUTES.ADMIN.SETTINGS — one staff member's own preferences. No rail
+                entry: reached from the rail footer's user menu and from the report. */}
+            <Route path='admin/settings' element={<AdminSettings />} />
           </Route>
 
           {/* "Manage this tablet" — where a kiosk's admin sign-in lands, and where

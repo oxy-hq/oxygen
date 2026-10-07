@@ -452,6 +452,29 @@ fn workspace_health_is_fleet_ok() {
 }
 
 #[test]
+fn the_usage_report_is_fleet_ok() {
+    // A stored row, a preference row and a mail send: nothing here reads a
+    // working copy, so the report stays readable when the ide is down.
+    for (method, path) in [
+        ("GET", "/api/admin/usage-report"),
+        ("GET", "/api/admin/usage-report/email-preference"),
+        ("PUT", "/api/admin/usage-report/email-preference"),
+        ("POST", "/api/admin/usage-report/send-to-me"),
+        ("GET", "/api/admin/usage-report/recipients"),
+        (
+            "PUT",
+            "/api/admin/usage-report/recipients/someone@example.com",
+        ),
+    ] {
+        assert_eq!(
+            classify(method, path),
+            RouteRole::FleetOk,
+            "{method} {path}"
+        );
+    }
+}
+
+#[test]
 fn workspace_health_eval_is_fleet_ok() {
     // The on-demand eval handler is a pure Postgres enqueue: it seeds a
     // Global `health_eval_workspace` task and returns 202. The heavy work

@@ -11,6 +11,7 @@ import {
   AppWindow,
   Bot,
   Building2,
+  ChartColumn,
   Database,
   FileCheck,
   Flag,
@@ -153,6 +154,18 @@ export const ADMIN_NAV: AdminNavItem[] = [
   // app console's Publishing & CI panel. If that link goes, so does the only way in —
   // the rail and the ⌘K palette both build from this list, so an omission here is not
   // "hidden", it is unreachable.
+  //
+  // The weekly report on how organizations used those apps. It sits beside Custom apps
+  // because that is what it is about, but it is gated like the other fleet-wide readouts:
+  // the server mounts all four `/admin/usage-report` routes under `operate_platform`, so
+  // an App Operator — who holds `manage_apps` and nothing else — is not offered it.
+  {
+    to: ROUTES.ADMIN.USAGE_REPORT,
+    label: "Usage report",
+    icon: ChartColumn,
+    capability: "operate_platform",
+    group: "operations"
+  },
 
   // Sandbox agent tokens: every staff member's, with revoke. The route gate is
   // `cap(Action::PlatformOperate)` on `sandbox_agent_tokens::router()`, so an App
@@ -226,10 +239,13 @@ export const ADMIN_NAV: AdminNavItem[] = [
 /** The standing a nav rule is evaluated against. */
 export type Standing = { isOwner: boolean; capabilities: PlatformCapability[] };
 
+/** The part of an entry that says who may reach it — all [`itemReachable`] reads. */
+export type AdminNavRule = Pick<AdminNavItem, "ownerOnly" | "capability">;
+
 /** The rule for ONE entry. Owner-only rooms are a boolean the capability model
  * deliberately cannot reach; everything else names a capability; an entry with neither is
  * open to any staff member who got through the console door. */
-export function itemReachable(item: AdminNavItem, { isOwner, capabilities }: Standing): boolean {
+export function itemReachable(item: AdminNavRule, { isOwner, capabilities }: Standing): boolean {
   if (item.ownerOnly) return isOwner;
   // Root satisfies every capability, the same short-circuit `may_delegate` and
   // `platform_grants` apply server-side. Reading only `capabilities` happened to work
@@ -238,6 +254,38 @@ export function itemReachable(item: AdminNavItem, { isOwner, capabilities }: Sta
   // day that read fails and returns an empty list.
   if (item.capability) return isOwner || capabilities.includes(item.capability);
   return true;
+}
+
+/**
+ * What the personal Settings page needs. It is not a rail entry — it holds one person's
+ * preferences, not a surface of the platform — so its rule cannot be looked up by route
+ * the way [`navItemReachable`] does, and is stated here instead, beside the others.
+ *
+ * `operate_platform` because the page opens on the caller's own usage-report email, and
+ * the server gates that endpoint on exactly this capability. It is the door to the page;
+ * a section behind a narrower gate states its own rule below and is hidden without it.
+ */
+const ADMIN_SETTINGS_RULE: AdminNavRule = { capability: "operate_platform" };
+
+/** May this principal use the Settings page — and so be offered the link to it? */
+export function adminSettingsReachable(standing: Standing): boolean {
+  return itemReachable(ADMIN_SETTINGS_RULE, standing);
+}
+
+/**
+ * What it takes to decide who *else* is emailed the usage report — the list on the
+ * Settings page, and the switch on another person's row.
+ *
+ * `manage_platform_grants`, not the page's own `operate_platform`: switching your own
+ * email off is a preference, switching someone else's off is a decision about them, and
+ * the server gates the two `recipients` routes accordingly. The section is hidden and its
+ * list is not fetched without it, so a narrower grant sees a shorter page, not a 403.
+ */
+const USAGE_REPORT_RECIPIENTS_RULE: AdminNavRule = { capability: "manage_platform_grants" };
+
+/** May this principal see, and change, who gets the usage report? */
+export function usageReportRecipientsReachable(standing: Standing): boolean {
+  return itemReachable(USAGE_REPORT_RECIPIENTS_RULE, standing);
 }
 
 /** An entry's path, without the query it carries for the directory's `?type=` tabs. */
@@ -318,8 +366,9 @@ export function firstReachableAdminRoute(standing: Standing): string {
 
 /**
  * Pages that have a title but no rail entry: the flat directories the tenants surface
- * links down into, and Publish tokens, which is reached from the app console's
- * Publishing & CI panel.
+ * links down into; Publish tokens, which is reached from the app console's
+ * Publishing & CI panel; and Settings, which is reached from the rail footer's user menu
+ * and from the usage report.
  */
 const UNLISTED_TITLES: Record<string, string> = {
   // The console home. Deliberately not a rail entry — the rail's logo is its affordance.
@@ -330,8 +379,22 @@ const UNLISTED_TITLES: Record<string, string> = {
   [ROUTES.ADMIN.ORGS]: "Organizations",
   [ROUTES.ADMIN.USERS]: "Users",
   [ROUTES.ADMIN.WORKSPACES]: "Workspaces",
-  [ROUTES.ADMIN.PUBLISH_TOKENS]: "Publish tokens"
+  [ROUTES.ADMIN.PUBLISH_TOKENS]: "Publish tokens",
+  [ROUTES.ADMIN.SETTINGS]: "Settings"
 };
+
+/**
+ * Unlisted pages that are not tenant pages. Every other unlisted page is a directory the
+ * tenants surface links down into, which is why "unlisted" defaults to that group — and
+ * why a page that is unlisted for a different reason has to be named here, or its
+ * breadcrumb reads `Admin / Tenants / Settings`.
+ */
+const UNLISTED_OUTSIDE_TENANTS = new Set<string>([
+  // Belongs to shipping apps, not to the tenant directories.
+  ROUTES.ADMIN.PUBLISH_TOKENS,
+  // One person's preferences. It belongs to no group at all.
+  ROUTES.ADMIN.SETTINGS
+]);
 
 /**
  * What to call the page at `pathname` — read off the same map the rail renders, so a
@@ -391,8 +454,8 @@ export function adminPageGroup(pathname: string, search = ""): AdminNavGroup | n
   const unlisted = Object.keys(UNLISTED_TITLES)
     .filter((p) => p !== ROUTES.ADMIN.ROOT && within(p))
     .sort((a, b) => b.length - a.length)[0];
-  // Publish tokens belongs to shipping apps, not to the tenant directories; the home is
-  // not a tenant page either, and being every path's prefix it would claim all of them.
-  // (The reason changed when the tab went; the exclusion did not.)
-  return unlisted && unlisted !== ROUTES.ADMIN.PUBLISH_TOKENS ? "tenants" : null;
+  // Publish tokens belongs to shipping apps, not to the tenant directories, and Settings
+  // to no group; the home is not a tenant page either, and being every path's prefix it
+  // would claim all of them. (The reason changed when the tab went; the exclusion did not.)
+  return unlisted && !UNLISTED_OUTSIDE_TENANTS.has(unlisted) ? "tenants" : null;
 }

@@ -248,6 +248,14 @@ const TABLES: &[(&str, Placement)] = &[
         Control("applied schema ledger per app"),
     ),
     (
+        "custom_app_usage_report_deliveries",
+        Control("which staff address was sent each usage report"),
+    ),
+    (
+        "custom_app_usage_reports",
+        Control("weekly app usage rollup: counts with org and app names, no content"),
+    ),
+    (
         "custom_app_view_event",
         Control("Oxy's own app-open telemetry"),
     ),
@@ -488,6 +496,10 @@ const TABLES: &[(&str, Placement)] = &[
     (
         "slack_user_preferences",
         Control("default workspace and agent"),
+    ),
+    (
+        "staff_notification_preferences",
+        Control("which platform emails a staff member opted out of"),
     ),
     ("stripe_webhook_events", Control("Stripe webhook ledger")),
     (

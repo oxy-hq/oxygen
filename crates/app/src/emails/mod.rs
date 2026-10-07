@@ -11,6 +11,7 @@ pub mod token_expiring;
 pub mod token_grant_revoked;
 pub mod token_leaked;
 pub mod token_mail;
+pub mod usage_report;
 
 pub struct EmailMessage {
     pub subject: String,

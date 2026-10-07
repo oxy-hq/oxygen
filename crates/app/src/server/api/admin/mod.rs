@@ -33,6 +33,7 @@ pub mod partners;
 pub mod routing;
 pub mod sandbox_agent_tokens;
 pub mod scope;
+pub mod usage_report;
 pub mod users_admin;
 // `pub(crate)`: the module stays internal and only what a caller outside this crate
 // needs is re-exported below, matching the narrower `admin::apps` pattern (export the
@@ -105,6 +106,12 @@ use crate::server::router::{AdminSection, AppState};
 ///   - PATCH  /admin/workspaces/{workspace_id}
 ///   - DELETE /admin/workspaces/{workspace_id}
 ///   - POST   /admin/workspaces/{workspace_id}/transfer-org
+///   - GET    /admin/usage-report
+///   - GET    /admin/usage-report/email-preference
+///   - PUT    /admin/usage-report/email-preference
+///   - POST   /admin/usage-report/send-to-me
+///   - GET    /admin/usage-report/recipients
+///   - PUT    /admin/usage-report/recipients/{email}
 ///   - POST   /admin/workspace-health/{workspace_id}/eval
 ///   - GET    /admin/workspace-health/{workspace_id}/history
 ///   - GET    /admin/airway/config
@@ -214,6 +221,14 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         // lands in an audit row and in the grant UI.
         .merge(airhouse::router().route_layer(cap(Action::PlatformAirhouse)))
         .merge(workspace_health::router().route_layer(cap(Action::PlatformOperate)))
+        // The weekly custom-app usage report. A cross-tenant read, so the handlers
+        // narrow it to the orgs the caller's grant reaches (`scope::list_scope`);
+        // this layer cannot. The same capability decides who is emailed the report
+        // (`usage_report::delivery::AUDIENCE`), so the mail's link always opens.
+        .merge(usage_report::router().route_layer(cap(Action::PlatformOperate)))
+        // Who gets it, and switching it off for another person: the staff list,
+        // so the capability that administers staff access.
+        .merge(usage_report::recipients::router().route_layer(cap(Action::PlatformGrants)))
         .merge(partners::router().route_layer(cap(Action::PlatformPartners)))
         .merge(billing::router().route_layer(strict))
         .merge(app_admins::router().route_layer(cap(Action::PlatformGrants)))

@@ -688,6 +688,13 @@ const featureFlagKeys = {
   list: () => [...featureFlagKeys.all, "list"] as const
 };
 
+const usageReportKeys = {
+  all: ["admin", "usage-report"] as const,
+  latest: () => [...usageReportKeys.all, "latest"] as const,
+  emailPreference: () => [...usageReportKeys.all, "email-preference"] as const,
+  recipients: () => [...usageReportKeys.all, "recipients"] as const
+};
+
 const internalJobsKeys = {
   all: ["admin", "internal-jobs"] as const,
   queueStats: () => [...internalJobsKeys.all, "queue-stats"] as const,
@@ -1103,6 +1110,7 @@ const queryKeys = {
   oxyAccess: oxyAccessKeys,
   orgSubdomain: orgSubdomainKeys,
   featureFlags: featureFlagKeys,
+  usageReport: usageReportKeys,
   internalJobs: internalJobsKeys,
   compiles: compilesKeys,
   compile: compileKeys,

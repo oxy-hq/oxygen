@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{subject}}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#18181b;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;">
+          <tr>
+            <td style="background-color:#ffffff;border-radius:16px;border:1px solid #e4e4e7;padding:28px 32px 24px;">
+
+              <p style="margin:0 0 6px;font-size:12px;color:#71717a;">Custom app usage, {{period}}</p>
+              <h1 style="margin:0 0 16px;font-size:18px;font-weight:700;line-height:1.35;letter-spacing:-0.2px;">{{headline}}</h1>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                {{#each stat_rows}}
+                <tr>
+                  {{#each this}}
+                  <td width="33%" valign="top" style="padding:9px 12px;background-color:#fafafa;border:1px solid #e4e4e7;">
+                    <div style="font-size:11px;color:#71717a;line-height:1.4;">{{label}}</div>
+                    <div style="font-size:18px;font-weight:700;line-height:1.3;white-space:nowrap;">{{value}}{{#if note}} <span style="font-size:12px;font-weight:500;color:#52525b;">{{note}}</span>{{/if}}</div>
+                  </td>
+                  {{/each}}
+                </tr>
+                {{/each}}
+              </table>
+
+              {{#if attention}}
+              <h2 style="margin:20px 0 2px;font-size:14px;font-weight:600;">Needs a look</h2>
+              <p style="margin:0 0 6px;font-size:12px;color:#71717a;">If one of these is your account, check in with them.</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px;">
+                {{#each attention}}
+                <tr>
+                  <td style="padding:7px 8px 7px 0;border-top:1px solid #e4e4e7;font-size:13px;line-height:1.4;"><strong>{{app}}</strong> <span style="color:#71717a;">{{org}}</span></td>
+                  <td align="right" style="padding:7px 0;border-top:1px solid #e4e4e7;font-size:13px;line-height:1.4;white-space:nowrap;"><span style="color:#b45309;font-weight:600;">{{label}}</span> <span style="color:#52525b;">{{detail}}</span></td>
+                </tr>
+                {{/each}}
+                {{#if attention_more}}
+                <tr>
+                  <td colspan="2" style="padding:7px 0;border-top:1px solid #e4e4e7;font-size:12px;color:#71717a;">And {{attention_more}} more in the full report.</td>
+                </tr>
+                {{/if}}
+              </table>
+              {{else}}
+              <p style="margin:20px 0 0;font-size:13px;color:#52525b;">Nothing needs a look this week.</p>
+              {{/if}}
+
+              {{#if good}}
+              <h2 style="margin:20px 0 6px;font-size:14px;font-weight:600;">Going well</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px;">
+                {{#each good}}
+                <tr>
+                  <td style="padding:7px 8px 7px 0;border-top:1px solid #e4e4e7;font-size:13px;line-height:1.4;"><strong>{{app}}</strong> <span style="color:#71717a;">{{org}}</span></td>
+                  <td align="right" style="padding:7px 0;border-top:1px solid #e4e4e7;font-size:13px;line-height:1.4;white-space:nowrap;"><span style="color:#15803d;font-weight:600;">{{label}}</span> <span style="color:#52525b;">{{detail}}</span></td>
+                </tr>
+                {{/each}}
+                {{#if good_more}}
+                <tr>
+                  <td colspan="2" style="padding:7px 0;border-top:1px solid #e4e4e7;font-size:12px;color:#71717a;">And {{good_more}} more in the full report.</td>
+                </tr>
+                {{/if}}
+              </table>
+              {{/if}}
+
+              {{#if orgs}}
+              <h2 style="margin:20px 0 6px;font-size:14px;font-weight:600;">By organization</h2>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px;font-size:13px;">
+                <tr>
+                  <td style="padding:4px 0;font-size:11px;color:#71717a;">Organization</td>
+                  <td align="right" style="padding:4px 0 4px 10px;font-size:11px;color:#71717a;">People</td>
+                  <td align="right" style="padding:4px 0 4px 10px;font-size:11px;color:#71717a;">Opens</td>
+                  {{#if show_calls}}<td align="right" style="padding:4px 0 4px 10px;font-size:11px;color:#71717a;">Calls</td>{{/if}}
+                  {{#if show_releases}}<td align="right" style="padding:4px 0 4px 10px;font-size:11px;color:#71717a;">Releases</td>{{/if}}
+                  {{#if show_storage}}<td align="right" style="padding:4px 0 4px 10px;font-size:11px;color:#71717a;">Storage</td>{{/if}}
+                </tr>
+                {{#each orgs}}
+                <tr>
+                  <td style="padding:6px 0;border-top:1px solid #e4e4e7;">{{name}}</td>
+                  <td align="right" style="padding:6px 0 6px 10px;border-top:1px solid #e4e4e7;white-space:nowrap;">{{people}}{{#if change}} <span style="font-size:11px;color:#71717a;">{{change}}</span>{{/if}}</td>
+                  <td align="right" style="padding:6px 0 6px 10px;border-top:1px solid #e4e4e7;color:#52525b;">{{views}}</td>
+                  {{#if ../show_calls}}<td align="right" style="padding:6px 0 6px 10px;border-top:1px solid #e4e4e7;color:#52525b;">{{calls}}</td>{{/if}}
+                  {{#if ../show_releases}}<td align="right" style="padding:6px 0 6px 10px;border-top:1px solid #e4e4e7;color:#52525b;">{{releases}}</td>{{/if}}
+                  {{#if ../show_storage}}<td align="right" style="padding:6px 0 6px 10px;border-top:1px solid #e4e4e7;color:#52525b;white-space:nowrap;">{{storage}}</td>{{/if}}
+                </tr>
+                {{/each}}
+                {{#if orgs_more}}
+                <tr>
+                  <td colspan="6" style="padding:6px 0;border-top:1px solid #e4e4e7;font-size:12px;color:#71717a;">And {{orgs_more}} more in the full report.</td>
+                </tr>
+                {{/if}}
+              </table>
+              {{/if}}
+
+              {{#if idle}}
+              <p style="margin:14px 0 0;font-size:12px;color:#71717a;line-height:1.5;">Not opened in two weeks: {{idle}}</p>
+              {{/if}}
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0 0;">
+                <tr>
+                  <td style="font-size:12px;color:#71717a;line-height:1.5;">
+                    Weekly, for Oxygen admins{{#if host}} on {{host}}{{/if}}.<br>
+                    {{#if settings_url}}<a href="{{settings_url}}" style="color:#52525b;">Stop these emails</a>{{else}}To stop these emails, open Admin, then Settings under your name.{{/if}}
+                  </td>
+                  {{#if report_url}}
+                  <td align="right" style="white-space:nowrap;padding-left:12px;">
+                    <a href="{{report_url}}" style="display:inline-block;background-color:#18181b;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;padding:9px 16px;border-radius:8px;">Open the full report</a>
+                  </td>
+                  {{/if}}
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding-top:14px;">
+              <p style="margin:0;font-size:11px;color:#a1a1aa;">&#169; {{year}} Oxygen Intelligence</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
