@@ -17,13 +17,24 @@ pub struct UserFilters;
 /// agree on them: a magic link lowercases what was typed, while Google, GitHub
 /// and Okta hand over whatever the provider holds. Matched exactly, the same
 /// person signing in two ways became two accounts.
+///
+/// Both sides are lowered **by Postgres**. Lowering the argument in Rust would
+/// put two definitions of "same letters" on either side of the `=`: Rust folds
+/// by full Unicode rules, `LOWER()` by the database's collation, and they part
+/// ways on non-ASCII capitals — where a row could stop matching its own exact
+/// spelling. One function also means one index: `idx_users_email_lower`.
+///
+/// The same rule binds whoever **stores** an address: fold ASCII letters and
+/// nothing else (`to_ascii_lowercase`). A full Unicode fold on the way in
+/// writes a spelling `lower()` does not arrive at from the original, and the
+/// account cannot be found by the address that made it.
 fn email_matches(email: &str) -> SimpleExpr {
     ExprTrait::eq(
         Expr::expr(Func::lower(Expr::col((
             users::Entity,
             users::Column::Email,
         )))),
-        email.to_lowercase(),
+        Expr::expr(Func::lower(Expr::val(email))),
     )
 }
 
@@ -111,9 +122,10 @@ mod tests {
     #[test]
     fn an_address_is_matched_without_regard_to_case() {
         let query = sql(Users::find().filter_by_email("Jane.Doe@Acme.com"));
-        // Both sides lowered: the column in SQL, the argument before it is bound.
+        // Both sides lowered by the database, so one rule decides "same
+        // letters" and the expression index on `lower(email)` serves it.
         assert!(
-            query.contains(r#"LOWER("users"."email") = 'jane.doe@acme.com'"#),
+            query.contains(r#"LOWER("users"."email") = LOWER('Jane.Doe@Acme.com')"#),
             "{query}"
         );
     }
@@ -138,7 +150,7 @@ mod tests {
         let query = sql(Users::find().filter_active_by_email("Jane@Acme.com"));
         assert!(query.contains(r#""users"."status" ="#), "{query}");
         assert!(
-            query.contains(r#"LOWER("users"."email") = 'jane@acme.com'"#),
+            query.contains(r#"LOWER("users"."email") = LOWER('Jane@Acme.com')"#),
             "{query}"
         );
         assert!(query.contains("ORDER BY"), "{query}");

@@ -297,9 +297,10 @@ pub async fn google_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                // Lowercase, as a magic link's address is stored: one spelling per
-                // mailbox for every account made from here on.
-                email: Set(Some(user_info.email.to_lowercase())),
+                // ASCII-lowercased, as a magic link's address is stored: one
+                // spelling per mailbox for every account made from here on.
+                // ASCII only — see `oxy_platform::filters`.
+                email: Set(Some(user_info.email.to_ascii_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),
@@ -366,9 +367,10 @@ pub async fn okta_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                // Lowercase, as a magic link's address is stored: one spelling per
-                // mailbox for every account made from here on.
-                email: Set(Some(user_info.email.to_lowercase())),
+                // ASCII-lowercased, as a magic link's address is stored: one
+                // spelling per mailbox for every account made from here on.
+                // ASCII only — see `oxy_platform::filters`.
+                email: Set(Some(user_info.email.to_ascii_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),
@@ -434,9 +436,10 @@ pub async fn github_auth(
         None => {
             let new_user = users::ActiveModel {
                 id: Set(Uuid::new_v4()),
-                // Lowercase, as a magic link's address is stored: one spelling per
-                // mailbox for every account made from here on.
-                email: Set(Some(user_info.email.to_lowercase())),
+                // ASCII-lowercased, as a magic link's address is stored: one
+                // spelling per mailbox for every account made from here on.
+                // ASCII only — see `oxy_platform::filters`.
+                email: Set(Some(user_info.email.to_ascii_lowercase())),
                 name: Set(user_info.name.clone()),
                 picture: Set(user_info.picture.clone()),
                 email_verified: Set(true),
@@ -463,8 +466,11 @@ pub async fn request_magic_link(
 
     // Normalize email to lowercase at the point of ingestion so all downstream
     // code (allowlist check, DB queries, SES) operates on a consistent value.
+    // ASCII letters only: the address is stored as it leaves here and compared
+    // by Postgres's `lower()`, and a full Unicode fold in Rust does not always
+    // agree with it — `İ` becomes two code points here and one letter there.
     let req = MagicLinkRequest {
-        email: req.email.to_lowercase(),
+        email: req.email.to_ascii_lowercase(),
         return_to: req.return_to,
     };
 

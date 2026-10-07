@@ -95,8 +95,10 @@ impl UserService {
 
         let new_user = users::ActiveModel {
             id: Set(Uuid::new_v4()),
-            // Lowercase: one spelling per mailbox (`oxy_platform::filters`).
-            email: Set(Some(identity.email.to_lowercase())),
+            // One spelling per mailbox — ASCII letters only. What "the same
+            // letters" means beyond ASCII is Postgres's call, because it is the
+            // one that compares (`oxy_platform::filters`).
+            email: Set(Some(identity.email.to_ascii_lowercase())),
             name: Set(identity
                 .name
                 .clone()

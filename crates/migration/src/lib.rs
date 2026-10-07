@@ -207,6 +207,7 @@ mod m20261006_000002_metric_anomaly_notifications;
 mod m20261006_000003_workspace_health_transitions;
 mod m20261006_000004_custom_app_usage_reports;
 mod m20261007_000001_server_keys;
+mod m20261007_000002_users_email_lower_index;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -430,6 +431,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261006_000001_sandbox_agent_token::Migration),
             Box::new(m20261006_000004_custom_app_usage_reports::Migration),
             Box::new(m20261007_000001_server_keys::Migration),
+            Box::new(m20261007_000002_users_email_lower_index::Migration),
         ]
     }
 

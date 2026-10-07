@@ -31,6 +31,11 @@
 //! (`DELETE FROM server_keys WHERE name = 'session'`, then restart), and of
 //! adding, removing or rotating `OXY_ENCRYPTION_KEY`.
 //!
+//! Because of (2), an instance that is missing the variable while its
+//! neighbours have it derives a different root, and its sessions are refused
+//! next door. Each instance logs a `key_fingerprint` when it loads the root;
+//! across one deployment they must all be the same.
+//!
 //! The root is read once per process. A failed read is not cached, so a
 //! database that was briefly away costs one refused request, not a restart.
 
@@ -80,6 +85,19 @@ fn root_from(stored: &[u8], master: Option<&str>) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+/// Eight hex digits that name a root without revealing it: a hash of the
+/// root under its own domain, cut to four bytes. For comparing instances in
+/// the logs, nothing else.
+fn fingerprint(root: &[u8; 32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"oxy-signing-fingerprint:v1\0");
+    hasher.update(root);
+    hasher.finalize()[..4]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn derive(root: &[u8; 32], purpose: Purpose) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(purpose.domain());
@@ -119,13 +137,17 @@ async fn load_root() -> Result<[u8; 32], OxyError> {
         .map_err(|e| unavailable("connect", e))?;
     let stored = stored_secret(&db).await?;
     let master = std::env::var(MASTER_KEY_VAR).ok().filter(|v| !v.is_empty());
-    // Once per process, and never the key: an operator reading the log can see
-    // which of the two sources this instance signs with.
+    let root = root_from(&stored, master.as_deref());
+    // Once per process, and never the key. Every instance of a deployment must
+    // print the same fingerprint: one that differs is an instance whose
+    // `OXY_ENCRYPTION_KEY` is not its neighbours', and its sessions are the
+    // ones being refused.
     tracing::info!(
         mixed_with_master_key = master.is_some(),
+        key_fingerprint = %fingerprint(&root),
         "session signing key loaded from server_keys"
     );
-    Ok(root_from(&stored, master.as_deref()))
+    Ok(root)
 }
 
 /// The raw key for `purpose`. Reads the database on the first call of the
@@ -175,6 +197,17 @@ mod tests {
         );
         // And neither is the root: a leaked purpose key gives up no other.
         assert_ne!(derive(&root, Purpose::Session), root);
+    }
+
+    #[test]
+    fn a_fingerprint_tells_two_roots_apart_and_is_not_part_of_either() {
+        let (a, b) = (root_from(&[1; 32], None), root_from(&[1; 32], Some("k")));
+        assert_eq!(fingerprint(&a).len(), 8);
+        assert_eq!(fingerprint(&a), fingerprint(&a));
+        // The case it exists for: the same database, one pod missing the key.
+        assert_ne!(fingerprint(&a), fingerprint(&b));
+        let hex_of_root: String = a.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert!(!hex_of_root.contains(&fingerprint(&a)));
     }
 
     #[test]

@@ -120,3 +120,77 @@ async fn a_new_account_is_stored_lowercase_and_made_once() {
         .expect("find");
     assert_eq!(again.id, first.id);
 }
+
+#[tokio::test]
+async fn an_address_with_a_non_ascii_capital_still_answers_to_its_own_spelling() {
+    let fx = fixture().await;
+    let tag = Uuid::new_v4().simple().to_string();
+    // Under a libc collation (this database's, and prod's) `İ` lowers to one
+    // letter in Postgres; in Rust it lowers to two code points. Lowering only
+    // the argument in Rust left this row unable to match the very spelling it
+    // was stored with. Under an ICU collation the two agree and this passes
+    // either way.
+    let spelling = format!("İlker-{tag}@example.com");
+    let stored = seed(&fx.db, &spelling, 1).await;
+
+    assert_eq!(found(&fx.db, &spelling).await, Some(stored.id));
+}
+
+#[tokio::test]
+async fn the_lookup_has_an_index_that_matches_its_predicate() {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    let fx = fixture().await;
+    let row = fx
+        .db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT indexdef FROM pg_indexes \
+             WHERE tablename = 'users' AND indexname = 'idx_users_email_lower'",
+        ))
+        .await
+        .unwrap()
+        .expect("idx_users_email_lower exists");
+    let definition: String = row.try_get("", "indexdef").unwrap();
+    // The same expression the filter compares, read from what the index is
+    // built ON — past `USING`, so the index's own name cannot satisfy it.
+    let built_on = definition.split("USING").nth(1).expect("an access method");
+    assert!(
+        built_on.contains("lower(") && built_on.contains("email"),
+        "{definition}"
+    );
+    assert!(
+        !definition.to_uppercase().contains("UNIQUE"),
+        "{definition}"
+    );
+}
+
+#[tokio::test]
+async fn an_account_made_from_a_non_ascii_address_is_found_again() {
+    let _fx = fixture().await;
+    let tag = Uuid::new_v4().simple().to_string();
+    // What a provider hands over, every time this person signs in.
+    let identity = || Identity {
+        user_id: None,
+        picture: None,
+        name: Some("İlker".into()),
+        email: format!("İlker-{tag}@Example.com"),
+    };
+
+    // The write and then the read. Storing with one rule for "lowercase" and
+    // looking up with another made the second sign-in miss the row the first
+    // one wrote — and then collide with it on insert.
+    let first = UserService::get_or_create_user(&identity())
+        .await
+        .expect("create");
+    let again = UserService::get_or_create_user(&identity())
+        .await
+        .expect("find the account just made");
+    assert_eq!(again.id, first.id);
+    // ASCII letters are still folded on the way in; the rest is left to the
+    // database, which is the one that compares.
+    assert_eq!(
+        first.email.as_deref(),
+        Some(format!("İlker-{tag}@example.com").as_str())
+    );
+}
