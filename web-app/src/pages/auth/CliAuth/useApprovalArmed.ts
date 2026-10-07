@@ -15,19 +15,24 @@ const attended = (): boolean => document.visibilityState === "visible" && docume
  *
  * @param ready There is something to approve. The second is counted from then, so Approve never
  *   turns on in the same instant the request appears.
+ * @param approving What Approve would grant, where the person can change it on the page. A
+ *   change disarms at once and counts a fresh second: a click already on its way to Approve
+ *   must not approve something other than what was on the button when it set out. It is
+ *   compared in render, so the button is off in the very frame that shows the new request.
  */
-const useApprovalArmed = (ready: boolean): boolean => {
-  const [armed, setArmed] = useState(false);
+const useApprovalArmed = (ready: boolean, approving?: unknown): boolean => {
+  // What the second was counted for, or `null` while it has not been counted.
+  const [armedFor, setArmedFor] = useState<{ approving: unknown } | null>(null);
 
   useEffect(() => {
     if (!ready) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const count = () => {
-      if (attended()) timer = setTimeout(() => setArmed(true), ARM_DELAY_MS);
+      if (attended()) timer = setTimeout(() => setArmedFor({ approving }), ARM_DELAY_MS);
     };
     const recount = () => {
       clearTimeout(timer);
-      setArmed(false);
+      setArmedFor(null);
       count();
     };
     count();
@@ -36,14 +41,14 @@ const useApprovalArmed = (ready: boolean): boolean => {
     window.addEventListener("blur", recount);
     return () => {
       clearTimeout(timer);
-      setArmed(false);
+      setArmedFor(null);
       document.removeEventListener("visibilitychange", recount);
       window.removeEventListener("focus", recount);
       window.removeEventListener("blur", recount);
     };
-  }, [ready]);
+  }, [ready, approving]);
 
-  return ready && armed;
+  return ready && armedFor !== null && Object.is(armedFor.approving, approving);
 };
 
 export default useApprovalArmed;

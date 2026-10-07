@@ -29,6 +29,16 @@ const SANDBOX_TOKEN_FIXED =
   "A sandbox agent token can't be changed once it's created. Revoke it and create a new one instead.";
 
 /**
+ * 409 `agent_token_fixed`: an agent token is never renamed, re-scoped, extended or regenerated
+ * either. It can be revoked, and the agent asks for a new one (`oxyc tokens create --agent`).
+ */
+const AGENT_TOKEN_FIXED =
+  "An agent token can't be changed once it's approved. Revoke it, and have the agent ask for a new one.";
+
+/** 403 `session_required` where a token is being minted: only a signed-in browser may. */
+const MINT_NEEDS_SESSION = "Creating a token needs a browser session. Sign in again, then retry.";
+
+/**
  * Toast copy for a failed `/user/tokens` request. The contract's codes come first, since two of
  * them share a status (403 `standing_required` / `session_required`).
  *
@@ -47,6 +57,8 @@ export const tokenErrorMessage = (error: unknown, action: TokenAction): string =
       return "Managing tokens needs a browser session. Sign in again, then retry.";
     case "sandbox_token_fixed":
       return SANDBOX_TOKEN_FIXED;
+    case "agent_token_fixed":
+      return AGENT_TOKEN_FIXED;
     case undefined:
       // No contract code: the status decides, below.
       break;
@@ -121,11 +133,26 @@ export const sandboxMintErrorMessage = (
       // in days, where the lifetime asked for is in hours: it is shown as it is.
       return apiErrorMessage(error, advice.failed);
     case "session_required":
-      return "Creating a token needs a browser session. Sign in again, then retry.";
+      return MINT_NEEDS_SESSION;
     case undefined:
       break;
   }
   return apiStatus(error) === 400 ? apiErrorMessage(error, FALLBACK.create) : advice.failed;
+};
+
+/**
+ * Copy for a refused agent token approval on `/cli-auth` (`POST /auth/cli/authorize` with
+ * `mint.kind: "agent"`). There is nothing to pick again on that page: the request is oxyc's.
+ *
+ * A 400 carries the server's sentence as `error`, and it is shown as it is: `invalid_agent_token`
+ * says which part of the request it refused, and `exceeds_policy` names an organization's cap on
+ * a token's lifetime. `session_required` never comes from a browser that signed in; it is a
+ * refusal like any other, and the page stays where it is.
+ */
+export const agentMintErrorMessage = (error: unknown): string => {
+  const failed = MINT_ADVICE.cli.failed;
+  if (tokenErrorCode(error) === "session_required") return MINT_NEEDS_SESSION;
+  return apiStatus(error) === 400 ? apiErrorMessage(error, failed) : failed;
 };
 
 /** A 404 `app_not_found`: the apps on offer are out of date and worth reading again. */

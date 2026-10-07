@@ -1,3 +1,4 @@
+import { AGENT_TOKEN_SOURCE } from "@/libs/agentToken";
 import type { Token } from "@/types/apiToken";
 
 type Carrier = Pick<Token, "platform" | "partner">;
@@ -37,8 +38,8 @@ export interface MadeWith {
 
 /**
  * How the token was made, which is where its secret is likely to be: `oxyc login` keeps it in
- * the credentials file on its owner's machine, and one made in Settings was copied out by hand.
- * Any other source is shown as the server spells it.
+ * the credentials file on its owner's machine, one made in Settings was copied out by hand, and
+ * an agent's is held by the agent's process. Any other source is shown as the server spells it.
  */
 export const madeWith = (token: Pick<Token, "source">): MadeWith => {
   if (fromOxycLogin(token)) {
@@ -49,6 +50,12 @@ export const madeWith = (token: Pick<Token, "source">): MadeWith => {
   }
   if (token.source === "ui") {
     return { label: "Settings", hint: "Made in Settings, under Personal access tokens." };
+  }
+  if (token.source === AGENT_TOKEN_SOURCE) {
+    return {
+      label: "oxyc agent",
+      hint: "Asked for by an AI agent with oxyc tokens create --agent and approved by its owner. It is held by the agent's process, not saved on the machine, and lasts hours."
+    };
   }
   return { label: token.source || "Unknown", hint: undefined };
 };

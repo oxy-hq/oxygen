@@ -34,6 +34,11 @@ pub mod source {
     /// Minted by `POST /api/auth/cli/exchange` for a code that asked for a
     /// token other than the login's — `oxyc tokens create --sandbox-agent`.
     pub const OXYC: &str = "oxyc";
+    /// Minted by `POST /api/auth/cli/exchange` for a code approved as an
+    /// **agent token** (`super::agent`): an all-access personal token an
+    /// engineer's agent asked for, for hours. Fixed at mint, so the routes
+    /// that edit a token read this.
+    pub const OXYC_AGENT: &str = "oxyc_agent";
 }
 
 /// What a token's service account is, read from its `service_accounts` row:

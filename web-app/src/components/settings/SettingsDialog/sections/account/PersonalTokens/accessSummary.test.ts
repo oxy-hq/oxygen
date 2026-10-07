@@ -6,6 +6,7 @@ import {
   sandboxGrantApps,
   summarizeAccess,
   TOKEN_KIND_LABELS,
+  tokenKindLabel,
   toTokenSummary
 } from "./accessSummary";
 
@@ -260,16 +261,39 @@ describe("sandboxGrantApps", () => {
 });
 
 describe("isFixedToken", () => {
-  it("is true for a sandbox agent token and for nothing else", () => {
+  it("is true for a sandbox agent token and an agent token, and for nothing else", () => {
     expect(isFixedToken({ kind: "sandbox_agent" })).toBe(true);
+    expect(isFixedToken({ kind: "personal", source: "oxyc_agent" })).toBe(true);
     for (const kind of ["personal", "legacy_key", "service_account", "ci"] as const) {
       expect(isFixedToken({ kind })).toBe(false);
+    }
+    // A personal token from anywhere else can still be renamed, extended and regenerated.
+    for (const source of ["oxyc_login", "ui", "oidc", "legacy_backfill", ""]) {
+      expect(isFixedToken({ kind: "personal", source })).toBe(false);
     }
     expect(isFixedToken({})).toBe(false);
   });
 
   it("has a name for every kind a list can show", () => {
     expect(TOKEN_KIND_LABELS.sandbox_agent).toBe("Sandbox agent");
+  });
+});
+
+describe("tokenKindLabel", () => {
+  it("calls an agent token Agent, and an oxyc login Personal", () => {
+    expect(tokenKindLabel({ kind: "personal", source: "oxyc_agent" })).toBe("Agent");
+    expect(tokenKindLabel({ kind: "personal", source: "oxyc_login" })).toBe("Personal");
+    expect(tokenKindLabel({ kind: "personal", source: "ui" })).toBe("Personal");
+    // A row with no source, from a list that sends none.
+    expect(tokenKindLabel({ kind: "personal" })).toBe("Personal");
+  });
+
+  it("reads the source only on a personal token: no other kind becomes an agent token", () => {
+    expect(tokenKindLabel({ kind: "sandbox_agent", source: "oxyc" })).toBe("Sandbox agent");
+    expect(tokenKindLabel({ kind: "service_account", source: "oxyc_agent" })).toBe(
+      "Service account"
+    );
+    expect(tokenKindLabel({ kind: "ci", source: "oxyc_agent" })).toBe("Trusted access");
   });
 });
 

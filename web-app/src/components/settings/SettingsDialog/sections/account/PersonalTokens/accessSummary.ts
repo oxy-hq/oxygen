@@ -1,3 +1,4 @@
+import { AGENT_TOKEN_LABEL, isAgentToken } from "@/libs/agentToken";
 import type {
   BlockedOrg,
   Grant,
@@ -30,11 +31,20 @@ export const TOKEN_KIND_LABELS: Record<TokenKind, string> = {
 };
 
 /**
- * A sandbox agent token is fixed once minted: no rename, no new access, no extend, no
- * regenerate. Any of them answers 409 `sandbox_token_fixed`, so no row offers one.
+ * What a list calls one token. An agent token is a personal token by `kind` and is told apart by
+ * where it came from (`source: "oxyc_agent"`), so the label reads both: it is "Agent", never
+ * "Personal", which is what an `oxyc login` and a token made by hand are called.
  */
-export const isFixedToken = (token: { kind?: TokenKind }): boolean =>
-  token.kind === "sandbox_agent";
+export const tokenKindLabel = (token: { kind: TokenKind; source?: string }): string =>
+  isAgentToken(token) ? AGENT_TOKEN_LABEL : TOKEN_KIND_LABELS[token.kind];
+
+/**
+ * A sandbox agent token is fixed once minted: no rename, no new access, no extend, no
+ * regenerate. Any of them answers 409 `sandbox_token_fixed`, so no row offers one. An agent
+ * token is fixed the same way (409 `agent_token_fixed`): both can only be revoked.
+ */
+export const isFixedToken = (token: { kind?: TokenKind; source?: string }): boolean =>
+  token.kind === "sandbox_agent" || isAgentToken(token);
 
 /** Lowest to highest, the order the ceiling control lists them in. */
 export const CEILINGS: readonly RoleCeiling[] = ["viewer", "member", "admin", "owner"];

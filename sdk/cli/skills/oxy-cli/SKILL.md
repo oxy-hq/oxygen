@@ -80,13 +80,38 @@ wins where the two disagree.
 To look at a deployed environment in a browser, navigate your browser tool to
 `$(oxyc login-link --env dev --next /ide)`. It is a one-time link that signs
 the browser in as your token — no OAuth, no inbox — and it needs a personal
-access token, which is what `oxyc login` stores.
+access token: an agent token (below) is one, and so is what `oxyc login` stores.
 
 If your runtime speaks MCP, `oxyc mcp` serves the same API surface as four
 tools (`oxy_routes`, `oxy_schema`, `oxy_request`, `oxy_whoami`) instead. It
 reads its credential from `OXY_TOKEN` only — with the variable unset it exits
 `4` rather than using the machine's `oxyc login`; `oxyc mcp --login` opts
 into that. The same holds for any command given `--token-env <VAR>`.
+
+## An agent's own credential
+
+If you are an agent, run on your own token — never on the person's
+`oxyc login`. Mint the one that fits the task; your operator approves it once
+in the browser, and it is printed once and stored nowhere.
+
+    eval "$(oxyc tokens create --sandbox-agent --app <org>/<app> --env <deployment>)"   # building a custom app in a sandbox
+    eval "$(oxyc tokens create --agent --env <deployment>)"                             # everything else
+
+- **Sandbox agent token** (`oxy_sbx_…`): the sandboxes of the apps it names,
+  and nothing else on the deployment.
+- **Agent token** (`oxy_pat_…`): everything your operator can reach, for hours
+  (`--hours`, default 8). Add `--standing` only when the task needs their staff
+  or partner access: they decide on the page, where it starts off, and a token
+  that comes back without it is still a success.
+- **After a mint, pass `--token-env OXY_TOKEN` to every command.** A named
+  token variable is the only source, so a command that lost the variable (a new
+  shell, a subprocess started without it) exits `4` instead of silently running
+  on the person's cached login.
+- `oxyc whoami --token-env OXY_TOKEN` says what you hold and when it ends.
+  `oxyc tokens revoke --current --token-env OXY_TOKEN` ends it when the task is
+  done.
+- **Exit `4` on your own token means it expired or was revoked. Stop and
+  report.** Do not run `oxyc login`, and do not look for another credential.
 
 ## Custom apps: what is live, healthy, used
 
@@ -117,7 +142,7 @@ app UUID; each command takes `--json`.
 | --- | --- |
 | `0` | fine |
 | `2` | you called it wrong — fix the command, do not retry |
-| `4` | not authenticated → `oxyc login --env <env>`, or the token expired |
+| `4` | not authenticated. A person: `oxyc login --env <env>`. An agent on its own token: the token ended — stop and report, never log in |
 | `5` | 404 — check the path with `oxyc routes`. In an **admin** surface a 404 can be a scope boundary, not a missing row. |
 | `6` | the request was malformed — check `oxyc schema` |
 | `7` | 5xx / timeout / network — **retryable** |

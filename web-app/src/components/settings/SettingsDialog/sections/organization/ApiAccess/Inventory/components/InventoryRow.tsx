@@ -1,7 +1,10 @@
 import { Ban, Bot, Clock, History, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { toTokenSummary } from "@/components/settings/SettingsDialog/sections/account/PersonalTokens/accessSummary";
+import {
+  tokenKindLabel,
+  toTokenSummary
+} from "@/components/settings/SettingsDialog/sections/account/PersonalTokens/accessSummary";
 import ActivityDrawer from "@/components/settings/SettingsDialog/sections/workspace/ApiKeys/ApiKeyTable/ApiKeyRow/components/ActivityDrawer";
 import { Badge } from "@/components/ui/shadcn/badge";
 import { Button } from "@/components/ui/shadcn/button";
@@ -15,7 +18,7 @@ import { AccessSummary } from "../../shared/AccessSummary";
 import { ConfirmDialog } from "../../shared/ConfirmDialog";
 import { TokenLifecycleCell } from "../../shared/TokenLifecycleCell";
 import { describeApiError } from "../../utils/errors";
-import { KIND_LABELS, lastUsedText } from "../../utils/tokens";
+import { lastUsedText } from "../../utils/tokens";
 import { inventoryAccess, inventoryRevokeAction } from "../inventory";
 import { InventoryOwner } from "./InventoryOwner";
 import { LegacyRevokeAction } from "./LegacyRevokeAction";
@@ -63,8 +66,9 @@ export function InventoryRow({ orgId, orgName, token, onOpenAccount }: Inventory
         <p className='font-medium text-foreground'>{token.name}</p>
         <p className='font-mono text-muted-foreground'>{summary.masked_key}</p>
       </TableCell>
-      <TableCell data-label='Kind' className={CELL}>
-        {KIND_LABELS[token.kind]}
+      {/* An agent token is a personal token by kind: its source is what says "Agent". */}
+      <TableCell data-label='Kind' className={CELL} data-testid='api-access-inventory-kind'>
+        {tokenKindLabel(token)}
       </TableCell>
       <TableCell data-label='Access here' className={cn(CELL, "whitespace-normal")}>
         <AccessSummary access={inventoryAccess(token)} />

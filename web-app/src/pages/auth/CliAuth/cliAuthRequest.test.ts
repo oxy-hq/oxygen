@@ -143,6 +143,79 @@ describe("parseCliAuthRequest, with a kind", () => {
   });
 });
 
+describe("parseCliAuthRequest, with kind=agent", () => {
+  const PKCE = `port=53124&state=abc&code_challenge=${CHALLENGE}&hostname=luong-mbp`;
+  const ask = (query: string) => {
+    const request = parse(`${PKCE}&${query}`);
+    if (request.kind !== "agent_mint") throw new Error(`expected an agent request: ${query}`);
+    return request.ask;
+  };
+
+  it("reads an agent token request: the PKCE params, and what was asked as it was sent", () => {
+    expect(parse(`${PKCE}&kind=agent&hours=8&standing=1&name=triage%20run`)).toEqual({
+      kind: "agent_mint",
+      port: "53124",
+      state: "abc",
+      codeChallenge: CHALLENGE,
+      hostname: "luong-mbp",
+      ask: { hours: "8", name: "triage run", standing: true }
+    });
+  });
+
+  it("asks for standing only when the link says so", () => {
+    expect(ask("kind=agent&hours=8").standing).toBe(false);
+    expect(ask("kind=agent&standing=1").standing).toBe(true);
+    expect(ask("kind=agent&standing=true").standing).toBe(true);
+    expect(ask("kind=agent&standing=0").standing).toBe(false);
+    // A value no oxyc writes is not read as a yes or as a no.
+    for (const standing of ["", "yes", "2", "on"]) {
+      expect(parse(`${PKCE}&kind=agent&standing=${standing}`)).toMatchObject({
+        kind: "invalid",
+        title: "Token request failed"
+      });
+    }
+  });
+
+  it("leaves an out-of-range lifetime for the page to show, and tells unsent from empty", () => {
+    expect(ask("kind=agent&hours=900&name=")).toEqual({ hours: "900", name: "", standing: false });
+    expect(ask("kind=agent")).toEqual({ hours: null, name: null, standing: false });
+  });
+
+  it("refuses a link that asks for both kinds of token, whichever way it does", () => {
+    for (const query of [
+      "kind=agent&kind=sandbox_agent&apps=acme/store-ops",
+      "kind=sandbox_agent&kind=agent&apps=acme/store-ops",
+      // An agent token named with a sandbox agent token's apps, and the reverse.
+      "kind=agent&apps=acme/store-ops&hours=8",
+      "kind=agent&apps=",
+      "kind=sandbox_agent&apps=acme/store-ops&standing=1"
+    ]) {
+      expect(parse(`${PKCE}&${query}`)).toEqual({
+        kind: "invalid",
+        title: "Token request failed",
+        reason:
+          "This link asks for two kinds of token at once, so nothing on it can be approved. Run the oxyc command again to get a new one."
+      });
+    }
+  });
+
+  it("is PKCE-only, and reads `kind` exactly", () => {
+    for (const query of [
+      // No code_challenge: never the token handoff.
+      "port=53124&state=abc&kind=agent&hours=8",
+      `port=1&state=s&code_challenge=${CHALLENGE}&kind=agent`,
+      `${PKCE}&kind=Agent`,
+      `${PKCE}&kind=agent%20`,
+      // Said twice is not a link oxyc writes, even when both say the same.
+      `${PKCE}&kind=agent&kind=agent`,
+      `${PKCE}&kind=agent&name=x%07y`,
+      `${PKCE}&kind=agent&hours=8%0A`
+    ]) {
+      expect(parse(query)).toMatchObject({ kind: "invalid", title: "Token request failed" });
+    }
+  });
+});
+
 describe("the loopback handoff", () => {
   const pkce: PkceRequest = {
     kind: "pkce",
@@ -202,6 +275,33 @@ describe("returning after sign-in", () => {
       const back = parseCliAuthRequest(new URL(returnToUrl(origin, request)).searchParams);
       expect(back).toEqual(request);
     }
+  });
+
+  it("carries an agent token request through login whole, standing included", () => {
+    const pkce = `port=53124&state=a%20b&code_challenge=${CHALLENGE}&hostname=luong-mbp`;
+    for (const agent of [
+      "kind=agent&hours=8&standing=1&name=triage%20%26%20more",
+      "kind=agent&hours=abc&name=",
+      "kind=agent"
+    ]) {
+      const request = parse(`${pkce}&${agent}`);
+      if (request.kind !== "agent_mint") throw new Error("expected an agent request");
+      const returnTo = returnToUrl(origin, request);
+      expect(parseCliAuthRequest(new URL(returnTo).searchParams)).toEqual(request);
+      // `standing` rides back only when it was asked for: its absence is the "no".
+      expect(returnTo.includes("standing=")).toBe(request.ask.standing);
+      expect(returnTo).not.toContain("apps=");
+    }
+  });
+
+  it("sends an agent token's code to the loopback exactly as a login's", () => {
+    const request = parse(
+      `port=53124&state=abc&code_challenge=${CHALLENGE}&hostname=h&kind=agent&standing=1`
+    );
+    if (request.kind !== "agent_mint") throw new Error("expected an agent request");
+    expect(codeCallbackUrl(request, "one-time")).toBe(
+      "http://127.0.0.1:53124/callback?code=one-time&state=abc"
+    );
   });
 
   it("sends a mint's code to the loopback exactly as a login's", () => {

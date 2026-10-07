@@ -54,8 +54,11 @@ type Described = Record<string, unknown>;
 /** The headline for a deployment that predates the kind altogether. */
 export const unsupported = (target: string) =>
   `${target} does not support sandbox agent tokens yet`;
-const notAsked = (target: string) => `${target} minted a token that is not the one asked for`;
-const unconfirmed = (target: string) => `${target} minted a token that could not be confirmed`;
+/** The two headlines every mint shares: `tokens create --agent` raises them too. */
+export const notAsked = (target: string) =>
+  `${target} minted a token that is not the one asked for`;
+export const unconfirmed = (target: string) =>
+  `${target} minted a token that could not be confirmed`;
 
 /** One app as a comparable key. A pair, so no slug can forge the separator. */
 const key = (org: string, slug: string) => JSON.stringify([org.toLowerCase(), slug.toLowerCase()]);
@@ -106,10 +109,13 @@ function appsMismatch(target: string, ask: Asked, raw: unknown): Mismatch | unde
   };
 }
 
-/** Why the lifetime is not the bounded one asked for, if it is not. */
-function lifetimeMismatch(
+/**
+ * Why the lifetime is not the bounded one asked for, if it is not. The same
+ * rule, and the same clock slack, for every token this CLI mints.
+ */
+export function lifetimeMismatch(
   target: string,
-  ask: Asked,
+  ask: Pick<Asked, "hours">,
   raw: unknown,
   now: number
 ): Mismatch | undefined {

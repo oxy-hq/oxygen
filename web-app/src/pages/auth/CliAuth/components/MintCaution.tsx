@@ -1,7 +1,13 @@
 import type React from "react";
 
+interface Props {
+  hostname: string;
+  /** The oxyc command that opens this approval, as the person would have typed it. */
+  command: string;
+}
+
 /** The last thing read before the buttons: the command that should have opened this page. */
-const MintCaution: React.FC<{ hostname: string }> = ({ hostname }) => (
+const MintCaution: React.FC<Props> = ({ hostname, command }) => (
   <div className='mt-2 text-sm leading-5.5'>
     <p>
       Continue only if you just ran this on <b className='break-words font-medium'>{hostname}</b>
@@ -10,7 +16,7 @@ const MintCaution: React.FC<{ hostname: string }> = ({ hostname }) => (
       <span aria-hidden='true' className='mr-2.5 select-none text-muted-foreground'>
         $
       </span>
-      <code>oxyc tokens create --sandbox-agent</code>
+      <code data-testid='cli-auth-mint-command'>{command}</code>
     </div>
   </div>
 );

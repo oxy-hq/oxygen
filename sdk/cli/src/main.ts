@@ -18,6 +18,7 @@
 
 import { Command } from "commander";
 import { clearAllCaches, unknownCacheEntries } from "./api/cache.js";
+import { hintToShow } from "./auth/agent-token.js";
 import { runExitRevokes } from "./auth/exit-revoke.js";
 import { runActivity } from "./commands/activity.js";
 import { runApi } from "./commands/api.js";
@@ -59,6 +60,7 @@ import { runImport, runNew, runRemove } from "./commands/registry.js";
 import { runRepos } from "./commands/repos.js";
 import { runSkillsInstall, runSkillsList } from "./commands/skills.js";
 import { runTokensCreate, runTokensList, runTokensRevoke } from "./commands/tokens.js";
+import { runTokensCreateAgent } from "./commands/tokens-agent.js";
 import { runTokensCreateSandboxAgent, runTokensRevokeCurrent } from "./commands/tokens-sandbox.js";
 import { runValidate } from "./commands/validate.js";
 import { runAdopt, runDoctor, runUpdate } from "./commands/workspace.js";
@@ -501,42 +503,76 @@ function buildProgram(): Command {
     tokens
       .command("create")
       .description(
-        "open Account → Personal access tokens in the browser — or, with --sandbox-agent, mint an agent's token"
+        "open Account → Personal access tokens in the browser — or, with --agent or --sandbox-agent, mint an agent's own token"
+      )
+      .option(
+        "--agent",
+        "mint an agent token (oxy_pat_…): everything the approver can reach, for hours; approved once in the browser, printed as `export OXY_TOKEN=…`"
+      )
+      .option(
+        "--standing",
+        "with --agent: ask for the approver's staff or partner access too. They choose on the page, where it starts off"
       )
       .option(
         "--sandbox-agent",
         "mint a sandbox agent token (oxy_sbx_…): approved once in the browser, printed as `export OXY_TOKEN=…`"
       )
       .option("--app <org>/<app>", "with --sandbox-agent: an app it reaches (1 to 5)", collect, [])
-      .option("--hours <n>", "with --sandbox-agent: its lifetime, 1 to 168 (default 8)")
+      .option("--hours <n>", "with --agent or --sandbox-agent: its lifetime, 1 to 168 (default 8)")
       .option(
         "--name <label>",
-        "with --sandbox-agent: its name in the token list and the audit log"
+        "with --agent or --sandbox-agent: its name in the token list and the audit log"
       )
       .addHelpText(
         "after",
-        "\nA sandbox agent token does the sandbox loop on the named apps and nothing else:\n" +
-          "create up to three dev-<handle> sandboxes, publish into them, call their functions,\n" +
-          "run their checks, read them back, set their secrets, delete them. It is never\n" +
-          "stored on this machine and it revokes no other token.\n\n" +
-          '    eval "$(oxyc tokens create --sandbox-agent --app acme/store --env dev)"\n'
+        "\nWhich one an agent mints:\n\n" +
+          "  --sandbox-agent  to build a custom app in a sandbox. It does the sandbox loop on\n" +
+          "                   the named apps and nothing else on the deployment.\n" +
+          "  --agent          for everything else: reading data with `oxyc api`, reproducing a\n" +
+          "                   bug against live data. It reaches what its approver does.\n\n" +
+          "Never the person's own `oxyc login`. Neither token is stored on this machine, and\n" +
+          "neither revokes another. After a mint, pass --token-env OXY_TOKEN to each command:\n" +
+          "one that lost the variable then exits 4 instead of running on a cached login.\n\n" +
+          '    eval "$(oxyc tokens create --sandbox-agent --app acme/store --env dev)"\n' +
+          '    eval "$(oxyc tokens create --agent --env dev)"\n'
       )
   ).action(async (opts: Record<string, unknown>) => {
     const ctx = createContext(globals(opts));
     const apps = opts.app as string[];
+    const hours = opts.hours as string | undefined;
+    const name = opts.name as string | undefined;
+    // Two different tokens. Asked for both, neither is minted.
+    if (opts.agent && opts.sandboxAgent) {
+      throw usageError(
+        "--agent and --sandbox-agent are two different tokens: pass one",
+        "--sandbox-agent to build a custom app in a sandbox; --agent for everything else"
+      );
+    }
+    if (opts.standing && !opts.agent) {
+      throw usageError(
+        "--standing is only valid with --agent",
+        "a sandbox agent token never carries staff or partner access, and plain `oxyc tokens create` opens the web page"
+      );
+    }
+    if (opts.agent) {
+      if (apps.length > 0) {
+        throw usageError(
+          "--app is only valid with --sandbox-agent",
+          "an agent token reaches everything its approver does: it names no apps"
+        );
+      }
+      await runTokensCreateAgent(ctx, { standing: Boolean(opts.standing), hours, name });
+      return;
+    }
     if (opts.sandboxAgent) {
-      await runTokensCreateSandboxAgent(ctx, {
-        apps,
-        hours: opts.hours as string | undefined,
-        name: opts.name as string | undefined
-      });
+      await runTokensCreateSandboxAgent(ctx, { apps, hours, name });
       return;
     }
     // The three flags mean nothing without it, and silently opening the page
     // would look like the mint had been asked for.
-    if (apps.length > 0 || opts.hours !== undefined || opts.name !== undefined) {
+    if (apps.length > 0 || hours !== undefined || name !== undefined) {
       throw usageError(
-        "--app, --hours and --name are only valid with --sandbox-agent",
+        "--app, --hours and --name are only valid with --agent or --sandbox-agent",
         "plain `oxyc tokens create` opens the page that creates a personal access token"
       );
     }
@@ -1361,8 +1397,11 @@ function reportAndExit(cause: unknown): never {
     if (cause.detail) {
       for (const line of cause.detail.split("\n")) process.stderr.write(`  ${err.dim(line)}\n`);
     }
-    if (cause.hint) {
-      for (const line of cause.hint.split("\n")) log.hint(line);
+    // The generic "try `oxyc login` again" is swapped for a token in the
+    // variable, which a login cannot replace. Every other hint is the error's own.
+    const hint = hintToShow(cause);
+    if (hint) {
+      for (const line of hint.split("\n")) log.hint(line);
     }
     // Through `log.remedy`, so an error's remedy reads the way a warning's
     // does. Handed to `hint` it wore `→` and joined the run of elaborations.

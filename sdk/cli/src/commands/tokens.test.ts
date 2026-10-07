@@ -122,6 +122,28 @@ describe("oxyc tokens list", () => {
     expect(stdout).not.toMatch(/legacy/i);
   });
 
+  it("lists an agent token as one, apart from an oxyc login", async () => {
+    const [login] = LISTED.tokens;
+    stubFetch(TARGET, {
+      "GET /api/user/tokens": () => ({
+        status: 200,
+        body: {
+          tokens: [
+            { ...login, source: "oxyc_login" },
+            { ...login, id: "tok-9", name: "agent on laptop", source: "oxyc_agent", platform: true }
+          ]
+        }
+      })
+    });
+    await runTokensList(context(), false);
+    const row = (id: string) => stdout.split("\n").find((line) => line.includes(id)) ?? "";
+    expect(row("tok-9")).toMatch(/\bagent\b/);
+    expect(row("tok-9")).not.toMatch(/\bpersonal\b/);
+    expect(row("tok-9")).toContain("platform standing");
+    expect(row("tok-1")).toMatch(/\bpersonal\b/);
+    expect(row("tok-1")).not.toMatch(/\bagent\b/);
+  });
+
   it("--json is the server's response, untouched", async () => {
     stubFetch(TARGET, { "GET /api/user/tokens": () => ({ status: 200, body: LISTED }) });
     await runTokensList(context(), true);

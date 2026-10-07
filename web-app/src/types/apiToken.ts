@@ -78,8 +78,9 @@ export interface Token {
   revoked_at: string | null;
   status: TokenStatus;
   /**
-   * `ui | oxyc_login | oidc | legacy_backfill | legacy_endpoint | legacy_lazy`. A sandbox agent
-   * token is `ui` or `oxyc`.
+   * `ui | oxyc_login | oxyc_agent | oidc | legacy_backfill | legacy_endpoint | legacy_lazy`. A
+   * sandbox agent token is `ui` or `oxyc`. `oxyc_agent` is an agent token: a personal token an
+   * agent holds for hours, approved once on `/cli-auth` (see `@/libs/agentToken`).
    */
   source: string;
   owner: TokenOwner;
@@ -185,6 +186,12 @@ export interface SandboxAgentLimits {
   max_apps: number;
 }
 
+/** The server's limits on an agent token (`oxyc tokens create --agent`). */
+export interface AgentTokenLimits {
+  default_hours: number;
+  max_hours: number;
+}
+
 /** One custom app the caller may mint a sandbox agent token for. */
 export interface SandboxApp {
   id: string;
@@ -208,6 +215,8 @@ export interface TokenOptions {
    * the type is not offered.
    */
   sandbox_apps?: SandboxApp[];
+  /** Absent from a server that predates agent tokens: the `/cli-auth` approval then refuses one. */
+  agent?: AgentTokenLimits;
 }
 
 /** One row of `GET /{workspaceId}/api-tokens`: a token that can reach this workspace. */
@@ -232,7 +241,7 @@ export interface WorkspaceTokenListResponse {
  * What `oxyc tokens create --sandbox-agent` asks the browser to approve. `apps` are ids: the page
  * resolves the `<org>/<app>` slugs oxyc sent before it asks.
  */
-export interface CliMintRequest {
+export interface CliSandboxMintRequest {
   kind: "sandbox_agent";
   apps: string[];
   expires_in_hours: number;
@@ -240,8 +249,28 @@ export interface CliMintRequest {
 }
 
 /**
+ * What `oxyc tokens create --agent` asks the browser to approve: a personal token that reaches
+ * everything its approver does, for hours.
+ */
+export interface CliAgentMintRequest {
+  kind: "agent";
+  /**
+   * Carry the approver's staff or partner standing. The server sets only what the approver
+   * holds, so `true` from someone who holds none still mints a token with none.
+   */
+  standing: boolean;
+  /** 1 to `agent.max_hours`. */
+  expires_in_hours: number;
+  /** Left out, the server names the token `agent on <hostname>`. */
+  name?: string;
+}
+
+export type CliMintRequest = CliSandboxMintRequest | CliAgentMintRequest;
+
+/**
  * `POST /auth/cli/authorize`, the browser half of an oxyc PKCE flow. With no `mint` it is
- * `oxyc login`; with one, the code oxyc exchanges yields that token instead of a login.
+ * `oxyc login`; with one, the code oxyc exchanges yields that token instead of a login: a
+ * sandbox agent token, or an agent token.
  */
 export interface CliAuthorizeRequest {
   code_challenge: string;

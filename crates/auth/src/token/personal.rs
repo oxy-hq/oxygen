@@ -62,7 +62,7 @@ pub struct NewToken {
     /// Stored only when `all_access` is false.
     pub grants: Vec<GrantSpec>,
     pub expires_at: Option<DateTime<Utc>>,
-    /// `credential::source::{UI, OXYC_LOGIN}`.
+    /// `credential::source::{UI, OXYC_LOGIN, OXYC_AGENT}`.
     pub source: &'static str,
 }
 

@@ -13,6 +13,9 @@
 
 mod account_discovery;
 mod activity;
+mod agent_token;
+mod agent_token_rules;
+mod agent_token_standing;
 mod app_admin_ceiling;
 mod assume_binding;
 mod audit_actions;

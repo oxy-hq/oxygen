@@ -30,6 +30,21 @@
 //!   the login's.
 //!
 //! An `authorize` body with no `mint` is `oxyc login`, exactly as before.
+//!
+//! ## Minting an agent token the same way
+//!
+//! A `mint` of `kind: "agent"` asks for an **agent token** (`agent.rs`): an
+//! all-access personal token of the agent's own, for hours. The same three
+//! rules hold — checked at `authorize` under the session (400
+//! `invalid_agent_token`), minted at `exchange` after being checked again, and
+//! no earlier token retired. Any other `mint` is read as a sandbox agent
+//! token's, as before.
+//!
+//! **Only a browser session approves either mint.** `authorize` takes
+//! `SessionOnly` before it reads its body, so a token — as a bearer, or as the
+//! browser session it opened (`browser_session.rs`) — answers 403
+//! `session_required` whatever the body asks for: a credential never mints or
+//! approves a credential.
 
 use axum::Json;
 use axum::body::Bytes;
@@ -40,6 +55,7 @@ use entity::users::UserStatus;
 use oxy::database::client::establish_connection;
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::SessionOnly;
+use oxy_auth::token::agent as agent_mint;
 use oxy_auth::token::cli_login::{self, Redeemed};
 use oxy_auth::token::credential::source;
 use oxy_auth::token::personal::{self, NewToken};
@@ -54,7 +70,7 @@ use super::audit::{self, Event};
 use super::error::TokenError;
 use super::handlers::{TokenWithSecret, parse};
 use super::service::{self, Minted};
-use super::{login_lifetime, reach, sandbox, view};
+use super::{agent, login_lifetime, reach, sandbox, view};
 use crate::server::authz;
 
 /// Why an earlier `oxyc on <hostname>` token was revoked.
@@ -95,6 +111,9 @@ pub async fn authorize(
     let db = establish_connection().await?;
     let code = match &body.mint {
         None => cli_login::authorize(&db, actor.id, &challenge, &hostname).await?,
+        Some(mint) if agent_mint::asked_for(mint) => {
+            agent::authorize(&db, &actor, &challenge, &hostname, mint).await?
+        }
         Some(mint) => authorize_mint(&db, &actor, &challenge, &hostname, mint).await?,
     };
     Ok(Json(AuthorizeResponse { code }))
@@ -135,36 +154,47 @@ pub async fn exchange(
         .await?
         .ok_or(TokenError::InvalidCode)?;
     let actor = redeemer(&db, &redeemed, &headers).await?;
+    let host = &redeemed.hostname;
     let minted = match &redeemed.mint {
-        None => mint(&db, &actor, &redeemed.hostname).await?,
-        Some(approved) => mint_sandbox(&db, &actor, approved, &redeemed.hostname).await?,
+        None => mint(&db, &actor, host).await?,
+        Some(approved) if agent_mint::asked_for(approved) => {
+            agent::redeem(&db, &actor, approved, host)
+                .await
+                .map_err(no_longer_honoured)?
+        }
+        Some(approved) => mint_sandbox(&db, &actor, approved, host).await?,
     };
     Ok(Json(minted.into()))
 }
 
+/// What the CLI is told when an approved mint is refused at the exchange:
+/// what it is told for any code it cannot redeem. The reason is logged — the
+/// approval, under the session, was where it could be said.
+fn no_longer_honoured(e: TokenError) -> TokenError {
+    match e {
+        TokenError::Internal(detail) => TokenError::Internal(detail),
+        other => {
+            tracing::info!(reason = ?other, "an approved mint can no longer be honoured");
+            TokenError::InvalidCode
+        }
+    }
+}
+
 /// Mint the sandbox agent token a code was approved for. Who may mint is
-/// checked again: the approval is up to five minutes old. Whatever refuses it
-/// now, the CLI is told what it is told for any code it cannot redeem.
+/// checked again: the approval is up to five minutes old.
 async fn mint_sandbox(
     db: &DatabaseConnection,
     actor: &RequestActor,
     approved: &serde_json::Value,
     hostname: &str,
 ) -> Result<Minted, TokenError> {
-    let refused = |e: TokenError| match e {
-        TokenError::Internal(detail) => TokenError::Internal(detail),
-        other => {
-            tracing::info!(reason = ?other, "an approved sandbox agent mint can no longer be honoured");
-            TokenError::InvalidCode
-        }
-    };
     let checked = sandbox::check(db, actor, approved, None)
         .await
-        .map_err(refused)?;
+        .map_err(no_longer_honoured)?;
     let detail = json!({ "hostname": hostname });
     sandbox::create(db, actor, &checked, source::OXYC, detail)
         .await
-        .map_err(refused)
+        .map_err(no_longer_honoured)
 }
 
 /// The user the code was issued to, as the actor of this request. A user

@@ -1,5 +1,5 @@
 import { appCountProblem, findSandboxApp, hoursProblem } from "@/libs/sandboxAgentToken";
-import type { CliMintRequest, SandboxAgentLimits, SandboxApp } from "@/types/apiToken";
+import type { CliSandboxMintRequest, SandboxAgentLimits, SandboxApp } from "@/types/apiToken";
 import type { MintAsk } from "./cliAuthRequest";
 
 /** One app oxyc named: found among those the person may mint for, or not. */
@@ -35,7 +35,7 @@ export interface MintReview {
   name: string;
   problems: MintProblems;
   /** The `mint` of the authorize body. Present exactly when nothing is wrong. */
-  mint?: CliMintRequest;
+  mint?: CliSandboxMintRequest;
 }
 
 /** The server's limit on any token's name (as `TokenName` has it for a rename). */

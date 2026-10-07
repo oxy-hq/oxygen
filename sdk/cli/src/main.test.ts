@@ -97,6 +97,49 @@ describe("exit codes", () => {
     expect(oxyc("preview", "runs", "show").status).toBe(ExitCode.USAGE);
   });
 
+  /**
+   * `tokens create --agent`: every argument is checked before a browser opens,
+   * which is what lets these run here at all. A case that got past the check
+   * would open a real browser and wait five minutes.
+   */
+  it("checks tokens create --agent's arguments before any browser opens", () => {
+    const both = oxyc("tokens", "create", "--agent", "--sandbox-agent", "--app", "acme/store");
+    expect(both.status).toBe(ExitCode.USAGE);
+    expect(both.stderr).toContain("--agent and --sandbox-agent are two different tokens");
+    expect(both.stdout).toBe("");
+
+    const hours = oxyc("tokens", "create", "--agent", "--hours", "200");
+    expect(hours.status).toBe(ExitCode.USAGE);
+    expect(hours.stderr).toContain("is not a whole number from 1 to 168");
+
+    const name = oxyc("tokens", "create", "--agent", "--standing", "--name", " ");
+    expect(name.status).toBe(ExitCode.USAGE);
+    expect(name.stderr).toContain("--name is empty");
+
+    // An agent token names no apps: that flag belongs to the other token.
+    const apps = oxyc("tokens", "create", "--agent", "--app", "acme/store");
+    expect(apps.status).toBe(ExitCode.USAGE);
+    expect(apps.stderr).toContain("--app is only valid with --sandbox-agent");
+  });
+
+  it("refuses --standing anywhere but on --agent", () => {
+    for (const args of [
+      ["tokens", "create", "--standing"],
+      ["tokens", "create", "--sandbox-agent", "--app", "acme/store", "--standing"]
+    ]) {
+      const r = oxyc(...args);
+      expect(r.status, args.join(" ")).toBe(ExitCode.USAGE);
+      expect(r.stderr).toContain("--standing is only valid with --agent");
+      expect(r.stdout).toBe("");
+    }
+  });
+
+  it("still refuses the mint's flags on a plain tokens create", () => {
+    const r = oxyc("tokens", "create", "--hours", "8");
+    expect(r.status).toBe(ExitCode.USAGE);
+    expect(r.stderr).toContain("only valid with --agent or --sandbox-agent");
+  });
+
   /** `requireRunKind` refuses before any request — the same shape `--app-env` refusals take. */
   it("rejects a run kind oxyc cannot start as USAGE, before any request", () => {
     const r = oxyc(
@@ -457,10 +500,82 @@ describe("guide", () => {
    * capabilities worth their lines, not padding; the ceiling still catches
    * the next addition that is not. And from 85 to 86 for `login-link`: one
    * line, and the only place an agent learns it can have a signed-in browser
-   * on a deployed environment before it has gone looking for one.
+   * on a deployed environment before it has gone looking for one. And from 86
+   * to 92 for "An agent's own token": which of the two an agent mints, and
+   * that it never runs on the person's login — the one section whose absence
+   * sends an agent to `oxyc login`. Two lines of it moved up from Sandboxes.
    */
   it("stays short enough to sit in a context file", () => {
-    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(86);
+    expect(oxyc("guide").stdout.split("\n").length).toBeLessThan(92);
+  });
+
+  /**
+   * An agent that reads only this page must come away knowing it has a token
+   * of its own to mint, which one, and that exit 4 on it is not a cue to log in.
+   */
+  it("says which token an agent mints, and that it never runs on the person's login", () => {
+    const out = oxyc("guide").stdout;
+    expect(out).toContain("never the person's `oxyc login`");
+    expect(out).toContain("oxyc tokens create --sandbox-agent --app <org>/<app>");
+    expect(out).toContain("oxyc tokens create --agent");
+    expect(out).toContain("pass `--token-env OXY_TOKEN` to every command");
+    expect(out).toContain("oxyc tokens revoke --current");
+
+    // Exit 4 says both cases: a person logs in, an agent stops.
+    const four = out.split("\n").find((line) => /^\s+4 /.test(line)) ?? "";
+    expect(four).toContain("a person logs in");
+    expect(four).toMatch(/an agent on its own token STOPS and reports/);
+  });
+
+  /**
+   * The sandbox loop named its deployment three ways: the mint and `env
+   * create` said nothing (production), `publish` said `--env dev`. An agent
+   * that pasted it minted a token for one deployment and published to another.
+   */
+  it("names the deployment the same way on every line of the agent loops", () => {
+    const lines = oxyc("guide").stdout.split("\n");
+    const start = lines.findIndex((line) => line.startsWith("### An agent's own token"));
+    const end = lines.findIndex((line) => line.startsWith("### Workspace previews"));
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const commands = lines.slice(start, end).filter((line) => /^ {4}\S/.test(line));
+    expect(commands.length).toBeGreaterThanOrEqual(9);
+    for (const command of commands) {
+      expect(command, command).toContain("--env <deployment>");
+      expect(command, command).not.toMatch(/--env (dev|staging|production)\b/);
+    }
+    // Said once, where the loop starts: leaving it out is production.
+    expect(lines.slice(start, end).join("\n")).toContain("omitted, it is production");
+  });
+
+  /** Every flag those lines use is one the command's own --help lists. */
+  it("uses only flags each command of the agent loops actually takes", () => {
+    const flagToken = /(--[a-z][a-z-]*)/g;
+    const lines = oxyc("guide").stdout.split("\n");
+    const start = lines.findIndex((line) => line.startsWith("### An agent's own token"));
+    const end = lines.findIndex((line) => line.startsWith("### Workspace previews"));
+    const verbs: [RegExp, string[]][] = [
+      [/oxyc tokens create/, ["tokens", "create"]],
+      [/oxyc tokens revoke/, ["tokens", "revoke"]],
+      [/oxyc env create/, ["env", "create"]],
+      [/oxyc publish/, ["publish"]],
+      [/oxyc fn call/, ["fn", "call"]],
+      [/oxyc checks run/, ["checks", "run"]],
+      [/oxyc invocations held/, ["invocations", "held"]],
+      [/oxyc env delete/, ["env", "delete"]]
+    ];
+    for (const line of lines.slice(start, end).filter((each) => /^ {4}\S/.test(each))) {
+      const verb = verbs.find(([pattern]) => pattern.test(line));
+      expect(verb, `no --help to check this line against: ${line}`).toBeDefined();
+      const help = new Set(
+        [...oxyc(...(verb?.[1] ?? []), "--help").stdout.matchAll(flagToken)].map((m) => m[0])
+      );
+      // The command itself, without its trailing comment.
+      const used = [...(line.split("#")[0] ?? "").matchAll(flagToken)].map((m) => m[0]);
+      for (const flag of used) {
+        expect(help.has(flag), `${verb?.[1].join(" ")} --help does not list ${flag}`).toBe(true);
+      }
+    }
   });
 });
 

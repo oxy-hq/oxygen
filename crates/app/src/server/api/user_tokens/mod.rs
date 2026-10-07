@@ -12,6 +12,9 @@
 //! - `POST /api/auth/browser-ticket` and its public `/redeem` — a personal
 //!   token trades a one-time ticket for a browser session that acts as it
 //!   ([`browser_session`]);
+//! - `POST /api/auth/cli/authorize` and its public `/exchange` — `oxyc login`,
+//!   and the same exchange minting a sandbox agent token ([`sandbox`]) or an
+//!   **agent token** ([`agent`]) the browser session approved ([`cli_login`]);
 //! - `/api/admin/standing-tokens` — every personal token that carries
 //!   `platform` or `partner` standing, for the staff who govern staff access:
 //!   list and revoke ([`standing_staff`], mounted by `admin::standing_tokens`).
@@ -32,6 +35,7 @@
 // the same tokens (`api::org_api_access`): one wire shape and one
 // lifecycle-event writer.
 pub(crate) mod access_audit;
+pub mod agent;
 pub(crate) mod audit;
 pub mod browser_session;
 pub mod cli_login;

@@ -98,7 +98,8 @@ function parseApps(raw: string[]): string[] {
   return raw;
 }
 
-function parseHours(raw: string | undefined): number {
+/** `--hours`, for either token an agent mints: the server holds both to the same range. */
+export function parseHours(raw: string | undefined): number {
   if (raw === undefined) return SANDBOX_MINT.defaultHours;
   const hours = Number(raw);
   if (!Number.isInteger(hours) || hours < SANDBOX_MINT.minHours || hours > SANDBOX_MINT.maxHours) {
@@ -110,8 +111,9 @@ function parseHours(raw: string | undefined): number {
   return hours;
 }
 
-function parseName(raw: string | undefined, hostname: string): string {
-  if (raw === undefined) return `sandbox agent on ${hostname}`.slice(0, NAME_MAX_CHARS);
+/** `--name`, or `unnamed` cut to the server's limit when none was given. */
+export function parseName(raw: string | undefined, unnamed: string): string {
+  if (raw === undefined) return unnamed.slice(0, NAME_MAX_CHARS);
   const name = raw.trim();
   if (!name) throw usageError("--name is empty");
   if (name.length > NAME_MAX_CHARS) {
@@ -129,7 +131,7 @@ export function parseSandboxMint(flags: SandboxMintFlags, hostname: string): San
   return {
     apps: parseApps(flags.apps),
     hours: parseHours(flags.hours),
-    name: parseName(flags.name, hostname)
+    name: parseName(flags.name, `sandbox agent on ${hostname}`)
   };
 }
 
@@ -156,8 +158,16 @@ export function sandboxMintQuery(ask: SandboxMintRequest): string {
  *
  * Exit `8`, not `7`: this is not a blip to retry. It would have "worked", and
  * that is the problem — which is what a refusal is.
+ *
+ * Shared with `tokens create --agent`, which refuses what it is handed by the
+ * same rule; `hint` is the one part that names the kind of token.
  */
-async function discard(target: string, problem: Mismatch, secret?: string): Promise<never> {
+export async function discard(
+  target: string,
+  problem: Mismatch,
+  secret?: string,
+  hint: string = SANDBOX_DISCARD_HINT
+): Promise<never> {
   // Sent as a bearer only when it is made of credential characters: what a
   // deployment hands back in place of a token goes into no header either.
   const sendable = isHeaderSafeSecret(secret);
@@ -174,9 +184,19 @@ async function discard(target: string, problem: Mismatch, secret?: string): Prom
   // refusal is raised.
   throw refusal(printable(problem.what), {
     detail: `${printable(problem.why)}. ${kept}`,
-    hint: "stop and tell your operator: the deployment's web app and server must both be on a version with sandbox agent tokens. If an ordinary login was issued, it may have replaced theirs for this host — `oxyc whoami`, then `oxyc login` again"
+    hint
   });
 }
+
+/**
+ * What a refused mint tells the agent, with the kind of token named. The last
+ * sentence is for the OPERATOR: an old deployment answers a mint with an
+ * ordinary login, and that login replaces theirs for this host.
+ */
+export const discardHint = (tokens: string) =>
+  `stop and tell your operator: the deployment's web app and server must both be on a version with ${tokens}. If an ordinary login was issued, it may have replaced theirs for this host — \`oxyc whoami\`, then \`oxyc login\` again`;
+
+const SANDBOX_DISCARD_HINT = discardHint("sandbox agent tokens");
 
 /**
  * The one line stdout carries. A SHELL EVALUATES IT, so the shape is checked

@@ -37,6 +37,13 @@ describe("madeWith", () => {
     expect(fromOxycLogin({ source: "oxyc_login" })).toBe(true);
   });
 
+  it("reads `oxyc_agent` as an agent's token, which is not the login on its owner's machine", () => {
+    const made = madeWith({ source: "oxyc_agent" });
+    expect(made.label).toBe("oxyc agent");
+    expect(made.hint).toMatch(/approved by its owner/);
+    expect(fromOxycLogin({ source: "oxyc_agent" })).toBe(false);
+  });
+
   it("reads `ui` as Settings, and not as oxyc login", () => {
     expect(fromOxycLogin({ source: "ui" })).toBe(false);
     expect(madeWith({ source: "ui" })).toEqual({

@@ -241,6 +241,152 @@ describe("oxyc whoami", () => {
     expect(cause).toBeInstanceOf(CliError);
     expect((cause as CliError).code).toBe(ExitCode.AUTH);
   });
+
+  describe("under an agent token", () => {
+    /** As `oxyc tokens create --agent` leaves one: a personal token, told apart by its source. */
+    const AGENT = {
+      ...PAT,
+      id: "tok-agent-1",
+      name: "agent on laptop",
+      source: "oxyc_agent",
+      all_access: true,
+      grants: [],
+      expires_at: new Date(Date.now() + 8 * 3_600_000).toISOString(),
+      owner: { type: "user", id: "u-1", label: "ada@acme.test" }
+    };
+    const described = (over: Record<string, unknown> = {}) =>
+      routes({ "GET /api/auth/token": () => ({ status: 200, body: { ...AGENT, ...over } }) });
+
+    it("says it is an agent token, who approved it, that it carries no standing, and when it ends", async () => {
+      vi.stubEnv("OXY_TOKEN", "oxy_pat_secret");
+      stubFetch(TARGET, described());
+      await runWhoami(context(), false);
+
+      expect(stdout).toMatch(/token\s+agent on laptop {2}\(agent token, oxy_pat_ab12…9f3c\)/);
+      expect(stdout).toMatch(/approved by\s+ada@acme\.test/);
+      expect(stdout).toMatch(
+        /reach\s+everything ada@acme\.test can reach through their organizations/
+      );
+      expect(stdout).toContain("no staff or partner access");
+      expect(stdout).toMatch(/expires\s+\S+ \(in 8 h\) — it cannot be extended/);
+      expect(stdout).toContain("oxyc tokens revoke --current");
+      // Never called by its kind: `personal` would read as the person's own login.
+      expect(stdout).not.toContain("(personal,");
+      expect(stdout).not.toContain("oxy_pat_secret");
+    });
+
+    it("says which standing it carries: staff, partner, or both", async () => {
+      vi.stubEnv("OXY_TOKEN", "oxy_pat_secret");
+      stubFetch(TARGET, described({ platform: true }));
+      await runWhoami(context(), false);
+      expect(stdout).toContain("+ staff access: every organization on this deployment");
+      expect(stdout).not.toContain("partner access:");
+      expect(stdout).not.toContain("no staff or partner access");
+
+      stdout = "";
+      stubFetch(TARGET, described({ platform: true, partner: true }));
+      await runWhoami(context(), false);
+      expect(stdout).toContain("+ staff access: every organization on this deployment");
+      expect(stdout).toContain("+ partner access: the approver's client organizations");
+    });
+
+    it("keeps calling an oxyc login what it is: the source is what makes an agent token", async () => {
+      vi.stubEnv("OXY_TOKEN", "oxy_pat_secret");
+      stubFetch(TARGET, described({ source: "oxyc_login", name: "oxyc on laptop" }));
+      await runWhoami(context(), false);
+      expect(stdout).toMatch(/token\s+oxyc on laptop {2}\(personal, /);
+      expect(stdout).not.toContain("agent token");
+      expect(stdout).not.toContain("approved by");
+    });
+
+    it("prints its name and its approver without control characters", async () => {
+      const ESC = String.fromCharCode(27);
+      vi.stubEnv("OXY_TOKEN", "oxy_pat_secret");
+      stubFetch(
+        TARGET,
+        described({
+          name: `agent${ESC}[2J`,
+          owner: { type: "user", id: "u-1", label: `ada${ESC}]0;x@acme.test` }
+        })
+      );
+      await runWhoami(context(), false);
+      expect(stdout).not.toContain(ESC);
+    });
+  });
+
+  describe("when the deployment refuses the credential (exit 4)", () => {
+    const refusedBy = async (status: number) => {
+      stubFetch(TARGET, { "GET /api/user": () => ({ status, body: { error: "nope" } }) });
+      const cause = await runWhoami(context(), false).then(
+        () => undefined,
+        (thrown: unknown) => thrown
+      );
+      expect(cause).toBeInstanceOf(CliError);
+      expect((cause as CliError).code).toBe(ExitCode.AUTH);
+      return cause as CliError;
+    };
+
+    it.each([401, 403])(
+      "tells an agent on a token in the variable to stop and report, never to log in (%i)",
+      async (status) => {
+        // An agent token that expired or was revoked: dead, so it cannot say what it was.
+        vi.stubEnv("OXY_TOKEN", "oxy_pat_0123456789abcdefghijABCDEFGHIJ012345");
+        const cause = await refusedBy(status);
+        expect(cause.message).toBe(`the token in OXY_TOKEN is no longer accepted (${TARGET})`);
+        expect(cause.hint).toContain("an agent: stop and report this to your operator");
+        expect(cause.hint).toContain("do not look for another credential");
+        expect(cause.detail).toContain("a login does not replace it");
+        expect(cause.detail).toContain("oxyc tokens create --agent");
+        // The one command it names for a login is the person's, and only as theirs.
+        const lines = (cause.hint ?? "").split("\n");
+        expect(lines.filter((line) => line.startsWith("an agent:"))).toHaveLength(1);
+        expect(lines.find((line) => line.startsWith("an agent:"))).not.toMatch(/run `oxyc login`/);
+        expect(cause.hint).not.toMatch(/^oxyc login/m);
+      }
+    );
+
+    it("names the variable that was named, when --token-env picked another", async () => {
+      vi.stubEnv("AGENT_TOKEN", "oxy_pat_0123456789abcdefghijABCDEFGHIJ012345");
+      stubFetch(TARGET, { "GET /api/user": () => ({ status: 401, body: {} }) });
+      const ctx = createContext(
+        { env: "production", target: TARGET, tokenEnv: "AGENT_TOKEN" },
+        scratch
+      );
+      const cause = (await runWhoami(ctx, false).then(
+        () => undefined,
+        (thrown: unknown) => thrown
+      )) as CliError;
+      expect(cause.code).toBe(ExitCode.AUTH);
+      expect(cause.message).toContain("the token in AGENT_TOKEN is no longer accepted");
+      expect(cause.hint).toContain("put a token that works in AGENT_TOKEN");
+    });
+
+    it("says the same of a token that no longer resolves to a user", async () => {
+      vi.stubEnv("OXY_TOKEN", "oxy_pat_0123456789abcdefghijABCDEFGHIJ012345");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response("null", { status: 200, headers: { "content-type": "application/json" } })
+        )
+      );
+      const cause = (await runWhoami(context(), false).then(
+        () => undefined,
+        (thrown: unknown) => thrown
+      )) as CliError;
+      expect(cause.code).toBe(ExitCode.AUTH);
+      expect(cause.message).toContain("the token in OXY_TOKEN no longer resolves to a user");
+      expect(cause.hint).toContain("an agent: stop and report this to your operator");
+      expect(cause.hint).not.toMatch(/^oxyc login/m);
+    });
+
+    it("still sends a person with a cached login back to log in", async () => {
+      cache("oxy_pat_cached_login");
+      const cause = await refusedBy(401);
+      expect(cause.message).toBe(`the cached token for ${TARGET} is no longer accepted`);
+      expect(cause.hint).toBe("oxyc login --env production");
+    });
+  });
 });
 
 describe("oxyc token", () => {

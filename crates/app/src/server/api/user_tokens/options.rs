@@ -10,6 +10,9 @@
 //! The third type the dialog offers staff is a sandbox agent token: its limits
 //! (`sandbox_agent`) and the apps the caller may mint one for (`sandbox_apps`,
 //! empty for anyone who is not staff) — `sandbox.rs`.
+//!
+//! `agent` is the limits of an **agent token** (`agent.rs`), for the page that
+//! approves one: anyone may approve one for themselves, so it names no one.
 
 use std::collections::HashMap;
 
@@ -28,6 +31,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::ManageTokens;
+use super::agent::AgentLimits;
 use super::error::TokenError;
 use super::reach;
 use super::sandbox::{self, SandboxAgentLimits, SandboxAppOption};
@@ -87,6 +91,8 @@ pub struct TokenOptions {
     /// The apps the caller may mint a sandbox agent token for. Filled by
     /// [`get_token_options`]; `[]` for anyone who is not staff.
     pub sandbox_apps: Vec<SandboxAppOption>,
+    /// What an agent token may be minted with.
+    pub agent: AgentLimits,
 }
 
 /// The orgs a grant may name, with the role to show and how they are reached.
@@ -186,6 +192,7 @@ fn build(
         can_partner: facts.is_partner(),
         sandbox_agent: SandboxAgentLimits::current(),
         sandbox_apps: Vec::new(),
+        agent: AgentLimits::current(),
     }
 }
 

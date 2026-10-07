@@ -63,8 +63,8 @@ const Slot: React.FC<React.PropsWithChildren<{ className: string }>> = ({
  * menu for Edit access and Regenerate.
  *
  * A token with an expiry can be extended while it is live and after it lapses, since extending
- * is how a lapsed one comes back. A sandbox agent token is fixed once minted: it has Activity
- * and Revoke, and nothing else. A revoked token keeps Activity alone.
+ * is how a lapsed one comes back. A sandbox agent token is fixed once minted, and so is an agent
+ * token: each has Activity and Revoke, and nothing else. A revoked token keeps Activity alone.
  */
 const TokenRowActions: React.FC<Props> = ({ token, summary, onActivity, onRegenerated }) => {
   const [editOpen, setEditOpen] = useState(false);

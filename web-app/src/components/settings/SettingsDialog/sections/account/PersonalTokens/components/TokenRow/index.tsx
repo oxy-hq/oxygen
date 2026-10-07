@@ -4,10 +4,11 @@ import ActivityDrawer from "@/components/settings/SettingsDialog/sections/worksp
 import { formatLastUsed } from "@/components/settings/SettingsDialog/sections/workspace/ApiKeys/ApiKeyTable/ApiKeyRow/formatLastUsed";
 import { TableCell, TableRow } from "@/components/ui/shadcn/table";
 import { USER_TOKEN_ENDPOINTS } from "@/hooks/api/apiKeys/tokenEndpoints";
+import { AGENT_TOKEN_HINT, isAgentToken } from "@/libs/agentToken";
 import { cn } from "@/libs/shadcn/utils";
 import { ApiKeyService } from "@/services/api/apiKey";
 import type { Token, TokenWithSecret } from "@/types/apiToken";
-import { isFixedToken, TOKEN_KIND_LABELS, toTokenSummary } from "../../accessSummary";
+import { isFixedToken, tokenKindLabel, toTokenSummary } from "../../accessSummary";
 import { TOKEN_COLUMNS } from "../tokenColumns";
 import AccessCell from "./components/AccessCell";
 import TokenName from "./components/TokenName";
@@ -41,6 +42,9 @@ const lastUsed = (at: string | null): string =>
  *
  * A sandbox agent token is fixed once minted, so its row has no Rename, Extend, Edit access or
  * Regenerate: it shows what the token is, how long it has left, and Activity and Revoke.
+ *
+ * An agent token (`oxyc tokens create --agent`) is a personal token an agent holds for hours. Its
+ * row says "Agent" where an `oxyc login` says "Personal", and it is fixed in the same way.
  */
 const TokenRow: React.FC<Props> = ({ token, onRegenerated }) => {
   const [activityOpen, setActivityOpen] = useState(false);
@@ -55,6 +59,7 @@ const TokenRow: React.FC<Props> = ({ token, onRegenerated }) => {
       data-testid='account-token-row'
       data-token-name={token.name}
       data-token-kind={token.kind}
+      data-token-source={token.source}
       data-token-status={token.status}
     >
       {/* The title carries the token's prefix for a box too narrow for the Token column, under
@@ -73,13 +78,15 @@ const TokenRow: React.FC<Props> = ({ token, onRegenerated }) => {
       >
         <span
           title={
-            fixed
-              ? "For an AI agent building custom apps. It reaches the sandboxes of its apps and nothing else."
-              : undefined
+            isAgentToken(token)
+              ? AGENT_TOKEN_HINT
+              : fixed
+                ? "For an AI agent building custom apps. It reaches the sandboxes of its apps and nothing else."
+                : undefined
           }
           data-testid={fixed ? "account-token-kind-badge" : "account-token-kind"}
         >
-          {TOKEN_KIND_LABELS[token.kind]}
+          {tokenKindLabel(token)}
         </span>
       </TableCell>
       <TableCell data-label='Token' className={cn(CELL, TOKEN_COLUMNS.token.shown, "truncate")}>

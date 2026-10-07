@@ -9,6 +9,7 @@
 
 import { parseJson, request } from "../api/request.js";
 import { describeSandboxToken } from "../apps/sandbox-token.js";
+import { isAgentTokenRow, variableCredentialSteps } from "../auth/agent-token.js";
 import { clearCredential, loadCredential } from "../auth/credentials.js";
 import { keepPastExit } from "../auth/exit-revoke.js";
 import { adminStatusLine, login } from "../auth/login.js";
@@ -20,10 +21,11 @@ import {
   type Token
 } from "../auth/token-api.js";
 import { isRevocable, isSandboxAgentToken } from "../auth/token-kind.js";
-import type { Context } from "../context/resolve.js";
+import type { Context, ResolvedCredential } from "../context/resolve.js";
 import * as log from "../ui/log.js";
 import { out } from "../ui/tty.js";
 import { CliError, ExitCode } from "../util/errors.js";
+import { printable } from "../util/printable.js";
 import { runAssumeStart } from "./assume.js";
 
 /**
@@ -132,7 +134,8 @@ export async function runLogout(ctx: Context): Promise<void> {
  */
 export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   const target = ctx.target();
-  const bearer = await ctx.bearer();
+  const credential = await ctx.credential();
+  const bearer = credential.token;
 
   // `/api/user` answers a sandbox agent token 404, like every path outside the
   // sandbox loop. What that token is — kind, expiry, apps, minter — is the
@@ -154,10 +157,7 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
     timeoutMs: 30_000
   });
   if (response.status === 401 || response.status === 403) {
-    throw new CliError(`the cached token for ${target} is no longer accepted`, {
-      code: ExitCode.AUTH,
-      hint: `oxyc login --env ${ctx.flags.env ?? "production"}`
-    });
+    throw notAccepted(ctx, credential.source, "is no longer accepted");
   }
   if (response.status < 200 || response.status >= 300) {
     throw new CliError(`could not read /api/user (${response.status})`, {
@@ -174,12 +174,12 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
   // precise failure this command exists to catch, and it is what the first
   // run of this code did. `login.rs` refuses the same shape at login time.
   if (payload === null || payload === undefined) {
-    throw new CliError(`the token for ${target} no longer resolves to a user`, {
-      code: ExitCode.AUTH,
-      detail:
-        "GET /api/user answered 200 with a null body, which is what an expired session looks like.",
-      hint: `oxyc login --env ${ctx.flags.env ?? "production"}`
-    });
+    throw notAccepted(
+      ctx,
+      credential.source,
+      "no longer resolves to a user",
+      "GET /api/user answered 200 with a null body, which is what an expired session looks like."
+    );
   }
 
   if (json) {
@@ -200,6 +200,46 @@ export async function runWhoami(ctx: Context, json: boolean): Promise<void> {
     lines.push(`${out.bold("customer")}    ${customer.name}  (from the repo you are in)`);
   lines.push(...(await tokenLines(target, bearer)));
   process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+/**
+ * The error for a credential the deployment turned away.
+ *
+ * WHAT TO DO DEPENDS ON WHERE IT CAME FROM. A cached login is replaced by
+ * logging in again. A token in the variable is not: the variable wins over the
+ * login cache, so a login changes nothing — and the holder may be an agent on
+ * its own token (`oxyc tokens create --agent`), which ends on a clock and
+ * cannot be extended. A dead token describes nothing, so which it was cannot
+ * be asked; where it was read from is what is known. An agent is told to stop
+ * and report, never to log in: a login would hand it its operator's whole
+ * reach, which is what its own token exists to avoid.
+ */
+function notAccepted(
+  ctx: Context,
+  source: ResolvedCredential["source"],
+  what: string,
+  detail?: string
+): CliError {
+  const target = ctx.target();
+  if (source !== "env") {
+    const whose = source === "file" ? "the cached token" : "the token";
+    return new CliError(`${whose} for ${target} ${what}`, {
+      code: ExitCode.AUTH,
+      detail,
+      hint: `oxyc login --env ${ctx.flags.env ?? "production"}`
+    });
+  }
+  const variable = ctx.flags.tokenEnv ?? "OXY_TOKEN";
+  return new CliError(`the token in ${variable} ${what} (${target})`, {
+    code: ExitCode.AUTH,
+    detail: [
+      detail,
+      `a login does not replace it: ${variable} wins over the login cache. An agent token (\`oxyc tokens create --agent\`) ends when it expires or is revoked, and cannot be extended.`
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    hint: variableCredentialSteps(variable)
+  });
 }
 
 /**
@@ -229,6 +269,7 @@ async function tokenLines(target: string, bearer: string): Promise<string[]> {
  */
 export function credentialLines(token: Token): string[] {
   const masked = `${token.display_prefix}…${token.last_four}`;
+  if (isAgentTokenRow(token)) return agentTokenLines(token, masked);
   if (token.kind === "legacy_key") {
     return [
       `${out.bold("credential")}  Legacy API key: ${token.name}  (${masked})`,
@@ -242,6 +283,37 @@ export function credentialLines(token: Token): string[] {
     `${out.bold("reach")}       ${first}`,
     ...rest.map((line) => `            ${line}`),
     `${out.bold("expires")}     ${describeExpiry(token.expires_at)}`
+  ];
+}
+
+/**
+ * `whoami` for an agent token (`oxyc tokens create --agent`): that it is one,
+ * who approved it, whether it carries their staff or partner access, and when
+ * it ends.
+ *
+ * NOT CALLED `personal`, though that is its kind: the word would read as the
+ * person's own login, which is the one thing an agent must not take it for.
+ * The approver is the token's owner — it acts as them.
+ */
+function agentTokenLines(token: Token, masked: string): string[] {
+  const approver = printable(token.owner?.label ?? "unknown");
+  const standing = [
+    token.platform ? "staff access: every organization on this deployment" : "",
+    token.partner ? "partner access: the approver's client organizations" : ""
+  ].filter(Boolean);
+  return [
+    `${out.bold("token")}       ${printable(token.name)}  (agent token, ${masked})`,
+    `${out.bold("approved by")} ${approver}`,
+    `${out.bold("reach")}       everything ${approver} can reach through their organizations`,
+    ...(standing.length > 0
+      ? standing.map((line) => `            + ${line}`)
+      : ["            no staff or partner access"]),
+    ...token.blocked_orgs.map(
+      (blocked) =>
+        `            blocked in ${printable(blocked.org_name)}: ${printable(blocked.reason)}`
+    ),
+    `${out.bold("expires")}     ${describeExpiry(token.expires_at)} — it cannot be extended`,
+    `${out.bold("to end it")}   oxyc tokens revoke --current`
   ];
 }
 

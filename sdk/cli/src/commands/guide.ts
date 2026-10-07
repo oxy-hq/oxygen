@@ -103,19 +103,25 @@ Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far few
 ### Branch on the exit code
 
     0 ok · 1 it ran and found problems · 2 you called it wrong, stop
-    4 log in (\`oxyc login --env <env>\`) · 5 not found · 6 malformed request
-    7 retryable (5xx/timeout) · 8 refused · 9 a check failed (\`oxyc checks run\`)
+    4 not authenticated — a person logs in (\`oxyc login --env <env>\`); an agent on its own token STOPS and reports: the token ended
+    5 not found · 6 malformed request · 7 retryable (5xx/timeout) · 8 refused · 9 a check failed (\`oxyc checks run\`)
 
-### Sandboxes — try a custom-app change on real data, untouched by others
+### An agent's own token — never the person's \`oxyc login\`
 
-    eval "$(oxyc tokens create --sandbox-agent --app <org>/<app>)"   # an agent's OWN token for this loop; your operator approves once
-    oxyc env create <app> dev-x                      # starts with no build
-    oxyc publish --env dev --app-env dev-x           # build + publish to it
-    oxyc fn call <app> <fn> --app-env dev-x --data '{}'  # call a function in it
-    oxyc checks run <app> --app-env dev-x            # run its checks
-    oxyc invocations held <app> <invocation-id>      # what it held, not wrote
-    oxyc env delete <app> dev-x --yes --wait         # done; tears its homes down
-    oxyc tokens revoke --current                     # last: end that token
+    eval "$(oxyc tokens create --sandbox-agent --app <org>/<app> --env <deployment>)"   # to build a custom app in a sandbox: those sandboxes, nothing else
+    eval "$(oxyc tokens create --agent --env <deployment>)"                             # everything else: what your operator can reach, for hours
+    oxyc tokens revoke --current --env <deployment>                                     # when the task is done: end it
+
+Your operator approves once in the browser. Then pass \`--token-env OXY_TOKEN\` to every command: one that lost the variable exits 4 instead of running on their cached login.
+
+### Sandboxes — try a custom-app change on real data (\`--env <deployment>\` says where; omitted, it is production)
+
+    oxyc env create <app> dev-x --env <deployment>                           # starts with no build
+    oxyc publish --app-env dev-x --env <deployment>                          # build + publish to it
+    oxyc fn call <app> <fn> --app-env dev-x --data '{}' --env <deployment>   # call a function in it
+    oxyc checks run <app> --app-env dev-x --env <deployment>                 # run its checks
+    oxyc invocations held <app> <invocation-id> --env <deployment>           # what it held, not wrote
+    oxyc env delete <app> dev-x --yes --wait --env <deployment>              # done; tears its homes down
 
 ### Workspace previews — open a branch on real data without it being live (staff)
 
@@ -143,7 +149,7 @@ Prefer \`--jq\`/\`--md\` before reading a large response — \`--md\` is far few
 - \`oxyc schema\` covers the data plane only; blank means undocumented — \`oxyc routes <path>\` confirms it's real.
 - A listed route can still 404 if it is \`ide-only\`; \`oxyc routes --all\` shows those.
 - Read freely. Ask before a mutating request against production, or \`--app-env\` other than your own sandbox.
-- With an \`oxy_sbx_\` token, exit 4 means it expired or was revoked: stop and report. Never fall back to another credential.
+- On your own token (\`--sandbox-agent\` or \`--agent\`), exit 4 means it expired or was revoked. Never fall back to another credential, a cached \`oxyc login\` included.
 `;
 
 /**

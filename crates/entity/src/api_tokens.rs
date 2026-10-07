@@ -40,7 +40,8 @@ pub struct Model {
     pub revoked_at: Option<DateTimeWithTimeZone>,
     pub revoked_by: Option<Uuid>,
     pub revoke_reason: Option<String>,
-    /// `ui | oxyc_login | oidc | legacy_backfill | legacy_lazy | legacy_endpoint`.
+    /// `ui | oxyc_login | oxyc | oxyc_agent | oidc | legacy_backfill |
+    /// legacy_lazy | legacy_endpoint` (`oxy_auth::token::credential::source`).
     pub source: String,
     /// The `api_keys` row this token mirrors, while that table still exists.
     /// Validation honours its `is_active`, because a pod one release back

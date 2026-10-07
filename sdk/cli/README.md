@@ -159,7 +159,22 @@ oxyc tokens revoke <id>
 oxyc tokens revoke --current   # end the token in OXY_TOKEN
 oxyc tokens create          # opens Account → Personal access tokens
 oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--name …]
+oxyc tokens create --agent [--standing] [--hours 8] [--name …]
 ```
+
+**An agent runs on its own token, never on the person's `oxyc login`.** Which
+one depends on the task:
+
+| The agent is… | It mints | Which reaches |
+| --- | --- | --- |
+| building a custom app in a sandbox | `tokens create --sandbox-agent --app …` (`oxy_sbx_…`) | the sandboxes of the apps it names, and nothing else |
+| doing anything else: reading data with `oxyc api`, reproducing a bug against live data | `tokens create --agent` (`oxy_pat_…`) | everything its approver can, for hours |
+
+Both are approved once in the browser by the person the agent works for, both
+are printed once as `export OXY_TOKEN=…` and never stored, and both end with
+`tokens revoke --current`. After a mint, pass `--token-env OXY_TOKEN` to every
+command: a named variable is the only source, so a command that lost the
+variable exits `4` instead of quietly running on the person's cached login.
 
 **Every command resolves its credential the same way, first match wins:**
 
@@ -168,7 +183,8 @@ oxyc tokens create --sandbox-agent --app <org>/<app> [--app …] [--hours 8] [--
    token (`oxy_pat_…`), a service account token (`oxy_sat_…`), a CI token
    (`oxy_ci_…`) or a sandbox agent token (`oxy_sbx_…`) — a legacy API key
    (`oxy_…`), a publish token, or a session token. A blank value counts as
-   unset.
+   unset. An agent token is a personal access token by its prefix: only its
+   own description tells it from a login (`oxyc whoami`).
 2. **The login cache** — what `oxyc login` stored for this deployment.
 3. **GitHub OIDC**, in a GitHub Actions job granted `id-token: write`: the job's
    OIDC token is exchanged, once per process, for a fifteen-minute token acting
@@ -212,7 +228,10 @@ rather than reading as fine from the cache. For a token it also prints what the
 token is and what it can reach — `all access`, or one line per grant with the
 role it is capped at, and any organization whose policy blocks it. For a legacy
 API key it prints `Legacy API key`, and that it reaches everything its owner
-can.
+can. For an agent token it says `agent token`, who approved it, whether it
+carries their staff or partner access, and when it expires. When a token in
+`OXY_TOKEN` is refused (exit `4`), the advice is never to log in — a login
+cannot replace what is in the variable. An agent stops and reports.
 
 **`token`** prints the bearer on stdout and nothing else. Inside a GitHub
 Actions job with nothing stored it prints the token the job's OIDC identity
@@ -275,6 +294,35 @@ With that token in `OXY_TOKEN`, `oxyc` behaves differently in five ways:
 A refusal from the server carries a hint an agent can act on — never "try
 `oxyc login` again". Exit `4` under this token means it expired, was revoked,
 or its minter lost access: stop and report.
+
+**`tokens create --agent`** mints an **agent token** for everything that is not
+a sandbox: a personal access token (`oxy_pat_…`) that reaches what its approver
+reaches through their organization memberships, for 8 hours by default
+(`--hours`, 1 to 168). It cannot be extended, edited or regenerated, and it
+cannot create, extend or revoke tokens; it can open a browser session as itself
+(`login-link`).
+
+```bash
+eval "$(oxyc tokens create --agent --env dev)"
+```
+
+The same browser loopback again, with the same guarantees: stdout is the single
+line `export OXY_TOKEN=oxy_pat_…`, printed once, everything else is on stderr,
+it holds no credential while it runs, never writes the credentials file and
+revokes no other token. Arguments are checked before the browser opens (exit
+`2`); `--agent` and `--sandbox-agent` together are a usage error.
+
+`--standing` asks for the approver's staff or partner access as well. The
+approver decides on the page, where it starts **off**: a token that comes back
+without it is accepted, and stderr says so in one line. Without `--standing`, a
+token that carries either is refused.
+
+What comes back is checked before anything is printed: it must be a whole
+`oxy_pat_`; it must describe itself (`GET /api/auth/token`) as `personal` with
+`source` `oxyc_agent`; it must expire no later than the hours asked for; and it
+must carry no standing that was not asked for. A deployment that predates agent
+tokens would otherwise hand back an ordinary ninety-day login. On any mismatch
+the command prints nothing, revokes what was minted, and exits `8`.
 
 Credentials live in the OS config directory under **`oxy`** — the same file the
 Rust `oxy login` wrote before it was removed, so an existing login still works:
@@ -1039,7 +1087,10 @@ once npm reclaims it.
 9  a check ran and failed or timed out (`oxyc checks run`)
 ```
 
-`4` almost always means the wrong `--env`. `7` is worth retrying; `6` never is.
+`4` almost always means the wrong `--env`. A person logs in again. An agent on
+its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
+`4` means the token expired or was revoked, and the agent stops and reports.
+`7` is worth retrying; `6` never is.
 
 ## Environment variables
 

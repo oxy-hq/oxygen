@@ -9,7 +9,11 @@
  */
 
 export type CredentialShape =
-  /** `oxy_pat_…` — a personal access token; what `oxyc login` stores. */
+  /**
+   * `oxy_pat_…` — a personal access token; what `oxyc login` stores. An agent
+   * token (`oxyc tokens create --agent`) is one too: the prefix cannot tell
+   * them apart, only the token's own description can (`source: "oxyc_agent"`).
+   */
   | "personal"
   /** `oxy_sat_…` — a service account's long-lived token. */
   | "service_account"
@@ -60,6 +64,23 @@ const SANDBOX_TOKEN_RE = /^oxy_sbx_[0-9A-Za-z]{36}$/;
  */
 export function isWellFormedSandboxToken(token: string | undefined): token is string {
   return typeof token === "string" && SANDBOX_TOKEN_RE.test(token);
+}
+
+/** What `oxyc login` stores and `oxyc tokens create --agent` prints. */
+export const PERSONAL_TOKEN_PREFIX = "oxy_pat_";
+
+/** The same shape as a sandbox agent secret, under its own prefix. */
+const PERSONAL_TOKEN_RE = /^oxy_pat_[0-9A-Za-z]{36}$/;
+
+/**
+ * Whether the string is a whole personal access token and nothing else.
+ *
+ * For the same sink as {@link isWellFormedSandboxToken}: `oxyc tokens create
+ * --agent` writes its token into a line a shell will `eval`, so the prefix
+ * alone is not enough to let a value through.
+ */
+export function isWellFormedPersonalToken(token: string | undefined): token is string {
+  return typeof token === "string" && PERSONAL_TOKEN_RE.test(token);
 }
 
 /**

@@ -14,9 +14,10 @@ interface Props {
 }
 
 /**
- * The page of a sandbox agent mint, in every state it passes through: checking the session, the
- * approval itself, approved and declined. One left-aligned sheet under the product's mark, with
- * no card around it, so the page doesn't change shape as the request moves on.
+ * The page of a token request (a sandbox agent token, or an agent token), in every state it
+ * passes through: checking the session, the approval itself, approved, declined, and a link
+ * that can't be read. One left-aligned sheet under the product's mark, with no card around it,
+ * so the page doesn't change shape as the request moves on.
  *
  * The page scrolls itself: `html` and `body` are fixed and clip, so a sheet taller than a short
  * window would otherwise lose its buttons.

@@ -22,10 +22,12 @@
  * TWO VERBS LIVE IN `tokens-sandbox.ts`: `create --sandbox-agent`, which mints
  * a sandbox agent token through a browser approval, and `revoke --current`,
  * which ends the token in use — the one token route any token may call.
+ * `create --agent`, in `tokens-agent.ts`, mints an agent token the same way.
  */
 
 import { type ApiResponse, errorForResponse, parseJson, request } from "../api/request.js";
 import { refuseSandboxToken } from "../apps/sandbox-token.js";
+import { isAgentTokenRow } from "../auth/agent-token.js";
 import { openBrowser } from "../auth/login.js";
 import { describeExpiry, describeReach, normalizeToken, type Token } from "../auth/token-api.js";
 import type { Context } from "../context/resolve.js";
@@ -120,7 +122,9 @@ export async function runTokensList(ctx: Context, json: boolean): Promise<void> 
     `${table(tokens, [
       { header: "id", value: (t) => t.id },
       { header: "name", value: (t) => t.name },
-      { header: "kind", value: (t) => t.kind },
+      // An agent token is `personal` by kind; where it came from is what sets it
+      // apart from an `oxyc login`, so the column says which.
+      { header: "kind", value: (t) => (isAgentTokenRow(t) ? "agent" : t.kind) },
       { header: "reach", value: reachCell },
       { header: "expires", value: (t) => describeExpiry(t.expires_at) },
       { header: "last used", value: (t) => t.last_used_at?.slice(0, 10) ?? "never" },

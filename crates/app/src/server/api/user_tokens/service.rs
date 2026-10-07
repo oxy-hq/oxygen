@@ -5,10 +5,11 @@
 //!
 //! These routes serve the tokens a person owns directly: their **personal
 //! access tokens**, and the **sandbox agent tokens** they minted — which are
-//! listed, read and revoked here and never edited (`sandbox.rs`). A legacy API
-//! key is not a token: its id is a 404 here, and it is managed through the
-//! legacy routes (`/api/{workspace_id}/api-keys`). The one caller that still
-//! hands a legacy row to [`revoke`] is refused before it gets here
+//! listed, read and revoked here and never edited (`sandbox.rs`). An **agent
+//! token** is a personal token that is fixed in the same way (`agent.rs`). A
+//! legacy API key is not a token: its id is a 404 here, and it is managed
+//! through the legacy routes (`/api/{workspace_id}/api-keys`). The one caller
+//! that still hands a legacy row to [`revoke`] is refused before it gets here
 //! (`introspect.rs`).
 
 use std::collections::HashMap;
@@ -18,21 +19,23 @@ use entity::{api_token_grants, api_tokens};
 use oxy_app_core::audit::RequestActor;
 use oxy_auth::ExtendTo;
 use oxy_auth::token::StoredKind;
-use oxy_auth::token::access::{CreateBody, GrantWant, GrantsEdit, PatchBody};
+use oxy_auth::token::access::{
+    Access as AskedAccess, CreateBody, GrantWant, GrantsEdit, PatchBody,
+};
 use oxy_auth::token::credential::{blocked_orgs, source};
 use oxy_auth::token::grant_plan::{self, GrantPlan};
-use oxy_auth::token::personal::{self, NewToken, Settings};
+use oxy_auth::token::personal::{self, GrantSpec, NewToken, Settings};
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::access_audit::{self, Access};
 use super::audit::{self, Event};
 use super::dto::TokenDto;
 use super::error::TokenError;
-use super::{policy_cap, reach, sandbox, view};
+use super::{agent, policy_cap, reach, sandbox, view};
 use crate::server::api::api_keys::activity::{ActivityResponse, last_used_at, token_activity};
-use crate::server::authz;
+use crate::server::authz::{self, PrincipalFacts};
 
 /// A token and the secret that is shown exactly once.
 pub(super) struct Minted {
@@ -103,41 +106,66 @@ pub(super) async fn get(
     view::token(db, &row, actor.label()).await
 }
 
-pub(super) async fn create(
+/// A personal token about to be minted: what `POST /api/user/tokens` read from
+/// its body, or what an approved agent mint asks for (`agent.rs`).
+pub(super) struct NewPersonal {
+    pub name: String,
+    pub access: AskedAccess,
+    pub expires_at: Option<DateTime<Utc>>,
+    /// `credential::source::{UI, OXYC_AGENT}`.
+    pub source: &'static str,
+    /// Added to the `token.created` rows: where the token was minted from.
+    pub detail: Map<String, Value>,
+}
+
+/// Every check a new personal token passes before it is minted: the standing
+/// its flags need, the orgs and workspaces its grants name, and each org's
+/// lifetime cap. **One function for every way a personal token is made**, so
+/// what limits one limits all. Returns the grant rows to write.
+pub(super) async fn admit_personal(
+    db: &DatabaseConnection,
+    facts: &PrincipalFacts,
+    new: &NewPersonal,
+) -> Result<Vec<GrantSpec>, TokenError> {
+    reach::require_standing(facts, new.access.platform, new.access.partner)?;
+    let grants = plan(&[], &new.access.grants)?.insert;
+    reach::check_grants(db, facts, &grants).await?;
+    let orgs: Vec<Uuid> = grants.iter().map(|g| g.org_id).collect();
+    let shape = policy_cap::new_token(StoredKind::Personal, new.access.all_access);
+    policy_cap::check(db, &shape, &orgs, new.expires_at).await?;
+    Ok(grants)
+}
+
+/// [`admit_personal`], then the mint and its lifecycle audit rows in one
+/// transaction.
+pub(super) async fn mint_personal(
     db: &DatabaseConnection,
     actor: &RequestActor,
-    body: CreateBody,
+    facts: &PrincipalFacts,
+    new: NewPersonal,
 ) -> Result<Minted, TokenError> {
-    let name = body.name()?;
-    let access = body.access()?;
-    let expires_at = body.expires_at(Utc::now())?;
-    let facts = reach::facts(db, &authz::caller_of(actor)).await?;
-    reach::require_standing(&facts, access.platform, access.partner)?;
-    let grants = plan(&[], &access.grants)?.insert;
-    reach::check_grants(db, &facts, &grants).await?;
-    let orgs: Vec<Uuid> = grants.iter().map(|g| g.org_id).collect();
-    let shape = policy_cap::new_token(StoredKind::Personal, access.all_access);
-    policy_cap::check(db, &shape, &orgs, expires_at).await?;
-
+    let grants = admit_personal(db, facts, &new).await?;
     let txn = db.begin().await?;
-    let new = NewToken {
+    let token = NewToken {
         user_id: actor.id,
-        name,
-        all_access: access.all_access,
-        platform: access.platform,
-        partner: access.partner,
+        name: new.name,
+        all_access: new.access.all_access,
+        platform: new.access.platform,
+        partner: new.access.partner,
         grants,
-        expires_at,
-        source: source::UI,
+        expires_at: new.expires_at,
+        source: new.source,
     };
-    let minted = personal::create(&txn, new).await?;
+    let minted = personal::create(&txn, token).await?;
     let stored = personal::grants_for(&txn, &[minted.row.id]).await?;
     let access = Access::of(&minted.row, &stored);
+    let mut detail = new.detail;
+    detail.insert("expires_at".into(), audit::rfc3339(minted.row.expires_at));
     Event {
         action: audit::CREATED,
         token: &minted.row,
         orgs: reach_of(&txn, &minted.row).await?,
-        detail: json!({ "expires_at": audit::rfc3339(minted.row.expires_at) }),
+        detail: Value::Object(detail),
         change: None,
     }
     .record_with(&txn, actor, access_audit::created(&access))
@@ -149,6 +177,29 @@ pub(super) async fn create(
     })
 }
 
+pub(super) async fn create(
+    db: &DatabaseConnection,
+    actor: &RequestActor,
+    body: CreateBody,
+) -> Result<Minted, TokenError> {
+    let new = NewPersonal {
+        name: body.name()?,
+        access: body.access()?,
+        expires_at: body.expires_at(Utc::now())?,
+        source: source::UI,
+        detail: Map::new(),
+    };
+    let facts = reach::facts(db, &authz::caller_of(actor)).await?;
+    mint_personal(db, actor, &facts, new).await
+}
+
+/// 409 for a token that is fixed at mint — a sandbox agent token, an agent
+/// token: nothing edits, extends or regenerates one.
+fn refuse_fixed(row: &api_tokens::Model) -> Result<(), TokenError> {
+    sandbox::refuse_edit(row)?;
+    agent::refuse_edit(row)
+}
+
 pub(super) async fn patch(
     db: &DatabaseConnection,
     actor: &RequestActor,
@@ -156,7 +207,7 @@ pub(super) async fn patch(
     body: PatchBody,
 ) -> Result<TokenDto, TokenError> {
     let row = owned(db, id, actor.id).await?;
-    sandbox::refuse_edit(&row)?;
+    refuse_fixed(&row)?;
     if row.revoked_at.is_some() {
         return Err(TokenError::Revoked);
     }
@@ -245,7 +296,7 @@ pub(super) async fn extend(
     target: ExtendTo,
 ) -> Result<TokenDto, TokenError> {
     let row = owned(db, id, actor.id).await?;
-    sandbox::refuse_edit(&row)?;
+    refuse_fixed(&row)?;
     let previous = row.expires_at;
     let txn = db.begin().await?;
     if row.revoked_at.is_some() {
@@ -279,7 +330,7 @@ pub(super) async fn regenerate(
     id: Uuid,
 ) -> Result<Minted, TokenError> {
     let row = owned(db, id, actor.id).await?;
-    sandbox::refuse_edit(&row)?;
+    refuse_fixed(&row)?;
     if row.revoked_at.is_some() {
         return Err(TokenError::Revoked);
     }

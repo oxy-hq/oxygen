@@ -433,6 +433,78 @@ describe("TokenRow", () => {
     });
   });
 
+  describe("for an agent token", () => {
+    const HOUR = 60 * 60 * 1000;
+    /** As `oxyc tokens create --agent` leaves one: a personal token, told apart by its source. */
+    const agent = (over: Partial<Token> = {}): Token =>
+      token({
+        name: "agent on luong-mbp",
+        source: "oxyc_agent",
+        all_access: true,
+        grants: [],
+        expires_at: new Date(Date.now() + 8 * HOUR).toISOString(),
+        ...over
+      });
+
+    it("is called Agent, where an oxyc login and a token made by hand are Personal", () => {
+      show(agent());
+      const kind = screen.getByTestId("account-token-kind-badge");
+      expect(kind).toHaveTextContent(/^Agent$/);
+      expect(kind).toHaveAttribute(
+        "title",
+        "For an AI agent acting as you. It can do what you can do through the API, and it can't be extended."
+      );
+      expect(screen.getByTestId("account-token-row")).toHaveAttribute(
+        "data-token-source",
+        "oxyc_agent"
+      );
+      cleanup();
+
+      for (const source of ["oxyc_login", "ui"]) {
+        show(token({ name: "oxyc on luong-mbp", source, all_access: true, grants: [] }));
+        expect(screen.getByTestId("account-token-kind")).toHaveTextContent(/^Personal$/);
+        expect(screen.queryByTestId("account-token-kind-badge")).not.toBeInTheDocument();
+        cleanup();
+      }
+    });
+
+    it("shows all it reaches, and the standing it carries when it carries some", () => {
+      show(agent());
+      expect(screen.getByTestId("account-token-access")).toHaveTextContent(/^All access$/);
+      cleanup();
+
+      show(agent({ platform: true }));
+      expect(screen.getByTestId("account-token-access")).toHaveTextContent(
+        "All access, with staff standing"
+      );
+    });
+
+    it("offers Activity and Revoke, and no Rename, Extend, Edit access or Regenerate", () => {
+      show(agent());
+      expect(screen.getByTestId("account-token-activity-button")).toBeInTheDocument();
+      expect(screen.getByTestId("account-token-revoke")).toHaveTextContent("Revoke");
+      expect(screen.queryByTestId("account-token-rename-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-menu-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-edit-access")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("account-token-regenerate")).not.toBeInTheDocument();
+    });
+
+    it("revokes after asking, like any token", async () => {
+      const user = show(agent());
+      await user.click(screen.getByTestId("account-token-revoke"));
+      await user.click(await screen.findByTestId("account-token-revoke-confirm"));
+      expect(revoke).toHaveBeenCalledWith({ id: "t1", name: "agent on luong-mbp" });
+    });
+
+    it("shows Expired once it lapses, with no Extend to bring it back", () => {
+      show(agent({ status: "expired", expires_at: new Date(Date.now() - HOUR).toISOString() }));
+      expect(screen.getByTestId("account-token-row")).toHaveTextContent("Expired");
+      expect(screen.queryByTestId("api-key-expired-extend-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("api-key-extend-button")).not.toBeInTheDocument();
+    });
+  });
+
   it("locks a workspace its org removed, instead of offering a tick that would do nothing", async () => {
     const [held] = token().grants;
     const user = show(token({ grants: [{ ...held, revoked_at: "2026-10-02T00:00:00Z" }] }));

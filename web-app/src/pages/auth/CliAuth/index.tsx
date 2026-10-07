@@ -5,6 +5,7 @@ import { parseCliAuthRequest } from "./cliAuthRequest";
 import CliAuthCard from "./components/CliAuthCard";
 import LegacyHandoff from "./components/LegacyHandoff";
 import MintAuthorize from "./components/MintAuthorize";
+import MintPage from "./components/MintPage";
 import PkceAuthorize from "./components/PkceAuthorize";
 
 /**
@@ -20,14 +21,18 @@ export const isFramed = (): boolean => {
 };
 
 /**
- * `/cli-auth` — the browser side of `oxyc login`, and of `oxyc tokens create --sandbox-agent`.
+ * `/cli-auth` — the browser side of `oxyc login`, and of `oxyc tokens create --sandbox-agent`
+ * and `oxyc tokens create --agent`.
  *
  * A current oxyc opens this page with `?port&state&code_challenge&hostname` (PKCE): the person
  * confirms the computer, and oxyc gets a single-use code to exchange for its own token. An older
  * oxyc sends only `?port&state` and is handed the session token, once the person agrees to it.
  *
- * With `kind=sandbox_agent` and `apps`, `hours` and `name` beside the PKCE params, the page
- * approves a sandbox agent token instead: the same handoff, and the code yields that token.
+ * With a `kind` beside the PKCE params, the page approves a token instead: the same handoff, and
+ * the code yields that token. `kind=sandbox_agent` with `apps`, `hours` and `name` is a sandbox
+ * agent token; `kind=agent` with `hours`, `standing` and `name` is an agent token, which reaches
+ * everything its approver does. A link that asks for a kind the page doesn't know, or for both,
+ * is refused on the same sheet, with nothing on it to approve.
  *
  * Security: the callback URL is only ever `http://127.0.0.1:<port>` built from the integer
  * `port` param — never an arbitrary URL — so this can't be abused as an open redirect.
@@ -54,16 +59,16 @@ const CliAuth: React.FC = () => {
     case "pkce":
       return <PkceAuthorize request={request} />;
     case "mint":
+    case "agent_mint":
       return <MintAuthorize request={request} />;
     case "legacy":
       return <LegacyHandoff request={request} />;
     case "invalid":
-      return (
-        <CliAuthCard
-          status='error'
-          title={request.title ?? "CLI login failed"}
-          description={request.reason}
-        />
+      // A token request that can't be read is refused where one would have been approved.
+      return request.title ? (
+        <MintPage status='error' title={request.title} lead={request.reason} />
+      ) : (
+        <CliAuthCard status='error' title='CLI login failed' description={request.reason} />
       );
   }
 };

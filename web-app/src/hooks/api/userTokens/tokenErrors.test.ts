@@ -2,6 +2,7 @@ import { AxiosError, type AxiosResponse } from "axios";
 import { describe, expect, it } from "vitest";
 import type { SandboxApp } from "@/types/apiToken";
 import {
+  agentMintErrorMessage,
   isStaleTokenError,
   isUnavailableAppError,
   sandboxMintErrorMessage,
@@ -201,6 +202,51 @@ describe("a sandbox agent token", () => {
     );
     // A bare 404 is not read as "a workspace is unavailable": that is a personal token's 404.
     expect(sandboxMintErrorMessage(httpError(404), APPS, LIMITS)).not.toMatch(/workspace/);
+  });
+});
+
+describe("an agent token", () => {
+  const FAILED =
+    "Couldn't approve the request. Try again, or run the oxyc command again for a new link.";
+
+  it("says a 409 `agent_token_fixed` is a token that can't be changed, whatever was tried", () => {
+    const fixed = httpError(409, { code: "agent_token_fixed", error: "fixed" });
+    for (const action of ["rename", "update", "regenerate"] as const) {
+      expect(tokenErrorMessage(fixed, action)).toBe(
+        "An agent token can't be changed once it's approved. Revoke it, and have the agent ask for a new one."
+      );
+    }
+  });
+
+  it("shows the server's own words for a request it calls invalid", () => {
+    expect(
+      agentMintErrorMessage(
+        httpError(400, {
+          error: "an agent token lasts 1 to 168 hours",
+          code: "invalid_agent_token"
+        })
+      )
+    ).toBe("an agent token lasts 1 to 168 hours");
+    // An organization's cap on a token's lifetime is a 400 with its sentence too.
+    expect(
+      agentMintErrorMessage(
+        httpError(400, { error: "past the 3-day lifetime", code: "exceeds_policy" })
+      )
+    ).toBe("past the 3-day lifetime");
+    // A 400 with nothing to say falls back to the page's own sentence.
+    expect(agentMintErrorMessage(httpError(400, { code: "invalid_agent_token" }))).toBe(FAILED);
+  });
+
+  it("reads `session_required` as a refusal, in words about the session", () => {
+    expect(
+      agentMintErrorMessage(httpError(403, { code: "session_required", error: "token caller" }))
+    ).toBe("Creating a token needs a browser session. Sign in again, then retry.");
+  });
+
+  it("keeps a server's sentence that isn't a 400 to itself", () => {
+    expect(agentMintErrorMessage(httpError(500, { error: "db pool exhausted" }))).toBe(FAILED);
+    expect(agentMintErrorMessage(httpError(403, { error: "forbidden" }))).toBe(FAILED);
+    expect(agentMintErrorMessage(new Error("Network Error"))).toBe(FAILED);
   });
 });
 

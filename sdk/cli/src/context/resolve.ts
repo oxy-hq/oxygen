@@ -18,6 +18,7 @@
  */
 
 import type { PlaceholderValues } from "../api/paths.js";
+import { noteVariableCredential } from "../auth/agent-token.js";
 import { loadCredential } from "../auth/credentials.js";
 import { exchangeOidcOnce, githubOidcAvailable, OidcExchangeError } from "../auth/oidc.js";
 import { dossierPath, isCloned, slugForDirectory } from "../customer/dossier.js";
@@ -232,8 +233,13 @@ export function createContext(flags: GlobalFlags, cwd = process.cwd()): Context 
 
   const stored = (): ResolvedCredential | undefined =>
     once("stored", () => {
-      const fromEnv = process.env[flags.tokenEnv ?? "OXY_TOKEN"]?.trim();
-      if (fromEnv) return { token: fromEnv, source: "env" as const };
+      const variable = flags.tokenEnv ?? "OXY_TOKEN";
+      const fromEnv = process.env[variable]?.trim();
+      if (fromEnv) {
+        // So a refusal can say what to do about a token a login cannot replace.
+        noteVariableCredential(variable, fromEnv);
+        return { token: fromEnv, source: "env" as const };
+      }
       // FAIL CLOSED, before the file is opened. The variable was named to say
       // WHICH credential runs this — an agent's scoped token, typically — so a
       // typo in the name, or a variable that never reached the process, must

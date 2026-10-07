@@ -185,6 +185,17 @@ function parseServerError(body: string): { code?: string; message?: string } {
 }
 
 /**
+ * What a `401`/`403` is told, when nothing more specific is known.
+ *
+ * It names `oxyc login`, which is right for a cached login and wrong for a
+ * token in the variable: `main.ts` swaps it for that case, where the
+ * credential's source is known (`auth/agent-token.ts`). Exported so the swap
+ * matches this sentence exactly and no other.
+ */
+export const AUTH_HINT =
+  "your token may be expired or lack the role — try `oxyc login` again, or `oxyc assume <org> --reason …` for a tenant surface";
+
+/**
  * Turn a non-2xx response into the error it deserves.
  *
  * The body goes into `detail` rather than the message because it is the part
@@ -196,7 +207,7 @@ export function errorForResponse(response: ApiResponse): CliError {
   const code = exitCodeForStatus(response.status);
   const hint =
     code === ExitCode.AUTH
-      ? "your token may be expired or lack the role — try `oxyc login` again, or `oxyc assume <org> --reason …` for a tenant surface"
+      ? AUTH_HINT
       : code === ExitCode.NOT_FOUND
         ? "check the path with `oxyc routes <filter>` — and note an admin 404 can be a scope boundary, not a missing row"
         : undefined;

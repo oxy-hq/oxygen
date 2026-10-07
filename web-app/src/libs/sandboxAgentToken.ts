@@ -88,18 +88,28 @@ export const lifetimePresets = (limits: SandboxAgentLimits): number[] => {
   return [...hours].filter((value) => value >= MIN_SANDBOX_HOURS).sort((a, b) => a - b);
 };
 
-const maxLifetime = (limits: SandboxAgentLimits): string => {
+/** The one limit a lifetime is held to. A sandbox agent token's limits and an agent token's both carry it. */
+type LifetimeLimit = Pick<SandboxAgentLimits, "max_hours">;
+
+const maxLifetime = (limits: LifetimeLimit): string => {
   const inHours = plural(limits.max_hours, "hour");
   const label = lifetimeLabel(limits.max_hours);
   return label === inHours ? inHours : `${inHours} (${label})`;
 };
 
-/** Why a lifetime can't be used, or `null`. The server answers 400 to the same thing. */
-export const hoursProblem = (hours: number, limits: SandboxAgentLimits): string | null => {
+/**
+ * Why a lifetime can't be used, or `null`. The server answers 400 to the same thing. `token`
+ * names the kind the sentence is about: an agent token counts its hours the same way.
+ */
+export const hoursProblem = <Limits extends LifetimeLimit>(
+  hours: number,
+  limits: Limits,
+  token = "A sandbox agent token"
+): string | null => {
   if (!Number.isInteger(hours)) return "Enter a whole number of hours.";
-  if (hours < MIN_SANDBOX_HOURS) return "A sandbox agent token lasts at least 1 hour.";
+  if (hours < MIN_SANDBOX_HOURS) return `${token} lasts at least 1 hour.`;
   if (hours > limits.max_hours) {
-    return `A sandbox agent token lasts at most ${maxLifetime(limits)}.`;
+    return `${token} lasts at most ${maxLifetime(limits)}.`;
   }
   return null;
 };
