@@ -127,7 +127,10 @@ subtract with — not an `Action`, and not a `Ring`. The sandbox agent token is 
 narrowest: `TokenReach::sandbox_agent` covers `PlatformOps` and `PlatformApps` on the
 platform singleton, and `AppNonProduction` / `AppAdmin` only where the resource names an
 environment (`Resource::in_environment`, `EnvFacet`) that is a sandbox the token created,
-of an app it is granted. A decision that names no environment is refused for that token
+of an app it is granted — or `EnvFacet::Staging` of an app it was granted **staging** for
+(`SandboxApp::staging`, the mint's `staging` option: one more fact, not a fifth action). A
+call site that must stay a sandbox's alone — an environment's secrets, deleting one — has
+to say so itself, since the model opens staging to such a token. A decision that names no environment is refused for that token
 and unchanged for everyone else — which is what lets a call site learn to say which
 environment it is about without moving any session's answer.
 

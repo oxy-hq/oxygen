@@ -78,6 +78,13 @@ pub const REFUSED_WRITES: &[(&str, &str)] = &[
 /// (`may_open_environment`) and its own ownership check, and refuses the
 /// token anywhere but a sandbox it created — production and staging included
 /// — so it takes no [`RefuseSandboxAgent`]. `(method, path, what decides)`.
+///
+/// A token **granted an app's staging** is admitted to that staging by two of
+/// them and no more: P1 for a draft (`agent_draft::admit_agent_draft`, never a
+/// promote) and C2 for a check. The other five stay a sandbox's alone, each
+/// by its own check and not by the model: E2 and E3 never create or delete
+/// staging (`handlers::opens`, `ops::require_sandbox`), and S1 and S2 touch a
+/// `dev-*` environment's secrets only (`secrets::agent::authorize`).
 pub const ENVIRONMENT_DECIDED: &[(&str, &str, &str)] = &[
     (
         "POST",

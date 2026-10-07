@@ -791,7 +791,8 @@ pub(crate) async fn serve_pretty(
 /// The build this request serves, and a label for the log when there is none.
 ///
 /// **Production** serves the published build, or the staging (draft) build for
-/// an app never promoted — there is nothing else to show. It never serves a
+/// an app never promoted — there is nothing else to show — unless a sandbox
+/// agent token published that draft ([`unpromoted_build`]). It never serves a
 /// draft on request: the draft is the staging environment's, and it is read on
 /// the staging host only. (The staff-only `oxy_preview_draft` cookie that once
 /// flipped production to the draft is retired; a request still carrying one is
@@ -821,10 +822,31 @@ async fn build_to_serve(
     let channel = resolve_channel(app.published_at.is_some());
     use super::custom_apps_sync::Channel;
     let build = match channel {
-        Channel::Draft => environments.staging,
+        Channel::Draft => unpromoted_build(db, app, environments.staging).await,
         Channel::Published => environments.production,
     };
     (build, format!("the {channel:?} channel"))
+}
+
+/// What production serves for an app with no production build of its own:
+/// staging's build — unless a sandbox agent token published it. Nobody
+/// approved that build, so production serves nothing rather than fall back to
+/// it (`custom_apps_agent_built`). A failed read serves nothing too.
+async fn unpromoted_build(
+    db: &DatabaseConnection,
+    app: &entity::apps::Model,
+    staging: Option<Uuid>,
+) -> Option<Uuid> {
+    match super::custom_apps_agent_built::production_fallback(db, staging).await {
+        Ok(build) => build,
+        Err(e) => {
+            tracing::error!(
+                "Failed to read who published the draft of custom app {}: {e}",
+                app.id
+            );
+            None
+        }
+    }
 }
 
 /// The build a sandbox serves: its own row, read on every request rather than

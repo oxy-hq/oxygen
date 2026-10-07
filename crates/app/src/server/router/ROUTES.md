@@ -107,11 +107,11 @@ POST   /invitations/{token}/accept
 └── POST /callback
 
 /user/tokens/                                 (session only — a token cannot manage tokens)
-├── GET  /   · POST /                         (POST with `kind: "sandbox_agent"` mints an `oxy_sbx_` token: staff only, per app)
+├── GET  /   · POST /                         (POST with `kind: "sandbox_agent"` mints an `oxy_sbx_` token: staff only, per app; with `staging: true` it is also granted each app's staging — a draft publish and the loop there, never a promote)
 ├── GET  /{id} · PATCH /{id} · DELETE /{id}
 ├── POST /{id}/extend · /{id}/regenerate      (PATCH, extend and regenerate answer 409 for a sandbox agent token and for an agent token)
 └── GET  /{id}/activity
-GET    /user/token-options                    (session only)
+GET    /user/token-options                    (session only; `sandbox_agent.staging: true` says this server takes the staging option on a mint)
 GET|DELETE /auth/token                        (the calling token, about itself)
 POST   /auth/cli/authorize                    (session only — `oxyc login`: a one-time code for the CLI's challenge; with `mint`, a code for a sandbox agent token, or with `mint.kind: "agent"` for an agent token: an all-access `oxy_pat_` of the agent's own, for hours. A token, or the browser session a token opened, answers 403 `session_required`)
 POST   /auth/browser-ticket                   (a personal token only — `oxyc login-link`: a one-time ticket that signs a browser in as the calling token)

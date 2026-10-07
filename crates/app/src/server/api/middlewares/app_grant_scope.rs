@@ -19,6 +19,15 @@
 //! the delete beside it. Whether the environment a route names is one the
 //! token created is the handler's check (§3.3), which needs the database.
 //!
+//! **Staging adds no route.** A token granted an app's staging uses the rows
+//! of [`SANDBOX_ALLOWED`] with `staging` where it named a sandbox, and F1 with
+//! `X-Oxy-App-Env: staging`. The serve tree's half is asked before the token
+//! is known, so it admits the header by shape — a sandbox's name, or
+//! `staging` — and whether **this** token was granted that app's staging is
+//! decided once it is: the credential's own grant, then oxy-authz
+//! (`custom_apps_agent::holds_staging`, `custom_apps_functions::agent_gate`).
+//! A token minted without staging is answered the same `404`, by that gate.
+//!
 //! `/logs` is on the public router, where no fence is mounted: it admits the
 //! token at authentication and every other public route refuses it there
 //! ([`PUBLIC_ROUTES`]).
@@ -164,11 +173,12 @@ pub(crate) fn serve_tree_refuses(method: &Method, headers: &HeaderMap, path: &st
 }
 
 /// F1, and nothing else: `POST <org>/<app>/fn/<name>` on the product host,
-/// naming a `dev-*` sandbox in `X-Oxy-App-Env`.
+/// naming a `dev-*` sandbox, or `staging`, in `X-Oxy-App-Env`.
 ///
 /// An app or org subdomain is refused whatever it asks: its host label would
 /// decide the environment before the header does. Whether the sandbox is the
-/// token's own is `environment_gate`'s check.
+/// token's own — and whether the token was granted the app's staging at all —
+/// is `environment_gate`'s check, made once the token is known.
 fn serve_tree_admits(method: &Method, headers: &HeaderMap, path: &str) -> bool {
     if method != Method::POST || on_tenant_host(headers) {
         return false;
@@ -184,7 +194,7 @@ fn serve_tree_admits(method: &Method, headers: &HeaderMap, path: &str) -> bool {
     let (Some(org), Some(app), Some("fn"), Some(name), None) = shape else {
         return false;
     };
-    !org.is_empty() && !app.is_empty() && !name.is_empty() && names_a_sandbox(headers)
+    !org.is_empty() && !app.is_empty() && !name.is_empty() && names_an_agent_environment(headers)
 }
 
 /// Whether the request arrived on an app subdomain or an org subdomain.
@@ -199,13 +209,18 @@ fn on_tenant_host(headers: &HeaderMap) -> bool {
         || oxy_app_core::org_host_dispatch::parse_org_subdomain(host).is_some()
 }
 
-/// Whether `X-Oxy-App-Env` is present and names a `dev-*` sandbox.
-fn names_a_sandbox(headers: &HeaderMap) -> bool {
+/// Whether `X-Oxy-App-Env` is present and names an environment a sandbox
+/// agent token can hold: a `dev-*` sandbox, or `staging`. Never production —
+/// named, or meant by naming nothing.
+fn names_an_agent_environment(headers: &HeaderMap) -> bool {
     headers
         .get(oxy_app_core::custom_app_env_request::ENV_HEADER)
         .and_then(|value| value.to_str().ok())
         .and_then(|name| AppEnvironment::parse(name.trim()))
-        .is_some_and(|environment| matches!(environment, AppEnvironment::Dev { .. }))
+        .is_some_and(|environment| match environment {
+            AppEnvironment::Dev { .. } | AppEnvironment::Staging => true,
+            AppEnvironment::Production => false,
+        })
 }
 
 #[cfg(test)]

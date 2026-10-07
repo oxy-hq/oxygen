@@ -10,6 +10,10 @@
 //! edits it afterwards — it is not renamed, extended or regenerated, only
 //! revoked — so a leaked one cannot be kept alive.
 //!
+//! A mint may also ask for the apps' **staging** environment (`staging:
+//! true`, [`MintRequest::staging`]). It is stored as one `app_staging` grant
+//! beside each app's `app_sandbox` one, and it is all the apps or none.
+//!
 //! Like [`super::personal`], this module is parsing and database primitives.
 //! *Who* may mint for *which* app needs the caller's standing and is the
 //! handler's, as is the audit row.
@@ -61,6 +65,9 @@ pub struct MintRequest {
     pub apps: Vec<String>,
     /// 1 to [`MAX_HOURS`].
     pub hours: i64,
+    /// Whether the token is also granted the **staging** environment of every
+    /// app it names. `false` when the body does not say.
+    pub staging: bool,
 }
 
 fn invalid<T>(message: impl Into<String>) -> Result<T, Invalid> {
@@ -131,6 +138,16 @@ fn hours_of(body: &Map<String, Value>) -> Result<i64, Invalid> {
     }
 }
 
+/// `staging`, when the body sends it: a boolean and nothing else. Absent or
+/// `null` is `false` — the token as it has always been.
+fn staging_of(body: &Map<String, Value>) -> Result<bool, Invalid> {
+    match body.get("staging") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(staging)) => Ok(*staging),
+        Some(other) => invalid(format!("'staging' must be true or false, not {other}")),
+    }
+}
+
 /// Parse a mint: the body of `POST /api/user/tokens` with
 /// `kind: "sandbox_agent"`, or the `mint` object of `POST
 /// /api/auth/cli/authorize`. `default_name` names the token when the body
@@ -152,6 +169,7 @@ pub fn parse(body: &Value, default_name: Option<&str>) -> Result<MintRequest, In
         name: name_of(body, default_name)?,
         apps: apps_of(body)?,
         hours: hours_of(body)?,
+        staging: staging_of(body)?,
     })
 }
 
@@ -164,13 +182,22 @@ impl MintRequest {
     /// The request as the `mint` of a PKCE code stores it, with the apps
     /// resolved to the ids the session was allowed to mint for. [`parse`]
     /// reads it back.
+    ///
+    /// `staging` is written only when asked for, so a mint without it is
+    /// stored exactly as it was before the option existed. A server one
+    /// release back that redeems a code storing it reads no `staging` and
+    /// mints the token without: narrower than approved, never wider.
     pub fn stored(&self, apps: &[Uuid]) -> Value {
-        json!({
+        let mut stored = json!({
             "kind": KIND,
             "name": self.name,
             "apps": apps.iter().map(Uuid::to_string).collect::<Vec<_>>(),
             "expires_in_hours": self.hours,
-        })
+        });
+        if self.staging {
+            stored["staging"] = json!(true);
+        }
+        stored
     }
 }
 
@@ -188,6 +215,9 @@ pub struct NewSandboxToken {
     pub minter: Uuid,
     pub name: String,
     pub apps: Vec<GrantedApp>,
+    /// Whether each app's staging is granted too: an `app_staging` grant
+    /// beside its `app_sandbox` one.
+    pub staging: bool,
     pub expires_at: DateTime<Utc>,
     /// `credential::source::{UI, OXYC}`.
     pub source: &'static str,
@@ -197,8 +227,9 @@ fn db_err(what: &'static str) -> impl FnOnce(sea_orm::DbErr) -> OxyError {
     move |e| OxyError::DBError(format!("{what}: {e}"))
 }
 
-/// Mint an `oxy_sbx_` token and store its hash and its `app_sandbox` grants.
-/// The row is the kind's fixed shape, whatever the caller holds.
+/// Mint an `oxy_sbx_` token and store its hash and its `app_sandbox` grants
+/// — and, with `staging`, an `app_staging` grant beside each. The row is the
+/// kind's fixed shape, whatever the caller holds.
 pub async fn create<C: ConnectionTrait>(db: &C, new: NewSandboxToken) -> Result<Minted, OxyError> {
     let token = NewToken {
         user_id: new.minter,
@@ -213,13 +244,41 @@ pub async fn create<C: ConnectionTrait>(db: &C, new: NewSandboxToken) -> Result<
     let minted = personal::create_of_kind(db, StoredKind::SandboxAgent, new.minter, token).await?;
     let now = Utc::now().fixed_offset();
     for app in &new.apps {
-        GrantRow::app_sandbox(app.org_id, app.app_id)
-            .for_token(minted.row.id, now)
-            .insert(db)
-            .await
-            .map_err(db_err("create sandbox token grant"))?;
+        let mut rows = vec![GrantRow::app_sandbox(app.org_id, app.app_id)];
+        if new.staging {
+            rows.push(GrantRow::app_staging(app.org_id, app.app_id));
+        }
+        for row in rows {
+            row.for_token(minted.row.id, now)
+                .insert(db)
+                .await
+                .map_err(db_err("create sandbox token grant"))?;
+        }
     }
     Ok(minted)
+}
+
+/// When token `token_id` was granted the staging of app `app_id`: the
+/// `created_at` of its live `app_staging` grant. `None` when it holds none —
+/// the token was minted without staging, or the grant was revoked.
+///
+/// Read from the grant row on every ask, never from a credential a request
+/// carried: it is the start of what the token may read of staging's history,
+/// and the second place the grant is looked for.
+pub async fn staging_since<C: ConnectionTrait>(
+    db: &C,
+    token_id: Uuid,
+    app_id: Uuid,
+) -> Result<Option<DateTime<Utc>>, sea_orm::DbErr> {
+    let grant = ApiTokenGrants::find()
+        .filter(api_token_grants::Column::TokenId.eq(token_id))
+        .filter(api_token_grants::Column::Kind.eq(api_token_grants::KIND_APP_STAGING))
+        .filter(api_token_grants::Column::AppId.eq(app_id))
+        .filter(api_token_grants::Column::RevokedAt.is_null())
+        .order_by_asc(api_token_grants::Column::CreatedAt)
+        .one(db)
+        .await?;
+    Ok(grant.map(|grant| grant.created_at.with_timezone(&Utc)))
 }
 
 /// Where each granted app lives **now**: the org that owns it and the
@@ -315,3 +374,7 @@ pub async fn find<C: ConnectionTrait>(
 #[cfg(test)]
 #[path = "sandbox_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sandbox_staging_tests.rs"]
+mod staging_tests;

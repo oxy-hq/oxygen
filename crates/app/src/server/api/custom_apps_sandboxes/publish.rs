@@ -39,6 +39,11 @@ pub enum PublishCredential {
     PublishToken,
     /// A sandbox agent token (`oxy_sbx_`): a sandbox only, never the channels.
     SandboxAgent,
+    /// A sandbox agent token granted the **staging** of at least one app: a
+    /// sandbox, or a draft to staging (`agent_draft`). Whether it holds the
+    /// staging of the app this publish names is decided once that app is
+    /// known.
+    StagingAgent,
 }
 
 impl PublishCredential {
@@ -51,12 +56,18 @@ impl PublishCredential {
         let agent = user
             .credential
             .as_ref()
-            .is_some_and(|credential| credential.is_sandbox_agent());
+            .filter(|credential| credential.is_sandbox_agent());
         match (marker, agent) {
             (Some(_), _) => Self::PublishToken,
-            (None, true) => Self::SandboxAgent,
-            (None, false) => Self::Other,
+            (None, Some(agent)) if agent.stages_any_app() => Self::StagingAgent,
+            (None, Some(_)) => Self::SandboxAgent,
+            (None, None) => Self::Other,
         }
+    }
+
+    /// Whether the credential is a sandbox agent token, with staging or not.
+    pub fn is_agent(self) -> bool {
+        matches!(self, Self::SandboxAgent | Self::StagingAgent)
     }
 }
 
@@ -68,19 +79,32 @@ impl PublishCredential {
 ///
 /// A sandbox agent token is the other way round: it names a sandbox, and a
 /// publish with no `environment`, or with `promote`, is `SandboxTokenRefused`.
+///
+/// One granted staging may also name `staging`: a draft, never a promote
+/// ([`PublishTarget::AgentDraft`]). For every other credential — a token
+/// minted without staging included — `staging` is `InvalidEnvironment`, as it
+/// always was.
 pub fn target_of(
     environment: Option<&str>,
     promote: bool,
     credential: PublishCredential,
 ) -> Result<PublishTarget, PublishError> {
-    let agent = credential == PublishCredential::SandboxAgent;
+    let agent = credential.is_agent();
     let Some(name) = environment.map(str::trim).filter(|name| !name.is_empty()) else {
         if agent {
             return Err(PublishError::SandboxTokenRefused);
         }
         return Ok(PublishTarget::Channels);
     };
-    let Some(sandbox @ AppEnvironment::Dev { .. }) = AppEnvironment::parse(name) else {
+    let named = AppEnvironment::parse(name);
+    if named == Some(AppEnvironment::Staging) && credential == PublishCredential::StagingAgent {
+        // Guard 1 of `agent_draft`: staging's pointer, never production's.
+        if promote {
+            return Err(PublishError::SandboxTokenRefused);
+        }
+        return Ok(PublishTarget::AgentDraft);
+    }
+    let Some(sandbox @ AppEnvironment::Dev { .. }) = named else {
         return Err(PublishError::InvalidEnvironment(name.to_string()));
     };
     if promote {
@@ -97,7 +121,9 @@ pub fn target_of(
 
 /// [`admit`] for whatever a publish targets, decided before the bundle is
 /// inflated: `None` for the channels' publish, which this module has no say
-/// over; `Some(the app's id)` for a sandbox that admits it.
+/// over; `Some(the app's id)` for a sandbox that admits it, and for a sandbox
+/// agent token's draft to staging (`agent_draft::admit_agent_draft`) — either
+/// way the publish then leaves the app row as it finds it.
 pub(crate) async fn admit_target(
     db: &DatabaseConnection,
     input: &PublishInput,
@@ -107,6 +133,9 @@ pub(crate) async fn admit_target(
     match target {
         PublishTarget::Channels => Ok(None),
         PublishTarget::Sandbox(environment) => admit(db, input, app, environment).await.map(Some),
+        PublishTarget::AgentDraft => super::agent_draft::admit_agent_draft(db, input, app)
+            .await
+            .map(Some),
     }
 }
 

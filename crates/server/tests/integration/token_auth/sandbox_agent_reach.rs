@@ -233,7 +233,8 @@ async fn the_loader_gives_the_token_its_minters_staff_standing_and_no_tenant_sta
         sandbox.apps,
         vec![SandboxApp {
             app_id: app.id,
-            org_id: fx.org_id
+            org_id: fx.org_id,
+            staging: false,
         }]
     );
     assert!(

@@ -16,6 +16,13 @@ pub const KIND_APP_PUBLISH: &str = "app_publish";
 /// (sandbox agent credential design §2). `org_id` and `app_id` are set;
 /// `workspace_id` and `role_ceiling` are not.
 pub const KIND_APP_SANDBOX: &str = "app_sandbox";
+/// `(app, its staging)` — beside the `app_sandbox` grant of the same app, on
+/// a `sandbox_agent` token minted with `staging` (sandbox agent credential
+/// design, "Staging option"). Same columns as `app_sandbox`. Alone it grants
+/// nothing: admission refuses one with no `app_sandbox` twin, and refuses the
+/// kind on any other token. A binary that predates it refuses the whole token
+/// (an unknown grant kind), so a revert fails the token closed.
+pub const KIND_APP_STAGING: &str = "app_staging";
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]

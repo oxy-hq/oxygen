@@ -489,6 +489,7 @@ async fn upsert_build(
         validation_status: ActiveValue::Set("passed".to_string()),
         validation_detail: ActiveValue::Set(None),
         semantic_revision_id: ActiveValue::Set(None),
+        published_token_id: ActiveValue::Set(None),
     }
     .insert(conn)
     .await

@@ -50,6 +50,7 @@ fn agent(email: &str) -> Caller {
         app_sandbox: vec![AppSandboxGrant {
             org_id: ORG,
             app_id: Uuid::from_u128(9),
+            staging: false,
         }],
     };
     Caller::of(&minter(email), Some(&credential))

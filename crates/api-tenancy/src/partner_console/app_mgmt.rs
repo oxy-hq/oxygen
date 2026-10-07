@@ -301,11 +301,16 @@ pub async fn list_grantable_people(
 }
 
 /// `POST /partners/{id}/apps/{app_id}/publish` — make the app live to viewers.
+///
+/// Refused as the admin promote is refused, body included: a draft a sandbox
+/// agent token published answers `409 draft_published_by_agent`, naming the
+/// build, the token and its minter, so the partner is told why and what to
+/// do. Every other failure is the bare status it always was.
 pub async fn publish_app(
     PartnerActor(scope): PartnerActor,
     actor: oxy_app_core::audit::RequestActor,
     Path((_partner_id, app_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<PartnerAppDto>, StatusCode> {
+) -> Result<Json<PartnerAppDto>, admin_apps::PromoteRefusal> {
     let db = db().await?;
     let app = load_managed_app(&db, &scope, app_id).await?;
     let org_id = app.org_id;
@@ -314,10 +319,9 @@ pub async fn publish_app(
     // Reuse the canonical publish so the partner path can't drift from admin:
     // it repoints published_build_id at the draft, stamps last_promoted_*, and
     // drops the per-app canonical-dir caches. Re-stamping published_at by hand
-    // would publish a channel with no live bytes behind it.
-    let saved = admin_apps::publish_one(&db, app_id, actor.id)
-        .await
-        .map_err(|e| e.status)?;
+    // would publish a channel with no live bytes behind it. Its refusal is
+    // answered whole (`PromoteRefusal`), not cut down to a status.
+    let saved = admin_apps::publish_one(&db, app_id, actor.id).await?;
     // Viewers' cached access must drop now, not at TTL (admin does the same).
     oxy_app::server::api::custom_apps_auth::invalidate_access_cache();
 

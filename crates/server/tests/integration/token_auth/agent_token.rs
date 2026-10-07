@@ -320,10 +320,11 @@ async fn token_options_carry_the_agent_tokens_limits() {
         options["agent"],
         json!({ "default_hours": 8, "max_hours": 168 })
     );
-    // Beside the sandbox agent token's, which is as it was.
+    // Beside the sandbox agent token's: its limits as they were, and that the
+    // server takes the staging option on a mint (`sandbox_agent_staging`).
     assert_eq!(
         options["sandbox_agent"],
-        json!({ "default_hours": 8, "max_hours": 168, "max_apps": 5 })
+        json!({ "default_hours": 8, "max_hours": 168, "max_apps": 5, "staging": true })
     );
 }
 

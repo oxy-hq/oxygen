@@ -35,6 +35,7 @@
 //! token. Ownership is recorded and shown, not enforced.
 
 pub mod activity;
+pub mod agent_draft;
 pub(crate) mod agent_publish;
 pub mod delete;
 mod expiry_audit;

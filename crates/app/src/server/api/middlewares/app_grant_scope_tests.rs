@@ -157,11 +157,31 @@ fn the_serve_tree_admits_fn_of_a_dev_sandbox_on_the_product_host_only() {
         );
     }
 
+    // Staging is admitted by its shape, as a sandbox's name is: this half
+    // runs before the token is known, so whether the token was granted that
+    // app's staging is the gate's check (`agent_gate`), as "is this sandbox
+    // its own" always was.
+    let staging = [
+        ("authorization", SBX),
+        ("x-oxy-app-env", "staging"),
+        ("host", "app.oxygen-hq.com"),
+    ];
+    assert!(!serve_tree_refuses(
+        &Method::POST,
+        &headers(&staging),
+        "acme/store/fn/ping"
+    ));
+
     let refused_headers: [&[(&'static str, &str)]; 6] = [
         // No environment named: that is production.
         &[("authorization", SBX), ("host", "app.oxygen-hq.com")],
         &[("authorization", SBX), ("x-oxy-app-env", "production")],
-        &[("authorization", SBX), ("x-oxy-app-env", "staging")],
+        // Staging's own host decides the environment by its label.
+        &[
+            ("authorization", SBX),
+            ("x-oxy-app-env", "staging"),
+            ("host", "staging--acme--store.customer-apps.oxygen-hq.com"),
+        ],
         &[
             ("authorization", SBX),
             ("x-oxy-app-env", "not an environment"),

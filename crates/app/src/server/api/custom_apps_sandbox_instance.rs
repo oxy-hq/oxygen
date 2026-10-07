@@ -17,6 +17,14 @@
 //!
 //! Secrets need no bound: the teardown deletes them before it frees the name.
 //!
+//! **Staging has a bound too, for a token granted it.** Staging is not a
+//! sandbox and no token created it: its rows are every staff member's, from
+//! before the token existed. A token minted with `staging` reads what staging
+//! wrote **since it was granted** — the `created_at` of its `app_staging`
+//! grant for the app — and nothing older. The grant is read from its row on
+//! every ask, so a token with no such grant, or a revoked one, has no start
+//! and reads nothing of staging.
+//!
 //! Asked for a sandbox agent token only. Every other caller reads by name, as
 //! before, with no extra read.
 
@@ -32,14 +40,22 @@ use uuid::Uuid;
 ///
 /// Read from the same row the ownership is decided on, so a sandbox created
 /// again by someone else between the two cannot lend the token its start.
+///
+/// For **staging** it is when the token was granted the app's staging, read
+/// from that grant's row; `None` for a token that holds none. Production has
+/// no start for any token.
 pub(crate) async fn own_since<C: ConnectionTrait>(
     db: &C,
     app_id: Uuid,
     environment: &AppEnvironment,
     token: Uuid,
 ) -> Result<Option<DateTime<Utc>>, DbErr> {
-    if !matches!(environment, AppEnvironment::Dev { .. }) {
-        return Ok(None);
+    match environment {
+        AppEnvironment::Production => return Ok(None),
+        AppEnvironment::Staging => {
+            return oxy_auth::token::sandbox::staging_since(db, token, app_id).await;
+        }
+        AppEnvironment::Dev { .. } => {}
     }
     let row = app_environments::Entity::find()
         .filter(app_environments::Column::AppId.eq(app_id))

@@ -8,8 +8,9 @@
 //! names orgs names them by id.
 //!
 //! The third type the dialog offers staff is a sandbox agent token: its limits
-//! (`sandbox_agent`) and the apps the caller may mint one for (`sandbox_apps`,
-//! empty for anyone who is not staff) — `sandbox.rs`.
+//! and that this server takes the `staging` option (`sandbox_agent`), and the
+//! apps the caller may mint one for (`sandbox_apps`, empty for anyone who is
+//! not staff) — `sandbox.rs`, `sandbox_staging.rs`.
 //!
 //! `agent` is the limits of an **agent token** (`agent.rs`), for the page that
 //! approves one: anyone may approve one for themselves, so it names no one.
@@ -34,7 +35,8 @@ use super::ManageTokens;
 use super::agent::AgentLimits;
 use super::error::TokenError;
 use super::reach;
-use super::sandbox::{self, SandboxAgentLimits, SandboxAppOption};
+use super::sandbox::{self, SandboxAppOption};
+use super::sandbox_staging::SandboxAgentOptions;
 use crate::server::authz::{self, PrincipalFacts};
 
 const VIA_MEMBER: &str = "member";
@@ -86,8 +88,9 @@ pub struct TokenOptions {
     pub orgs: Vec<OrgOption>,
     pub can_platform: bool,
     pub can_partner: bool,
-    /// What a sandbox agent token may be minted with.
-    pub sandbox_agent: SandboxAgentLimits,
+    /// What a sandbox agent token may be minted with: the limits, and
+    /// `staging: true` — this server takes the option.
+    pub sandbox_agent: SandboxAgentOptions,
     /// The apps the caller may mint a sandbox agent token for. Filled by
     /// [`get_token_options`]; `[]` for anyone who is not staff.
     pub sandbox_apps: Vec<SandboxAppOption>,
@@ -190,7 +193,7 @@ fn build(
         orgs: out,
         can_platform: facts.is_staff(),
         can_partner: facts.is_partner(),
-        sandbox_agent: SandboxAgentLimits::current(),
+        sandbox_agent: SandboxAgentOptions::current(),
         sandbox_apps: Vec::new(),
         agent: AgentLimits::current(),
     }

@@ -2,7 +2,9 @@
 //! what it is told when refused, and its audit row (sandbox agent credential
 //! design §1 row P1, §3.3).
 //!
-//! The token publishes to a sandbox it created itself and nowhere else:
+//! The token publishes to a sandbox it created itself — and, when it was
+//! granted an app's staging, a draft to that staging (`agent_draft`) — and
+//! nowhere else:
 //!
 //! * [`AgentPublish::of`] is asked first by `publish_to`, whoever called it:
 //!   a publish to the app's channels, or one that promotes, is
@@ -34,6 +36,22 @@ pub(crate) fn token_of(input: &PublishInput) -> Option<Uuid> {
         .map(|reach| reach.token_id)
 }
 
+/// The sandbox agent token a build is marked with
+/// (`app_builds.published_token_id`): the publisher's, for **every** build
+/// such a token publishes — to a sandbox of its own, or as a draft to staging.
+/// `None`, the column's `NULL`, for every publish by anyone else.
+///
+/// Nobody approved the code in a build an agent published, wherever it went:
+/// promote latest takes an app's newest build whatever served it, and a
+/// rollback names any retained build, so a sandbox build is as shippable as a
+/// draft. The mark is what every promote path refuses
+/// (`custom_apps_agent_built`). It changes nothing a sandbox does with its own
+/// build: a sandbox serves what its row names, and no reader of the row, of
+/// its creation or of its retention window looks at the mark.
+pub(crate) fn author(input: &PublishInput) -> Option<Uuid> {
+    token_of(input)
+}
+
 /// A publish the token may attempt: to one named sandbox, not promoting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentPublish {
@@ -44,6 +62,14 @@ impl AgentPublish {
     /// `None` for every other credential. For the token: the sandbox it
     /// names, or `SandboxTokenRefused` when the publish would move staging's
     /// or production's pointer.
+    ///
+    /// A draft to staging (`PublishTarget::AgentDraft`) is the one publish
+    /// that moves staging's pointer for the token. It is held here, before
+    /// anything is read, to the shape `agent_draft` asks of it — never a
+    /// promote, none of the fields that rewrite the app — and to the rest of
+    /// its guards by `admit_agent_draft`. `PublishTarget::Channels` stays
+    /// refused: only `publish::target_of` makes the draft target, and only
+    /// for a token holding a staging grant.
     pub(crate) fn of(
         input: &PublishInput,
         target: &PublishTarget,
@@ -55,7 +81,24 @@ impl AgentPublish {
             PublishTarget::Sandbox(environment) if !input.promote => Ok(Some(Self {
                 environment: environment.name(),
             })),
+            PublishTarget::AgentDraft => {
+                super::agent_draft::refuse_shape(input)?;
+                Ok(Some(Self {
+                    environment: AppEnvironment::Staging.name(),
+                }))
+            }
             _ => Err(PublishError::SandboxTokenRefused),
+        }
+    }
+
+    /// The environment that is not there, as this publish is told it: the
+    /// sandbox it named, or — for a draft — the staging it was not granted.
+    fn not_found(&self) -> PublishError {
+        if self.environment == AppEnvironment::Staging.name() {
+            return super::agent_draft::AgentDraftRefusal::NotFound.into();
+        }
+        PublishError::UnknownEnvironment {
+            name: self.environment.clone(),
         }
     }
 
@@ -68,9 +111,7 @@ impl AgentPublish {
             PublishError::UnknownOrg(_)
             | PublishError::UnknownProject(..)
             | PublishError::OxyAccessDenied { .. }
-            | PublishError::SandboxRefused => PublishError::UnknownEnvironment {
-                name: self.environment.clone(),
-            },
+            | PublishError::SandboxRefused => self.not_found(),
             other => other,
         }
     }
@@ -100,3 +141,7 @@ pub(crate) async fn audit(db: &DatabaseConnection, actor: &RequestActor, result:
 #[cfg(test)]
 #[path = "agent_publish_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "agent_publish_mark_tests.rs"]
+mod mark_tests;

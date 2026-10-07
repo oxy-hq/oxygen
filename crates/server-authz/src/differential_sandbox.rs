@@ -74,6 +74,7 @@ fn sandbox_credential() -> CredentialContext {
         app_sandbox: vec![AppSandboxGrant {
             org_id: org(),
             app_id: app_id(),
+            staging: false,
         }],
         blocked_orgs: Vec::new(),
         service_account: None,

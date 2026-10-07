@@ -241,10 +241,12 @@ async fn row_scope(
 }
 
 /// The non-production environment `builds` name: staging or a sandbox serving
-/// a named build that production does not serve. Decided by the resolver
-/// every reader of an environment asks (`custom_apps_env_resolve`), not by a
-/// second rule here. `None` when production serves them, or no environment
-/// does.
+/// a named build that production does not run. Decided by the resolver every
+/// reader of an environment asks (`custom_apps_env_resolve`), not by a second
+/// rule here — "production runs it" is the function runtime's own answer, so
+/// a draft a sandbox agent token published on an app unpublished since names
+/// staging, where a person's draft there is production's fallback. `None`
+/// when production runs them, or no environment serves them.
 async fn environment_of(
     db: &DatabaseConnection,
     app: &apps::Model,

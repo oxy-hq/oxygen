@@ -13,9 +13,11 @@
 //!   whose account is disabled or gone;
 //! - a grant it cannot read: a kind it does not know, a ceiling it does not
 //!   know, or an `app_publish` or `app_sandbox` grant naming no app;
-//! - a grant on the wrong kind of token: an `app_sandbox` grant is what a
-//!   **sandbox agent token** holds and nothing else does, and such a token
-//!   holds no other kind ([`super::sandbox_admission`]);
+//! - a grant on the wrong kind of token: an `app_sandbox` grant, and the
+//!   `app_staging` grant that may sit beside it, are what a **sandbox agent
+//!   token** holds and nothing else does, and such a token holds no other
+//!   kind — nor an `app_staging` grant whose app it holds no `app_sandbox`
+//!   grant for ([`super::sandbox_admission`]);
 //! - any narrowing on a row that mirrors an `api_keys` row. A legacy key, and
 //!   a token the legacy endpoint minted, are all-access with both standings —
 //!   always (§3.5) — and a pod one release back validates them from `api_keys`
@@ -112,6 +114,11 @@ pub struct ReadGrants {
     pub app_publish: Vec<AppPublishGrant>,
     /// What a sandbox agent token holds, and nothing else may.
     pub app_sandbox: Vec<AppSandboxGrant>,
+    /// The apps a sandbox agent token was also granted **staging** of, as
+    /// `(org, app)`: one `app_staging` grant each. Folded into
+    /// [`AppSandboxGrant::staging`] by `sandbox_admission::refuse_misplaced`,
+    /// which refuses one that has no `app_sandbox` twin.
+    pub app_staging: Vec<(Uuid, Uuid)>,
 }
 
 fn workspace_grant(grant: &api_token_grants::Model) -> Result<TokenGrant, Refusal> {
@@ -142,7 +149,15 @@ fn app_sandbox_grant(grant: &api_token_grants::Model) -> Result<AppSandboxGrant,
     Ok(AppSandboxGrant {
         org_id: grant.org_id,
         app_id,
+        staging: false,
     })
+}
+
+fn app_staging_grant(grant: &api_token_grants::Model) -> Result<(Uuid, Uuid), Refusal> {
+    let app_id = grant
+        .app_id
+        .ok_or_else(|| Refusal::UnknownGrant("app_staging naming no app".to_string()))?;
+    Ok((grant.org_id, app_id))
 }
 
 /// The grants of a row, as the model reads them — or the first one this
@@ -155,6 +170,7 @@ pub fn read_grants(grants: &[api_token_grants::Model]) -> Result<ReadGrants, Ref
             api_token_grants::KIND_WORKSPACE => out.workspace.push(workspace_grant(grant)?),
             api_token_grants::KIND_APP_PUBLISH => out.app_publish.push(app_publish_grant(grant)?),
             api_token_grants::KIND_APP_SANDBOX => out.app_sandbox.push(app_sandbox_grant(grant)?),
+            api_token_grants::KIND_APP_STAGING => out.app_staging.push(app_staging_grant(grant)?),
             other => return Err(Refusal::UnknownGrant(format!("kind '{other}'"))),
         }
     }
@@ -163,10 +179,11 @@ pub fn read_grants(grants: &[api_token_grants::Model]) -> Result<ReadGrants, Ref
 
 /// The workspace grants of a row — see [`read_grants`].
 ///
-/// An `app_sandbox` grant reads as none here: the workspace grant it stands
-/// for names the workspace its app is published from *now*, which is a lookup
-/// the request path makes ([`sandbox_admission::place_sandbox_apps`]). The
-/// inventories that call this never list a sandbox agent token.
+/// An `app_sandbox` grant reads as none here, and so does the `app_staging`
+/// grant beside it: the workspace grant they stand for names the workspace
+/// the app is published from *now*, which is a lookup the request path makes
+/// ([`sandbox_admission::place_sandbox_apps`]). The inventories that call
+/// this never list a sandbox agent token.
 pub fn readable_grants(grants: &[api_token_grants::Model]) -> Result<Vec<TokenGrant>, Refusal> {
     Ok(read_grants(grants)?.workspace)
 }
@@ -317,7 +334,7 @@ pub fn admit(
     } else {
         read_grants(grants)?
     };
-    sandbox_admission::refuse_misplaced(kind, &grants)?;
+    let grants = sandbox_admission::refuse_misplaced(kind, grants)?;
     if StoredKind::expected_for(presented) != Some(kind) {
         return Err(Refusal::KindMismatch);
     }
@@ -369,3 +386,7 @@ mod ci_tests;
 #[cfg(test)]
 #[path = "admission_sandbox_tests.rs"]
 mod sandbox_tests;
+
+#[cfg(test)]
+#[path = "admission_staging_tests.rs"]
+mod staging_tests;

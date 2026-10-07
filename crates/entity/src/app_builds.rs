@@ -55,6 +55,13 @@ pub struct Model {
     /// `workspaces.current_revision_id`. Retention never prunes a revision a
     /// build references.
     pub semantic_revision_id: Option<Uuid>,
+    /// The **sandbox agent token** (`api_tokens.id`) that published this build
+    /// — to a sandbox of its own, or as a draft to staging. NULL for every
+    /// build a person or a CI job published. No foreign key: a dangling id
+    /// still says a token published it. Never updated after the insert. While
+    /// it is set, production never falls back to the build and no promote or
+    /// rollback ships it (`custom_apps_agent_built`).
+    pub published_token_id: Option<Uuid>,
     #[sea_orm(
         belongs_to,
         from = "app_id",

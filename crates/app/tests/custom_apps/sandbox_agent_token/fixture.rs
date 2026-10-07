@@ -55,6 +55,7 @@ pub(crate) fn credential(t: &Tenant, token_id: Uuid, app: &apps::Model) -> Crede
         app_sandbox: vec![AppSandboxGrant {
             org_id: app.org_id,
             app_id: app.id,
+            staging: false,
         }],
         blocked_orgs: Vec::new(),
         service_account: None,

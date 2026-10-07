@@ -26,9 +26,26 @@
 //! reader resolved `published_build_id.or(draft_build_id)`: an app that has
 //! never been promoted runs its draft build's functions on the production path
 //! (a staff draft preview of a new app depends on it).
-//! [`EnvironmentBuilds::resolve_for_functions`] keeps exactly that for
-//! production; removing it is a production behaviour change that belongs to the
-//! promote path (Phase 3), not to this switch.
+//! [`EnvironmentBuilds::production_runs`] keeps exactly that for production;
+//! removing it is a production behaviour change that belongs to the promote
+//! path (Phase 3), not to this switch.
+//!
+//! **With one exception: never a build a sandbox agent token published.** A
+//! token granted an app's staging publishes drafts nobody approved, and an app
+//! unpublished afterwards would run one as production's functions. So the
+//! fallback is taken only for a build with no `published_token_id`
+//! (`custom_apps_agent_built::production_fallback`); otherwise production
+//! serves nothing, as an app with neither build does. That is the one read
+//! the production path makes, and only an app with no production build of its
+//! own pays it — cached per build for a minute.
+//!
+//! **"Does production run this build" has one answer:**
+//! [`EnvironmentBuilds::production_runs`], fallback and exception included.
+//! The function runtime acts on it ([`resolve_function_environment`]) and the
+//! reader that sorts a build into production's or not reads it
+//! ([`non_production_environment_serving`]). There is no unguarded variant to
+//! reach for: a second rule here once called an agent's draft production's
+//! build on an unpublished app, while the runtime ran nothing there.
 //!
 //! **A sandbox resolves from its own row, uncached, with no fallback.** A
 //! `dev-<handle>` environment (`internal-docs/custom-app-sandboxes.md`) is one
@@ -89,34 +106,49 @@ impl EnvironmentBuilds {
         }
     }
 
-    /// [`Self::resolve`], except that production falls back to staging's build
-    /// for an app never promoted — what the function readers have always done
-    /// (see the module docs).
-    pub fn resolve_for_functions(&self, environment: &AppEnvironment) -> ResolvedEnvironment {
-        let mut resolved = self.resolve(environment);
-        if resolved.is_production() && resolved.build_id.is_none() {
-            resolved.build_id = self.staging;
+    /// The build production's **functions** run: its own — or, for an app
+    /// with none, staging's (the fallback in the module docs), unless a
+    /// sandbox agent token published that build, and then nothing. The one
+    /// answer to "does production run this build" (module docs).
+    ///
+    /// Asks the database only for an app with no production build and a
+    /// staging one, and then one cached column
+    /// (`custom_apps_agent_built::production_fallback`). `Err` when that read
+    /// fails: the caller runs nothing rather than a build nobody approved.
+    pub async fn production_runs<C: ConnectionTrait>(&self, db: &C) -> Result<Option<Uuid>, DbErr> {
+        match self.production {
+            Some(build) => Ok(Some(build)),
+            None => super::custom_apps_agent_built::production_fallback(db, self.staging).await,
         }
-        resolved
     }
 
-    /// The non-production environment that serves `build` while production
-    /// does not — for a reader deciding whether naming a build names a
-    /// non-production environment. Both halves are
-    /// [`Self::resolve_for_functions`]' answers, the ones the function runtime
-    /// acts on, so the build a never-promoted app runs on the production path
-    /// is production's. `None` when production serves `build`, or when no
-    /// environment does (a retained build nothing points at any more).
+    /// [`Self::resolve`], except that production's answer is
+    /// [`Self::production_runs`] — what the function readers have always
+    /// done, less a build nobody approved. Staging never falls back.
+    pub async fn resolve_for_functions<C: ConnectionTrait>(
+        &self,
+        db: &C,
+        environment: &AppEnvironment,
+    ) -> Result<ResolvedEnvironment, DbErr> {
+        let mut resolved = self.resolve(environment);
+        if resolved.is_production() {
+            resolved.build_id = self.production_runs(db).await?;
+        }
+        Ok(resolved)
+    }
+
+    /// Whether staging serves `build` while production does not run it —
+    /// `production` being [`Self::production_runs`]' answer, the one the
+    /// function runtime acts on. So the build a never-promoted app runs on
+    /// the production path is production's, and a draft production will not
+    /// fall back to is staging's alone. `false` for a retained build nothing
+    /// points at any more.
     ///
-    /// A sandbox is not in here (see the type docs), so this answers for
-    /// staging alone: [`non_production_environment_serving`] is the whole
-    /// rule, sandboxes included, and what a reader should ask.
-    pub fn serves_only_outside_production(&self, build: Uuid) -> Option<AppEnvironment> {
-        let serves = |environment: &AppEnvironment| {
-            self.resolve_for_functions(environment).build_id == Some(build)
-        };
-        (!serves(&AppEnvironment::Production) && serves(&AppEnvironment::Staging))
-            .then_some(AppEnvironment::Staging)
+    /// A sandbox is not in here (see the type docs), so this is staging's
+    /// half: [`non_production_environment_serving`] is the whole rule,
+    /// sandboxes included, and what a reader should ask.
+    fn only_staging_serves(&self, production: Option<Uuid>, build: Uuid) -> bool {
+        production != Some(build) && self.staging == Some(build)
     }
 }
 
@@ -248,9 +280,12 @@ pub async fn resolve_function_environment<C: ConnectionTrait>(
         // or production's functions.
         return resolve_sandbox(db, app.id, environment).await;
     }
-    Ok(builds_for(db, app, environment)
+    // The fallback, and only the fallback, asks whose build it is: production
+    // with a build of its own never reaches that read (`production_runs`).
+    builds_for(db, app, environment)
         .await?
-        .resolve_for_functions(environment))
+        .resolve_for_functions(db, environment)
+        .await
 }
 
 /// The row of the sandbox `environment` of `app_id`: `None` when there is no
@@ -287,13 +322,19 @@ fn serving_sandboxes(app_id: Uuid) -> sea_orm::Select<app_environments::Entity> 
 }
 
 /// The non-production environment that serves one of `builds` while
-/// production does not — for a reader deciding whether naming a build names
-/// a non-production environment. Staging's answer is
-/// [`EnvironmentBuilds::serves_only_outside_production`]; a sandbox's is its
-/// own row, the one [`sandbox_row`] resolves it from, read for every sandbox
-/// of the app in **one** query. `None` when production serves every named
-/// build, or when no environment serves one (a retained build nothing points
-/// at any more, a torn-down sandbox's included).
+/// production does not run it — for a reader deciding whether naming a build
+/// names a non-production environment. "Production runs it" is
+/// [`EnvironmentBuilds::production_runs`], the function runtime's own answer,
+/// so a draft a sandbox agent token published on an app unpublished since is
+/// staging's here exactly as it is there. Staging's half is
+/// `EnvironmentBuilds::only_staging_serves`; a sandbox's is its own row, the
+/// one [`sandbox_row`] resolves it from, read for every sandbox of the app in
+/// **one** query. `None` when production runs every named build, or when no
+/// environment serves one (a retained build nothing points at any more, a
+/// torn-down sandbox's included).
+///
+/// Not on a hot path: the invocation listings ask it, once for a request
+/// that names a build.
 pub async fn non_production_environment_serving<C: ConnectionTrait>(
     db: &C,
     app: &apps::Model,
@@ -303,15 +344,11 @@ pub async fn non_production_environment_serving<C: ConnectionTrait>(
         return Ok(None);
     }
     let fixed = load_environment_builds(db, app).await?;
-    let staging = builds
-        .iter()
-        .find_map(|build| fixed.serves_only_outside_production(*build));
-    if staging.is_some() {
-        return Ok(staging);
+    let production = fixed.production_runs(db).await?;
+    let staging = |build: &Uuid| fixed.only_staging_serves(production, *build);
+    if builds.iter().any(staging) {
+        return Ok(Some(AppEnvironment::Staging));
     }
-    let production = fixed
-        .resolve_for_functions(&AppEnvironment::Production)
-        .build_id;
     let outside = builds.iter().copied().filter(|b| Some(*b) != production);
     let sandbox = serving_sandboxes(app.id)
         .filter(app_environments::Column::BuildId.is_in(outside))

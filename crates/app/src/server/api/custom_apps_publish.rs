@@ -39,7 +39,8 @@ use super::custom_apps_nonproduction::publish as staging;
 use super::custom_apps_nonproduction::staging_task;
 use super::custom_apps_publish_refusal::PublishRefusal;
 use super::custom_apps_sandboxes::{
-    agent_publish as sandbox_agent_publish, publish as sandbox_publish, retention,
+    agent_draft as sandbox_agent_draft, agent_publish as sandbox_agent_publish,
+    publish as sandbox_publish, retention,
 };
 use super::{
     custom_apps_asset_manifest as asset_manifest, custom_apps_auth,
@@ -48,7 +49,8 @@ use super::{
     workspace_org::{WorkspaceOrgMatch, workspace_in_org},
 };
 
-/// How many builds to retain per app. Older builds (not currently pointed
+/// How many builds to retain per app **in each retention window**
+/// (`custom_apps_sandboxes::retention`). Older builds (not currently pointed
 /// at by either channel) are GC'd from the DB and S3 after each publish.
 const KEEP_BUILDS: usize = 10;
 
@@ -345,6 +347,11 @@ pub enum PublishError {
     /// The sandbox is being torn down.
     #[error("sandbox {name} is being deleted; its name is free once the teardown finishes")]
     EnvironmentDeleting { name: String },
+    /// A sandbox agent token's draft to staging, refused by one of its own
+    /// guards. Status and code are the refusal's
+    /// (`custom_apps_sandboxes::agent_draft`); answered as JSON with the code.
+    #[error("{0}")]
+    AgentDraft(sandbox_agent_draft::AgentDraftRefusal),
     #[error("database error: {0}")]
     Db(String),
     #[error("storage error: {0}")]
@@ -358,6 +365,11 @@ pub enum PublishTarget {
     Channels,
     /// One sandbox's pointer and nothing else. Always an `AppEnvironment::Dev`.
     Sandbox(AppEnvironment),
+    /// Staging's pointer, for a sandbox agent token granted the app's
+    /// staging: a draft of an app that is already live, which never writes
+    /// the app row and never promotes (`custom_apps_sandboxes::agent_draft`).
+    /// Made by `sandbox_publish::target_of` alone.
+    AgentDraft,
 }
 
 impl PublishTarget {
@@ -367,7 +379,9 @@ impl PublishTarget {
         match self {
             PublishTarget::Sandbox(environment) => (environment.clone(), "sandbox"),
             PublishTarget::Channels if promote => (AppEnvironment::Production, "published"),
-            PublishTarget::Channels => (AppEnvironment::Staging, "draft"),
+            PublishTarget::Channels | PublishTarget::AgentDraft => {
+                (AppEnvironment::Staging, "draft")
+            }
         }
     }
 
@@ -375,6 +389,9 @@ impl PublishTarget {
     fn refuse_promote(&self, input: &PublishInput) -> Result<(), PublishError> {
         match self {
             PublishTarget::Sandbox(_) if input.promote => Err(PublishError::SandboxWithPromote),
+            // A sandbox agent token's draft never promotes: refused again
+            // here, where every promoting step below reads `input.promote`.
+            PublishTarget::AgentDraft if input.promote => Err(PublishError::SandboxTokenRefused),
             _ => Ok(()),
         }
     }
@@ -469,6 +486,7 @@ impl PublishError {
             }
             PublishError::UnknownEnvironment { .. } => StatusCode::NOT_FOUND,
             PublishError::EnvironmentDeleting { .. } => StatusCode::CONFLICT,
+            PublishError::AgentDraft(refused) => refused.status(),
             PublishError::Db(_) | PublishError::S3(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -478,6 +496,7 @@ impl PublishError {
     pub fn code(&self) -> Option<&'static str> {
         match self {
             PublishError::SandboxTokenRefused => Some("sandbox_token_refused"),
+            PublishError::AgentDraft(refused) => Some(refused.code()),
             _ => None,
         }
     }
@@ -1120,6 +1139,9 @@ async fn record_build(
     input: &PublishInput,
     s3_prefix: String,
     manifest_json: Option<serde_json::Value>,
+    // The sandbox agent token that published this build, to a sandbox or as
+    // a draft; `None` for everyone else's (`agent_publish::author`).
+    published_token_id: Option<Uuid>,
 ) -> Result<Uuid, PublishError> {
     let build_pk = Uuid::new_v4();
     let model = app_builds::ActiveModel {
@@ -1142,6 +1164,7 @@ async fn record_build(
         validation_detail: ActiveValue::NotSet,
         // Validated in `publish` before any work (draft-only, same workspace).
         semantic_revision_id: ActiveValue::Set(input.semantic_revision_id),
+        published_token_id: ActiveValue::Set(published_token_id),
     };
     model
         .insert(db)
@@ -1466,9 +1489,9 @@ async fn gate_promotion(db: &DatabaseConnection, build_pk: Uuid) -> Result<(), P
     Ok(())
 }
 
-/// Delete builds beyond retention — the newest `KEEP_BUILDS` builds only a
-/// sandbox ever served, and the newest `KEEP_BUILDS` of the rest
-/// (`custom_apps_sandboxes::retention`) — never touching a build a channel pointer
+/// Delete builds beyond retention — the newest `KEEP_BUILDS` builds production
+/// served, the newest `KEEP_BUILDS` only a sandbox ever served, and the newest
+/// `KEEP_BUILDS` of the rest (`custom_apps_sandboxes::retention`) — never touching a build a channel pointer
 /// or an `app_environments` row references. Row before bytes; best-effort on the S3 side.
 async fn gc_builds(db: &DatabaseConnection, app_id: Uuid, protect: &[Uuid]) {
     let Some(protect) = gc_protected(db, app_id, protect).await else {
@@ -1544,10 +1567,12 @@ async fn gc_protected(
     Some(protect)
 }
 
-/// The app's builds beyond retention, newest first. Builds only a sandbox
-/// ever served are kept in a window of their own, so an afternoon of sandbox
-/// publishes never pushes out the build production would roll back to.
-/// `None` — skip GC — when the builds or their events cannot be read.
+/// The app's builds beyond retention, newest first. Builds production served,
+/// builds only a sandbox ever served, and the drafts left over are each kept
+/// in a window of their own (`retention::beyond`), so neither an afternoon of
+/// sandbox publishes nor any number of drafts pushes out a build production
+/// would roll back to. `None` — skip GC — when the builds or their events
+/// cannot be read.
 async fn gc_beyond_retention(
     db: &DatabaseConnection,
     app_id: Uuid,
@@ -1564,17 +1589,16 @@ async fn gc_beyond_retention(
             return None;
         }
     };
-    let sandbox_only = match retention::sandbox_only_builds(db, app_id).await {
+    let newest_first: Vec<Uuid> = builds.iter().map(|build| build.id).collect();
+    let beyond = match retention::beyond(db, app_id, &newest_first, KEEP_BUILDS).await {
         Ok(ids) => ids,
         Err(e) => {
             tracing::warn!(
-                "gc_builds: could not tell sandbox builds apart for app {app_id} ({e}); skipping GC"
+                "gc_builds: could not tell an app's builds apart for app {app_id} ({e}); skipping GC"
             );
             return None;
         }
     };
-    let newest_first: Vec<Uuid> = builds.iter().map(|build| build.id).collect();
-    let beyond = retention::beyond_retention(&newest_first, &sandbox_only, KEEP_BUILDS);
     Some(
         builds
             .into_iter()
@@ -1594,12 +1618,17 @@ pub async fn publish(input: PublishInput) -> Result<PublishResult, PublishError>
 /// A [`PublishTarget::Sandbox`] publish stores and records the build exactly
 /// as any other, and differs only where `custom_apps_sandboxes::publish` says:
 /// it is admitted as staging is opened, never writes the app row or another
-/// environment's pointer, registers no schedule, applies no OLTP migration,
-/// and queues the sandbox's own Airhouse migrations instead of staging's.
+/// environment's pointer, registers no schedule, applies no migration to
+/// production or to staging, and queues the sandbox's own instead of
+/// staging's — its Airhouse sibling's, and its own OLTP schema on the org's
+/// staging branch, seeded if need be and migrated with the bundle's OLTP
+/// files.
 ///
 /// A sandbox agent token is refused here, before anything else, unless the
-/// target is a sandbox and the publish does not promote — whoever the caller
-/// of this function is (`custom_apps_sandboxes::agent_publish`).
+/// target is a sandbox and the publish does not promote, or it is a draft to
+/// the staging the token was granted ([`PublishTarget::AgentDraft`]) —
+/// whoever the caller of this function is
+/// (`custom_apps_sandboxes::agent_publish`).
 pub async fn publish_to(
     input: PublishInput,
     target: PublishTarget,
@@ -1888,7 +1917,8 @@ async fn store_and_point(
     // Bytes are now stored. If recording the row or moving the pointer fails,
     // roll the orphaned build back out so a partial publish leaves no
     // half-state (leaked storage prefix, or a row no channel points at).
-    let build_pk = match record_build(&db, app_id, &input, s3_prefix, manifest_json).await {
+    let author = sandbox_agent_publish::author(&input);
+    let build_pk = match record_build(&db, app_id, &input, s3_prefix, manifest_json, author).await {
         Ok(pk) => pk,
         Err(e) => {
             if let Err(cleanup) = store::delete_build(app_id, &input.build_id).await {
@@ -2051,7 +2081,9 @@ async fn store_and_point(
 /// The app row a publish works on: `(id, created by this publish, how to undo
 /// the write)`. The channels' publish upserts it. A sandbox's (`sandbox_app`
 /// is its admitted app) never writes it: `upsert_app` rewrites the row's
-/// `branch` and `name`, and two sandboxes would fight over production's.
+/// `branch` and `name`, and two sandboxes would fight over production's. Nor
+/// does a sandbox agent token's draft, admitted the same way: it moves the
+/// draft pointer and leaves every other column of the row as it found it.
 async fn app_row_for(
     db: &DatabaseConnection,
     org: &organizations::Model,
@@ -2078,6 +2110,12 @@ async fn move_pointers(
         PublishTarget::Channels => {
             set_pointers(db, app_id, build_pk, input.promote, input.published_by).await
         }
+        // Staging's pointer and its mirror, under the app's row lock, with
+        // the draft's guards asked again of the locked row — and never
+        // production's, whatever the input says.
+        PublishTarget::AgentDraft => {
+            sandbox_agent_draft::move_draft_pointer(db, app_id, build_pk, input).await
+        }
         PublishTarget::Sandbox(environment) => {
             let mover = sandbox_publish::Mover {
                 actor: input.published_by,
@@ -2092,6 +2130,8 @@ async fn move_pointers(
 /// caches. A sandbox publish moved none — a sandbox's build is read from its
 /// row on every request — so it drops nothing.
 fn drop_resolution_cache(target: &PublishTarget) {
+    // A sandbox agent token's draft dropped it where its pointer moved
+    // (`agent_draft::move_draft_pointer`).
     if matches!(target, PublishTarget::Channels) {
         super::custom_apps_cache::invalidate_app_resolution_cache();
     }
@@ -2110,7 +2150,7 @@ async fn queue_migrations_for(
     airhouse: &[migrations::DeclaredMigration],
 ) -> Vec<String> {
     match target {
-        PublishTarget::Channels => {
+        PublishTarget::Channels | PublishTarget::AgentDraft => {
             staging_task::queue_staging_migrations(db, built, oltp, airhouse).await
         }
         PublishTarget::Sandbox(environment) => {
@@ -2310,7 +2350,7 @@ pub async fn publish_handler(
     let target = sandbox_publish::target_of(environment.as_deref(), promote, credential)?;
     // A sandbox agent token is told a sandbox that is not its own as its
     // other routes tell it; everyone else reads the text they always did.
-    let agent = credential == sandbox_publish::PublishCredential::SandboxAgent;
+    let agent = credential.is_agent();
     let published = publish_to(input, target)
         .await
         .map_err(|refused| PublishRefusal::told(refused, agent))?;

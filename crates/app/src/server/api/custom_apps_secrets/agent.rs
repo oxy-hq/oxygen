@@ -6,8 +6,11 @@
 //! default for it: the absent `environment` is refused like any other
 //! environment that is not its own, with the `404` a missing one gets.
 //!
-//! * [`authorize`] — the environment must be an own sandbox (oxy-authz,
-//!   through `may_open_environment`).
+//! * [`authorize`] — the environment must be a `dev-*` sandbox, and the
+//!   token's own (oxy-authz, through `may_open_environment`). **Dev only,
+//!   stated here and not left to the model:** a token granted an app's
+//!   staging opens staging there, and staging's secrets — the list as much
+//!   as a write — are still not its to read or set.
 //! * [`hold_own`] — a set or a delete then holds the sandbox's row lock for
 //!   the write, and looks at who created it again under that lock.
 //! * [`refuse_credential`] — the token may not store a value shaped like an
@@ -51,6 +54,10 @@ fn not_found(environment: &AppEnvironment) -> Failure {
 
 /// Hold the token to `environment` being a sandbox it created, of `app`.
 /// Call only for a sandbox agent token.
+///
+/// A sandbox, asked first and by name: staging and production are refused
+/// here whatever oxy-authz would say of them, so a token granted the app's
+/// staging reads and writes no secret of it.
 pub(super) async fn authorize(
     db: &DatabaseConnection,
     app: &apps::Model,
@@ -58,11 +65,17 @@ pub(super) async fn authorize(
     environment: &AppEnvironment,
 ) -> Result<(), Failure> {
     let caller = oxy_server_authz::Caller::from_user(user);
-    if may_open_environment(db, &caller, app, environment).await {
+    if is_sandbox(environment) && may_open_environment(db, &caller, app, environment).await {
         Ok(())
     } else {
         Err(not_found(environment))
     }
+}
+
+/// Whether `environment` is a `dev-*` sandbox: the only kind whose secrets a
+/// sandbox agent token touches.
+fn is_sandbox(environment: &AppEnvironment) -> bool {
+    matches!(environment, AppEnvironment::Dev { .. })
 }
 
 /// For a write by a sandbox agent token: the sandbox's row, locked, in a
@@ -171,6 +184,17 @@ mod tests {
             &text["credential_shaped_value: ".len()..],
         );
         assert_eq!(read, stated);
+    }
+
+    /// Secrets are a sandbox's alone for the token: staging and production
+    /// are refused by name, before any decision about them is asked for.
+    #[test]
+    fn only_a_sandbox_has_secrets_the_token_touches() {
+        assert!(is_sandbox(
+            &AppEnvironment::parse("dev-a").expect("a sandbox")
+        ));
+        assert!(!is_sandbox(&AppEnvironment::Staging));
+        assert!(!is_sandbox(&AppEnvironment::Production));
     }
 
     /// Anyone else stores what they send: the check is the token's alone.

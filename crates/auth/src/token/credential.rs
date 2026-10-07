@@ -163,6 +163,10 @@ pub struct AppPublishGrant {
 pub struct AppSandboxGrant {
     pub org_id: Uuid,
     pub app_id: Uuid,
+    /// Whether a live `app_staging` grant of the same token names this app
+    /// too: the token may also publish a draft to, and exercise, the app's
+    /// **staging** environment. `false` for a token minted without `staging`.
+    pub staging: bool,
 }
 
 /// Request-extension marker: this request authenticated with an API token or
@@ -250,6 +254,7 @@ impl CredentialContext {
                     .map(|g| SandboxApp {
                         app_id: g.app_id,
                         org_id: g.org_id,
+                        staging: g.staging,
                     })
                     .collect(),
             }),
@@ -265,6 +270,20 @@ impl CredentialContext {
     /// Whether an `app_sandbox` grant names this app.
     pub fn sandboxes_app(&self, app_id: Uuid) -> bool {
         self.app_sandbox.iter().any(|g| g.app_id == app_id)
+    }
+
+    /// Whether the token was granted this app's staging as well as its
+    /// sandboxes: an `app_staging` grant beside the `app_sandbox` one.
+    pub fn stages_app(&self, app_id: Uuid) -> bool {
+        self.app_sandbox
+            .iter()
+            .any(|g| g.app_id == app_id && g.staging)
+    }
+
+    /// Whether the token was granted staging of any app. What a check made
+    /// before the app is known reads (`custom_apps_sandboxes::publish`).
+    pub fn stages_any_app(&self) -> bool {
+        self.app_sandbox.iter().any(|g| g.staging)
     }
 
     /// Whether the credential acts as an org's service account rather than as

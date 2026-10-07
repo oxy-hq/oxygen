@@ -603,9 +603,11 @@ async fn token_options_tell_staff_the_limits_and_the_apps_they_may_mint_for() {
     let (fx, app) = staff_with_app().await;
     let (status, options) = get_in_session(&fx, "/user/token-options").await;
     assert_eq!(status, StatusCode::OK, "{options}");
+    // The three limits, and `staging`: this server takes the option on a mint
+    // (`sandbox_agent_staging`).
     assert_eq!(
         options["sandbox_agent"],
-        json!({ "default_hours": 8, "max_hours": 168, "max_apps": 5 })
+        json!({ "default_hours": 8, "max_hours": 168, "max_apps": 5, "staging": true })
     );
     let apps = options["sandbox_apps"].as_array().expect("sandbox_apps");
     assert_eq!(apps.len(), 1, "{options}");

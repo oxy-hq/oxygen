@@ -96,7 +96,8 @@ fn a_sandbox_row_is_admitted_with_its_apps_and_no_workspace_grant_yet() {
         cred.app_sandbox,
         vec![AppSandboxGrant {
             org_id: ORG,
-            app_id: APP
+            app_id: APP,
+            staging: false,
         }]
     );
     assert!(cred.sandboxes_app(APP) && !cred.sandboxes_app(OTHER_APP));
@@ -161,7 +162,8 @@ fn a_revoked_grant_is_skipped_and_the_others_stand() {
         cred.app_sandbox,
         vec![AppSandboxGrant {
             org_id: ORG,
-            app_id: OTHER_APP
+            app_id: OTHER_APP,
+            staging: false,
         }]
     );
 }

@@ -14,6 +14,11 @@
 //! that names no environment is not covered, so a call site that has not been
 //! taught to say which environment it is about fails closed for this token and
 //! decides for everyone else exactly as it did.
+//!
+//! **Staging is an option of the grant, not a fifth action.** A token minted
+//! with `staging` holds [`SandboxApp::staging`] on each app it names, and the
+//! same two tenant actions then also cover [`EnvFacet::Staging`] of that app.
+//! Production is covered by nothing, with or without it.
 
 use uuid::Uuid;
 
@@ -43,6 +48,10 @@ pub enum EnvFacet {
 pub struct SandboxApp {
     pub app_id: Uuid,
     pub org_id: Uuid,
+    /// Whether the token was also granted this app's **staging** environment
+    /// (an `app_staging` grant beside the `app_sandbox` one). `false` is the
+    /// token as it always was: its own sandboxes and nothing else.
+    pub staging: bool,
 }
 
 /// What a sandbox agent token reaches: the sandboxes it created itself, of the
@@ -73,6 +82,23 @@ impl SandboxAgentReach {
         );
         own && self.grants_app(resource)
     }
+
+    /// Is `resource` the **staging** environment of an app this token was
+    /// granted staging for? The app, its org and the grant's `staging` are
+    /// one match, so staging of a granted app minted without it is not.
+    pub fn stages_app(&self, resource: &Resource) -> bool {
+        resource.kind == ResourceKind::App
+            && resource.environment == Some(EnvFacet::Staging)
+            && self.apps.iter().any(|app| {
+                app.staging && app.app_id == resource.id && app.org_id == resource.org_id
+            })
+    }
+
+    /// Is `resource` an environment this token works in: a sandbox it
+    /// created, or the staging it was granted?
+    fn works_in(&self, resource: &Resource) -> bool {
+        self.owns_sandbox(resource) || self.stages_app(resource)
+    }
 }
 
 /// Does a sandbox agent token cover this decision at all? `false` ends the
@@ -88,17 +114,20 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         // singleton, whose nil org cannot narrow by app: the route fence
         // confines which console routes lie behind them.
         Action::PlatformOps | Action::PlatformApps => resource.kind == ResourceKind::Platform,
-        // Opening a non-production environment: a sandbox of its own, or the
-        // act of creating or listing one. Production, staging, someone else's
-        // sandbox and a decision that names no environment are not covered.
+        // Opening a non-production environment: a sandbox of its own, the
+        // act of creating or listing one, or the staging of an app it was
+        // granted staging for. Production, staging without that grant,
+        // someone else's sandbox and a decision that names no environment are
+        // not covered.
         Action::AppNonProduction => {
-            reach.owns_sandbox(resource)
+            reach.works_in(resource)
                 || (resource.environment == Some(EnvFacet::NewSandbox)
                     && reach.grants_app(resource))
         }
         // The app's admin surface — its logs, and `ctx.user.appRole` on a
-        // function call — in a sandbox of its own only.
-        Action::AppAdmin => reach.owns_sandbox(resource),
+        // function call — in a sandbox of its own, or in the staging it was
+        // granted: the two environments it runs functions in.
+        Action::AppAdmin => reach.works_in(resource),
         Action::OrgRead
         | Action::ManageLocations
         | Action::ManageOrgRoles
@@ -149,3 +178,7 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
 #[cfg(test)]
 #[path = "sandbox_agent_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sandbox_agent_staging_tests.rs"]
+mod staging_tests;

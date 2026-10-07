@@ -30,8 +30,8 @@
 //! **Children.** `environment_checks` (a check run in a named app environment)
 //! and `environment_refusals` (every refusal around one); `readback` (`/fn`'s
 //! invocation id, and the fixture the read-backs share), `invocation_listings`,
-//! `invocation_reach`, `sandbox_build_reach`, `held_readback`, `run_readback`
-//! and `log_reads`;
+//! `invocation_reach`, `sandbox_build_reach`, `agent_draft_build_reach`,
+//! `held_readback`, `run_readback` and `log_reads`;
 //! `publish_token_router` (a real token through real authentication),
 //! `run_stream_scope` (a custom app's own run stream and cancel) and
 //! `partner_audit` (what a partner reads of the audit trail). They hang here
@@ -39,6 +39,7 @@
 //!
 //! **Needs** Postgres only.
 
+mod agent_draft_build_reach;
 mod callers;
 mod environment_checks;
 mod environment_refusals;

@@ -8,6 +8,10 @@
 //!
 //! * [`admits_app`] — the app the slugs resolve to must be one the token is
 //!   granted. Any other is answered as an unknown app.
+//! * [`holds_staging`] — whether the token's own grants name this app's
+//!   staging. The serve tree's fence runs before authentication and reads
+//!   only a header's shape, so this is where a token that names `staging` is
+//!   held to having been granted it, before oxy-authz is asked.
 //! * [`resolve_app_role_in`] — the token's app role is decided for the one
 //!   environment the request is about: `admin` on a sandbox it created
 //!   (decision 7), nothing anywhere else.
@@ -50,6 +54,20 @@ pub(crate) fn admits_app(caller: &oxy_server_authz::Caller, app: &apps::Model) -
             .any(|granted| granted.app_id == app.id && granted.org_id == app.org_id),
         None => true,
     }
+}
+
+/// Whether `caller` is a sandbox agent token whose own grants name the
+/// staging of `app`: the `app_staging` grant beside its `app_sandbox` one, for
+/// this app in this org. Read off the credential, not asked of the model.
+/// `false` for a token minted without staging, and for every other caller.
+pub(crate) fn holds_staging(caller: &oxy_server_authz::Caller, app: &apps::Model) -> bool {
+    let this_app = (app.id, app.org_id);
+    caller.sandbox_agent().is_some_and(|reach| {
+        reach
+            .apps
+            .iter()
+            .any(|granted| granted.staging && (granted.app_id, granted.org_id) == this_app)
+    })
 }
 
 /// The minter behind a sandbox agent token, read now. `Ok(None)` when no such
@@ -202,6 +220,25 @@ mod tests {
         assert!(!admits_app(&agent, &sibling), "same workspace, another app");
         let elsewhere = app(APP, Uuid::from_u128(8));
         assert!(!admits_app(&agent, &elsewhere), "the id under another org");
+    }
+
+    /// Staging is the token's only by its own grant, for that app in that
+    /// org: a token minted without it, a sibling app and a person hold none.
+    #[test]
+    fn staging_is_held_by_the_credentials_own_grant_for_the_app() {
+        let staged = |staging: bool| {
+            let mut credential = fixture::credential(Uuid::from_u128(0x70), ORG, APP, WORKSPACE);
+            credential.app_sandbox[0].staging = staging;
+            Caller::from_user(&fixture::user(Some(credential)))
+        };
+        assert!(holds_staging(&staged(true), &app(APP, ORG)));
+        assert!(!holds_staging(&staged(false), &app(APP, ORG)));
+        let sibling = app(Uuid::from_u128(9), ORG);
+        assert!(!holds_staging(&staged(true), &sibling), "another app");
+        let elsewhere = app(APP, Uuid::from_u128(8));
+        assert!(!holds_staging(&staged(true), &elsewhere), "another org");
+        let person = Caller::from_user(&fixture::user(None));
+        assert!(!holds_staging(&person, &app(APP, ORG)));
     }
 
     /// No other caller is narrowed here.

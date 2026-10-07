@@ -96,6 +96,7 @@ fn token_facts() -> PrincipalFacts {
             apps: vec![SandboxApp {
                 app_id: APP,
                 org_id: ORG,
+                staging: false,
             }],
         }),
     })

@@ -22,12 +22,18 @@ use uuid::Uuid;
 
 use super::dto::*;
 use super::ops::*;
+use crate::server::api::custom_apps_agent_built as agent_built;
 
 pub(crate) use super::dto::{CreateAppRequest, ListAppsQuery};
 pub(crate) use super::ops::validate_display_name;
 // `pub`: the extracted `oxy-api-partner-console` surface publishes/unpublishes a
 // client's app through these.
 pub use super::ops::{publish_one, unpublish_one};
+// `pub`, beside `publish_one`: whoever promotes through it answers what it
+// refuses with — the coded `409` for a build a sandbox agent token published,
+// not its bare status. The partner console takes it from here, the one module
+// of this crate it already promotes through.
+pub use crate::server::api::custom_apps_agent_built::PromoteRefusal;
 
 /// The org ids a **bounded** platform grant reaches — `None` for unbounded.
 ///
@@ -887,14 +893,16 @@ pub async fn publish_app(
     _: crate::server::api::custom_apps_agent_refusal::RefuseSandboxAgent,
     user: oxy_app_core::audit::RequestActor,
     Path(id): Path<Uuid>,
-) -> Result<Json<PromoteResponse>, StatusCode> {
+) -> Result<Json<PromoteResponse>, PromoteRefusal> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("publish_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    let updated = publish_one(&db, id, user.id).await.map_err(|e| e.status)?;
+    // A bare status, as always — but for a draft a sandbox agent token
+    // published, which is `409 draft_published_by_agent` with who and what to do.
+    let updated = publish_one(&db, id, user.id).await?;
     crate::server::api::custom_apps_auth::invalidate_access_cache();
-    let org = load_org(&db, updated.org_id).await.map_err(|e| e.status)?;
+    let org = load_org(&db, updated.org_id).await?;
 
     // The SAME action taken by a partner was audited and by Oxy staff was not, so
     // the trail recorded the delegated tier and was blind to the privileged one —
@@ -1214,7 +1222,7 @@ pub async fn rollback_app(
     oxy_auth::extractor::AuthenticatedUserExtractor(user): oxy_auth::extractor::AuthenticatedUserExtractor,
     Path(id): Path<Uuid>,
     Json(req): Json<RollbackRequest>,
-) -> Result<Json<PromoteResponse>, StatusCode> {
+) -> Result<Json<PromoteResponse>, PromoteRefusal> {
     let db = establish_connection().await.map_err(|e| {
         tracing::error!("rollback_app DB connect failed: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -1230,13 +1238,24 @@ pub async fn rollback_app(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     if build.app_id != id {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(StatusCode::BAD_REQUEST.into());
     }
     // Promotion gate (validator-can't-be-bypassed): a historical build may be
     // rolled back to the live channel only if its recorded validation is
     // `passed` — otherwise rollback would be a way to make a failed build live.
     if build.validation_status != "passed" {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        return Err(StatusCode::UNPROCESSABLE_ENTITY.into());
+    }
+    // Nor a build a sandbox agent token published: a rollback that names one
+    // would ship code nobody approved, as a promote of it would.
+    let unapproved = agent_built::refusing_promote(&db, &build)
+        .await
+        .map_err(|e| {
+            tracing::error!("rollback_app publisher lookup failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    if let Some(built) = unapproved {
+        return Err(built.into());
     }
 
     let org = Organizations::find_by_id(row.org_id)
@@ -1339,7 +1358,7 @@ pub async fn batch_publish_apps(
     for id in ids {
         results.push(match publish_one(&db, id, user.id).await {
             Ok(_) => BatchItemResult::ok(id),
-            Err(e) => BatchItemResult::failed(id, e.message),
+            Err(e) => BatchItemResult::refused(id, e),
         });
     }
     // One global access-cache invalidation for the whole batch (per-app
@@ -1369,7 +1388,7 @@ pub async fn batch_promote_latest_apps(
     for id in ids {
         results.push(match promote_latest_one(&db, id, user.id).await {
             Ok(_) => BatchItemResult::ok(id),
-            Err(e) => BatchItemResult::failed(id, e.message),
+            Err(e) => BatchItemResult::refused(id, e),
         });
     }
     if results.iter().any(|r| r.ok) {

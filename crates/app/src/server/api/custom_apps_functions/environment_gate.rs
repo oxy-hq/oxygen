@@ -54,6 +54,12 @@ pub(crate) enum Entrance {
     /// is granted (`agent_gate`). The token runs a function there and nowhere
     /// else — not in production, which every other caller is admitted to.
     SandboxAgent { own_sandbox: bool },
+    /// `/fn` with a sandbox agent token that names **staging**. `granted` is
+    /// whether that token holds this app's staging — its own `app_staging`
+    /// grant, and its minter's reach (`agent_gate`). Admitted to staging and
+    /// to nothing else; a token minted without staging is refused as it
+    /// always was.
+    StagingAgent { granted: bool },
     /// A schedule, webhook, Airway step or manual job: no viewer.
     Queued,
 }
@@ -72,7 +78,8 @@ pub(crate) enum RefusedReason {
     NotStaff,
     /// A non-production environment runs only on a staff route call.
     QueuedOutsideProduction,
-    /// A sandbox agent token, anywhere but a sandbox it created.
+    /// A sandbox agent token, anywhere but a sandbox it created — or, for a
+    /// token granted an app's staging, that staging.
     NotOwnSandbox,
 }
 
@@ -143,7 +150,15 @@ pub(crate) fn admit(
             environment: resolved.clone(),
             policy: EnvPolicy::for_environment(resolved.environment.clone()),
         }),
-        (_, Entrance::SandboxAgent { .. }) => Err(refused(RefusedReason::NotOwnSandbox)),
+        // The staging a token was granted, under staging's own policy: every
+        // write isolated or held, exactly as for a staff route call there.
+        (Staging, Entrance::StagingAgent { granted: true }) => Ok(Admission {
+            environment: resolved.clone(),
+            policy: EnvPolicy::for_environment(resolved.environment.clone()),
+        }),
+        (_, Entrance::SandboxAgent { .. } | Entrance::StagingAgent { .. }) => {
+            Err(refused(RefusedReason::NotOwnSandbox))
+        }
         (Production, _)
         | (
             Staging | Dev { .. },
@@ -277,3 +292,7 @@ pub(crate) async fn with_build_pin(
 #[cfg(test)]
 #[path = "environment_gate_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "environment_gate_staging_tests.rs"]
+mod staging_tests;

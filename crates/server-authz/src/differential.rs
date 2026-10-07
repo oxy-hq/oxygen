@@ -814,3 +814,8 @@ fn workspace_preview_subtracts_only_what_the_staff_door_cannot_see() {
 // The sandbox agent token against the same gates, over the same caller shapes.
 #[path = "differential_sandbox.rs"]
 mod sandbox;
+
+// And the token's staging option: the same oracle, with staging of a granted
+// app covered and everything else as it was.
+#[path = "differential_sandbox_staging.rs"]
+mod sandbox_staging;

@@ -398,6 +398,11 @@ pub struct BatchItemResult {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The machine-readable code of a failure that has one — today only
+    /// `draft_published_by_agent`, a promote of a build a sandbox agent token
+    /// published. Absent, not `null`, on every other row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
 }
 
 impl BatchItemResult {
@@ -406,6 +411,7 @@ impl BatchItemResult {
             id,
             ok: true,
             error: None,
+            code: None,
         }
     }
 
@@ -414,6 +420,16 @@ impl BatchItemResult {
             id,
             ok: false,
             error: Some(message),
+            code: None,
+        }
+    }
+
+    /// [`Self::failed`] for an app operation's failure: its sentence, and its
+    /// code when it has one.
+    pub(super) fn refused(id: Uuid, failure: super::ops::AppOpError) -> Self {
+        Self {
+            code: failure.code(),
+            ..Self::failed(id, failure.message)
         }
     }
 }

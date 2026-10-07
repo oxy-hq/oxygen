@@ -101,11 +101,26 @@ impl Admitted {
 /// of an app it is granted — where it is also the app's admin, as the gate
 /// above asks of everyone else. Production (the absent parameter), staging
 /// and another creator's sandbox are answered as an unknown app is.
+///
+/// A token granted the app's staging reads staging's lines too, those written
+/// since the grant (`own_since`'s staging arm). Without the grant each step
+/// below refuses staging, as before.
 async fn agent_environment(outcome: &AuthOutcome, raw: Option<&str>) -> Result<Admitted, Response> {
     use crate::server::api::custom_apps_agent::resolve_app_role_in;
     let not_found = || super::error_response(StatusCode::NOT_FOUND, "not permitted");
     let environment = requested_environment(raw).map_err(IntoResponse::into_response)?;
-    if !matches!(environment, AppEnvironment::Dev { .. }) {
+    // A sandbox — or staging, for a token whose own grant names this app's
+    // staging, and then from that grant on. Production is never asked about,
+    // and a token minted without staging is answered before any read, as it
+    // always was.
+    let asked = match environment {
+        AppEnvironment::Dev { .. } => true,
+        AppEnvironment::Staging => {
+            crate::server::api::custom_apps_agent::holds_staging(&outcome.caller, &outcome.app)
+        }
+        AppEnvironment::Production => false,
+    };
+    if !asked {
         return Err(not_found());
     }
     let db = establish_connection().await.map_err(|e| {

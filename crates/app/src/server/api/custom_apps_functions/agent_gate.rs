@@ -8,12 +8,20 @@
 //! (`may_open_environment`), which holds only for a granted app and an own
 //! sandbox. `environment_gate::admit` then refuses the token's entrance
 //! everywhere else, production included.
+//!
+//! **Staging, for a token granted it.** The serve tree's fence runs before
+//! authentication and can only read the header's shape, so it lets a token
+//! name `staging`; whether **this** token holds the app's staging is decided
+//! here, twice: the credential's own grant for this app ([`holds_staging`]),
+//! and oxy-authz for the minter's reach. A token minted without staging gets
+//! the answer it always did.
 
 use chrono::{DateTime, Utc};
 use oxy_app_core::custom_app_environment::AppEnvironment;
 use uuid::Uuid;
 
 use super::environment_gate::Entrance;
+use crate::server::api::custom_apps_agent::holds_staging;
 use crate::server::api::custom_apps_env_resolve::{ResolvedEnvironment, may_open_environment};
 use crate::server::api::custom_apps_sandbox_instance::own_since;
 use oxy_server_authz::Caller;
@@ -56,18 +64,27 @@ fn bound_key(key: &str, since: DateTime<Utc>) -> String {
     format!("{key}@{}", since.timestamp_micros())
 }
 
-/// The token's entrance to `resolved` of `app`. Only a `dev-*` sandbox is
-/// ever asked about: production and staging are not the token's, whatever a
-/// decision about them would say.
+/// The token's entrance to `resolved` of `app`. A `dev-*` sandbox is asked
+/// about, and staging only for a token whose own grant names this app's
+/// staging. Production is not the token's, whatever a decision about it would
+/// say.
 pub(crate) async fn entrance(
     db: &sea_orm::DatabaseConnection,
     resolved: &ResolvedEnvironment,
     caller: &Caller,
     app: &entity::apps::Model,
 ) -> Entrance {
-    let own_sandbox = matches!(resolved.environment, AppEnvironment::Dev { .. })
-        && may_open_environment(db, caller, app, &resolved.environment).await;
-    Entrance::SandboxAgent { own_sandbox }
+    let environment = &resolved.environment;
+    match environment {
+        AppEnvironment::Dev { .. } => Entrance::SandboxAgent {
+            own_sandbox: may_open_environment(db, caller, app, environment).await,
+        },
+        AppEnvironment::Staging => Entrance::StagingAgent {
+            granted: holds_staging(caller, app)
+                && may_open_environment(db, caller, app, environment).await,
+        },
+        AppEnvironment::Production => Entrance::SandboxAgent { own_sandbox: false },
+    }
 }
 
 #[cfg(test)]

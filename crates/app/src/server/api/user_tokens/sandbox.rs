@@ -19,6 +19,12 @@
 //! holds the token inside its minter's reach — every request the token makes
 //! re-reads the minter's live standing.
 //!
+//! ## Staging
+//!
+//! A mint that says `"staging": true` is also held to apps whose staging the
+//! caller may open (`sandbox_staging::check`), and stores one `app_staging`
+//! grant beside each app's `app_sandbox` one. Without it, nothing here moved.
+//!
 //! ## Fixed once minted
 //!
 //! Nothing edits one: rename, widen, extend and regenerate answer 409
@@ -44,7 +50,7 @@ use super::access_audit::Access;
 use super::audit::{self, Event, Own};
 use super::error::TokenError;
 use super::service::{self, Minted};
-use super::{policy_cap, view};
+use super::{policy_cap, sandbox_staging, view};
 use crate::server::authz::{self, globals};
 
 /// The two capabilities a sandbox takes, and so a mint for one.
@@ -57,7 +63,7 @@ fn may_mint_in(standing: &globals::FreshStanding, org_id: Uuid) -> bool {
 /// The caller's standing, read now. A read that fails is a 500, never "no
 /// standing" (which would answer 404 for an app the caller may mint for) and
 /// never "any standing".
-async fn standing_of(
+pub(super) async fn standing_of(
     db: &DatabaseConnection,
     actor: &RequestActor,
 ) -> Result<globals::FreshStanding, TokenError> {
@@ -133,6 +139,9 @@ pub(super) async fn check(
     let request =
         mint::parse(body, default_name).map_err(|e| TokenError::InvalidSandboxToken(e.0))?;
     let apps = mintable(db, actor, &request.apps).await?;
+    if request.staging {
+        sandbox_staging::check(db, actor, &apps).await?;
+    }
     Ok(Checked { request, apps })
 }
 
@@ -171,6 +180,7 @@ pub(super) async fn create(
             minter: actor.id,
             name: checked.request.name.clone(),
             apps: granted.clone(),
+            staging: checked.request.staging,
             expires_at,
             source,
         },
@@ -260,7 +270,10 @@ pub struct SandboxAppOption {
 }
 
 /// The app with its org's names, or nothing for an app whose org is gone.
-fn option_of(app: &apps::Model, orgs: &[organizations::Model]) -> Option<SandboxAppOption> {
+pub(super) fn option_of(
+    app: &apps::Model,
+    orgs: &[organizations::Model],
+) -> Option<SandboxAppOption> {
     let org = orgs.iter().find(|org| org.id == app.org_id)?;
     Some(SandboxAppOption {
         id: app.id,
@@ -272,7 +285,7 @@ fn option_of(app: &apps::Model, orgs: &[organizations::Model]) -> Option<Sandbox
     })
 }
 
-async fn orgs_of<C: ConnectionTrait>(
+pub(super) async fn orgs_of<C: ConnectionTrait>(
     db: &C,
     apps: &[apps::Model],
 ) -> Result<Vec<organizations::Model>, TokenError> {
@@ -317,80 +330,8 @@ pub(super) async fn mintable_options(
     Ok(options)
 }
 
-/// Who minted a sandbox agent token — the user every request on it acts as.
-#[derive(Debug, PartialEq, Serialize)]
-pub struct MinterDto {
-    pub user_id: Uuid,
-    pub email: Option<String>,
-}
-
-/// One app a sandbox agent token names, as the token itself is told.
-#[derive(Debug, PartialEq, Serialize)]
-pub struct GrantedAppDto {
-    pub id: Uuid,
-    pub org_slug: String,
-    pub slug: String,
-    pub name: String,
-}
-
-/// What `GET /api/auth/token` adds for a sandbox agent token: its minter and
-/// the apps it may run the loop on. `oxyc` resolves `<org>/<app>` against this
-/// list, since the token reaches no app directory.
-#[derive(Debug, PartialEq, Serialize)]
-pub struct SelfDescription {
-    pub minter: MinterDto,
-    pub apps: Vec<GrantedAppDto>,
-}
-
-/// The token's own apps, by the grants it holds **now**: a grant that was
-/// revoked, or whose app is gone, is not listed.
-pub(super) async fn describe(
-    db: &DatabaseConnection,
-    actor: &RequestActor,
-    row: &api_tokens::Model,
-) -> Result<Option<SelfDescription>, TokenError> {
-    if !mint::is_sandbox_agent(row) {
-        return Ok(None);
-    }
-    let grants = oxy_auth::token::personal::grants_for(db, &[row.id]).await?;
-    // `(app, org)` of each live grant: an app that left the org its grant
-    // names is not the token's, exactly as admission reads it.
-    let live: Vec<(Uuid, Uuid)> = grants
-        .iter()
-        .filter(|g| g.revoked_at.is_none())
-        .filter_map(|g| g.app_id.map(|app_id| (app_id, g.org_id)))
-        .collect();
-    let apps: Vec<apps::Model> = if live.is_empty() {
-        Vec::new()
-    } else {
-        Apps::find()
-            .filter(apps::Column::Id.is_in(live.iter().map(|(app_id, _)| *app_id)))
-            .order_by_asc(apps::Column::Slug)
-            .all(db)
-            .await?
-            .into_iter()
-            .filter(|app| live.contains(&(app.id, app.org_id)))
-            .collect()
-    };
-    let orgs = orgs_of(db, &apps).await?;
-    let apps = apps
-        .iter()
-        .filter_map(|app| option_of(app, &orgs))
-        .map(|app| GrantedAppDto {
-            id: app.id,
-            org_slug: app.org_slug,
-            slug: app.slug,
-            name: app.name,
-        })
-        .collect();
-    Ok(Some(SelfDescription {
-        minter: MinterDto {
-            user_id: actor.id,
-            email: actor.email.clone(),
-        },
-        apps,
-    }))
-}
+pub(super) use super::sandbox_describe::describe;
+pub use super::sandbox_describe::{GrantedAppDto, MinterDto, SelfDescription};
 
 #[cfg(test)]
 #[path = "sandbox_tests.rs"]

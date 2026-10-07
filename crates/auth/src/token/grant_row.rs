@@ -63,6 +63,15 @@ impl GrantRow {
         }
     }
 
+    /// The grant that may sit beside an app's `app_sandbox` one, on a sandbox
+    /// agent token minted with `staging`: the same app, in the same org.
+    pub(super) fn app_staging(org_id: Uuid, app_id: Uuid) -> Self {
+        Self {
+            kind: api_token_grants::KIND_APP_STAGING,
+            ..Self::app_sandbox(org_id, app_id)
+        }
+    }
+
     /// The row under a token. A new grant is live: not revoked.
     pub(super) fn for_token(
         self,

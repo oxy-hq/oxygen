@@ -30,7 +30,11 @@ pub fn credential(
             ceiling: RoleCeiling::Admin,
         }],
         app_publish: Vec::new(),
-        app_sandbox: vec![AppSandboxGrant { org_id, app_id }],
+        app_sandbox: vec![AppSandboxGrant {
+            org_id,
+            app_id,
+            staging: false,
+        }],
         blocked_orgs: Vec::new(),
         service_account: None,
         expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(8)),

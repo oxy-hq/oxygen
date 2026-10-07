@@ -12,6 +12,7 @@ mod handler;
 mod previews_read_only;
 mod sandbox_agent_refusal;
 mod sandbox_agent_stack;
+mod sandbox_agent_staging_stack;
 mod token_grant_scope;
 
 fn routes() -> &'static [GeneratedRoute] {

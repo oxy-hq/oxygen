@@ -21,6 +21,9 @@ use sea_orm::QuerySelect;
 use sea_orm::TransactionTrait;
 use uuid::Uuid;
 
+use crate::server::api::custom_apps_agent_built::{
+    self as agent_built, AgentBuilt, PromoteRefusal,
+};
 use crate::server::api::workspace_org::{WorkspaceOrgMatch, workspace_in_org};
 
 use super::dto::{ApiErr, AppResponse, ErrorBody};
@@ -241,30 +244,50 @@ pub(super) fn rows_to_responses(
 pub struct AppOpError {
     pub status: StatusCode,
     pub(super) message: String,
+    /// Set for the one refusal a client branches on by code: a promote of a
+    /// build a sandbox agent token published (`custom_apps_agent_built`).
+    pub(super) agent_built: Option<Box<AgentBuilt>>,
 }
 
 impl AppOpError {
-    fn not_found() -> Self {
+    fn of(status: StatusCode, message: impl Into<String>) -> Self {
         Self {
-            status: StatusCode::NOT_FOUND,
-            message: "App not found.".into(),
+            status,
+            message: message.into(),
+            agent_built: None,
         }
     }
 
+    fn not_found() -> Self {
+        Self::of(StatusCode::NOT_FOUND, "App not found.")
+    }
+
     fn internal() -> Self {
-        Self {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "Internal server error.".into(),
-        }
+        Self::of(StatusCode::INTERNAL_SERVER_ERROR, "Internal server error.")
     }
 
     /// A build can't be promoted because its recorded validation status is not
     /// `passed` (the validator-can't-be-bypassed gate).
     fn validation_failed(detail: impl Into<String>) -> Self {
+        Self::of(StatusCode::UNPROCESSABLE_ENTITY, detail)
+    }
+
+    /// A build can't be promoted because a sandbox agent token published it
+    /// and nobody has approved it: `409 draft_published_by_agent`.
+    fn agent_built(built: AgentBuilt) -> Self {
         Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            message: detail.into(),
+            status: StatusCode::CONFLICT,
+            message: built.message(),
+            agent_built: Some(Box::new(built)),
         }
+    }
+
+    /// The code of a refusal that has one; `None` for every failure that was
+    /// always a status and a sentence.
+    pub(super) fn code(&self) -> Option<&'static str> {
+        self.agent_built
+            .as_ref()
+            .map(|_| agent_built::PROMOTE_REFUSED)
     }
 
     /// The app can't be deleted because it has a provisioned OLTP store. Deleting
@@ -273,9 +296,20 @@ impl AppOpError {
     /// first; the message reaches the operator (batch surfaces it per-id, and the
     /// single-delete handler now returns it as a body too).
     fn has_oltp_store(org_id: Uuid, writer: &oxy_oltp::schema::WriterRef) -> Self {
-        Self {
-            status: StatusCode::CONFLICT,
-            message: oltp_store_blocks_message("deleted", org_id, writer),
+        Self::of(
+            StatusCode::CONFLICT,
+            oltp_store_blocks_message("deleted", org_id, writer),
+        )
+    }
+}
+
+/// What a one-shot promote route answers: the bare status it always did — or,
+/// for the coded refusal, its JSON body.
+impl From<AppOpError> for PromoteRefusal {
+    fn from(failure: AppOpError) -> Self {
+        match failure.agent_built {
+            Some(built) => Self::AgentBuilt(built),
+            None => Self::Status(failure.status),
         }
     }
 }
@@ -334,6 +368,14 @@ pub(super) fn oltp_store_blocks_message(
 /// validate what isn't there), matching `custom_apps_publish::gate_promotion`.
 /// Dormant today (every stored build is `passed`); load-bearing once gate 2 can
 /// record `failed`.
+///
+/// **And never a build a sandbox agent token published.** Each of these paths
+/// moves production's pointer to whatever build it finds — the draft, or the
+/// newest — with no look at whose it is. A build marked
+/// `published_token_id` is refused here (`409 draft_published_by_agent`,
+/// naming the token and its minter), so a person's promote, a batch and a
+/// publish token's promote all stop at the same place. Every other build's
+/// mark is `NULL`, read off the row this gate already loads.
 async fn gate_build_promotion(db: &DatabaseConnection, build_pk: Uuid) -> Result<(), AppOpError> {
     let build = AppBuilds::find_by_id(build_pk)
         .one(db)
@@ -353,7 +395,14 @@ async fn gate_build_promotion(db: &DatabaseConnection, build_pk: Uuid) -> Result
             build.validation_status
         )));
     }
-    Ok(())
+    match agent_built::refusing_promote(db, &build).await {
+        Ok(None) => Ok(()),
+        Ok(Some(built)) => Err(AppOpError::agent_built(built)),
+        Err(e) => {
+            tracing::error!("promotion gate: build {build_pk} publisher lookup failed: {e}");
+            Err(AppOpError::internal())
+        }
+    }
 }
 
 /// Load an app's org — needed to build [`AppResponse`]. A missing org is a
@@ -581,10 +630,7 @@ pub(super) async fn promote_latest_one(
             tracing::error!("promote_latest_one {id} build lookup failed: {e}");
             AppOpError::internal()
         })?
-        .ok_or_else(|| AppOpError {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            message: "No builds to promote.".into(),
-        })?;
+        .ok_or_else(|| AppOpError::of(StatusCode::UNPROCESSABLE_ENTITY, "No builds to promote."))?;
 
     // Promotion gate (validator-can't-be-bypassed): the newest build goes live
     // only if its recorded validation is `passed`. This is exactly where a
@@ -844,6 +890,10 @@ fn like_escape(s: &str) -> String {
     }
     out
 }
+
+#[cfg(test)]
+#[path = "ops_refusal_tests.rs"]
+mod refusal_tests;
 
 #[cfg(test)]
 mod oltp_guard_message_tests {

@@ -46,12 +46,13 @@ pub struct GrantDto {
     pub role_ceiling: Option<String>,
     pub app_id: Option<Uuid>,
     pub app_name: Option<String>,
-    /// The org's slug, on an `app_sandbox` grant only: with [`Self::app_slug`]
-    /// it is how the app is named to a person and to `oxyc`
-    /// (`acme/store-ops`). Absent, not `null`, on every other kind.
+    /// The org's slug, on an `app_sandbox` grant and the `app_staging` grant
+    /// beside it: with [`Self::app_slug`] it is how the app is named to a
+    /// person and to `oxyc` (`acme/store-ops`). Absent, not `null`, on every
+    /// other kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub org_slug: Option<String>,
-    /// The app's slug, on an `app_sandbox` grant only.
+    /// The app's slug, on an `app_sandbox` or `app_staging` grant only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_slug: Option<String>,
     /// Set when the org ended this grant.
@@ -174,9 +175,13 @@ pub(crate) fn grant_dto(grant: &api_token_grants::Model, names: &Names) -> Grant
     let name_of = |names: &HashMap<Uuid, String>, id: Option<Uuid>| {
         id.map(|id| names.get(&id).cloned().unwrap_or_default())
     };
-    // Slugs ride an `app_sandbox` grant alone. One whose org or app is gone
-    // reads as its name does: empty, never absent.
-    let sandbox = grant.kind == api_token_grants::KIND_APP_SANDBOX;
+    // Slugs ride the two grants a sandbox agent token holds: `app_sandbox`,
+    // and the `app_staging` one beside it. One whose org or app is gone reads
+    // as its name does: empty, never absent.
+    let sandbox = matches!(
+        grant.kind.as_str(),
+        api_token_grants::KIND_APP_SANDBOX | api_token_grants::KIND_APP_STAGING
+    );
     GrantDto {
         id: grant.id,
         kind: grant.kind.clone(),
