@@ -75,8 +75,8 @@ async fn a_login_mints_an_all_access_token_named_for_the_host() {
         .with_timezone(&Utc);
     let lifetime = expires - Utc::now();
     assert!(
-        lifetime > Duration::days(89) && lifetime <= Duration::days(90),
-        "90 days, got {lifetime}"
+        lifetime > Duration::days(364) && lifetime <= Duration::days(365),
+        "a year, got {lifetime}"
     );
 
     let secret = minted["secret"].as_str().expect("the secret");

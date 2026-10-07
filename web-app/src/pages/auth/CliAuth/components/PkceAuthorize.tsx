@@ -101,7 +101,7 @@ const PkceAuthorize: React.FC<{ request: PkceRequest }> = ({ request }) => {
       description={
         <>
           oxyc on that computer will act as {session?.email ?? "you"}, with everything you can
-          reach, for 90 days. It replaces any earlier oxyc login from the same computer.
+          reach, for a year. It replaces any earlier oxyc login from the same computer.
         </>
       }
     >

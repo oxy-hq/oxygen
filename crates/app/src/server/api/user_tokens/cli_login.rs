@@ -8,7 +8,7 @@
 //!   for an `oxy_pat_`. The code is the only thing that names the user, so
 //!   every failure answers the same 400 `invalid_code`.
 //!
-//! The token is `oxyc on <hostname>`: all-access, 90 days, carrying `platform`
+//! The token is `oxyc on <hostname>`: all-access, a year, carrying `platform`
 //! and `partner` only where its owner holds that standing. Logging in again
 //! from the same host retires the earlier token of that name.
 //!
@@ -41,7 +41,7 @@ use oxy_app_core::audit::RequestActor;
 use oxy_auth::extractor::SessionOnly;
 use oxy_auth::token::cli_login::{self, Redeemed};
 use oxy_auth::token::credential::source;
-use oxy_auth::token::personal::{self, DEFAULT_LIFETIME_DAYS, NewToken};
+use oxy_auth::token::personal::{self, LOGIN_LIFETIME_DAYS, NewToken};
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -201,7 +201,7 @@ async fn mint(
         platform,
         partner,
         grants: Vec::new(),
-        expires_at: Some(Utc::now() + Duration::days(DEFAULT_LIFETIME_DAYS)),
+        expires_at: Some(Utc::now() + Duration::days(LOGIN_LIFETIME_DAYS)),
         source: source::OXYC_LOGIN,
     };
     let minted = personal::create(&txn, new).await?;

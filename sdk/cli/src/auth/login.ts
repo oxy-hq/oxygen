@@ -8,7 +8,7 @@
  *   `?code=`    a one-time code. Traded, with the PKCE verifier that never left
  *               this process, at `POST /api/auth/cli/exchange` for an
  *               `oxy_pat_` personal access token named `oxyc on <hostname>` —
- *               revocable, ninety days, and replacing the host's previous one.
+ *               revocable, a year, and replacing the host's previous one.
  *   `?token=`   the session JWT itself — what a deployment that predates the
  *               exchange hands back, having ignored the two parameters it does
  *               not know. Cached exactly as it always was.

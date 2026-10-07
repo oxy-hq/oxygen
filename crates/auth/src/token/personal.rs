@@ -32,6 +32,16 @@ use super::grant_row::GrantRow;
 /// A token created without an expiry choice lasts this long.
 pub const DEFAULT_LIFETIME_DAYS: i64 = 90;
 
+/// How long the token `oxyc login` mints lasts.
+///
+/// Longer than [`DEFAULT_LIFETIME_DAYS`] on purpose. A login is re-approved in
+/// a browser each time it lapses, on every deployment a person works against,
+/// and an agent or script that finds it lapsed fails where nobody is watching.
+/// What makes a year acceptable is that the token is no longer invisible:
+/// staff see every token that carries a standing and can end one
+/// (`/api/admin/standing-tokens`), and the owner can still end or extend it.
+pub const LOGIN_LIFETIME_DAYS: i64 = 365;
+
 /// One workspace grant to store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GrantSpec {

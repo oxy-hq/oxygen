@@ -196,7 +196,7 @@ Settings → Workspace → Legacy API keys. Use an API token for anything new.
 
 **`login`** runs a browser loopback flow. Against a current deployment it
 receives a one-time code and exchanges it (PKCE) for a **personal access
-token** named `oxyc on <hostname>`: revocable, ninety days, and replacing that
+token** named `oxyc on <hostname>`: revocable, a year, and replacing that
 machine's previous one. No credential travels in a URL. Against a deployment
 that predates the exchange it stores the session token the page hands back,
 exactly as before, and says so — nothing needs upgrading first, in either

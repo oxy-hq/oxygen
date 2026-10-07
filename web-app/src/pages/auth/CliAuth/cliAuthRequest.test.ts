@@ -98,7 +98,7 @@ describe("parseCliAuthRequest, with a kind", () => {
   });
 
   it("never reads a kind it doesn't know as a login", () => {
-    // Approving a login here would grant all access for 90 days to a client that asked for less.
+    // Approving a login here would grant all access for a year to a client that asked for less.
     for (const kind of ["personal", "service_account", "SANDBOX_AGENT", ""]) {
       const request = parse(`${PKCE}&kind=${kind}&apps=acme/store-ops`);
       expect(request).toMatchObject({ kind: "invalid", title: "Token request failed" });

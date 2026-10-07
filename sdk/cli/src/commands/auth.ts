@@ -84,7 +84,7 @@ export async function runLogin(
  *
  * IN THAT ORDER, and the second step never waits on the first succeeding. A
  * token `oxyc login` minted is a row the deployment can end, so logging out
- * ends it rather than leaving a ninety-day credential behind in a backup of
+ * ends it rather than leaving a year-long credential behind in a backup of
  * this file. But the revoke is best-effort: a session token cannot be revoked
  * at all, an older deployment has no route for it, and an unreachable one must
  * not leave you unable to log out. Whatever the server says, the entry goes.
