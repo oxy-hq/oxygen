@@ -139,8 +139,19 @@ fn only_an_agent_token_is_refused_an_edit() {
 
 #[test]
 fn a_bad_mint_is_refused_as_an_agent_tokens() {
-    let refused = parse(&json!({ "kind": "agent", "expires_in_hours": 169 }), None);
-    assert!(matches!(refused, Err(TokenError::InvalidAgentToken(why)) if why.contains("168")));
+    // With a default name, as `authorize` parses it: the hours are what is wrong.
+    let body = json!({ "kind": "agent", "expires_in_hours": 169 });
+    let refused = parse(&body, Some("agent on build-box"));
+    assert!(
+        matches!(&refused, Err(TokenError::InvalidAgentToken(why)) if why.contains("168")),
+        "{refused:?}"
+    );
+    // With none, as a stored mint is parsed, the missing name is refused first.
+    let unnamed = parse(&body, None);
+    assert!(
+        matches!(&unnamed, Err(TokenError::InvalidAgentToken(why)) if why.contains("'name'")),
+        "{unnamed:?}"
+    );
 }
 
 #[test]
