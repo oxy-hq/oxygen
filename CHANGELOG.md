@@ -2,6 +2,129 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.155] - 2026-10-07
+
+### 🚀 Features
+
+- Custom-app sandboxes — an environment per engineer or agent, driven end to end from the cli (#3431)
+- Oxyc apps — what is registered, live, healthy and used, across organizations (#3433)
+- Custom-app sandboxes get their own app-database schema on the org's oltp staging branch (#3448)
+- Airway start, backfill, cancel and reset routes are served by any replica, not only the factory (#3451)
+- Custom-app function calls run on any replica (#3447)
+- Fleet ide can leave every queued job but compiles to the workers — OXY_IDE_DEFER_QUEUE_WORK, off by default (#3452)
+- Custom-app procedure runs execute on the task queue, at most once — a deploy no longer kills a run in flight (#3446)
+- Custom-app staging from the console — asks held, automation runs refused, the preview cookie retired (#3458)
+- Custom-app issues — failures grouped the way the pager groups them, in the admin dossier (#3493)
+- Compile boundary carries markdown context documents, so a chat on a pod with no working copy reads them (#3497)
+- Compile status says when a revision cannot be compared, and a gated periodic check recompiles a stale workspace (#3495)
+- Compile request is one call that compiles a pushed branch from the commit github has, as staging (#3501)
+- Admin and traces consoles — failures, logs and traces read as ruled lists with aligned figures and labelled ids (#3506)
+- Insights delivery — a monitor scan posts the anomalies it newly found to the org's Slack, once each (#3504)
+- Monitor preview — a dry run of one monitor says what the next scan would flag, and writes nothing (#3509)
+- Workspace health history — each status change is kept, and the health tab says how long each one lasted (#3510)
+- Previews and app staging compile a pushed branch on any pod, and send an unpushed one to the factory (#3507)
+- Api tokens — personal tokens across workspaces, org service accounts, github oidc trusted access, key audit (phases 1–5) (#3408)
+- Sandbox agent token — an agent's own credential for the custom-app sandbox loop, approved once in a browser (#3511)
+- Admin sandbox agent tokens page, and the audit log names the token and client behind a row (#3516)
+- Custom apps weekly usage report — emailed to global admins, shown in admin, with a per-admin email switch (#3514)
+- Oxyc login-link signs a browser in as a personal token, so an agent has a session on a deployment (#3528)
+
+### 🐛 Bug Fixes
+
+- Release showcase starts on a repository_dispatch, re-captures merged prs, and goes red when slack refuses uploads (#3409)
+- Magic-link sign-in no longer refuses gmail and other blocked mailbox domains (#3424)
+- Metric-tree-scenario waits for the predicted impact before the judge reads the canvas (#3421)
+- Clickhouse log and trace queries bind or escape caller input — a backslash could break out of the literal (#3425)
+- Agentic ide-save presses the platform's save shortcut — meta+s is not bound on linux ci (#3426)
+- Ide reads and saves on a detached head, and branch-only actions say why they cannot run (#3428)
+- Sql literals are escaped as each engine reads them — a backslash could end one early on clickhouse and others (#3429)
+- Typescript lint backlog and the web-app bugs found fixing it (#3434)
+- Web-app unit suite and test typecheck are green and now gate, plus the remaining known bugs (#3443)
+- Custom-app functions can upload to a url their own invocation minted outside production (#3445)
+- Migration lock polls instead of blocking (#3444)
+- Sqlquote escapes by the engine its sql is sent to — a backslash could end the literal on clickhouse and others (#3437)
+- The rest of the noticed bugs — data, saves, accessibility, dead code and secrets (#3456)
+- Admin staff scope — a grant bounded to named orgs is narrowed on every org-owned admin surface (#3442)
+- Data app viewer values are data not templates; bigquery schema param and sdk useQuery params quoted per engine (#3449)
+- Custom-app ask records its caller for recovery, and cancel no longer fails a finished or leased run (#3475)
+- Release build — oxy-api-source-upload raises the recursion limit the optimized build has overflowed since #3460 (#3476)
+- Stale-run cleanup spares a claimed entry — a serve boot no longer fails a run a driver is still preparing (#3474)
+- Web-app coordinator, observability and camera fleet stop sending the ide's ?branch=, which pinned them to one pod (#3485)
+- Observability consoles — a linkable traces view, a summary strip that renders, app logs by request (#3488)
+- Agent traces, metrics and execution analytics are confined to the workspace that ran them (#3491)
+- Agentic recovery resumes a parent whose children have all reported once, with their answer (#3499)
+- The world-model graph reads the compiled revision and is served by any replica (#3492)
+- A world-model display config that could not be read is a retryable 503, not an unfiltered graph (#3498)
+- Coordinator run history, recovery and queue health are served by any replica (#3489)
+- Production error surfaced by weekly Sentry triage (#3470)
+- A function's request body is on its heap once, not twice — and an exceeded_memory page says how to read it (#3503)
+- Custom-app zone falls back to customer-apps under the org-subdomain zone, so dev and staging get staging hosts (#3500)
+- The invoke script takes the request body before it calls __buildCtx (#3508)
+- Token lifecycle audit rows carry only their own org's grants and apps (#3518)
+- Prepare-release tags only oxy release commits, not oxyc's chore: release @oxy-hq/cli (#3525)
+- The approval page stops splitting an email mid-word, and oxyc names the sandbox it publishes to (#3527)
+- Restore @playwright/mcp, which .mcp.json launches and the monthly dead-code cleanup removed (#3529)
+
+### 💼 Other
+
+- Queue heavy cargo recipes on a machine-wide build lease (#3387)
+- Workspace clippy policy — bug-shaped lints are errors, cosmetic groups are off (#3427)
+- Typescript lint policy — type-aware bug rules are errors, cosmetic rules are off (#3430)
+- Bump airlayer to abe99c2 — unresolvable rollups refuse instead of dropping (#3392)
+- Every surface crate pins recursion_limit 256, and a guard fails the build when a new one does not (#3479)
+
+### 🚜 Refactor
+
+- Extract frontline into a sibling crate (oxy-api-frontline) (#3390)
+- Extract source uploads into a sibling crate (oxy-api-source-upload) (#3397)
+- Oxy-platform drops agentic-runtime — the task-router listener is typed platform-side, mapped in oxy-app (#3436)
+- Oxy-shared owns SemanticLayerError so the bottom crate depends on no domain crate (#3435)
+- Route catalog moves above oxy-app — a surface-crate edit stops recompiling oxy-app (#3438)
+- Oxy_app::surface — the one contract surface crates import oxy-app through, enforced by a test (#3439)
+- Oxy-tenancy domain crate — org teams and app-access grants move below oxy-app (#3441)
+- Admin seam on SurfaceSeams — extracted surfaces mount staff-console sections behind a capability guard (#3454)
+- Tenancy moves into oxy-api-tenancy — organizations, org teams, org logo and the staff org/workspace sections (#3460)
+- A sandbox agent token's refusals answer in one json shape, whatever the route (#3519)
+
+### 📚 Documentation
+
+- Figure 1 and restructure for the Data Infrastructure pages (#3405)
+- Tighten World Model and Data Infrastructure intro pages (#3417)
+- Add a Custom Apps overview with its Figure 1 (#3419)
+- Biweekly internal-docs distillation (#3420)
+- Previews overview page, index rows for the previews docs, and two ide git findings (#3418)
+- Crate boundaries — surface-crate rules S1–S7 and a review of every workspace crate (#3432)
+- Design for a scoped credential an agent holds to drive the sandbox loop (#3450)
+- Domain-boundaries records the tenancy extraction as shipped and L4 as what the backlog still lists (#3466)
+- Update product-context.md from recent changelogs (#3473)
+- Refresh ownership matrix + CODEOWNERS (weekly) (#3472)
+- The plan to retire the factory — compile from git, chat off the filesystem, no ide; the fleet guide records what shipped (#3480)
+- Remove orphaned agents context partial with a dead link (#3482)
+- Add Air Conductor page for the durable task engine (#3481)
+- Airconductor is one word, and new docs/build pages stage on a plain git add (#3487)
+
+### 🧪 Testing
+
+- The organizations mount is pinned where oxy-server composes it, not in oxy-app (#3468)
+- Fleet route checks that could not fail — org and github mounts, the serial-db group, fleet-routes.tsv (#3477)
+- Web-app unit tests drop persist-and-sync, whose 100 ms restore timer outlived jsdom and failed an all-green run (#3502)
+- The token settings flows describe the redesigned list, which no longer shows the token prefix in the row (#3515)
+
+### ⚙️ Miscellaneous Tasks
+
+- Local airhouse stack tracks image 0.1.51, and its minio image exists again (#3416)
+- Prod gate's sentry query looks back 14 days, and mirror pushes queue instead of racing (#3440)
+- Local stacks pull minio from ghcr.io/oxy-hq, a copy we own, instead of chainguard's registry (#3453)
+- Release @oxy-hq/cli 0.6.0 (#3457)
+- Custom-app checks run off the quarter-hour so dropped schedule ticks stop silencing the prod monitor
+- A build that stays broken is said each working morning, with how long — and its runs are read unfiltered (#3478)
+- Release showcase takes its pictures at release, not on every pr push (#3483)
+- Release showcase checks the bot is in the channel before it spends (#3512)
+- Claude review cannot pass unfinished; one reviewer, one pass, no subagents, told its $5 budget (#3517)
+- Release @oxy-hq/cli 0.7.0 (#3513)
+- Monthly dead code cleanup 2026-10-07 (#3524)
+- Weekly release PR opens Monday 10:00 UTC+7 instead of Thursday (#3530)
+
 ## [0.5.154] - 2026-10-01
 
 ### 🚀 Features
@@ -95,6 +218,7 @@ All notable changes to this project will be documented in this file.
 - Retire the 0.5.153 carrier scaffolding (#3339)
 - Drop the two tables the blocking custom-app preflight kept (#3371)
 - Monthly dead code cleanup 2026-10-01 (#3414)
+- Release 0.5.154 (#3415)
 
 ## [0.5.153] - 2026-09-25
 
