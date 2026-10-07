@@ -18,7 +18,7 @@ jobs:
   # But a push to main still REFRESHES one that is already open. Release PRs sit
   # for hours to days before someone merges them, and the tag lands on the merge,
   # so everything merged meanwhile is in the release. The PR body is what
-  # `content-changelog.yaml` drafts the public changelog from: frozen at Thursday
+  # `content-changelog.yaml` drafts the public changelog from: frozen at Monday
   # 10:00, it would silently drop every PR merged while the release waited.
   release-pr-open:
     name: Is a release PR open?

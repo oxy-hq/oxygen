@@ -25,9 +25,9 @@ name: Publish release
 
 on:
   schedule:
-    # Thursday 03:00 UTC = 10:00 Asia/Ho_Chi_Minh, the slot the old private release
-    # used, kept so nobody has to learn a new day.
-    - cron: "0 3 * * 4"
+    # Monday 03:00 UTC = 10:00 Asia/Ho_Chi_Minh — the release PR opens at the start
+    # of the week and waits for someone to merge it.
+    - cron: "0 3 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -96,7 +96,7 @@ jobs:
 
       # What this publish would be called, and how far main has moved past the
       # digest being published. Both go in the summary whether or not we proceed:
-      # "nothing to publish" is a normal Thursday and should still say so.
+      # "nothing to publish" is a normal Monday and should still say so.
       - name: Work out the version and the delta
         id: plan
         env:
