@@ -272,6 +272,19 @@
   cold_usd: 0.70
   warm_usd: 0.015
 
+- flow: admin-standing-tokens
+  # Cloud mode, under a STAFF session (see the flow header). Three cases. The
+  # first has no act: two waits, six $0 asserts, one judge. The second mints a
+  # workspace-scoped personal token with staff standing in Settings and revokes
+  # it from the staff list: nine acts (two navigations, name a token and pick
+  # selected access, tick a workspace, tick staff access, submit, dismiss the
+  # secret, Revoke, confirm), five $0 asserts, one judge. The third clicks two
+  # filter controls: two acts, eight $0 asserts, one judge. Every click is
+  # testid-led. An estimate: not recorded yet, and in no CI bucket, so neither
+  # number has been measured.
+  cold_usd: 0.90
+  warm_usd: 0.02
+
 - flow: airway-pipeline-run
   # One act step (click Run, aria-label only — no testid on this surface
   # yet). Cold cost is dominated by that click's tool-pick plus the judge

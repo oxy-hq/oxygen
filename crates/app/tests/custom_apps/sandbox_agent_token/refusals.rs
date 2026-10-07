@@ -244,6 +244,7 @@ async fn nothing_else_on_the_api_exists(s: &Scene) {
             format!("/admin/apps/{app}/invocations?environment={OWN}"),
         ),
         ("GET", "/admin/sandbox-agent-tokens".to_string()),
+        ("GET", "/admin/standing-tokens".to_string()),
         ("GET", "/user/tokens".to_string()),
         ("GET", "/orgs".to_string()),
         ("GET", "/assume".to_string()),

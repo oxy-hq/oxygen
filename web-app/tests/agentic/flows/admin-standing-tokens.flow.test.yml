@@ -1,0 +1,187 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Admin → Staff & partner tokens (`/admin/standing-tokens`): every personal
+# API token that carries its owner's staff or partner standing, newest first,
+# with a filter by standing and revoke
+# (web-app/src/pages/admin/AdminStandingTokens/index.tsx, over
+# `GET /api/admin/standing-tokens` and `POST …/{id}/revoke`).
+#
+# NOT RECORDED YET, and in no CI bucket. It was written without a running
+# server, so no step here has been run. To finish it: record it cold under the
+# staff identity below (`HEADED=1 pnpm test:agentic admin-standing-tokens`)
+# and add it to the invocation `scripts/verify-all.sh` runs the admin flows in.
+#
+# Backend: `--enterprise` (cloud). Do NOT use `--local`.
+#
+# Identity: through /dev-login as `e2e@oxy.tech`, for the reason
+# admin-airhouse-fleet spells out (a cookie-less session on the internal port
+# reads `null` from `/api/user`, so AdminLayout bounces it). That identity must
+# hold `manage_platform_grants` over every organization (the Global Owner
+# does, and so does a Global Admin whose grant is not limited to some
+# organizations; an App Operator does not): the rail entry is gated on the
+# capability, and the routes also refuse a grant bounded to some
+# organizations. The second case also mints a token that carries
+# staff standing, so the identity must be offered "Include staff access" in the
+# token dialog, and must be a member of an org with at least one workspace to
+# tick (`oxy seed` leaves it one in the `local` org).
+#
+# The second case makes its own token: a flow cannot seed one, and Revoke is
+# offered only on a token that still works. Same name every run. On a reused
+# backend several rows share it, newest first, so every step and every check
+# names the first row, which is the one this run made. An earlier one may still
+# be live if a run stopped between minting and revoking; it is not this run's.
+# The token is scoped to one workspace, not all-access, and its secret is never
+# copied anywhere: a run that stops halfway leaves nothing usable behind.
+#
+# The third case needs a row to narrow, and the second leaves one (a revoked
+# token with staff standing). Its checks are about what the filters hide, so
+# they hold whatever else the list holds.
+#
+# What proves it: the list resolves to a table or to its empty state, never to
+# an error or the "your staff access doesn't include this list" refusal; a row
+# that carried data-token-status=active carries revoked after the confirm, with
+# no Revoke left on it; and with a filter on, no row it should hide is left.
+
+name: admin standing tokens
+target: any
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  # Case 2: navigate, mint (open, name, pick selected access, tick a workspace,
+  # tick staff access, submit), dismiss the secret, navigate, revoke, confirm
+  # ≈ 10 clicks, one type and two navigations, plus waits.
+  max_steps: 30
+
+setup:
+  - "goto:/dev-login?email=e2e@oxy.tech&next=/admin/standing-tokens"
+
+cases:
+  - name: the list mounts and resolves
+    tags: [admin, standing-tokens, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-standing-tokens]"
+      - wait_for: "selector_hidden:[data-testid=admin-async-loading]"
+    expect:
+      - assert: "selector [data-testid=admin-standing-tokens] is visible"
+      - assert: "selector [data-testid=admin-async-error] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-refused] is not visible"
+      # A token that has ended offers no Revoke. Asserted, not judged: on the
+      # sibling list the judge read an empty Actions cell beside "Revoked" as a
+      # control and failed a correct page.
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-status=revoked] [data-testid=admin-standing-tokens-revoke] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-status=expired] [data-testid=admin-standing-tokens-revoke] is not visible"
+      # Every listed token carries a standing: the route lists no other kind.
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-staff=false][data-token-partner=false] is not visible"
+      - judge: |
+          The page is at /admin/standing-tokens and shows the heading
+          "Staff & partner tokens".
+          Pass in either of these resolved states:
+          (1) a one-line summary of how many tokens are live, above a table
+              with the columns Token, Owner, Standing, Reaches, Made with,
+              Expiry and Last used, where each row names a token and an email
+              address; or
+          (2) the message "No token carries staff or partner standing." with
+              no table.
+          Fail if ANY of the following is true:
+          (a) a "Couldn't load staff and partner tokens" message is visible;
+          (b) the text "Your staff access doesn't include this list" is
+              visible;
+          (c) the page is blank or shows loading placeholders that never
+              resolved.
+
+  - name: a staff member revokes a live token from the list
+    tags: [admin, standing-tokens, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-standing-tokens]"
+      - act: |
+          Open your own token list: browser_navigate to
+          /home?settings=account.tokens.
+      - wait_for: "selector:[data-testid=settings-account-tokens]"
+      - act: |
+          Start a new token:
+          1. browser_click [data-testid=account-token-create-button].
+          2. In [data-testid=account-token-dialog], browser_type
+             "flow standing revoke token" into [data-testid=account-token-name].
+          3. browser_click [data-testid=account-token-access-selected].
+      - wait_for: "selector:[data-testid=account-token-grant-picker] [data-testid=account-token-workspace-checkbox]"
+      - act: |
+          In [data-testid=account-token-grant-picker], browser_click the first
+          [data-testid=account-token-workspace-checkbox].
+      - wait_for: "selector:[data-testid=account-token-platform]"
+      - act: |
+          Give the token staff standing: browser_click
+          [data-testid=account-token-platform] (the checkbox beside "Include
+          staff access").
+      - wait_for: "selector:[data-testid=account-token-platform][data-state=checked]"
+      - act: |
+          Create it: browser_click [data-testid=account-token-submit] (it reads
+          "Create token").
+      - wait_for: "selector:[data-testid=account-token-secret-dialog]"
+      - act: |
+          Dismiss the secret: browser_click [data-testid=account-token-secret-done]
+          (it reads "I've copied it").
+      - wait_for: "selector_hidden:[data-testid=account-token-secret-dialog]"
+      - act: |
+          Go to the staff list: browser_navigate to /admin/standing-tokens
+          (the page is [data-testid=admin-standing-tokens]).
+      - wait_for: 'selector:[data-testid=admin-standing-tokens-table] tbody tr:first-child[data-token-name="flow standing revoke token"][data-token-status=active]'
+      - act: |
+          Revoke the new token: browser_click the
+          [data-testid=admin-standing-tokens-revoke] (it reads "Revoke") inside the
+          first [data-testid=admin-standing-tokens-row][data-token-name="flow standing revoke token"].
+      - wait_for: "selector:[data-testid=admin-standing-tokens-revoke-confirm]"
+      - act: |
+          Confirm: browser_click [data-testid=admin-standing-tokens-revoke-confirm]
+          (it reads "Revoke").
+      - wait_for: "selector_hidden:[data-testid=admin-standing-tokens-revoke-confirm]"
+      - wait_for: 'selector:[data-testid=admin-standing-tokens-table] tbody tr:first-child[data-token-name="flow standing revoke token"][data-token-status=revoked]'
+    expect:
+      - assert: 'selector [data-testid=admin-standing-tokens-table] tbody tr:first-child[data-token-name="flow standing revoke token"][data-token-status=revoked] is visible'
+      # It was made with staff standing and scoped to a workspace, in Settings.
+      - assert: 'selector [data-testid=admin-standing-tokens-table] tbody tr:first-child[data-token-staff=true][data-token-all-access=false][data-token-oxyc-login=false] is visible'
+      - assert: "selector [data-testid=admin-standing-tokens-table] tbody tr:first-child [data-testid=admin-standing-tokens-revoke] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-revoke-confirm] is not visible"
+      - assert: "selector [data-testid=admin-async-error] is not visible"
+      # What the row says and offers is asserted above. The judge is left the
+      # soft part: on the sibling list it passed a statement about a row's
+      # controls that was false on screen.
+      - judge: |
+          The page is at /admin/standing-tokens and shows a table of tokens
+          that includes a row named "flow standing revoke token". No error
+          message is shown, and no confirmation dialog is open.
+
+  - name: the filters narrow the list
+    tags: [admin, standing-tokens, api-tokens, regression]
+    steps:
+      - wait_for: "selector:[data-testid=admin-standing-tokens]"
+      - wait_for: "selector:[data-testid=admin-standing-tokens-filters]"
+      - act: |
+          Show only partner tokens: browser_click
+          [data-testid=admin-standing-tokens-filter-partner] (it reads "Partner
+          standing").
+      - wait_for: "selector:[data-testid=admin-standing-tokens-filter-partner][data-state=on]"
+      - act: |
+          Hide the ended ones: browser_click
+          [data-testid=admin-standing-tokens-hide-ended] (the checkbox beside
+          "Hide expired and revoked").
+      - wait_for: "selector:[data-testid=admin-standing-tokens-hide-ended][data-state=checked]"
+    expect:
+      - assert: "selector [data-testid=admin-standing-tokens-filter-partner] has attribute data-state=on"
+      - assert: "selector [data-testid=admin-standing-tokens-hide-ended] has attribute data-state=checked"
+      # What each filter hides is gone: no token without partner standing, and
+      # none that has ended. True of an empty result too, which keeps the table.
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-partner=false] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-status=revoked] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-row][data-token-status=expired] is not visible"
+      - assert: "selector [data-testid=admin-standing-tokens-table] is visible"
+      - assert: "selector [data-testid=admin-standing-tokens-summary] is visible"
+      - assert: "selector [data-testid=admin-async-error] is not visible"
+      # Which choice is on is asserted above, not judged.
+      - judge: |
+          The page is at /admin/standing-tokens and shows the heading
+          "Staff & partner tokens", a one-line summary, and a row of controls
+          reading "All", "Staff standing", "Partner standing" and "Hide
+          expired and revoked" above a table. No error message is shown.

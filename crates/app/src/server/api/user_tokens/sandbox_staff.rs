@@ -34,12 +34,13 @@ use crate::server::api::admin::scope;
 /// The most tokens one listing returns. A token lives a week at most, so this
 /// is far past what is live at once.
 const LIST_LIMIT: u64 = 500;
-/// `api_tokens.revoke_reason`, and `metadata.reason` on `token.revoked`.
-const REVOKED_BY_STAFF: &str = "staff";
+/// `api_tokens.revoke_reason`, and `metadata.reason` on `token.revoked`, for a
+/// revoke by staff on either staff list (this one and `standing_staff`).
+pub(super) const REVOKED_BY_STAFF: &str = "staff";
 
 /// The orgs the caller's grant is bounded to; `None` when it is not bounded.
 /// An unreadable grant is a 500 — never "unbounded".
-async fn bound(
+pub(super) async fn bound(
     db: &DatabaseConnection,
     actor: &RequestActor,
 ) -> Result<Option<Vec<Uuid>>, TokenError> {
@@ -60,7 +61,7 @@ fn sees(reach: Option<&[Uuid]>, grants: &[&api_token_grants::Model]) -> bool {
 }
 
 /// The minters' addresses, to label each token's owner.
-async fn minter_labels(
+pub(super) async fn minter_labels(
     db: &DatabaseConnection,
     rows: &[api_tokens::Model],
 ) -> Result<HashMap<Uuid, String>, TokenError> {

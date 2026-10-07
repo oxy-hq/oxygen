@@ -156,14 +156,21 @@ const grantsLabel = (grants: Grant[]): string => {
   return parts.length > 0 ? parts.join(", ") : "No access";
 };
 
+/** Who an all-access token's reach is measured by, as its reader is told: the reader, or not. */
+export type TokenOwnerVoice = "you" | "its owner";
+
 /**
  * What a personal access token or a sandbox agent token can reach, in the words of the list's
  * Access column. Legacy API keys never reach this: `/user/tokens` does not return them.
+ *
+ * `owner` is how the hover names whose reach an all-access token has: "you" on the owner's own
+ * list, "its owner" on a staff list, where the reader is someone else.
  */
 export const summarizeAccess = (
   token: Pick<Token, "all_access" | "platform" | "partner" | "grants" | "blocked_orgs"> & {
     kind?: TokenKind;
-  }
+  },
+  owner: TokenOwnerVoice = "you"
 ): AccessSummary => {
   const blocked = token.blocked_orgs ?? [];
   const grants = token.grants ?? [];
@@ -185,7 +192,7 @@ export const summarizeAccess = (
       standing,
       blocked,
       lines: [
-        "Every organization and workspace you can reach, now and later.",
+        `Every organization and workspace ${owner} can reach, now and later.`,
         ...removed.map(grantLine)
       ]
     };

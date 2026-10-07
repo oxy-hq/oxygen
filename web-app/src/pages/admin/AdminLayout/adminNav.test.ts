@@ -101,6 +101,29 @@ describe("canReachAdminRoute", () => {
     expect(adminPageGroup(route)).toBe("operations");
   });
 
+  it("gates staff & partner tokens as Staff access is, on manage_platform_grants", () => {
+    // Who holds a token with standing is the same question as who holds staff access,
+    // and `GET /api/admin/standing-tokens` asks for the same capability. Operating the
+    // platform does not open it, and neither does reading the audit log.
+    const route = ROUTES.ADMIN.STANDING_TOKENS;
+    expect(canReachAdminRoute(route, staff("manage_platform_grants"))).toBe(true);
+    expect(canReachAdminRoute(route, owner)).toBe(true);
+    expect(canReachAdminRoute(route, staff("operate_platform", "view_audit"))).toBe(false);
+    expect(canReachAdminRoute(route, nobody)).toBe(false);
+    // One entry answers for the rail, the ⌘K palette and the route guard.
+    expect(navItemReachable(route, staff("manage_platform_grants"))).toBe(true);
+    expect(navItemReachable(route, staff("operate_platform", "view_audit"))).toBe(false);
+    const entry = (to: string) => ADMIN_NAV.find((item) => item.to === to);
+    expect(entry(route)?.capability).toBe(entry(ROUTES.ADMIN.APP_ADMINS)?.capability);
+    expect(adminPageTitle(route)).toBe("Staff & partner tokens");
+    // Beside Sandbox agent tokens, in the same group.
+    expect(adminPageGroup(route)).toBe(adminPageGroup(ROUTES.ADMIN.SANDBOX_AGENT_TOKENS));
+    const labels = ADMIN_NAV.map((item) => item.label);
+    expect(labels.indexOf("Staff & partner tokens")).toBe(
+      labels.indexOf("Sandbox agent tokens") + 1
+    );
+  });
+
   it("gates the grant console on manage_platform_grants", () => {
     expect(canReachAdminRoute("/admin/app-admins", staff("manage_platform_grants"))).toBe(true);
     expect(canReachAdminRoute("/admin/app-admins", staff("manage_apps"))).toBe(false);

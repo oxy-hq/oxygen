@@ -33,6 +33,7 @@ pub mod partners;
 pub mod routing;
 pub mod sandbox_agent_tokens;
 pub mod scope;
+pub mod standing_tokens;
 pub mod usage_report;
 pub mod users_admin;
 // `pub(crate)`: the module stays internal and only what a caller outside this crate
@@ -81,6 +82,8 @@ use crate::server::router::{AdminSection, AppState};
 ///   - GET    /admin/app-admins
 ///   - POST   /admin/app-admins
 ///   - DELETE /admin/app-admins/{id}
+///   - GET    /admin/standing-tokens
+///   - POST   /admin/standing-tokens/{id}/revoke
 ///   - GET    /admin/internal-jobs/queue-stats
 ///   - GET    /admin/internal-jobs/recent-failures
 ///   - GET    /admin/internal-jobs/dead-letter
@@ -232,6 +235,13 @@ pub(crate) fn router(extracted: Vec<AdminSection>) -> Router<AppState> {
         .merge(partners::router().route_layer(cap(Action::PlatformPartners)))
         .merge(billing::router().route_layer(strict))
         .merge(app_admins::router().route_layer(cap(Action::PlatformGrants)))
+        // Every personal token that carries a standing, across owners. A token
+        // carrying `platform` or `partner` is the grant above in credential
+        // form, so the capability that governs who holds staff access governs
+        // it. Two more gates in the handlers: a browser session, and a grant
+        // that is not bounded to some orgs — a standing token is a credential
+        // for the whole deployment, so a bounded grant holds none of them.
+        .merge(standing_tokens::router().route_layer(cap(Action::PlatformGrants)))
         // Deployment-wide operational config — which source resources every
         // tenant's pipelines may use. Same shape as workspace_health /
         // routing / metrics, so it takes the same capability rather than

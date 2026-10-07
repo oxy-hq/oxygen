@@ -33,7 +33,9 @@
 //! - [`leak`] — what a leak report revokes; [`hygiene`] — the expiry notice
 //!   and the unused-token sweep;
 //! - [`sandbox`] — the sandbox agent token (`oxy_sbx_`): what a mint asks
-//!   for, and the writes behind it.
+//!   for, and the writes behind it;
+//! - [`standing`] — the personal tokens that carry `platform` or `partner`
+//!   standing: the staff reads behind `/api/admin/standing-tokens`.
 
 pub mod access;
 pub mod account_access;
@@ -59,6 +61,7 @@ pub mod sandbox;
 pub mod sandbox_admission;
 pub mod sandbox_recheck;
 pub mod service_account;
+pub mod standing;
 pub mod store;
 pub mod trust_policy;
 pub mod trust_policy_access;

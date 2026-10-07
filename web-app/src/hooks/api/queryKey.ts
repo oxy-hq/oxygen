@@ -671,6 +671,11 @@ const sandboxAgentTokenKeys = {
   list: () => [...sandboxAgentTokenKeys.all, "list"] as const
 };
 
+const standingTokenKeys = {
+  all: ["standingTokens"] as const,
+  list: () => [...standingTokenKeys.all, "list"] as const
+};
+
 const orgSubdomainKeys = {
   all: ["orgSubdomain"] as const,
   status: (workspaceId: string) => [...orgSubdomainKeys.all, "status", workspaceId] as const
@@ -1104,6 +1109,7 @@ const queryKeys = {
   appAdmins: appAdminKeys,
   publishTokens: publishTokenKeys,
   sandboxAgentTokens: sandboxAgentTokenKeys,
+  standingTokens: standingTokenKeys,
   partnerPublishConsent: {
     status: (orgId: string) => ["partner-publish-consent", orgId] as const
   },

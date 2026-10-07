@@ -192,6 +192,26 @@
   flows:
     - admin-sandbox-agent-tokens
 
+# Its Reaches and Expiry cells are the account list's own too, so the
+# settings-account-tokens surface below names this flow as well.
+- surface: admin-standing-tokens
+  paths:
+    - "src/pages/admin/AdminStandingTokens/"
+    - "src/hooks/api/standingTokens/"
+    - "src/services/api/standingTokens.ts"
+  flows:
+    - admin-standing-tokens
+
+# What the two staff token lists share: the row and its cells, the table
+# frame, the revoke confirmation, the refusal, and the revoke mutation.
+- surface: admin-token-lists
+  paths:
+    - "src/pages/admin/components/TokenList/"
+    - "src/hooks/api/staffTokenLists/"
+  flows:
+    - admin-sandbox-agent-tokens
+    - admin-standing-tokens
+
 - surface: settings-org-api-access
   paths:
     - "src/components/settings/SettingsDialog/sections/organization/ApiAccess/"
@@ -245,3 +265,4 @@
     - settings-account-sandbox-token
     - settings-org-api-access
     - admin-sandbox-agent-tokens
+    - admin-standing-tokens

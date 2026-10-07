@@ -43,6 +43,7 @@ mod sandbox_agent_sweep;
 mod serve_tree_usage;
 mod service_accounts;
 mod stack;
+mod standing_tokens;
 mod token_api;
 mod trust_policies;
 mod trusted_access;

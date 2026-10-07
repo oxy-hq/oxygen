@@ -49,6 +49,17 @@ describe("summarizeAccess", () => {
     expect(summarizeAccess(token({ all_access: true })).label).toBe("All access");
   });
 
+  it("measures an all-access token's reach by its owner: you, or its owner on a staff list", () => {
+    const allAccess = token({ all_access: true });
+    expect(summarizeAccess(allAccess).lines).toEqual([
+      "Every organization and workspace you can reach, now and later."
+    ]);
+    // A staff list is read by someone else: "you" would be the wrong person.
+    expect(summarizeAccess(allAccess, "its owner").lines).toEqual([
+      "Every organization and workspace its owner can reach, now and later."
+    ]);
+  });
+
   it("counts workspaces and the orgs they are in", () => {
     const summary = summarizeAccess(
       token({

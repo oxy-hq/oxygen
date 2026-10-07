@@ -119,6 +119,10 @@ POST   /auth/browser-ticket                   (a personal token only — `oxyc l
 /admin/sandbox-agent-tokens                   (`operate_platform`; rows narrowed to the grant's orgs)
 ├── GET  /
 └── POST /{id}/revoke
+
+/admin/standing-tokens                        (`manage_platform_grants`; session only; an unbounded grant only — a bounded one gets 403)
+├── GET  /                                    (personal tokens carrying `platform` or `partner`, newest first, at most 500)
+└── POST /{id}/revoke                         (idempotent; 404 for any other token)
 ```
 
 ### 🏢 Workspace — `/{workspace_id}/…`

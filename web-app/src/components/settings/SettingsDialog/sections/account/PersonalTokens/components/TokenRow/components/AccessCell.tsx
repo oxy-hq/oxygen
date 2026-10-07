@@ -5,7 +5,12 @@ import { Badge } from "@/components/ui/shadcn/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 import { policyBlockReason } from "@/libs/tokenPolicy";
 import type { BlockedOrg, Token } from "@/types/apiToken";
-import { type Standing, sandboxGrantApps, summarizeAccess } from "../../../accessSummary";
+import {
+  type Standing,
+  sandboxGrantApps,
+  summarizeAccess,
+  type TokenOwnerVoice
+} from "../../../accessSummary";
 
 const STANDING_WORDS: Record<Standing, string> = { platform: "staff", partner: "partner" };
 
@@ -82,6 +87,16 @@ interface Props {
   token: Token;
   /** The token no longer works: its access is set back with the rest of its row. */
   quiet?: boolean;
+  /**
+   * Whose reach the hover speaks of. "you" on the owner's own list; a staff list, read by
+   * someone else, passes "its owner".
+   */
+  owner?: TokenOwnerVoice;
+  /**
+   * Say the standing after the reach. A list with a column for standing passes `false`, and the
+   * label is the reach alone. The hover says the whole of it either way.
+   */
+  withStanding?: boolean;
 }
 
 /**
@@ -93,8 +108,13 @@ interface Props {
  * An app's reference is its grant's own `org_slug` and `app_slug`. A grant with neither, from an
  * older server, shows the app's name.
  */
-const AccessCell: React.FC<Props> = ({ token, quiet = false }) => {
-  const summary = summarizeAccess(token);
+const AccessCell: React.FC<Props> = ({
+  token,
+  quiet = false,
+  owner = "you",
+  withStanding = true
+}) => {
+  const summary = summarizeAccess(token, owner);
   const grantApps = token.kind === "sandbox_agent" ? sandboxGrantApps(token.grants ?? []) : [];
   const apps = grantApps.map((app) => ({
     key: app.id ?? app.name,
@@ -129,7 +149,7 @@ const AccessCell: React.FC<Props> = ({ token, quiet = false }) => {
             </ul>
           </TooltipContent>
         </Tooltip>
-        {summary.standing.length > 0 && (
+        {withStanding && summary.standing.length > 0 && (
           <span className='text-muted-foreground'>
             , with{" "}
             {summary.standing.map((each, index) => (

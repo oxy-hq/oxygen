@@ -87,14 +87,14 @@ async fn send(
 }
 
 /// The session a fresh ticket of `secret` opens: its JWT.
-async fn session_of(secret: &str) -> String {
+pub(super) async fn session_of(secret: &str) -> String {
     let (status, _, body) = redeem(&ticket_for(secret).await).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     body["token"].as_str().expect("a session").to_string()
 }
 
 /// `method uri` as the web app sends it: the bare JWT in `Authorization`.
-async fn in_token_session(jwt: &str, method: &str, uri: &str) -> (StatusCode, Value) {
+pub(super) async fn in_token_session(jwt: &str, method: &str, uri: &str) -> (StatusCode, Value) {
     call(flat_api(), method, uri, &[("authorization", jwt)], None).await
 }
 

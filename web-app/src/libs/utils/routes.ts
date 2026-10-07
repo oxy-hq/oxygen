@@ -43,6 +43,8 @@ const ROUTES = {
     PUBLISH_TOKENS: "/admin/publish-tokens",
     /** Every staff member's sandbox agent tokens, with revoke. */
     SANDBOX_AGENT_TOKENS: "/admin/sandbox-agent-tokens",
+    /** Every personal token that carries staff or partner standing, with revoke. */
+    STANDING_TOKENS: "/admin/standing-tokens",
     TENANTS: "/admin/tenants",
     /** Tenant-side triage hub: stale orgs, org-less users, failed and orphan workspaces. */
     TENANTS_OVERVIEW: "/admin/tenants/overview",

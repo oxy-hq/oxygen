@@ -11,10 +11,15 @@
 //!   ([`introspect`]);
 //! - `POST /api/auth/browser-ticket` and its public `/redeem` — a personal
 //!   token trades a one-time ticket for a browser session that acts as it
-//!   ([`browser_session`]).
+//!   ([`browser_session`]);
+//! - `/api/admin/standing-tokens` — every personal token that carries
+//!   `platform` or `partner` standing, for the staff who govern staff access:
+//!   list and revoke ([`standing_staff`], mounted by `admin::standing_tokens`).
 //!
 //! **Management is session-only** (§4.6): every `/api/user/…` route here takes
 //! [`ManageTokens`], so a token cannot mint, widen, extend or revoke a token.
+//! The standing-token staff routes take it too: they end other people's
+//! credentials, so a credential cannot call them.
 //! The introspection pair is the exception — it acts only on the credential
 //! that calls it.
 //!
@@ -46,6 +51,7 @@ pub mod sandbox;
 pub(crate) mod sandbox_staff;
 pub(crate) mod sandboxes_queued;
 mod service;
+pub(crate) mod standing_staff;
 mod system_audit;
 pub(crate) mod view;
 

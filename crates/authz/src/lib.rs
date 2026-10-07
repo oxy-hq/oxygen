@@ -351,6 +351,14 @@ pub enum Action {
     ///
     /// The same two-step as scope: the capability gates the verb, the row-level fence
     /// filters the rows.
+    ///
+    /// It is also the door of `/admin/standing-tokens`: the personal API tokens that
+    /// carry `platform` or `partner` standing, which are this grant in credential form.
+    /// Those two routes only list and revoke, and a revoke widens nothing, so they take
+    /// no [`may_delegate`] fence. Their second step is on the caller, not the row: the
+    /// handlers admit an **unbounded** grant only, because such a token is a credential
+    /// for the whole deployment and no subset of them belongs to a grant bounded to
+    /// some orgs.
     PlatformGrants,
     /// The owner-exclusive surfaces — and the ONLY place the two operator tiers differ:
     /// destructive or irreversible operations (deleting the master org, demoting other

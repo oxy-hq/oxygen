@@ -17,6 +17,10 @@ pub enum TokenError {
     /// 403 `standing_required` — `platform` or `partner` asked for without
     /// holding it. Names the flag.
     StandingRequired(&'static str),
+    /// 403 `unbounded_grant_required` — a staff route over credentials that
+    /// reach the whole deployment, called with a platform grant bounded to
+    /// some orgs. Decided from the caller alone, before any token is read.
+    UnboundedGrantRequired,
     /// 404 — not the caller's, or a grant on something they cannot reach. The
     /// two read the same, so a caller cannot probe what exists.
     NotFound,
@@ -111,6 +115,13 @@ impl TokenError {
                 StatusCode::FORBIDDEN,
                 format!("'{flag}' needs a standing you do not hold"),
                 Some("standing_required"),
+            ),
+            Self::UnboundedGrantRequired => (
+                StatusCode::FORBIDDEN,
+                "your staff access is limited to some organizations; this needs access to all \
+                 of them"
+                    .into(),
+                Some("unbounded_grant_required"),
             ),
             Self::NotFound => (StatusCode::NOT_FOUND, "not found".into(), None),
             Self::NoToken => (
@@ -249,6 +260,11 @@ mod tests {
                 TokenError::StandingRequired("platform"),
                 403,
                 Some("standing_required"),
+            ),
+            (
+                TokenError::UnboundedGrantRequired,
+                403,
+                Some("unbounded_grant_required"),
             ),
             (TokenError::NotFound, 404, None),
             (TokenError::NoToken, 404, Some("no_token")),

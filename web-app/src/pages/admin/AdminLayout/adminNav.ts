@@ -18,6 +18,7 @@ import {
   Handshake,
   HeartPulse,
   Inbox,
+  KeyRound,
   ScrollText,
   ShieldCheck,
   Telescope,
@@ -175,6 +176,17 @@ export const ADMIN_NAV: AdminNavItem[] = [
     label: "Sandbox agent tokens",
     icon: Bot,
     capability: "operate_platform",
+    group: "operations"
+  },
+  // Staff & partner tokens: every personal token that carries its owner's standing,
+  // with revoke. Seeing who holds one is the same question as who holds staff access,
+  // so it is gated as Staff access is: `manage_platform_grants`, on this entry and on
+  // `GET /api/admin/standing-tokens`.
+  {
+    to: ROUTES.ADMIN.STANDING_TOKENS,
+    label: "Staff & partner tokens",
+    icon: KeyRound,
+    capability: "manage_platform_grants",
     group: "operations"
   },
   {
