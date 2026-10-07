@@ -12,7 +12,7 @@ export type Detection =
   | { candidate: true; type: "feat" | "fix"; hint?: string }
   | { candidate: false; reason: string };
 
-export const SKIP_LABEL = "no-showcase";
+const SKIP_LABEL = "no-showcase";
 
 /** The squash subject's conventional-commit type, as the release announcement reads it. */
 export function commitType(title: string): string | undefined {

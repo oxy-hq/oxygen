@@ -12,7 +12,7 @@
  * switching to the label) are refused with `409 {"code":"detached_head"}` and
  * a message that says what to do.
  */
-export const DETACHED_HEAD_CODE = "detached_head";
+const DETACHED_HEAD_CODE = "detached_head";
 
 const FALLBACK_MESSAGE =
   "This workspace is on a detached HEAD; switch to or create a branch first.";

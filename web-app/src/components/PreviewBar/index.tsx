@@ -32,7 +32,7 @@ export function PreviewBar() {
 }
 
 /** The short form of a commit, as git shows it. */
-export const shortSha = (sha: string) => sha.slice(0, 7);
+const shortSha = (sha: string) => sha.slice(0, 7);
 
 function PinnedPreviewBar({
   workspace,

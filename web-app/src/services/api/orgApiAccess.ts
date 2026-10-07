@@ -177,7 +177,7 @@ export class OrgTokenService {
 }
 
 /** Only the filters that are set, so an empty one is never sent as `kind=`. */
-export function inventoryParams(filters: InventoryFilters): Record<string, string> {
+function inventoryParams(filters: InventoryFilters): Record<string, string> {
   const params: Record<string, string> = {};
   if (filters.kind) params.kind = filters.kind;
   if (filters.owner) params.owner = filters.owner;

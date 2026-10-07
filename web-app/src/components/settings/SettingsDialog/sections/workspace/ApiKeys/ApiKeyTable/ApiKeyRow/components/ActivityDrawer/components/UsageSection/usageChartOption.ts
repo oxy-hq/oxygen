@@ -15,7 +15,7 @@ import { okCount } from "../../activity";
  * option is built. `_themeKey` is unused on purpose: taking it makes the caller rebuild the
  * option when the theme flips, which a `useMemo` dep list would otherwise not know about.
  */
-export const USAGE_TOKENS = {
+const USAGE_TOKENS = {
   ok: "--chart-seq-4",
   errors4xx: "--warning",
   errors5xx: "--destructive"

@@ -17,7 +17,7 @@ export interface MintAppLine {
  * Why a part of the request can't be granted, or `null`. Each is worded to sit under the value
  * it is about, which the approval shows as asked.
  */
-export interface MintProblems {
+interface MintProblems {
   /** No app named, or more than the limit. An app that doesn't resolve is marked on its line. */
   apps: string | null;
   hours: string | null;

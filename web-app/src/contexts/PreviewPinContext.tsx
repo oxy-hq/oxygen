@@ -82,13 +82,13 @@ const LIVE: PreviewPin = {
 const PreviewPinContext = createContext<PreviewPin>(LIVE);
 
 /** A usable `?preview=` revision from a search string, or `null`. */
-export function readPreviewParam(search: string): string | null {
+function readPreviewParam(search: string): string | null {
   const value = new URLSearchParams(search).get(PREVIEW_PARAM)?.trim();
   return value && isRevisionToken(value) ? value : null;
 }
 
 /** `search` with the pin set to `revisionId`, or removed when it is null. */
-export function withPreviewParam(search: string, revisionId: string | null): string {
+function withPreviewParam(search: string, revisionId: string | null): string {
   const params = new URLSearchParams(search);
   if (revisionId) params.set(PREVIEW_PARAM, revisionId);
   else params.delete(PREVIEW_PARAM);

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/shadcn/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/shadcn/tooltip";
 
 /** Why Revoke is off for a key's owner who is not a workspace admin. */
-export const REVOKE_NEEDS_ADMIN = "Revoking a legacy API key needs a workspace admin role";
+const REVOKE_NEEDS_ADMIN = "Revoking a legacy API key needs a workspace admin role";
 
 interface Props {
   /** The key's name, for the accessible name. */

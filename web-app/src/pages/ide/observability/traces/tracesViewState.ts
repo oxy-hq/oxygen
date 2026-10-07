@@ -27,7 +27,7 @@ export interface TracesViewState {
   page: number;
 }
 
-export const DEFAULT_DURATION: DurationValue = "30d";
+const DEFAULT_DURATION: DurationValue = "30d";
 
 const STATUSES: readonly StatusFilter[] = ["all", "ok", "error"];
 

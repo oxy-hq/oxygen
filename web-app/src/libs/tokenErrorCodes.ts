@@ -3,7 +3,7 @@
  * has already said exactly why it refused, and the surface that made the call words it for the
  * person, so the API client's generic denial toast stays quiet for these.
  */
-export const TOKEN_ERROR_CODES = [
+const TOKEN_ERROR_CODES = [
   // Personal tokens and the calling-token routes.
   "session_required",
   "standing_required",

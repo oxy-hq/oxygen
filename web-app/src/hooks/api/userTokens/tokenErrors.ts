@@ -25,7 +25,7 @@ const UNREACHABLE =
  * 409 `sandbox_token_fixed`: a sandbox agent token is never renamed, re-scoped, extended or
  * regenerated. No row offers any of those for one, so this is what a stale page hears.
  */
-export const SANDBOX_TOKEN_FIXED =
+const SANDBOX_TOKEN_FIXED =
   "A sandbox agent token can't be changed once it's created. Revoke it and create a new one instead.";
 
 /**

@@ -20,7 +20,7 @@ export function durationText(ms: number): string {
 }
 
 /** A token inside this many days of its expiry is worth a second look. */
-export const EXPIRING_SOON_DAYS = 7;
+const EXPIRING_SOON_DAYS = 7;
 
 export type TokenTone = "active" | "soon" | "expired" | "revoked";
 

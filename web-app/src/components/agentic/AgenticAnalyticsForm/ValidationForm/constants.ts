@@ -59,7 +59,7 @@ export const RULES_BY_STAGE: Record<ValidationStage, readonly RuleOption[]> = {
   ]
 };
 
-export type NumericRuleParam =
+type NumericRuleParam =
   | "threshold_sigma"
   | "min_rows"
   | "threshold"

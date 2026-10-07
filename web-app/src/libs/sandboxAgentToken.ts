@@ -14,7 +14,7 @@ export const DEFAULT_SANDBOX_LIMITS: SandboxAgentLimits = {
   max_apps: 5
 };
 
-export const MIN_SANDBOX_HOURS = 1;
+const MIN_SANDBOX_HOURS = 1;
 
 export const sandboxLimits = (
   options: Pick<TokenOptions, "sandbox_agent"> | undefined

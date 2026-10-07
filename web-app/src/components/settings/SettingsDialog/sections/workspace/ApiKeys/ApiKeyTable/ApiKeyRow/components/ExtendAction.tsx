@@ -7,7 +7,7 @@ import type { TokenSummary } from "@/types/apiToken";
 import ExtendApiKeyPopover from "./ExtendApiKeyPopover";
 
 /** A live token with an expiry: the only state the actions column offers Extend for. */
-export const isExtendable = (token: TokenSummary): boolean =>
+const isExtendable = (token: TokenSummary): boolean =>
   token.is_active && !!token.expires_at && !ApiKeyService.isExpired(token.expires_at);
 
 /**

@@ -5,7 +5,7 @@ export {
   type AirhouseConnectionInfo,
   AirhouseService
 } from "./airhouse";
-export { AnalyticsService } from "./analytics";
+
 export { AppService } from "./apps";
 export { AuthService } from "./auth";
 export { AutomationService } from "./automations";

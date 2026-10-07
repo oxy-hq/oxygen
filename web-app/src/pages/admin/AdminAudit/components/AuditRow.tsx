@@ -9,7 +9,7 @@ import { auditCredential, hasAuditDetail } from "../auditCredential";
 import { AuditDetail } from "./AuditDetail";
 
 /** The toggle, then When, Actor, Action, Target, Scope and Outcome. */
-export const AUDIT_COLUMNS = 7;
+const AUDIT_COLUMNS = 7;
 
 /** Compact "2h" / "3d"; full timestamp on hover. */
 function ago(iso: string): string {

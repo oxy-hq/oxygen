@@ -17,14 +17,14 @@ import { apiClient } from "./axios";
  * other per-workspace surface (`/api/{workspace_id}/…`, mounted under the
  * `/{workspace_id}` nest in `router/protected.rs`).
  */
-export const previewsPath = (workspaceId: string) => `/${workspaceId}/previews`;
+const previewsPath = (workspaceId: string) => `/${workspaceId}/previews`;
 const base = previewsPath;
 
 /** `GET …/previews/checks` — the per-pipeline Airway change analysis. */
-export const previewChecksPath = (workspaceId: string) => `${base(workspaceId)}/checks`;
+const previewChecksPath = (workspaceId: string) => `${base(workspaceId)}/checks`;
 
 /** `GET/POST …/previews/runs[/…]` — held procedure dry-runs on a preview. */
-export const previewRunsPath = (workspaceId: string) => `${base(workspaceId)}/runs`;
+const previewRunsPath = (workspaceId: string) => `${base(workspaceId)}/runs`;
 
 /**
  * `GET/PUT …/previews/sources` — sandbox credentials for a rotate-on-use
@@ -32,7 +32,7 @@ export const previewRunsPath = (workspaceId: string) => `${base(workspaceId)}/ru
  * company per pipeline serves every branch's Airway sample of it. Not gated
  * by `OXY_PREVIEW_RUNS`.
  */
-export const previewSourcesPath = (workspaceId: string) => `${base(workspaceId)}/sources`;
+const previewSourcesPath = (workspaceId: string) => `${base(workspaceId)}/sources`;
 
 /**
  * Workspace previews: a branch compiled so the product can be opened on it

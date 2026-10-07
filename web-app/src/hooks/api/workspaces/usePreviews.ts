@@ -33,7 +33,7 @@ export const PREVIEW_POLL_MS = 2_000;
  * settled checks only change when someone acts, and those actions refresh
  * the list themselves.
  */
-export function previewsRefetchInterval(
+function previewsRefetchInterval(
   query: Query<WorkspacePreview[], Error, WorkspacePreview[], readonly unknown[]>
 ): number | false {
   const stillMoving = (p: WorkspacePreview) =>
@@ -125,7 +125,7 @@ export const useDeletePreview = (workspaceId: string) => {
 // ── Checks (S12) ─────────────────────────────────────────────────────────
 
 /** How often a still-analyzing check run is re-read. */
-export const PREVIEW_CHECKS_POLL_MS = 2_000;
+const PREVIEW_CHECKS_POLL_MS = 2_000;
 
 /**
  * The per-pipeline detail behind a row's embedded `checks` summary. Polls
@@ -148,7 +148,7 @@ export const usePreviewChecks = (
 // ── Held procedure runs (S12) ───────────────────────────────────────────
 
 /** How often the runs list / a single run is re-read while one is in flight. */
-export const PREVIEW_RUN_POLL_MS = 2_000;
+const PREVIEW_RUN_POLL_MS = 2_000;
 
 const RUN_IN_FLIGHT = new Set(["queued", "running"]);
 

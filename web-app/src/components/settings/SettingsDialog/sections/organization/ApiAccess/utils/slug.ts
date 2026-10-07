@@ -8,7 +8,7 @@
  * mistakes are caught before a round trip; anything it lets through that the
  * server refuses still surfaces as the server's own message.
  */
-export const SERVICE_ACCOUNT_NAME_MIN = 2;
+const SERVICE_ACCOUNT_NAME_MIN = 2;
 export const SERVICE_ACCOUNT_NAME_MAX = 40;
 
 const SLUG = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;

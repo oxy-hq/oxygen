@@ -56,7 +56,7 @@ export function workflowTrigger(refPattern: string | null): string[] {
 }
 
 /** How a job runs oxyc with nothing installed beforehand. */
-export const OXYC_RUNNER = "npx --yes @oxy-hq/cli";
+const OXYC_RUNNER = "npx --yes @oxy-hq/cli";
 
 /**
  * The whole CI story for one trusted-access policy, ready to paste: this

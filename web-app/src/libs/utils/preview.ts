@@ -31,7 +31,7 @@ export const PREVIEW_HEADER = "x-oxy-preview";
  * never the query string, is what the server keys on, and a page without a
  * pin (the IDE included) never sends it.
  */
-export const PREVIEW_REVISION_HEADER = "x-oxy-preview-revision";
+const PREVIEW_REVISION_HEADER = "x-oxy-preview-revision";
 
 /**
  * Whether a `?preview=` value can be a revision id. It comes straight from a
@@ -63,7 +63,7 @@ export function previewRequestHeaders(): Record<string, string> {
   return activeRevision ? { [PREVIEW_REVISION_HEADER]: activeRevision } : {};
 }
 
-export const PREVIEW_READ_ONLY_CODE = "preview_read_only";
+const PREVIEW_READ_ONLY_CODE = "preview_read_only";
 
 /**
  * Only shown if the server ever sends a `preview_read_only` body with no
@@ -75,7 +75,7 @@ export const PREVIEW_READ_ONLY_CODE = "preview_read_only";
 const FALLBACK_READ_ONLY_MESSAGE =
   "This is a preview — it can't change the workspace or its data. Exit preview to run or change things.";
 
-export interface ServedPreview {
+interface ServedPreview {
   branch: string;
   revisionId: string;
 }
@@ -84,7 +84,7 @@ export interface ServedPreview {
  * `<branch>@<revision_id>` split on the LAST `@`: git allows `@` inside a
  * branch name (only `@{` is reserved), while a revision id never carries one.
  */
-export function parsePreviewHeader(value: string | null | undefined): ServedPreview | null {
+function parsePreviewHeader(value: string | null | undefined): ServedPreview | null {
   if (!value) return null;
   const at = value.lastIndexOf("@");
   if (at <= 0 || at === value.length - 1) return null;
@@ -130,10 +130,10 @@ export function resetPreviewServed(): void {
  * asked (the row, the New preview field, the IDE button) — never as a generic
  * failure, and never as the read-only preview toast, which it is not.
  */
-export const CANNOT_COMPILE_CODE = "cannot_compile";
+const CANNOT_COMPILE_CODE = "cannot_compile";
 
 /** `404 {"code":"preview_not_found"}`: refresh of a branch never previewed. */
-export const PREVIEW_NOT_FOUND_CODE = "preview_not_found";
+const PREVIEW_NOT_FOUND_CODE = "preview_not_found";
 
 function apiErrorBody(
   error: unknown,
@@ -165,7 +165,7 @@ export function isPreviewReadOnlyError(error: unknown): boolean {
 }
 
 /** The server's own words for a preview refusal, with a fallback if it sent none. */
-export function previewReadOnlyMessage(body: unknown): string {
+function previewReadOnlyMessage(body: unknown): string {
   const message = (body as { message?: unknown } | null | undefined)?.message;
   return typeof message === "string" && message.trim() ? message : FALLBACK_READ_ONLY_MESSAGE;
 }
@@ -183,13 +183,13 @@ export function readPreviewReadOnlyBody(status: number | undefined, body: unknow
  * failure, so the whole Runs panel should say so rather than showing a form
  * that will only ever refuse.
  */
-export const PREVIEW_RUNS_DISABLED_CODE = "preview_runs_disabled";
+const PREVIEW_RUNS_DISABLED_CODE = "preview_runs_disabled";
 
 /** `409 {"code":"preview_not_ready"}`: no ready staging revision to run against yet. */
-export const PREVIEW_NOT_READY_CODE = "preview_not_ready";
+const PREVIEW_NOT_READY_CODE = "preview_not_ready";
 
 /** `404 {"code":"ref_not_in_revision"}`: no automation definition at `ref` in the staging revision. */
-export const REF_NOT_IN_REVISION_CODE = "ref_not_in_revision";
+const REF_NOT_IN_REVISION_CODE = "ref_not_in_revision";
 
 export function isPreviewRunsDisabled(error: unknown): boolean {
   return apiErrorBody(error, 404)?.code === PREVIEW_RUNS_DISABLED_CODE;
@@ -220,7 +220,7 @@ export function startRunErrorMessage(error: unknown): string | null {
 // ── Airway samples (S11) ─────────────────────────────────────────────────
 
 /** `422 {"code":"sample_refused"}`: the source can't be sampled at all. */
-export const SAMPLE_REFUSED_CODE = "sample_refused";
+const SAMPLE_REFUSED_CODE = "sample_refused";
 
 /**
  * `422 {"code":"sample_unsupported"}` (fix round 2026-09-30): the pipeline
@@ -229,16 +229,16 @@ export const SAMPLE_REFUSED_CODE = "sample_refused";
  * is about the *destination* (inline, wrong database, unconfined Airhouse);
  * this is about the pipeline's own bookkeeping.
  */
-export const SAMPLE_UNSUPPORTED_CODE = "sample_unsupported";
+const SAMPLE_UNSUPPORTED_CODE = "sample_unsupported";
 
 /** `409 {"code":"sandbox_required"}`: no `/sources` row for a rotate-on-use pipeline. */
-export const SANDBOX_REQUIRED_CODE = "sandbox_required";
+const SANDBOX_REQUIRED_CODE = "sandbox_required";
 
-export const WINDOW_REQUIRED_CODE = "window_required";
-export const WINDOW_TOO_LONG_CODE = "window_too_long";
-export const WINDOW_NOT_SUPPORTED_CODE = "window_not_supported";
-export const RESOURCES_REQUIRED_CODE = "resources_required";
-export const UNKNOWN_RESOURCE_CODE = "unknown_resource";
+const WINDOW_REQUIRED_CODE = "window_required";
+const WINDOW_TOO_LONG_CODE = "window_too_long";
+const WINDOW_NOT_SUPPORTED_CODE = "window_not_supported";
+const RESOURCES_REQUIRED_CODE = "resources_required";
+const UNKNOWN_RESOURCE_CODE = "unknown_resource";
 
 /**
  * The server's fixed refusals to `POST …/previews/runs` with
@@ -295,9 +295,9 @@ export function sampleRunErrorMessage(error: unknown): string | null {
 
 // ── Sandbox sources (S11) ────────────────────────────────────────────────
 
-export const PRODUCTION_VAR_CODE = "production_var";
-export const PRODUCTION_REALM_CODE = "production_realm";
-export const ROTATING_VAR_TAKEN_CODE = "rotating_var_taken";
+const PRODUCTION_VAR_CODE = "production_var";
+const PRODUCTION_REALM_CODE = "production_realm";
+const ROTATING_VAR_TAKEN_CODE = "rotating_var_taken";
 
 /**
  * Fix round (2026-09-30): a var name containing `/`, an `apps/…` var, or a
@@ -306,7 +306,7 @@ export const ROTATING_VAR_TAKEN_CODE = "rotating_var_taken";
  * match the sibling codes above; confirm the exact wire spelling against the
  * backend's contract update once it lands.
  */
-export const RESERVED_VAR_CODE = "reserved_var";
+const RESERVED_VAR_CODE = "reserved_var";
 
 /** `409 {"code":"production_var"}`: a var a production QuickBooks pipeline names. */
 export function productionVarMessage(error: unknown): string | null {

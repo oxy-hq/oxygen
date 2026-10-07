@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/shadcn/badge";
 import { cn } from "@/libs/shadcn/utils";
 
 /** What the badge says on hover: the one fact that sets a legacy API key apart from a token. */
-export const LEGACY_BADGE_HINT =
+const LEGACY_BADGE_HINT =
   "A legacy API key reaches everything its owner can. It can't be limited to workspaces.";
 
 /**

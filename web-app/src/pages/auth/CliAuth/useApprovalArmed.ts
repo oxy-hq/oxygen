@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** How long the request must be in front of the person before Approve can be pressed. */
-export const ARM_DELAY_MS = 1000;
+const ARM_DELAY_MS = 1000;
 
 const attended = (): boolean => document.visibilityState === "visible" && document.hasFocus();
 

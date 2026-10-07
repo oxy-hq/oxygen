@@ -24,7 +24,7 @@ interface Props {
   sandbox?: SandboxOption;
 }
 
-export interface SandboxOption {
+interface SandboxOption {
   active: boolean;
   onActiveChange: (active: boolean) => void;
   /** Shown in place of the access picker and the standing options while the type is chosen. */

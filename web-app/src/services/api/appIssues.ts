@@ -1,7 +1,7 @@
 import { apiClient } from "./axios";
 
 /** The most recent invocation that failed this way. */
-export interface AppIssueOccurrence {
+interface AppIssueOccurrence {
   invocation_id: string;
   /** `success` here is a function that answered 5xx or caught a failed
    *  `ctx.*` call — counted as a failure all the same. */

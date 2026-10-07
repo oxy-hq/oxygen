@@ -2,7 +2,7 @@ import type { Grant, GrantInput, RoleCeiling } from "@/types/apiToken";
 import type { ServiceAccountRole } from "@/types/orgApiAccess";
 
 /** One picked workspace and the most its holder may be there. */
-export interface WorkspaceGrantDraft {
+interface WorkspaceGrantDraft {
   workspace_id: string;
   role_ceiling: RoleCeiling;
 }

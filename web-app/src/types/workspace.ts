@@ -85,7 +85,7 @@ export type WorkspacePreviewStatus = "compiling" | "ready" | "failed" | "stale";
  * `parseUtcTimestamp`, never `new Date(..)` directly.
  */
 /** Status of the Airway pipeline-change analysis for a preview's current revision. */
-export type PreviewChecksStatus = "pending" | "done" | "failed";
+type PreviewChecksStatus = "pending" | "done" | "failed";
 
 /**
  * The cheap, embedded verdict carried on every list/create/refresh row —
@@ -132,13 +132,13 @@ export interface WorkspacePreviewItemResponse {
 // ── Checks (per-pipeline detail) ────────────────────────────────────────────
 
 /** Whether a pipeline definition was added, modified or removed on the branch. */
-export type PreviewPipelineChange = "added" | "modified" | "removed";
+type PreviewPipelineChange = "added" | "modified" | "removed";
 
 /** How severe a pipeline's (or a single finding's) change is for prod. */
 export type PreviewCheckVerdict = "additive" | "warning" | "needs_reset";
 
 /** The full set the analyzer emits — see `internal-docs` for what each detects. */
-export type PreviewCheckFindingKind =
+type PreviewCheckFindingKind =
   | "ResourceAdded"
   | "TableAdded"
   | "ColumnAdded"
@@ -157,7 +157,7 @@ export type PreviewCheckFindingKind =
   | "LiveDrift"
   | "Unevaluated";
 
-export interface PreviewCheckFinding {
+interface PreviewCheckFinding {
   kind: PreviewCheckFindingKind;
   verdict: PreviewCheckVerdict;
   /** Human-readable description of what changed, e.g. "orders: append → merge". */
@@ -184,7 +184,7 @@ export type PreviewTransformChange = "added" | "modified";
  * = an operator has to run it by hand (`reason` says why — e.g. it needs
  * variables the analyzer can't supply, or writes couldn't be scoped).
  */
-export type PreviewTransformBuildMode = "auto" | "manual";
+type PreviewTransformBuildMode = "auto" | "manual";
 
 export interface PreviewTransformCheck {
   name: string;
@@ -276,7 +276,7 @@ export interface PreviewRunSummary {
   parent_run_id: string | null;
 }
 
-export type PreviewRunStepKind = "execute_sql" | "http_request" | "airway" | "agent" | "other";
+type PreviewRunStepKind = "execute_sql" | "http_request" | "airway" | "agent" | "other";
 export type PreviewRunStepStatus = "succeeded" | "failed" | "held" | "running" | "pending";
 
 /**
@@ -284,7 +284,7 @@ export type PreviewRunStepStatus = "succeeded" | "failed" | "held" | "running" |
  * note. `sql` is only populated for SQL steps — the rendered statement that
  * was never sent.
  */
-export interface PreviewRunHeldInfo {
+interface PreviewRunHeldInfo {
   verb: string;
   targets: string[];
   reason: string;
@@ -292,13 +292,13 @@ export interface PreviewRunHeldInfo {
 }
 
 /** One table a redirected step's SQL touched, live name paired with the preview copy it hit instead. */
-export interface PreviewRunRedirectedTable {
+interface PreviewRunRedirectedTable {
   live: string;
   preview: string;
 }
 
 /** One live table the preview copied on demand to serve a redirected read or write. */
-export interface PreviewRunRedirectedCopy {
+interface PreviewRunRedirectedCopy {
   live: string;
   /** `partial` = the live table was over `OXY_PREVIEW_COW_MAX_ROWS`: the copy started empty. */
   state: "shadow" | "partial";
@@ -310,7 +310,7 @@ export interface PreviewRunRedirectedCopy {
  * it does not count toward `held_count`. Merged across a loop's iterations,
  * each entry appearing once.
  */
-export interface PreviewRunRedirected {
+interface PreviewRunRedirected {
   writes: PreviewRunRedirectedTable[];
   reads: PreviewRunRedirectedTable[];
   copies: PreviewRunRedirectedCopy[];
@@ -326,7 +326,7 @@ export interface PreviewRunStep {
 }
 
 /** One column this compare found retyped between live and the preview's build. */
-export interface PreviewCompareColumnRetype {
+interface PreviewCompareColumnRetype {
   column: string;
   live: string;
   preview: string;
@@ -416,7 +416,7 @@ export interface PreviewRunDetail extends PreviewRunSummary {
 // ── Sandbox sources (S11 Airway samples) ────────────────────────────────
 
 /** The only environment `/previews/sources` accepts today. */
-export type PreviewSourceEnvironment = "sandbox";
+type PreviewSourceEnvironment = "sandbox";
 
 /**
  * Sandbox credentials for a rotate-on-use pipeline (QuickBooks: one sandbox
@@ -425,7 +425,7 @@ export type PreviewSourceEnvironment = "sandbox";
  * are not secrets and may be given directly; this UI only ever sends the
  * `_var` spellings so a raw secret value never passes through the form.
  */
-export interface PreviewSourceOverrides {
+interface PreviewSourceOverrides {
   realm_id: string;
   refresh_token_var?: string;
   access_token_var?: string;

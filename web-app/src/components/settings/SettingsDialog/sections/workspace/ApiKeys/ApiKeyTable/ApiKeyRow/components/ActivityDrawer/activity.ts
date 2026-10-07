@@ -1,7 +1,7 @@
 import type { ApiKeyActivityEvent, ApiKeyUsageDay } from "@/types/apiKey";
 
 /** `token.created|extended|revoked|…`: something done *to* the key, not *with* it. */
-export const isLifecycleEvent = (e: Pick<ApiKeyActivityEvent, "action">): boolean =>
+const isLifecycleEvent = (e: Pick<ApiKeyActivityEvent, "action">): boolean =>
   e.action.startsWith("token.");
 
 /** Split the newest-first stream into the key's history and the actions taken with it. */

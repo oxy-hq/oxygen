@@ -162,7 +162,7 @@ export interface TokenOptionWorkspace {
   role: RoleCeiling;
 }
 
-export interface TokenOrgPolicy {
+interface TokenOrgPolicy {
   max_lifetime_days: number | null;
   allow_all_access_tokens: boolean;
 }

@@ -26,7 +26,6 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "1.32.0",
     "@formkit/auto-animate": "^0.10.0",
-    "@hpcc-js/wasm": "^2.35.2",
     "@lottiefiles/react-lottie-player": "^3.6.0",
     "@microsoft/fetch-event-source": "2.0.1",
     "@monaco-editor/react": "^4.7.0",
@@ -68,7 +67,6 @@
     "echarts": "^6.1.0",
     "elkjs": "^0.12.0",
     "hls.js": "^1.7.3",
-    "js-cookie": "^3.0.8",
     "lodash": "^4.18.1",
     "lucide-react": "^1.48.0",
     "memfs": "^4.79.0",
@@ -107,12 +105,10 @@
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
-    "@playwright/mcp": "0.0.82",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
-    "@types/js-cookie": "^3.0.6",
     "@types/jsdom": "^30.0.0",
     "@types/lodash": "^4.17.25",
     "@types/node": "^26.6.3",
