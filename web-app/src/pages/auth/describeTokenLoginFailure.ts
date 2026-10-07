@@ -15,9 +15,11 @@ export const classifyTokenLoginFailure = (httpStatus: number | undefined): Token
   httpStatus === 400 ? "link" : "server";
 
 /**
- * What to tell whoever opened the link. The server gives one answer for every
- * way a ticket can be bad, so the copy lists them rather than guessing which,
- * and names the one fix they all share.
+ * What to tell whoever opened the link, in as few words as will do. The server
+ * gives one answer for every way a ticket can be bad, so the copy states the
+ * rule they all break rather than guessing which. The fix is the same either
+ * way and is a command, so the page prints it as one ({@link NEW_LINK_COMMAND})
+ * instead of burying it in a sentence.
  *
  * Lives beside the page rather than inside it, like `describeDevLoginFailure`,
  * so the copy can be pinned by a test that needs nothing but a string function.
@@ -28,15 +30,16 @@ export const describeTokenLoginFailure = (
   switch (failure) {
     case "link":
       return {
-        title: "Sign-in link didn't work",
-        description:
-          "This link is invalid, has already been used, or has expired. Links work once and last 5 minutes — mint a new one with `oxyc login-link`."
+        title: "Link didn't work",
+        description: "Links work once and expire in 5 minutes. Get a new one:"
       };
     case "server":
       return {
         title: "Couldn't reach the server",
-        description:
-          "The server could not be reached or did not answer, so this sign-in link may still be good. Open it again in a moment, or mint a new one with `oxyc login-link`."
+        description: "The link may still be good. Open it again, or get a new one:"
       };
   }
 };
+
+/** What mints a fresh link. Shown under either failure. */
+export const NEW_LINK_COMMAND = "oxyc login-link";

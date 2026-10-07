@@ -118,16 +118,16 @@ async function destinations(kiosk: boolean) {
   await waitFor(() => expect(AuthService.requestMagicLink).toHaveBeenCalled());
   const magicLink = vi.mocked(AuthService.requestMagicLink).mock.calls[0][0].return_to;
 
-  await user.click(inScope.getByRole("button", { name: "Login with Google" }));
+  await user.click(inScope.getByRole("button", { name: "Continue with Google" }));
   await waitFor(() => expect(sessionStorage.getItem(STASH_KEY)).not.toBeNull());
   const google = sessionStorage.getItem(STASH_KEY);
   sessionStorage.clear();
 
-  await user.click(inScope.getByRole("button", { name: "Login with Okta" }));
+  await user.click(inScope.getByRole("button", { name: "Continue with Okta" }));
   await waitFor(() => expect(sessionStorage.getItem(STASH_KEY)).not.toBeNull());
   const okta = sessionStorage.getItem(STASH_KEY);
 
-  await user.click(inScope.getByRole("button", { name: "Login with GitHub" }));
+  await user.click(inScope.getByRole("button", { name: "Continue with GitHub" }));
   await waitFor(() => expect(AuthService.validateReturnTo).toHaveBeenCalled());
   const github = vi.mocked(AuthService.validateReturnTo).mock.calls[0][0];
 
@@ -158,5 +158,52 @@ describe("The ordinary login page", () => {
       github: APP_URL,
       devLogin: "/dev-login"
     });
+  });
+});
+
+/**
+ * The page a script lands on. Everything a person can sign in with is on
+ * screen at once — nothing behind a "more options", no second step to reach a
+ * provider — and each control has a handle that does not change with the copy.
+ */
+describe("the sign-in card, for whoever is driving the browser", () => {
+  it("shows every way in at once, each with a stable handle", () => {
+    render(providers(<LoginForm />));
+    const card = screen.getByTestId("login-card");
+
+    expect(within(card).getByRole("heading", { level: 1 })).toHaveTextContent(/^Sign in$/);
+    for (const handle of [
+      "login-email",
+      "login-email-submit",
+      "login-google",
+      "login-github",
+      "login-okta",
+      "login-dev-signin"
+    ]) {
+      expect(within(card).getByTestId(handle)).toBeVisible();
+    }
+    // An email field a password manager, and a script, can recognise as one.
+    const email = within(card).getByTestId("login-email");
+    expect(email).toHaveAttribute("type", "email");
+    expect(email).toHaveAttribute("autocomplete", "email");
+  });
+
+  it("answers a submitted email in place, with a way to resend and a way back", async () => {
+    const user = userEvent.setup();
+    render(providers(<LoginForm />));
+
+    await user.type(screen.getByTestId("login-email"), "maya@acme.test");
+    await user.click(screen.getByTestId("login-email-submit"));
+
+    const sent = await screen.findByTestId("login-sent");
+    expect(sent).toHaveTextContent("Link sent to maya@acme.test. Expires in 15 minutes.");
+    // The providers are still there: a sent link closes no other door.
+    expect(screen.getByTestId("login-google")).toBeVisible();
+
+    await user.click(within(sent).getByTestId("login-resend"));
+    await waitFor(() => expect(AuthService.requestMagicLink).toHaveBeenCalledTimes(2));
+
+    await user.click(screen.getByTestId("login-change-email"));
+    expect(screen.getByTestId("login-email")).toBeVisible();
   });
 });

@@ -189,8 +189,11 @@ describe("/token-login over a session already in the browser", () => {
     open("/token-login#ticket=tkt-1&next=%2Fide");
 
     const card = screen.getByTestId("token-login-replace-session");
-    expect(card).toHaveTextContent("You're already signed in as maya@acme.test.");
-    expect(card).toHaveTextContent("replace this session with an API-token session");
+    expect(card).toHaveTextContent("Replace session?");
+    expect(card).toHaveTextContent("Signed in as maya@acme.test.");
+    // Who the browser would become — the fact that stops a link nobody asked for.
+    expect(card).toHaveTextContent("signs this browser in as whoever made the link");
+    expect(card).toHaveTextContent("only continue if that was you");
     // Waiting for a click does not mean the ticket waits in the URL.
     expect(window.location.hash).toBe("");
 
@@ -246,14 +249,15 @@ describe("/token-login when the sign-in fails", () => {
     open("/token-login#ticket=used-already");
 
     const card = await screen.findByTestId("token-login-error");
-    expect(card).toHaveTextContent("Sign-in link didn't work");
-    expect(card).toHaveTextContent("invalid, has already been used, or has expired");
-    expect(card).toHaveTextContent("oxyc login-link");
+    expect(card).toHaveTextContent("Link didn't work");
+    expect(card).toHaveTextContent("Links work once and expire in 5 minutes.");
+    // The fix is a command, set as code: no backticks around it for a reader to copy.
+    expect(card.querySelector("code")).toHaveTextContent(/^oxyc login-link$/);
     expect(redeem).toHaveBeenCalledTimes(1);
     expect(leaveTo).not.toHaveBeenCalled();
     expect(localStorage.getItem("auth_token")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Back to login" }));
+    await user.click(screen.getByRole("button", { name: "Back to sign in" }));
     expect(await screen.findByTestId("at-login")).toBeInTheDocument();
   });
 
@@ -267,7 +271,7 @@ describe("/token-login when the sign-in fails", () => {
     const card = await screen.findByTestId("token-login-error");
     expect(card).toHaveTextContent("Couldn't reach the server");
     expect(card).not.toHaveTextContent("didn't work");
-    expect(card).not.toHaveTextContent("already been used");
+    expect(card).not.toHaveTextContent("work once");
   });
 
   it.each([
@@ -281,7 +285,7 @@ describe("/token-login when the sign-in fails", () => {
     storeSession(HUMAN_HEADER, IN_AN_HOUR);
     open(url);
 
-    expect(screen.getByTestId("token-login-error")).toHaveTextContent("Sign-in link didn't work");
+    expect(screen.getByTestId("token-login-error")).toHaveTextContent("Link didn't work");
     expect(screen.queryByTestId("token-login-replace-session")).not.toBeInTheDocument();
     await settle();
     expect(redeem).not.toHaveBeenCalled();

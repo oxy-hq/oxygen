@@ -1,16 +1,9 @@
 import { isAxiosError } from "axios";
-import { KeyRound, XCircle } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AuthCard, AuthLayout } from "@/components/AuthLayout";
 import { Button } from "@/components/ui/shadcn/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle
-} from "@/components/ui/shadcn/card";
 import { Spinner } from "@/components/ui/shadcn/spinner";
 import { useTokenLogin } from "@/hooks/auth/useTokenLogin";
 import {
@@ -22,6 +15,7 @@ import ROUTES from "@/libs/utils/routes";
 import {
   classifyTokenLoginFailure,
   describeTokenLoginFailure,
+  NEW_LINK_COMMAND,
   type TokenLoginFailure
 } from "./describeTokenLoginFailure";
 import { readTokenLoginLink, stripFragment } from "./tokenLoginLink";
@@ -88,78 +82,55 @@ const TokenLogin: React.FC = () => {
   }, [redeem, link, awaitingConfirm]);
 
   if (failure) {
-    return <FailureCard failure={failure} onBack={() => navigate(ROUTES.AUTH.LOGIN)} />;
+    return (
+      <AuthLayout>
+        <FailureCard failure={failure} onBack={() => navigate(ROUTES.AUTH.LOGIN)} />
+      </AuthLayout>
+    );
   }
 
   if (awaitingConfirm) {
     return (
-      <ReplaceSessionCard
-        onConfirm={() => {
-          setAwaitingConfirm(false);
-          if (link.ticket) redeem(link.ticket);
-        }}
-        onCancel={() => navigate(ROUTES.ROOT, { replace: true })}
-      />
+      <AuthLayout>
+        <ReplaceSessionCard
+          onConfirm={() => {
+            setAwaitingConfirm(false);
+            if (link.ticket) redeem(link.ticket);
+          }}
+          onCancel={() => navigate(ROUTES.ROOT, { replace: true })}
+        />
+      </AuthLayout>
     );
   }
 
   return (
-    <div
-      className='flex min-h-screen w-full items-center justify-center bg-background p-4'
-      data-testid='token-login-pending'
-    >
-      <div className='flex flex-col items-center gap-3'>
+    <AuthLayout>
+      <div
+        className='flex items-center justify-center gap-3 py-10 text-muted-foreground text-sm'
+        data-testid='token-login-pending'
+      >
         <Spinner />
-        <p className='text-muted-foreground text-sm'>Signing in…</p>
+        Signing in…
       </div>
-    </div>
+    </AuthLayout>
   );
 };
-
-interface NoticeProps {
-  testId: string;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}
-
-/** The centered card both the refusal and the confirmation are shown in. */
-const Notice: React.FC<NoticeProps> = ({ testId, icon, title, description, children }) => (
-  <div
-    className='flex min-h-screen w-full items-center justify-center bg-background p-4'
-    data-testid={testId}
-  >
-    <Card className='w-full max-w-md'>
-      <CardHeader className='text-center'>
-        <div className='mb-4 flex justify-center'>{icon}</div>
-        <CardTitle className='text-2xl'>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  </div>
-);
 
 interface FailureCardProps {
   failure: TokenLoginFailure;
   onBack: () => void;
 }
 
-/** Why the link did not sign anyone in, and the way back to an ordinary login. */
+/** Why the link did not sign anyone in, the command that mints another, and the way back. */
 const FailureCard: React.FC<FailureCardProps> = ({ failure, onBack }) => {
   const { title, description } = describeTokenLoginFailure(failure);
   return (
-    <Notice
-      testId='token-login-error'
-      icon={<XCircle className='h-12 w-12 text-destructive' />}
-      title={title}
-      description={description}
-    >
-      <Button onClick={onBack} className='w-full'>
-        Back to login
+    <AuthCard title={title} description={description} testId='token-login-error'>
+      <code className='rounded-md bg-muted px-3 py-2 font-mono text-sm'>{NEW_LINK_COMMAND}</code>
+      <Button variant='outline' onClick={onBack} className='w-full'>
+        Back to sign in
       </Button>
-    </Notice>
+    </AuthCard>
   );
 };
 
@@ -168,30 +139,33 @@ interface ReplaceSessionCardProps {
   onCancel: () => void;
 }
 
-/** Asks the person already signed in before the link takes their session. */
+/**
+ * Asks the person already signed in before the link takes their session. The
+ * copy is short, but it must say who they would become: that is the one fact
+ * that stops someone who was sent a link they did not ask for.
+ */
 const ReplaceSessionCard: React.FC<ReplaceSessionCardProps> = ({ onConfirm, onCancel }) => {
   const signedInAs = storedUserLabel();
   return (
-    <Notice
+    <AuthCard
+      title='Replace session?'
+      description={`Signed in${signedInAs ? ` as ${signedInAs}` : ""}. Continuing signs this browser in as whoever made the link — only continue if that was you.`}
       testId='token-login-replace-session'
-      icon={<KeyRound className='h-12 w-12 text-muted-foreground' />}
-      title='Replace your session?'
-      description={`You're already signed in${signedInAs ? ` as ${signedInAs}` : ""}. Continue to replace this session with an API-token session?`}
     >
-      <div className='flex flex-col gap-3'>
-        <div className='flex justify-center gap-2'>
-          <Button variant='outline' onClick={onCancel} data-testid='token-login-cancel'>
-            Cancel
-          </Button>
-          <Button onClick={onConfirm} data-testid='token-login-confirm'>
-            Continue
-          </Button>
-        </div>
-        <p className='text-center text-muted-foreground text-xs'>
-          Continue only if you asked for this link. It signs this browser in as whoever minted it.
-        </p>
+      <div className='flex gap-2'>
+        <Button
+          variant='outline'
+          className='flex-1'
+          onClick={onCancel}
+          data-testid='token-login-cancel'
+        >
+          Cancel
+        </Button>
+        <Button className='flex-1' onClick={onConfirm} data-testid='token-login-confirm'>
+          Continue
+        </Button>
       </div>
-    </Notice>
+    </AuthCard>
   );
 };
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifyTokenLoginFailure, describeTokenLoginFailure } from "./describeTokenLoginFailure";
+import {
+  classifyTokenLoginFailure,
+  describeTokenLoginFailure,
+  NEW_LINK_COMMAND
+} from "./describeTokenLoginFailure";
 
 // The redeem endpoint refuses every bad ticket the same way, so the page has
 // exactly two things to say — and saying the wrong one sends whoever opened the
@@ -19,19 +23,20 @@ describe("classifyTokenLoginFailure", () => {
 });
 
 describe("describeTokenLoginFailure", () => {
-  it("lists every way a link can be spent, and names the fix", () => {
+  it("states the rule a dead link broke, and leaves the fix to the command", () => {
     const { title, description } = describeTokenLoginFailure("link");
-    expect(title).toBe("Sign-in link didn't work");
-    expect(description).toContain("invalid, has already been used, or has expired");
-    expect(description).toContain("work once and last 5 minutes");
-    expect(description).toContain("`oxyc login-link`");
+    expect(title).toBe("Link didn't work");
+    expect(description).toBe("Links work once and expire in 5 minutes. Get a new one:");
+    // The command is printed as code by the page, never quoted inside a sentence.
+    expect(description).not.toContain("`");
+    expect(NEW_LINK_COMMAND).toBe("oxyc login-link");
   });
 
   it("does not blame the link when the server could not be reached", () => {
     const { title, description } = describeTokenLoginFailure("server");
     expect(title).toBe("Couldn't reach the server");
-    expect(description).toContain("could not be reached");
-    expect(description).not.toContain("already been used");
-    expect(description).not.toContain("expired");
+    expect(description).toContain("may still be good");
+    expect(description).not.toContain("once");
+    expect(description).not.toContain("expire");
   });
 });

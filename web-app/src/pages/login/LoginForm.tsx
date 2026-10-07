@@ -1,8 +1,8 @@
-import { Mail } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { AuthCard } from "@/components/AuthLayout";
 import { Button } from "@/components/ui/shadcn/button";
 import {
   Dialog,
@@ -85,34 +85,34 @@ const MagicLinkSection = ({ returnTo: destination }: { returnTo?: string }) => {
 
   if (view === "sent") {
     return (
-      <div className='flex flex-col items-center gap-4 text-center'>
-        <div className='flex h-14 w-14 items-center justify-center rounded-full bg-primary/10'>
-          <Mail className='h-7 w-7 text-primary' />
-        </div>
+      <div className='flex flex-col gap-3' data-testid='login-sent'>
         <div className='flex flex-col gap-1'>
-          <h2 className='font-semibold text-lg'>Check your inbox</h2>
+          <h2 className='font-medium text-sm'>Check your inbox</h2>
           <p className='text-muted-foreground text-sm'>
-            We sent a sign-in link to{" "}
-            <span className='font-medium text-foreground'>{submittedEmail}</span>. It expires in 15
-            minutes.
+            Link sent to <span className='font-medium text-foreground'>{submittedEmail}</span>.
+            Expires in 15 minutes.
           </p>
         </div>
-        <div className='flex flex-col gap-2 text-sm'>
-          <button
+        <div className='flex gap-2'>
+          <Button
             type='button'
+            variant='outline'
+            className='flex-1'
             onClick={handleResend}
             disabled={isPending}
-            className='text-primary underline-offset-4 hover:underline disabled:opacity-50'
+            data-testid='login-resend'
           >
-            {isPending ? <Spinner /> : "Didn't receive it? Resend"}
-          </button>
-          <button
+            {isPending ? <Spinner /> : "Resend"}
+          </Button>
+          <Button
             type='button'
+            variant='ghost'
+            className='flex-1'
             onClick={() => setView("form")}
-            className='text-muted-foreground underline-offset-4 hover:underline'
+            data-testid='login-change-email'
           >
-            Use a different email
-          </button>
+            Change email
+          </Button>
         </div>
       </div>
     );
@@ -125,7 +125,9 @@ const MagicLinkSection = ({ returnTo: destination }: { returnTo?: string }) => {
         <Input
           id='magic-email'
           type='email'
+          autoComplete='email'
           placeholder='you@example.com'
+          data-testid='login-email'
           {...register("email", {
             required: "Email is required",
             pattern: {
@@ -137,8 +139,13 @@ const MagicLinkSection = ({ returnTo: destination }: { returnTo?: string }) => {
         />
         {errors.email && <FieldError>{errors.email.message}</FieldError>}
       </div>
-      <Button type='submit' className='w-full' disabled={isPending}>
-        {isPending ? "Sending link…" : "Continue with email"}
+      <Button
+        type='submit'
+        className='w-full'
+        disabled={isPending}
+        data-testid='login-email-submit'
+      >
+        {isPending ? "Sending…" : "Continue with email"}
       </Button>
     </form>
   );
@@ -164,7 +171,7 @@ const DevSignInSection = ({ next }: { next?: string }) => (
     data-testid='login-dev-signin'
   >
     <Button type='button' variant='outline' className='w-full'>
-      Dev sign-in (no password)
+      Dev sign-in
     </Button>
   </Link>
 );
@@ -185,17 +192,17 @@ const AccountSignIn = ({ returnTo }: { returnTo?: string }) => {
 
       {hasOAuth && hasMagicLink && <Divider label='or' />}
 
-      {authConfig.github && (
-        <LoginWithGitHubButton
-          disabled={false}
-          clientId={authConfig.github.client_id}
-          returnTo={returnTo}
-        />
-      )}
       {authConfig.google && (
         <LoginWithGoogleButton
           disabled={false}
           clientId={authConfig.google.client_id}
+          returnTo={returnTo}
+        />
+      )}
+      {authConfig.github && (
+        <LoginWithGitHubButton
+          disabled={false}
+          clientId={authConfig.github.client_id}
           returnTo={returnTo}
         />
       )}
@@ -298,17 +305,13 @@ const LoginForm = () => {
   const returnTo = searchParams.get("return_to") ?? undefined;
 
   return (
-    <div className='flex flex-col gap-6'>
-      <div className='flex flex-col items-center gap-2 text-center'>
-        <h1 className='font-bold text-2xl'>Welcome back</h1>
-        <p className='text-muted-foreground text-sm'>Sign in to your account to continue</p>
-      </div>
-
+    <AuthCard title='Sign in' testId='login-card'>
       <div className='flex flex-col gap-4'>
         <AccountSignIn />
         {returnToPointsAtCustomApp(returnTo) && <CrewSignInHint />}
       </div>
-    </div>
+      <p className='text-muted-foreground text-xs'>No password. Access is by invitation.</p>
+    </AuthCard>
   );
 };
 
