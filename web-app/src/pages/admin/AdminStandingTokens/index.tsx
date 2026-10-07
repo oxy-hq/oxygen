@@ -48,9 +48,20 @@ const REFUSED_NO_CAPABILITY =
 const REFUSED_BOUNDED =
   "Your staff access is limited to some organizations. A token with staff or partner standing works across all of them, so seeing and revoking these needs access to every organization. Your own tokens are in your account settings.";
 
-/** Why the server refused: a grant bounded to some organizations, or no capability at all. */
-const refusal = (error: unknown): string =>
-  apiErrorCode(error) === "unbounded_grant_required" ? REFUSED_BOUNDED : REFUSED_NO_CAPABILITY;
+const REFUSED_NOT_A_SIGN_IN =
+  "This list needs you to sign in in the browser. A session opened from an API token, such as the one oxyc login-link opens, cannot see or revoke other people’s tokens.";
+
+/** Why the server refused, by the code it sent; with no code, the capability is what is missing. */
+const refusal = (error: unknown): string => {
+  switch (apiErrorCode(error)) {
+    case "unbounded_grant_required":
+      return REFUSED_BOUNDED;
+    case "session_required":
+      return REFUSED_NOT_A_SIGN_IN;
+    default:
+      return REFUSED_NO_CAPABILITY;
+  }
+};
 
 /**
  * `/admin/standing-tokens`: every personal token that carries staff or partner standing, newest

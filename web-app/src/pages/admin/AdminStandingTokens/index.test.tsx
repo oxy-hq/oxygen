@@ -331,9 +331,12 @@ describe("Admin → Staff & partner tokens", () => {
       expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
     });
 
-    it("reads a 403 that wants a browser session as the same refusal", () => {
+    it("tells a session opened from a token to sign in, not that a capability is missing", () => {
       show(failed(403, { code: "session_required", error: "sign in with a browser session" }));
-      expect(screen.getByTestId("admin-standing-tokens-refused")).toBeInTheDocument();
+      const refused = screen.getByTestId("admin-standing-tokens-refused");
+      expect(refused).toHaveTextContent("needs you to sign in in the browser");
+      expect(refused).toHaveTextContent("oxyc login-link");
+      expect(refused).not.toHaveTextContent("manage_platform_grants");
       expect(screen.queryByTestId("admin-async-retry")).not.toBeInTheDocument();
     });
 

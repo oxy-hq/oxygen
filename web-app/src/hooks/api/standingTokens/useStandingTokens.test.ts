@@ -46,10 +46,8 @@ describe("StandingTokensService", () => {
 });
 
 describe("revokeErrorMessage", () => {
-  it("says a 404 may be a token outside the caller's access, not only a missing one", () => {
-    expect(revokeErrorMessage(refusal(404))).toMatch(
-      /no longer in this list, or it is outside what your staff access covers/
-    );
+  it("says a 404 is a token that is no longer in the list, and nothing about scope", () => {
+    expect(revokeErrorMessage(refusal(404))).toBe("This token is no longer in this list.");
   });
 
   it("adds nothing to a 403, which the API client has already reported", () => {

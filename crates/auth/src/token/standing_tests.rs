@@ -200,3 +200,20 @@ fn the_two_halves_come_back_as_one_list_newest_first() {
         ]
     );
 }
+
+/// The two halves are two reads. A token revoked between them comes back in
+/// both, and must be listed once, as ended.
+#[test]
+fn a_token_revoked_between_the_two_reads_is_listed_once_as_ended() {
+    let before = row(StoredKind::Personal, true, false);
+    let after = api_tokens::Model {
+        revoked_at: Some(Utc::now().fixed_offset()),
+        ..before.clone()
+    };
+    let other = row(StoredKind::Personal, false, true);
+    let listed = newest_first(vec![before, other.clone()], vec![after.clone()]);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    let again = listed.iter().find(|t| t.id == after.id).expect("listed");
+    assert!(again.revoked_at.is_some(), "the later fact is the one kept");
+    assert!(listed.iter().any(|t| t.id == other.id));
+}

@@ -13,7 +13,7 @@ export const STANDING_TOKEN_LIST_LIMIT = 500;
  * their own on `/user/tokens`; this is the shared view.
  */
 export const StandingTokensService = {
-  /** Newest first, expired and revoked ones included, narrowed to what the caller's access covers. */
+  /** Newest first: every token that still works, then the newest expired and revoked ones. */
   async list(): Promise<Token[]> {
     const response = await apiClient.get<{ tokens: Token[] }>("/admin/standing-tokens");
     return response.data.tokens;

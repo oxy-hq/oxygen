@@ -17,6 +17,8 @@
 //! grant bounded to some orgs. The handler admits an unbounded grant only and
 //! then reads every row that still works, and the newest ended ones.
 
+use std::collections::HashSet;
+
 use chrono::Utc;
 use entity::api_tokens;
 use entity::prelude::ApiTokens;
@@ -75,14 +77,23 @@ fn works_at(now: DateTimeWithTimeZone) -> Condition {
         )
 }
 
-/// One listing from its two halves, newest first.
+/// One listing from its two halves, newest first, each token once.
+///
+/// The halves are two reads, so a token revoked between them is in both: it
+/// worked when the first ran and had ended when the second did. The ended row
+/// is the later fact, and it is the one kept.
 fn newest_first(
-    mut working: Vec<api_tokens::Model>,
-    ended: Vec<api_tokens::Model>,
+    working: Vec<api_tokens::Model>,
+    mut ended: Vec<api_tokens::Model>,
 ) -> Vec<api_tokens::Model> {
-    working.extend(ended);
-    working.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
-    working
+    let since_ended: HashSet<Uuid> = ended.iter().map(|token| token.id).collect();
+    ended.extend(
+        working
+            .into_iter()
+            .filter(|token| !since_ended.contains(&token.id)),
+    );
+    ended.sort_by(|a, b| (b.created_at, b.id).cmp(&(a.created_at, a.id)));
+    ended
 }
 
 /// The staff view, newest first, for a caller the handler has already found

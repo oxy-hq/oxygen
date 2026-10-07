@@ -8,9 +8,10 @@ import {
 } from "../staffTokenLists/useRevokeListedToken";
 
 /**
- * Every personal token with staff or partner standing that the caller's staff access covers. A 403
- * is the capability gate (`manage_platform_grants`), or a caller signed in with an API token where
- * the route wants a browser session: neither changes on asking again, so it is not retried.
+ * Every personal token with staff or partner standing. A 403 is one of three refusals: no
+ * `manage_platform_grants`, staff access limited to some organizations, or a session that is not
+ * a browser sign-in (a token, or the session `oxyc login-link` opens from one). None changes on
+ * asking again, so it is not retried.
  */
 export const useStandingTokens = () =>
   useQuery({
@@ -26,9 +27,8 @@ export const useStandingTokens = () =>
 export const revokeErrorMessage = (error: unknown): string | null =>
   listedRevokeError(
     error,
-    // One answer for a token that is gone, one that no longer carries standing, and one outside
-    // what the caller's access covers.
-    "This token is no longer in this list, or it is outside what your staff access covers."
+    // One answer for a token that is gone and one that no longer carries a standing.
+    "This token is no longer in this list."
   );
 
 /**
