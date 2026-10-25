@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AppAvailability } from "@/types/apps";
+import type { AppAvailabilityReading } from "@/types/apps";
 import {
   availabilityLabel,
   availabilityTone,
@@ -7,10 +7,7 @@ import {
   formatWindow
 } from "./availabilityTone";
 
-const base: AppAvailability = {
-  app_id: "a",
-  org_slug: "acme",
-  app_slug: "orders",
+const base: AppAvailabilityReading = {
   verdict: "healthy",
   objective: 0.99,
   windows: []
@@ -27,8 +24,8 @@ describe("availabilityTone", () => {
   });
 
   it("separates the grade that pages from the one that does not", () => {
-    const paging: AppAvailability = { ...base, verdict: "burning", severity: "page" };
-    const ticket: AppAvailability = { ...base, verdict: "burning", severity: "ticket" };
+    const paging: AppAvailabilityReading = { ...base, verdict: "burning", severity: "page" };
+    const ticket: AppAvailabilityReading = { ...base, verdict: "burning", severity: "ticket" };
     expect(availabilityTone(paging)).toBe("danger");
     expect(availabilityTone(ticket)).toBe("warn");
     expect(availabilityTone(paging)).not.toBe(availabilityTone(ticket));

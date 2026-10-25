@@ -115,6 +115,21 @@ const LIVE = app(ID_A, "acme", "store", "2026-09-10T08:00:00+00:00");
 const DRAFT = app(ID_B, "acme", "draft-only", null);
 const OTHER = app(ID_C, "globex", "portal", "2026-09-12T08:00:00+00:00");
 
+/** `twoPages`, with `LIVE`'s rows carrying `AVAILABILITY` as a measured app's do. */
+function measuredPages(): Routes {
+  const measured = { ...LIVE, availability: AVAILABILITY };
+  return {
+    [`${LIST}?limit=100&offset=0`]: () => ({
+      status: 200,
+      body: { items: [measured, DRAFT], next_offset: 100 }
+    }),
+    [`${LIST}?limit=100&offset=100`]: () => ({
+      status: 200,
+      body: { items: [measured, OTHER], next_offset: null }
+    })
+  };
+}
+
 /** The listing split over two pages, with `LIVE` repeated on the second. */
 function twoPages(): Routes {
   return {
@@ -546,7 +561,7 @@ describe("a list row's availability", () => {
     expect(rows.find((row) => row.id === ID_B)).toEqual(DRAFT);
   });
 
-  it("show --json carries it on `app` and still reads the standalone endpoint", async () => {
+  it("show --json takes the reading from the row and asks for no other", async () => {
     stubFetch(
       {
         ...pages(),
@@ -555,7 +570,6 @@ describe("a list row's availability", () => {
           body: { builds: [], promoted_at: null, promoted_by_email: null }
         }),
         [`${LIST}/acme/store/health`]: () => ({ status: 200, body: HEALTH_PASS }),
-        [`${LIST}/acme/store/availability`]: () => ({ status: 200, body: AVAILABILITY }),
         [`${LIST}/${ID_A}/activity/summary`]: () => ({ status: 200, body: USAGE })
       },
       calls
@@ -566,16 +580,15 @@ describe("a list row's availability", () => {
 
     const doc = JSON.parse(io.stdout());
     expect(doc.app).toEqual(MEASURED);
-    // The standalone endpoint stays for one release: `show` still reads it.
-    expect(calls).toContain(`GET ${LIST}/acme/store/availability`);
-    expect(doc.availability.verdict).toBe("healthy");
+    expect(doc.availability).toEqual(READING);
+    expect(calls.some((call) => call.includes("/availability"))).toBe(false);
   });
 });
 
 describe("apps show", () => {
   function showRoutes(over: Routes = {}): Routes {
     return {
-      ...twoPages(),
+      ...measuredPages(),
       [`${LIST}/${ID_A}/builds`]: () => ({
         status: 200,
         body: {
@@ -593,7 +606,6 @@ describe("apps show", () => {
         }
       }),
       [`${LIST}/acme/store/health`]: () => ({ status: 200, body: HEALTH_PASS }),
-      [`${LIST}/acme/store/availability`]: () => ({ status: 200, body: AVAILABILITY }),
       [`${LIST}/${ID_A}/activity/summary`]: () => ({ status: 200, body: USAGE }),
       ...over
     };
@@ -615,6 +627,16 @@ describe("apps show", () => {
       /availability\s+healthy — objective 99%; last 24h: 40 request\(s\), 1 failed/
     );
     expect(text).toMatch(/usage, 7 days\s+9 view\(s\), 4 user\(s\), 28 event\(s\)/);
+  });
+
+  it("says there is no reading when the row carries none, and asks for none", async () => {
+    stubFetch(showRoutes(twoPages()), calls);
+    const io = capture();
+
+    await runAppsShow(fakeContext(), "acme/store", false);
+
+    expect(io.stdout()).toMatch(/availability\s+no reading/);
+    expect(calls.some((call) => call.includes("/availability"))).toBe(false);
   });
 
   it("does not show a draft that is the live build itself", async () => {
@@ -649,9 +671,9 @@ describe("apps show", () => {
   it("prints what it read, marks a failed section NOT READ, and exits non-zero", async () => {
     stubFetch(
       showRoutes({
-        [`${LIST}/acme/store/availability`]: () => ({
+        [`${LIST}/${ID_A}/activity/summary`]: () => ({
           status: 502,
-          body: { error: "availability query failed" }
+          body: { error: "usage query failed" }
         })
       }),
       calls
@@ -661,10 +683,10 @@ describe("apps show", () => {
     const error = await failure(runAppsShow(fakeContext(), "acme/store", false));
 
     expect(error.code).toBe(ExitCode.UNAVAILABLE);
-    expect(error.message).toBe("1 of 3 request(s) failed: availability");
-    expect(io.stdout()).toMatch(/availability\s+NOT READ — 502/);
+    expect(error.message).toBe("1 of 2 request(s) failed: usage");
+    expect(io.stdout()).toMatch(/usage, 7 days\s+NOT READ — 502/);
     expect(io.stdout()).toMatch(/health\s+pass/);
-    expect(io.stdout()).toMatch(/usage, 7 days\s+9 view/);
+    expect(io.stdout()).toMatch(/availability\s+healthy/);
   });
 
   it("--json carries a failed section as null plus an entry in `failed`", async () => {
@@ -696,9 +718,8 @@ describe("apps health <app>", () => {
 
   function healthRoutes(health: () => Reply): Routes {
     return {
-      ...twoPages(),
+      ...measuredPages(),
       [`${LIST}/acme/store/health`]: health,
-      [`${LIST}/acme/store/availability`]: () => ({ status: 200, body: AVAILABILITY }),
       [`${LIST}/acme/store/errors?hours=24`]: () => ({ status: 200, body: { errors: [] } })
     };
   }

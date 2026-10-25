@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/shadcn/skeleton";
-import { useAppAvailability, useListedAvailability } from "@/hooks/api/customApps/useCustomApps";
+import { useListedAvailability } from "@/hooks/api/customApps/useCustomApps";
 import type { CustomApp } from "@/types/apps";
 import { AvailabilityVerdict } from "./components/AvailabilityVerdict";
 import { AvailabilityWindows } from "./components/AvailabilityWindows";
@@ -22,17 +22,12 @@ type AvailabilityApp = Pick<CustomApp, "id" | "org_slug" | "slug" | "availabilit
  * `availabilityTone`.
  *
  * The reading is the one the app's registry row carries, re-read with that row every
- * minute; the panel makes no availability request of its own. When the row has none (a
- * detail response, capture off, a store that did not answer) the panel asks the per-app
- * endpoint, which is also what says *why* there is nothing to show.
+ * minute; there is no availability request of its own. A row without one (a draft, a
+ * deployment that does not measure availability, a store that did not answer) shows that
+ * there is no reading, which says nothing about whether the app is up.
  */
 export const Availability = ({ app }: { app: AvailabilityApp }) => {
-  const { org_slug: orgSlug, slug: appSlug } = app;
-  const listed = useListedAvailability(app);
-  const asked = useAppAvailability(listed ? undefined : orgSlug, listed ? undefined : appSlug);
-  // Disabled when `listed` is set: no request, and `isLoading`/`error` stay false/null.
-  const { isLoading, error } = asked;
-  const data = listed ?? asked.data;
+  const { reading: data, isLoading } = useListedAvailability(app);
 
   if (isLoading) {
     return (
@@ -43,30 +38,15 @@ export const Availability = ({ app }: { app: AvailabilityApp }) => {
     );
   }
 
-  // 501 is the expected answer wherever `OXY_OBSERVABILITY_BACKEND` is unset —
-  // every dev box, by default. A capability statement, not a fault, so it must
-  // not read like one.
-  const status = (error as { response?: { status?: number } } | null)?.response?.status;
-  if (status === 501) {
+  if (!data) {
     return (
       <p
         className='px-4 pb-4 text-muted-foreground text-xs leading-relaxed'
-        data-testid='admin-app-availability-unconfigured'
+        data-testid='admin-app-availability-none'
       >
-        Availability is not being measured — this deployment has no observability backend configured
-        (<code className='font-mono'>OXY_OBSERVABILITY_BACKEND</code>). Nothing is wrong with the
-        app; there is simply no data.
-      </p>
-    );
-  }
-  if (error || !data) {
-    return (
-      <p
-        className='px-4 pb-4 text-muted-foreground text-xs leading-relaxed'
-        data-testid='admin-app-availability-error'
-      >
-        Could not read availability. This says nothing about whether the app is up — only that the
-        query failed.
+        No availability reading. The app may not be published, this deployment may not measure
+        availability, or the measurement could not be read. This says nothing about whether the app
+        is up.
       </p>
     );
   }

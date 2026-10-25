@@ -1,7 +1,6 @@
 import { PRODUCTION } from "@/types/appEnvironments";
 import type { MovePlan, MoveRequest, MoveTarget } from "@/types/appPromote";
 import type {
-  AppAvailability,
   AppBuildHistory,
   AppFunctionSummary,
   AppNotificationKinds,
@@ -352,26 +351,9 @@ export const CustomAppsService = {
     return response.data;
   },
 
-  // ── Availability (derived SLI) ─────────────────────────────────────────
-
-  /**
-   * Slug-addressed, not id-addressed like the Activity calls below — the
-   * endpoint is a sibling of `/health` and `/debug`, which authenticate inline
-   * and resolve the app from `<org>/<app>` so one monitor can watch every app
-   * from the admin host.
-   *
-   * A 501 here is not a failure: it means `OXY_OBSERVABILITY_BACKEND` is unset,
-   * which is the default on a dev box. It is surfaced as a distinct state
-   * rather than an error toast.
-   */
-  async availability(orgSlug: string, appSlug: string): Promise<AppAvailability> {
-    const r = await apiClient.get(`/customer-apps/${orgSlug}/${appSlug}/availability`);
-    return r.data as AppAvailability;
-  },
-
   /**
    * Persisted Oxy Function output, newest first. Slug-addressed, like its
-   * `/availability` sibling.
+   * `/health` and `/debug` siblings.
    *
    * `requestId` narrows to one `x-oxy-request-id`. It must be a UUID: the route
    * answers anything else with a 400 rather than an empty list.

@@ -663,8 +663,6 @@ const customAppKeys = {
   /** Fleet health for every published app the caller can see. Keyed by the
    *  filter, so the attention-only view and the full table cache separately. */
   fleetHealth: (needsAttention: boolean) => ["customApps", "fleetHealth", needsAttention] as const,
-  availability: (orgSlug: string, appSlug: string) =>
-    ["customApps", "availability", orgSlug, appSlug] as const,
   /** One registry row, re-read on its own (`?id=`) so the console's availability
    *  stays live without walking the registry. */
   row: (id: string) => ["customApps", "row", id] as const,

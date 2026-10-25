@@ -133,20 +133,23 @@ export const useAdminAppRow = (id: string | undefined) =>
   });
 
 /**
- * The availability reading the console shows for an app, from its registry row — kept live
- * by re-reading that one row, never by asking `GET …/availability` per app.
+ * The availability reading the console shows for an app: the one its registry row carries,
+ * kept live by re-reading that one row (`?id=`). There is no per-app availability request.
  *
- * `undefined` when the row carries none (a detail response, a draft, capture off, a store
- * that did not answer): the caller then asks the per-app endpoint, which also says why.
- * Only a row that carries a reading is polled; a polled answer replaces the registry's,
- * including by carrying none.
+ * `reading` is `undefined` when the row carries none (a draft, a deployment that does not
+ * measure availability, a store that did not answer); say so, never read it as healthy.
+ * `isLoading` is true only while a caller with no reading of its own waits for the row.
  */
-export function useListedAvailability(app: {
-  id: string;
-  availability?: AppAvailabilityReading;
-}): AppAvailabilityReading | undefined {
-  const row = useAdminAppRow(app.availability ? app.id : undefined);
-  return row.data ? row.data.availability : app.availability;
+export function useListedAvailability(app: { id: string; availability?: AppAvailabilityReading }): {
+  reading: AppAvailabilityReading | undefined;
+  isLoading: boolean;
+} {
+  const row = useAdminAppRow(app.id);
+  // A re-read row replaces the caller's reading, including by carrying none.
+  if (row.data) {
+    return { reading: row.data.availability, isLoading: false };
+  }
+  return { reading: app.availability, isLoading: !app.availability && row.isLoading };
 }
 
 /**
@@ -174,30 +177,10 @@ export const useAppDebug = (orgSlug: string | undefined, appSlug: string | undef
  * and back doesn't refetch; the data isn't real-time-critical.
  */
 /**
- * Derived availability + burn verdict for one app.
- *
- * Polled on a 60s interval rather than fetched once: this is the panel an
- * operator leaves open during an incident, and a stale verdict there is worse
- * than no panel. `retry: false` because the two interesting failures — 501 when
- * observability is unconfigured, 502 when the query itself fails — are both
- * states to render, not transient errors to retry behind a spinner.
- */
-export const useAppAvailability = (orgSlug: string | undefined, appSlug: string | undefined) =>
-  useQuery({
-    queryKey: queryKeys.customApps.availability(orgSlug ?? "", appSlug ?? ""),
-    queryFn: () => CustomAppsService.availability(orgSlug as string, appSlug as string),
-    enabled: !!orgSlug && !!appSlug,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    retry: false
-  });
-
-/**
  * Persisted Oxy Function output and browser errors.
  *
- * `retry: false` for the same reason as `useAppAvailability`: a 501 (no
- * observability backend) is a state to render, not a transient failure to
- * retry behind a spinner.
+ * `retry: false`: a 501 (no observability backend) is a state to render, not a
+ * transient failure to retry behind a spinner.
  */
 export const useAppLogs = (
   orgSlug: string | undefined,
@@ -297,7 +280,7 @@ export const useAppActivityEventOccurrences = (
  * ticking in the background for a frame nobody is looking at — and stops
  * for good on a 404, which no later poll can turn into a list.
  *
- * `retry: false` for the same reason as `useAppAvailability`: a 404 (the
+ * `retry: false`: a 404 (the
  * caller may not open this app's staging) is a state the banner renders,
  * not a transient failure to retry behind a spinner.
  *

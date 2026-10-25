@@ -3,11 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CustomAppsService } from "@/services/api/customApps";
-import type { AppAvailability, AppAvailabilityReading } from "@/types/apps";
+import type { AppAvailabilityReading, CustomApp } from "@/types/apps";
 import { Availability } from ".";
 
 vi.mock("@/services/api/customApps", () => ({
-  CustomAppsService: { availability: vi.fn(), list: vi.fn() }
+  CustomAppsService: { list: vi.fn() }
 }));
 
 const reading: AppAvailabilityReading = {
@@ -39,27 +39,30 @@ describe("Availability panel", () => {
     vi.resetAllMocks();
   });
 
-  it("renders the reading the list row carries without asking the app's endpoint", () => {
+  it("renders the reading the list row carries", () => {
     renderPanel(reading);
 
     expect(screen.getByTestId("admin-app-availability-verdict-pill").textContent).toMatch(
       /no data|no opinion/i
     );
     expect(screen.getByTestId("admin-app-open-builds")).toBeTruthy();
-    expect(CustomAppsService.availability).not.toHaveBeenCalled();
   });
 
-  it("asks the endpoint when the row carries nothing", async () => {
-    vi.mocked(CustomAppsService.availability).mockResolvedValue({
-      ...reading,
-      app_id: "app-1",
-      org_slug: "acme",
-      app_slug: "store"
-    } satisfies AppAvailability);
+  it("reads the app's row when the caller has no reading", async () => {
+    vi.mocked(CustomAppsService.list).mockResolvedValue({
+      items: [{ id: "app-1", availability: reading } as unknown as CustomApp],
+      next_offset: null
+    });
 
     renderPanel(undefined);
 
     await waitFor(() => expect(screen.getByTestId("admin-app-availability")).toBeTruthy());
-    expect(CustomAppsService.availability).toHaveBeenCalledWith("acme", "store");
+    expect(CustomAppsService.list).toHaveBeenCalledWith({ id: "app-1", limit: 1 });
+  });
+
+  it("says there is no reading when the row carries none", async () => {
+    renderPanel(undefined);
+
+    await waitFor(() => expect(screen.getByTestId("admin-app-availability-none")).toBeTruthy());
   });
 });

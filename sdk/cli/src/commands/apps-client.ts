@@ -188,10 +188,10 @@ export interface AppRow extends AppIdentity {
   /** The build being served records no repository or no commit. */
   source_unrecorded?: boolean;
   /**
-   * The app's availability reading, as `GET …/{org}/{app}/availability` answers it
-   * minus the app's identity. Present on a list row only for a published app the
-   * server measured; absent is "not read here", never healthy. `--json` passes it
-   * through untouched.
+   * The app's availability reading: request success over six windows and the
+   * burn verdict. Present on a list row only for a published app the server
+   * measured; absent is "not read here", never healthy. `apps show` and
+   * `apps health` read it from here, and `--json` passes it through untouched.
    */
   availability?: AppAvailabilityReading;
   created_at: string;

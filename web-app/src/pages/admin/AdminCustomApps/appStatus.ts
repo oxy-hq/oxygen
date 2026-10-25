@@ -1,5 +1,5 @@
 import type { AdminTone } from "@/pages/admin/components/adminTone";
-import type { AppAvailability, AppHealth, CustomApp } from "@/types/apps";
+import type { AppAvailabilityReading, AppHealth, CustomApp } from "@/types/apps";
 
 /**
  * What one custom app's state *is*, for every surface that has to say it.
@@ -183,11 +183,11 @@ export interface LifecycleVerdictInput {
   /** The fleet-health row's verdict; `undefined`/`null` when the fleet has not answered. */
   health?: AppHealth | null;
   /** The per-app availability read; `undefined`/`null` when unconfigured (501) or failed. */
-  availability?: Pick<AppAvailability, "verdict" | "severity"> | null;
+  availability?: Pick<AppAvailabilityReading, "verdict" | "severity"> | null;
 }
 
 function burningVerdict(
-  availability: Pick<AppAvailability, "verdict" | "severity">
+  availability: Pick<AppAvailabilityReading, "verdict" | "severity">
 ): LifecycleVerdict | null {
   if (availability.verdict !== "burning") return null;
   return availability.severity === "page"

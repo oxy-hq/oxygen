@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CustomAppsService } from "@/services/api/customApps";
-import type { AppAvailability, AppAvailabilityReading, CustomApp } from "@/types/apps";
+import type { AppAvailabilityReading, CustomApp } from "@/types/apps";
 import type { LifecycleAppRef } from "./deriveLifecycle";
 import { useAppLifecycle } from "./useAppLifecycle";
 
@@ -13,7 +13,6 @@ vi.mock("@/services/api/customApps", () => ({
     listBuilds: vi.fn(),
     fleetHealth: vi.fn(),
     listStagingHeld: vi.fn(),
-    availability: vi.fn(),
     list: vi.fn()
   }
 }));
@@ -68,7 +67,6 @@ describe("useAppLifecycle availability", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     await waitFor(() => expect(CustomAppsService.fleetHealth).toHaveBeenCalled());
 
-    expect(CustomAppsService.availability).not.toHaveBeenCalled();
     expect(result.current.verdict).toMatchObject({
       status: "down",
       label: "Burning",
@@ -88,25 +86,19 @@ describe("useAppLifecycle availability", () => {
     await waitFor(() => expect(result.current.verdict.status).toBe("operational"));
 
     expect(CustomAppsService.list).toHaveBeenCalledWith({ id: "app-1", limit: 1 });
-    expect(CustomAppsService.availability).not.toHaveBeenCalled();
   });
 
-  it("asks the per-app endpoint only for a row that does not carry it", async () => {
-    vi.mocked(CustomAppsService.availability).mockResolvedValue({
-      ...burning,
-      verdict: "healthy",
-      severity: undefined,
-      app_id: "app-1",
-      org_slug: "acme",
-      app_slug: "store"
-    } satisfies AppAvailability);
+  it("takes a reading from the app's row when the caller had none", async () => {
+    vi.mocked(CustomAppsService.list).mockResolvedValue({
+      items: [{ ...row(burning), name: "Store" } as unknown as CustomApp],
+      next_offset: null
+    });
     const app = row(undefined);
     const { result } = renderHook(() => useAppLifecycle(app), { wrapper });
 
     await waitFor(() => expect(result.current.verdict.source).toBe("availability"));
 
-    expect(CustomAppsService.availability).toHaveBeenCalledTimes(1);
-    expect(CustomAppsService.availability).toHaveBeenCalledWith("acme", "store");
-    expect(result.current.verdict.status).toBe("operational");
+    expect(CustomAppsService.list).toHaveBeenCalledWith({ id: "app-1", limit: 1 });
+    expect(result.current.verdict.status).toBe("down");
   });
 });

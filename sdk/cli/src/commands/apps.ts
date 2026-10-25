@@ -10,7 +10,6 @@
  *   GET /api/customer-apps/{id}/builds                    build history and who promoted
  *   GET /api/customer-apps/fleet-health?limit=&offset=    every published app's verdict
  *   GET /api/customer-apps/{org}/{app}/health             deployment integrity (200 pass, 503 fail)
- *   GET /api/customer-apps/{org}/{app}/availability       request success over six windows
  *   GET /api/customer-apps/{org}/{app}/errors             browser errors, grouped by stack
  *   GET /api/customer-apps/{id}/activity/{summary,visitors,events}
  *
@@ -31,6 +30,7 @@ import { out } from "../ui/tty.js";
 import { CliError, ExitCode, usageError } from "../util/errors.js";
 import { parseRemoteSlug } from "../util/git.js";
 import {
+  type AppAvailabilityReading,
   type AppRow,
   appLabel,
   type BuildSummary,
@@ -309,21 +309,12 @@ export interface HealthReport {
   checked_at: string;
 }
 
-/** `custom_apps_availability::AvailabilityResponse`. */
-export interface Availability {
-  /** `no_opinion` | `healthy` | `burning`. */
-  verdict: string;
-  /** `page` | `ticket`, only when burning. */
-  severity?: string;
-  burn_rate?: number;
-  objective: number;
-  windows: Array<{
-    window_minutes: number;
-    total: number;
-    failed: number;
-    failure_ratio: number | null;
-  }>;
-}
+/**
+ * What `show` and `health` say when the registry row carries no availability reading.
+ * The reading is not fetched: it is the row's `availability` (request success over six
+ * windows), present for a published app the server measured.
+ */
+const NO_READING = "no reading — not published, not measured, or the measurement was not read";
 
 /** `custom_apps_logs::ClientErrorResponse`. */
 interface ClientError {
@@ -404,7 +395,7 @@ function healthLine(report: HealthReport): string {
   return `${out.red("FAIL")} — ${failed.map((check) => check.name).join(", ") || "no check named"}`;
 }
 
-function availabilityLine(a: Availability): string {
+function availabilityLine(a: AppAvailabilityReading): string {
   // The longest window is the one most likely to hold any traffic at all.
   const widest = [...a.windows].sort((x, y) => y.window_minutes - x.window_minutes)[0];
   const traffic = widest
@@ -432,12 +423,12 @@ export async function runAppsShow(ctx: Context, app: string, json: boolean): Pro
   // The registry row and the builds are what this command is about; without
   // them there is nothing to show. The three below it are separate backends.
   const history = await fetchBuilds(conn, row.id);
-  const [health, availability, usage] = await Promise.all([
+  const [health, usage] = await Promise.all([
     section(fetchHealth(conn, row)),
-    section(getJson<Availability>(conn, appPath(row, "availability"))),
     section(getJson<UsageSummary>(conn, `${CUSTOMER_APPS}/${row.id}/activity/summary`))
   ]);
-  const sections = { health, availability, usage };
+  const sections = { health, usage };
+  const availability = row.availability;
   const live = liveBuild(history);
   const draft = draftAheadOfLive(history);
 
@@ -449,7 +440,7 @@ export async function runAppsShow(ctx: Context, app: string, json: boolean): Pro
       promoted_at: history.promoted_at,
       promoted_by_email: history.promoted_by_email,
       health: health.ok ? health.value : null,
-      availability: availability.ok ? availability.value : null,
+      availability: availability ?? null,
       usage: usage.ok ? usage.value : null,
       failed: failures(sections)
     });
@@ -472,10 +463,7 @@ export async function runAppsShow(ctx: Context, app: string, json: boolean): Pro
   if (history.promoted_at) fields.push(["last promote", lastPromote(history)]);
   fields.push(
     ["health", health.ok ? healthLine(health.value) : notRead(health.error)],
-    [
-      "availability",
-      availability.ok ? availabilityLine(availability.value) : notRead(availability.error)
-    ],
+    ["availability", availability ? availabilityLine(availability) : NO_READING],
     ["usage, 7 days", usage.ok ? usageLine(usage.value) : notRead(usage.error)]
   );
   printFields(fields);
@@ -647,9 +635,9 @@ const ERRORS_HOURS = 24;
 
 async function appHealth(ctx: Context, app: string, json: boolean): Promise<void> {
   const { conn, row } = await openApp(ctx, app);
-  const [health, availability, errors] = await Promise.all([
+  const availability = row.availability;
+  const [health, errors] = await Promise.all([
     section(fetchHealth(conn, row)),
-    section(getJson<Availability>(conn, appPath(row, "availability"))),
     section(
       getJson<{ errors: ClientError[] }>(conn, appPath(row, `errors?hours=${ERRORS_HOURS}`)).then(
         (body) => {
@@ -661,14 +649,14 @@ async function appHealth(ctx: Context, app: string, json: boolean): Promise<void
       )
     )
   ]);
-  const sections = { health, availability, errors };
+  const sections = { health, errors };
 
   if (json) {
     printJson({
       app: appLabel(row),
       app_id: row.id,
       health: health.ok ? health.value : null,
-      availability: availability.ok ? availability.value : null,
+      availability: availability ?? null,
       errors: errors.ok ? errors.value : null,
       failed: failures(sections)
     });
@@ -700,8 +688,8 @@ async function appHealth(ctx: Context, app: string, json: boolean): Promise<void
   }
 
   lines.push(heading("Availability"));
-  if (availability.ok) {
-    const a = availability.value;
+  if (availability) {
+    const a = availability;
     const verdict = a.severity ? `${a.verdict} (${a.severity})` : a.verdict;
     lines.push(
       `${verdict} — objective ${percent(a.objective)}`,
@@ -718,7 +706,7 @@ async function appHealth(ctx: Context, app: string, json: boolean): Promise<void
       ])
     );
   } else {
-    lines.push(notRead(availability.error));
+    lines.push(NO_READING);
   }
 
   lines.push(heading(`Browser errors, last ${ERRORS_HOURS} hours`));
