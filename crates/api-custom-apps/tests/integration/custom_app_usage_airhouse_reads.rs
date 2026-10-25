@@ -20,6 +20,11 @@
 //! | `usage_reads_vitals_fall_back_when_airhouse_is_slow` | a vitals read whose Airhouse is slower than its deadline answers from Postgres in time, and the workspace is not asked again for a while |
 //! | `usage_reads_fall_back_to_postgres_when_airhouse_cannot_answer` | a finished workspace whose Airhouse is down still answers, from Postgres, and is not asked again for a while |
 //! | `usage_sdk_events_are_mirrored_to_airhouse_by_the_drain` | `record_event` writes Postgres and the drain appends the event to Airhouse |
+//! | `usage_writes_go_to_airhouse_only_once_a_workspace_is_backfilled` | a view, a beacon event and an SDK event of a finished workspace reach Airhouse and the Activity tab, and write no Postgres row |
+//! | `usage_writes_stay_in_postgres_until_the_backfill_finishes` | the same three for an unfinished workspace are written to Postgres |
+//! | `usage_writes_park_in_postgres_when_the_append_fails_and_a_pass_copies_them` | a failed append writes the rows to Postgres and sets `parked_since`; the sweep lists the workspace; a pass copies the rows and clears it |
+//! | `usage_writes_parked_rows_are_copied_over_several_short_passes` | a parked backlog larger than one pass moves `parked_since` forward each pass and is cleared |
+//! | `usage_writes_a_postgres_row_whose_copy_fails_is_marked_for_a_backfilled_workspace` | a row that reached Postgres for a backfilled workspace and whose copy failed is marked and copied |
 //! | `usage_backfill_sweep_tries_the_longest_unattempted_workspace_first` | a workspace whose passes keep failing sorts behind the others |
 //! | `usage_backfill_sweep_queues_one_task_per_unfinished_workspace` | the sweep queues a task for a workspace with an Airhouse and none for one that finished |
 //! | `usage_counting_sql_in_the_docs_is_the_sql_that_runs` | the two counts `data-placement.md` quotes are the code's text and count apps without an Airhouse and apps not yet copied |
@@ -42,7 +47,7 @@ use oxy_custom_apps::usage_backfill::{self, BackfillError, Pass};
 use oxy_custom_apps::usage_fixtures::{Cast, FakeAirhouse, History, history};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ConnectionTrait, DatabaseBackend, DatabaseConnection,
-    EntityTrait, QueryOrder, Statement,
+    EntityTrait, PaginatorTrait, QueryOrder, Statement,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -772,6 +777,266 @@ async fn usage_sdk_events_are_mirrored_to_airhouse_by_the_drain() {
     let row = rows.iter().next().unwrap();
     assert_eq!(row.uuid("event_id").unwrap(), id);
     assert_eq!(row.text("kind").unwrap(), "event");
+}
+
+/// Postgres rows in both usage tables, every environment.
+async fn postgres_rows(db: &DatabaseConnection) -> (u64, u64) {
+    (
+        custom_app_view_event::Entity::find()
+            .count(db)
+            .await
+            .unwrap(),
+        custom_app_event::Entity::find().count(db).await.unwrap(),
+    )
+}
+
+/// One production view, one beacon event and one SDK event for the world's
+/// app, then a drain. Returns the SDK event's id.
+async fn use_the_app(world: &World) -> Uuid {
+    let app = apps::Entity::find_by_id(world.app_id)
+        .one(&world.db)
+        .await
+        .unwrap()
+        .unwrap();
+    let (user, email) = world.cast.users[1].clone();
+    oxy_custom_apps::tracking::record_view(
+        app,
+        user,
+        Some(email.clone()),
+        Uuid::new_v4(),
+        None,
+        "browser".into(),
+        "subpath".into(),
+        "production".into(),
+    );
+    oxy_custom_apps::tracking::queue_event(
+        world.app_id,
+        user,
+        email.clone(),
+        Uuid::new_v4(),
+        "oxy-pageview".into(),
+        json!({ "path": "/orders" }),
+        "production".into(),
+    );
+    let id = oxy_api_custom_apps::custom_apps_tracking::record_event(
+        &world.db,
+        world.app_id,
+        user,
+        email,
+        Uuid::new_v4(),
+        "export-clicked".into(),
+        json!({ "format": "pdf" }),
+        "production",
+    )
+    .await
+    .expect("recorded");
+    oxy_api_custom_apps::custom_apps_usage_queue::flush().await;
+    id
+}
+
+/// Once a workspace reads Airhouse, its new usage is written there and not to
+/// Postgres, and the Activity tab, which reads Airhouse, shows it.
+#[tokio::test]
+async fn usage_writes_go_to_airhouse_only_once_a_workspace_is_backfilled() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    backfill(&world, &fake).await;
+    let before = postgres_rows(&world.db).await;
+    let in_airhouse = fake.row_count(world.workspace_id);
+    let Json(summary) = get_summary(Path(world.app_id)).await.unwrap();
+    let views_before = serde_json::to_value(summary).unwrap()["total_views_7d"].clone();
+
+    let sdk_event = use_the_app(&world).await;
+
+    assert_eq!(postgres_rows(&world.db).await, before, "no Postgres row");
+    assert_eq!(fake.row_count(world.workspace_id), in_airhouse + 3);
+    let found = fake
+        .query(
+            &world.db,
+            world.workspace_id,
+            &format!(
+                "SELECT count(*) AS n FROM oxy_custom_app_usage WHERE event_id = '{sdk_event}'"
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.iter().next().unwrap().int("n").unwrap(), 1);
+    let Json(summary) = get_summary(Path(world.app_id)).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(summary).unwrap()["total_views_7d"],
+        json!(views_before.as_i64().unwrap() + 1)
+    );
+    assert_eq!(
+        usage_backfill::state(&world.db, world.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .parked_since,
+        None
+    );
+}
+
+/// A workspace whose history has not been copied keeps writing Postgres, which
+/// its reads still use.
+#[tokio::test]
+async fn usage_writes_stay_in_postgres_until_the_backfill_finishes() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    fake.prepare(&world.db, world.workspace_id).await.unwrap();
+    let (views, events) = postgres_rows(&world.db).await;
+
+    use_the_app(&world).await;
+
+    assert_eq!(postgres_rows(&world.db).await, (views + 1, events + 2));
+}
+
+/// An append that fails keeps the rows, in Postgres, and marks the workspace;
+/// the sweep lists it, and a pass copies the rows to Airhouse and clears the
+/// mark.
+#[tokio::test]
+async fn usage_writes_park_in_postgres_when_the_append_fails_and_a_pass_copies_them() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    backfill(&world, &fake).await;
+    let (views, events) = postgres_rows(&world.db).await;
+    let in_airhouse = fake.row_count(world.workspace_id);
+
+    fake.fail_appends_after(0);
+    let sdk_event = use_the_app(&world).await;
+    fake.stop_failing_appends();
+
+    assert_eq!(postgres_rows(&world.db).await, (views + 1, events + 2));
+    assert_eq!(fake.row_count(world.workspace_id), in_airhouse);
+    let row = usage_backfill::state(&world.db, world.workspace_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(row.parked_since.is_some(), "the workspace is marked");
+    assert_eq!(
+        usage_backfill::parked_workspaces(&world.db, 10)
+            .await
+            .unwrap(),
+        vec![world.workspace_id]
+    );
+
+    let pass = backfill(&world, &fake).await;
+    assert_eq!(
+        pass,
+        Pass::CopiedParked {
+            rows: 3,
+            cleared: true
+        }
+    );
+    assert_eq!(fake.row_count(world.workspace_id), in_airhouse + 3);
+    assert!(
+        usage_backfill::parked_workspaces(&world.db, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(backfill(&world, &fake).await, Pass::AlreadyFinished);
+    let found = fake
+        .query(
+            &world.db,
+            world.workspace_id,
+            &format!(
+                "SELECT count(*) AS n FROM oxy_custom_app_usage WHERE event_id = '{sdk_event}'"
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.iter().next().unwrap().int("n").unwrap(), 1);
+}
+
+/// A parked backlog bigger than one pass's budget still gets copied: each pass
+/// copies a batch of both tables, moves `parked_since` to where it got, and the
+/// next starts there, until one clears it.
+#[tokio::test]
+async fn usage_writes_parked_rows_are_copied_over_several_short_passes() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    backfill(&world, &fake).await;
+    let in_airhouse = fake.row_count(world.workspace_id);
+    fake.fail_appends_after(0);
+    use_the_app(&world).await;
+    use_the_app(&world).await;
+    fake.stop_failing_appends();
+
+    let mut passes = Vec::new();
+    loop {
+        // No time budget and one row per batch: one round per pass.
+        let pass =
+            usage_backfill::run_with(&world.db, &*fake, world.workspace_id, Duration::ZERO, 1)
+                .await
+                .expect("a pass");
+        passes.push(pass);
+        if matches!(pass, Pass::CopiedParked { .. }) || passes.len() > 10 {
+            break;
+        }
+    }
+    assert!(
+        matches!(passes[0], Pass::ParkedPaused { moved: true, .. }),
+        "{passes:?}"
+    );
+    assert!(
+        matches!(
+            passes.last(),
+            Some(Pass::CopiedParked { cleared: true, .. })
+        ),
+        "{passes:?}"
+    );
+    assert_eq!(fake.row_count(world.workspace_id), in_airhouse + 6);
+}
+
+/// A row written to Postgres for a workspace that reads Airhouse (here an SDK
+/// event, while `record_event` still remembers the workspace from before its
+/// backfill finished) whose Airhouse copy fails is marked, and a pass copies it.
+#[tokio::test]
+async fn usage_writes_a_postgres_row_whose_copy_fails_is_marked_for_a_backfilled_workspace() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    fake.prepare(&world.db, world.workspace_id).await.unwrap();
+    // Asked before the backfill: remembered as still writing Postgres.
+    use_the_app(&world).await;
+    backfill(&world, &fake).await;
+    let in_airhouse = fake.row_count(world.workspace_id);
+
+    fake.fail_appends_after(0);
+    let sdk_event = oxy_api_custom_apps::custom_apps_tracking::record_event(
+        &world.db,
+        world.app_id,
+        world.cast.users[1].0,
+        world.cast.users[1].1.clone(),
+        Uuid::new_v4(),
+        "export-clicked".into(),
+        json!({ "format": "csv" }),
+        "production",
+    )
+    .await
+    .expect("recorded");
+    oxy_api_custom_apps::custom_apps_usage_queue::flush().await;
+    fake.stop_failing_appends();
+
+    assert!(
+        custom_app_event::Entity::find_by_id(sdk_event)
+            .one(&world.db)
+            .await
+            .unwrap()
+            .is_some(),
+        "written to Postgres"
+    );
+    assert_eq!(
+        usage_backfill::parked_workspaces(&world.db, 10)
+            .await
+            .unwrap(),
+        vec![world.workspace_id],
+        "and marked, though it never went through the Airhouse-only path"
+    );
+    assert!(matches!(
+        backfill(&world, &fake).await,
+        Pass::CopiedParked { cleared: true, .. }
+    ));
+    assert_eq!(fake.row_count(world.workspace_id), in_airhouse + 1);
 }
 
 /// The sweep queues one task for a workspace that has an Airhouse and is not

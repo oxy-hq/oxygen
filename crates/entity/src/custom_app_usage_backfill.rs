@@ -21,6 +21,10 @@ pub struct Model {
     pub cursor_at: Option<DateTimeWithTimeZone>,
     pub cursor_id: Option<Uuid>,
     pub updated_at: DateTimeWithTimeZone,
+    /// Set on a finished workspace when an Airhouse append failed and the
+    /// drain wrote the rows to Postgres instead: the oldest such row's time.
+    /// A backfill pass copies them over and clears it.
+    pub parked_since: Option<DateTimeWithTimeZone>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

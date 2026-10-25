@@ -53,11 +53,13 @@
 
 use crate::usage_airhouse;
 use crate::usage_queue;
+use crate::usage_writes;
 use chrono::Utc;
 use entity::{custom_app_event, custom_app_view_event};
 use http::{HeaderMap, header};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    TryIntoModel,
 };
 use uuid::Uuid;
 
@@ -273,6 +275,26 @@ pub async fn record_event(
         environment,
         Utc::now().fixed_offset(),
     )?;
+    // A workspace that writes Airhouse only gets the event through the drain,
+    // in the batch with the beacon's, and no Postgres row.
+    if let Some((workspace_id, _)) = usage_writes::airhouse_only_home(db, app_id).await {
+        let row = model
+            .clone()
+            .try_into_model()
+            .map_err(|e| EventError::Db(e.to_string()))?;
+        let (id, at) = (row.id, row.occurred_at.with_timezone(&Utc));
+        if usage_queue::try_enqueue(usage_queue::UsageJob::Unwritten(Box::new(row))) {
+            return Ok(id);
+        }
+        // The queue is full: keep the event, in Postgres, for a backfill pass
+        // to copy, exactly as a failed append is kept.
+        model
+            .insert(db)
+            .await
+            .map_err(|e| EventError::Db(e.to_string()))?;
+        usage_writes::park(db, &std::collections::HashMap::from([(workspace_id, at)])).await;
+        return Ok(id);
+    }
     let row = model
         .insert(db)
         .await

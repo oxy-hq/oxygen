@@ -141,10 +141,15 @@ pub async fn enqueue(db: &DatabaseConnection, workspace_id: Uuid) -> Result<bool
 }
 
 /// Queue a task for each workspace that needs one, at most
-/// [`QUEUE_PER_SWEEP`]. Returns how many it queued.
+/// [`QUEUE_PER_SWEEP`]: a finished workspace with rows parked in Postgres
+/// first, then one not yet finished. Returns how many it queued.
 pub async fn queue_unfinished(db: &DatabaseConnection) -> Result<u64, DbErr> {
     let mut queued = 0;
-    for workspace_id in usage_backfill::unfinished_workspaces(db, QUEUE_PER_SWEEP * 4).await? {
+    // A finished workspace with rows parked in Postgres after a failed append
+    // first: those rows are missing from what its reads see until copied.
+    let parked = usage_backfill::parked_workspaces(db, QUEUE_PER_SWEEP).await?;
+    let unfinished = usage_backfill::unfinished_workspaces(db, QUEUE_PER_SWEEP * 4).await?;
+    for workspace_id in parked.into_iter().chain(unfinished) {
         if queued >= QUEUE_PER_SWEEP {
             break;
         }
@@ -245,6 +250,24 @@ fn describe(pass: Pass) -> String {
         Pass::Paused { rows } => {
             format!("paused after {rows} rows; the next pass resumes from the saved position")
         }
+        Pass::CopiedParked {
+            rows,
+            cleared: true,
+        } => format!("copied {rows} parked rows to Airhouse"),
+        Pass::ParkedPaused { rows, moved: true } => format!(
+            "paused after copying {rows} parked rows; the next pass starts where this one got"
+        ),
+        Pass::ParkedPaused { rows, moved: false } => format!(
+            "paused after copying {rows} parked rows; more were parked meanwhile, so the next \
+             pass starts at the oldest of them"
+        ),
+        Pass::CopiedParked {
+            rows,
+            cleared: false,
+        } => format!(
+            "copied {rows} parked rows to Airhouse; more were parked meanwhile, so the next \
+             sweep queues another pass"
+        ),
     }
 }
 

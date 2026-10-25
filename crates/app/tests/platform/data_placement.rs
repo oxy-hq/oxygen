@@ -282,8 +282,9 @@ const TABLES: &[(&str, Placement)] = &[
         "custom_app_usage_backfill",
         Control(
             "per workspace, how far copying its usage history into its Airhouse has got: \
-             timestamps, a count and a resume position, no usage content; the row that says \
-             finished is what moves the Activity tab and the weekly report to Airhouse",
+             timestamps, a count, a resume position and when rows were last parked in \
+             Postgres after a failed Airhouse append, no usage content; the row that says \
+             finished moves the workspace's usage reads and writes to Airhouse",
         ),
     ),
     (

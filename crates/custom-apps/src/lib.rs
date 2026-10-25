@@ -96,4 +96,5 @@ pub mod usage_fixtures;
 pub mod usage_queue;
 pub mod usage_reads;
 pub mod usage_rows;
+pub mod usage_writes;
 pub mod write_record;

@@ -52,7 +52,7 @@ use uuid::Uuid;
 use crate::usage_airhouse::{self as airhouse_sink, SinkError, UsageSink};
 
 mod batch;
-use batch::{Position, app_homes, event_batch, save, view_batch};
+use batch::{Position, app_homes, event_batch, parked_batch, save, view_batch};
 
 /// Most rows read from Postgres, and sent in one insert, at a time.
 pub const BATCH_ROWS: u64 = 200;
@@ -76,6 +76,16 @@ pub enum Pass {
     /// The time budget ran out first. The position is saved; the next pass
     /// carries on. `rows` is what this pass handed to the insert.
     Paused { rows: u64 },
+    /// The workspace was finished, and rows the drain had parked in Postgres
+    /// after a failed append were copied. `rows` is what this pass handed to
+    /// the insert; `cleared` is false when more rows were parked while it ran,
+    /// and the next sweep queues another pass.
+    CopiedParked { rows: u64, cleared: bool },
+    /// The time budget ran out while copying parked rows. `moved` is true when
+    /// `parked_since` moved forward to where both tables had got, so the next
+    /// pass starts there; false when more rows were parked meanwhile, and the
+    /// next pass starts at the oldest of them.
+    ParkedPaused { rows: u64, moved: bool },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -111,11 +121,13 @@ pub async fn run_with(
     budget: Duration,
     batch_rows: u64,
 ) -> Result<Pass, BackfillError> {
-    if state(db, workspace_id)
-        .await?
-        .is_some_and(|row| row.finished_at.is_some())
+    if let Some(row) = state(db, workspace_id).await?
+        && row.finished_at.is_some()
     {
-        return Ok(Pass::AlreadyFinished);
+        return match row.parked_since {
+            None => Ok(Pass::AlreadyFinished),
+            Some(_) => copy_parked(db, sink, &row, budget, batch_rows).await,
+        };
     }
     match sink.prepare(db, workspace_id).await {
         Ok(()) => {}
@@ -156,21 +168,7 @@ pub async fn run_with(
                 _ => event_batch(db, &homes, &at, batch_rows, recorded_at).await?,
             };
             let Some(last) = last else { break };
-            tokio::time::timeout(BATCH_TIMEOUT, sink.append(db, workspace_id, &facts))
-                .await
-                .map_err(|_| {
-                    BackfillError::Sink(format!(
-                        "an insert of {} rows timed out after {}s",
-                        facts.len(),
-                        BATCH_TIMEOUT.as_secs()
-                    ))
-                })?
-                .map_err(|e| match e {
-                    SinkError::NotConfigured => {
-                        BackfillError::Sink("the workspace's Airhouse went away".to_string())
-                    }
-                    SinkError::Failed(why) => BackfillError::Sink(why),
-                })?;
+            append(db, sink, workspace_id, &facts).await?;
             handed += facts.len() as u64;
             at = last;
             save(db, workspace_id, facts.len() as u64, &at).await?;
@@ -190,6 +188,158 @@ pub async fn run_with(
     ))
     .await?;
     Ok(Pass::Finished { rows: handed })
+}
+
+/// Copy a finished workspace's Postgres rows from `parked_since` on (rows the
+/// drain wrote there when an append failed, `usage_writes`), then clear
+/// `parked_since`, unless the row's `updated_at` moved since this pass read
+/// it: the drain moves it whenever it parks more.
+async fn copy_parked(
+    db: &DatabaseConnection,
+    sink: &dyn UsageSink,
+    row: &custom_app_usage_backfill::Model,
+    budget: Duration,
+    batch_rows: u64,
+) -> Result<Pass, BackfillError> {
+    let workspace_id = row.workspace_id;
+    let Some(since) = row.parked_since else {
+        return Ok(Pass::AlreadyFinished);
+    };
+    match sink.prepare(db, workspace_id).await {
+        Ok(()) => {}
+        Err(SinkError::NotConfigured) => return Ok(Pass::NoAirhouse),
+        Err(SinkError::Failed(why)) => return Err(BackfillError::Sink(why)),
+    }
+    // Stored cut to microseconds, never above the row's own Postgres time
+    // (`usage_writes::park`), so reading from it misses nothing.
+    let since = since.with_timezone(&Utc);
+    let homes = app_homes(db, workspace_id).await?;
+    let deadline = Instant::now() + budget;
+    let mut handed = 0u64;
+    // A pass resumes at the row the last one stopped on and reads it again, so
+    // a batch must hold at least one more row than that to move at all.
+    let batch_rows = batch_rows.max(2);
+    // Both tables move forward together, a batch of each per round, so a pass
+    // cut short has copied everything older than the slower of the two and
+    // can say so by moving `parked_since` there.
+    let mut cursors = [Cursor::new(VIEW, since), Cursor::new(EVENT, since)];
+    // At least one round per pass, so a pass always gets somewhere.
+    loop {
+        for cursor in cursors.iter_mut().filter(|c| !c.done) {
+            let recorded_at = Utc::now();
+            let (facts, last, read) = parked_batch(
+                db,
+                cursor.kind,
+                &homes,
+                cursor.after,
+                batch_rows,
+                recorded_at,
+            )
+            .await?;
+            if !facts.is_empty() {
+                append(db, sink, workspace_id, &facts).await?;
+            }
+            handed += facts.len() as u64;
+            if let Some(last) = last {
+                cursor.after = last;
+            }
+            cursor.done = (read as u64) < batch_rows;
+        }
+        if cursors.iter().all(|c| c.done) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let reached = cursors
+                .iter()
+                .filter(|c| !c.done)
+                .map(|c| c.after.0)
+                .min()
+                .unwrap_or(since);
+            let moved = db
+                .execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE custom_app_usage_backfill \
+                     SET parked_since = GREATEST(parked_since, $3), \
+                         rows_copied = rows_copied + $4, updated_at = now() \
+                     WHERE workspace_id = $1 AND updated_at = $2",
+                    [
+                        workspace_id.into(),
+                        row.updated_at.into(),
+                        reached.into(),
+                        (handed as i64).into(),
+                    ],
+                ))
+                .await?
+                .rows_affected()
+                == 1;
+            return Ok(Pass::ParkedPaused {
+                rows: handed,
+                moved,
+            });
+        }
+    }
+    let cleared = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE custom_app_usage_backfill \
+             SET parked_since = NULL, rows_copied = rows_copied + $3, updated_at = now() \
+             WHERE workspace_id = $1 AND updated_at = $2",
+            [
+                workspace_id.into(),
+                row.updated_at.into(),
+                (handed as i64).into(),
+            ],
+        ))
+        .await?
+        .rows_affected()
+        == 1;
+    Ok(Pass::CopiedParked {
+        rows: handed,
+        cleared,
+    })
+}
+
+/// Where a parked-row pass has got in one table.
+struct Cursor {
+    kind: &'static str,
+    /// The last row copied: its time and id.
+    after: (chrono::DateTime<Utc>, Uuid),
+    /// The table has no row after `after`.
+    done: bool,
+}
+
+impl Cursor {
+    fn new(kind: &'static str, since: chrono::DateTime<Utc>) -> Self {
+        Self {
+            kind,
+            after: (since, Uuid::nil()),
+            done: false,
+        }
+    }
+}
+
+/// One batch's insert, bounded by [`BATCH_TIMEOUT`].
+async fn append(
+    db: &DatabaseConnection,
+    sink: &dyn UsageSink,
+    workspace_id: Uuid,
+    facts: &[crate::usage_airhouse::UsageFact],
+) -> Result<(), BackfillError> {
+    tokio::time::timeout(BATCH_TIMEOUT, sink.append(db, workspace_id, facts))
+        .await
+        .map_err(|_| {
+            BackfillError::Sink(format!(
+                "an insert of {} rows timed out after {}s",
+                facts.len(),
+                BATCH_TIMEOUT.as_secs()
+            ))
+        })?
+        .map_err(|e| match e {
+            SinkError::NotConfigured => {
+                BackfillError::Sink("the workspace's Airhouse went away".to_string())
+            }
+            SinkError::Failed(why) => BackfillError::Sink(why),
+        })
 }
 
 /// The workspace's row, if a pass ever began.
@@ -223,6 +373,26 @@ pub async fn unfinished_workspaces(
            AND b.finished_at IS NULL \
            AND EXISTS (SELECT 1 FROM apps a WHERE a.project_id = t.workspace_id) \
          ORDER BY b.updated_at NULLS FIRST, t.created_at, t.workspace_id LIMIT $1",
+        [(limit as i64).into()],
+    ))
+    .all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| r.workspace_id).collect())
+}
+
+/// Finished workspaces with rows the drain parked in Postgres after a failed
+/// append (`parked_since` set): each needs a pass to copy them. The oldest
+/// parked first, at most `limit`.
+pub async fn parked_workspaces(db: &DatabaseConnection, limit: u64) -> Result<Vec<Uuid>, DbErr> {
+    #[derive(FromQueryResult)]
+    struct Row {
+        workspace_id: Uuid,
+    }
+    let rows = Row::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT workspace_id FROM custom_app_usage_backfill \
+         WHERE finished_at IS NOT NULL AND parked_since IS NOT NULL \
+         ORDER BY parked_since, workspace_id LIMIT $1",
         [(limit as i64).into()],
     ))
     .all(db)

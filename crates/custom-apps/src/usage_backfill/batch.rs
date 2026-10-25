@@ -189,6 +189,71 @@ pub(super) async fn event_batch(
     Ok((facts, last))
 }
 
+/// Up to `limit` of the workspace's rows of `kind` after `after` (a time and
+/// an id), in time order, where the last one is, and how many rows were read. A parked-row pass reads
+/// from the oldest parked row on, every app of the workspace at once: after a
+/// workspace stops writing Postgres, the only rows there are parked ones.
+pub(super) async fn parked_batch(
+    db: &DatabaseConnection,
+    kind: &'static str,
+    homes: &[(Uuid, Uuid)],
+    after: (DateTime<Utc>, Uuid),
+    limit: u64,
+    recorded_at: DateTime<Utc>,
+) -> Result<(Vec<UsageFact>, Option<(DateTime<Utc>, Uuid)>, usize), DbErr> {
+    if homes.is_empty() {
+        return Ok((Vec::new(), None, 0));
+    }
+    let values = || {
+        [
+            homes.iter().map(|(app, _)| *app).collect::<Vec<_>>().into(),
+            after.0.into(),
+            after.1.into(),
+            (limit as i64).into(),
+        ]
+    };
+    if kind == VIEW {
+        let rows = custom_app_view_event::Entity::find()
+            .from_raw_sql(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT * FROM custom_app_view_event \
+                 WHERE app_id = ANY($1) AND (viewed_at, id) > ($2, $3) \
+                 ORDER BY viewed_at, id LIMIT $4",
+                values(),
+            ))
+            .all(db)
+            .await?;
+        let last = rows.last().map(|r| (r.viewed_at.with_timezone(&Utc), r.id));
+        let facts = rows
+            .iter()
+            .filter_map(|r| {
+                org_of(homes, r.app_id).map(|org| UsageFact::from_view_model(r, org, recorded_at))
+            })
+            .collect();
+        return Ok((facts, last, rows.len()));
+    }
+    let rows = custom_app_event::Entity::find()
+        .from_raw_sql(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT * FROM custom_app_event \
+             WHERE app_id = ANY($1) AND (occurred_at, id) > ($2, $3) \
+             ORDER BY occurred_at, id LIMIT $4",
+            values(),
+        ))
+        .all(db)
+        .await?;
+    let last = rows
+        .last()
+        .map(|r| (r.occurred_at.with_timezone(&Utc), r.id));
+    let facts = rows
+        .iter()
+        .filter_map(|r| {
+            org_of(homes, r.app_id).map(|org| UsageFact::from_event_model(r, org, recorded_at))
+        })
+        .collect();
+    Ok((facts, last, rows.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,6 +270,7 @@ mod tests {
             cursor_at: None,
             cursor_id: None,
             updated_at: Utc::now().fixed_offset(),
+            parked_since: None,
         };
         assert_eq!(Position::of(&row), Position::default());
         let row = custom_app_usage_backfill::Model {

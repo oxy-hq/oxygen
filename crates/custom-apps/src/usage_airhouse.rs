@@ -44,7 +44,7 @@
 //! created with `CREATE TABLE IF NOT EXISTS` as Admin the first time a
 //! workspace is written to in this process; a Writer cannot create tables.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -461,12 +461,24 @@ pub fn enabled() -> bool {
 
 /// The owning workspace and org of each app in `app_ids`, for the beacon
 /// events (a queued event carries only its app id). Apps that no longer exist
-/// are absent.
+/// are absent. Empty, with a `warn!`, when the lookup fails; [`try_app_homes`]
+/// says so instead.
 pub async fn app_homes(db: &DatabaseConnection, app_ids: Vec<Uuid>) -> HashMap<Uuid, (Uuid, Uuid)> {
+    try_app_homes(db, app_ids).await.unwrap_or_else(|e| {
+        tracing::warn!("custom-app usage airhouse: could not resolve workspaces for events: {e}");
+        HashMap::new()
+    })
+}
+
+/// [`app_homes`], with a failed lookup as an error.
+pub async fn try_app_homes(
+    db: &DatabaseConnection,
+    app_ids: Vec<Uuid>,
+) -> Result<HashMap<Uuid, (Uuid, Uuid)>, sea_orm::DbErr> {
     if app_ids.is_empty() {
-        return HashMap::new();
+        return Ok(HashMap::new());
     }
-    match entity::apps::Entity::find()
+    let rows = entity::apps::Entity::find()
         .select_only()
         .columns([
             entity::apps::Column::Id,
@@ -476,33 +488,31 @@ pub async fn app_homes(db: &DatabaseConnection, app_ids: Vec<Uuid>) -> HashMap<U
         .filter(entity::apps::Column::Id.is_in(app_ids))
         .into_tuple::<(Uuid, Uuid, Uuid)>()
         .all(db)
-        .await
-    {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|(app, workspace, org)| (app, (workspace, org)))
-            .collect(),
-        Err(e) => {
-            tracing::warn!(
-                "custom-app usage airhouse: could not resolve workspaces for events: {e}"
-            );
-            HashMap::new()
-        }
-    }
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(app, workspace, org)| (app, (workspace, org)))
+        .collect())
 }
 
 /// Append a batch's facts to each workspace's Airhouse. Never fails and never
-/// panics: it is called after the Postgres write, and whatever happens here
-/// must leave that write alone.
+/// panics: whatever happens here must leave the batch's Postgres writes alone.
 ///
 /// Workspaces are written concurrently, each bounded by [`APPEND_TIMEOUT`].
-pub async fn publish(db: &DatabaseConnection, facts: Vec<(Uuid, UsageFact)>) {
+/// Returns the workspaces whose facts did not land: an append that failed or
+/// timed out, a workspace in its failure backoff, one with no Airhouse, and
+/// every workspace when no sink is enabled. The drain writes those of a
+/// workspace that writes Airhouse only to Postgres instead
+/// ([`usage_writes`](crate::usage_writes)).
+pub async fn publish(db: &DatabaseConnection, facts: Vec<(Uuid, UsageFact)>) -> HashSet<Uuid> {
+    let mut not_landed = HashSet::new();
     if facts.is_empty() {
-        return;
+        return not_landed;
     }
     let sink = current_sink();
     if !sink.enabled() {
-        return;
+        not_landed.extend(facts.iter().map(|(workspace_id, _)| *workspace_id));
+        return not_landed;
     }
     let mut by_workspace: HashMap<Uuid, Vec<UsageFact>> = HashMap::new();
     for (workspace_id, fact) in facts {
@@ -514,6 +524,7 @@ pub async fn publish(db: &DatabaseConnection, facts: Vec<(Uuid, UsageFact)>) {
         .filter_map(|(workspace_id, facts)| {
             if in_backoff(workspace_id, now) {
                 FAILED.fetch_add(facts.len() as u64, Ordering::Relaxed);
+                not_landed.insert(workspace_id);
                 return None;
             }
             Some((workspace_id, facts))
@@ -539,21 +550,25 @@ pub async fn publish(db: &DatabaseConnection, facts: Vec<(Uuid, UsageFact)>) {
             Ok(()) => {
                 APPENDED.fetch_add(rows, Ordering::Relaxed);
             }
-            Err(SinkError::NotConfigured) => {}
+            Err(SinkError::NotConfigured) => {
+                not_landed.insert(workspace_id);
+            }
             Err(SinkError::Failed(reason)) => {
+                not_landed.insert(workspace_id);
                 FAILED.fetch_add(rows, Ordering::Relaxed);
                 start_backoff(workspace_id, Instant::now());
                 tracing::warn!(
                     %workspace_id,
                     rows,
                     failed_total = failed_total(),
-                    "custom-app usage drain: Airhouse append failed; the Postgres rows are kept \
-                     and this workspace is skipped for {}s: {reason}",
+                    "custom-app usage drain: Airhouse append failed; the rows are kept in \
+                     Postgres and this workspace is skipped for {}s: {reason}",
                     FAILURE_BACKOFF.as_secs()
                 );
             }
         }
     }
+    not_landed
 }
 
 /// Queue the SDK event `row`, just written to Postgres by

@@ -226,6 +226,7 @@ mod m20261022_000001_function_invocation_calls;
 mod m20261023_000001_app_custom_domains;
 mod m20261024_000001_function_invocation_error_kind;
 mod m20261024_000002_custom_app_usage_backfill;
+mod m20261024_000003_custom_app_usage_parked_since;
 
 pub use m20260922_000001_app_environments::BACKFILL_SQL as APP_ENVIRONMENTS_BACKFILL_SQL;
 pub use m20261001_000001_api_tokens::BACKFILL_SQL as API_TOKENS_BACKFILL_SQL;
@@ -473,6 +474,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261023_000001_app_custom_domains::Migration),
             Box::new(m20261024_000001_function_invocation_error_kind::Migration),
             Box::new(m20261024_000002_custom_app_usage_backfill::Migration),
+            Box::new(m20261024_000003_custom_app_usage_parked_since::Migration),
         ]
     }
 
