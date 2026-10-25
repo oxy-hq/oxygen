@@ -38,6 +38,7 @@ pub struct FakeAirhouse {
     /// Appends that succeed before every later one fails; `u64::MAX` = never.
     appends_before_failure: AtomicU64,
     fail_queries: std::sync::atomic::AtomicBool,
+    query_delay_ms: AtomicU64,
 }
 
 impl FakeAirhouse {
@@ -77,6 +78,12 @@ impl FakeAirhouse {
     }
 
     /// Make every read fail, as an unreachable Airhouse does.
+    /// Make every read wait this long before it answers, as a slow Airhouse.
+    pub fn delay_queries(&self, delay: std::time::Duration) {
+        self.query_delay_ms
+            .store(delay.as_millis() as u64, Ordering::SeqCst);
+    }
+
     pub fn fail_queries(&self, fail: bool) {
         self.fail_queries.store(fail, Ordering::SeqCst);
     }
@@ -178,6 +185,10 @@ impl UsageSink for FakeAirhouse {
             .connection(workspace_id)
             .ok_or(SinkError::NotConfigured)?;
         self.queries.fetch_add(1, Ordering::SeqCst);
+        let delay = self.query_delay_ms.load(Ordering::SeqCst);
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
         if self.fail_queries.load(Ordering::SeqCst) {
             return Err(SinkError::Failed("the fake Airhouse is down".into()));
         }

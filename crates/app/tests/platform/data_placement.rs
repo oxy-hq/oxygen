@@ -268,11 +268,10 @@ const TABLES: &[(&str, Placement)] = &[
             holds: "app SDK events with a free-form payload",
             belongs: "Airhouse. The usage drain and record_event already append these rows to \
                       the workspace's oxy_custom_app_usage, a backfill copies the history, and \
-                      the Activity tab and the weekly report read it for a backfilled workspace. \
-                      These rows go once the release timeline's vitals \
-                      (admin::apps::releases::vitals, its one reader of oxy-web-vitals), the \
-                      platform facts and the app list read it too, with retention, and no app is \
-                      left without an Airhouse (the counting SQL is in data-placement.md)",
+                      every reader (oxy_custom_apps::usage_reads, the only one) reads it for a \
+                      backfilled workspace. These rows go once Airhouse has retention and no \
+                      app is left without an Airhouse (the counting SQL is in \
+                      data-placement.md)",
         },
     ),
     (
@@ -301,11 +300,11 @@ const TABLES: &[(&str, Placement)] = &[
             holds: "who opened which app: viewer email, session, role snapshot",
             belongs: "Airhouse. The usage drain already appends these to the workspace's \
                       oxy_custom_app_usage (W2.3b), a backfill copies the history, and the \
-                      Activity tab and the weekly report read it for a backfilled workspace; the \
-                      role snapshot is resolved from control-plane tables when the row is \
-                      written and travels with the fact. These rows go once the platform facts \
-                      and the app list read Airhouse too, with retention, and no app is left \
-                      without an Airhouse (the counting SQL is in data-placement.md)",
+                      readers (oxy_custom_apps::usage_reads, the only ones) read it for a \
+                      backfilled workspace; the role snapshot is resolved from control-plane \
+                      tables when the row is written and travels with the fact. These rows go \
+                      once Airhouse has retention and no app is left without an Airhouse (the \
+                      counting SQL is in data-placement.md)",
         },
     ),
     (

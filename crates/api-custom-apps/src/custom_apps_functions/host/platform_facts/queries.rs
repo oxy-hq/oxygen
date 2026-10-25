@@ -1,15 +1,18 @@
 //! One read per source, every one a control-plane table Oxy already writes.
 //!
-//! **One snapshot.** Every statement runs in a single read-only `REPEATABLE
-//! READ` transaction, so the counts, the apps and the orgs all describe the
-//! same instant: a view landing mid-read cannot show in `appViews` and not in
-//! `lastActiveAt`.
+//! **One snapshot.** Every Postgres statement runs in a single read-only
+//! `REPEATABLE READ` transaction, so the counts, the apps and the orgs all
+//! describe the same instant. App page views are the exception: they live in
+//! each workspace's usage store (its Airhouse once its history is copied
+//! there), so [`super::app_use`] reads them after the transaction, and a view
+//! landing in between can show in `appViews` and not yet in `lastActiveAt`.
+//! The next build, once the cache's five minutes are up, has both.
 //!
 //! Snapshot reads (orgs, billing, partners, sign-ins, apps, first thread) are
 //! one pass over their table. "Latest" reads are one index probe per app
 //! (`ORDER BY … DESC LIMIT 1` in a `LATERAL`), never a `MAX` over every row an
-//! app ever wrote; the per-app ones are in [`super::app_use`], the LLM cost in
-//! [`super::llm_cost`]. The customer-activity probes are also **floored** at
+//! app ever wrote; the LLM cost is in [`super::llm_cost`]. The
+//! customer-activity probes are also **floored** at
 //! [`super::LAST_ACTIVITY_HORIZON_DAYS`]: they skip staff's and unattended
 //! rows, so a probe with no floor walks every row since the customer last
 //! acted, and for a churned customer whose webhooks keep arriving that only
@@ -35,7 +38,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use super::Windows;
-use super::app_use::{self, AppAtRow, AppCountRow};
+use super::app_use::{self, AppAtRow, AppCountRow, OrgPersonRow};
 use super::llm_cost::{self, LlmCostRow};
 use oxy_app_core::customer_runs::exclude_daemon_runs;
 
@@ -56,15 +59,17 @@ SELECT m.org_id, MAX(u.last_login_at) AS at \
 FROM org_members m JOIN users u ON u.id = m.user_id \
 GROUP BY m.org_id";
 
-const APPS_SQL: &str = "SELECT id, org_id, slug, name, published_at FROM apps";
+const APPS_SQL: &str =
+    "SELECT id, org_id, project_id AS workspace_id, slug, name, published_at FROM apps";
+
+const STAFF_SQL: &str = "SELECT DISTINCT user_id FROM org_members WHERE org_id = ANY($1::uuid[])";
 
 // $1 the internal orgs, $2 the horizon's start (`LAST_ACTIVITY_HORIZON_DAYS`
 // before now). Each org's latest CUSTOMER activity since $2 apart from app
 // views: a thread a non-staff person started, or a production invocation a
 // non-staff person made. The views half is each app's customer last view
-// (`app_use::CUSTOMER_LAST_VIEWED_SQL`), which `assemble` folds in, so an
-// org's last activity and its apps' `customerLastActiveAt` are one probe and
-// cannot disagree. Staff opening a quiet customer's app, an unattended run (a
+// (`app_use::read`), which `assemble` folds in, so an org's last activity and
+// its apps' `customerLastActiveAt` are one read and cannot disagree. Staff opening a quiet customer's app, an unattended run (a
 // schedule, a webhook: no user) and a thread nobody is attributed to never
 // make the customer look active. Every branch stops at $2, so each probe
 // reads at most the horizon's rows.
@@ -107,17 +112,6 @@ win AS (SELECT w.starts_at, w.ends_at, w.idx - 1 AS idx \
              WITH ORDINALITY AS w(starts_at, ends_at, idx)), \
 staff AS (SELECT DISTINCT user_id FROM org_members WHERE org_id = ANY($3::uuid[]))";
 
-const VIEWS_SQL: &str = "\
-SELECT a.org_id, win.idx, COUNT(*)::bigint AS events, 0::bigint AS failures, \
-       COUNT(DISTINCT v.user_id) FILTER (WHERE s.user_id IS NULL)::bigint AS people \
-FROM custom_app_view_event v \
-JOIN apps a ON a.id = v.app_id \
-JOIN win ON v.viewed_at >= win.starts_at AND v.viewed_at < win.ends_at \
-LEFT JOIN staff s ON s.user_id = v.user_id \
-WHERE v.app_id = ANY($6) AND v.environment = 'production' \
-  AND v.viewed_at >= $4 AND v.viewed_at < $5 \
-GROUP BY a.org_id, win.idx";
-
 const THREADS_SQL: &str = "\
 SELECT w.org_id, win.idx, COUNT(*)::bigint AS events, 0::bigint AS failures, \
        COUNT(DISTINCT t.user_id) FILTER (WHERE s.user_id IS NULL)::bigint AS people \
@@ -128,24 +122,17 @@ LEFT JOIN staff s ON s.user_id = t.user_id \
 WHERE w.org_id IS NOT NULL AND t.created_at >= $4 AND t.created_at < $5 \
 GROUP BY w.org_id, win.idx";
 
-// A person with a production view, a thread, or both, counted once.
-const ACTIVE_SQL: &str = "\
-, acts AS ( \
-    SELECT a.org_id, v.user_id, v.viewed_at AS at \
-    FROM custom_app_view_event v JOIN apps a ON a.id = v.app_id \
-    WHERE v.app_id = ANY($6) AND v.environment = 'production' \
-      AND v.viewed_at >= $4 AND v.viewed_at < $5 \
-    UNION ALL \
-    SELECT w.org_id, t.user_id, t.created_at AS at \
-    FROM threads t JOIN workspaces w ON w.id = t.project_id \
-    WHERE w.org_id IS NOT NULL AND t.user_id IS NOT NULL \
-      AND t.created_at >= $4 AND t.created_at < $5) \
-SELECT acts.org_id, win.idx, 0::bigint AS events, 0::bigint AS failures, \
-       COUNT(DISTINCT acts.user_id)::bigint AS people \
-FROM acts \
-JOIN win ON acts.at >= win.starts_at AND acts.at < win.ends_at \
-WHERE NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = acts.user_id) \
-GROUP BY acts.org_id, win.idx";
+// Each org's non-staff people with a thread, per window: the threads half of
+// `activePeople`. The views half is `app_use::read`'s, which counts a person
+// with both once.
+const THREAD_PEOPLE_SQL: &str = "\
+SELECT DISTINCT w.org_id, win.idx::bigint AS idx, t.user_id \
+FROM threads t \
+JOIN workspaces w ON w.id = t.project_id \
+JOIN win ON t.created_at >= win.starts_at AND t.created_at < win.ends_at \
+WHERE w.org_id IS NOT NULL AND t.user_id IS NOT NULL \
+  AND t.created_at >= $4 AND t.created_at < $5 \
+  AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = t.user_id)";
 
 // Top-level runs only: a delegated child is part of its parent's run. The
 // customer-run predicate is appended (see `runs_sql`).
@@ -216,6 +203,8 @@ pub(super) struct OrgAtRow {
 pub(super) struct AppRow {
     pub id: Uuid,
     pub org_id: Uuid,
+    /// The workspace whose usage store holds the app's page views.
+    pub workspace_id: Uuid,
     pub slug: String,
     pub name: String,
     pub published_at: Option<DateTime<Utc>>,
@@ -261,7 +250,8 @@ pub(super) struct Sources {
     pub llm: Vec<LlmCostRow>,
 }
 
-/// Every source, read fresh from one snapshot. `staff_orgs` is the internal orgs.
+/// Every source: the Postgres ones from one snapshot, then the app page views
+/// from each workspace's usage store. `staff_orgs` is the internal orgs.
 pub(super) async fn read_all(
     db: &DatabaseConnection,
     staff_orgs: &[Uuid],
@@ -275,9 +265,33 @@ pub(super) async fn read_all(
         )
         .await?;
     // An error drops `txn`, which rolls it back.
-    let sources = read_sources(&txn, staff_orgs, windows, activity_since).await?;
+    let read = read_sources(&txn, staff_orgs, windows, activity_since).await?;
     txn.commit().await?;
-    Ok(sources)
+    let views = app_use::read(
+        db,
+        &read.sources.apps,
+        &read.staff,
+        windows,
+        activity_since,
+        &read.thread_people,
+    )
+    .await?;
+    Ok(Sources {
+        last_viewed: views.last_viewed,
+        customer_last_viewed: views.customer_last_viewed,
+        people7d: views.people7d,
+        views: views.views,
+        active: views.active,
+        ..read.sources
+    })
+}
+
+/// The Postgres reads, and what the view counts need from the same snapshot.
+struct Read {
+    sources: Sources,
+    /// Members of an internal org.
+    staff: Vec<Uuid>,
+    thread_people: Vec<OrgPersonRow>,
 }
 
 async fn read_sources(
@@ -285,45 +299,48 @@ async fn read_sources(
     staff_orgs: &[Uuid],
     windows: &Windows,
     activity_since: DateTime<Utc>,
-) -> Result<Sources, DbErr> {
+) -> Result<Read, DbErr> {
+    #[derive(FromQueryResult)]
+    struct StaffRow {
+        user_id: Uuid,
+    }
     let apps: Vec<AppRow> = rows(db, APPS_SQL, vec![]).await?;
     let app_ids: Vec<Uuid> = apps.iter().map(|a| a.id).collect();
-    let staff = || -> Value { staff_orgs.to_vec().into() };
-    let (week_start, week_end) = windows.last7d();
-    let windowed = read_windowed(db, staff_orgs, windows, &app_ids).await?;
-    Ok(Sources {
+    let staff_value = || -> Value { staff_orgs.to_vec().into() };
+    let staff: Vec<StaffRow> = rows(db, STAFF_SQL, vec![staff_value()]).await?;
+    let (windowed, thread_people) = read_windowed(db, staff_orgs, windows, &app_ids).await?;
+    let sources = Sources {
         orgs: rows(db, ORGS_SQL, vec![]).await?,
         billing: rows(db, BILLING_SQL, vec![]).await?,
         partners: rows(db, PARTNERS_SQL, vec![]).await?,
         sign_ins: rows(db, SIGN_INS_SQL, vec![]).await?,
-        last_viewed: rows(db, app_use::LAST_VIEWED_SQL, vec![]).await?,
-        customer_last_viewed: rows(
+        last_activity: rows(
             db,
-            app_use::CUSTOMER_LAST_VIEWED_SQL,
-            vec![staff(), activity_since.into()],
+            LAST_ACTIVITY_SQL,
+            vec![staff_value(), activity_since.into()],
         )
         .await?,
-        people7d: rows(
-            db,
-            app_use::PEOPLE_7D_SQL,
-            vec![staff(), app_ids.into(), week_start.into(), week_end.into()],
-        )
-        .await?,
-        last_activity: rows(db, LAST_ACTIVITY_SQL, vec![staff(), activity_since.into()]).await?,
         first_publishes: rows(db, FIRST_PUBLISH_SQL, vec![]).await?,
         first_threads: rows(db, FIRST_THREAD_SQL, vec![]).await?,
         apps,
         ..windowed
+    };
+    Ok(Read {
+        sources,
+        staff: staff.into_iter().map(|r| r.user_id).collect(),
+        thread_people,
     })
 }
 
-/// The windowed reads alone: every other field of the result is empty.
+/// The windowed reads alone: every other field of the result is empty. The
+/// threads' people come back apart, for `app_use::read` to count with the
+/// viewers.
 async fn read_windowed(
     db: &DatabaseTransaction,
     staff_orgs: &[Uuid],
     windows: &Windows,
     app_ids: &[Uuid],
-) -> Result<Sources, DbErr> {
+) -> Result<(Sources, Vec<OrgPersonRow>), DbErr> {
     let windowed = || -> Vec<Value> {
         vec![
             windows.starts.clone().into(),
@@ -334,16 +351,16 @@ async fn read_windowed(
             app_ids.to_vec().into(),
         ]
     };
-    Ok(Sources {
-        views: rows(db, &with_windows(VIEWS_SQL), windowed()).await?,
+    let sources = Sources {
         threads: rows(db, &with_windows(THREADS_SQL), windowed()).await?,
-        active: rows(db, &with_windows(ACTIVE_SQL), windowed()).await?,
         runs: rows(db, &with_windows(&runs_sql()), windowed()).await?,
         calls: rows(db, &with_windows(CALLS_SQL), windowed()).await?,
         releases: rows(db, &with_windows(RELEASES_SQL), windowed()).await?,
         llm: rows(db, &llm_cost::sql(), windowed()).await?,
         ..Sources::default()
-    })
+    };
+    let thread_people = rows(db, &with_windows(THREAD_PEOPLE_SQL), windowed()).await?;
+    Ok((sources, thread_people))
 }
 
 fn with_windows(body: &str) -> String {

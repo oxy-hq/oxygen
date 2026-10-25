@@ -16,6 +16,8 @@
 //! | `usage_backfill_pauses_on_its_budget_and_finishes_later` | a pass out of time saves its place and the workspace keeps reading Postgres |
 //! | `usage_backfill_skips_a_workspace_with_no_airhouse` | no control row; the Activity tab reads Postgres and never asks Airhouse |
 //! | `usage_reads_activity_is_identical_in_postgres_and_airhouse` | summary, visitors, event counts and drill-down, before and after the copy |
+//! | `usage_reads_lists_and_vitals_are_identical_in_postgres_and_airhouse` | the app list's last-active, each app's last customer view, who viewed each app per window (the platform facts' inputs) and the release vitals, before and after the copy |
+//! | `usage_reads_vitals_fall_back_when_airhouse_is_slow` | a vitals read whose Airhouse is slower than its deadline answers from Postgres in time, and the workspace is not asked again for a while |
 //! | `usage_reads_fall_back_to_postgres_when_airhouse_cannot_answer` | a finished workspace whose Airhouse is down still answers, from Postgres, and is not asked again for a while |
 //! | `usage_sdk_events_are_mirrored_to_airhouse_by_the_drain` | `record_event` writes Postgres and the drain appends the event to Airhouse |
 //! | `usage_backfill_sweep_tries_the_longest_unattempted_workspace_first` | a workspace whose passes keep failing sorts behind the others |
@@ -472,6 +474,247 @@ async fn usage_reads_activity_is_identical_in_postgres_and_airhouse() {
     assert!(fake.queries() >= 4, "Airhouse answered all four reads");
     assert_the_fixtures_numbers(&from_airhouse, &world);
     assert_eq!(from_airhouse, from_postgres);
+}
+
+/// Production web-vitals events for `build`: two `/home` loads with every
+/// vital in bounds, one `/orders` load whose LCP is over a minute and whose INP
+/// is not a number, and four rows no release counts: another build, a path
+/// that is not a string, staging, and a load after the release ended.
+async fn seed_vitals(world: &World, build: Uuid, other: Uuid) {
+    let [(u1, e1), (u2, e2), (u3, e3), _] = world.cast.users.clone();
+    let now = Utc::now();
+    let rows = [
+        (
+            (u1, &e1),
+            json!({ "path": "/home", "build": build.to_string(), "lcp": 1200, "inp": 80, "cls": 50 }),
+            1,
+            "production",
+        ),
+        (
+            (u2, &e2),
+            json!({ "path": "/home", "build": build.to_string(), "lcp": 2500, "inp": 200, "cls": 100 }),
+            2,
+            "production",
+        ),
+        (
+            (u3, &e3),
+            json!({ "path": "/orders", "build": build.to_string(), "lcp": 61000, "inp": "fast", "cls": 10 }),
+            3,
+            "production",
+        ),
+        (
+            (u1, &e1),
+            json!({ "path": "/home", "build": other.to_string(), "lcp": 9000 }),
+            4,
+            "production",
+        ),
+        (
+            (u1, &e1),
+            json!({ "path": 7, "build": build.to_string(), "lcp": 9000 }),
+            5,
+            "production",
+        ),
+        (
+            (u2, &e2),
+            json!({ "path": "/home", "build": build.to_string(), "lcp": 9000 }),
+            6,
+            "staging",
+        ),
+    ];
+    for ((user_id, email), payload, hours, environment) in rows {
+        custom_app_event::ActiveModel {
+            id: Set(Uuid::new_v4()),
+            app_id: Set(world.app_id),
+            user_id: Set(user_id),
+            user_email: Set(email.clone()),
+            session_id: Set(Uuid::new_v4()),
+            event_name: Set("oxy-web-vitals".into()),
+            payload: Set(payload),
+            occurred_at: Set((now - chrono::Duration::hours(hours)
+                + chrono::Duration::microseconds(123_457))
+            .fixed_offset()),
+            environment: Set(environment.into()),
+        }
+        .insert(&world.db)
+        .await
+        .expect("seed a vitals event");
+    }
+}
+
+/// What the app list, the platform facts and the release timeline read about
+/// the world's app, as JSON. The release is `[now - 10h, now - 30min)`.
+async fn lists_and_vitals(world: &World, build: Uuid) -> Value {
+    use oxy_api_custom_apps::custom_apps_activity::last_active_at_by_app;
+    use oxy_custom_apps::usage_reads::{
+        self, Customers, ReportApp, VitalsStretch, last_views, viewers_by_window,
+    };
+    let now = Utc::now();
+    let app = [ReportApp {
+        app_id: world.app_id,
+        workspace_id: world.workspace_id,
+    }];
+    let last_active = last_active_at_by_app(&world.db, &app)
+        .await
+        .expect("last active");
+    let staff = [world.cast.users[0].0];
+    let customers = Customers {
+        staff: &staff,
+        since: now - chrono::Duration::days(7),
+    };
+    let last = last_views(&world.db, &app, Some(customers))
+        .await
+        .expect("last views");
+    let windows = [
+        (now - chrono::Duration::days(7), now),
+        (
+            now - chrono::Duration::days(14),
+            now - chrono::Duration::days(7),
+        ),
+    ];
+    let viewers = viewers_by_window(&world.db, &app, &windows)
+        .await
+        .expect("viewers");
+    let vitals = usage_reads::release_vitals(
+        &world.db,
+        world.app_id,
+        &[VitalsStretch {
+            idx: 0,
+            build_id: build,
+            starts_at: now - chrono::Duration::hours(10),
+            ends_at: now - chrono::Duration::minutes(30),
+        }],
+        std::time::Duration::from_secs(10),
+        4_000,
+    )
+    .await
+    .expect("vitals");
+    let user = |id: Uuid| {
+        world
+            .cast
+            .users
+            .iter()
+            .position(|(u, _)| *u == id)
+            .map(|i| i + 1)
+    };
+    let mut viewers: Vec<(usize, Option<usize>, i64)> = viewers
+        .iter()
+        .map(|v| (v.window, user(v.user_id), v.views))
+        .collect();
+    viewers.sort();
+    json!({
+        "last_active": last_active.get(&world.app_id).map(|t| t.to_rfc3339()),
+        "anyone": last.get(&world.app_id).map(|l| l.anyone.to_rfc3339()),
+        "customer": last.get(&world.app_id).and_then(|l| l.customer).map(|t| t.to_rfc3339()),
+        "viewers": viewers,
+        "vitals": vitals
+            .iter()
+            .map(|r| json!([r.idx, r.path, r.samples, r.lcp_p75, r.inp_p75, r.cls_p75, r.rank]))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// The reads the app list, the platform facts and the release timeline make
+/// give the same answer from both stores, and the answer is the one the
+/// fixture is worth, written out rather than read back.
+#[tokio::test]
+async fn usage_reads_lists_and_vitals_are_identical_in_postgres_and_airhouse() {
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    let build = Uuid::new_v4();
+    seed_vitals(&world, build, Uuid::new_v4()).await;
+
+    let from_postgres = lists_and_vitals(&world, build).await;
+    assert_eq!(fake.queries(), 0);
+    let newest = |environment: &str, skip: Option<Uuid>| {
+        world
+            .history
+            .views
+            .iter()
+            .filter(|v| v.environment.as_ref() == environment)
+            .filter(|v| Some(*v.user_id.as_ref()) != skip)
+            .map(|v| v.viewed_at.as_ref().with_timezone(&Utc).to_rfc3339())
+            .max()
+    };
+    assert_eq!(
+        from_postgres["last_active"],
+        json!(newest("production", None))
+    );
+    assert_eq!(from_postgres["anyone"], from_postgres["last_active"]);
+    assert_eq!(
+        from_postgres["customer"],
+        json!(newest("production", Some(world.cast.users[0].0))),
+        "the newest view by someone who is not staff"
+    );
+    assert_eq!(
+        from_postgres["viewers"],
+        json!([
+            // This week: user 1 three times, user 2 three, user 3 once.
+            [0, 1, 3],
+            [0, 2, 3],
+            [0, 3, 1],
+            // The week before: users 1 and 2 once, user 4 twice.
+            [1, 1, 1],
+            [1, 2, 1],
+            [1, 4, 2],
+        ])
+    );
+    assert_eq!(
+        from_postgres["vitals"],
+        json!([
+            // p75 of two: lower + 0.75 * (upper - lower); 87.5 rounds to 88.
+            [0, "/home", 2, 2175, 170, 88, 1],
+            // LCP over a minute and an INP that is not a number are no samples.
+            [0, "/orders", 1, null, null, 10, 2],
+        ])
+    );
+
+    backfill(&world, &fake).await;
+    let from_airhouse = lists_and_vitals(&world, build).await;
+    assert!(fake.queries() >= 4, "Airhouse answered every read");
+    assert_eq!(from_airhouse, from_postgres);
+}
+
+/// A slow Airhouse runs out of the vitals read's own deadline, well inside the
+/// caller's, and the read falls back to Postgres; the workspace is then left
+/// alone for a while rather than costing every load the same wait.
+#[tokio::test]
+async fn usage_reads_vitals_fall_back_when_airhouse_is_slow() {
+    use oxy_custom_apps::usage_reads::{VitalsStretch, release_vitals};
+    let world = world(test_db().await).await;
+    let fake = airhouse(&world);
+    let build = Uuid::new_v4();
+    seed_vitals(&world, build, Uuid::new_v4()).await;
+    backfill(&world, &fake).await;
+    let now = Utc::now();
+    let stretch = [VitalsStretch {
+        idx: 0,
+        build_id: build,
+        starts_at: now - chrono::Duration::hours(10),
+        ends_at: now - chrono::Duration::minutes(30),
+    }];
+    let read = || {
+        release_vitals(
+            &world.db,
+            world.app_id,
+            &stretch,
+            Duration::from_millis(200),
+            4_000,
+        )
+    };
+    let from_airhouse = read().await.expect("vitals");
+    let asked = fake.queries();
+
+    fake.delay_queries(Duration::from_secs(5));
+    let started = std::time::Instant::now();
+    let fallen_back = read().await.expect("vitals");
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "did not wait out Airhouse"
+    );
+    assert_eq!(fallen_back, from_airhouse, "Postgres gives the same answer");
+    assert_eq!(fake.queries(), asked + 1);
+    read().await.expect("vitals");
+    assert_eq!(fake.queries(), asked + 1, "left alone after the timeout");
 }
 
 /// Postgres still has every row, so a finished workspace whose Airhouse cannot

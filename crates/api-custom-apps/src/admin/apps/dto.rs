@@ -149,8 +149,8 @@ pub struct AppResponse {
     pub repo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    /// `MAX(custom_app_view_event.viewed_at)` for this app, or `None`
-    /// when nobody has opened the app yet. Drives the list-level
+    /// This app's newest production view (`usage_reads::last_views`, from the
+    /// workspace's usage store), or `None` when nobody has opened the app yet. Drives the list-level
     /// "last active" column on the Custom apps admin page so operators
     /// can sort by "stale apps". Populated by `list_apps` via a single
     /// batched query — `from_model_with_org` leaves it `None` because

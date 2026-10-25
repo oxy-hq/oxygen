@@ -442,8 +442,14 @@ pub async fn list_apps_scoped(
     // N+1 would be brutal on an org with 100+ apps). Failures fall
     // back to `None` — the list page should never 500 because the
     // tracking table is unavailable.
-    let app_ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
-    let last_active = crate::custom_apps_activity::last_active_at_by_app(&db, &app_ids)
+    let page: Vec<oxy_custom_apps::usage_reads::ReportApp> = rows
+        .iter()
+        .map(|r| oxy_custom_apps::usage_reads::ReportApp {
+            app_id: r.id,
+            workspace_id: r.project_id,
+        })
+        .collect();
+    let last_active = crate::custom_apps_activity::last_active_at_by_app(&db, &page)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!("last_active_at_by_app failed (filling Nones): {e}");

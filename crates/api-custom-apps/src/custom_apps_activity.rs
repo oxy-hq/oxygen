@@ -32,10 +32,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use entity::apps;
 use oxy::database::client::establish_connection;
 use oxy_custom_apps::usage_reads;
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
-    Statement,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -568,41 +565,17 @@ pub async fn get_events(
 
 // ── List-level: last_active_at per app ──────────────────────────────────
 
-/// Returns `MAX(viewed_at)` per app id, for the list-level
-/// "last active" column on the Custom apps admin page. Empty map entry
-/// when the app has no view events. Single query — N+1 would kill the
-/// list page for an org with 100+ apps.
+/// Each app's newest production view, for the list-level "last active"
+/// column on the Custom apps admin page. No entry for an app with no views.
+/// One read per usage store for the whole page: N+1 would kill the list page
+/// for an org with 100+ apps.
 pub async fn last_active_at_by_app(
     db: &DatabaseConnection,
-    app_ids: &[Uuid],
+    apps: &[usage_reads::ReportApp],
 ) -> Result<HashMap<Uuid, DateTime<FixedOffset>>, sea_orm::DbErr> {
-    if app_ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-    #[derive(FromQueryResult)]
-    struct Row {
-        app_id: Uuid,
-        last_active_at: DateTime<FixedOffset>,
-    }
-    // Build the IN placeholder list ($1, $2, …). We can't pass Vec
-    // directly through SeaORM's statement params API for ANY/IN, so
-    // expand inline.
-    let placeholders = (1..=app_ids.len())
-        .map(|i| format!("${i}"))
-        .collect::<Vec<_>>()
-        .join(",");
-    let sql = format!(
-        r#"SELECT app_id, MAX(viewed_at) AS last_active_at
-           FROM custom_app_view_event
-           WHERE app_id IN ({placeholders}) AND environment = 'production'
-           GROUP BY app_id"#
-    );
-    let values: Vec<sea_orm::Value> = app_ids.iter().map(|&id| id.into()).collect();
-    let backend = db.get_database_backend();
-    let stmt = Statement::from_sql_and_values(backend, &sql, values);
-    let rows: Vec<Row> = Row::find_by_statement(stmt).all(db).await?;
-    Ok(rows
+    Ok(usage_reads::last_views(db, apps, None)
+        .await?
         .into_iter()
-        .map(|r| (r.app_id, r.last_active_at))
+        .map(|(app_id, last)| (app_id, last.anyone.fixed_offset()))
         .collect())
 }

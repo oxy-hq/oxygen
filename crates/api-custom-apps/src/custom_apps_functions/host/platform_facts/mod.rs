@@ -238,12 +238,6 @@ impl Windows {
     fn hi(&self) -> DateTime<Utc> {
         self.ends.iter().max().copied().unwrap_or_default()
     }
-
-    /// `last7d`'s window, the last one: its start and end.
-    fn last7d(&self) -> (DateTime<Utc>, DateTime<Utc>) {
-        let start = self.starts.last().copied().unwrap_or_default();
-        (start, self.ends.last().copied().unwrap_or_default())
-    }
 }
 
 /// The facts for `weeks` completed weeks (held to `1..=MAX_WEEKS`) as of `now`.

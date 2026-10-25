@@ -29,6 +29,7 @@ fn app_row(id: Uuid, org_id: Uuid, name: &str) -> AppRow {
     AppRow {
         id,
         org_id,
+        workspace_id: Uuid::nil(),
         slug: name.to_lowercase(),
         name: name.into(),
         published_at: None,

@@ -1,14 +1,14 @@
 //! The weekly report's reads: page views, error sessions and per-person views
 //! over two weeks, and which apps were opened before.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
 use oxy_cameras::airhouse::escape::sql_str;
 use sea_orm::{DatabaseBackend, DatabaseConnection, DbErr, FromQueryResult, Statement, Value};
 use uuid::Uuid;
 
-use super::{PRODUCTION, UsageStore, at, facts, or_fall_back, query, stores};
+use super::{PRODUCTION, Split, at, facts, or_fall_back, query, split};
 use crate::usage_airhouse::{SinkError, TABLE, micros, ts_literal};
 
 // ── The weekly report ───────────────────────────────────────────────────────
@@ -74,37 +74,6 @@ pub struct ReportUsage {
     pub views: Vec<ViewRow>,
     pub errors: Vec<ErrorRow>,
     pub people: Vec<PersonRow>,
-}
-
-/// The apps of each Airhouse workspace, and the apps left to Postgres.
-struct Split {
-    airhouse: HashMap<Uuid, Vec<Uuid>>,
-    postgres: Vec<Uuid>,
-}
-
-async fn split(db: &DatabaseConnection, apps: &[ReportApp]) -> Result<Split, DbErr> {
-    let workspaces: Vec<Uuid> = apps
-        .iter()
-        .map(|a| a.workspace_id)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    let stores = stores(db, &workspaces).await?;
-    let mut out = Split {
-        airhouse: HashMap::new(),
-        postgres: Vec::new(),
-    };
-    for app in apps {
-        match stores.get(&app.workspace_id) {
-            Some(UsageStore::Airhouse) => out
-                .airhouse
-                .entry(app.workspace_id)
-                .or_default()
-                .push(app.app_id),
-            _ => out.postgres.push(app.app_id),
-        }
-    }
-    Ok(out)
 }
 
 /// The report's page views, error sessions and per-person views for `apps` over

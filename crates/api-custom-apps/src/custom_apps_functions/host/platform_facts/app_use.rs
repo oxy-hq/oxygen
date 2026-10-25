@@ -1,51 +1,27 @@
-//! The per-app reads: each app's last open by anyone, the customer's own last
-//! open, and how many of the customer's people opened it in `last7d`.
+//! Everything the facts take from app page views: each app's last open by
+//! anyone, the customer's own last open, how many of the customer's people
+//! opened it in `last7d`, and each org's views, viewers and active people per
+//! window.
 //!
-//! All three are production views only, and the two customer reads leave out
+//! The views come from `oxy_custom_apps::usage_reads`, which answers each app
+//! from its workspace's usage store (its Airhouse once the workspace's usage
+//! history is copied there, Postgres until then). The counting is done here,
+//! from the people themselves, because a count of distinct people per org
+//! cannot be added up from per-store counts: a person who opened two apps is
+//! one person.
+//!
+//! All of it is production views only, and every customer read leaves out
 //! staff (members of an internal org) exactly as every `*People` count does.
 
+use std::collections::{HashMap, HashSet};
+
 use chrono::{DateTime, Utc};
-use sea_orm::FromQueryResult;
+use oxy_custom_apps::usage_reads::{self, Customers, ReportApp, TimeWindow};
+use sea_orm::{DatabaseConnection, DbErr, FromQueryResult};
 use uuid::Uuid;
 
-// Each app's last production open, staff's included — the app's "last active"
-// as the admin apps list shows it. One probe of `(app_id, viewed_at DESC)` per
-// app (`custom_apps_activity::last_active_at_by_app` answers the same with a
-// `MAX` over every view, which the admin list's page of apps can afford).
-pub(super) const LAST_VIEWED_SQL: &str = "\
-SELECT a.id AS app_id, last.viewed_at AS at \
-FROM apps a \
-CROSS JOIN LATERAL (SELECT v.viewed_at FROM custom_app_view_event v \
-                    WHERE v.app_id = a.id AND v.environment = 'production' \
-                    ORDER BY v.viewed_at DESC LIMIT 1) last";
-
-// $1 the internal orgs, $2 the horizon's start (`LAST_ACTIVITY_HORIZON_DAYS`
-// before now). Each app's latest production view by a non-staff person since
-// $2: the customer's own last use. The same probe as `LAST_VIEWED_SQL`, skipping
-// staff's rows, so it is floored at $2 like every customer-activity probe: an
-// app only staff open would otherwise walk every view staff ever made of it.
-// It is also the app-view half of the org's `lastActivityAt`.
-pub(super) const CUSTOMER_LAST_VIEWED_SQL: &str = "\
-WITH staff AS (SELECT DISTINCT user_id FROM org_members WHERE org_id = ANY($1::uuid[])) \
-SELECT a.id AS app_id, lv.at \
-FROM apps a \
-CROSS JOIN LATERAL (SELECT v.viewed_at AS at FROM custom_app_view_event v \
-                    WHERE v.app_id = a.id AND v.environment = 'production' \
-                      AND v.viewed_at >= $2 \
-                      AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = v.user_id) \
-                    ORDER BY v.viewed_at DESC LIMIT 1) lv";
-
-// $1 the internal orgs, $2 every app, $3 and $4 `last7d`'s window. Each app's
-// distinct non-staff people with a production view in it. Named apps and a
-// bounded time, like the windowed reads, so it rides `(app_id, viewed_at)`.
-pub(super) const PEOPLE_7D_SQL: &str = "\
-WITH staff AS (SELECT DISTINCT user_id FROM org_members WHERE org_id = ANY($1::uuid[])) \
-SELECT v.app_id, COUNT(DISTINCT v.user_id)::bigint AS people \
-FROM custom_app_view_event v \
-WHERE v.app_id = ANY($2) AND v.environment = 'production' \
-  AND v.viewed_at >= $3 AND v.viewed_at < $4 \
-  AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = v.user_id) \
-GROUP BY v.app_id";
+use super::Windows;
+use super::queries::{AppRow, WindowRow};
 
 /// An instant per app (a last view).
 #[derive(Clone, Debug, FromQueryResult)]
@@ -59,4 +35,139 @@ pub(super) struct AppAtRow {
 pub(super) struct AppCountRow {
     pub app_id: Uuid,
     pub people: i64,
+}
+
+/// One non-staff person with a thread in one org's window.
+#[derive(Clone, Debug, FromQueryResult)]
+pub(super) struct OrgPersonRow {
+    pub org_id: Uuid,
+    pub idx: i64,
+    pub user_id: Uuid,
+}
+
+/// What the views add to the facts.
+#[derive(Default)]
+pub(super) struct ViewFacts {
+    /// Each app's newest production view, staff's included.
+    pub last_viewed: Vec<AppAtRow>,
+    /// Each app's newest production view by a non-staff person, inside the
+    /// horizon.
+    pub customer_last_viewed: Vec<AppAtRow>,
+    /// Each app's distinct non-staff production viewers in `last7d`.
+    pub people7d: Vec<AppCountRow>,
+    /// Each org's views and distinct non-staff viewers per window.
+    pub views: Vec<WindowRow>,
+    /// Each org's distinct non-staff people per window with a view or a
+    /// thread: `thread_people` and the viewers, counted once.
+    pub active: Vec<WindowRow>,
+}
+
+/// Read the views of `apps` and count them. `thread_people` is each org's
+/// non-staff people with a thread, per window, read with the other sources.
+pub(super) async fn read(
+    db: &DatabaseConnection,
+    apps: &[AppRow],
+    staff: &[Uuid],
+    windows: &Windows,
+    activity_since: DateTime<Utc>,
+    thread_people: &[OrgPersonRow],
+) -> Result<ViewFacts, DbErr> {
+    let targets: Vec<ReportApp> = apps
+        .iter()
+        .map(|a| ReportApp {
+            app_id: a.id,
+            workspace_id: a.workspace_id,
+        })
+        .collect();
+    let spans: Vec<TimeWindow> = windows
+        .starts
+        .iter()
+        .copied()
+        .zip(windows.ends.iter().copied())
+        .collect();
+    let customers = Customers {
+        staff,
+        since: activity_since,
+    };
+    let (last, viewers) = futures::future::try_join(
+        usage_reads::last_views(db, &targets, Some(customers)),
+        usage_reads::viewers_by_window(db, &targets, &spans),
+    )
+    .await?;
+    let org_of: HashMap<Uuid, Uuid> = apps.iter().map(|a| (a.id, a.org_id)).collect();
+    let staff: HashSet<Uuid> = staff.iter().copied().collect();
+    let last7d = windows.len().saturating_sub(1);
+
+    let mut out = ViewFacts::default();
+    for views in last.values() {
+        out.last_viewed.push(AppAtRow {
+            app_id: views.app_id,
+            at: views.anyone,
+        });
+        if let Some(at) = views.customer {
+            out.customer_last_viewed.push(AppAtRow {
+                app_id: views.app_id,
+                at,
+            });
+        }
+    }
+
+    let mut people7d: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
+    let mut org_views: HashMap<(Uuid, usize), (i64, HashSet<Uuid>)> = HashMap::new();
+    let mut active: HashMap<(Uuid, usize), HashSet<Uuid>> = HashMap::new();
+    for v in &viewers {
+        let Some(org_id) = org_of.get(&v.app_id).copied() else {
+            continue;
+        };
+        let customer = !staff.contains(&v.user_id);
+        let (count, people) = org_views.entry((org_id, v.window)).or_default();
+        *count += v.views;
+        if customer {
+            people.insert(v.user_id);
+            active
+                .entry((org_id, v.window))
+                .or_default()
+                .insert(v.user_id);
+            if v.window == last7d {
+                people7d.entry(v.app_id).or_default().insert(v.user_id);
+            }
+        }
+    }
+    for p in thread_people {
+        if let Ok(window) = usize::try_from(p.idx) {
+            active
+                .entry((p.org_id, window))
+                .or_default()
+                .insert(p.user_id);
+        }
+    }
+
+    out.people7d = people7d
+        .into_iter()
+        .map(|(app_id, people)| AppCountRow {
+            app_id,
+            people: people.len() as i64,
+        })
+        .collect();
+    out.views = org_views
+        .into_iter()
+        .map(|((org_id, window), (events, people))| WindowRow {
+            org_id,
+            idx: window as i64,
+            events,
+            failures: 0,
+            people: people.len() as i64,
+        })
+        .collect();
+    out.active = active
+        .into_iter()
+        .map(|((org_id, window), people)| WindowRow {
+            org_id,
+            idx: window as i64,
+            events: 0,
+            failures: 0,
+            people: people.len() as i64,
+        })
+        .collect();
+    Ok(out)
 }

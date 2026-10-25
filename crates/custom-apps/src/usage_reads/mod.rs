@@ -40,11 +40,16 @@
 
 mod activity;
 mod report;
+mod views;
+mod vitals;
 
 pub use activity::*;
 pub use report::*;
+pub use views::*;
+pub use vitals::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
@@ -224,6 +229,79 @@ pub(super) fn facts(
     )
 }
 
+/// The apps of each Airhouse workspace, and the apps left to Postgres.
+pub(super) struct Split {
+    pub(super) airhouse: HashMap<Uuid, Vec<Uuid>>,
+    pub(super) postgres: Vec<Uuid>,
+}
+
+pub(super) async fn split(db: &DatabaseConnection, apps: &[ReportApp]) -> Result<Split, DbErr> {
+    let workspaces: Vec<Uuid> = apps
+        .iter()
+        .map(|a| a.workspace_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let stores = stores(db, &workspaces).await?;
+    let mut out = Split {
+        airhouse: HashMap::new(),
+        postgres: Vec::new(),
+    };
+    for app in apps {
+        match stores.get(&app.workspace_id) {
+            Some(UsageStore::Airhouse) => out
+                .airhouse
+                .entry(app.workspace_id)
+                .or_default()
+                .push(app.app_id),
+            _ => out.postgres.push(app.app_id),
+        }
+    }
+    Ok(out)
+}
+
+/// Rows about `apps`, each app answered by its workspace's store: `airhouse`
+/// once per Airhouse workspace with that workspace's apps, all at once, then
+/// `postgres` once with every other app and the apps of any Airhouse that
+/// could not answer. `what` names the read in the fallback's log line.
+pub(super) async fn per_store<T, A, AF, P, PF>(
+    db: &DatabaseConnection,
+    apps: &[ReportApp],
+    what: &str,
+    airhouse: A,
+    postgres: P,
+) -> Result<Vec<T>, DbErr>
+where
+    A: Fn(Uuid, Vec<Uuid>) -> AF,
+    AF: Future<Output = Result<Vec<T>, SinkError>>,
+    P: FnOnce(Vec<Uuid>) -> PF,
+    PF: Future<Output = Result<Vec<T>, DbErr>>,
+{
+    if apps.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Split {
+        airhouse: by_workspace,
+        postgres: mut left,
+    } = split(db, apps).await?;
+    let answers = futures::future::join_all(by_workspace.iter().map(|(workspace_id, app_ids)| {
+        let read = airhouse(*workspace_id, app_ids.clone());
+        async move { (*workspace_id, read.await) }
+    }))
+    .await;
+    let mut out = Vec::new();
+    for (workspace_id, result) in answers {
+        match or_fall_back(workspace_id, what, result) {
+            Some(found) => out.extend(found),
+            None => left.extend(by_workspace[&workspace_id].iter().copied()),
+        }
+    }
+    if !left.is_empty() {
+        out.extend(postgres(left).await?);
+    }
+    Ok(out)
+}
+
 pub(super) fn at(t: DateTime<Utc>) -> DateTime<FixedOffset> {
     t.fixed_offset()
 }
@@ -257,5 +335,109 @@ mod tests {
         // The edge is cut to microseconds, the precision both stores keep.
         assert!(sql.contains(".123456+00:00'"), "{sql}");
         assert!(!sql.contains(".123456789"), "{sql}");
+    }
+
+    /// The files allowed to read the Postgres usage tables, relative to
+    /// `crates/`: the reads that choose a store, the backfill that copies the
+    /// history to Airhouse, and the seed fixture checking its own sentinel row.
+    const READERS: [&str; 3] = [
+        "custom-apps/src/usage_reads/",
+        "custom-apps/src/usage_backfill/",
+        "api-custom-apps/src/seed_fixture/",
+    ];
+
+    /// A read of a Postgres usage table in `line`: SQL naming one after `FROM`
+    /// or `JOIN`, or a SeaORM `find` on its entity.
+    fn reads_a_usage_table(line: &str) -> Option<&'static str> {
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+        for table in ["custom_app_view_event", "custom_app_event"] {
+            let named = |prefix: &str| {
+                let needle = format!("{prefix}{table}");
+                line.match_indices(&needle).any(|(i, m)| {
+                    !line[i + m.len()..]
+                        .starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+                })
+            };
+            if named("FROM ") || named("JOIN ") || line.contains(&format!("{table}::Entity::find"))
+            {
+                return Some(table);
+            }
+        }
+        None
+    }
+
+    fn rust_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path.is_dir() {
+                if name != "tests" && name != "target" && name != "node_modules" {
+                    rust_files(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn the_scanner_sees_sql_and_entity_reads_and_nothing_else() {
+        assert_eq!(
+            reads_a_usage_table("SELECT 1 FROM custom_app_view_event v"),
+            Some("custom_app_view_event")
+        );
+        assert_eq!(
+            reads_a_usage_table("  JOIN   custom_app_event e ON"),
+            Some("custom_app_event")
+        );
+        assert_eq!(
+            reads_a_usage_table("let rows = custom_app_event::Entity::find()"),
+            Some("custom_app_event")
+        );
+        assert_eq!(reads_a_usage_table("FROM custom_app_events"), None);
+        assert_eq!(reads_a_usage_table("custom_app_event::ActiveModel {"), None);
+        assert_eq!(
+            reads_a_usage_table("INSERT INTO custom_app_view_event"),
+            None
+        );
+    }
+
+    /// Every read of `custom_app_view_event` and `custom_app_event` goes
+    /// through [`stores`], so a workspace whose usage lives in Airhouse is
+    /// never read from a Postgres table that stopped receiving its rows. A new
+    /// reader belongs in this module; this test fails where one appears
+    /// anywhere else outside a `tests/` directory.
+    #[test]
+    fn no_reader_outside_usage_reads_queries_the_postgres_usage_tables() {
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let mut files = Vec::new();
+        rust_files(&crates, &mut files);
+        assert!(files.len() > 100, "the scan found the workspace's crates");
+        let mut found = Vec::new();
+        for file in files {
+            let relative = file
+                .strip_prefix(&crates)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            if READERS.iter().any(|allowed| relative.starts_with(allowed)) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&file).unwrap_or_default();
+            for (n, line) in text.lines().enumerate() {
+                if let Some(table) = reads_a_usage_table(line) {
+                    found.push(format!("{relative}:{} reads {table}", n + 1));
+                }
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "read the usage tables through `oxy_custom_apps::usage_reads`, which \
+             picks each workspace's store:\n{}",
+            found.join("\n")
+        );
     }
 }

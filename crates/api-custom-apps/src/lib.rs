@@ -225,8 +225,8 @@ pub fn routes() -> Router<AppState> {
             admin::apps::guarded(
                 admin::apps::router()
                     // Activity (usage tracking) — see `custom_apps_activity`.
-                    // Reads the `custom_app_view_event` + `custom_app_event`
-                    // tables to power the AppDetail "Activity" tab.
+                    // Reads usage through `oxy_custom_apps::usage_reads` to
+                    // power the AppDetail "Activity" tab.
                     .route(
                         "/{id}/activity/summary",
                         get(custom_apps_activity::get_summary),
