@@ -182,8 +182,9 @@ The bounds it comes with, which are not optional:
   Landed; cite the PR on the line; regenerate the summary) and ends its body with
   `Roadmap: <line-id>`; one that changes no behaviour ends with `Roadmap: none -- <why>`.
   The `roadmap` status fails a `feat`/`fix`/`refactor`/`perf` PR on product code without
-  one; a `chore`/`docs`/`test`/`ci`/`build`/`style` title stands for `none` unless the PR
-  moves a line. Mechanics: the `oxy-roadmap` skill.
+  one unless the automated review finds no behaviour change; a
+  `chore`/`docs`/`test`/`ci`/`build`/`style` title stands for `none` unless the PR moves a
+  line. Mechanics: the `oxy-roadmap` skill.
 
 Conventional Commits, types `feat|fix|refactor|docs|test|build|chore|perf|style|ci`.
 Name the **area** after the colon (`fix: web-app chart rendering bug`) — this repo uses

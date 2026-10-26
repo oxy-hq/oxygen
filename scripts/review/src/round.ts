@@ -9,11 +9,13 @@ import type { Scheduled, Verified } from "./passes.ts";
 import { applyVerification, Budget, collectCandidates, schedulePasses } from "./passes.ts";
 import { contextBlock, generalPrompt, lensPrompt, recheckPrompt, verifyPrompt } from "./prompts.ts";
 import type { SummaryView } from "./render.ts";
-import { FINDINGS_SCHEMA, RECHECK_SCHEMA, VERIFY_SCHEMA } from "./schemas.ts";
+import { judgementOf, roadmapLines } from "./roadmap.ts";
+import { FINDINGS_SCHEMA, GENERAL_SCHEMA, RECHECK_SCHEMA, VERIFY_SCHEMA } from "./schemas.ts";
 import { addFindings, applyRecheck, isClosed, openFindings } from "./state.ts";
 import type {
   Candidate,
   Finding,
+  GeneralOutput,
   IssueComment,
   LensPick,
   PassResult,
@@ -21,6 +23,7 @@ import type {
   RecheckOutput,
   ReviewState,
   ReviewStatus,
+  RoadmapJudgement,
   Round,
   RunPass,
   Skipped,
@@ -34,6 +37,8 @@ export type RoundInput = Pick<
   "meta" | "head" | "mergeBase" | "plan" | "prev" | "reviewComments" | "since"
 > & {
   comments?: IssueComment[];
+  /** internal-docs/platform-roadmap.md at the checkout, for the general pass's roadmap answer. */
+  roadmapDoc?: string | null;
 };
 
 export interface Debug extends Verified {
@@ -86,7 +91,7 @@ function passSpec(item: Scheduled, prompts: Prompts): PassSpec {
     return {
       name: "general",
       prompt: prompts.general(),
-      schema: FINDINGS_SCHEMA,
+      schema: GENERAL_SCHEMA,
       effort: config.EFFORT.general,
       taskTokens: config.TASK_TOKENS.general
     };
@@ -170,8 +175,10 @@ function promptsFor(load: RoundInput, repo: string, prior: readonly Finding[]): 
     conversation: discussion(comments, config.REVIEWER_LOGINS)
   });
   const max = config.MAX_FINDINGS_PER_PASS;
+  const lines = roadmapLines(load.roadmapDoc);
   return {
-    general: () => generalPrompt({ context, lenses: load.plan.lenses, maxFindings: max }),
+    general: () =>
+      generalPrompt({ context, lenses: load.plan.lenses, maxFindings: max, roadmapLines: lines }),
     lens: (lens) => lensPrompt({ lens, context, maxFindings: max }),
     recheck: () =>
       recheckPrompt({
@@ -325,6 +332,30 @@ function viewOf({
   };
 }
 
+/**
+ * This round's roadmap judgement. It is for this head only: a stale one must not outlive
+ * a pass that did not finish. An incremental pass reads the latest changes, so it can
+ * find behaviour an earlier push lacked but never unsee what an earlier push added: a
+ * `changed` already on the PR stays until a full review says otherwise.
+ */
+function roadmapJudgement(
+  load: RoundInput,
+  results: readonly PassResult[]
+): RoadmapJudgement | undefined {
+  const general = results.find((r) => r.name === "general") as
+    | PassResult<GeneralOutput>
+    | undefined;
+  const fresh = judgementOf(
+    general?.ok ? general.output?.roadmap : undefined,
+    new Set(roadmapLines(load.roadmapDoc).map((l) => l.id))
+  );
+  const prior = load.prev.roadmap;
+  const incremental = load.plan.mode === "incremental";
+  if (incremental && fresh?.behaviour === "unchanged" && prior?.behaviour === "changed")
+    return prior;
+  return fresh;
+}
+
 /** Run a round and return the next state plus what the summary needs to say. */
 export async function runRound({
   load,
@@ -368,6 +399,9 @@ export async function runRound({
     }))
   };
   state.verdict = verdictFor(openFindings(state));
+  const judgement = roadmapJudgement(load, results);
+  if (judgement) state.roadmap = judgement;
+  else delete state.roadmap;
   const wasClosed = new Set(load.prev.findings.filter((f) => isClosed(f.status)).map((f) => f.id));
   const closedNow = state.findings.filter((f) => isClosed(f.status) && !wasClosed.has(f.id));
   const ctx: RoundContext = {

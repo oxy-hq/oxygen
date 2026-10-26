@@ -4,7 +4,7 @@
 //   node scripts/review/review.ts --repo oxy-hq/oxygen-internal --pr 123 --fresh --out /tmp/r
 // internal-docs/code-review.md describes the pipeline.
 
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import * as config from "./config.ts";
@@ -184,7 +184,10 @@ async function publish(args: Args, load: Loaded, outcome: RoundOutcome): Promise
 
 /** A round that needs no model: a release bump, no credentials, nothing reviewable, or nothing changed. */
 function shortcut(args: Args, load: Loaded): RoundOutcome | null {
-  const base: ReviewState = { ...load.prev, head: load.head, base: load.mergeBase };
+  // The last round's roadmap judgement was about the last head; a round that runs no
+  // general pass has none for this one (the carried case below keeps it: nothing changed).
+  const { roadmap: carriedJudgement, ...prev } = load.prev;
+  const base: ReviewState = { ...prev, head: load.head, base: load.mergeBase };
   const round = (mode: string, status: ReviewStatus): Round => ({
     sha: load.head.slice(0, 9),
     at: new Date().toISOString(),
@@ -232,15 +235,25 @@ function shortcut(args: Args, load: Loaded): RoundOutcome | null {
     });
   }
   if (load.plan.mode === "incremental" && !load.plan.inScope.length)
-    return outcome({ ...base, status: load.prev.status }, "carried", { carriedFrom: load.since });
+    return outcome(
+      {
+        ...base,
+        status: load.prev.status,
+        ...(carriedJudgement ? { roadmap: carriedJudgement } : {})
+      },
+      "carried",
+      { carriedFrom: load.since }
+    );
   return null;
 }
 
 async function failed(args: Args, load: Loaded | null, err: unknown): Promise<void> {
   console.error(err);
   if (!args.post || !load) return;
+  // No general pass finished for this head, so no roadmap judgement for it either.
+  const { roadmap: _stale, ...prev } = load.prev;
   const state: ReviewState = {
-    ...load.prev,
+    ...prev,
     head: load.head,
     base: load.mergeBase,
     status: "incomplete"
@@ -256,6 +269,15 @@ async function failed(args: Args, load: Loaded | null, err: unknown): Promise<vo
   );
 }
 
+/** The roadmap at the PR checkout, for the general pass; a checkout without one gets none. */
+function roadmapDoc(cwd: string): string | null {
+  try {
+    return readFileSync(join(cwd, config.ROADMAP.doc), "utf8");
+  } catch {
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const args = cli();
   const cwd = process.cwd();
@@ -264,7 +286,13 @@ async function main(): Promise<void> {
     load = await loadRound({ gh, repo: args.repo, pr: args.pr, args, cwd });
     const outcome =
       shortcut(args, load) ??
-      (await runRound({ load, repo: args.repo, runPass, cwd, graph: args.graph }));
+      (await runRound({
+        load: { ...load, roadmapDoc: roadmapDoc(cwd) },
+        repo: args.repo,
+        runPass,
+        cwd,
+        graph: args.graph
+      }));
     await publish(args, load, outcome);
     if (outcome.state.status === "incomplete") process.exitCode = 1;
   } catch (err) {

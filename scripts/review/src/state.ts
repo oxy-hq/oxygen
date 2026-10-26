@@ -11,7 +11,7 @@ import type {
   ReviewState
 } from "./types.ts";
 
-const STATE_RE = /<!-- oxy-review:state ([A-Za-z0-9+/=]+) -->/;
+const STATE_RE = /<!-- oxy-review:state ([A-Za-z0-9+/=]+) -->/g;
 const MAX_ROUNDS = 20;
 const MAX_FINDINGS = 80;
 
@@ -24,9 +24,13 @@ export function encodeState(state: ReviewState): string {
   return `<!-- oxy-review:state ${Buffer.from(json, "utf8").toString("base64")} -->`;
 }
 
-/** The state carried in a comment body, or null when absent, malformed or another version. */
+/**
+ * The state carried in a comment body, or null when absent, malformed or another version.
+ * The last block in the body: the renderer writes it after everything the model said, so
+ * a state-shaped string in a finding or a reason cannot stand in for it.
+ */
 export function decodeState(body: string | null | undefined, version: number): ReviewState | null {
-  const m = (body ?? "").match(STATE_RE);
+  const m = [...(body ?? "").matchAll(STATE_RE)].at(-1);
   if (!m?.[1]) return null;
   try {
     const state = JSON.parse(

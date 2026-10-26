@@ -2,7 +2,16 @@
 // for findings worth interrupting someone for.
 
 import { isClosed } from "./state.ts";
-import type { Finding, LensPick, Mode, Possible, ReviewState, Severity, Skipped } from "./types.ts";
+import type {
+  Finding,
+  LensPick,
+  Mode,
+  Possible,
+  ReviewState,
+  RoadmapJudgement,
+  Severity,
+  Skipped
+} from "./types.ts";
 
 const LIMIT = 60_000;
 const SEVERITY_LABEL: Record<Severity, string> = {
@@ -58,7 +67,12 @@ function headline(state: ReviewState, view: SummaryView): string {
   return `### Review: **${state.verdict ?? "LGTM"}**${partial} · ${at}${carried}`;
 }
 
-function counts(open: readonly Finding[], view: SummaryView): string {
+function roadmapWord(j: RoadmapJudgement): string {
+  if (j.behaviour === "unchanged") return "roadmap: no behaviour change";
+  return `roadmap: behaviour changes, line ${j.line && j.line !== "new" ? `\`${j.line}\`` : "new"}`;
+}
+
+function counts(state: ReviewState, open: readonly Finding[], view: SummaryView): string {
   const parts: string[] = [];
   for (const s of SEVERITY_ORDER) {
     const n = open.filter((f) => f.severity === s).length;
@@ -66,6 +80,7 @@ function counts(open: readonly Finding[], view: SummaryView): string {
   }
   if (!parts.length) parts.push("no open findings");
   if (view.closedNow?.length) parts.push(`${view.closedNow.length} closed by this push`);
+  if (state.roadmap) parts.push(roadmapWord(state.roadmap));
   if (view.lenses?.length) parts.push(`lenses: ${view.lenses.map((l) => l.id).join(", ")}`);
   return parts.join(" · ");
 }
@@ -122,8 +137,12 @@ function possibleSection(possible: readonly Possible[]): string {
   ].join("\n");
 }
 
-function coverageSection(view: SummaryView): string {
+function coverageSection(view: SummaryView, roadmap: RoadmapJudgement | undefined): string {
   const lines: string[] = [];
+  if (roadmap)
+    lines.push(
+      `- Roadmap: ${roadmap.behaviour === "changed" ? "behaviour changes" : "no behaviour change"}${roadmap.reason ? `: ${oneLine(roadmap.reason)}` : ""}`
+    );
   lines.push(
     `- Mode: ${view.mode === "incremental" ? `incremental, files changed since ${sha(view.since)}` : "full PR diff"}`
   );
@@ -175,7 +194,7 @@ export function renderSummary(
       marker,
       headline(state, view),
       "",
-      state.status === "incomplete" ? incompleteBody(view) : counts(open, view),
+      state.status === "incomplete" ? incompleteBody(view) : counts(state, open, view),
       state.status === "skipped" ? `\n${view.reason ?? ""}` : "",
       "",
       table(open),
@@ -183,7 +202,7 @@ export function renderSummary(
       ...open.map((f) => details(f, withBody)),
       closedSection(state),
       possibleSection(state.possible),
-      coverageSection(view),
+      coverageSection(view, state.roadmap),
       "",
       footer(view),
       stateBlock

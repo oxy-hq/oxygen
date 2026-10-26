@@ -1,6 +1,7 @@
 // Prompt assembly from the Markdown templates in prompts/.
 
 import { readFileSync } from "node:fs";
+import type { RoadmapLine } from "./roadmap.ts";
 import type { Candidate, Finding, LensPick, Plan, PrMeta } from "./types.ts";
 
 const DIR = new URL("../prompts/", import.meta.url);
@@ -115,20 +116,38 @@ export function contextBlock({
   });
 }
 
+/** The roadmap's lines for the `roadmap` answer; honest about a run that could not read the doc. */
+function roadmapBlock(lines: readonly RoadmapLine[]): string {
+  if (!lines.length)
+    return "The roadmap doc was not readable on this run: answer `line` with `new`, or an id you are sure of.";
+  return [
+    "The roadmap's lines, by id (audience, horizon):",
+    "",
+    "<roadmap_lines>",
+    ...lines.map(
+      (l) => `- ${l.id} (${l.audience}, ${l.horizon}${l.landed ? ", landed" : ""}): ${l.headline}`
+    ),
+    "</roadmap_lines>"
+  ].join("\n");
+}
+
 export function generalPrompt({
   context,
   lenses,
-  maxFindings
+  maxFindings,
+  roadmapLines = []
 }: {
   context: string;
   lenses: readonly LensPick[];
   maxFindings: number;
+  roadmapLines?: readonly RoadmapLine[];
 }): string {
   const lensNote = lenses.length
     ? `Focused reviewers are separately checking: ${lenses.map((l) => l.id).join(", ")}.`
     : "";
   return fill(template("general.md"), {
     lensNote,
+    roadmapBlock: roadmapBlock(roadmapLines),
     rules: fill(template("rules.md"), { maxFindings }),
     context
   });

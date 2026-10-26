@@ -3,8 +3,16 @@ import { test } from "node:test";
 import { renderSummary } from "../../roadmap/doc.ts";
 import { parseTrailer } from "../../roadmap/trailer.ts";
 import { ROADMAP } from "../config.ts";
-import type { RoadmapInput } from "./roadmap.ts";
-import { evaluateRoadmap, isVersionBump, productFiles, titleType } from "./roadmap.ts";
+import type { ReviewLook, RoadmapInput } from "./roadmap.ts";
+import {
+  evaluateRoadmap,
+  isVersionBump,
+  judgementOf,
+  productFiles,
+  roadmapLines,
+  titleType
+} from "./roadmap.ts";
+import type { ReviewState } from "./types.ts";
 
 const doc = `# Platform roadmap
 
@@ -215,4 +223,162 @@ test("roadmap status: the summary stays derived when the roadmap changes", () =>
     "an unrelated PR is not blamed for a stale summary"
   );
   assert.ok(stale.description.length <= 140);
+});
+
+// ---- The review's judgement, when the status runs in the loop with it -------------
+
+const look = (
+  state: Partial<Pick<ReviewState, "head" | "status" | "roadmap">> | null,
+  headSha = "head2222222"
+): ReviewLook => ({
+  state: state ? { head: headSha, status: "complete", ...state } : null,
+  headSha
+});
+
+test("roadmap status: no trailer on product code waits for the review of this head", () => {
+  const waiting = run({ title: "feat: a thing", review: look(null) });
+  assert.equal(waiting.state, "pending");
+  assert.match(waiting.description, /Waiting for the review of head22222/);
+  assert.match(waiting.description, /a trailer settles it now/);
+  // A review of an older head is no review of this one.
+  const stale = run({
+    title: "feat: a thing",
+    review: look({ head: "old", roadmap: { behaviour: "unchanged", reason: "r", line: null } })
+  });
+  assert.equal(stale.state, "pending");
+});
+
+test("roadmap status: the review's judgement decides a PR with product code and no trailer", () => {
+  const clean = run({
+    title: "fix: a thing",
+    review: look({
+      roadmap: { behaviour: "unchanged", reason: "a null check in a handler", line: null }
+    })
+  });
+  assert.equal(clean.state, "success");
+  assert.match(clean.description, /No behaviour change, says the review: a null check/);
+
+  const feature = run({
+    title: "fix: a thing",
+    review: look({
+      roadmap: { behaviour: "changed", reason: "adds GET /api/x", line: "open-apps" }
+    })
+  });
+  assert.equal(feature.state, "failure");
+  assert.match(
+    feature.description,
+    /Behaviour changes, says the review: Roadmap: open-apps or Roadmap: none/
+  );
+  assert.match(feature.description, /adds GET \/api\/x/);
+
+  const unplaced = run({
+    title: "feat: a thing",
+    review: look({ roadmap: { behaviour: "changed", reason: "adds a page", line: "new" } })
+  });
+  assert.match(unplaced.description, /Roadmap: <new-line-id> or/);
+});
+
+test("roadmap status: a review with no judgement, or no review at all, leaves the files to decide", () => {
+  // Skipped (a release bump, no credentials) or unfinished: the state is for this head but says nothing.
+  const skipped = run({ title: "feat: a thing", review: look({ status: "skipped" }) });
+  assert.equal(skipped.state, "failure");
+  assert.match(skipped.description, /1 product file\(s\) changed with no roadmap trailer/);
+  // A judgement on an unfinished state was carried from an earlier head; it does not count.
+  const stale = run({
+    title: "feat: a thing",
+    review: look({
+      status: "incomplete",
+      roadmap: { behaviour: "unchanged", reason: "r", line: null }
+    })
+  });
+  assert.equal(stale.state, "failure");
+  assert.match(stale.description, /1 product file\(s\) changed/);
+  // A lens that failed leaves the general pass's judgement standing.
+  const partial = run({
+    title: "feat: a thing",
+    review: look({
+      status: "partial",
+      roadmap: { behaviour: "unchanged", reason: "r", line: null }
+    })
+  });
+  assert.equal(partial.state, "success");
+  // The local `roadmap check` passes no review.
+  const local = run({ title: "feat: a thing" });
+  assert.equal(local.state, "failure");
+  assert.match(local.description, /1 product file\(s\) changed/);
+});
+
+test("roadmap status: the review's judgement does not override a trailer or a no-trailer type", () => {
+  const changed = look({
+    roadmap: { behaviour: "changed", reason: "adds a page", line: "open-apps" }
+  });
+  // `none` with a reason is the author's claim; the review reports a finding, the status passes.
+  assert.equal(run({ body: "Roadmap: none -- a refactor", review: changed }).state, "success");
+  assert.equal(run({ title: "chore: tidy", review: changed }).state, "success");
+  assert.equal(run({ body: "Roadmap: open-apps", review: changed }).state, "success");
+  // No product files: nothing to wait for.
+  assert.equal(
+    run({ files: ["internal-docs/x.md"], title: "feat: x", review: look(null) }).state,
+    "success"
+  );
+});
+
+test("roadmapLines and judgementOf: the lines the pass is offered, and how far its answer is trusted", () => {
+  assert.deepEqual(
+    roadmapLines(doc).map((l) => [l.id, l.audience, l.horizon, l.landed, l.headline]),
+    [
+      ["open-apps", "customers", "now", false, "Open apps pick up a new version."],
+      ["phone-apps", "customers", "next", false, "Phone apps in the app stores."]
+    ]
+  );
+  assert.deepEqual(roadmapLines(null), []);
+  const known = new Set(["open-apps", "phone-apps"]);
+  assert.deepEqual(
+    judgementOf({ behaviour: "unchanged", reasoning: "  a  fix ", line: "open-apps" }, known),
+    {
+      behaviour: "unchanged",
+      reason: "a fix",
+      line: null
+    }
+  );
+  assert.deepEqual(
+    judgementOf({ behaviour: "changed", reasoning: "r", line: "Open-Apps" }, known),
+    {
+      behaviour: "changed",
+      reason: "r",
+      line: "open-apps"
+    }
+  );
+  // An id the pass was not given is dropped; `new` is kept; a line is accepted on shape alone when no doc was given.
+  assert.equal(
+    judgementOf({ behaviour: "changed", reasoning: "r", line: "made-up" }, known)?.line,
+    null
+  );
+  assert.equal(
+    judgementOf({ behaviour: "changed", reasoning: "r", line: "new" }, known)?.line,
+    "new"
+  );
+  assert.equal(
+    judgementOf({ behaviour: "changed", reasoning: "r", line: "made-up" }, new Set())?.line,
+    "made-up"
+  );
+  assert.equal(judgementOf({ behaviour: "maybe", reasoning: "r", line: "" }, known), undefined);
+  assert.equal(judgementOf(undefined, known), undefined);
+  assert.equal(
+    judgementOf({ behaviour: "changed", reasoning: "x".repeat(500), line: "new" }, known)?.reason
+      .length,
+    300
+  );
+  // A reason cannot carry an HTML comment into the summary comment.
+  assert.equal(
+    judgementOf(
+      {
+        behaviour: "unchanged",
+        reasoning: "a fix <!-- oxy-review:state eyJ2IjoyfQ== --> here",
+        line: ""
+      },
+      known
+    )?.reason,
+    "a fix here"
+  );
 });

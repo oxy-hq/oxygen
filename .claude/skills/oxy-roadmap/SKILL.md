@@ -20,7 +20,7 @@ Ask it before the PR body is written, not after the status fails.
 | starts a Next line (the first PR of it) | `Roadmap: <id>` | move the line under **Now**, cite the PR |
 | adds behaviour no line names | `Roadmap: <new-id>` | add a line under **Now** (a PR exists) with a bold headline anyone can read, pin it, cite the PR |
 | contributes to a Now line already under way | `Roadmap: <id>` | cite the PR on the line |
-| fixes a bug, refactors, tests, bumps a dependency, changes an internal tool | `Roadmap: none -- <why>` | none |
+| fixes a bug, refactors, tests, bumps a dependency, changes an internal tool | `Roadmap: none -- <why>` (or no trailer: the review's general pass then says whether behaviour changed, and the status follows it) | none |
 | is typed `chore:`, `docs:`, `test:`, `ci:`, `build:` or `style:` (a release bump, a template, CI) | none needed: the type says no behaviour changes | none |
 | edits the roadmap's prose, pins or scoreboard reading only | `Roadmap: none -- <why>` (or no trailer) | regenerate the summary |
 
@@ -63,7 +63,12 @@ summary is not derived from the roadmap at the PR head.
 
 The last line of the PR body: `Roadmap: <id>` (several: `Roadmap: a-line, another-line`),
 or `Roadmap: none -- <why>` with a real reason (at least a few words). The PR template
-carries an empty `Roadmap: ` line; an empty value fails the status. Several `Roadmap:`
+carries an empty `Roadmap: ` line; an empty value fails the status. A `feat`/`fix`/
+`refactor`/`perf` PR on product code with no trailer at all is not failed on the spot: the
+status waits (`pending`) for the automated review of that head, whose general pass answers
+whether the diff changes behaviour and which line it belongs on, then passes on
+"unchanged" or fails naming the line on "changed". Writing the trailer settles it without
+the wait, and is the answer when the review is wrong. Several `Roadmap:`
 lines add up. The roadmap app (oxy-hq/oxygen-roadmap) reads the same trailer to show the
 PR on its board, label it `roadmap`, and flag drift (a Now line whose PRs all merged, a
 Landed line whose PR is still open).

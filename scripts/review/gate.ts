@@ -4,8 +4,8 @@
 //   --gate  `review-gate` from the review state, after a push, a label change, or the
 //           review run finishing
 //   --risk  `high-risk-approval` from the PR's files and reviews
-//   --roadmap `roadmap` from the PR's files, its body's `Roadmap:` trailer and the
-//           roadmap doc at the PR head
+//   --roadmap `roadmap` from the PR's files, its body's `Roadmap:` trailer, the
+//           roadmap doc at the PR head and, with no trailer, the review's judgement
 
 import { parseArgs } from "node:util";
 import { parseTrailer } from "../roadmap/trailer.ts";
@@ -50,12 +50,17 @@ async function report(context: string, result: CommitStatus): Promise<void> {
     });
 }
 
-if (args.gate) {
+/** The review's posted state, from the summary comment the workflow bot wrote. */
+async function reviewState() {
   const comments = await gh.listIssueComments(repo, pr);
-  const state = decodeState(
+  return decodeState(
     findSummaryComment(comments, config.SUMMARY_MARKER, config.REVIEWER_LOGINS)?.body,
     config.STATE_VERSION
   );
+}
+
+if (args.gate) {
+  const state = await reviewState();
   const labels = meta.labels.map((l) => l.name);
   await report(
     config.GATE_CONTEXT,
@@ -119,6 +124,11 @@ if (args.roadmap) {
       doc: needDoc ? await at(config.ROADMAP.doc, meta.head.sha) : null,
       summary: needDoc ? await at(config.ROADMAP.summary, meta.head.sha) : null,
       docBefore: base ? await at(config.ROADMAP.doc, base) : null,
+      // The review's answer to "does behaviour change?" decides a PR with product files
+      // and no trailer; read it only then.
+      ...(trailer.kind === "missing"
+        ? { review: { state: await reviewState(), headSha: meta.head.sha } }
+        : {}),
       config: config.ROADMAP
     })
   );

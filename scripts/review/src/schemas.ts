@@ -46,6 +46,38 @@ export const FINDINGS_SCHEMA = {
   }
 };
 
+/**
+ * The general pass also answers the roadmap question: does the diff change behaviour a
+ * person or an agent would notice, and which roadmap line is it? The `roadmap` status
+ * reads the answer when the PR carries no trailer.
+ */
+export const GENERAL_SCHEMA = {
+  ...FINDINGS_SCHEMA,
+  required: [...FINDINGS_SCHEMA.required, "roadmap"],
+  properties: {
+    ...FINDINGS_SCHEMA.properties,
+    roadmap: {
+      type: "object",
+      additionalProperties: false,
+      required: ["reasoning", "behaviour", "line"],
+      properties: {
+        reasoning: str(
+          "What in the diff a person or an agent would notice, named concretely; or why nothing changes for them."
+        ),
+        behaviour: {
+          type: "string",
+          enum: ["changed", "unchanged"],
+          description:
+            "changed: the diff adds or changes product behaviour. unchanged: a fix, refactor, test, dependency or internal tool."
+        },
+        line: str(
+          "When changed: the id of the roadmap line it belongs on, from the list given, or `new` when none fits. Empty when unchanged."
+        )
+      }
+    }
+  }
+};
+
 export const VERIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,

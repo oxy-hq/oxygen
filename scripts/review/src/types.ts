@@ -190,6 +190,16 @@ export interface Round {
   passes?: Record<string, PassSummary>;
 }
 
+/**
+ * The general pass's answer to "does this PR change product behaviour?", kept for the
+ * `roadmap` status. `line` is a pinned roadmap id, `"new"` when no line fits, or null.
+ */
+export interface RoadmapJudgement {
+  behaviour: "changed" | "unchanged";
+  reason: string;
+  line: string | null;
+}
+
 export interface ReviewState {
   v: number;
   pr: number;
@@ -202,6 +212,8 @@ export interface ReviewState {
   possible: Possible[];
   rounds: Round[];
   next: number;
+  /** Set by a round whose general pass finished; absent on an older state or a skipped review. */
+  roadmap?: RoadmapJudgement;
 }
 
 // ---- Model passes -------------------------------------------------------------------
@@ -209,6 +221,11 @@ export interface ReviewState {
 export interface FindingsOutput {
   findings: RawFinding[];
   not_reviewed: string[];
+}
+
+/** The general pass's answer: findings plus the roadmap judgement (GENERAL_SCHEMA). */
+export interface GeneralOutput extends FindingsOutput {
+  roadmap?: { reasoning?: unknown; behaviour?: unknown; line?: unknown };
 }
 
 export interface VerifyVerdict {

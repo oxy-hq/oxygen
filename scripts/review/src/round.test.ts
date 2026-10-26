@@ -237,3 +237,106 @@ test("a skipped, incomplete or unread round is never the base of an incremental 
     );
   }
 });
+
+test("the general pass answers the roadmap question; the round keeps it for this head only", async () => {
+  const roadmapDoc = `# Platform roadmap
+
+## 2. By audience
+
+### 2.1 Customers use apps
+
+- **Now**
+  - **Open apps pick up a new version.** Tabs notice ([#3620]). <!-- rm:open-apps -->
+- **Next**
+- **Later**
+`;
+  const { runPass, calls } = fakeLlm({
+    general: {
+      findings: [],
+      not_reviewed: [],
+      roadmap: { reasoning: "adds GET /api/x", behaviour: "changed", line: "open-apps" }
+    },
+    authz: { findings: [], not_reviewed: [] }
+  });
+  const out = await runRound({
+    load: { ...load(emptyState(1, config.STATE_VERSION)), roadmapDoc },
+    repo: "o/r",
+    runPass,
+    cwd: ".",
+    graph: false
+  });
+  const general = calls.find((c) => c.name === "general");
+  assert.match(
+    general?.prompt ?? "",
+    /<roadmap_lines>\n- open-apps \(customers, now\): Open apps pick up a new version\./
+  );
+  assert.deepEqual(out.state.roadmap, {
+    behaviour: "changed",
+    reason: "adds GET /api/x",
+    line: "open-apps"
+  });
+
+  // The next round's general pass fails: the old answer does not speak for the new head.
+  const failed = fakeLlm({ authz: { findings: [], not_reviewed: [] } });
+  const next = await runRound({
+    load: load({ ...out.state, head: "head1111111" }),
+    repo: "o/r",
+    runPass: failed.runPass,
+    cwd: ".",
+    graph: false
+  });
+  assert.equal(next.state.status, "incomplete");
+  assert.equal(next.state.roadmap, undefined);
+  // No doc on the checkout: the prompt says so instead of listing nothing.
+  const noDoc = failed.calls.find((c) => c.name === "general");
+  assert.match(noDoc?.prompt ?? "", /The roadmap doc was not readable on this run/);
+});
+
+test("an incremental round can raise the roadmap judgement to changed, never lower it", async () => {
+  const changed = { behaviour: "changed" as const, reason: "adds a page", line: "new" };
+  const prev: ReviewState = {
+    ...emptyState(1, config.STATE_VERSION),
+    head: "head1111111",
+    status: "complete",
+    verdict: "LGTM",
+    roadmap: changed
+  };
+  const says = (behaviour: string) =>
+    fakeLlm({
+      general: {
+        findings: [],
+        not_reviewed: [],
+        roadmap: { reasoning: "only a test in this push", behaviour, line: "" }
+      },
+      authz: { findings: [], not_reviewed: [] }
+    });
+  const kept = await runRound({
+    load: load(prev, "incremental"),
+    repo: "o/r",
+    runPass: says("unchanged").runPass,
+    cwd: ".",
+    graph: false
+  });
+  assert.deepEqual(kept.state.roadmap, changed);
+  // A full review re-reads the whole PR: its answer replaces the old one.
+  const full = await runRound({
+    load: load(prev),
+    repo: "o/r",
+    runPass: says("unchanged").runPass,
+    cwd: ".",
+    graph: false
+  });
+  assert.equal(full.state.roadmap?.behaviour, "unchanged");
+  // And an incremental round that finds behaviour raises an earlier "unchanged".
+  const raised = await runRound({
+    load: load(
+      { ...prev, roadmap: { behaviour: "unchanged", reason: "a fix", line: null } },
+      "incremental"
+    ),
+    repo: "o/r",
+    runPass: says("changed").runPass,
+    cwd: ".",
+    graph: false
+  });
+  assert.equal(raised.state.roadmap?.behaviour, "changed");
+});

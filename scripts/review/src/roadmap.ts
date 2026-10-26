@@ -2,9 +2,12 @@
 // moves or lands, and that line cites the PR; or it says `Roadmap: none -- <why>`.
 // internal-docs/platform-roadmap.md (Governance) is the rule; this is the check.
 
+import type { Audience, Horizon } from "../../roadmap/doc.ts";
 import {
   allItems,
   findItem,
+  headline,
+  isValidId,
   parseRoadmap,
   pinnedId,
   renderSummary,
@@ -13,9 +16,58 @@ import {
 import type { Trailer } from "../../roadmap/trailer.ts";
 import type { RoadmapConfig } from "../config.ts";
 import { matchesAny } from "./globs.ts";
-import type { CommitStatus } from "./types.ts";
+import type { CommitStatus, GeneralOutput, ReviewState, RoadmapJudgement } from "./types.ts";
 
 const cap = (s: string): string => s.slice(0, 140); // GitHub truncates status descriptions
+
+/** One roadmap line as the general pass sees it: enough to name it, not the whole doc. */
+export interface RoadmapLine {
+  id: string;
+  headline: string;
+  audience: Audience;
+  horizon: Horizon;
+  landed: boolean;
+}
+
+/** The roadmap's lines by id, for the general pass's `roadmap` answer. */
+export function roadmapLines(doc: string | null | undefined): RoadmapLine[] {
+  if (!doc) return [];
+  return allItems(parseRoadmap(doc)).map((i) => ({
+    id: i.id,
+    headline: headline(i.text).replace(/ Done\.$/, ""),
+    audience: i.audience,
+    horizon: i.horizon,
+    landed: i.landed
+  }));
+}
+
+const REASON_CHARS = 300;
+// Model text that the summary comment will carry: no HTML comment may ride in it.
+const text = (v: unknown): string =>
+  typeof v === "string" ? v.replace(/<!--[\s\S]*?(?:-->|$)/g, " ") : "";
+
+/**
+ * The general pass's `roadmap` answer, trusted only as far as its shape: a behaviour
+ * outside the two words is no judgement, and a line is kept only when it is one of the
+ * ids the pass was given (any valid id when it was given none) or `new`.
+ */
+export function judgementOf(
+  raw: GeneralOutput["roadmap"] | undefined,
+  known: ReadonlySet<string>
+): RoadmapJudgement | undefined {
+  if (!raw || (raw.behaviour !== "changed" && raw.behaviour !== "unchanged")) return undefined;
+  const reason = text(raw.reasoning).replace(/\s+/g, " ").trim().slice(0, REASON_CHARS);
+  if (raw.behaviour === "unchanged") return { behaviour: "unchanged", reason, line: null };
+  const l = text(raw.line).trim().toLowerCase();
+  const line = l === "new" || (known.size ? known.has(l) : isValidId(l)) ? l : null;
+  return { behaviour: "changed", reason, line };
+}
+
+/** What the status knows of the automated review when it runs in the loop with it. */
+export interface ReviewLook {
+  state: Pick<ReviewState, "head" | "status" | "roadmap"> | null;
+  headSha: string;
+}
 
 export interface RoadmapInput {
   /** Every path the PR touches (renames: both names). */
@@ -33,6 +85,11 @@ export interface RoadmapInput {
   summary: string | null;
   /** The roadmap doc at the merge base, when the PR changes it: tells a pin or a rewrap from a move. */
   docBefore?: string | null;
+  /**
+   * The review's say on a PR with product files and no trailer. Absent when nothing
+   * reviews in this context (the local `roadmap check`), and the files alone decide.
+   */
+  review?: ReviewLook;
   config: RoadmapConfig;
 }
 
@@ -69,6 +126,45 @@ export function titleType(title: string | undefined): string | null {
 
 const HOW = "Roadmap: <line-id> or Roadmap: none -- <why>";
 
+/**
+ * Product files changed and no trailer. The files say a trailer is owed; the review, when
+ * one runs on this head, says whether the diff changes behaviour at all. Waiting for it is
+ * `pending`, the same wait `review-gate` shows; a trailer settles it without waiting.
+ */
+function withoutTrailer(n: number, review: ReviewLook | undefined): CommitStatus {
+  const byFiles: CommitStatus = {
+    state: "failure",
+    description: cap(`${n} product file(s) changed with no roadmap trailer. ${HOW}`)
+  };
+  if (!review) return byFiles;
+  const { state, headSha } = review;
+  if (!state || state.head !== headSha)
+    return {
+      state: "pending",
+      description: cap(
+        `Waiting for the review of ${headSha.slice(0, 9)} to say whether behaviour changes; a trailer settles it now. ${HOW}`
+      )
+    };
+  // Only a finished general pass has judged this head (`partial` is a lens that failed,
+  // not the general pass). A skipped or unfinished review, or a judgement a stale state
+  // carried onto this head, leaves the files to decide, as before.
+  const finished = state.status === "complete" || state.status === "partial";
+  const j = finished ? state.roadmap : undefined;
+  if (!j) return byFiles;
+  if (j.behaviour === "unchanged")
+    return {
+      state: "success",
+      description: cap(`No behaviour change, says the review: ${j.reason || "no trailer needed"}`)
+    };
+  const line = j.line && j.line !== "new" ? j.line : "<new-line-id>";
+  return {
+    state: "failure",
+    description: cap(
+      `Behaviour changes, says the review: Roadmap: ${line} or Roadmap: none -- <why>. ${j.reason}`
+    )
+  };
+}
+
 export function evaluateRoadmap({
   files,
   title,
@@ -79,6 +175,7 @@ export function evaluateRoadmap({
   doc,
   summary,
   docBefore = null,
+  review,
   config
 }: RoadmapInput): CommitStatus {
   if (draft) return { state: "success", description: "Draft: not gated" };
@@ -126,13 +223,7 @@ export function evaluateRoadmap({
         state: "success",
         description: cap(`${type}: the title says no behaviour changes; no roadmap trailer needed`)
       };
-    if (product.length)
-      return {
-        state: "failure",
-        description: cap(
-          `${product.length} product file(s) changed with no roadmap trailer. ${HOW}`
-        )
-      };
+    if (product.length) return withoutTrailer(product.length, review);
     return {
       state: "success",
       description: "No product code changed; no roadmap trailer needed"

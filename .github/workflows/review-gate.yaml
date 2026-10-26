@@ -8,8 +8,11 @@ name: Review gate
 #   high-risk-approval   a person (not the author, an owner in CODEOWNERS) approved a
 #                        PR touching the HIGH_RISK paths in scripts/review/config.ts.
 #   roadmap              the PR's `Roadmap:` trailer names the roadmap line it moves, and
-#                        that line cites the PR; or it says `none` and why. Re-run when
-#                        the body is edited, since the trailer lives there.
+#                        that line cites the PR; or it says `none` and why; or, with no
+#                        trailer on product code, the review's general pass said whether
+#                        behaviour changed (pending until that review has run). Re-run
+#                        when the body is edited, since the trailer lives there, and when
+#                        the review finishes, since the judgement lives in its comment.
 # internal-docs/code-review.md says which of them branch protection requires.
 #
 # This job holds a token that can set statuses, so it never runs the PR's code:
