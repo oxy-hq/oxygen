@@ -15,6 +15,7 @@ interface Props {
 export const GitNamespaceSelection = ({ value, onChange }: Props) => {
   const { org } = useCurrentOrg();
   const orgId = org?.id ?? "";
+  const canUseApp = org?.role === "owner" || org?.role === "admin";
 
   const {
     data: gitNamespaces = [],
@@ -85,6 +86,7 @@ export const GitNamespaceSelection = ({ value, onChange }: Props) => {
 
       <AddGitNamespaceFlow
         orgId={orgId}
+        canUseApp={canUseApp}
         open={addOpen}
         onOpenChange={setAddOpen}
         onConnected={handleConnected}

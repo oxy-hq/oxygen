@@ -17,10 +17,17 @@ import {
   useUserInstallations
 } from "@/hooks/api/github";
 import queryKeys from "@/hooks/api/queryKey";
+import { apiErrorCode, apiErrorMessage, apiStatus } from "@/libs/apiError";
 import { GitHubApiService } from "@/services/api";
 import { openSecureWindow } from "@/utils/githubAppInstall";
-import { GitHubCallbackCancelled, waitForGitHubCallback } from "@/utils/githubCallbackMessage";
+import {
+  GitHubCallbackCancelled,
+  GitHubCallbackError,
+  waitForGitHubCallback
+} from "@/utils/githubCallbackMessage";
 import ConnectGitHubAccountStep from "./ConnectGitHubAccountStep";
+
+const GITHUB_ACCOUNT_NOT_CONNECTED = "github_account_not_connected";
 
 interface Props {
   orgId: string;
@@ -45,9 +52,26 @@ export default function AddViaInstallationDialog({ orgId, open, onClose, onConne
   const { mutate: reconnect, isPending: isReconnecting } = useConnectGitHubAccount();
   const queryClient = useQueryClient();
 
+  // The server accepts only an installation the connected GitHub account lists;
+  // without a usable account it says so with this code, and the way through is
+  // to reconnect (refreshing the account shows the connect step again).
+  const askedToReconnect = (code: string | undefined, then: string) => {
+    if (code !== GITHUB_ACCOUNT_NOT_CONNECTED) return false;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.github.account });
+    toast.error(`Reconnect your GitHub account, then ${then}.`);
+    return true;
+  };
+
   const handlePick = async (installationId: number) => {
-    const ns = await createNamespace({ orgId, installationId });
-    onConnected(ns.id);
+    try {
+      const ns = await createNamespace({ orgId, installationId });
+      onConnected(ns.id);
+    } catch (err: unknown) {
+      if (askedToReconnect(apiErrorCode(err), "choose the account again")) return;
+      // A 403 has already been announced by the API client.
+      if (apiStatus(err) === 403) return;
+      toast.error(apiErrorMessage(err, "Failed to connect the GitHub account"));
+    }
   };
 
   const handleInstallAnother = async () => {
@@ -60,8 +84,14 @@ export default function AddViaInstallationDialog({ orgId, open, onClose, onConne
       onConnected(result.namespace_id);
     } catch (err: unknown) {
       if (err instanceof GitHubCallbackCancelled) return;
-      const message = err instanceof Error ? err.message : "Failed to install GitHub App";
-      toast.error(message);
+      // A failure the popup reported carries the install callback's code and a
+      // sentence (see `describeCallbackFailure`); one before the popup opened is
+      // the `new-url` request's own error.
+      const code = err instanceof GitHubCallbackError ? err.code : apiErrorCode(err);
+      if (askedToReconnect(code, "install the app again")) return;
+      // `new-url`'s 403 has already been announced by the API client.
+      if (apiStatus(err) === 403) return;
+      toast.error(apiErrorMessage(err, "Failed to install GitHub App"));
     }
   };
 

@@ -502,40 +502,68 @@ impl GitHubClient {
         Ok(repo)
     }
 
-    /// Lists GitHub App installations accessible to the authenticated user.
-    /// Uses the user access token stored in this client (obtained via OAuth).
+    /// Lists GitHub App installations accessible to the authenticated user —
+    /// every page of `GET /user/installations`. Uses the user access token
+    /// stored in this client (obtained via OAuth).
+    ///
+    /// Every page, not GitHub's default first 30: an installation is attached to
+    /// an org only when this list holds it, so a truncated list would refuse a
+    /// person's 31st installation as if it were not theirs.
+    ///
+    /// A token GitHub rejects (`401`) is [`OxyError::AuthenticationError`], so a
+    /// caller can tell "reconnect the account" from "GitHub is failing" by the
+    /// variant rather than by the message.
     pub async fn list_user_installations(&self) -> Result<Vec<GitHubInstallation>, OxyError> {
         #[derive(Deserialize)]
         struct UserInstallationsResponse {
             installations: Vec<GitHubInstallationResponse>,
         }
 
-        let url = format!("{}/user/installations", self.base_url);
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            OxyError::RuntimeError(format!("Failed to list user installations: {e}"))
-        })?;
+        // A bound on a list that never comes up short. Hitting it leaves the
+        // rest out, which refuses an installation rather than admitting one.
+        const MAX_PAGES: u32 = 50;
+        let per_page = 100usize;
+        let mut all = Vec::new();
 
-        if !response.status().is_success() {
-            return Err(OxyError::RuntimeError(format!(
-                "GitHub API error: {} - {}",
-                response.status(),
-                response.text().await.unwrap_or_default()
-            )));
-        }
+        for page in 1..=MAX_PAGES {
+            let url = format!(
+                "{}/user/installations?per_page={per_page}&page={page}",
+                self.base_url
+            );
+            let response = self.client.get(&url).send().await.map_err(|e| {
+                OxyError::RuntimeError(format!("Failed to list user installations: {e}"))
+            })?;
 
-        let resp: UserInstallationsResponse = response.json().await.map_err(|e| {
-            OxyError::RuntimeError(format!("Failed to parse user installations response: {e}"))
-        })?;
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(OxyError::AuthenticationError(format!(
+                    "GitHub rejected the user access token: {}",
+                    response.text().await.unwrap_or_default()
+                )));
+            }
+            if !response.status().is_success() {
+                return Err(OxyError::RuntimeError(format!(
+                    "GitHub API error: {} - {}",
+                    response.status(),
+                    response.text().await.unwrap_or_default()
+                )));
+            }
 
-        Ok(resp
-            .installations
-            .into_iter()
-            .map(|r| GitHubInstallation {
+            let resp: UserInstallationsResponse = response.json().await.map_err(|e| {
+                OxyError::RuntimeError(format!("Failed to parse user installations response: {e}"))
+            })?;
+
+            let is_last_page = resp.installations.len() < per_page;
+            all.extend(resp.installations.into_iter().map(|r| GitHubInstallation {
                 id: r.id,
                 owner_type: r.account.account_type,
                 slug: r.account.login.clone(),
                 name: r.account.login,
-            })
-            .collect())
+            }));
+            if is_last_page {
+                break;
+            }
+        }
+
+        Ok(all)
     }
 }

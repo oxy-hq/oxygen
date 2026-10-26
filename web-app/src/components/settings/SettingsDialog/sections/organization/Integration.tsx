@@ -181,6 +181,7 @@ function GitHubConnections({ org }: IntegrationSectionProps) {
 
       <AddGitNamespaceFlow
         orgId={org.id}
+        canUseApp={canManage}
         open={addOpen}
         onOpenChange={setAddOpen}
         onConnected={handleConnected}

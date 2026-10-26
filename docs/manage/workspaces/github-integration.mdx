@@ -204,15 +204,18 @@ If a user wants to import from a different GitHub account or organization, they 
 
 ---
 
-## Security: How Installation Selection Is Protected
+## Security: Who Can Connect an Installation
 
-When multiple installations are shown, Oxygen issues a short-lived **selection token** — an HMAC-signed value encoding the eligible installation IDs, bound to the user's ID and valid for 10 minutes. When the user picks one:
+Connecting a GitHub App installation decides which repositories an organization can read, so Oxygen checks two things every time one is connected — from the picker, or when GitHub sends the user back after installing the app:
 
-1. The client sends `{ installation_id, selection_token }` back to the server
-2. The server verifies the signature, confirms the user ID matches, checks the token is not expired, and validates that the chosen ID is in the token's list
-3. Only then is the namespace created
+1. **The user is an owner or admin of the Oxygen organization.** Members can still connect a personal access token, which only they can use.
+2. **The user's connected GitHub account can reach the installation.** Oxygen asks GitHub for the installations that account can access (`GET /user/installations`) and accepts only one of those. For an installation on a **personal** GitHub account, that account must also be the user's own connected login. Any other installation ID gets the same answer as one that does not exist, so IDs from other tenants cannot be guessed or injected.
 
-This ensures a user can only connect an installation they were explicitly shown — installation IDs from other tenants cannot be guessed or injected.
+The signed `state` that carries a flow through GitHub also names the user who started it, and is refused if anyone else completes it.
+
+<Warning>
+  Reaching an installation is not the same as administering it. GitHub lists an installation to anyone who can access one of its repositories, whether through organization membership or as an outside collaborator on a single repository. So an Oxygen org owner or admin can connect a GitHub **organization's** installation that they reach this way. Oxygen can then read every repository that installation covers, which may be more than that person can read on GitHub. Oxygen does not check the user's role in the GitHub organization. To limit what Oxygen can read, install the app on **Only select repositories**.
+</Warning>
 
 ---
 
@@ -227,7 +230,7 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----
 -----END RSA PRIVATE KEY-----"          # Full PEM block from the downloaded .pem file
 GITHUB_CLIENT_ID=Iv23liqo62PgXXXXXX    # OAuth Client ID from app settings
 GITHUB_CLIENT_SECRET=abc123...          # OAuth Client Secret from app settings
-GITHUB_STATE_SECRET=random-64-char-hex  # Random secret for HMAC signing (state + selection tokens)
+GITHUB_STATE_SECRET=random-64-char-hex  # Random secret for HMAC signing the OAuth and install state
 ```
 
 ---
@@ -258,9 +261,13 @@ The `redirect_uri` is derived from the `Origin` header. Check that your proxy is
 
 The HMAC verification on the OAuth state failed. This usually means `GITHUB_STATE_SECRET` changed between when the user started the OAuth flow and when GitHub redirected back. Ensure the secret is consistent across server restarts (don't regenerate it on every deploy).
 
-**"Invalid or expired selection token"**
+**"Connect your GitHub account to choose one of its installations"**
 
-The user took more than 10 minutes to pick an installation, or the server restarted and `GITHUB_STATE_SECRET` changed. The user should click **Sign in with GitHub** again to get a fresh token.
+The user has no GitHub account connected, or GitHub no longer accepts its stored authorization, so Oxygen cannot confirm the installation is theirs. The user should reconnect their GitHub account and choose the installation again.
+
+**"Via GitHub App" is greyed out**
+
+Only owners and admins of the Oxygen organization can connect a GitHub App installation. Ask one of them to connect it, or use a personal access token.
 
 **Users see "Sign in with GitHub" but nothing happens**
 

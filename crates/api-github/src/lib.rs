@@ -23,6 +23,7 @@ use oxy_app::surface::subscription_guard_middleware;
 use oxy_app_core::AppState;
 
 pub mod account;
+pub mod attach;
 pub mod callback;
 pub mod installations;
 pub mod namespaces;

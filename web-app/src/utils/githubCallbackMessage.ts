@@ -1,7 +1,9 @@
+import { apiErrorCode, apiErrorMessage, apiStatus } from "@/libs/apiError";
 import type { GitHubCallbackResponse } from "@/types/github";
 
 type SuccessMessage = { type: "github-callback-success" } & GitHubCallbackResponse;
-type ErrorMessage = { type: "github-callback-error"; reason: string };
+/** `code` is the server's machine-readable refusal code, when it sent one. */
+type ErrorMessage = { type: "github-callback-error"; reason: string; code?: string };
 export type CallbackMessage = SuccessMessage | ErrorMessage;
 
 export class GitHubCallbackCancelled extends Error {
@@ -9,6 +11,45 @@ export class GitHubCallbackCancelled extends Error {
     super("Cancelled");
     this.name = "GitHubCallbackCancelled";
   }
+}
+
+/** The popup reported a failure. `message` is written for a person. */
+export class GitHubCallbackError extends Error {
+  readonly code?: string;
+
+  constructor(reason: string, code?: string) {
+    super(reason);
+    this.name = "GitHubCallbackError";
+    this.code = code;
+  }
+}
+
+/**
+ * What a bare refusal from `POST /user/github/callback` means. These routes answer
+ * a status with no body, and axios's own message ("Request failed with status code
+ * 404") is all the person would otherwise see.
+ */
+function callbackRefusal(status: number | undefined): string {
+  switch (status) {
+    case 400:
+      return "This GitHub link has expired or is no longer valid. Start again from Oxygen.";
+    case 403:
+      return "Only an organization owner or admin can connect a GitHub App installation, and only the person who started the connection can finish it.";
+    case 404:
+      return "That GitHub installation isn't one your GitHub account can access.";
+    case 409:
+      return "Reconnect your GitHub account, then try again.";
+    default:
+      return "Couldn't finish connecting GitHub. Try again.";
+  }
+}
+
+/** The failure of the callback request, as the popup reports it to its opener. */
+export function describeCallbackFailure(err: unknown): { reason: string; code?: string } {
+  return {
+    reason: apiErrorMessage(err, callbackRefusal(apiStatus(err))),
+    code: apiErrorCode(err)
+  };
 }
 
 const POPUP_CLOSED_POLL_MS = 500;
@@ -47,7 +88,7 @@ export function waitForGitHubCallback<F extends GitHubCallbackResponse["flow"]>(
       settled = true;
       cleanup();
       if (data.type === "github-callback-error") {
-        reject(new Error(data.reason));
+        reject(new GitHubCallbackError(data.reason, data.code));
         return;
       }
       if (data.flow !== expectedFlow) {

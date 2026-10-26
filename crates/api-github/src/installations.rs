@@ -9,6 +9,7 @@ use oxy::database::client::establish_connection;
 use oxy::github::client::GitHubClient;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
+use super::attach::require_org_admin;
 use super::state::{Flow, StatePayload, bounce_redirect, encode_state};
 
 // ──────────────────────── DTOs ────────────────────────
@@ -34,16 +35,19 @@ pub struct UserInstallation {
 // ──────────────────────── Handlers ────────────────────────
 /// GET /user/github/installations/new-url?org_id={uuid}
 /// Returns a URL pointing at `https://github.com/apps/{slug}/installations/new`
-/// with an HMAC-signed `state` carrying `flow=install` and the target org.
+/// with an HMAC-signed `state` carrying `flow=install`, the target org and the
+/// caller.
 pub async fn get_new_installation_url(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Query(q): Query<NewInstallationUrlQuery>,
 ) -> Result<ResponseJson<NewInstallationUrlResponse>, StatusCode> {
-    // No path names the org, so the request's API token is asked here: an org
-    // that blocked it (API-tokens design §5) is not one it installs into.
-    user.require_org_reach(q.org_id)?;
+    // No path names the org, so `org_middleware` never ran: the install ends in
+    // a namespace attached to the org the query names, which is an org admin's
+    // act, asked here exactly as the org route asks it (token reach included).
+    require_org_admin(&user, q.org_id).await?;
     let state = encode_state(&StatePayload {
         org_id: q.org_id,
+        user_id: user.id,
         flow: Flow::Install,
     })
     .map_err(StatusCode::from)?;

@@ -92,8 +92,11 @@ pub async fn get_oauth_url(
     // No path names the org, so the request's API token is asked here: an org
     // that blocked it (API-tokens design §5) is not one it starts a flow for.
     user.require_org_reach(q.org_id)?;
+    // Signed with the caller, so the callback stores a GitHub token only for
+    // the person who started the flow — not for whoever is handed the link.
     let state = encode_state(&StatePayload {
         org_id: q.org_id,
+        user_id: user.id,
         flow: Flow::Oauth,
     })
     .map_err(StatusCode::from)?;

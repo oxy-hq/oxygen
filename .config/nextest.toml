@@ -165,6 +165,15 @@ filter = "kind(test) & package(=oxy-api-tenancy) & binary(=integration) & !test(
 test-group = "db-per-test"
 retries = 2
 
+# `oxy-api-github`'s integration group: the installation-ownership tests drive
+# the real GitHub routes against a database cloned from the per-run template
+# (`common::test_db`, `oxy-app`'s harness by path), so they contend for the
+# server, not a schema.
+[[profile.default.overrides]]
+filter = "kind(test) & package(=oxy-api-github) & binary(=integration)"
+test-group = "db-per-test"
+retries = 2
+
 # The `authz`, `slack` and `platform` binaries are mixed, and the difference is
 # not cosmetic: these eleven modules do NOT use `tests/common/mod.rs`. They reach
 # the ambient shared `OXY_DATABASE_URL` with no per-test database, so they read

@@ -7,12 +7,20 @@ type Step = "menu" | "pat" | "installation";
 
 interface Props {
   orgId: string;
+  /** Whether the caller is an owner or admin of `orgId`, who alone may attach an installation. */
+  canUseApp: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConnected: (namespaceId: string) => void;
 }
 
-export default function AddGitNamespaceFlow({ orgId, open, onOpenChange, onConnected }: Props) {
+export default function AddGitNamespaceFlow({
+  orgId,
+  canUseApp,
+  open,
+  onOpenChange,
+  onConnected
+}: Props) {
   const [step, setStep] = useState<Step>("menu");
 
   useEffect(() => {
@@ -25,6 +33,7 @@ export default function AddGitNamespaceFlow({ orgId, open, onOpenChange, onConne
     <>
       <AddNamespaceMenu
         open={open && step === "menu"}
+        canUseApp={canUseApp}
         onClose={close}
         onSelectApp={() => setStep("installation")}
         onSelectPAT={() => setStep("pat")}
@@ -37,7 +46,7 @@ export default function AddGitNamespaceFlow({ orgId, open, onOpenChange, onConne
       />
       <AddViaInstallationDialog
         orgId={orgId}
-        open={open && step === "installation"}
+        open={open && canUseApp && step === "installation"}
         onClose={close}
         onConnected={onConnected}
       />

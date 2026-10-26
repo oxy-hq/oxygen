@@ -11,12 +11,20 @@ import {
 
 interface Props {
   open: boolean;
+  /** Attaching a GitHub App installation is an org owner's or admin's act. */
+  canUseApp: boolean;
   onClose: () => void;
   onSelectApp: () => void;
   onSelectPAT: () => void;
 }
 
-export default function AddNamespaceMenu({ open, onClose, onSelectApp, onSelectPAT }: Props) {
+export default function AddNamespaceMenu({
+  open,
+  canUseApp,
+  onClose,
+  onSelectApp,
+  onSelectPAT
+}: Props) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className='sm:max-w-md'>
@@ -26,10 +34,15 @@ export default function AddNamespaceMenu({ open, onClose, onSelectApp, onSelectP
         </DialogHeader>
 
         <div className='flex flex-col gap-2'>
-          <Button className='w-full gap-2' onClick={onSelectApp}>
+          <Button className='w-full gap-2' onClick={onSelectApp} disabled={!canUseApp}>
             <GithubIcon className='h-4 w-4' />
             Via GitHub App
           </Button>
+          {!canUseApp && (
+            <p className='text-muted-foreground text-xs'>
+              Only organization owners and admins can connect the GitHub App.
+            </p>
+          )}
           <Button variant='outline' className='w-full gap-2' onClick={onSelectPAT}>
             <Key className='h-4 w-4' />
             Via personal access token

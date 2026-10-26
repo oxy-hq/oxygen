@@ -5,13 +5,16 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, Quer
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use entity::{git_namespaces, github_accounts};
+use entity::github_accounts;
 use oxy::database::client::establish_connection;
-use oxy::github::app_auth::GitHubAppAuth;
 use oxy::github::client::{GitHubClient, exchange_oauth_code};
 use oxy_auth::extractor::AuthenticatedUserExtractor;
+use oxy_auth::types::AuthenticatedUser;
 
-use super::state::{Flow, decode_state};
+use super::attach::{
+    AttachError, attach_namespace, callers_installation, connect, require_org_admin,
+};
+use super::state::{Flow, decode_state_for};
 
 #[derive(Debug, Deserialize)]
 pub struct CallbackBody {
@@ -33,10 +36,17 @@ pub enum CallbackResponse {
 pub async fn callback(
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CallbackBody>,
-) -> Result<ResponseJson<CallbackResponse>, StatusCode> {
-    let payload = decode_state(&body.state).map_err(|e| {
-        tracing::warn!("failed to decode GitHub callback state: {e:?}");
-        StatusCode::UNAUTHORIZED
+) -> Result<ResponseJson<CallbackResponse>, AttachError> {
+    // GitHub sends the browser back to whichever session it lands in, so the
+    // state names who started the flow and is completed by that person only.
+    //
+    // A stale, tampered or old-format state is a `400`, never a `401`: the web
+    // app reads any `401` as a dead session and signs the person out, when all
+    // they need is to start the flow again. Someone else's state stays `403`
+    // (see `StateError`'s `StatusCode` mapping).
+    let payload = decode_state_for(&body.state, user.id).map_err(|e| {
+        tracing::warn!(user = %user.id, "refused GitHub callback state: {e:?}");
+        StatusCode::from(e)
     })?;
     // The org rides in the signed state, not the path. A state minted for an
     // org that has blocked the request's API token (API-tokens design §5) is
@@ -44,8 +54,8 @@ pub async fn callback(
     user.require_org_reach(payload.org_id)?;
 
     match payload.flow {
-        Flow::Oauth => handle_oauth(user.id, body.code).await,
-        Flow::Install => handle_install(user.id, payload.org_id, body.installation_id).await,
+        Flow::Oauth => Ok(handle_oauth(user.id, body.code).await?),
+        Flow::Install => handle_install(&user, payload.org_id, body.installation_id).await,
     }
 }
 
@@ -118,11 +128,16 @@ async fn handle_oauth(
     Ok(ResponseJson(CallbackResponse::Oauth { login }))
 }
 
+/// The install redirect's `installation_id` is a query parameter anyone can
+/// edit, so it is a claim: it is attached only for an org admin, asked again
+/// now (they may have been demoted since the state was minted), and only if
+/// the caller's own GitHub account lists it. See [`crate::attach`].
 async fn handle_install(
-    user_id: Uuid,
+    user: &AuthenticatedUser,
     org_id: Uuid,
     installation_id: Option<i64>,
-) -> Result<ResponseJson<CallbackResponse>, StatusCode> {
+) -> Result<ResponseJson<CallbackResponse>, AttachError> {
+    let user_id = user.id;
     let installation_id = installation_id.ok_or_else(|| {
         tracing::warn!(
             "GitHub install callback missing 'installation_id' for user {user_id} org {org_id}"
@@ -130,62 +145,12 @@ async fn handle_install(
         StatusCode::BAD_REQUEST
     })?;
 
-    let app_auth = GitHubAppAuth::from_env().map_err(|e| {
-        tracing::error!("GitHub App environment misconfigured: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    require_org_admin(user, org_id).await?;
+    let db = connect().await?;
+    let installation = callers_installation(&db, user_id, installation_id).await?;
+    let ns = attach_namespace(&db, org_id, user_id, installation).await?;
 
-    let installation = app_auth
-        .get_installation_info(&installation_id.to_string())
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                "failed to fetch GitHub installation info for installation {installation_id}: {e}"
-            );
-            StatusCode::BAD_GATEWAY
-        })?;
-
-    let db = establish_connection().await.map_err(|e| {
-        tracing::error!("failed to establish database connection: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let existing = git_namespaces::Entity::find()
-        .filter(git_namespaces::Column::InstallationId.eq(installation_id))
-        .filter(git_namespaces::Column::OrgId.eq(org_id))
-        .one(&db)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                "failed to query git_namespaces for installation {installation_id} org {org_id}: {e}"
-            );
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let namespace_id = match existing {
-        Some(model) => model.id,
-        None => {
-            let id = Uuid::new_v4();
-            let active = git_namespaces::ActiveModel {
-                id: Set(id),
-                installation_id: Set(installation_id),
-                name: Set(installation.name),
-                owner_type: Set(installation.owner_type),
-                provider: Set("github".into()),
-                slug: Set(installation.slug),
-                oauth_token: Set(String::new()),
-                created_by: Set(user_id),
-                org_id: Set(Some(org_id)),
-            };
-            active.insert(&db).await.map_err(|e| {
-                tracing::error!(
-                    "failed to insert git_namespace for installation {installation_id} org {org_id}: {e}"
-                );
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-            id
-        }
-    };
-
-    Ok(ResponseJson(CallbackResponse::Install { namespace_id }))
+    Ok(ResponseJson(CallbackResponse::Install {
+        namespace_id: ns.id,
+    }))
 }

@@ -84,11 +84,52 @@ where
         // Enforce the whole OrgAdmin ring at its choke point — MemberSetRole is a
         // representative action of that ring.
         async move {
-            org_admin(parts, "guard.org_admin", authz::Action::MemberSetRole)
+            org_admin(parts, ORG_ADMIN_LABEL, authz::Action::MemberSetRole)
                 .await
                 .map(OrgAdmin)
         }
     }
+}
+
+const ORG_ADMIN_LABEL: &str = "guard.org_admin";
+
+impl OrgAdmin {
+    /// The same door for a request whose org is **not in its path** — a
+    /// per-user route that was handed the org in a query, a body or a signed
+    /// OAuth `state`, where `org_middleware` never ran and no guard can.
+    ///
+    /// `ctx` is that org resolved the way `org_middleware` resolves one
+    /// (`oxy_app::surface::resolve_org_context`). The decision is this guard's
+    /// own — same label, same action, same shipped check — taken through
+    /// [`crate::enforce_for`], which is the call for a site holding a DB handle
+    /// and the [`Caller`](crate::Caller) rather than the request's parts.
+    pub async fn of(
+        db: &sea_orm::DatabaseConnection,
+        caller: &crate::Caller,
+        ctx: OrgContext,
+    ) -> Result<Self, StatusCode> {
+        let resource = authz::Resource::org(ctx.org.id);
+        let allowed = authz::enforce_for(
+            db,
+            caller,
+            ORG_ADMIN_LABEL,
+            authz::Action::MemberSetRole,
+            resource,
+            is_officer(&ctx),
+        )
+        .await;
+        if allowed {
+            Ok(OrgAdmin(ctx))
+        } else {
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+}
+
+/// The shipped org-admin check, the `existing_allow` of the OrgAdmin ring: the
+/// request's org role is Owner or Admin.
+fn is_officer(ctx: &OrgContext) -> bool {
+    matches!(ctx.membership.role, OrgRole::Owner | OrgRole::Admin)
 }
 
 /// The org-admin choke point for one named action: the shipped check (the
@@ -101,7 +142,7 @@ async fn org_admin(
     let Some(ctx) = parts.extensions.get::<OrgContext>().cloned() else {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
-    let legacy = matches!(ctx.membership.role, OrgRole::Owner | OrgRole::Admin);
+    let legacy = is_officer(&ctx);
     let resource = authz::Resource::org(ctx.org.id);
     if authz::enforce_guard(parts, label, action, resource, legacy).await {
         Ok(ctx)

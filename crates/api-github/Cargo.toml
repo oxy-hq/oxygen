@@ -45,5 +45,28 @@ constant_time_eq = { workspace = true }
 urlencoding = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[dev-dependencies]
+tokio = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+serde_json = { workspace = true }
+url = { workspace = true }
+# GitHub is mocked at the HTTP boundary (`GITHUB_API_URL`), never called.
+wiremock = { workspace = true }
+# The DB-backed integration tests reuse oxy-app's harness (`#[path]`-included
+# from crates/app/tests/common), which clones a per-run template database and
+# needs every migrator `Schema::All` can apply — same list as oxy-api-frontline.
+migration = { workspace = true }
+airhouse = { workspace = true }
+oxy-oltp = { workspace = true }
+agentic-runtime = { workspace = true }
+agentic-pipeline = { workspace = true }
+oxy-cameras = { workspace = true }
+tempfile = { workspace = true }
+testcontainers = { workspace = true, features = [
+    "blocking",
+    "reusable-containers",
+] }
+testcontainers-modules = { workspace = true, features = ["postgres", "clickhouse"] }
+
 [lints]
 workspace = true

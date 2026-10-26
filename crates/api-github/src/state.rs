@@ -57,6 +57,10 @@ impl Flow {
 #[derive(Debug, Clone)]
 pub struct StatePayload {
     pub org_id: Uuid,
+    /// The person the flow was started for. The callback is completed by
+    /// whichever session GitHub's redirect lands in, so this — signed, not the
+    /// session — is what says the two are the same person.
+    pub user_id: Uuid,
     pub flow: Flow,
 }
 
@@ -66,12 +70,15 @@ pub enum StateError {
     Malformed,
     BadHmac,
     Expired,
+    /// A sound state, minted for someone other than the caller completing it.
+    WrongUser,
 }
 
 impl From<StateError> for StatusCode {
     fn from(err: StateError) -> Self {
         match err {
             StateError::MissingSecret => StatusCode::INTERNAL_SERVER_ERROR,
+            StateError::WrongUser => StatusCode::FORBIDDEN,
             _ => StatusCode::BAD_REQUEST,
         }
     }
@@ -93,7 +100,13 @@ pub fn encode_state(payload: &StatePayload) -> Result<String, StateError> {
 
 pub fn encode_state_with_timestamp(payload: &StatePayload, ts: i64) -> Result<String, StateError> {
     let key = secret()?;
-    let body = format!("{}:{}:{}", payload.org_id, payload.flow.as_str(), ts);
+    let body = format!(
+        "{}:{}:{}:{}",
+        payload.org_id,
+        payload.user_id,
+        payload.flow.as_str(),
+        ts
+    );
     let sig = sign(&body, key.as_bytes());
     Ok(format!("{body}:{sig}"))
 }
@@ -105,12 +118,15 @@ pub fn decode_state(state: &str) -> Result<StatePayload, StateError> {
     // callback. That suffix is outside the HMAC body — strip it before verifying.
     let state = state.split('~').next().unwrap_or(state);
     let parts: Vec<&str> = state.split(':').collect();
-    if parts.len() != 4 {
+    // A state minted before it named its user has four parts, and is refused:
+    // it says nothing about who may complete it.
+    if parts.len() != 5 {
         return Err(StateError::Malformed);
     }
-    let [org_id_s, flow_s, ts_s, sig_s] = [parts[0], parts[1], parts[2], parts[3]];
+    let [org_id_s, user_id_s, flow_s, ts_s, sig_s] =
+        [parts[0], parts[1], parts[2], parts[3], parts[4]];
 
-    let body = format!("{org_id_s}:{flow_s}:{ts_s}");
+    let body = format!("{org_id_s}:{user_id_s}:{flow_s}:{ts_s}");
     let expected = sign(&body, key.as_bytes());
     if !constant_time_eq::constant_time_eq(sig_s.as_bytes(), expected.as_bytes()) {
         return Err(StateError::BadHmac);
@@ -124,8 +140,19 @@ pub fn decode_state(state: &str) -> Result<StatePayload, StateError> {
 
     Ok(StatePayload {
         org_id: Uuid::parse_str(org_id_s).map_err(|_| StateError::Malformed)?,
+        user_id: Uuid::parse_str(user_id_s).map_err(|_| StateError::Malformed)?,
         flow: Flow::from_str(flow_s).ok_or(StateError::Malformed)?,
     })
+}
+
+/// [`decode_state`], for the caller completing the flow: a state minted for
+/// anyone else is [`StateError::WrongUser`].
+pub fn decode_state_for(state: &str, caller: Uuid) -> Result<StatePayload, StateError> {
+    let payload = decode_state(state)?;
+    if payload.user_id != caller {
+        return Err(StateError::WrongUser);
+    }
+    Ok(payload)
 }
 
 #[cfg(test)]
@@ -143,29 +170,30 @@ mod tests {
         unsafe { std::env::set_var("GITHUB_STATE_SECRET", "test-secret-value-abc") };
     }
 
+    fn payload(flow: Flow) -> StatePayload {
+        StatePayload {
+            org_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            flow,
+        }
+    }
+
     #[test]
     fn encode_then_decode_roundtrips() {
         env_secret();
-        let org_id = Uuid::new_v4();
-        let state = encode_state(&StatePayload {
-            org_id,
-            flow: Flow::Oauth,
-        })
-        .unwrap();
+        let minted = payload(Flow::Oauth);
+        let state = encode_state(&minted).unwrap();
 
         let decoded = decode_state(&state).unwrap();
-        assert_eq!(decoded.org_id, org_id);
+        assert_eq!(decoded.org_id, minted.org_id);
+        assert_eq!(decoded.user_id, minted.user_id);
         assert!(matches!(decoded.flow, Flow::Oauth));
     }
 
     #[test]
     fn flow_install_roundtrips() {
         env_secret();
-        let payload = StatePayload {
-            org_id: Uuid::new_v4(),
-            flow: Flow::Install,
-        };
-        let encoded = encode_state(&payload).unwrap();
+        let encoded = encode_state(&payload(Flow::Install)).unwrap();
         let decoded = decode_state(&encoded).unwrap();
         assert!(matches!(decoded.flow, Flow::Install));
     }
@@ -173,28 +201,19 @@ mod tests {
     #[test]
     fn bounce_proxy_origin_suffix_stripped_before_verify() {
         env_secret();
-        let org_id = Uuid::new_v4();
-        let state = encode_state(&StatePayload {
-            org_id,
-            flow: Flow::Install,
-        })
-        .unwrap();
+        let minted = payload(Flow::Install);
+        let state = encode_state(&minted).unwrap();
         // The bounce proxy appends `~base64url(origin)` to state.
         let with_origin = format!("{state}~aHR0cDovL2xvY2FsaG9zdDo1MTc0");
         let decoded = decode_state(&with_origin).unwrap();
-        assert_eq!(decoded.org_id, org_id);
+        assert_eq!(decoded.org_id, minted.org_id);
         assert!(matches!(decoded.flow, Flow::Install));
     }
 
     #[test]
     fn tampered_hmac_rejected() {
         env_secret();
-        let org_id = Uuid::new_v4();
-        let mut encoded = encode_state(&StatePayload {
-            org_id,
-            flow: Flow::Oauth,
-        })
-        .unwrap();
+        let mut encoded = encode_state(&payload(Flow::Oauth)).unwrap();
         let last = encoded.pop().unwrap();
         encoded.push(if last == 'a' { 'b' } else { 'a' });
         assert!(decode_state(&encoded).is_err());
@@ -203,16 +222,8 @@ mod tests {
     #[test]
     fn expired_state_rejected() {
         env_secret();
-        let org_id = Uuid::new_v4();
         let old_ts = (chrono::Utc::now() - chrono::Duration::hours(2)).timestamp();
-        let encoded = encode_state_with_timestamp(
-            &StatePayload {
-                org_id,
-                flow: Flow::Oauth,
-            },
-            old_ts,
-        )
-        .unwrap();
+        let encoded = encode_state_with_timestamp(&payload(Flow::Oauth), old_ts).unwrap();
         assert!(decode_state(&encoded).is_err());
     }
 
@@ -220,7 +231,8 @@ mod tests {
     fn unknown_flow_rejected() {
         env_secret();
         let raw = format!(
-            "{}:{}:{}",
+            "{}:{}:{}:{}",
+            Uuid::new_v4(),
             Uuid::new_v4(),
             "unknown",
             chrono::Utc::now().timestamp()
@@ -228,5 +240,51 @@ mod tests {
         let hmac = sign_for_test(&raw);
         let tampered = format!("{}:{}", raw, hmac);
         assert!(decode_state(&tampered).is_err());
+    }
+
+    #[test]
+    fn a_state_minted_for_another_user_is_refused() {
+        env_secret();
+        let minted = payload(Flow::Install);
+        let state = encode_state(&minted).unwrap();
+
+        assert!(matches!(
+            decode_state_for(&state, Uuid::new_v4()),
+            Err(StateError::WrongUser)
+        ));
+        assert_eq!(
+            decode_state_for(&state, minted.user_id).unwrap().org_id,
+            minted.org_id
+        );
+    }
+
+    /// A correctly signed state from before the user was signed in is not
+    /// read as anyone's.
+    #[test]
+    fn a_state_that_names_no_user_is_refused() {
+        env_secret();
+        let raw = format!(
+            "{}:{}:{}",
+            Uuid::new_v4(),
+            "install",
+            chrono::Utc::now().timestamp()
+        );
+        let signed = format!("{raw}:{}", sign_for_test(&raw));
+        assert!(matches!(decode_state(&signed), Err(StateError::Malformed)));
+    }
+
+    /// A refused state is never a `401`: the web app signs the person out on
+    /// one, and a stale state only needs the flow started again.
+    #[test]
+    fn a_refused_state_is_never_a_sign_out() {
+        for (err, status) in [
+            (StateError::Malformed, StatusCode::BAD_REQUEST),
+            (StateError::BadHmac, StatusCode::BAD_REQUEST),
+            (StateError::Expired, StatusCode::BAD_REQUEST),
+            (StateError::WrongUser, StatusCode::FORBIDDEN),
+            (StateError::MissingSecret, StatusCode::INTERNAL_SERVER_ERROR),
+        ] {
+            assert_eq!(StatusCode::from(err), status);
+        }
     }
 }

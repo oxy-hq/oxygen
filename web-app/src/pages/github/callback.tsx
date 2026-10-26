@@ -3,7 +3,7 @@ import { Spinner } from "@/components/ui/shadcn/spinner";
 import { oauthStateToken } from "@/hooks/auth/oauthProxyState";
 import { validateGitHubAuthState } from "@/hooks/auth/useGitHubAuth";
 import { AuthService, GitHubApiService } from "@/services/api";
-import type { CallbackMessage } from "@/utils/githubCallbackMessage";
+import { type CallbackMessage, describeCallbackFailure } from "@/utils/githubCallbackMessage";
 
 /**
  * Popup target for all GitHub OAuth + App-install flows. Inspects the URL
@@ -62,8 +62,9 @@ export default function GitHubCallback() {
           post({ type: "github-callback-success", ...result });
         }
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : "Unknown error";
-        post({ type: "github-callback-error", reason });
+        // The opener shows this to the person, so it carries the server's code and
+        // a sentence, never axios's "Request failed with status code …".
+        post({ type: "github-callback-error", ...describeCallbackFailure(err) });
       } finally {
         window.close();
       }

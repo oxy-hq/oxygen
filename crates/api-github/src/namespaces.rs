@@ -9,13 +9,15 @@ use tracing::error;
 use uuid::Uuid;
 
 use oxy::database::client::establish_connection;
-use oxy::github::app_auth::GitHubAppAuth;
 use oxy::github::client::GitHubClient;
 use oxy::github::github_token_for_namespace;
 use oxy::github::types::{GitHubBranch, GitHubRepository};
+use oxy_app::surface::role_guards::OrgAdmin;
 use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use oxy_server_authz::org_context::OrgContextExtractor;
+
+use crate::attach::{AttachError, attach_namespace, callers_installation, connect};
 
 #[derive(Debug, Serialize)]
 pub struct GitHubNamespace {
@@ -56,14 +58,9 @@ pub struct CreatePATNamespaceRequest {
     pub token: String,
 }
 
-/// POST /github/namespaces/installation — register an existing GitHub App installation by ID.
-///
-/// Bypasses the OAuth callback flow entirely: uses the App's private key to fetch installation
-/// info directly from the GitHub API. Intended for dev environments where only one callback URL
-/// is registered and the app is already installed on the org.
-///
-/// The installation ID is visible in the GitHub settings URL:
-/// https://github.com/settings/installations/{installation_id}
+/// POST /orgs/{org_id}/github/namespaces/installation — attach an installation the
+/// caller's GitHub account already lists (the "Connect via GitHub App" picker), without
+/// going through GitHub's install redirect. Who may and which one: [`crate::attach`].
 #[derive(Debug, Deserialize)]
 pub struct CreateInstallationNamespaceRequest {
     pub installation_id: i64,
@@ -149,59 +146,16 @@ pub async fn create_pat_namespace(
     }))
 }
 
+/// An org admin's act (`OrgAdmin`), for an installation the caller's own GitHub account
+/// lists — anything else answers as a missing installation does.
 pub async fn create_installation_namespace(
-    OrgContextExtractor(org_ctx): OrgContextExtractor,
+    OrgAdmin(org_ctx): OrgAdmin,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(payload): Json<CreateInstallationNamespaceRequest>,
-) -> Result<ResponseJson<GitHubNamespace>, axum::http::StatusCode> {
-    let app_auth = GitHubAppAuth::from_env()?;
-    let installation = app_auth
-        .get_installation_info(&payload.installation_id.to_string())
-        .await?;
-
-    let db = establish_connection().await.map_err(|e| {
-        error!("Failed to establish database connection: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    // Return existing namespace if this installation is already registered for this user.
-    use entity::git_namespaces;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-    let existing = entity::prelude::GitNamespaces::find()
-        .filter(git_namespaces::Column::InstallationId.eq(installation.id))
-        .filter(git_namespaces::Column::OrgId.eq(org_ctx.org.id))
-        .one(&db)
-        .await
-        .map_err(|e| {
-            error!("DB query failed looking up existing namespace: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    if let Some(ns) = existing {
-        return Ok(ResponseJson(GitHubNamespace {
-            id: ns.id,
-            owner_type: ns.owner_type,
-            slug: ns.slug,
-            name: ns.name,
-        }));
-    }
-
-    let git_namespace = entity::git_namespaces::ActiveModel {
-        id: Set(Uuid::new_v4()),
-        created_by: Set(user.id),
-        name: Set(installation.name),
-        slug: Set(installation.slug),
-        owner_type: Set(installation.owner_type),
-        installation_id: Set(installation.id),
-        provider: Set("github".to_string()),
-        org_id: Set(Some(org_ctx.org.id)),
-        oauth_token: Set(String::new()),
-    };
-
-    let ns = git_namespace.insert(&db).await.map_err(|e| {
-        error!("Database error inserting installation namespace: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+) -> Result<ResponseJson<GitHubNamespace>, AttachError> {
+    let db = connect().await?;
+    let installation = callers_installation(&db, user.id, payload.installation_id).await?;
+    let ns = attach_namespace(&db, org_ctx.org.id, user.id, installation).await?;
 
     Ok(ResponseJson(GitHubNamespace {
         id: ns.id,

@@ -22,10 +22,11 @@
 /// Take one in a handler instead of deciding by hand (see `crates/authz/CLAUDE.md`).
 pub use crate::server::api::middlewares::role_guards;
 
-/// Org-scoped request context: the middleware that resolves `{org_id}` and the
-/// extractor it leaves behind.
+/// Org-scoped request context: the middleware that resolves `{org_id}`, the
+/// extractor it leaves behind, and the same resolution for a route that names
+/// its org outside the path (`resolve_org_context`).
 pub use crate::server::api::middlewares::org_context::{
-    OrgContext, OrgContextExtractor, org_middleware,
+    OrgContext, OrgContextExtractor, org_middleware, resolve_org_context,
 };
 
 /// Subscription gating for org-scoped routes.
