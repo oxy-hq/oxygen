@@ -6,7 +6,8 @@
 //   node scripts/roadmap/roadmap.ts summary [--write]       regenerate platform-roadmap-summary.md
 //   node scripts/roadmap/roadmap.ts pin [--write]           pin every unpinned line to its id
 //   node scripts/roadmap/roadmap.ts link --id <id> --pr <n> [--write]   cite PR n on a line
-//   node scripts/roadmap/roadmap.ts check [--body-file <f>] [--pr <n>]  what the gate will say
+//   node scripts/roadmap/roadmap.ts check [--body-file <f>] [--pr <n>] [--title <t>]
+//                                        what the status will say (title: the PR's, else HEAD's subject)
 //
 // Without --write, an edit is printed as a diff and nothing is changed.
 
@@ -25,6 +26,7 @@ const { positionals, values: args } = parseArgs({
     id: { type: "string" },
     pr: { type: "string" },
     "body-file": { type: "string" },
+    title: { type: "string" },
     base: { type: "string", default: "origin/main" },
     repo: { type: "string", default: process.env.GITHUB_REPOSITORY ?? "oxy-hq/oxygen-internal" }
   }
@@ -99,8 +101,18 @@ switch (command) {
         return null;
       }
     };
+    const patches: Record<string, string> = {};
+    for (const f of files) {
+      try {
+        patches[f] = git("diff", mergeBase, "--", f);
+      } catch {
+        // an untracked file has no diff against the merge base
+      }
+    }
     const result = evaluateRoadmap({
       files,
+      title: args.title ?? git("log", "-1", "--format=%s"),
+      patches,
       trailer: parseTrailer(body),
       pr: args.pr ? Number(args.pr) : null,
       draft: false,

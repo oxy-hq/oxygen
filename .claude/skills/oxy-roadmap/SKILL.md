@@ -21,6 +21,7 @@ Ask it before the PR body is written, not after the status fails.
 | adds behaviour no line names | `Roadmap: <new-id>` | add a line under **Now** (a PR exists) with a bold headline anyone can read, pin it, cite the PR |
 | contributes to a Now line already under way | `Roadmap: <id>` | cite the PR on the line |
 | fixes a bug, refactors, tests, bumps a dependency, changes an internal tool | `Roadmap: none -- <why>` | none |
+| is typed `chore:`, `docs:`, `test:`, `ci:`, `build:` or `style:` (a release bump, a template, CI) | none needed: the type says no behaviour changes | none |
 | edits the roadmap's prose, pins or scoreboard reading only | `Roadmap: none -- <why>` (or no trailer) | regenerate the summary |
 
 A reworded, moved or landed line is a move: the PR must name it. A `none` on a PR that
@@ -34,8 +35,11 @@ node scripts/roadmap/roadmap.ts ids                               # every line i
 node scripts/roadmap/roadmap.ts link --id <id> --pr <n> --write    # cite PR n on the line (+ its link definition)
 node scripts/roadmap/roadmap.ts pin --write                        # pin every unpinned (new) line to its id
 node scripts/roadmap/roadmap.ts summary --write                    # regenerate platform-roadmap-summary.md
-node scripts/roadmap/roadmap.ts check --body-file body.md --pr <n> # what the status will say for this branch
+node scripts/roadmap/roadmap.ts check --body-file body.md --pr <n> --title "<PR title>"  # what the status will say
 ```
+
+`check` reads the PR title's type (`feat:`, `chore:`, …) from `--title`; without it, the
+last commit's subject stands in, which can differ from the PR's.
 
 Without `--write` an edit prints as a diff. The PR number exists only once the PR is
 open: open it, then `link` and push, or let the first push fail the status and fix it in

@@ -72,14 +72,18 @@ if (args.gate) {
   );
 }
 
-async function prFiles(): Promise<string[]> {
-  return (await gh.listPrFiles(repo, pr)).flatMap((f) =>
+async function prFiles(): Promise<{ files: string[]; patches: Record<string, string> }> {
+  const listed = await gh.listPrFiles(repo, pr);
+  const files = listed.flatMap((f) =>
     f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]
   );
+  const patches: Record<string, string> = {};
+  for (const f of listed) if (f.patch) patches[f.filename] = f.patch;
+  return { files, patches };
 }
 
 if (args.risk) {
-  const files = await prFiles();
+  const { files } = await prFiles();
   const reviews = await gh.listReviews(repo, pr);
   // The base branch's CODEOWNERS: a PR cannot make its own author an owner.
   const owners = await gh
@@ -93,7 +97,7 @@ if (args.risk) {
 }
 
 if (args.roadmap) {
-  const files = await prFiles();
+  const { files, patches } = await prFiles();
   const trailer = parseTrailer(meta.body);
   // The doc and summary as the PR leaves them, and the doc as it found them: read only
   // when a verdict needs them.
@@ -107,6 +111,8 @@ if (args.roadmap) {
     config.ROADMAP_CONTEXT,
     evaluateRoadmap({
       files,
+      title: meta.title,
+      patches,
       trailer,
       pr,
       draft: meta.draft,

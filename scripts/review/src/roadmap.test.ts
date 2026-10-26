@@ -4,7 +4,7 @@ import { renderSummary } from "../../roadmap/doc.ts";
 import { parseTrailer } from "../../roadmap/trailer.ts";
 import { ROADMAP } from "../config.ts";
 import type { RoadmapInput } from "./roadmap.ts";
-import { evaluateRoadmap, productFiles } from "./roadmap.ts";
+import { evaluateRoadmap, isVersionBump, productFiles, titleType } from "./roadmap.ts";
 
 const doc = `# Platform roadmap
 
@@ -48,15 +48,88 @@ test("roadmap status: which files count as product code", () => {
       "crates/workspace-hack/Cargo.toml",
       "crates/app/Cargo.toml",
       "internal-docs/x.md",
-      ".github/workflows/ci.yaml"
+      ".github/workflows/ci.yaml",
+      // Scaffolds and tool config are exempt; the CLI's template code, the agent
+      // instructions and the Builder Agent's knowledge YAML are product.
+      "sdk/cli/template/.github/workflows/publish.yaml",
+      "sdk/create-oxy-app/templates/basic/src/App.tsx",
+      "crates/app/.cargo/config.toml",
+      "sdk/cli/src/template/sync.ts",
+      "crates/app/src/templates/agent_instructions.txt",
+      "crates/agentic/builder/knowledge/view-template.yml",
+      "sdk/cli/skills/oxy-agents/templates/agent.yml"
     ],
     ROADMAP
   );
   assert.deepEqual(product, [
     "crates/app/src/server/api/x.rs",
     "web-app/src/pages/Home.tsx",
-    "sdk/cli/src/main.ts"
+    "sdk/cli/src/main.ts",
+    "sdk/cli/src/template/sync.ts",
+    "crates/app/src/templates/agent_instructions.txt",
+    "crates/agentic/builder/knowledge/view-template.yml",
+    "sdk/cli/skills/oxy-agents/templates/agent.yml"
   ]);
+  // A `feat` that changes only the Builder Agent's knowledge is a behaviour change.
+  const knowledge = run({
+    files: ["crates/agentic/builder/knowledge/view-template.yml"],
+    title: "feat: a better view template"
+  });
+  assert.equal(knowledge.state, "failure");
+});
+
+test("roadmap status: what a PR is decides whether a trailer is owed", () => {
+  // oxy-hq/oxygen-internal#3808: a release bump of the CLI and the customer template's pin.
+  const release = {
+    files: ["sdk/cli/package.json", "sdk/cli/template/.github/workflows/publish.yaml"],
+    title: "chore: release @oxy-hq/cli 0.11.0"
+  };
+  assert.equal(run(release).state, "success");
+  assert.deepEqual(
+    productFiles(release.files, ROADMAP),
+    [],
+    "a template and a manifest are not behaviour"
+  );
+  // A chore-typed title on real product code: the type says no behaviour changes.
+  const chore = run({ title: "chore: bump tokio and tidy imports" });
+  assert.equal(chore.state, "success");
+  assert.match(chore.description, /^chore: the title says/);
+  assert.equal(run({ title: "docs(cli): clearer flag help" }).state, "success");
+  assert.equal(run({ title: "feat: a new endpoint" }).state, "failure", "feat owes a trailer");
+  assert.equal(run({ title: "feat!: a breaking endpoint" }).state, "failure");
+  assert.equal(
+    run({ title: "chore: x", files: [ROADMAP.doc], docBefore: null }).state,
+    "failure",
+    "a roadmap move is never a chore"
+  );
+  assert.deepEqual(
+    [titleType("Fix(web): x"), titleType("no type here"), titleType(undefined)],
+    ["fix", null, null]
+  );
+});
+
+test("roadmap status: a version-only diff is a release, not behaviour", () => {
+  const bump = [
+    "@@ -1,3 +1,3 @@",
+    ' "name": "@oxy-hq/cli",',
+    '-  "version": "0.10.0",',
+    '+  "version": "0.11.0",',
+    '-  OXYC_VERSION: "0.10.0"',
+    '+  OXYC_VERSION: "0.11.0"',
+    '-    "@oxy-hq/sdk": "^2.20.0",',
+    '+    "@oxy-hq/sdk": "^2.21.0",'
+  ].join("\n");
+  assert.equal(isVersionBump(bump), true);
+  assert.equal(isVersionBump(`${bump}\n+  const x = 1;`), false);
+  assert.equal(isVersionBump(""), false);
+  assert.equal(isVersionBump(undefined), false);
+  const files = ["sdk/cli/src/version.ts"];
+  assert.deepEqual(productFiles(files, ROADMAP, { "sdk/cli/src/version.ts": bump }), []);
+  assert.deepEqual(productFiles(files, ROADMAP), files, "no patch known: the file counts");
+  assert.equal(
+    run({ files, patches: { "sdk/cli/src/version.ts": bump }, title: "release: 0.11.0" }).state,
+    "success"
+  );
 });
 
 test("roadmap status: no trailer", () => {

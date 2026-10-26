@@ -35,6 +35,12 @@ export interface RoadmapConfig {
   productPaths: readonly string[];
   /** Files that never count as product behaviour, even under `productPaths`. */
   exemptPaths: readonly string[];
+  /**
+   * Conventional-commit types whose PR title already declares that no behaviour changes,
+   * so a missing trailer is not held against them. `feat`, `fix`, `refactor` and `perf`
+   * are not here: those are the PRs the roadmap is about.
+   */
+  noTrailerTypes: readonly string[];
 }
 
 // The `roadmap` status (src/roadmap.ts): every PR that changes code says which roadmap
@@ -53,17 +59,36 @@ export const ROADMAP: RoadmapConfig = {
     "**/tests/**",
     "**/test/**",
     "**/fixtures/**",
+    "**/__snapshots__/**",
     "**/*.test.*",
+    "**/*.snap",
     "**/*_test.rs",
     "**/*_tests.rs",
     "**/*.stories.*",
     "**/*.md",
     "**/*.mdx",
+    // The scaffolds a customer repo is copied from, and anything's CI, are shipped files
+    // but not behaviour of the product. Anchored: `sdk/cli/src/template/` is the CLI's own
+    // code and `crates/*/src/templates/` holds the agent instructions it ships.
+    "sdk/cli/template/**",
+    "sdk/create-oxy-app/templates/**",
+    "**/.github/**",
+    // Manifests, lockfiles and tool config: a version pin or a build setting is not a
+    // feature. Not YAML or TOML by extension: `crates/agentic/builder/knowledge/*.yml` is
+    // compiled into the Builder Agent's prompts.
     "**/Cargo.toml",
     "**/Cargo.lock",
     "**/package.json",
-    "**/pnpm-lock.yaml"
-  ]
+    "**/pnpm-lock.yaml",
+    "**/*.lock",
+    "**/.cargo/**",
+    "**/rust-toolchain.toml",
+    "**/clippy.toml",
+    "**/rustfmt.toml",
+    "**/tsconfig*.json",
+    "**/biome.json*"
+  ],
+  noTrailerTypes: ["chore", "docs", "test", "ci", "build", "style"]
 };
 
 // The release PRs prepare-release.yaml opens are not reviewed, and the test is what they

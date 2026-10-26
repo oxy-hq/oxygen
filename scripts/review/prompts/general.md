@@ -19,8 +19,10 @@ Roadmap: the PR description ends in a `Roadmap:` trailer, either a roadmap line 
 checks its shape; you judge whether it is true. When the diff adds or changes product
 behaviour that a person or an agent would notice (a new endpoint, page, CLI command or
 flag, a new app power, a changed default or contract, a feature landing) and the trailer
-says `none`, or names a line whose edit in this PR does not match what landed, report a
-`repo-rule` finding at `should_fix` citing `CLAUDE.md: Committing (Roadmap)`, naming the
+says `none`, the title is typed `chore`, `docs`, `test`, `ci`, `build` or `style` (those owe
+no trailer, so the type is the claim), or the trailer names a line whose edit in this PR
+does not match what landed, report a `repo-rule` finding at `should_fix` citing
+`CLAUDE.md: Committing (Roadmap)`, naming the
 behaviour and the line it belongs on (or that a new line is needed). A bug fix, a refactor,
 a test, a dependency bump or an internal tool is honestly `none`; do not report those.
 

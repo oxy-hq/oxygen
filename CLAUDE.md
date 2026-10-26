@@ -181,7 +181,9 @@ The bounds it comes with, which are not optional:
   its line in `internal-docs/platform-roadmap.md` in the same PR (start, move or mark
   Landed; cite the PR on the line; regenerate the summary) and ends its body with
   `Roadmap: <line-id>`; one that changes no behaviour ends with `Roadmap: none -- <why>`.
-  The `roadmap` status fails otherwise. Mechanics: the `oxy-roadmap` skill.
+  The `roadmap` status fails a `feat`/`fix`/`refactor`/`perf` PR on product code without
+  one; a `chore`/`docs`/`test`/`ci`/`build`/`style` title stands for `none` unless the PR
+  moves a line. Mechanics: the `oxy-roadmap` skill.
 
 Conventional Commits, types `feat|fix|refactor|docs|test|build|chore|perf|style|ci`.
 Name the **area** after the colon (`fix: web-app chart rendering bug`) — this repo uses

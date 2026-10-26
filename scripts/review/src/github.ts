@@ -104,7 +104,7 @@ export const listReviewComments = (repo: string, n: number) =>
 export const listReviews = (repo: string, n: number) =>
   list<PrReview>(`repos/${repo}/pulls/${n}/reviews?per_page=100`);
 export const listPrFiles = (repo: string, n: number) =>
-  list<{ filename: string; previous_filename?: string }>(
+  list<{ filename: string; previous_filename?: string; patch?: string }>(
     `repos/${repo}/pulls/${n}/files?per_page=100`
   );
 

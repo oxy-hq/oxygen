@@ -20,6 +20,10 @@ const cap = (s: string): string => s.slice(0, 140); // GitHub truncates status d
 export interface RoadmapInput {
   /** Every path the PR touches (renames: both names). */
   files: readonly string[];
+  /** The PR title: its conventional-commit type says what kind of change this is. */
+  title?: string;
+  /** Each file's unified diff, when known: a file whose every changed line is a version bump is not behaviour. */
+  patches?: Readonly<Record<string, string>>;
   trailer: Trailer;
   /** The PR number, when known: a named line must cite it. */
   pr: number | null;
@@ -32,17 +36,43 @@ export interface RoadmapInput {
   config: RoadmapConfig;
 }
 
-/** The product paths the PR touches, exemptions removed. */
-export function productFiles(files: readonly string[], config: RoadmapConfig): string[] {
+/** The product paths the PR touches, exemptions and version-only diffs removed. */
+export function productFiles(
+  files: readonly string[],
+  config: RoadmapConfig,
+  patches: Readonly<Record<string, string>> = {}
+): string[] {
   return files.filter(
-    (f) => matchesAny(f, config.productPaths) && !matchesAny(f, config.exemptPaths)
+    (f) =>
+      matchesAny(f, config.productPaths) &&
+      !matchesAny(f, config.exemptPaths) &&
+      !isVersionBump(patches[f])
   );
+}
+
+// `version = "1.2.3"`, `"version": "1.2.3"`, `OXYC_VERSION: "1.2.3"`, or a pinned `@oxy-hq/*` dependency.
+const VERSION_LINE =
+  /version[^\n]*\d+\.\d+\.\d+|^[+-]\s*"@oxy-hq\/[\w-]+":\s*"[~^]?\d+\.\d+\.\d+"/i;
+
+/** A diff whose every changed line sets a version or a version pin: a release, not a feature. */
+export function isVersionBump(patch: string | undefined): boolean {
+  if (!patch) return false;
+  const changed = patch.split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l));
+  return changed.length > 0 && changed.every((l) => VERSION_LINE.test(l));
+}
+
+/** The conventional-commit type of a PR title (`feat(area)!: …` → `feat`), or null. */
+export function titleType(title: string | undefined): string | null {
+  const m = /^\s*([a-z]+)(?:\([^)]*\))?!?:/i.exec(title ?? "");
+  return m?.[1] ? m[1].toLowerCase() : null;
 }
 
 const HOW = "Roadmap: <line-id> or Roadmap: none -- <why>";
 
 export function evaluateRoadmap({
   files,
+  title,
+  patches = {},
   trailer,
   pr,
   draft,
@@ -52,7 +82,8 @@ export function evaluateRoadmap({
   config
 }: RoadmapInput): CommitStatus {
   if (draft) return { state: "success", description: "Draft: not gated" };
-  const product = productFiles(files, config);
+  const product = productFiles(files, config, patches);
+  const type = titleType(title);
   const docChanged = files.includes(config.doc);
   const summaryChanged = files.includes(config.summary);
 
@@ -89,6 +120,11 @@ export function evaluateRoadmap({
       return {
         state: "failure",
         description: cap(`The PR moves a roadmap line: name it. ${HOW}`)
+      };
+    if (product.length && type && config.noTrailerTypes.includes(type))
+      return {
+        state: "success",
+        description: cap(`${type}: the title says no behaviour changes; no roadmap trailer needed`)
       };
     if (product.length)
       return {
