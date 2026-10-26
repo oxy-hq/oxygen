@@ -1,0 +1,117 @@
+# Which packages a PR's Rust tests must cover. Read by scripts/ci/test-selection
+# (the `test` task in .github/workflows/ci.yaml); `main` and dispatches always run
+# the whole workspace.
+#
+# The dependency graph does most of the work: a changed file marks the package
+# that owns it, a changed lockfile entry or feature set marks the packages that
+# build it, and everything that depends on a marked package is tested too. A
+# changed path that no package owns and no rule below claims marks EVERYTHING,
+# so forgetting a rule costs a full run, never a skipped test.
+#
+# What the graph cannot see goes here. When a test starts reading a file outside
+# its own crate (`include_str!("../../other/…")`, `#[path = "../../app/…"]`, a
+# walk from CARGO_MANIFEST_DIR's parent), add the rule in the same PR. A test
+# that is missed here still runs on `main`, so the failure lands one merge late
+# rather than never.
+
+# Tests that walk sources across the whole tree — authz and data-placement guards,
+# audit call-site and one-door scans — so no dependency edge says when they are
+# affected. Tested whenever anything is.
+always-test = [
+  "oxy-app",                 # authz_boundaries, no_dropped_partner_tables, shared_db_registry, …
+  "oxy-app-core",            # audit::call_sites_guard walks crates/
+  "oxy-custom-apps",         # usage_reads walks crates/
+  "oxy-migration-tolerance", # walks crates/ for migrators
+  "oxy-airlayer-compat",     # one_door_guard + the "airlayer in one crate" manifest walk
+]
+
+# ── Files one crate reads from another crate's directory ─────────────────────
+# `post-rule = "skip-rules"`: mark the reader, then still mark the package that
+# owns the file.
+
+# oxy-app's observability_boot tests include_str! main.rs (the first matching
+# rule wins, so this one also carries the next rule's readers).
+[[determinator.path-rule]]
+globs = ["crates/server/src/main.rs"]
+mark-changed = ["oxy-app", "oxy-api-custom-apps", "oxy-route-catalog"]
+post-rule = "skip-rules"
+
+# api-custom-apps and route-catalog tests scan crates/server/src.
+[[determinator.path-rule]]
+globs = ["crates/server/src/**"]
+mark-changed = ["oxy-api-custom-apps", "oxy-route-catalog"]
+post-rule = "skip-rules"
+
+# oxy-route-catalog's build script reads every api-* crate's routes (it depends
+# only on oxy-app, so nothing else marks it).
+[[determinator.path-rule]]
+globs = ["crates/api-*/src/**"]
+mark-changed = ["oxy-route-catalog"]
+post-rule = "skip-rules"
+
+# oxy-auth's token store tests include_str! the api_tokens migration; oxy-auth
+# does not depend on `migration`.
+[[determinator.path-rule]]
+globs = ["crates/migration/src/**"]
+mark-changed = ["oxy-auth"]
+post-rule = "skip-rules"
+
+# ── Files outside any package ────────────────────────────────────────────────
+
+# api-custom-apps include_str!s the create-oxy-app templates and the TS SDK
+# contracts it checks for drift.
+[[determinator.path-rule]]
+globs = ["sdk/**"]
+mark-changed = ["oxy-api-custom-apps"]
+
+# web-app is the `oxy-web` package (changelog only), but its built dist/ is
+# embedded into oxy-app by include_dir!, so a frontend change reaches every test
+# binary that links oxy-app.
+[[determinator.path-rule]]
+globs = ["web-app/**"]
+mark-changed = ["oxy-app"]
+post-rule = "skip-rules"
+
+# The dev-only dylib shim is excluded from the workspace and never tested.
+[[determinator.path-rule]]
+globs = ["crates/app-dylib/**"]
+mark-changed = []
+
+# api-custom-apps checks these two docs against the code. The rest of
+# internal-docs/ is prose no test reads (`internal-docs/**` below), and most PRs
+# touch it.
+[[determinator.path-rule]]
+globs = [
+  "internal-docs/data-placement.md",
+  "internal-docs/customer-apps-functions.md",
+]
+mark-changed = ["oxy-api-custom-apps"]
+
+# The selector and the CI that runs it: a change here has to prove itself on
+# the whole suite. (Listed before `scripts/**` and `.github/**`, which skip.)
+[[determinator.path-rule]]
+globs = [
+  "scripts/ci/test-selection/**",
+  ".github/workflows/ci.yaml",
+  ".github/actions/**",
+]
+mark-changed = "all"
+
+# oxy-app's fleet_routes_table reads it.
+[[determinator.path-rule]]
+globs = ["scripts/fleet-routes.tsv"]
+mark-changed = ["oxy-app"]
+
+# Read by no Rust test: other scripts and workflows, agent guidance, docs.
+[[determinator.path-rule]]
+globs = [
+  "scripts/**",
+  ".github/**",
+  ".claude/**",
+  "docs/**",
+  "internal-docs/**",
+  "*.md",
+  "**/CLAUDE.md",
+  "**/AGENTS.md",
+]
+mark-changed = []

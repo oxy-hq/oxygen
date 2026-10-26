@@ -31,6 +31,11 @@ retries = 0
 # separately via `cargo llvm-cov report --exclude`.
 default-filter = "not package(=migration) and not package(=entity)"
 
+# Per-test timings, which CI turns into each partition's "slowest tests" job
+# summary (scripts/ci/nextest-slowest.py). Lands in target/nextest/default/.
+[profile.default.junit]
+path = "junit.xml"
+
 # ── Shared-resource serialization ────────────────────────────────────────────
 # The whole suite was once serialized (via `threads-required = num-cpus`), which
 # silently masked tests that share a *global* resource. With the suite running in

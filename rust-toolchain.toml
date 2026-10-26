@@ -9,7 +9,8 @@
 # old layout and would silently stop seeding. Port it before bumping past 1.99.
 #
 # Bumping: change `channel` here, the `dtolnay/rust-toolchain@<version>` refs in
-# .github/workflows/{ci,coverage}.yaml and .github/actions/build-oxy-cli/action.yaml
+# .github/workflows/{ci,coverage}.yaml, .github/actions/setup-rust-ci/action.yaml
+# (CI's clippy and build jobs) and .github/actions/build-oxy-cli/action.yaml
 # (the release binaries), and the `latest-rust-<version>` tag in the Dockerfiles,
 # in one PR. See internal-docs/rust-build-performance.md.
 #

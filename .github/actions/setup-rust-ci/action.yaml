@@ -1,0 +1,91 @@
+name: Set up Rust for CI
+description: >-
+  The toolchain, linker, cargo tools, private-git-dep auth, cargo cache and
+  protoc that every job compiling this workspace needs, in the order they
+  depend on each other. Shared by `cargo-clippy` and `cargo-check-and-test` in
+  ci.yaml.
+
+inputs:
+  app-client-id:
+    description: Client id of the GitHub App that may read the private cargo git deps.
+    required: true
+  app-private-key:
+    description: Private key of that App.
+    required: true
+  cache-key:
+    description: rust-cache `shared-key`. One per job shape, so clippy and build artifacts never evict each other.
+    required: true
+  tools:
+    description: taiki-e/install-action `tool` list.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+      name: Create GitHub App Token
+      id: app-token
+      with:
+        client-id: ${{ inputs.app-client-id }}
+        private-key: ${{ inputs.app-private-key }}
+        owner: ${{ github.repository_owner }}
+        # Fetch-only: this token just lets cargo read private git deps.
+        # Scope to read-only contents so a leaked token can't push.
+        permission-contents: read
+        repositories: |
+          airlayer
+          airform
+          airway-internal
+          snowflake-rs
+
+    - uses: rui314/setup-mold@7e4f20ad28a2e8ca6fd0892ccf72e2abb706b9c3 # v1
+      if: runner.os == 'Linux'
+      with:
+        make-default: true
+
+    - name: Prep Rust
+      uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
+      with:
+        components: clippy, rustfmt
+
+    - name: Install cargo tools
+      uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
+      with:
+        tool: ${{ inputs.tools }}
+
+    # Private cargo git deps live under github.com/oxy-hq/* (airway,
+    # airform, airlayer, snowflake-rs). The default checkout token
+    # only auths THIS repo, so a fresh `rev` bump forces an
+    # unauthenticated fetch that fails with "revision not found".
+    # `git-fetch-with-cli` is on (.cargo/config.toml), so cargo shells
+    # out to git, which uses gh as its credential helper — no token
+    # baked into a URL rewrite. This mirrors the local flow exactly:
+    # `gh auth login` + `gh auth setup-git`, then cargo fetches private
+    # deps for free. --with-token stores the app token in gh's config
+    # so the helper resolves it on later cargo steps without re-passing
+    # it. Must run before any cargo step.
+    - name: Authenticate gh for private cargo git deps
+      shell: bash
+      env:
+        GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        echo "$GH_APP_TOKEN" | gh auth login --with-token
+        gh auth setup-git
+
+    - name: Prep cargo cache
+      uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        # Only main writes. A PR's entry is readable by that PR alone, yet it
+        # counts against the repo's cache quota and evicts main's — the one
+        # entry every PR restores from. ruff, uv, Deno and Biome do the same.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+    # protobuf is required by lance https://github.com/lancedb/lance/issues/3073
+    # Use apt instead of arduino/setup-protoc to avoid GitHub release rate limits / outages.
+    - name: Install Protoc
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+        protoc --version

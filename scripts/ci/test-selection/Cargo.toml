@@ -1,0 +1,21 @@
+[package]
+name = "test-selection"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Picks the workspace packages a PR's tests must cover (CI only)"
+
+# Its own workspace: a CI tool, not part of the product build. Keeping it out of
+# the root workspace keeps guppy and determinator out of the root `Cargo.lock`,
+# out of hakari's workspace-hack, and out of every `cargo build`.
+[workspace]
+
+[dependencies]
+# determinator is guppy's change detector (same author as nextest and hakari).
+# 0.12 rather than 0.13: 0.13 shipped 2026-10-21 and changes the default resolver
+# and the TOML parser; we pass the resolver explicitly, so 0.12 loses nothing.
+determinator = "=0.12.0"
+guppy = "0.17.26"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"

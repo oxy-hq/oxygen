@@ -3,6 +3,8 @@
 # crates/app-dylib is its own workspace root, so a cargo call inside it writes these.
 /crates/app-dylib/Cargo.lock
 /crates/app-dylib/target/
+# So is the CI test selector; its Cargo.lock is committed.
+/scripts/ci/test-selection/target/
 
 # Local-only development coordination artifacts
 SESSION_HANDOFF.md

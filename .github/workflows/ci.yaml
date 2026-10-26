@@ -43,6 +43,10 @@ env:
   # thrown away and inflate cache size. Force it off (overrides the global
   # `incremental = true` in .cargo/config.toml, which is there for local dev).
   CARGO_INCREMENTAL: "0"
+  # One nextest for `cargo-check-and-test` (which writes the test archive) and
+  # every `cargo-test-partition` (which reads it): an archive is only promised
+  # to work with the version that made it.
+  NEXTEST_VERSION: "0.9.148"
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -892,10 +896,117 @@ jobs:
           pnpm exec tsc --noEmit -p tsconfig.json
           pnpm exec tsc --noEmit -p functions/tsconfig.json
 
-  cargo-check-and-test:
+  # ── Rust: clippy, then build → archive → partitioned tests ─────────────────
+  #
+  # The critical path used to be one 4-vCPU job: `cargo build`, then nextest
+  # compiling and running every test, ~45 minutes on a cold-ish cache (run
+  # 39779472634: build 14m, test compile 13m, 10,406 tests 16m). It is now:
+  #
+  #   cargo-check-and-test   8x runner: build `oxy`, pick the tests this PR can
+  #                          affect, compile and `nextest archive` only those
+  #   cargo-test-partition   1–4 4x runners, each running one `slice:` of the
+  #                          archive against its own Postgres/ClickHouse/MinIO
+  #   cargo-test             the required "Format cargo, check & test (test)"
+  #                          status: green only when every partition is
+  #
+  # Downstream jobs that need the binary (agentic-tests, custom-app-canary) wait
+  # on `cargo-check-and-test` alone, so they start as soon as it is built
+  # rather than after the test run. One consequence: a red test no longer
+  # skips them. Their results stand on their own, and the required status is
+  # still red.
+  #
+  # Which tests: on a pull request, scripts/ci/test-selection (guppy's
+  # determinator, configured in .config/test-selection.toml) maps the diff to
+  # the packages it can affect, reverse dependencies included, and only those
+  # are compiled and run. `main`, dispatches and any change to that tool, its
+  # config or this workflow run everything. internal-docs/rust-build-performance.md
+  # has the design and the measurements.
+  cargo-clippy:
+    name: Format cargo, check & test (check)
     concurrency:
-      group: cargo-check-and-test-${{ matrix.task }}-${{
-        github.event.pull_request.number || github.ref }}
+      group: cargo-clippy-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    needs: [changesets]
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.oxy == 'true'
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # Warm cache ~3m, a cold workspace clippy ~15m. 60m kills a true hang
+    # within the hour (the 5h runaway that motivated these caps was here).
+    timeout-minutes: 60
+    env:
+      # The same two as cargo-check-and-test (see there), and not only for the
+      # same reason: the `check` cache was saved under both, and a profile that
+      # differs by one key fingerprints every unit differently, so clippy
+      # recompiled the world (13m against ~5m on PR #3831's first run).
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_DEV_STRIP: "symbols"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Collect Workflow Telemetry
+        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
+        with:
+          comment_on_pr: false
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          cache-key: check
+          # cargo-hakari is pinned: `generate --diff` compares against checked-in
+          # output, so a formatting change in a new release would fail every PR.
+          # Keep in step with `just hakari`.
+          tools: cargo-hakari@0.9.39
+      - name: Clippy, hakari and lint inheritance
+        run: |
+          # crates/workspace-hack must match the dependency graph, or builds
+          # go back to compiling registry crates once per feature set. Fix
+          # locally with `just hakari`.
+          cargo hakari generate --diff
+          cargo hakari manage-deps --dry-run
+          # The lint policy below reaches a crate only if its manifest says
+          # `[lints] workspace = true`, and Cargo cannot make that the
+          # default — a new crate without it lints clean with every rule off.
+          python3 scripts/ci/verify-workspace-lints.py
+          # What fails this step is decided in the root Cargo.toml, not here:
+          # `[workspace.lints]` names the bug-shaped lints that are errors
+          # and switches the cosmetic groups off, so `cargo clippy` on a
+          # laptop and this line agree. Everything left at `warn` stays
+          # advisory — no `-- -D warnings` — because a warning nobody is
+          # made to read is not a gate, and promoting one is a one-line
+          # edit to that list rather than a flag here.
+          #
+          # No `--fix`: the rewrites are never committed in CI.
+          # `--all-targets`, so EXAMPLES and benches compile here.
+          #
+          # Without it neither this nor `cargo build` below builds an example,
+          # and a signature change that missed one shipped: `ensure_writer`'s
+          # claimant became `Option<Uuid>`, three call sites were updated, and
+          # `examples/seed_org.rs` — the demo seeder the README points at —
+          # was left as a plain E0308 that CI could not see. The first person
+          # to hit it would have been someone setting up the demo.
+          cargo clippy --workspace --all-targets
+          # Gate the feature-off build: the custom-app-functions (V8) feature is
+          # compiled out by the `cf`/`bf`/`rf` aliases in .cargo/config.toml (`cf` is
+          # this exact command), and an ungated `use` of a gated symbol only breaks
+          # for whoever runs them — which is how the seam-trait regression this guards
+          # against reached main. `clippy` (not `check`) so the workspace-member
+          # fingerprints from the line above are reused; the check pass runs first, so
+          # an E0433 fails it identically.
+          cargo clippy --no-default-features -p oxy-app
+      # The test selector is its own workspace, so nothing above reaches it,
+      # and a change to it only proves the full suite passes, not that it
+      # still selects correctly. Its tests do (scripts/ci/test-selection/src/tests.rs).
+      - name: Test selector (fmt, clippy, tests)
+        run: |
+          manifest=scripts/ci/test-selection/Cargo.toml
+          cargo fmt --manifest-path "$manifest" --check
+          cargo clippy --locked --manifest-path "$manifest" --all-targets -- -D warnings
+          cargo test --locked --manifest-path "$manifest"
+
+  cargo-check-and-test:
+    name: Build oxy & archive tests
+    concurrency:
+      group: cargo-check-and-test-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
     needs: [changesets]
     # In agentic_only mode the agentic-tests matrix needs the binary
@@ -908,39 +1019,279 @@ jobs:
     # has to run the matrix, and the matrix has no binary unless this job
     # builds one. Skipped here, `agentic-tests` below is skipped with it — which
     # is how a PR that rewired every bucket merged without booting any of them.
-    # The `Run task` step drops to the build-only path whenever `oxy` did not
-    # fire, so such a PR pays for `cargo build`, not for clippy and nextest.
+    # The "Build" step drops to the build-only path whenever `oxy` did not
+    # fire, so such a PR pays for `cargo build`, not for archiving tests.
     if: |
       inputs.agentic_only == true ||
       needs.changesets.outputs.oxy == 'true' ||
       needs.changesets.outputs.agentic == 'true'
-    name: Format cargo, check & test (${{ matrix.task }})
-    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
-    # The 5h CI runaway that motivated these guardrails happened here: with no
-    # cap, a hung cargo/nextest process billed the runner until manually
-    # cancelled. Warm cache is ~3m (check) / ~14m (test); a cold full
-    # workspace compile + nextest tops out around ~40m, so 60m leaves headroom
-    # for a worst-case cold build while killing a true hang within the hour.
+    # 8x, not 4x: this job is compile and link and nothing else, and on the 4x
+    # its memory peak (test-compile, 19–22 GB) outgrew 15 GiB of RAM and paged
+    # (see "Add swap"). Trialled 2026-10-02: 8x took the old combined job from
+    # ~30 to 17 minutes for ~$0.05 a run; 16x was no faster than 8x.
+    # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
+    # A cold build plus test compile; 60m kills a true hang within the hour.
     timeout-minutes: 60
+    outputs:
+      run-tests: ${{ steps.archive.outputs.run-tests }}
+      partitions: ${{ steps.archive.outputs.partitions }}
+      partition-count: ${{ steps.archive.outputs.partition-count }}
+      workspace: ${{ github.workspace }}
+    env:
+      # Fast CI builds: omit debug info entirely (this replaces the old `ci`
+      # cargo profile's `debug = false`). Local dev keeps full debug via the
+      # default dev profile — this override only applies in CI.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      # Restore the old `ci` profile's `strip = true`: shrinks the uploaded
+      # `oxy-binary-ci` artifact and the test archive, and cuts link memory.
+      # Trade-off: CI panic backtraces lose symbol names; drop this var if you
+      # need them while debugging a flaky test.
+      CARGO_PROFILE_DEV_STRIP: "symbols"
+      # Build-only (no test archive) when the job is here just for the binary:
+      # a dispatch that asked for it, or a diff that fired `agentic` without
+      # `oxy` — no Rust changed, so there is nothing for nextest to say that
+      # main's run has not already said.
+      AGENTIC_ONLY: ${{ inputs.agentic_only == true || needs.changesets.outputs.oxy != 'true' }}
+    steps:
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      # Full history: test selection diffs against the PR's base and resolves
+      # the base revision's manifests in a worktree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Collect Workflow Telemetry
+        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
+        with:
+          comment_on_pr: false
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          cache-key: test
+          # The SAME nextest as the partitions: an archive is read back by the
+          # version that wrote it.
+          tools: nextest@${{ env.NEXTEST_VERSION }}
+
+      # Before the build, so a broken selector fails in seconds. Everything
+      # but a pull request tests the whole workspace. On a pull request the
+      # checkout is GitHub's merge commit, whose first parent is the base
+      # branch as it is now: exactly the change this PR would merge.
+      - name: Select tests
+        id: select
+        if: env.AGENTIC_ONLY != 'true'
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT" != "pull_request" ]]; then
+            echo "$EVENT on $REF: whole workspace"
+            echo '{"mode":"all"}' >"$RUNNER_TEMP/selection.json"
+          elif ! git rev-parse --verify --quiet HEAD^2 >/dev/null; then
+            echo "::warning title=Test selection::checkout is not a merge commit; testing the whole workspace"
+            echo '{"mode":"all"}' >"$RUNNER_TEMP/selection.json"
+          else
+            scripts/ci/test-selection/select.sh HEAD^1 "$RUNNER_TEMP/selection.json"
+          fi
+          {
+            echo "### Rust test selection"
+            jq -r 'if .mode == "packages"
+                   then "\(.packages | length) packages: " + (.packages | map("`\(.)`") | join(", "))
+                   else "mode: **\(.mode)**" end' "$RUNNER_TEMP/selection.json"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      # `cargo build` embeds the web-app dist into the oxy binary via
+      # `include_dir!` in crates/app/src/cli/commands/serve.rs. The dist
+      # path is a committed symlink: `crates/app/dist -> ../../web-app/dist`.
+      # If `web-app/dist` is empty when cargo runs, the binary serves 404
+      # on `/` — every Playwright/agentic flow then fails because the
+      # frontend never loads. Build the web-app first so the symlink
+      # resolves to populated content. The test binaries that link oxy-app
+      # embed the same bytes.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          run_install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: "pnpm"
+      - name: Build web-app dist (embedded into oxy binary)
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          # Bundle only (skip `tsc -b`): the cargo build just needs the `dist/`
+          # bytes for the `include_dir!` embed. Typechecking is covered in
+          # parallel by the `build-web` job (full `pnpm build`), so running
+          # `tsc -b` here too would duplicate the slowest part of the web build
+          # on this job's critical path for no added signal.
+          #
+          # `build-web` is the whole of it, despite what this comment used to
+          # say: `lint:ts` is not run by any job here, and for `oxy-web` it was
+          # `tsc --noEmit` against a `files: []` solution tsconfig, which
+          # type-checks zero files. It is `tsc -b` now, but it is still not
+          # wired into CI — `build-web` is the enforcer.
+          pnpm --filter oxy-web exec vite build
+
+      # Swap behind the memory peak, which is test-compile: oxy-app's lib tests
+      # in one rustc while mold links test binaries that each statically link
+      # DuckDB, DataFusion and Arrow. On the arm64-4x this job used to run on
+      # (15.3 GiB of RAM, a 4 GiB swapfile) that peak outgrew both: PR #3632
+      # measured 19.2 GB in use with RAM and the stock swap full, then 22.2 GB
+      # once this step had made room, and twice on 2026-10-16 (main's run
+      # 38898953093, then a branch) the runner was shut down at exactly that
+      # point, exit 143, with no compiler or test error. The 8x has the RAM for
+      # it; the swap stays as insurance, and the mem-watermark lines in "Build"
+      # say how high it goes.
+      #
+      # The swapfile takes real blocks on the disk the build uses, so it is
+      # skipped when it would leave less than 60 GiB free, and removed if it
+      # cannot be turned on. Not on GitHub-hosted runners: "Free disk space"
+      # removes their swap to make room for the build.
+      - name: Add swap
+        if: runner.environment != 'github-hosted'
+        run: |
+          swapon --show
+          have=$(free -m | awk '/^Swap:/ { print $2 }')
+          add=$((16384 - have))
+          disk_free=$(df -m --output=avail / | tail -1)
+          if ((add <= 0)); then
+            echo "swap is already ${have} MiB; leaving it"
+          elif ((disk_free - add < 61440)); then
+            echo "::warning title=No extra swap::${disk_free} MiB free on /; a ${add} MiB swapfile would leave the build under 60 GiB"
+          elif sudo fallocate -l "${add}M" /ci-swapfile \
+            && sudo chmod 600 /ci-swapfile \
+            && sudo mkswap /ci-swapfile \
+            && sudo swapon /ci-swapfile; then
+            swapon --show
+          else
+            sudo rm -f /ci-swapfile
+            echo "::warning title=No extra swap::could not enable /ci-swapfile; the build runs with ${have} MiB of swap"
+          fi
+          free -m
+          df -h /
+
+
+      - name: Build
+        env:
+          BIGQUERY_SAMPLE_KEY: ${{ secrets.BIGQUERY_SAMPLE_KEY }}
+        run: |
+          # Into this step's log, so a run the runner kills still shows how
+          # close it came. See "Add swap" above. Stopped on every exit: a
+          # child still holding stdout can keep the step from finishing.
+          scripts/ci/mem-watermark.sh &
+          watermark=$!
+          trap 'kill "$watermark" 2>/dev/null || true' EXIT
+
+          touch examples/bigquery-sample.key
+          echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
+
+          cargo build
+          if [[ "$AGENTIC_ONLY" != "true" ]]; then
+            ./target/debug/oxy gen-config-schema --check
+          fi
+
+      # Uploaded before the test archive is built, and from the same target
+      # dir, so this is byte for byte the binary the tests run against.
+      - name: Upload oxy binary artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        with:
+          name: oxy-binary-ci
+          path: target/debug/oxy
+          retention-days: 1
+
+      - name: Archive tests
+        id: archive
+        if: env.AGENTIC_ONLY != 'true'
+        run: |
+          scripts/ci/mem-watermark.sh &
+          watermark=$!
+          trap 'kill "$watermark" 2>/dev/null || true' EXIT
+
+          mode=$(jq -r .mode "$RUNNER_TEMP/selection.json")
+          case "$mode" in
+            all) scope=(--workspace) ;;
+            packages) mapfile -t scope < <(jq -r '.packages[] | "-p", .' "$RUNNER_TEMP/selection.json") ;;
+            none)
+              echo "No package this change can affect has tests to run."
+              echo "run-tests=false" >>"$GITHUB_OUTPUT"
+              exit 0 ;;
+            *) echo "::error::unknown selection mode '$mode'"; exit 1 ;;
+          esac
+
+          cargo nextest archive "${scope[@]}" --archive-file nextest-archive.tar.zst
+          ls -lh nextest-archive.tar.zst
+
+          # One partition per ~2,500 tests, at most 4: the whole suite (~10.4k)
+          # gets 4, a typical PR's subset 2–3, a one-crate change 1. Counted
+          # after nextest's default-filter, from the binaries just built.
+          tests=$(cargo nextest list "${scope[@]}" --message-format json 2>/dev/null |
+            jq '[.["rust-suites"][].testcases[] | select(.["filter-match"].status == "matches")] | length')
+          # Never a real answer here: `always-test` alone puts thousands of
+          # tests in any selection, and `none` exited above. Zero means the
+          # count broke (a nextest bump reshaping the list JSON, say), and
+          # treating it as "nothing to run" would turn the required status
+          # green without running a test.
+          if (( tests == 0 )); then
+            echo "::error::archive built but 0 tests counted; has the 'nextest list' JSON shape changed?"
+            exit 1
+          fi
+          count=$(( (tests + 2499) / 2500 ))
+          (( count < 1 )) && count=1
+          (( count > 4 )) && count=4
+          echo "$tests tests in $count partition(s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo "run-tests=true"
+            echo "partition-count=$count"
+            echo "partitions=$(jq -cn --argjson n "$count" '[range(1; $n + 1)]')"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Upload test archive
+        if: steps.archive.outputs.run-tests == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        with:
+          name: nextest-archive
+          path: nextest-archive.tar.zst
+          retention-days: 1
+          # Already zstd.
+          compression-level: 0
+
+  cargo-test-partition:
+    name: Rust tests (${{ matrix.partition }}/${{ needs.cargo-check-and-test.outputs.partition-count }})
+    needs: [cargo-check-and-test]
+    if: needs.cargo-check-and-test.outputs.run-tests == 'true'
+    concurrency:
+      group: cargo-test-partition-${{ matrix.partition }}-${{
+        github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    strategy:
+      # Every partition reports: one red slice should not hide another's.
+      fail-fast: false
+      matrix:
+        partition: ${{ fromJSON(needs.cargo-check-and-test.outputs.partitions) }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # A quarter of a ~16-minute suite plus setup; 30m kills a hang.
+    timeout-minutes: 30
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       BIGQUERY_SAMPLE_KEY: ${{ secrets.BIGQUERY_SAMPLE_KEY }}
       GEMINI_API_KEY: "empty"
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       DOMO_DEVELOPER_TOKEN: "empty"
-      # Fast CI builds: omit debug info entirely (this replaces the old `ci`
-      # cargo profile's `debug = false`). Local dev keeps full debug via the
-      # default dev profile — this override only applies in CI.
-      CARGO_PROFILE_DEV_DEBUG: "0"
-      # Restore the old `ci` profile's `strip = true`: shrinks the uploaded
-      # `oxy-binary-ci` artifact and cuts link memory. Trade-off: CI panic
-      # backtraces lose symbol names; drop this var if you need them while
-      # debugging a flaky test.
-      CARGO_PROFILE_DEV_STRIP: "symbols"
-    strategy:
-      fail-fast: true
-      matrix:
-        task: [check, test]
+    # Each partition gets its own backends, so the `serial-db` test group
+    # (.config/nextest.toml) is serial per partition, not across the suite.
     services:
       postgres:
         image: postgres:18-alpine
@@ -975,16 +1326,20 @@ jobs:
       # configuration and cannot drift back into skipping — and
       # `OXY_OLTP_REQUIRE_DB=1` on the test step turns a mismatch into a red
       # build rather than a quiet one.
-      #
-      # `services:` is job-level and this job's matrix is [check, test], so the
-      # clippy task pulls both containers and pays their health-check wait
-      # without ever opening a connection. Actions has no per-matrix services;
-      # on an alpine image that is seconds, which is why this is a clause here
-      # rather than a restructure. `AGENTIC_ONLY=true` also exits before
-      # nextest, so both containers are still pulled and waited on in a mode
-      # that never opens them, and OXY_OLTP_REQUIRE_DB protects only the
-      # full-test path — which is the only `cargo nextest` invocation in this
-      # workflow, so that guarantee is total rather than partial.
+      oltp-postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          # :15433, matching the suite's default DSN — deliberately off
+          # `oxy start`'s :15432 so the two clusters never collide locally.
+          - 15433:5432
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres" --health-interval 10s
+          --health-timeout 5s --health-retries 5
       # An object store, for the same reason `oltp-postgres` is here.
       #
       # `crates/api-documents/tests/integration/document_storage.rs` skips when no bucket is
@@ -1005,8 +1360,8 @@ jobs:
         # migration and the images moved to `bitnamilegacy/*`. `bitnami/minio`
         # now resolves to an EMPTY repository — `tags/list` returns `[]` and
         # `latest` is a 404 — so naming it fails the job at "Initialize
-        # containers", before cargo runs, for BOTH matrix tasks. Measured
-        # against the registry, not assumed.
+        # containers", before any test runs. Measured against the registry,
+        # not assumed.
         #
         # Not `minio/minio`: that image needs `server /data` as its command, and
         # Actions service containers have no `command:` field; and
@@ -1026,20 +1381,6 @@ jobs:
         options: >-
           --health-cmd "mc ready local" --health-interval 10s
           --health-timeout 5s --health-retries 10
-      oltp-postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          # :15433, matching the suite's default DSN — deliberately off
-          # `oxy start`'s :15432 so the two clusters never collide locally.
-          - 15433:5432
-        options: >-
-          --shm-size=1g
-          --health-cmd "pg_isready -U postgres" --health-interval 10s
-          --health-timeout 5s --health-retries 5
       # The ClickHouse the engine-backed suites write to: agentic-connector's
       # ClickHouse tests and oxy-app's `warehouse_writes_on_engines`. Both fell
       # back to a testcontainer and skipped when none started, and a skip
@@ -1060,7 +1401,7 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - name: Free disk space
-        if: matrix.task == 'test' && runner.environment == 'github-hosted'
+        if: runner.environment == 'github-hosted'
         uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
         with:
           tool-cache: false
@@ -1070,257 +1411,106 @@ jobs:
           large-packages: true
           docker-images: true
           swap-storage: true
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        name: Create GitHub App Token
-        id: app-token
-        with:
-          client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
-          private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          # Fetch-only: this token just lets cargo read private git deps.
-          # Scope to read-only contents so a leaked token can't push.
-          permission-contents: read
-          repositories: |
-            airlayer
-            airform
-            airway-internal
-            snowflake-rs
-
+      # The archive holds binaries, not source: tests read fixtures, examples
+      # and their own crate trees from the checkout, and a few run `git` over
+      # the history.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Collect Workflow Telemetry
-        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
-        with:
-          comment_on_pr: false
-      - uses: rui314/setup-mold@7e4f20ad28a2e8ca6fd0892ccf72e2abb706b9c3 # v1
-        if: runner.os == 'Linux'
-        with:
-          make-default: true
-
-      - name: Prep Rust
-        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
-        with:
-          components: clippy, rustfmt
-      - name: Install cargo tools
+      # Test binaries carry compile-time `env!("CARGO_MANIFEST_DIR")` paths, so
+      # the source has to sit where it was built. Same runner family, same path;
+      # this says so plainly if that ever stops being true.
+      - name: Check the checkout is where the archive was built
+        run: |
+          if [[ "$GITHUB_WORKSPACE" != "${{ needs.cargo-check-and-test.outputs.workspace }}" ]]; then
+            echo "::error::archive built in ${{ needs.cargo-check-and-test.outputs.workspace }}, checkout is $GITHUB_WORKSPACE"
+            exit 1
+          fi
+      # No Rust toolchain here: `cargo-nextest nextest run --archive-file`
+      # needs neither cargo nor rustc.
+      - name: Install nextest
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
-          # cargo-hakari is pinned: `generate --diff` compares against checked-in
-          # output, so a formatting change in a new release would fail every PR.
-          # Keep in step with `just hakari`.
-          tool: nextest,cargo-hakari@0.9.39
-      # Private cargo git deps live under github.com/oxy-hq/* (airway,
-      # airform, airlayer, snowflake-rs). The default checkout token
-      # only auths THIS repo, so a fresh `rev` bump forces an
-      # unauthenticated fetch that fails with "revision not found".
-      # `git-fetch-with-cli` is on (.cargo/config.toml), so cargo shells
-      # out to git, which uses gh as its credential helper — no token
-      # baked into a URL rewrite. This mirrors the local flow exactly:
-      # `gh auth login` + `gh auth setup-git`, then cargo fetches private
-      # deps for free. --with-token stores the app token in gh's config
-      # so the helper resolves it on later cargo steps without re-passing
-      # it. Must run before any cargo step.
-      - name: Authenticate gh for private cargo git deps
-        env:
-          GH_APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          echo "$GH_APP_TOKEN" | gh auth login --with-token
-          gh auth setup-git
-      - name: Prep cargo cache
-        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+          tool: nextest@${{ env.NEXTEST_VERSION }}
+      # Into target/debug, where the old single job had it: OXY_BIN names it,
+      # and oxy-test-utils falls back to that path.
+      - name: Download oxy binary
+        uses: ./.github/actions/download-oxy-binary
         with:
-          shared-key: ${{ matrix.task }}
-          # Only main writes. A PR's entry is readable by that PR alone, yet it
-          # counts against the repo's cache quota and evicts main's — the one
-          # entry every PR restores from. ruff, uv, Deno and Biome do the same.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # protobuf is required by lance https://github.com/lancedb/lance/issues/3073
-      # Use apt instead of arduino/setup-protoc to avoid GitHub release rate limits / outages.
-      - name: Install Protoc
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
-          protoc --version
-
-      # `cargo build` embeds the web-app dist into the oxy binary via
-      # `include_dir!` in crates/app/src/cli/commands/serve.rs. The dist
-      # path is a committed symlink: `crates/app/dist -> ../../web-app/dist`.
-      # If `web-app/dist` is empty when cargo runs, the binary serves 404
-      # on `/` — every Playwright/agentic flow then fails because the
-      # frontend never loads. Build the web-app first so the symlink
-      # resolves to populated content. Only matters for the `test` task
-      # (which uploads the binary used by smoke + agentic jobs); `check`
-      # is clippy and doesn't read dist content.
-      - name: Setup pnpm
-        if: matrix.task == 'test'
-        uses: pnpm/action-setup@v6.0.9
+          destination: target/debug
+      - name: Download test archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          run_install: false
-      - name: Setup Node.js
-        if: matrix.task == 'test'
-        uses: actions/setup-node@v7
-        with:
-          node-version: 26
-          cache: "pnpm"
-      - name: Build web-app dist (embedded into oxy binary)
-        if: matrix.task == 'test'
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          pnpm install --frozen-lockfile --prefer-offline
-          # Bundle only (skip `tsc -b`): the cargo build just needs the `dist/`
-          # bytes for the `include_dir!` embed. Typechecking is covered in
-          # parallel by the `build-web` job (full `pnpm build`), so running
-          # `tsc -b` here too would duplicate the slowest part of the web build
-          # on this job's critical path for no added signal.
-          #
-          # `build-web` is the whole of it, despite what this comment used to
-          # say: `lint:ts` is not run by any job here, and for `oxy-web` it was
-          # `tsc --noEmit` against a `files: []` solution tsconfig, which
-          # type-checks zero files. It is `tsc -b` now, but it is still not
-          # wired into CI — `build-web` is the enforcer.
-          pnpm --filter oxy-web exec vite build
-
-      # Swap behind the test task's memory peak. The peak is test-compile:
-      # oxy-app's lib tests in one rustc while mold links test binaries that
-      # each statically link DuckDB, DataFusion and Arrow. The arm64-4x runner
-      # has 15.3 GiB of RAM and a 4 GiB swapfile, and that peak outgrows both.
-      # PR #3632 measured it: 19.2 GB in use with RAM and the stock swap full,
-      # then 22.2 GB once this step had made room. Twice on 2026-10-16 (main's
-      # run 38898953093, then a branch) the runner was shut down at exactly that
-      # point, exit 143, with no compiler or test error. This tops swap up to
-      # 16 GiB, so the peak costs some paging instead of a lost 20-minute run
-      # (test-compile was no slower); the mem-watermark lines in "Run task" say
-      # how high it goes.
-      #
-      # The swapfile takes real blocks on the disk the build uses, so it is
-      # skipped when it would leave less than 60 GiB free, and removed if it
-      # cannot be turned on. Not on GitHub-hosted runners: "Free disk space"
-      # removes their swap to make room for the build.
-      - name: Add swap (test task)
-        if: matrix.task == 'test' && runner.environment != 'github-hosted'
-        run: |
-          swapon --show
-          have=$(free -m | awk '/^Swap:/ { print $2 }')
-          add=$((16384 - have))
-          disk_free=$(df -m --output=avail / | tail -1)
-          if ((add <= 0)); then
-            echo "swap is already ${have} MiB; leaving it"
-          elif ((disk_free - add < 61440)); then
-            echo "::warning title=No extra swap::${disk_free} MiB free on /; a ${add} MiB swapfile would leave the build under 60 GiB"
-          elif sudo fallocate -l "${add}M" /ci-swapfile \
-            && sudo chmod 600 /ci-swapfile \
-            && sudo mkswap /ci-swapfile \
-            && sudo swapon /ci-swapfile; then
-            swapon --show
-          else
-            sudo rm -f /ci-swapfile
-            echo "::warning title=No extra swap::could not enable /ci-swapfile; the test task runs with ${have} MiB of swap"
-          fi
-          free -m
-          df -h /
-
-      - name: Run task
+          name: nextest-archive
+      - name: Run tests
         env:
           OXY_DATABASE_URL: "postgresql://admin:password@localhost:5432/default"
           OXY_BIN: "${{ github.workspace }}/target/debug/oxy"
-          # Build-only (no clippy, no migrate/nextest) when the job is here just
-          # for the binary: a dispatch that asked for it, or a diff that fired
-          # `agentic` without `oxy` — no Rust changed, so there is nothing for
-          # clippy or nextest to say that main's run has not already said.
-          AGENTIC_ONLY: ${{ inputs.agentic_only == true || needs.changesets.outputs.oxy != 'true' }}
           OXY_TEST_CLICKHOUSE_URL: "http://localhost:18123"
           OXY_TEST_CLICKHOUSE_PASSWORD: "clickhouse"
+          # OXY_OLTP_REQUIRE_DB turns "no OLTP cluster" from a skip into a
+          # failure. That suite skipped for this whole PR and reported green;
+          # the `oltp-postgres` service above is what makes it run, and this
+          # is what makes a future mismatch between the two loud instead of
+          # silent. OXY_TEST_REQUIRE_CLICKHOUSE does the same for the
+          # `clickhouse` service, and OXY_REQUIRE_OBJECT_STORE for the
+          # document upload suite against `minio`. Three services, one rule:
+          # a suite that cannot reach its backend must fail, not skip.
+          OXY_OLTP_REQUIRE_DB: "1"
+          OXY_TEST_REQUIRE_CLICKHOUSE: "1"
+          OXY_REQUIRE_OBJECT_STORE: "1"
+          OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET: oxy-documents
+          AWS_ENDPOINT_URL: http://127.0.0.1:9000
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: oxytest
+          AWS_SECRET_ACCESS_KEY: oxytest123
         run: |
-          if [[ "${{ matrix.task }}" == "check" ]]; then
-            if [[ "$AGENTIC_ONLY" == "true" ]]; then
-              echo "agentic_only mode: skipping clippy"
-              exit 0
-            fi
-            # crates/workspace-hack must match the dependency graph, or builds
-            # go back to compiling registry crates once per feature set. Fix
-            # locally with `just hakari`.
-            cargo hakari generate --diff
-            cargo hakari manage-deps --dry-run
-            # The lint policy below reaches a crate only if its manifest says
-            # `[lints] workspace = true`, and Cargo cannot make that the
-            # default — a new crate without it lints clean with every rule off.
-            python3 scripts/ci/verify-workspace-lints.py
-            # What fails this step is decided in the root Cargo.toml, not here:
-            # `[workspace.lints]` names the bug-shaped lints that are errors
-            # and switches the cosmetic groups off, so `cargo clippy` on a
-            # laptop and this line agree. Everything left at `warn` stays
-            # advisory — no `-- -D warnings` — because a warning nobody is
-            # made to read is not a gate, and promoting one is a one-line
-            # edit to that list rather than a flag here.
-            #
-            # No `--fix`: the rewrites are never committed in CI.
-            # `--all-targets`, so EXAMPLES and benches compile here.
-            #
-            # Without it neither this nor `cargo build` below builds an example,
-            # and a signature change that missed one shipped: `ensure_writer`'s
-            # claimant became `Option<Uuid>`, three call sites were updated, and
-            # `examples/seed_org.rs` — the demo seeder the README points at —
-            # was left as a plain E0308 that CI could not see. The first person
-            # to hit it would have been someone setting up the demo.
-            cargo clippy --workspace --all-targets
-            # Gate the feature-off build: the custom-app-functions (V8) feature is
-            # compiled out by the `cf`/`bf`/`rf` aliases in .cargo/config.toml (`cf` is
-            # this exact command), and an ungated `use` of a gated symbol only breaks
-            # for whoever runs them — which is how the seam-trait regression this guards
-            # against reached main. `clippy` (not `check`) so the workspace-member
-            # fingerprints from the line above are reused; the check pass runs first, so
-            # an E0433 fails it identically.
-            cargo clippy --no-default-features -p oxy-app
-          elif [[ "${{ matrix.task }}" == "test" ]]; then
-            # Into this step's log, so a run the runner kills still shows how
-            # close it came. See "Add swap" above. Stopped on every exit: a
-            # child still holding stdout can keep the step from finishing.
-            scripts/ci/mem-watermark.sh &
-            watermark=$!
-            trap 'kill "$watermark" 2>/dev/null || true' EXIT
+          touch examples/bigquery-sample.key
+          echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
 
-            touch examples/bigquery-sample.key
-            echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
+          oxy migrate
 
-            cargo build
-
-            if [[ "$AGENTIC_ONLY" == "true" ]]; then
-              echo "agentic_only mode: skipping migrate, nextest, gen-config-schema"
-              exit 0
-            fi
-
-            ./target/debug/oxy migrate
-
-            # Run tests (no coverage instrumentation)
-            #
-            # OXY_OLTP_REQUIRE_DB turns "no OLTP cluster" from a skip into a
-            # failure. That suite skipped for this whole PR and reported green;
-            # the `oltp-postgres` service above is what makes it run, and this
-            # is what makes a future mismatch between the two loud instead of
-            # silent. OXY_TEST_REQUIRE_CLICKHOUSE does the same for the
-            # `clickhouse` service, and OXY_REQUIRE_OBJECT_STORE for the
-            # document upload suite against `minio`. Three services, one rule:
-            # a suite that cannot reach its backend must fail, not skip.
-            OXY_OLTP_REQUIRE_DB=1 OXY_TEST_REQUIRE_CLICKHOUSE=1 \
-            OXY_REQUIRE_OBJECT_STORE=1 \
-            OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET=oxy-documents \
-            AWS_ENDPOINT_URL=http://127.0.0.1:9000 \
-            AWS_REGION=us-east-1 \
-            AWS_ACCESS_KEY_ID=oxytest \
-            AWS_SECRET_ACCESS_KEY=oxytest123 \
-              cargo nextest run --workspace --no-fail-fast
-
-            ./target/debug/oxy gen-config-schema --check
+          # `slice:` deals the selected tests out round-robin across all
+          # binaries, so each partition gets an even share of every crate,
+          # serial-db ones included.
+          cargo-nextest nextest run \
+            --archive-file nextest-archive.tar.zst \
+            --workspace-remap "$GITHUB_WORKSPACE" \
+            --partition "slice:${{ matrix.partition }}/${{ needs.cargo-check-and-test.outputs.partition-count }}" \
+            --no-fail-fast
+      - name: Slowest tests
+        if: ${{ !cancelled() }}
+        run: |
+          junit=target/nextest/default/junit.xml
+          if [[ -f "$junit" ]]; then
+            python3 scripts/ci/nextest-slowest.py "$junit" 15 >>"$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload oxy binary artifact
-        if: matrix.task == 'test'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
-        with:
-          name: oxy-binary-ci
-          path: target/debug/oxy
-          retention-days: 1
+  # The status branch protection requires. It used to be the test leg of
+  # `cargo-check-and-test`'s matrix; its name is kept so the rule still binds.
+  # Skipped exactly when that job is (no Rust change), as before.
+  cargo-test:
+    name: Format cargo, check & test (test)
+    needs: [cargo-check-and-test, cargo-test-partition]
+    if: ${{ !cancelled() && needs.cargo-check-and-test.result != 'skipped' }}
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    steps:
+      - name: Every partition passed
+        env:
+          BUILD: ${{ needs.cargo-check-and-test.result }}
+          RUN_TESTS: ${{ needs.cargo-check-and-test.outputs.run-tests }}
+          TESTS: ${{ needs.cargo-test-partition.result }}
+        run: |
+          echo "build: $BUILD, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS"
+          if [[ "$BUILD" != "success" ]]; then
+            echo "::error::Build oxy & archive tests: $BUILD"
+            exit 1
+          fi
+          if [[ "$RUN_TESTS" == "true" && "$TESTS" != "success" ]]; then
+            echo "::error::Rust tests: $TESTS"
+            exit 1
+          fi
 
   smoke-test-enterprise:
     name: Smoke test (oxy start --enterprise)
@@ -1446,10 +1636,11 @@ jobs:
     # `needs` therefore keeps `cargo-check-and-test`, and the `if` reads its
     # `result` under `!cancelled()` so a *skipped* need no longer skips this
     # job — the pattern `public-release.yaml` uses (`always() &&
-    # needs.<job>.result == 'success'`). A failed or cancelled check job still
-    # skips this one: a red nextest is the finding, and the artifact may be
-    # missing. `needs.changesets.result` is checked explicitly because the
-    # implicit `success()` no longer is.
+    # needs.<job>.result == 'success'`). A failed or cancelled build job still
+    # skips this one: the artifact may be missing. (Rust test failures no
+    # longer do — tests run after that job, in `cargo-test-partition`.)
+    # `needs.changesets.result` is checked explicitly because the implicit
+    # `success()` no longer is.
     #
     # Boot: service containers plus `oxy serve --enterprise`, the shape
     # `agentic-tests.yaml` runs on every PR. Not `oxy start`, which
