@@ -22,6 +22,7 @@
 //! over an untrusted network without adding TLS.** A `tls: bool` field in the
 //! config is the tracked follow-up for operators who need transport encryption.
 
+mod fetch;
 mod typed;
 
 use std::collections::HashMap;
@@ -29,6 +30,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use tokio_postgres::{Client, NoTls, SimpleQueryMessage};
 
 use agentic_connector::{
@@ -291,8 +293,8 @@ impl DatabaseConnector for AirhouseConnector {
         // Cost: the user query is planned once (DESCRIBE) and executed twice
         // (count+stats in one pass, sample in another) instead of materialised
         // once and re-scanned. For a non-deterministic query the sample may not
-        // perfectly match the stats — acceptable, and already the behaviour of
-        // the paged `execute_query_full` path.
+        // perfectly match the stats — acceptable for a sample (unlike
+        // `execute_query_full`, which executes once).
         let client = self.client.lock().await;
 
         // 1. Column names + types via DuckDB's DESCRIBE of the raw query.
@@ -492,10 +494,10 @@ impl DatabaseConnector for AirhouseConnector {
         }
 
         // Subquery DQL: introspect column types via DESCRIBE (no temp table),
-        // then page through rows using a subquery wrapper. A failed DESCRIBE
-        // here is the user's query failing — surface their SQL (not the
-        // `DESCRIBE` wrapper) so the structured error block points at the
-        // statement they actually typed.
+        // then stream every row from one execution of a subquery wrapper
+        // (`fetch`). A failed DESCRIBE here is the user's query failing —
+        // surface their SQL (not the `DESCRIBE` wrapper) so the structured
+        // error block points at the statement they actually typed.
         let describe_sql = format!("DESCRIBE {sql}");
         let columns = {
             let client = self.client.lock().await;
@@ -538,47 +540,35 @@ impl DatabaseConnector for AirhouseConnector {
             .collect::<Vec<_>>()
             .join(", ");
 
-        const PAGE_SIZE: usize = 1_000;
-        let client_arc = Arc::clone(&self.client);
-        let columns_for_stream = columns.clone();
-        let owned_sql = sql.to_string();
-        let stream: BoxedRowStream = Box::pin(async_stream::stream! {
-            let columns = columns_for_stream;
-            let mut offset = 0usize;
-            loop {
-                let client = client_arc.lock().await;
-                let page_sql = format!(
-                    "SELECT {cast_cols} FROM ({owned_sql}) AS _q LIMIT {PAGE_SIZE} OFFSET {offset}"
-                );
-                match client.simple_query(&page_sql).await {
-                    Err(e) => {
-                        // Not `e.to_string()`: that is the bare "db error" and
-                        // drops the server's message — see `format_pg_error`.
-                        yield Err(TypedRowError::DriverError(format_pg_error(&e)));
-                        break;
-                    }
-                    Ok(messages) => {
-                        let batch: Vec<_> = messages
-                            .into_iter()
-                            .filter_map(|msg| match msg {
-                                SimpleQueryMessage::Row(row) => {
-                                    Some(parse_airhouse_row(&row, &columns))
-                                }
-                                _ => None,
-                            })
-                            .collect();
-                        let fetched = batch.len();
-                        for row in batch {
-                            yield row;
+        // One execution, streamed: paging an unordered query by OFFSET re-ran it
+        // per page, and DuckDB's parallel order differs per run (see `fetch`).
+        // The stream owns the client lock until it is drained or dropped.
+        let client = Arc::clone(&self.client).lock_owned().await;
+        let row_columns = columns.clone();
+        let rows = fetch::read_rows(
+            move |select| async move {
+                let messages = client.simple_query_raw(&select).await?;
+                Ok::<_, tokio_postgres::Error>(messages.map(move |msg| {
+                    let _client = &client;
+                    msg.map(|msg| match msg {
+                        SimpleQueryMessage::Row(row) => {
+                            Some(parse_airhouse_row(&row, &row_columns))
                         }
-                        if fetched < PAGE_SIZE {
-                            break;
-                        }
-                        offset += fetched;
-                    }
-                }
-            }
-        });
+                        _ => None,
+                    })
+                }))
+            },
+            &cast_cols,
+            sql,
+        )
+        .await
+        .map_err(|e| ConnectorError::QueryFailed(airhouse_query_failed(sql, &e)))?;
+        let stream: BoxedRowStream = Box::pin(rows.map(|row| {
+            // Not `e.to_string()`: that is the bare "db error" and drops the
+            // server's message — see `format_pg_error`.
+            row.map_err(|e| TypedRowError::DriverError(format_pg_error(&e)))
+                .and_then(|row| row)
+        }));
 
         Ok(TypedRowStream {
             columns,
@@ -645,7 +635,7 @@ impl DatabaseConnector for AirhouseConnector {
 /// - `Subquery`: `SELECT` / `WITH` / `FROM` / `TABLE` / `VALUES`. Pure
 ///   relational expressions that can be wrapped in `CREATE TEMP TABLE AS
 ///   (…)`, `DESCRIBE (…)`, and `SELECT … FROM (…)`. Goes through the
-///   typed/paged path.
+///   typed path.
 /// - `Statement`: `SHOW` / `SUMMARIZE` / `DESCRIBE` / `EXPLAIN` / `PIVOT` /
 ///   `UNPIVOT`. Top-level DuckDB statements that **return rows** but are
 ///   **not** subquery-able — `DESCRIBE SHOW` and `SELECT * FROM (SHOW)` both

@@ -703,6 +703,7 @@ dependencies = [
  "chrono",
  "duckdb",
  "entity",
+ "futures",
  "hex",
  "oxy-auth",
  "oxy-migration-tolerance",

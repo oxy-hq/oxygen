@@ -19,6 +19,7 @@ connector = [
     "dep:tokio-postgres",
     "dep:async-stream",
     "dep:async-trait",
+    "dep:futures",
     "dep:serde_json",
     "dep:tokio",
     "dep:tracing",
@@ -73,6 +74,7 @@ tokio-postgres = { workspace = true, optional = true, features = [
 ] }
 async-trait = { workspace = true, optional = true }
 async-stream = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
 
 # Admin feature deps (platform-aware)
 oxy-platform = { workspace = true, optional = true }

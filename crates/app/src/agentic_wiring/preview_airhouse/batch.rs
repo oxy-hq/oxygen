@@ -353,8 +353,9 @@ pub(super) fn unstreamable(statements: &[Verified]) -> Option<&'static str> {
 /// Send all but the last statement (reads among them have their rows
 /// dropped, [`unsent`], [`send_unsent`]), then stream the last. Check
 /// [`unstreamable`] first: a streamed batch has no transaction, so its
-/// connection is a shared one and the stream holds nothing another query
-/// waits on.
+/// connection is a shared one. A typed Airhouse stream holds that
+/// connection's query lock until it is drained or dropped, so consume it
+/// promptly and send no other query on the same connector while holding it.
 pub(super) async fn stream(
     lease: Lease,
     statements: &[Verified],
