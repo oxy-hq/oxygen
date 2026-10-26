@@ -1,6 +1,6 @@
 //! A fixed usage history for one app, to put in both stores.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, SubsecRound, Utc};
 use entity::{custom_app_event, custom_app_view_event};
 use sea_orm::ActiveValue::Set;
 use uuid::Uuid;
@@ -61,6 +61,10 @@ impl History {
 /// * production events under three names, one of them the reserved `oxy-error`
 ///   in two sessions this week and one the week before, and a staging event.
 pub fn history(cast: &Cast, anchor: DateTime<Utc>) -> History {
+    // Callers pass `Utc::now()`, which reads nanoseconds on Linux; every offset
+    // below is whole microseconds, so trimming the anchor is what keeps each
+    // instant at the precision the stores keep.
+    let anchor = anchor.trunc_subsecs(6);
     let [(u1, e1), (u2, e2), (u3, e3), (u4, e4)] = cast.users.clone();
     let sessions: Vec<Uuid> = (0..8).map(|_| Uuid::new_v4()).collect();
     let mut tick = 0i64;
@@ -222,4 +226,30 @@ pub fn history(cast: &Cast, anchor: DateTime<Utc>) -> History {
         ),
     ];
     History { views, events }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Linux clock reads nanoseconds and the stores keep microseconds, so an
+    /// anchor taken from `Utc::now()` must not leak its sub-microsecond part
+    /// into the history, or a test comparing a read back against the fixture
+    /// fails only in CI.
+    #[test]
+    fn every_instant_is_whole_microseconds_even_from_a_nanosecond_anchor() {
+        let anchor = DateTime::parse_from_rfc3339("2026-10-26T06:58:05.205051100Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let history = history(&Cast::new(Uuid::new_v4()), anchor);
+        for view in &history.views {
+            assert_eq!(view.viewed_at.as_ref().timestamp_subsec_nanos() % 1_000, 0);
+        }
+        for event in &history.events {
+            assert_eq!(
+                event.occurred_at.as_ref().timestamp_subsec_nanos() % 1_000,
+                0
+            );
+        }
+    }
 }

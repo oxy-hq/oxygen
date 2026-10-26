@@ -728,15 +728,27 @@ mod tests {
     /// own hub, and demanding a binding there would prove nothing.
     #[test]
     fn every_custom_app_data_plane_spawn_carries_a_hub() {
-        const UNHUBBED: &[Unhubbed] = &[Unhubbed {
-            file: "src/server/api/projects/automation_run.rs",
-            site: "spawn_periodic_sweep",
-            why: "a boot-time loop started by `router::entry`, not request work: there is \
-                  no request hub to inherit, and what it can capture is Oxy's own \
-                  `customer_app_procedure_runs` UPDATE failing — a platform bug carrying \
-                  no tenant payload, which is what Sentry is still for. A `custom_app_hub()` \
-                  here would hide it.",
-        }];
+        const UNHUBBED: &[Unhubbed] = &[
+            Unhubbed {
+                file: "src/server/api/projects/automation_run.rs",
+                site: "spawn_periodic_sweep",
+                why: "a boot-time loop started by `router::entry`, not request work: there is \
+                      no request hub to inherit, and what it can capture is Oxy's own \
+                      `customer_app_procedure_runs` UPDATE failing — a platform bug carrying \
+                      no tenant payload, which is what Sentry is still for. A \
+                      `custom_app_hub()` here would hide it.",
+            },
+            Unhubbed {
+                file: "../api-custom-apps/src/custom_apps_functions/runtime/warm_pool.rs",
+                site: "oxy-function-refill",
+                why: "the warm pool's refill thread, started once on the first take, not \
+                      request work: it only builds idle isolates ahead of demand, so there is \
+                      no request hub to inherit, and what it can capture is Oxy's own isolate \
+                      build failing — a platform bug carrying no tenant payload. The other \
+                      thread here, the one that runs a job, carries the invocation's hub \
+                      through `Hub::run`.",
+            },
+        ];
 
         /// A spawn, blocking-pool hop, thread or stream that outlives the hub
         /// it was created under. `spawn_blocking(` is matched bare so the
