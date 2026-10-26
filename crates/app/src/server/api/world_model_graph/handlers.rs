@@ -118,6 +118,7 @@ fn build_entity_node(
                     description: m.description.clone(),
                     expr: m.expr.clone(),
                     has_breakdown: breakdownable.contains(&format!("{}.{}", view.name, m.name)),
+                    default_cohort: m.default_cohort.clone(),
                 })
                 .collect()
         })
@@ -145,6 +146,7 @@ fn build_entity_node(
                 expr: source.and_then(|m| m.expr.clone()),
                 promoted_from: im.source_view.clone(),
                 path: im.path.clone(),
+                default_cohort: source.and_then(|m| m.default_cohort.clone()),
             }
         })
         .collect();
@@ -2787,5 +2789,63 @@ async fn attach_places(
             }
         }
         Err(e) => tracing::warn!(error = %e, "world model instances: places not resolved"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-view layer whose single measure may or may not declare a cohort.
+    /// Built by deserializing rather than by hand: `View`/`Measure` carry tens
+    /// of optional fields and a literal would say nothing about which matter.
+    fn layer_with(default_cohort: Option<&str>) -> oxy_airlayer_compat::SemanticLayer {
+        let mut measure = serde_json::json!({ "name": "wage_pct", "type": "sum" });
+        if let Some(c) = default_cohort {
+            measure["default_cohort"] = serde_json::json!(c);
+        }
+        serde_json::from_value(serde_json::json!({
+            "views": [{
+                "name": "sales",
+                "entities": [{ "name": "store_id", "type": "primary", "key": "store_id" }],
+                "measures": [measure],
+            }],
+        }))
+        .expect("fixture layer should deserialize")
+    }
+
+    fn own_measures_of(layer: &oxy_airlayer_compat::SemanticLayer) -> Vec<WmMeasure> {
+        let promotions = Promotions::build(&layer.views).expect("fixture promotions should build");
+        let mut edges = Vec::new();
+        build_entity_node(
+            &layer.views[0],
+            layer,
+            &promotions,
+            &std::collections::HashSet::new(),
+            &mut edges,
+        )
+        .expect("fixture view has a primary entity")
+        .own_measures
+    }
+
+    /// The World Model panel decides whether to offer "Compared to peers" from
+    /// the graph alone — it has no other way to know a cohort exists without
+    /// spending two entity-grain warehouse pulls to be told there is none.
+    #[test]
+    fn a_measures_declared_cohort_reaches_the_graph() {
+        let layer = layer_with(Some("store_id.size_matched"));
+        let measures = own_measures_of(&layer);
+        assert_eq!(measures.len(), 1);
+        assert_eq!(
+            measures[0].default_cohort.as_deref(),
+            Some("store_id.size_matched")
+        );
+    }
+
+    /// The common case today, and the one the toggle must not render for.
+    #[test]
+    fn a_measure_without_a_cohort_carries_none() {
+        let layer = layer_with(None);
+        assert_eq!(own_measures_of(&layer)[0].default_cohort, None);
     }
 }

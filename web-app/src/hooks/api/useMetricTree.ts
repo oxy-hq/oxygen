@@ -3,6 +3,7 @@ import useCurrentProjectBranch from "@/hooks/useCurrentProjectBranch";
 import { MetricTreeService } from "@/services/api/metricTree";
 import type {
   BaselineRequest,
+  CohortRequest,
   DistributionRequest,
   DrillRequest,
   FittedDriver,
@@ -241,6 +242,45 @@ export function useDrillQuery(request: DrillRequest | null, enabled = true) {
     queryFn: () => {
       if (!request) throw new Error("drill request is required");
       return MetricTreeService.drill(projectId, request);
+    },
+    enabled: enabled && !!request,
+    staleTime: 5 * 60 * 1000,
+    retry: false
+  });
+}
+
+/**
+ * Peer-cohort comparison for one entity + measure over a period — "this
+ * instance vs similar ones", as opposed to `useOpportunityQuery`'s "this
+ * instance's own segments vs each other".
+ *
+ * Pass `null` to disable. The World Model panel gates this on-expand rather
+ * than eagerly like the opportunity scan: a resolution fires two entity-grain
+ * warehouse pulls, and — until a workspace authors `cohorts:` — every measure
+ * would spend them only to be told no cohort is declared.
+ */
+export function useCohortQuery(request: CohortRequest | null, enabled = true) {
+  const { project, branchName } = useCurrentProjectBranch();
+  const projectId = project.id;
+
+  return useQuery({
+    queryKey: request
+      ? queryKeys.metricTree.cohort(
+          projectId,
+          branchName,
+          request.entity,
+          request.measure,
+          request.time_dimension,
+          request.period,
+          request.cohort ?? null,
+          // The server's default, spelled out so an omitted and an explicit
+          // `median` share an entry.
+          request.statistic ?? "median"
+        )
+      : ([...queryKeys.metricTree.all, "cohort", "idle"] as const),
+    queryFn: () => {
+      if (!request) throw new Error("cohort request is required");
+      return MetricTreeService.cohort(projectId, request, branchName);
     },
     enabled: enabled && !!request,
     staleTime: 5 * 60 * 1000,

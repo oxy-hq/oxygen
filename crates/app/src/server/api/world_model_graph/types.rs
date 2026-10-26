@@ -209,6 +209,13 @@ pub struct WmMeasure {
     /// tree (a composite `type: number` measure). Drives the driver-tree
     /// expand affordance — leaf measures have no breakdown.
     pub has_breakdown: bool,
+    /// The measure's `default_cohort:` (`"entity.cohort_name"`), when it
+    /// declares one. Schema-only — no query — and it is what lets the instance
+    /// panel decide whether to offer "Compared to peers" at all: without it the
+    /// only way to learn a measure declares no cohort is to spend the
+    /// resolution (two entity-grain warehouse pulls) and be told so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_cohort: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -226,6 +233,12 @@ pub struct WmInducedMeasure {
     pub expr: Option<String>,
     /// Ordered entity names walked from source grain to this entity's grain.
     pub path: Vec<String>,
+    /// The SOURCE measure's `default_cohort:`, read off the literal view it is
+    /// declared on — the same view this induced measure is addressed through
+    /// (`view.measure` uses `promoted_from`), so the cohort endpoint resolves
+    /// the same declaration the panel gated on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_cohort: Option<String>,
 }
 
 #[derive(Serialize)]

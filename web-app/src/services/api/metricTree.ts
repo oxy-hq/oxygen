@@ -2,6 +2,8 @@ import { AxiosError } from "axios";
 import type {
   BaselineRequest,
   BaselineResponse,
+  CohortRequest,
+  CohortResponse,
   DistributionRequest,
   DrillRequest,
   DrillResponse,
@@ -23,6 +25,33 @@ import { apiClient } from "./axios";
 function rethrow(error: unknown): never {
   if (error instanceof AxiosError && error.response?.data?.message) {
     throw new Error(error.response.data.message);
+  }
+  throw error;
+}
+
+/**
+ * An API error that kept the server's `code`.
+ *
+ * `rethrow` above flattens an error to its message, which is right for
+ * endpoints whose failures are all "something went wrong". The cohort endpoint
+ * is not one of those: `cohort_not_resolved` means the measure declares no
+ * `default_cohort:` — an authoring gap the panel renders as an honest empty
+ * state — and it is indistinguishable from a real failure once the code is
+ * dropped. Matching on the message text instead would bind the UI to prose.
+ */
+export class ApiCodedError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "ApiCodedError";
+    this.code = code;
+  }
+}
+
+function rethrowWithCode(error: unknown): never {
+  if (error instanceof AxiosError && error.response?.data?.message) {
+    throw new ApiCodedError(error.response.data.message, error.response.data.code);
   }
   throw error;
 }
@@ -214,6 +243,32 @@ export class MetricTreeService {
       return response.data;
     } catch (error) {
       rethrow(error);
+    }
+  }
+
+  /**
+   * Peer-cohort comparison: this entity's instances against their declared
+   * peers on one measure.
+   *
+   * Not under `/metric-tree` — it is a sibling semantic op, mounted at
+   * `/semantic/cohort` alongside `/semantic` itself. Throws
+   * {@link ApiCodedError} so a caller can tell `cohort_not_resolved` (nothing
+   * authored yet) from a real failure.
+   */
+  static async cohort(
+    projectId: string,
+    request: CohortRequest,
+    branchName?: string
+  ): Promise<CohortResponse> {
+    try {
+      const response = await apiClient.post<CohortResponse>(
+        `/${projectId}/semantic/cohort`,
+        request,
+        { params: branchName ? { branch: branchName } : {} }
+      );
+      return response.data;
+    } catch (error) {
+      rethrowWithCode(error);
     }
   }
 }

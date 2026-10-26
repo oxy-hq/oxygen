@@ -12,12 +12,14 @@ const useMetricTree = vi.hoisted(() => vi.fn());
 const useOpportunityQuery = vi.hoisted(() => vi.fn());
 const useTimeDimensions = vi.hoisted(() => vi.fn());
 const useDrillQuery = vi.hoisted(() => vi.fn());
+const useCohortQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@/hooks/api/useMetricTree", () => ({
   useMetricTree,
   useOpportunityQuery,
   useTimeDimensions,
-  useDrillQuery
+  useDrillQuery,
+  useCohortQuery
 }));
 
 const EMPTY_MODEL: WorldModel = { entities: [], edges: [] };
@@ -54,7 +56,17 @@ const SIZED = {
   ]
 };
 
-function renderInstanceOpportunity(additivity: string, drillable: boolean, opp: unknown = SIZED) {
+function renderInstanceOpportunity(
+  additivity: string,
+  drillable: boolean,
+  opp: unknown = SIZED,
+  // Declared by default: every case below predates the gate and is about the
+  // sizing half. `null` is the workspace that has authored no `cohorts:` —
+  // spelled `null` and not `undefined` because an explicit `undefined` argument
+  // re-applies this very default.
+  defaultCohort: string | null = "store.size_matched",
+  cohort: unknown = { data: undefined, isPending: false, error: null }
+) {
   useMetricTree.mockReturnValue({
     data: {
       nodes: [
@@ -77,6 +89,7 @@ function renderInstanceOpportunity(additivity: string, drillable: boolean, opp: 
   });
   useOpportunityQuery.mockReturnValue({ data: opp, isPending: false, error: null });
   useDrillQuery.mockReturnValue({ data: undefined, isPending: false, error: null });
+  useCohortQuery.mockReturnValue(cohort);
 
   return render(
     <WorldModelInstanceOpportunity
@@ -88,6 +101,7 @@ function renderInstanceOpportunity(additivity: string, drillable: boolean, opp: 
       instance={INSTANCE}
       model={EMPTY_MODEL}
       onSelect={vi.fn()}
+      defaultCohort={defaultCohort}
     />
   );
 }
@@ -118,14 +132,99 @@ describe("WorldModelInstanceOpportunity", () => {
     expect(screen.getByTestId("wm-opp-drill-toggle-mobile_app")).toBeDefined();
   });
 
-  it("renders nothing for a passthrough the engine does not accept (drillable: false)", () => {
+  it("hides sizing for a passthrough the engine does not accept, but still offers peers", () => {
     // A passthrough the engine refuses (nested/cross-view/multiplicative refs)
-    // is neither sizable nor drillable, so the whole instance row stays empty.
-    const { container } = renderInstanceOpportunity("passthrough", false);
-    expect(container.firstChild).toBeNull();
+    // is neither sizable nor drillable, so the Opportunities half stays away —
+    // that gate is unchanged.
+    //
+    // Peer comparison is a DIFFERENT predicate: whether the entity declares a
+    // `cohorts:` block and the measure a `default_cohort:`. Inheriting the
+    // sizing gate would hide the comparison for measures that declare one
+    // perfectly well, so the peer section is offered regardless.
+    renderInstanceOpportunity("passthrough", false);
+    expect(screen.queryByTestId("wm-opp-toggle-checks.net_revenue")).toBeNull();
+    expect(screen.getByTestId("wm-peers-toggle-checks.net_revenue")).toBeTruthy();
   });
 
-  it("renders one merged section, not a separate drill section", () => {
+  it("offers no peer toggle for a measure that declares no cohort", () => {
+    // The toggle used to render unconditionally, so on a workspace that has
+    // authored no `cohorts:` — every workspace today — clicking it spent a
+    // request only to print "no peer cohort is declared for this measure".
+    // `default_cohort` now rides the world-model graph (schema-only, no query),
+    // so the affordance appears where a comparison actually exists. The sizing
+    // half is unaffected: the two gates are independent predicates.
+    renderInstanceOpportunity("additive", true, SIZED, null);
+
+    expect(screen.queryByTestId("wm-peers-toggle-checks.net_revenue")).toBeNull();
+    expect(screen.getByTestId("wm-opp-toggle-checks.net_revenue")).toBeDefined();
+  });
+
+  it("offers no peer toggle on an entity the measure's cohort is not declared on", () => {
+    // One measure is placed on several entities: its view's primary entity
+    // owns it and every ancestor it is promoted to lists it as induced, each
+    // carrying the same `default_cohort`. Only the entity the declaration
+    // names can resolve it — the server refuses every other one with
+    // `cohort_not_resolved`, whose copy would tell a correctly-authored model
+    // to re-point its cohort. So the toggle stays on the declaring entity.
+    renderInstanceOpportunity("additive", true, SIZED, "restaurant.size_matched");
+
+    expect(screen.queryByTestId("wm-peers-toggle-checks.net_revenue")).toBeNull();
+    expect(screen.getByTestId("wm-opp-toggle-checks.net_revenue")).toBeDefined();
+  });
+
+  it("keeps the peer toggle for a declaration not in `entity.cohort` form", () => {
+    // A bare `default_cohort: size_matched` names no entity, so it cannot be
+    // ruled out as belonging elsewhere. The server refuses it as malformed —
+    // an authoring error the reader must be shown, not a toggle to hide.
+    renderInstanceOpportunity("additive", true, SIZED, "size_matched");
+
+    expect(screen.getByTestId("wm-peers-toggle-checks.net_revenue")).toBeTruthy();
+  });
+
+  it("still renders the undeclared-cohort copy when a declared cohort fails to resolve", () => {
+    // The gate is the measure's DECLARATION, not the resolution: a measure can
+    // declare `default_cohort:` on its own entity pointing at a `cohorts:`
+    // block that is missing. That is a real authoring error and must keep its
+    // explanatory copy rather than vanishing with the toggle.
+    renderInstanceOpportunity("additive", true, SIZED, "store.size_matched", {
+      data: undefined,
+      isPending: false,
+      error: { code: "cohort_not_resolved", message: "declares no `default_cohort:`" }
+    });
+
+    fireEvent.click(screen.getByTestId("wm-peers-toggle-checks.net_revenue"));
+    expect(screen.getByTestId("wm-peers-undeclared")).toBeTruthy();
+  });
+
+  it("keeps the two comparisons in separate, separately-labelled sections", () => {
+    // The misreading this feature answers: the Opportunities list benchmarks
+    // this instance's own dimension segments against each other, and was read
+    // as a comparison against other restaurants. Both sections are present and
+    // each says which comparison it made — never one merged "upside" list.
+    renderInstanceOpportunity("additive", true);
+
+    const sizing = screen.getByTestId("wm-opp-toggle-checks.net_revenue");
+    const peers = screen.getByTestId("wm-peers-toggle-checks.net_revenue");
+    expect(sizing.textContent).toContain("Opportunities");
+    expect(peers.textContent).toContain("Compared to peers");
+    expect(peers.textContent).toMatch(/other stores/i);
+  });
+
+  it("does not resolve a cohort until the peer section is expanded", () => {
+    // One cohort resolution is two entity-grain warehouse pulls, and the panel
+    // mounts one of these per computed measure. Unlike the eager sizing scan it
+    // must stay disabled while collapsed.
+    renderInstanceOpportunity("additive", true);
+    expect(useCohortQuery).toHaveBeenCalledWith(null, false);
+
+    fireEvent.click(screen.getByTestId("wm-peers-toggle-checks.net_revenue"));
+    const [, enabled] = useCohortQuery.mock.calls.at(-1) as [unknown, boolean];
+    expect(enabled).toBe(true);
+  });
+
+  it("renders one merged sizing section, not a separate drill section", () => {
+    // Sizing and drill are still ONE section; the peer section beside it is a
+    // different question, not the old standalone drill returning.
     renderInstanceOpportunity("additive", true);
     expect(screen.queryByTestId("wm-drill-toggle-checks.net_revenue")).toBeNull();
     expect(screen.getByTestId("wm-opp-toggle-checks.net_revenue")).toBeTruthy();

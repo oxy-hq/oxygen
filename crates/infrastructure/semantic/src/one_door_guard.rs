@@ -113,6 +113,13 @@ const ALLOWED: &[(&str, &str)] = &[
          extension exists to supply a cache in the first place.",
     ),
     (
+        "crates/app/src/server/api/cohort/mod.rs",
+        "The IDE twin of `projects/cohort.rs` above: `prepare_ide_cohort` runs \
+         `augment_layer_for_cohort` first, installing the synthetic \
+         `__cohort_total__` measure the truncation guard reads, so the layer \
+         and the engine built from it are unique to the request.",
+    ),
+    (
         "crates/app/src/server/simulation/probe.rs",
         "Run-scoped: `FitProbe` parses its layer out of the materialised world \
          directory a run generates, not the workspace's. The cache is keyed by \

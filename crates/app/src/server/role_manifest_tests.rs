@@ -568,6 +568,27 @@ fn workspace_metric_tree_routes_are_fleet_ok() {
 }
 
 #[test]
+fn workspace_cohort_route_is_fleet_ok() {
+    // The IDE peer-cohort route, classified with its metric-tree neighbours
+    // rather than with the IDE editor surface. It reads the same compile
+    // boundary through the same `resolve_query_scan_source`, holds a
+    // `WorkspaceManagerReadOnly`, and touches no `.git` and no state dir — so
+    // pinning it to the singleton would make the World Model panel's "compared
+    // to peers" section stop rendering whenever the ide restarts, which is the
+    // HA bug the split exists to prevent, in reverse.
+    //
+    // Note it is NOT under `/semantic/metric-tree`, so
+    // `workspace_metric_tree_routes_are_fleet_ok` above does not cover it.
+    let ws = "d9830be4-c6a4";
+    assert_eq!(
+        classify("POST", &format!("/api/{ws}/semantic/cohort")),
+        RouteRole::FleetOk,
+        "the workspace cohort route must stay FleetOk (compile-boundary scan \
+         root — see resolve_query_scan_source)"
+    );
+}
+
+#[test]
 fn runtime_routes_are_ide_only() {
     // The DuckDB / local-execution subset. Each one EXECUTES in-process on the
     // ide (a query, a run, a process-local event stream), so it cannot be

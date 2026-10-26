@@ -855,6 +855,7 @@ mod wm_config_tests {
                 description: None,
                 expr: None,
                 has_breakdown: false,
+                default_cohort: None,
             }],
             induced_measures: vec![],
         }

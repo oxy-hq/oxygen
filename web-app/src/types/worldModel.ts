@@ -11,6 +11,11 @@ export interface WorldModelMeasure {
   label?: string | null;
   /** True when the measure decomposes into a metric-tree driver breakdown. */
   has_breakdown?: boolean;
+  /** `entity.cohort_name` when the measure declares a `default_cohort:`. Absent
+   *  means no peer comparison exists for it, which is what gates the instance
+   *  panel's "Compared to peers" section — the graph is the only place that
+   *  knows without spending a cohort resolution. */
+  default_cohort?: string | null;
 }
 
 export interface WorldModelInducedMeasure extends WorldModelMeasure {

@@ -7,6 +7,7 @@ import {
   DEFAULT_PRESET_DAYS,
   WorldModelOpportunitiesSection
 } from "./WorldModelOpportunitiesSection";
+import { WorldModelPeerCohortSection } from "./WorldModelPeerCohortSection";
 
 interface WorldModelInstanceOpportunityProps {
   measureName: string;
@@ -23,6 +24,9 @@ interface WorldModelInstanceOpportunityProps {
   /** The graph, for resolving a segment header back to a selectable node. */
   model: WorldModel;
   onSelect: (s: WmSelection) => void;
+  /** The measure's `default_cohort:` from the world-model graph. Absent means
+   *  no peer comparison is declared, and the peer section is not offered. */
+  defaultCohort?: string | null;
 }
 
 /**
@@ -41,15 +45,34 @@ interface WorldModelInstanceOpportunityProps {
  * "which store lags?" question still has a home: it is what the measure panel
  * (`WorldModelMeasureAnalysis`) asks, unscoped.
  *
- * Unlike the measure panel it renders **nothing at all** — no spinner, no "no
- * node" copy — when the measure has no metric-tree node, so an instance's
- * measure list is not littered with empty toggles. It also passes
+ * Unlike the measure panel the OPPORTUNITIES half renders **nothing at all** —
+ * no spinner, no "no node" copy — when the measure has no metric-tree node, so
+ * an instance's measure list is not littered with empty toggles. It also passes
  * `hideWhenEmpty` so the section renders nothing when the sizing query comes
  * back with no data: an instance's measure list should never show an
  * "Opportunities" toggle that only opens onto a "no data" line. That resolution
  * is eager and costs one warehouse sizing scan per mounted measure (5-min
  * cached). Being scoped, that cache is per instance rather than shared across
  * them, so the cost is paid per instance visited.
+ *
+ * ## The second section
+ *
+ * [`WorldModelPeerCohortSection`] sits below it and answers the OTHER question
+ * — this instance against **other instances of the same entity**. The two are
+ * kept apart deliberately: the scoping described above is exactly what a domain
+ * expert misread, taking the opportunities list for a cross-restaurant
+ * comparison. Merging peer rows into it would have made that reading permanent.
+ *
+ * The peer section is gated differently, and that is the point rather than an
+ * oversight. `sizable` and `drillable` answer "can the ENGINE decompose this
+ * measure?"; whether a measure has a peer cohort is a fourth, unrelated
+ * predicate — a `cohorts:` block on the entity plus `default_cohort:` on the
+ * measure. Reusing the sizing gate would hide peer comparison for measures that
+ * declare one perfectly well (a plain `count`, a composite the engine refuses),
+ * so the peer section renders wherever the measure declares a `default_cohort:`
+ * (carried on the world-model graph) on THIS instance's entity — whether or not
+ * a metric-tree node exists. It costs nothing until expanded — see its own docs
+ * for why it is lazy where this one is eager.
  */
 export function WorldModelInstanceOpportunity({
   measureName,
@@ -59,7 +82,8 @@ export function WorldModelInstanceOpportunity({
   additivity,
   instance,
   model,
-  onSelect
+  onSelect,
+  defaultCohort
 }: WorldModelInstanceOpportunityProps) {
   const view = declaringView(induced, promotedFrom, entityView);
   const { data: tree } = useMetricTree();
@@ -73,7 +97,9 @@ export function WorldModelInstanceOpportunity({
     return tree.nodes.find((n) => n.view === view && n.measure === measureName);
   }, [tree, view, measureName]);
 
-  if (!node) return null;
+  // Without a declaring view the measure has no `view.measure` address, so
+  // neither section can form a request.
+  if (!view) return null;
 
   // Only additive sums and non-additive rates are sizable; passthrough is not.
   // But `sizable` alone is NOT the surviving gate after the two sections merged
@@ -84,21 +110,56 @@ export function WorldModelInstanceOpportunity({
   // `sizable` alone would silently drop the affordance for exactly the composites
   // the decomposition exists to expose, so `drillable` is admitted alongside it.
   const sizable = additivity === "additive" || additivity === "non_additive";
-  const drillEnabled = node.drillable || additivity === "additive";
-
-  if (!sizable && !drillEnabled) return null;
+  const drillEnabled = (node?.drillable ?? false) || additivity === "additive";
+  // Sizing needs a metric-tree node; peer comparison does not — see the note on
+  // the fourth predicate above.
+  const showSizing = !!node && (sizable || drillEnabled);
+  // The peer section's own predicate: does the MODEL declare a comparison for
+  // this measure? A toggle that opens onto "no peer cohort is declared" spends
+  // a request to say nothing, and `hideWhenEmpty` above exists precisely so an
+  // instance's measure list is not littered with empty toggles. Gating on the
+  // declaration rather than on the resolution keeps the explanatory copy for
+  // the case that is a real authoring error — a `default_cohort:` pointing at a
+  // `cohorts:` block that is missing, or not in `entity.cohort` form, still
+  // resolves to `cohort_not_resolved`, and the reader needs to be told.
+  //
+  // A declaration naming ANOTHER entity is not that error: the measure is
+  // listed on every entity it is promoted to, all carrying the same
+  // `default_cohort`, and only the named entity can resolve it. Elsewhere the
+  // toggle would always fail and its copy would tell a correct model to
+  // re-point its cohort — so it is hidden, mirroring `resolve_cohort_name`.
+  const showPeers = !!defaultCohort && cohortBelongsTo(defaultCohort, instance.entity);
 
   return (
-    <WorldModelOpportunitiesSection
-      nodeId={node.id}
-      view={node.view}
-      additivity={additivity}
-      periodDays={periodDays}
-      onPeriodDaysChange={setPeriodDays}
-      instance={instance}
-      model={model}
-      onSelect={onSelect}
-      hideWhenEmpty
-    />
+    <>
+      {showSizing && node && (
+        <WorldModelOpportunitiesSection
+          nodeId={node.id}
+          view={node.view}
+          additivity={additivity}
+          periodDays={periodDays}
+          onPeriodDaysChange={setPeriodDays}
+          instance={instance}
+          model={model}
+          onSelect={onSelect}
+          hideWhenEmpty
+        />
+      )}
+      {showPeers && (
+        <WorldModelPeerCohortSection
+          measure={`${view}.${measureName}`}
+          view={view}
+          instance={instance}
+          periodDays={periodDays}
+        />
+      )}
+    </>
   );
+}
+
+/** False only when `default_cohort` names an entity other than `entity`. A bare
+ *  (malformed) name names none, so it is kept for the server to refuse. */
+function cohortBelongsTo(defaultCohort: string, entity: string): boolean {
+  const dot = defaultCohort.indexOf(".");
+  return dot < 0 || defaultCohort.slice(0, dot) === entity;
 }

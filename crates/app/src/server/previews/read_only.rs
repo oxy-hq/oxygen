@@ -78,6 +78,9 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/semantic/metric-tree/opportunity"),
     ("POST", "/semantic/metric-tree/predict"),
     ("POST", "/semantic/metric-tree/projection"),
+    // Peer cohort: two entity-grain reads through the same query executor as
+    // the metric-tree analyses, which carries the preview hold.
+    ("POST", "/semantic/cohort"),
     // The dry run of one monitor: a time-series read through the same runner
     // as the metric-tree analyses above, with nothing persisted by design. A
     // branch that edits `.monitor.yml` is exactly where someone wants to see

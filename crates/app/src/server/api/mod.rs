@@ -67,6 +67,7 @@ mod foot_traffic_seed;
 // The GitHub HTTP surface moved to the `oxy-api-github` sibling crate, mounted by
 // `oxy-server`. oxy-app no longer depends on it.
 pub mod chat;
+pub mod cohort;
 pub mod frontline_admin;
 pub mod frontline_grants;
 pub mod healthcheck;

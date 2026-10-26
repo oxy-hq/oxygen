@@ -998,6 +998,45 @@ const metricTreeKeys = {
       instance?.entity ?? null,
       instance?.key ?? null
     ] as const,
+  /** Peer-cohort comparison for one entity + measure over a period.
+   *
+   *  Deliberately NOT keyed by instance, unlike `opportunity`: one response
+   *  carries a row for every subject in the population, so every instance of
+   *  the same entity reads the same cached answer and picks its own key out of
+   *  it. `cohort` IS in the key, because omitting it resolves the measure's
+   *  `default_cohort:` — a different question from naming one. `statistic` is
+   *  in the key for the same reason: a median of peers and a best peer are
+   *  different benchmarks over the same population.
+   *
+   *  `branch` is in the key because the request sends one, and server-side a
+   *  non-empty `?branch=` escalates to the ide and pins that branch's compiled
+   *  revision — where the `cohorts:` block may differ or not exist. Without it
+   *  a branch switch inside the 5-minute `staleTime` would render one branch's
+   *  peer set, and its provenance line, under the other's name. `opportunity`
+   *  and `drill` omit branch and are consistent in doing so: they send none. */
+  cohort: (
+    projectId: string,
+    branch: string,
+    entity: string,
+    measure: string,
+    timeDimension: string,
+    period: readonly [string, string],
+    cohort: string | null,
+    statistic: string
+  ) =>
+    [
+      ...metricTreeKeys.all,
+      "cohort",
+      projectId,
+      branch,
+      entity,
+      measure,
+      timeDimension,
+      period[0],
+      period[1],
+      cohort ?? null,
+      statistic
+    ] as const,
   /** Recursive opportunity decomposition — same instance-scoping rationale as
    *  `opportunity`: a scoped drill answers a question about one instance, so
    *  it must key separately from the population-level scan (and from any

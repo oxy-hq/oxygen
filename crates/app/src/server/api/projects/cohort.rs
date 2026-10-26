@@ -7,36 +7,37 @@
 //! each other at a point in time — airlayer's `engine::cohort`, added in
 //! airlayer PR #116.
 //!
-//! Three contracts this module exists to preserve, all of which are easy to
-//! break by "tidying" the response:
+//! **The wire types and the model-only helpers live in
+//! [`crate::server::api::cohort`]**, the IDE twin, and are imported here — the
+//! same direction `super::metric_tree` imports `OpportunityRequest` from
+//! `api::metric_tree`. The three response contracts they carry (`excluded`
+//! always explained, `min_peers` reports rather than filters, cohort + band
+//! window echoed back) are documented there, next to the types that encode
+//! them.
 //!
-//!  1. **`excluded` is not optional detail.** A subject that cannot be
-//!     compared comes back with a reason. The feature exists partly because in
-//!     the hand-rolled predecessor a store "simply did not appear in the list
-//!     and no screen said why".
-//!  2. **`min_peers` is a reporting predicate, never a filter.** A subject
-//!     below the floor is returned with its comparison computed and
-//!     `sufficient: false`. Filtering it here would relocate a product
-//!     decision into the transport layer.
-//!  3. **The cohort name and band window are echoed back**, so a UI rendering
-//!     them cannot drift from the query that produced the numbers.
+//! What stays here is everything the IDE surface has no counterpart for:
+//! the custom-app gate, the result cache, and — the substantive one — **reach
+//! scoping**. A cohort baseline is computed over a POPULATION, so on this
+//! surface the population is the security boundary: every pull is filtered to
+//! the caller's locations, per bound view, in that view's own id space.
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::Response;
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use std::collections::{BTreeSet, HashMap};
 
-use oxy_airlayer_compat::engine::cohort::{
-    CohortSubject, ExcludedSubject, PeerCohortResult, augment_failure_reason,
-    augment_layer_for_cohort,
-};
-use oxy_airlayer_compat::engine::metric_tree_ops::BenchmarkStatistic;
+use oxy_airlayer_compat::BoundView;
 use oxy_airlayer_compat::engine::query::{FilterOperator, QueryFilter};
-use oxy_airlayer_compat::{BoundView, SemanticLayer};
 
+// One definition of the contract, shared with the IDE surface so the two
+// cannot drift. `COHORT_TIMEOUT` is THE deadline, not a copy of it: both
+// surfaces query the same warehouse.
+use crate::server::api::cohort::{
+    COHORT_TIMEOUT, CohortRequest, CohortResponse, parse_statistic, prepare_cohort_layer,
+    resolve_cohort_name,
+};
 use crate::server::api::custom_apps_gates::parse_versioned_body;
 use crate::server::api::operating_graph::binding::NO_REACH_SENTINEL;
 use crate::server::api::projects::semantic_boundary::{
@@ -44,161 +45,7 @@ use crate::server::api::projects::semantic_boundary::{
 };
 use crate::server::router::AppState;
 
-// ── Wire types ──────────────────────────────────────────────────────────────
-
-/// Request body for a cohort resolution.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CohortRequest {
-    /// Entity the cohort is declared on, e.g. `"restaurant_id"`.
-    pub entity: String,
-    /// Fully-qualified measure to compare, e.g. `"sales.wage_pct"`.
-    pub measure: String,
-    /// Time dimension to filter the period on.
-    pub time_dimension: String,
-    /// `[start, end]`, inclusive, `YYYY-MM-DD`.
-    pub period: (String, String),
-    /// Cohort as `"entity.cohort_name"`. Falls back to the measure's
-    /// `default_cohort:` when omitted.
-    #[serde(default)]
-    pub cohort: Option<String>,
-    /// `median` (default) | `p75` | `best_peer`.
-    #[serde(default)]
-    pub statistic: Option<String>,
-    /// The custom app asking, when there is one. Both siblings
-    /// (`semantic_query.rs`, `world_model.rs`) pass it, and reach consults it
-    /// for app-admin standing — omitting it silently narrows a per-app admin
-    /// to their own roster.
-    #[serde(default)]
-    pub app: Option<Uuid>,
-}
-
-/// Oxy's mirror of airlayer's `PeerCohortResult`.
-///
-/// Deliberately a mirror rather than a re-serialization of the airlayer type:
-/// airlayer is a git pin, and its `skip_serializing_if` attributes are "a
-/// serde attribute today, not a guarantee". Owning the wire shape here means a
-/// pin bump cannot silently drop a field the SDK and UI depend on, and lets
-/// the contract be asserted by a test in this repo.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct CohortResponse {
-    pub entity: String,
-    /// The cohort actually used — echoed so a caller that passed `None` and
-    /// got the measure's `default_cohort:` can render which one answered.
-    pub cohort: String,
-    pub measure: String,
-    pub statistic: BenchmarkStatistic,
-    pub period: (String, String),
-    /// The window the BAND was measured over. `Some(period)` when the cohort
-    /// declares a band without its own `window:`; absent only when the cohort
-    /// declares no band at all. Always contains `period` — it is anchored at
-    /// the period START and extended backward, not shifted.
-    ///
-    /// Emitted as `null` rather than omitted: the field's absence is
-    /// meaningful, so it must not be confusable with a pin-bump regression.
-    pub band_window: Option<(String, String)>,
-    pub subjects: Vec<CohortSubjectDto>,
-    /// Subjects dropped before comparison, each with a reason. Disjoint from
-    /// `subjects`. Never empty-by-omission — see the module docs.
-    pub excluded: Vec<ExcludedSubjectDto>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct CohortSubjectDto {
-    pub key: String,
-    pub value: f64,
-    /// `0.0` when `peer_count == 0` — there is no baseline, not a baseline of
-    /// zero. Read it together with `peer_count`.
-    pub baseline: f64,
-    /// Oriented so positive always means opportunity, whichever direction the
-    /// measure improves in.
-    pub gap: f64,
-    pub peers: Vec<String>,
-    pub peer_count: usize,
-    /// Whether `peer_count` met the cohort's `min_peers`. NOT a gate: an
-    /// insufficient subject is still here, with its comparison computed.
-    pub sufficient: bool,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct ExcludedSubjectDto {
-    pub key: String,
-    pub reason: String,
-}
-
-impl From<&CohortSubject> for CohortSubjectDto {
-    fn from(s: &CohortSubject) -> Self {
-        Self {
-            key: s.key.clone(),
-            value: s.value,
-            baseline: s.baseline,
-            gap: s.gap,
-            peers: s.peers.clone(),
-            peer_count: s.peer_count,
-            sufficient: s.sufficient,
-        }
-    }
-}
-
-impl From<&ExcludedSubject> for ExcludedSubjectDto {
-    fn from(e: &ExcludedSubject) -> Self {
-        Self {
-            key: e.key.clone(),
-            reason: e.reason.clone(),
-        }
-    }
-}
-
-impl From<&PeerCohortResult> for CohortResponse {
-    fn from(r: &PeerCohortResult) -> Self {
-        Self {
-            entity: r.entity.clone(),
-            cohort: r.cohort.clone(),
-            measure: r.measure.clone(),
-            statistic: r.statistic,
-            period: r.period.clone(),
-            band_window: r.band_window.clone(),
-            // Every subject, in pull order — no server-side filtering. See the
-            // module docs: `sufficient` reports, it does not gate.
-            subjects: r.subjects.iter().map(CohortSubjectDto::from).collect(),
-            excluded: r.excluded.iter().map(ExcludedSubjectDto::from).collect(),
-        }
-    }
-}
-
-// ── Pure helpers ────────────────────────────────────────────────────────────
-
-/// Parse the statistic, defaulting to `median`.
-pub(crate) fn parse_statistic(raw: Option<&str>) -> Result<BenchmarkStatistic, String> {
-    match raw.unwrap_or("median") {
-        "median" => Ok(BenchmarkStatistic::Median),
-        "p75" => Ok(BenchmarkStatistic::P75),
-        "best_peer" => Ok(BenchmarkStatistic::BestPeer),
-        other => Err(format!(
-            "unknown statistic `{other}` — expected one of median, p75, best_peer"
-        )),
-    }
-}
-
-/// Clone `layer` and install the synthetic `__cohort_total__` measure that the
-/// truncation guard depends on.
-///
-/// **This is the load-bearing call.** `augment_layer_for_cohort` returning
-/// `false` does not fail loudly: skipping it silently disables the guard that
-/// stops a truncated entity pull being medianed as if it were the whole
-/// population. So a `false` becomes an `Err` here and the caller must not
-/// build an engine.
-pub(crate) fn prepare_cohort_layer(
-    layer: &SemanticLayer,
-    entity: &str,
-) -> Result<SemanticLayer, String> {
-    let mut augmented = layer.clone();
-    if !augment_layer_for_cohort(&mut augmented, entity) {
-        // Surface it. Proceeding here would resolve the cohort with the
-        // truncation guard silently inert.
-        return Err(augment_failure_reason(layer, entity));
-    }
-    Ok(augmented)
-}
+// ── Reach scoping (this surface only) ───────────────────────────────────────
 
 /// The bound views that can carry this cohort's entity.
 ///
@@ -287,58 +134,6 @@ pub(crate) fn reach_filter(view: &str, key: &str, keys: &[String]) -> QueryFilte
     }
 }
 
-/// Resolve which cohort to use: the explicit request value, else the measure's
-/// own `default_cohort:`.
-///
-/// `default_cohort` is stored as `"entity.cohort_name"`. Comparability varies
-/// per measure, not per entity, which is why the fallback lives on the measure
-/// — and why a mismatch between the declared entity and the requested one is
-/// refused rather than coerced.
-pub(crate) fn resolve_cohort_name(
-    layer: &SemanticLayer,
-    entity: &str,
-    measure: &str,
-    explicit: Option<&str>,
-) -> Result<String, String> {
-    if let Some(c) = explicit {
-        // Accept either a bare name or a qualified `entity.cohort`.
-        return match c.split_once('.') {
-            None => Ok(c.to_string()),
-            Some((decl_entity, name)) if decl_entity == entity => Ok(name.to_string()),
-            Some((decl_entity, _)) => Err(format!(
-                "cohort `{c}` is declared on entity `{decl_entity}`, but the request asks about `{entity}`"
-            )),
-        };
-    }
-    let (view_name, measure_name) = measure
-        .split_once('.')
-        .ok_or_else(|| format!("measure `{measure}` is not fully qualified as `view.measure`"))?;
-    let declared = layer
-        .views
-        .iter()
-        .find(|v| v.name == view_name)
-        .and_then(|v| v.measures.as_ref())
-        .and_then(|ms| ms.iter().find(|m| m.name == measure_name))
-        .and_then(|m| m.default_cohort.clone())
-        .ok_or_else(|| {
-            format!(
-                "no cohort given and measure `{measure}` declares no `default_cohort:` — \
-                 name one explicitly"
-            )
-        })?;
-    match declared.split_once('.') {
-        Some((decl_entity, name)) if decl_entity == entity => Ok(name.to_string()),
-        Some((decl_entity, _)) => Err(format!(
-            "measure `{measure}` defaults to a cohort on entity `{decl_entity}`, \
-             but the request asks about `{entity}`"
-        )),
-        None => Err(format!(
-            "measure `{measure}` declares `default_cohort: {declared}`, which is not \
-             in `entity.cohort_name` form"
-        )),
-    }
-}
-
 /// A stable string identifying the population a caller may see, for use in a
 /// cache key, so two differently-scoped callers can never share an entry.
 ///
@@ -360,10 +155,6 @@ pub(crate) fn scope_cache_discriminator(
             .join(",")
     )
 }
-
-/// Soft cap — a cohort resolution fires two entity-grain pulls; failing loud
-/// beats hanging. Matches the metric-tree explain deadline.
-const COHORT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 /// `POST /api/projects/{project_id}/semantic/cohort`
 pub async fn post_cohort(
@@ -613,146 +404,6 @@ pub async fn post_cohort(
 mod tests {
     use super::*;
 
-    fn subject(key: &str, peer_count: usize, sufficient: bool) -> CohortSubject {
-        CohortSubject {
-            key: key.to_string(),
-            value: 10.0,
-            baseline: 8.0,
-            gap: 2.0,
-            peers: (0..peer_count).map(|i| format!("peer{i}")).collect(),
-            peer_count,
-            sufficient,
-        }
-    }
-
-    fn result_with(
-        subjects: Vec<CohortSubject>,
-        excluded: Vec<ExcludedSubject>,
-    ) -> PeerCohortResult {
-        PeerCohortResult {
-            entity: "restaurant_id".to_string(),
-            cohort: "size_matched".to_string(),
-            measure: "sales.wage_pct".to_string(),
-            statistic: BenchmarkStatistic::Median,
-            period: ("2026-08-01".to_string(), "2026-08-31".to_string()),
-            band_window: Some(("2026-05-03".to_string(), "2026-08-31".to_string())),
-            subjects,
-            excluded,
-        }
-    }
-
-    #[test]
-    fn statistic_accepts_the_three_values_and_defaults_to_median() {
-        assert_eq!(parse_statistic(None).unwrap(), BenchmarkStatistic::Median);
-        assert_eq!(
-            parse_statistic(Some("median")).unwrap(),
-            BenchmarkStatistic::Median
-        );
-        assert_eq!(
-            parse_statistic(Some("p75")).unwrap(),
-            BenchmarkStatistic::P75
-        );
-        assert_eq!(
-            parse_statistic(Some("best_peer")).unwrap(),
-            BenchmarkStatistic::BestPeer
-        );
-    }
-
-    #[test]
-    fn statistic_rejects_anything_else_naming_the_valid_values() {
-        let err = parse_statistic(Some("mean")).unwrap_err();
-        assert!(
-            err.contains("median"),
-            "error should name the valid values: {err}"
-        );
-        assert!(
-            err.contains("p75"),
-            "error should name the valid values: {err}"
-        );
-        assert!(
-            err.contains("best_peer"),
-            "error should name the valid values: {err}"
-        );
-    }
-
-    /// The reason the feature exists: a dropped subject must arrive with a
-    /// reason, not vanish.
-    #[test]
-    fn excluded_subjects_survive_the_mirror_with_their_reasons() {
-        let r = result_with(
-            vec![subject("a", 4, true)],
-            vec![
-                ExcludedSubject {
-                    key: "b".to_string(),
-                    reason: "opened mid-period".to_string(),
-                },
-                ExcludedSubject {
-                    key: "(null) [direct_only]".to_string(),
-                    reason: "entity key was NULL".to_string(),
-                },
-            ],
-        );
-        let dto = CohortResponse::from(&r);
-        assert_eq!(dto.excluded.len(), 2);
-        assert_eq!(dto.excluded[0].key, "b");
-        assert_eq!(dto.excluded[0].reason, "opened mid-period");
-        // The synthesized id for a NULL key must survive verbatim — it is what
-        // makes a keyless row addressable at all.
-        assert_eq!(dto.excluded[1].key, "(null) [direct_only]");
-    }
-
-    /// `min_peers` is a reporting predicate. An insufficient subject is
-    /// returned with its comparison computed; the server does not filter it.
-    #[test]
-    fn insufficient_subjects_are_returned_not_filtered() {
-        let r = result_with(
-            vec![subject("thin", 1, false), subject("thick", 9, true)],
-            vec![],
-        );
-        let dto = CohortResponse::from(&r);
-        assert_eq!(
-            dto.subjects.len(),
-            2,
-            "an insufficient subject must not be dropped"
-        );
-        let thin = dto.subjects.iter().find(|s| s.key == "thin").unwrap();
-        assert!(!thin.sufficient);
-        assert_eq!(thin.peer_count, 1);
-        // Its comparison is still computed — the caller decides whether to act.
-        assert_eq!(thin.gap, 2.0);
-        assert_eq!(thin.baseline, 8.0);
-    }
-
-    #[test]
-    fn cohort_name_and_band_window_are_echoed_back() {
-        let r = result_with(vec![subject("a", 3, true)], vec![]);
-        let dto = CohortResponse::from(&r);
-        assert_eq!(dto.cohort, "size_matched");
-        assert_eq!(dto.entity, "restaurant_id");
-        assert_eq!(
-            dto.band_window,
-            Some(("2026-05-03".to_string(), "2026-08-31".to_string()))
-        );
-        // The band window always contains the period.
-        let (bs, _) = dto.band_window.clone().unwrap();
-        assert!(bs <= dto.period.0);
-    }
-
-    /// `band_window` must serialize as an explicit `null`, never vanish: a UI
-    /// distinguishing "no band declared" from "field missing after a pin bump"
-    /// needs the key present.
-    #[test]
-    fn absent_band_window_serializes_as_null() {
-        let mut r = result_with(vec![], vec![]);
-        r.band_window = None;
-        let json = serde_json::to_value(CohortResponse::from(&r)).unwrap();
-        assert!(
-            json.get("band_window").is_some(),
-            "band_window key must be present even when null"
-        );
-        assert!(json["band_window"].is_null());
-    }
-
     fn bound(view: &str, key: &str, system: &str) -> BoundView {
         BoundView {
             view: view.into(),
@@ -829,19 +480,6 @@ mod tests {
         let (b, _) = two_systems();
         assert_eq!(cohort_bound_views(&b, "store").len(), 2);
         assert!(cohort_bound_views(&b, "employee").is_empty());
-    }
-
-    /// The wire value is the contract the SDK pins as a literal union; an
-    /// upstream rename must fail here, not in a consumer.
-    #[test]
-    fn statistic_serializes_to_the_documented_wire_string() {
-        let mut r = result_with(vec![], vec![]);
-        r.statistic = BenchmarkStatistic::P75;
-        let json = serde_json::to_value(CohortResponse::from(&r)).unwrap();
-        assert_eq!(json["statistic"], "p75");
-        r.statistic = BenchmarkStatistic::BestPeer;
-        let json = serde_json::to_value(CohortResponse::from(&r)).unwrap();
-        assert_eq!(json["statistic"], "best_peer");
     }
 
     #[test]

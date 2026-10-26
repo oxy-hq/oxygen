@@ -856,6 +856,7 @@ function ComputedMeasureRow({
           instance={{ entity: entityId, key: keyValue }}
           model={model}
           onSelect={onSelect}
+          defaultCohort={def.default_cohort}
         />
       )}
     </div>

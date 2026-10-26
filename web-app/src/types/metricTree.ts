@@ -684,6 +684,93 @@ export interface OpportunityRequest {
   statistic?: BenchmarkStatistic;
 }
 
+// ── peer cohort ─────────────────────────────────────────────────────────────
+//
+// `POST /{workspace_id}/semantic/cohort`. A different question from
+// `opportunity` above, and the panel keeps them apart on purpose: opportunity
+// benchmarks the DIMENSION SEGMENTS inside one instance ("vs your own
+// channels"), a cohort benchmarks this instance against OTHER INSTANCES of the
+// same entity ("vs similar restaurants"). Blending them under one "upside"
+// heading is what made a domain expert read the opportunity list as a
+// cross-store comparison it never was.
+
+/** Why a subject was left out of the comparison entirely.
+ *
+ *  Distinct from `sufficient: false` on a {@link CohortSubject}, which still
+ *  carries a computed comparison. Every exclusion has a reason and a UI MUST
+ *  render it: the predecessor implementation simply dropped such a store from
+ *  the list with no screen saying why, and that is the failure this replaces. */
+export interface ExcludedCohortSubject {
+  /** For a NULL entity key, a synthesized stable id of the form
+   *  `"(null) [<require values>]"` rather than an empty string. */
+  key: string;
+  /** Human-readable prose — NOT a coded enum, so render it verbatim rather
+   *  than switching on it. */
+  reason: string;
+}
+
+/** One subject's comparison against its peer cohort.
+ *
+ *  `min_peers` is a REPORTING predicate, never a filter: a subject below the
+ *  threshold arrives with `baseline` and `gap` computed from whatever peers it
+ *  has. Never filter on `sufficient` client-side — surface it, and let the
+ *  reader decide whether a thin peer set is worth acting on. */
+export interface CohortSubject {
+  key: string;
+  value: number;
+  /** The peer benchmark. `0` when `peer_count === 0` — that is the ABSENCE of
+   *  a baseline, not a baseline of zero. Read it with `peer_count`. */
+  baseline: number;
+  /** Oriented so positive always means opportunity, whichever direction the
+   *  measure improves in. `0` when there are no peers. */
+  gap: number;
+  /** Non-reciprocal: appearing in another subject's `peers` does not imply
+   *  this subject lists them back. */
+  peers: string[];
+  peer_count: number;
+  /** `peer_count >= the cohort's min_peers`. A flag to show, not a gate. */
+  sufficient: boolean;
+}
+
+export interface CohortResponse {
+  entity: string;
+  /** The cohort that actually answered — echoed because a caller may have sent
+   *  none and got the measure's `default_cohort:`. Render it, so what is on
+   *  screen cannot drift from the query behind it. */
+  cohort: string;
+  measure: string;
+  statistic: BenchmarkStatistic;
+  period: [string, string];
+  /** The window the BAND was measured over, when the cohort declares one.
+   *  Anchored at the period START and extended backward, so it always CONTAINS
+   *  `period`. Absent only when the cohort declares no band at all.
+   *
+   *  `| null` because it mirrors an `Option<(String, String)>` on a git-pinned
+   *  struct: compare with `!= null`, never `!== undefined`. */
+  band_window?: [string, string] | null;
+  /** One row per subject in the population, in pull order — the panel picks
+   *  out its own instance key. Note the key may instead be in `excluded`. */
+  subjects: CohortSubject[];
+  excluded: ExcludedCohortSubject[];
+}
+
+export interface CohortRequest {
+  /** The bare name of an `entities:` entry in the semantic model — the same id
+   *  the world model addresses an entity by. NOT a column and NOT a qualified
+   *  `view.entity`. */
+  entity: string;
+  /** Fully-qualified `view.measure`. */
+  measure: string;
+  time_dimension: string;
+  /** `[start, end]` inclusive `YYYY-MM-DD`. */
+  period: [string, string];
+  /** Falls back to the measure's `default_cohort:` when omitted. */
+  cohort?: string;
+  /** Defaults to `"median"` server-side — note this differs from
+   *  `opportunity`, which defaults to `"p75"`. */
+  statistic?: BenchmarkStatistic;
+}
+
 /** Response of `GET /semantic/metric-tree/time-dimensions`. */
 export interface TimeDimensionsResponse {
   /** view name → fully-qualified time-dim ids (`view.dim`). */

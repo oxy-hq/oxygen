@@ -178,6 +178,7 @@ Mounted in both modes. Cloud uses the real workspace UUID; local always uses
 ├── /builder-availability · /onboarding-readiness
 ├── /sql/{pathb64} · /sql/query
 ├── /semantic · /semantic/compile · /semantic/topic/{file_path_b64} · /semantic/view/{file_path_b64}   (compile + execute go through airlayer + agentic-connector)
+├── /semantic/cohort                       (peer-cohort comparison; IDE twin of the customer-app mount in public.rs)
 └── /results/files/{file_id}               (get, delete)
 ```
 

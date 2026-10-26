@@ -12,7 +12,7 @@ use axum::routing::{delete, get, post, put};
 use agentic_http::{AgenticState, airway_router, automation_router, router as agentic_router};
 
 use crate::api::{
-    agent, api_keys, app, apps, artifacts, automation, chart, competitors, compile,
+    agent, api_keys, app, apps, artifacts, automation, chart, cohort, competitors, compile,
     compile_staging, data, data_repo, database, execution_analytics, exported_chart, file,
     foot_traffic, integration, local_setup, metric_anomalies, metric_tree, metric_tree_probe,
     metric_tree_projection, metrics, modeling, org_subdomain, pipeline, preagg, result_files,
@@ -201,6 +201,23 @@ pub(super) fn build_workspace_routes(
         .route_fleet("/semantic/preagg-rebuild", post(preagg::rebuild_preagg))
         .route_fleet("/semantic/compile", post(semantic::compile_semantic_query))
         .route_fleet("/semantic", post(semantic::execute_semantic_query))
+        // Peer cohorts — the World Model instance panel's "compared to peers"
+        // section. IDE twin of the customer-app mount in `public.rs`; the two
+        // share `api::cohort`'s wire types and differ only in how a caller
+        // gets in and whether the population is reach-scoped.
+        //
+        // FleetOk for the same reason as the metric-tree block below: the scan
+        // root resolves through `semantic::resolve_query_scan_source` (compile
+        // boundary first, working copy second) and warehouse execution needs
+        // only config + secrets. No `.git`, no state dir, and the branch a
+        // request reads is pinned by `workspace_middleware`, not here. Pinned
+        // by `workspace_cohort_route_is_fleet_ok`.
+        //
+        // Deliberately NOT inside `build_metric_tree_routes`: that sub-router
+        // exists so `metric_tree_probe` times exactly those ten routes, and a
+        // cohort resolution is a different query shape whose latency would
+        // pollute that signal.
+        .route_fleet("/semantic/cohort", post(cohort::post_cohort))
         // Metric tree — structure + pure analysis ops over the semantic model.
         // Merged as its own sub-router so the diagnostic probe layers over
         // these ten routes and nothing else.
