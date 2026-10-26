@@ -16,8 +16,8 @@ use oxy_shared::errors::OxyError;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use oxy_app::surface::role_guards::OrgAdmin;
-use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath};
+use oxy_app::surface::role_guards::{OrgAdmin, WorkspaceAdmin};
+use oxy_app::surface::{WorkspaceManagerReadOnly, WorkspacePath};
 use oxy_app_core::AppState;
 
 use super::dto::*;
@@ -537,6 +537,11 @@ pub async fn github_setup(
 /// of a partial onboarding run (secrets, warehouse entries in `config.yml`, and
 /// generated files). Intended to back the "Start over" UI.
 pub async fn reset_onboarding(
+    // `workspace_middleware` proves the caller may open the workspace, not that
+    // they may change it. Removing databases and deleting secrets is what
+    // `POST /databases` and `/secrets/*` do, and those are `WorkspaceAdmin`.
+    // First, so a refused caller is refused before anything is resolved.
+    _: WorkspaceAdmin,
     // `ReadOnly`, not `<WorkingCopy>`: this crate builds a `Router<AppState>`
     // and the working-copy extractor resolves only from `IdeState`, so asking
     // for one here does not compile across the crate line. The route is declared
@@ -756,6 +761,10 @@ pub async fn reset_onboarding(
 /// expected to then submit a warehouse config with `file_search_path = subdir`,
 /// which the connector will scan for the just-uploaded files.
 pub async fn upload_warehouse_files(
+    // An upload exists only to feed the next step, `POST /databases` with
+    // `dataset` pointed at it, which is `WorkspaceAdmin`: an Editor who could
+    // upload could never use the files. Same guard as that step.
+    _: WorkspaceAdmin,
     // See `reset_onboarding` — same crate-line constraint, same recovery.
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
     Path(WorkspacePath { workspace_id }): Path<WorkspacePath>,

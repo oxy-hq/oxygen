@@ -658,6 +658,11 @@ pub enum ConnectionTestEvent {
     tag = "Databases"
 )]
 pub async fn test_database_connection(
+    // Step one of Add database, whose save (`create_database_config`) is
+    // `WorkspaceAdmin`. Building the throwaway config writes a BigQuery key into
+    // the working copy and can store a secret, so it is a write, not a probe.
+    // First, so a refused caller is refused before anything is resolved.
+    _: WorkspaceAdmin,
     WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
     Path(WorkspacePath { workspace_id: _ }): Path<WorkspacePath>,
     AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,

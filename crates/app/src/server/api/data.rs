@@ -1,3 +1,4 @@
+use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
 use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
 };
@@ -504,6 +505,11 @@ pub async fn execute_sql_query(
 //         - calculating inclusion radius for each retrieval item
 //         - caching enum values for each variable so they can be detected at query time
 pub async fn build_embeddings(
+    // Runs an Omni sync and a reindex. Its siblings on the same router,
+    // `/databases/sync` and `/databases/clean`, are `WorkspaceAdmin`, and its one
+    // caller (Settings → Databases → Build) renders only for a workspace admin.
+    // First, so a refused caller is refused before anything is resolved.
+    _: WorkspaceAdmin,
     WorkspaceManagerWorkingCopy(workspace_manager): WorkspaceManagerWorkingCopy,
     Path(WorkspacePath {
         workspace_id: _workspace_id,
