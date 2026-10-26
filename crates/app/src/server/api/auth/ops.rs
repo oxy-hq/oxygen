@@ -23,6 +23,7 @@ use oxy::database::{client::establish_connection, filters::UserQueryFilterExt};
 use oxy_auth::constants::SESSION_COOKIE_NAME;
 use oxy_shared::errors::OxyError;
 
+use super::anonymous_link::SignInLink;
 use super::dto::*;
 use super::handlers::create_auth_token;
 
@@ -556,15 +557,30 @@ pub(super) async fn session_payload(
     Ok((user_info, orgs))
 }
 
+/// The origin the request's `Origin` (else `Referer`) names, pinned off an org
+/// subdomain. It believes the request, so it is never the base of a link an
+/// anonymous request makes Oxygen mail: that is
+/// `anonymous_link::link_base_for_anonymous_request`.
 pub fn extract_base_url_from_headers(headers: &HeaderMap) -> String {
     pin_org_subdomain_to_app_host(extract_base_url_raw(headers))
 }
 
+/// The fallback base when nothing better is known: a laptop's `oxy serve` on
+/// its default port.
+pub(super) const LOCAL_DEFAULT_BASE: &str = "http://localhost:3000";
+
 fn extract_base_url_raw(headers: &HeaderMap) -> String {
+    origin_named_by_request(headers).unwrap_or_else(|| LOCAL_DEFAULT_BASE.to_string())
+}
+
+/// `scheme://host[:port]` as the request's `Origin` header states it, else as
+/// its `Referer` does; `None` when it carries neither. What the request says,
+/// unchecked: any client that is not a browser can send either header.
+pub(super) fn origin_named_by_request(headers: &HeaderMap) -> Option<String> {
     if let Some(origin) = headers.get("origin").and_then(|h| h.to_str().ok()) {
         let origin = origin.trim_end_matches('/');
         if origin.starts_with("http://") || origin.starts_with("https://") {
-            return origin.to_string();
+            return Some(origin.to_string());
         }
         // Some reverse proxies/CDNs may forward Origin without scheme.
         // Default to https for non-localhost hosts.
@@ -573,7 +589,7 @@ fn extract_base_url_raw(headers: &HeaderMap) -> String {
         } else {
             "https"
         };
-        return format!("{scheme}://{origin}");
+        return Some(format!("{scheme}://{origin}"));
     }
 
     if let Some(referer) = headers.get("referer").and_then(|h| h.to_str().ok())
@@ -581,10 +597,10 @@ fn extract_base_url_raw(headers: &HeaderMap) -> String {
         && let Some(host) = url.host_str()
     {
         let port = url.port().map(|p| format!(":{p}")).unwrap_or_default();
-        return format!("{}://{}{}", url.scheme(), host, port);
+        return Some(format!("{}://{}{}", url.scheme(), host, port));
     }
 
-    "http://localhost:3000".to_string()
+    None
 }
 
 /// The origin for a link an AUTHENTICATED caller causes to be sent — an
@@ -804,7 +820,7 @@ mod base_url_tests {
 /// subdomain (`pokehouse.oxygen-hq.com`), pin the base URL back to the app
 /// host rather than echoing the subdomain. Non-subdomain hosts (app host,
 /// custom-branded, localhost) pass through unchanged.
-fn pin_org_subdomain_to_app_host(base: String) -> String {
+pub(super) fn pin_org_subdomain_to_app_host(base: String) -> String {
     let Ok(url) = Url::parse(&base) else {
         return base;
     };
@@ -1192,9 +1208,6 @@ pub(super) async fn request_magic_link_inner(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    // Send email async
-    let base_url = extract_base_url_from_headers(&headers);
-
     // Validate return_to before stuffing it into the email. The web-app
     // performs the actual redirect, but if the proxy hands us a malicious
     // URL we don't want to embed it in the outbound link at all.
@@ -1207,27 +1220,17 @@ pub(super) async fn request_magic_link_inner(
         None => None,
     };
 
+    let link = super::anonymous_link::magic_link_for(&headers, &token, return_to.as_deref());
+
     // Log the magic link URL at debug level only — the token is a session credential
     // and must not appear in production log aggregators.
-    tracing::debug!(
-        "Magic link for {}: {}/auth/magic-link/callback?token={}",
-        req.email,
-        base_url,
-        token
-    );
+    tracing::debug!("Magic link for {}: {}", req.email, link.as_str());
 
+    // Send email async
     let email_addr = req.email.clone();
     let cfg_clone = magic_link_config.clone();
     tokio::spawn(async move {
-        if let Err(e) = send_magic_link_email(
-            &email_addr,
-            &token,
-            &base_url,
-            return_to.as_deref(),
-            &cfg_clone,
-        )
-        .await
-        {
+        if let Err(e) = send_magic_link_email(&email_addr, &link, &cfg_clone).await {
             tracing::error!("Failed to send magic link email: {}", e);
         }
     });
@@ -1237,27 +1240,22 @@ pub(super) async fn request_magic_link_inner(
     }))
 }
 
+/// Mails `link`. It takes a [`SignInLink`], which only
+/// `anonymous_link::magic_link_for` makes, so no caller can mail a sign-in
+/// link built on a host the request named.
 async fn send_magic_link_email(
     to_email: &str,
-    token: &str,
-    base_url: &str,
-    return_to: Option<&str>,
+    link: &SignInLink,
     config: &MagicLinkAuth,
 ) -> Result<(), OxyError> {
     use crate::emails::{
         EmailMessage, EmailProvider, local_test::LocalTestEmailProvider, ses::SesEmailProvider,
     };
 
-    let magic_link_url = match return_to {
-        Some(target) => format!(
-            "{base_url}/auth/magic-link/callback?token={token}&return_to={}",
-            urlencoding::encode(target)
-        ),
-        None => format!("{base_url}/auth/magic-link/callback?token={token}"),
-    };
+    let magic_link_url = link.as_str();
     let message = EmailMessage {
         subject: "Sign in to Oxygen".to_string(),
-        html_body: build_magic_link_email_html(&magic_link_url, to_email)?,
+        html_body: build_magic_link_email_html(magic_link_url, to_email)?,
         text_body: format!(
             "Your sign-in link for Oxygen\n\nClick the link below to sign in. For security, this link expires in 15 minutes and can only be used once.\n\n{magic_link_url}\n\nThis link was requested for {to_email}. If you didn't request this, you can safely ignore this email — your account remains secure."
         ),

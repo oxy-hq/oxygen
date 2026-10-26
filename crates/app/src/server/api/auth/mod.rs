@@ -10,6 +10,7 @@
 //! - [`token_session`]: the login response of a session a personal access
 //!   token opened, and its cookie hydration.
 
+mod anonymous_link;
 mod cookie_session;
 mod dev_login;
 mod dto;
