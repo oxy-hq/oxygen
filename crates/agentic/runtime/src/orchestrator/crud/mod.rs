@@ -12,6 +12,7 @@ pub mod dead_letter;
 pub mod outcomes;
 pub mod queue;
 pub mod recovery;
+pub mod retry;
 
 pub use adopt::adopt_queued_task;
 pub use boot_cleanup::cleanup_stale_runs;
@@ -36,4 +37,7 @@ pub use recovery::{
     StuckRun, complete_run_with_lost_outcome, find_pending_global_runs, find_stuck_automation_runs,
     find_stuck_runs, get_active_root_runs, get_max_child_counter, get_resumable_root_runs,
     increment_attempt, mark_recovery_failed, owning_run_id, retire_run,
+};
+pub use retry::{
+    RetryState, cancel_waiting_retry, final_failure_message, requeue_failed_attempt, retry_state,
 };

@@ -26,6 +26,7 @@ mod adopt;
 mod beat;
 mod claims;
 mod dead_letter;
+mod retry;
 
 use claims::{ClaimTokens, Heartbeats, fence};
 
@@ -97,6 +98,11 @@ pub struct DurableTransport {
     /// `handle_done` early-returns, and the right coordinator hangs
     /// waiting for an outcome that already arrived elsewhere.
     task_id_root: Option<String>,
+
+    /// Retry the root task per its queue row's policy when it fails, rather
+    /// than reporting the failure. Off unless the run's driver opts in; see
+    /// [`Self::retry_failed_root`].
+    retry_root: AtomicBool,
 
     /// Cross-process wake source.
     ///
@@ -365,6 +371,7 @@ impl DurableTransport {
             heartbeats: Heartbeats::default(),
             poll_interval,
             task_id_root,
+            retry_root: AtomicBool::new(false),
             router,
             worker_loop_cancel: CancellationToken::new(),
             // Spread across the sub-second window; wraps harmlessly.
@@ -776,6 +783,12 @@ impl CoordinatorTransport for DurableTransport {
         // one-shot, so a Stop lost here is lost for good.
         self.cancel_tokens.stop(task_id);
 
+        // A row waiting out a retry's backoff has no execution to report the
+        // Stop; report it here or the coordinator waits for ever.
+        if self.cancel_waiting_retry(task_id).await {
+            return Ok(());
+        }
+
         crud::cancel_queued_task(&self.db, task_id)
             .await
             .map_err(|e| TransportError::Other(format!("cancel failed: {e}")))
@@ -1074,6 +1087,10 @@ impl WorkerTransport for DurableTransport {
     }
 
     async fn send(&self, msg: WorkerMessage) -> Result<(), TransportError> {
+        // A failure the root's retry policy absorbs reports nothing.
+        let Some(msg) = self.retry_or_report(msg).await else {
+            return Ok(());
+        };
         // On terminal outcomes, update the queue entry.
         match &msg {
             // A deferral returns the task to the queue unrun, invisible for

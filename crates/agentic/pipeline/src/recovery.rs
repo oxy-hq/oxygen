@@ -791,6 +791,12 @@ async fn recover_single_run_owned(
     // `lib.rs` for the full explanation of why this matters under
     // LISTEN/NOTIFY-driven wake.
     let transport = DurableTransport::with_router(db.clone(), router, Some(root.id.clone()));
+    // An Oxy Function's `retries` is the user's declared contract, carried as
+    // the root's queue-row policy (seeded with the kind as its source type).
+    // Other roots carrying a policy keep their behaviour.
+    if root.source_type.as_deref() == Some(crate::app_function_task::APP_FUNCTION_KIND) {
+        transport.retry_failed_root();
+    }
     // A preview run gets no builder: its bridges edit the working copy, and an
     // analytics agent can delegate to it. Without bridges the delegation fails
     // instead of writing a file.

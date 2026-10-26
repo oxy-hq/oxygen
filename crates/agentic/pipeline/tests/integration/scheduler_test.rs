@@ -107,7 +107,7 @@ async fn test_db() -> Option<DatabaseConnection> {
 
 /// Never actually called for `workflow` targets (see module docs); only
 /// satisfies the `tick_schedules` / `run_schedule_now` signature.
-struct FakeWorkspace;
+pub(crate) struct FakeWorkspace;
 
 #[async_trait]
 impl agentic_automation::WorkspaceContext for FakeWorkspace {

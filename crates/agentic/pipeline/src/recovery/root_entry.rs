@@ -149,6 +149,7 @@ mod tests {
             scope_owned: false,
             available_at: now,
             first_deferred_at: None,
+            retry_attempt: 0,
             created_at: now,
             updated_at: now,
         }

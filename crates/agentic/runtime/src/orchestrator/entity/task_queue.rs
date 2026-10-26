@@ -53,6 +53,10 @@ pub struct Model {
     /// task is not waiting. Set on the first defer and left alone by later
     /// ones, so it measures the whole streak rather than the last hop.
     pub first_deferred_at: Option<DateTimeWithTimeZone>,
+    /// Declared retries this task has spent (`TaskPolicy::retry`): the
+    /// execution in flight is attempt `retry_attempt + 1`. Bumped only by
+    /// `crud::requeue_failed_attempt`; reset by a fresh enqueue.
+    pub retry_attempt: i32,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

@@ -154,6 +154,8 @@ async fn enqueue_task_inner(
         // Fresh work is not waiting on anything — clear any prior streak, on
         // the upsert path too (same reasoning as `available_at`).
         first_deferred_at: Set(None),
+        // A fresh enqueue is a first attempt, on the upsert path too.
+        retry_attempt: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
     };
@@ -171,6 +173,7 @@ async fn enqueue_task_inner(
                     // Clears any prior deferral — see `available_at` above.
                     task_queue::Column::AvailableAt,
                     task_queue::Column::FirstDeferredAt,
+                    task_queue::Column::RetryAttempt,
                     task_queue::Column::UpdatedAt,
                 ])
                 .to_owned(),
