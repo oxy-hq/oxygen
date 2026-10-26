@@ -147,6 +147,7 @@ jobs:
               # checkout and a pnpm install to format nothing.
               - ".github/scripts/**/*.{js,mjs,ts,tsx,css,json,html}"
               - "scripts/review/**/*.{js,mjs,ts,json}"
+              - "scripts/roadmap/**/*.{js,mjs,ts,json}"
               # The promote workflow is gated here too: it is the one consumer of
               # `.github/scripts/promote.ts`, and the self-test now asserts an
               # invariant ACROSS the two files (every effecting step carries a
@@ -212,8 +213,10 @@ jobs:
               - ".oxlintrc.json"
               - "oxlint-suppressions.json"
               - "scripts/ci/**"
-              # The automated reviewer: linted here, and its self-test runs here.
+              # The automated reviewer and the roadmap tool: linted here, and their
+              # self-tests run here.
               - "scripts/review/**"
+              - "scripts/roadmap/**"
               # Agent skills anywhere in the repo: `skills-repo.mjs check-repo` runs here.
               - "**/.claude/skills/**"
             # `canary-zoo` gates the drift check between the zoo fixture and

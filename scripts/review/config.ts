@@ -25,6 +25,46 @@ export const STATE_VERSION = 2;
 export const OVERRIDE_LABEL = "review-override";
 export const GATE_CONTEXT = "review-gate";
 export const RISK_CONTEXT = "high-risk-approval";
+export const ROADMAP_CONTEXT = "roadmap";
+
+export interface RoadmapConfig {
+  /** The roadmap doc and the summary derived from it (internal-docs/platform-roadmap.md). */
+  doc: string;
+  summary: string;
+  /** A PR touching one of these carries a `Roadmap:` trailer: a line id, or `none` + why. */
+  productPaths: readonly string[];
+  /** Files that never count as product behaviour, even under `productPaths`. */
+  exemptPaths: readonly string[];
+}
+
+// The `roadmap` status (src/roadmap.ts): every PR that changes code says which roadmap
+// line it moves, or that it moves none and why. Code is deliberately wide here and
+// `none -- <reason>` is one line, so the cost of the rule falls on the PR that changes
+// behaviour, not on the one that does not. The automated review's general pass judges
+// whether a `none` is honest.
+export const ROADMAP: RoadmapConfig = {
+  doc: "internal-docs/platform-roadmap.md",
+  summary: "internal-docs/platform-roadmap-summary.md",
+  productPaths: ["crates/**", "web-app/src/**", "sdk/**"],
+  exemptPaths: [
+    "crates/workspace-hack/**",
+    "crates/test-utils/**",
+    "crates/telemetry/**",
+    "**/tests/**",
+    "**/test/**",
+    "**/fixtures/**",
+    "**/*.test.*",
+    "**/*_test.rs",
+    "**/*_tests.rs",
+    "**/*.stories.*",
+    "**/*.md",
+    "**/*.mdx",
+    "**/Cargo.toml",
+    "**/Cargo.lock",
+    "**/package.json",
+    "**/pnpm-lock.yaml"
+  ]
+};
 
 // The release PRs prepare-release.yaml opens are not reviewed, and the test is what they
 // change, not who opened them or what the branch is called: the release app (a Bot) on
@@ -132,8 +172,9 @@ export const HIGH_RISK: readonly RiskArea[] = [
   { id: "migrations", paths: ["crates/migration/**"] },
   { id: "billing", paths: ["crates/billing/**"] },
   { id: "ci", paths: [".github/workflows/**", ".github/actions/**"] },
-  // The reviewer and gate themselves: a PR must not grade its own homework unseen.
-  { id: "reviewer", paths: ["scripts/review/**"] }
+  // The reviewer and gate themselves, the roadmap parser the gate runs included: a PR
+  // must not grade its own homework unseen.
+  { id: "reviewer", paths: ["scripts/review/**", "scripts/roadmap/**"] }
 ];
 
 // Lens patterns are matched against code, not prose: a doc that mentions `Command::new`,

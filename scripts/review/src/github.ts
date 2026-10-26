@@ -127,6 +127,12 @@ export const setStatus = (
   status: CommitStatus & { context: string; target_url?: string | undefined }
 ) => api<unknown>(`repos/${repo}/statuses/${sha}`, { method: "POST", body: status });
 
+/** The merge base of a PR: what its diff is against, which the base branch tip is not. */
+export const mergeBase = (repo: string, base: string, head: string) =>
+  api<{ merge_base_commit: { sha: string } }>(
+    `repos/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`
+  ).then((r) => r.merge_base_commit.sha);
+
 export const getFile = (repo: string, path: string, ref: string) =>
   api<{ content: string }>(`repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`).then(
     (r) => Buffer.from(r.content, "base64").toString("utf8")

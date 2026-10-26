@@ -113,6 +113,7 @@
       "sdk/setup-oxyc/**",
       "scripts/ci/**",
       "scripts/review/**",
+      "scripts/roadmap/**",
       "!sdk/cli/template",
       "!sdk/cli/skills",
       "!sdk/typescript/src/testing/shape-zoo.json",

@@ -726,7 +726,7 @@ jobs:
       - name: Review pipeline typecheck
         run: pnpm --dir scripts/review typecheck
       - name: Review pipeline self-test
-        run: node --test 'scripts/review/src/*.test.ts'
+        run: node --test 'scripts/review/src/*.test.ts' 'scripts/roadmap/*.test.ts'
 
   cargo-fmt:
     name: Format cargo (rustfmt --check)

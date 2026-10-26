@@ -25,5 +25,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["*.ts", "src/*.ts", "eval/*.ts"]
+  "include": ["*.ts", "src/*.ts", "eval/*.ts", "../roadmap/*.ts"]
 }

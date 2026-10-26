@@ -1,12 +1,15 @@
 name: Review gate
 
-# The only writer of the two merge statuses:
+# The only writer of the three merge statuses:
 #   review-gate          the automated review's verdict for the PR head: pending while
 #                        the review runs, then from its posted state when the review run
 #                        finishes, and again whenever `review-override` is added or
 #                        removed.
 #   high-risk-approval   a person (not the author, an owner in CODEOWNERS) approved a
 #                        PR touching the HIGH_RISK paths in scripts/review/config.ts.
+#   roadmap              the PR's `Roadmap:` trailer names the roadmap line it moves, and
+#                        that line cites the PR; or it says `none` and why. Re-run when
+#                        the body is edited, since the trailer lives there.
 # internal-docs/code-review.md says which of them branch protection requires.
 #
 # This job holds a token that can set statuses, so it never runs the PR's code:
@@ -24,13 +27,17 @@ name: Review gate
 
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled]
+    types: [opened, reopened, synchronize, ready_for_review, labeled, unlabeled, edited]
   workflow_run:
     workflows: ["Review submitted", "Claude Code Review"]
     types: [completed]
 
+# A body or title edit is its own group: it re-derives only `roadmap`, and must not cancel
+# a workflow_run gate job that is about to set `review-gate` from a finished review. An
+# `edited` event that changed the base branch is a different PR for the other two
+# statuses (its files and owners changed), so it joins the head group and runs them.
 concurrency:
-  group: review-gate-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  group: review-gate-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}-${{ (github.event.action == 'edited' && github.event.changes.base == null) && 'body' || 'head' }}
   cancel-in-progress: true
 
 permissions:
@@ -57,17 +64,26 @@ jobs:
       # The default branch's scripts, never the PR head.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          sparse-checkout: scripts/review
+          sparse-checkout: |
+            scripts/review
+            scripts/roadmap
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 26
 
+      # A body or title edit changes nothing these two read; re-running them there would
+      # also overwrite a "review job failed" status with "pending". A base change does.
       - name: review-gate
+        if: github.event.action != 'edited' || github.event.changes.base != null
         env:
           REVIEW_CONCLUSION: ${{ github.event.workflow_run.name == 'Claude Code Review' && github.event.workflow_run.conclusion || '' }}
           REVIEW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: node scripts/review/gate.ts --pr "$PR" --gate
 
       - name: high-risk-approval
+        if: github.event.action != 'edited' || github.event.changes.base != null
         run: node scripts/review/gate.ts --pr "$PR" --risk
+
+      - name: roadmap
+        run: node scripts/review/gate.ts --pr "$PR" --roadmap
