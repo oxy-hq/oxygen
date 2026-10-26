@@ -42,8 +42,10 @@ crates/custom-apps/                                @luong-komorebi @NTtanh
 # second here, not Mars — webhooks (#3137), the airhouse-managed write fix
 # (#3052) and both seam inversions (#2789, #2803) are his, against one
 # repo-wide sweep (#2822) from Mars.
-crates/app/src/server/api/custom_apps_functions/   @luong-komorebi @hotay
-crates/app/src/custom_app_template/                @luong-komorebi @NTtanh
+# Functions and the template moved into oxy-api-custom-apps 2026-10-21 (#3717);
+# the old oxy-app paths no longer exist.
+crates/api-custom-apps/src/custom_apps_functions/  @luong-komorebi @hotay
+crates/api-custom-apps/src/custom_app_template/    @luong-komorebi @NTtanh
 sdk/create-oxy-app/                                @luong-komorebi @NTtanh
 internal-docs/customer-apps*.md                    @luong-komorebi @NTtanh
 # `custom-app*` and `customer-apps*` are both in use as doc prefixes; the
@@ -322,8 +324,18 @@ crates/git/                                        @NTtanh @nresh
 internal-docs/ide-git.md                           @NTtanh @nresh
 
 # Client shell (deploy/stale-chunk recovery, shell context, .agents config)
-crates/app/src/server/api/custom_apps_shell_context.rs  @NTtanh @luong-komorebi
+# shell_context moved into oxy-api-custom-apps 2026-10-21 (#3717); this override
+# sits below the crates/api-custom-apps/ rule, so it wins.
+crates/api-custom-apps/src/custom_apps_shell_context.rs  @NTtanh @luong-komorebi
 web-app/.agents/                                   @NTtanh @luong-komorebi
+
+# Native mobile apps (new 2026-10) — iOS + Android on the Oxygen design system:
+# milestone A (#3628), milestone B (#3672), the design system (#3739) are Mars's.
+# Luong backs up: the server side under them (PKCE sign-in #3624, push #3631,
+# GET /api/me/apps) and the iOS sign-in/home work (#3633) are his.
+mobile/                                            @NTtanh @luong-komorebi
+internal-docs/mobile-app.md                        @NTtanh @luong-komorebi
+internal-docs/mobile-design-system.md              @NTtanh @luong-komorebi
 
 # Settings / context graph / data-app publish / import + invites
 web-app/src/pages/context-graph/                   @NTtanh @luong-komorebi

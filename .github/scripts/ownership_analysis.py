@@ -42,6 +42,11 @@ EMAIL2PERSON = {e: p for p, v in PEOPLE.items() for e in v["emails"]}
 # Several prefixes MAY share one friendly name (an area whose files don't sit
 # under a single directory): touches aggregate and the report prints one row.
 AREAS = [
+    # Moved into oxy-api-custom-apps 2026-10-21 (#3717). Nested paths first — they
+    # must win over the crate-wide "serve" prefix below; old paths keep the history.
+    ("crates/api-custom-apps/src/custom_apps_functions",  "Custom Apps — functions"),
+    ("crates/api-custom-apps/src/custom_app_template",    "Custom Apps — template"),
+    ("crates/api-custom-apps/src/custom_apps_shell_context.rs", "Client shell context"),
     ("crates/api-custom-apps",                            "Custom Apps — serve"),
     # Pre-lift path of what moved into crates/api-custom-apps/.
     ("crates/app/src/server/api/custom_apps_serve",       "Custom Apps — serve"),
@@ -152,6 +157,12 @@ AREAS = [
     ("crates/git",                                        "Git client / IDE git"),
     ("crates/app/src/server/api/custom_apps_shell_context.rs", "Client shell context"),
     ("web-app/.agents",                                   "Client shell (.agents)"),
+    # Native mobile apps (new 2026-10, #3628). Three prefixes, not `mobile`:
+    # generic_area() buckets at mobile/<platform>, so a bare prefix wouldn't
+    # clear them from the "unlisted" report.
+    ("mobile/ios",                                        "Mobile apps (iOS/Android)"),
+    ("mobile/android",                                    "Mobile apps (iOS/Android)"),
+    ("mobile/design",                                     "Mobile apps (iOS/Android)"),
     ("sdk/typescript",                                    "TypeScript SDK"),
     ("sdk/cli",                                           "oxyc CLI"),
     ("web-app/src/pages/context-graph",                   "Context graph (UI)"),
