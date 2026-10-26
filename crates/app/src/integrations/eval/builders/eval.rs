@@ -6,13 +6,12 @@ use oxy::{
             default_correctness_prompt,
         },
     },
-    exec_runtime::ExecutionContext,
     exec_types::EventKind,
 };
 use oxy_shared::errors::OxyError;
 
 use super::{
-    EvalInput, EvalResult,
+    EvalInput, EvalResult, EvalRun,
     generator::run_generator,
     solver::run_solver,
     types::{AgenticInput, RunStats},
@@ -23,7 +22,7 @@ use super::{
 /// `.agentic.yml` agent are supported — the classic `.agent.yml` runtime and the
 /// inline `agent.tests` / `workflow.tests` entry points were removed.
 async fn resolve_eval_inputs(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     eval_input: EvalInput,
 ) -> Result<(EvalConfig, AgenticInput), OxyError> {
     let EvalInput {
@@ -95,7 +94,7 @@ async fn resolve_eval_inputs(
 
 /// Run one resolved eval: generate the target outputs, then score each metric.
 async fn run_one_eval(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     idx: usize,
     eval: EvalConfig,
     target: AgenticInput,
@@ -162,7 +161,7 @@ async fn run_one_eval(
 
 /// Resolve then run the evals for an `EvalInput`, one result per eval.
 pub(crate) async fn run_eval(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     eval_input: EvalInput,
 ) -> Result<Vec<Result<EvalResult, OxyError>>, OxyError> {
     // A `.test.yml` resolves to exactly one eval (all its cases run under it);

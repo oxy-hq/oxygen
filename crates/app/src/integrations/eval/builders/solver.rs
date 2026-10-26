@@ -5,12 +5,12 @@ use oxy::{
         constants::{EVAL_METRICS_POSTFIX, EVAL_SOURCE},
         model::SolverKind,
     },
-    exec_runtime::ExecutionContext,
     exec_types::{Output, ProgressType, TargetOutput},
 };
 use oxy_shared::errors::OxyError;
 
 use super::{
+    EvalRun,
     correctness_solver::{parse_correctness_record, render_correctness_prompt},
     types::{Correctness, MetricKind, Record},
 };
@@ -20,7 +20,7 @@ use super::{
 /// `SolverKind::Correctness`; the `Similarity` / `ContextRecall` solvers went
 /// with the classic-agent eval retirement and are rejected here.
 pub(super) async fn run_solver(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     solver_kind: SolverKind,
     outputs: Vec<(TargetOutput, TargetOutput)>,
     errors_with_expected: Vec<(String, TargetOutput)>,

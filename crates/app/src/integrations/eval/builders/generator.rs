@@ -2,12 +2,11 @@ use futures::stream::StreamExt;
 
 use oxy::{
     config::model::EvalKind,
-    exec_runtime::ExecutionContext,
     exec_types::{EventKind, ProgressType, TargetOutput, Usage},
 };
 use oxy_shared::errors::OxyError;
 
-use super::{target_agentic::run_target, types::AgenticInput};
+use super::{EvalRun, target_agentic::run_target, types::AgenticInput};
 
 /// Run the eval target for every case × run and pair each result with its
 /// expected answer, on the plain-async agentic path (no old-executor
@@ -19,7 +18,7 @@ use super::{target_agentic::run_target, types::AgenticInput};
 /// `agent.tests` / `workflow.tests` blocks, which were removed with the
 /// classic-agent retirement, so they are rejected here.
 pub(super) async fn run_generator(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     eval_kind: EvalKind,
     target: AgenticInput,
     concurrency: usize,

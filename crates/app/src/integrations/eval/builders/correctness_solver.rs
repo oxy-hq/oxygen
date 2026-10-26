@@ -1,7 +1,8 @@
 use minijinja::{Value, context};
 
-use oxy::exec_runtime::ExecutionContext;
 use oxy::exec_types::{Output, TargetOutput};
+
+use super::EvalRun;
 use oxy_shared::errors::OxyError;
 
 use super::types::Record;
@@ -11,7 +12,7 @@ use super::types::Record;
 /// side's `task_description`). The rendered prompt is self-contained — it is sent
 /// as the single user turn of a one-shot completion.
 pub(super) fn render_correctness_prompt(
-    execution_context: &ExecutionContext,
+    execution_context: &EvalRun,
     prompt_template: &str,
     actual: &TargetOutput,
     expected: &TargetOutput,
