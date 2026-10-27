@@ -42,9 +42,12 @@ export function AdminIdentity() {
           )}
         >
           <Icon className='size-3.5 shrink-0' />
-          <span className='shrink-0 font-semibold text-[11px] leading-none'>{role}</span>
-          <span className='mx-0.5 h-3 w-px shrink-0 bg-current opacity-25' />
-          <span className='truncate font-mono text-[11px] leading-none opacity-80'>
+          {/* Narrow topbar: the shield alone, then shield + role; the tooltip says both. */}
+          <span className='@md:block hidden shrink-0 font-semibold text-[11px] leading-none'>
+            {role}
+          </span>
+          <span className='mx-0.5 @xl:block hidden h-3 w-px shrink-0 bg-current opacity-25' />
+          <span className='@xl:block hidden truncate font-mono text-[11px] leading-none opacity-80'>
             {user.email}
           </span>
         </div>

@@ -13,7 +13,7 @@ export function SystemStatus() {
   const env = authConfig.mode === "cloud" ? "CLOUD" : "LOCAL";
 
   return (
-    <div className='hidden items-center gap-3 md:flex'>
+    <div className='@5xl:flex hidden items-center gap-3'>
       <span
         className={cn(
           "flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em]",

@@ -31,10 +31,18 @@ interface AdminTopbarProps {
  * breadcrumb. Right: live status, entity search, and the build badge (the
  * one-glance "which oxy build am I on?" answer when triaging staging vs prod), and
  * the operator's own identity + platform role — see AdminIdentity.
+ *
+ * **It must fit in one h-9 row at any width**, so it sheds by its own width (`@container`),
+ * not the viewport's: with the rail open the bar is 16rem narrower than the window. On a
+ * 1100px window the breadcrumb already wrapped to two lines; at 800px it stood 90px tall
+ * over the page and the right cluster ran 130px off-screen. Least-needed goes first —
+ * the clock and mode below 64rem, the rail group below 56rem, the build badge below 48rem,
+ * the email below 36rem (the tooltip still has it), Search's label and the role below
+ * 28rem. The page title truncates rather than wraps.
  */
 export function AdminTopbar({ title, group }: AdminTopbarProps) {
   return (
-    <header className='flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2'>
+    <header className='@container flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2'>
       <SidebarTrigger className='-ml-0.5 size-7' />
       <Tooltip>
         <TooltipTrigger asChild>
@@ -47,8 +55,8 @@ export function AdminTopbar({ title, group }: AdminTopbarProps) {
         <TooltipContent side='bottom'>Back to home</TooltipContent>
       </Tooltip>
       <Separator orientation='vertical' className='mx-1 h-4' />
-      <Breadcrumb>
-        <BreadcrumbList className='gap-1 sm:gap-1'>
+      <Breadcrumb className='min-w-0'>
+        <BreadcrumbList className='flex-nowrap gap-1 whitespace-nowrap sm:gap-1'>
           <BreadcrumbItem className='text-muted-foreground text-xs'>Admin</BreadcrumbItem>
           <BreadcrumbSeparator />
           {/* The group, so the breadcrumb states the whole position. The pages used to
@@ -56,27 +64,29 @@ export function AdminTopbar({ title, group }: AdminTopbarProps) {
               third wording. */}
           {group ? (
             <>
-              <BreadcrumbItem className='hidden text-muted-foreground text-xs sm:block'>
+              <BreadcrumbItem className='@4xl:block hidden text-muted-foreground text-xs'>
                 {ADMIN_NAV_GROUPS[group]}
               </BreadcrumbItem>
-              <BreadcrumbSeparator className='hidden sm:block' />
+              <BreadcrumbSeparator className='@4xl:block hidden' />
             </>
           ) : null}
-          <BreadcrumbItem>
-            <BreadcrumbPage className='font-medium text-xs'>{title}</BreadcrumbPage>
+          <BreadcrumbItem className='min-w-0'>
+            <BreadcrumbPage className='truncate font-medium text-xs'>{title}</BreadcrumbPage>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className='ml-auto flex items-center gap-2'>
+      <div className='ml-auto flex shrink-0 items-center gap-2'>
         <SystemStatus />
-        <Separator orientation='vertical' className='hidden h-4 md:block' />
+        <Separator orientation='vertical' className='@5xl:block hidden h-4' />
         <AdminEntitySearch />
         <Separator orientation='vertical' className='h-4' />
         {/* Who is wielding this surface, and with what authority. Cross-tenant
             power should never be anonymous. */}
         <AdminIdentity />
-        <Separator orientation='vertical' className='h-4' />
-        <VersionBadge />
+        <div className='@3xl:flex hidden items-center gap-2'>
+          <Separator orientation='vertical' className='h-4' />
+          <VersionBadge />
+        </div>
       </div>
     </header>
   );

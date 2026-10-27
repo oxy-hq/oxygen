@@ -170,8 +170,9 @@ export const AdminEntitySearch = () => {
         className='h-8 gap-2 px-2.5 text-muted-foreground'
       >
         <Search className='size-3.5' />
-        <span className='hidden text-xs sm:inline'>Search</span>
-        <kbd className='ml-1 hidden items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline-flex'>
+        {/* `sr-only`, not `hidden`, so the icon-only button below 28rem keeps its name. */}
+        <span className='sr-only @md:not-sr-only text-xs'>Search</span>
+        <kbd className='ml-1 @md:inline-flex hidden items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
           <span className='text-xs'>⌘</span>K
         </kbd>
       </Button>

@@ -138,7 +138,10 @@ export const FleetRow = ({
  * edge moves per row is not a column anyone can read down, which is the entire reason
  * Requests and Storage are right-aligned and tabular.
  *
- * `App` takes the slack because it is the only cell whose content has no bound.
+ * `App` takes the slack because it is the only cell whose content has no bound. Its
+ * floor is `12rem`, not `0`: every other track is `max-content`, so on a narrow pane a
+ * zero floor gave App all of the squeeze and truncated names to a single letter. With a
+ * floor the table scrolls sideways in its scroller instead.
  */
 export const gridTemplate = (columns: readonly FleetColumn[]): string =>
-  columns.map((c) => (c.id === "app" ? "minmax(0,1fr)" : "max-content")).join(" ");
+  columns.map((c) => (c.id === "app" ? "minmax(12rem,1fr)" : "max-content")).join(" ");

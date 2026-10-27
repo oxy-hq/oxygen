@@ -66,7 +66,12 @@ export default function AdminLayout() {
   return (
     <SidebarProvider>
       <AdminSidebar />
-      <SidebarInset>
+      {/* `min-w-0` because this is a flex item in the sidebar's row, so without it its
+          minimum width is its widest page's content. The custom-apps fleet's table
+          floored it at 705px: below that the pane ran past the viewport and the
+          header's right-hand actions ("New app") were clipped off-screen, unreachable.
+          With it, wide content scrolls inside the page's own `overflow-auto`. */}
+      <SidebarInset className='min-w-0'>
         <AdminTopbar title={title} group={group} />
         <div className='min-h-0 flex-1 overflow-auto'>
           <Outlet />
