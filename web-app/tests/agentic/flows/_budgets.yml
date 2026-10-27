@@ -349,6 +349,15 @@
   cold_usd: 0.35
   warm_usd: 0.01
 
+- flow: experiments-price-draft
+  # Cloud-mode (seeded backend, run from verify-all.sh phase 4). Case 1: rail ->
+  # Experiments -> New experiment, filled through the form in two compound acts ->
+  # an empty price submit (inline error) -> one compound act filling a waves
+  # candidate and a switchback at both alphas -> wait for the outcome: seven act
+  # steps plus one judge call. Case 2 (Task 11a): one navigate
+  # act and one judge call. No agent run. The pricing wait is wall-clock (placebo
+  # power, three candidates), not LLM cost.
+  cold_usd: 0.60
 - flow: settings-api-key-extend
   # Cloud mode. Five acts (create a personal access token with the dialog's
   # defaults, dismiss the one-time secret, open Extend, pick 90 days and

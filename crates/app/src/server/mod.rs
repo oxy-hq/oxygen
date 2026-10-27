@@ -16,6 +16,7 @@ pub mod compile_request;
 pub mod compile_trigger;
 pub mod compile_worker;
 pub use oxy_app_core::default_branch;
+pub mod experiment;
 pub mod factory_replay;
 pub mod feature_flags;
 pub mod git_fetch_maintenance;

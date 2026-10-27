@@ -12,6 +12,7 @@ pub mod airway_run;
 /// The typed payload of a queued custom-app function run.
 pub mod app_function_task;
 pub mod automation_run;
+pub mod automation_seed;
 pub mod backfill;
 mod context_documents;
 mod db_transient;

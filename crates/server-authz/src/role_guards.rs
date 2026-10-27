@@ -291,38 +291,82 @@ where
         _state: &S,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         async move {
-            let Some(EffectiveWorkspaceRole(role)) =
-                parts.extensions.get::<EffectiveWorkspaceRole>().cloned()
-            else {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            };
-            let legacy = matches!(role, WorkspaceRole::Owner | WorkspaceRole::Admin);
-            // Enforce the WorkspaceManage ring; the workspace's org (from the Model the
-            // middleware attached) lets the org->workspace hierarchy resolve. When the
-            // workspace has no org (single-workspace local mode) the org model doesn't
-            // apply, so the legacy verdict stands.
-            let allowed = match parts.extensions.get::<entity::workspaces::Model>().cloned() {
-                Some(ws) => match ws.org_id {
-                    Some(org_id) => {
-                        authz::enforce_guard(
-                            parts,
-                            "guard.workspace_admin",
-                            authz::Action::WorkspaceManage,
-                            authz::Resource::workspace(ws.id, org_id),
-                            legacy,
-                        )
-                        .await
-                    }
-                    None => legacy,
-                },
-                None => legacy,
-            };
-            if allowed {
-                Ok(WorkspaceAdmin(role))
-            } else {
-                Err(StatusCode::FORBIDDEN)
-            }
+            admin_verdict(
+                parts,
+                "guard.workspace_admin",
+                authz::Action::WorkspaceManage,
+            )
+            .await
+            .map(WorkspaceAdmin)
         }
+    }
+}
+
+/// Caller may abort an experiment run. Same authority as [`WorkspaceAdmin`] — an
+/// abort runs the lever's `off` automation, and running a stored automation by
+/// hand (schedule Run-now) takes `WorkspaceAdmin` — but decided through its own
+/// action so the authz log attributes it.
+#[derive(Debug)]
+pub struct ExperimentAbortGuard(pub WorkspaceRole);
+
+impl<S> FromRequestParts<S> for ExperimentAbortGuard
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            admin_verdict(
+                parts,
+                "guard.experiment_abort",
+                authz::Action::ExperimentAbort,
+            )
+            .await
+            .map(ExperimentAbortGuard)
+        }
+    }
+}
+
+/// The verdict every workspace-admin guard shares: effective workspace role
+/// Owner or Admin as the legacy term, the model's answer for `action` on top. The
+/// workspace's org (from the Model the middleware attached) lets the
+/// org->workspace hierarchy resolve; with no org (single-workspace local mode)
+/// the org model doesn't apply and the legacy verdict stands.
+async fn admin_verdict(
+    parts: &mut Parts,
+    label: &'static str,
+    action: authz::Action,
+) -> Result<WorkspaceRole, StatusCode> {
+    let Some(EffectiveWorkspaceRole(role)) =
+        parts.extensions.get::<EffectiveWorkspaceRole>().cloned()
+    else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    let legacy = matches!(role, WorkspaceRole::Owner | WorkspaceRole::Admin);
+    let allowed = match parts.extensions.get::<entity::workspaces::Model>().cloned() {
+        Some(ws) => match ws.org_id {
+            Some(org_id) => {
+                authz::enforce_guard(
+                    parts,
+                    label,
+                    action,
+                    authz::Resource::workspace(ws.id, org_id),
+                    legacy,
+                )
+                .await
+            }
+            None => legacy,
+        },
+        None => legacy,
+    };
+    if allowed {
+        Ok(role)
+    } else {
+        Err(StatusCode::FORBIDDEN)
     }
 }
 
@@ -346,6 +390,43 @@ pub fn ensure_org_admin_or_workspace_creator(
     Ok(())
 }
 
+/// The verdict every workspace-contributor guard shares: a workspace role above
+/// Viewer as the legacy term, the model's answer for `action` on top. The one
+/// place the shape lives, so a second guard cannot drift from `WorkspaceEditor`.
+async fn contributor_verdict(
+    parts: &mut Parts,
+    label: &'static str,
+    action: authz::Action,
+) -> Result<WorkspaceRole, StatusCode> {
+    let Some(EffectiveWorkspaceRole(role)) =
+        parts.extensions.get::<EffectiveWorkspaceRole>().cloned()
+    else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    let legacy = role > WorkspaceRole::Viewer;
+    let allowed = match parts.extensions.get::<entity::workspaces::Model>().cloned() {
+        Some(ws) => match ws.org_id {
+            Some(org_id) => {
+                authz::enforce_guard(
+                    parts,
+                    label,
+                    action,
+                    authz::Resource::workspace(ws.id, org_id),
+                    legacy,
+                )
+                .await
+            }
+            None => legacy,
+        },
+        None => legacy,
+    };
+    if allowed {
+        Ok(role)
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
 /// Caller can edit workspace contents (Owner/Admin/Member). Rejects Viewer.
 /// Use for contributor actions: commit, push, pull, file edit.
 #[derive(Debug)]
@@ -362,33 +443,123 @@ where
         _state: &S,
     ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         async move {
-            let Some(EffectiveWorkspaceRole(role)) =
-                parts.extensions.get::<EffectiveWorkspaceRole>().cloned()
-            else {
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            };
-            let legacy = role > WorkspaceRole::Viewer;
-            let allowed = match parts.extensions.get::<entity::workspaces::Model>().cloned() {
-                Some(ws) => match ws.org_id {
-                    Some(org_id) => {
-                        authz::enforce_guard(
-                            parts,
-                            "guard.workspace_editor",
-                            authz::Action::WorkspaceEdit,
-                            authz::Resource::workspace(ws.id, org_id),
-                            legacy,
-                        )
-                        .await
-                    }
-                    None => legacy,
-                },
-                None => legacy,
-            };
-            if allowed {
-                Ok(WorkspaceEditor(role))
-            } else {
-                Err(StatusCode::FORBIDDEN)
-            }
+            contributor_verdict(
+                parts,
+                "guard.workspace_editor",
+                authz::Action::WorkspaceEdit,
+            )
+            .await
+            .map(WorkspaceEditor)
+        }
+    }
+}
+
+/// Caller may price an experiment design. Same reach as [`WorkspaceEditor`],
+/// its own [`authz::Action`] so the audit trail and the differential say what
+/// was asked.
+#[derive(Debug)]
+pub struct ExperimentPricer(pub WorkspaceRole);
+
+impl<S> FromRequestParts<S> for ExperimentPricer
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            contributor_verdict(
+                parts,
+                "guard.experiment_price",
+                authz::Action::ExperimentPrice,
+            )
+            .await
+            .map(ExperimentPricer)
+        }
+    }
+}
+
+/// Caller may create an experiment, write a design version, or adopt a priced
+/// proposal. The same standing as [`ExperimentPricer`], under its own action.
+#[derive(Debug)]
+pub struct ExperimentAuthorGuard(pub WorkspaceRole);
+
+impl<S> FromRequestParts<S> for ExperimentAuthorGuard
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            contributor_verdict(
+                parts,
+                "guard.experiment_author",
+                authz::Action::ExperimentAuthor,
+            )
+            .await
+            .map(ExperimentAuthorGuard)
+        }
+    }
+}
+
+/// Caller may register a design version as the experiment's run. The same
+/// standing as [`ExperimentAbortGuard`] — workspace Owner/Admin.
+#[derive(Debug)]
+pub struct ExperimentRegisterGuard(pub WorkspaceRole);
+
+impl<S> FromRequestParts<S> for ExperimentRegisterGuard
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            admin_verdict(
+                parts,
+                "guard.experiment_register",
+                authz::Action::ExperimentRegister,
+            )
+            .await
+            .map(ExperimentRegisterGuard)
+        }
+    }
+}
+
+/// Caller may apply an experiment's proposed coefficient as a branch. The same
+/// standing as [`WorkspaceEditor`] — anyone above Viewer — decided under its own
+/// action id (`Action::ExperimentApplyWriteBack`, on the `WorkspaceEdit` ring).
+#[derive(Debug)]
+pub struct ExperimentWriteBackApplier(pub WorkspaceRole);
+
+impl<S> FromRequestParts<S> for ExperimentWriteBackApplier
+where
+    S: Send + Sync,
+{
+    type Rejection = StatusCode;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        async move {
+            contributor_verdict(
+                parts,
+                "guard.experiment_apply_write_back",
+                authz::Action::ExperimentApplyWriteBack,
+            )
+            .await
+            .map(ExperimentWriteBackApplier)
         }
     }
 }
@@ -594,6 +765,44 @@ mod tests {
         let mut parts = make_parts_with(EffectiveWorkspaceRole(WorkspaceRole::Member));
         assert!(
             WorkspaceEditor::from_request_parts(&mut parts, &())
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn experiment_pricer_rejects_viewer() {
+        let mut parts = make_parts_with(EffectiveWorkspaceRole(WorkspaceRole::Viewer));
+        let err = ExperimentPricer::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn experiment_pricer_admits_member() {
+        let mut parts = make_parts_with(EffectiveWorkspaceRole(WorkspaceRole::Member));
+        assert!(
+            ExperimentPricer::from_request_parts(&mut parts, &())
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn experiment_write_back_applier_rejects_viewer() {
+        let mut parts = make_parts_with(EffectiveWorkspaceRole(WorkspaceRole::Viewer));
+        let err = ExperimentWriteBackApplier::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn experiment_write_back_applier_admits_member() {
+        let mut parts = make_parts_with(EffectiveWorkspaceRole(WorkspaceRole::Member));
+        assert!(
+            ExperimentWriteBackApplier::from_request_parts(&mut parts, &())
                 .await
                 .is_ok()
         );

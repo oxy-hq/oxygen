@@ -151,6 +151,41 @@ pub enum Action {
     /// least workspace Member (overrides only elevate), so this is effectively any
     /// member of the workspace's org, plus a managing partner or global operator.
     WorkspaceEdit,
+    /// Price an experiment design against a workspace's own history
+    /// (`POST /experiments/{name}/price`): inserts a proposal row, enqueues a
+    /// warehouse-reading job and appends to the pre-registration proposal log.
+    /// The `WorkspaceEditor` reach — any member above Viewer — because pricing
+    /// is a contributor act: it costs queries, it edits no workspace file and
+    /// moves no lever. A managing partner and a global operator reach it through
+    /// the same override path as [`Self::WorkspaceEdit`]; a Viewer does not (the
+    /// shipped guard's `role > Viewer` term subtracts them).
+    ExperimentPrice,
+    /// Create an experiment, write a new version of its design, or adopt a
+    /// priced proposal as one (`POST /experiments`, `POST …/designs`,
+    /// `POST …/proposals/{id}/use`). Insert-only records, no lever moved — the
+    /// same contributor act as pricing, so the same ring.
+    ExperimentAuthor,
+    /// Register one design version as the experiment's run
+    /// (`POST /experiments/{name}/register`). Commits the workspace to flipping
+    /// the lever on schedule, so it is gated like aborting one — `WorkspaceAdmin`.
+    /// A retrospective run (`POST /experiments/{name}/retrospective`) moves no
+    /// lever but takes the experiment's only run for good, so it shares the ring.
+    ExperimentRegister,
+    /// Apply an experiment's proposed driver coefficient as a **branch** of the
+    /// workspace's repo — the `ExperimentWriteBackApplier` guard. Deliberately the
+    /// same ring as [`Self::WorkspaceEdit`]: it writes and commits one workspace
+    /// file on a new branch, which is what editing workspace contents means. It
+    /// never reaches `main` (the handler enforces that), so it needs no more than
+    /// an editor. A new id rather than reusing `WorkspaceEdit` so the `authz` log
+    /// says what was attempted and a future tightening touches one arm.
+    ExperimentApplyWriteBack,
+    /// Abort a registered or live experiment run (`POST /experiments/{name}/abort`).
+    /// The abort turns the lever's `off` automation on at every treated unit, so it
+    /// is gated like running a stored automation by hand — schedule Run-now,
+    /// `WorkspaceAdmin`: an effective workspace Owner/Admin, a managing partner, or
+    /// staff with `ManageOrgSettings`. Deliberately NOT any member: a plain member
+    /// may read the run but cannot end a pre-registered experiment.
+    ExperimentAbort,
     /// Open a custom app, **by app id** (`user_can_access_app` — every surface that
     /// has the `apps` row in hand): a real member of the app's org, an Oxy global
     /// admin, or a partner operator whose ceiling grants `develop_apps`.
@@ -367,7 +402,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 48] = [
+    pub const ALL: [Action; 53] = [
         Action::OrgRead,
         Action::ManageLocations,
         Action::ManageOrgRoles,
@@ -385,6 +420,11 @@ impl Action {
         Action::OrgReadStrict,
         Action::WorkspaceManage,
         Action::WorkspaceEdit,
+        Action::ExperimentPrice,
+        Action::ExperimentAuthor,
+        Action::ExperimentRegister,
+        Action::ExperimentApplyWriteBack,
+        Action::ExperimentAbort,
         Action::AppAccess,
         Action::WorkspaceDataAccess,
         Action::AppAdmin,
@@ -440,6 +480,11 @@ impl Action {
             Action::OrgReadStrict => "org_read_strict",
             Action::WorkspaceManage => "workspace_manage",
             Action::WorkspaceEdit => "workspace_edit",
+            Action::ExperimentPrice => "experiment_price",
+            Action::ExperimentAuthor => "experiment_author",
+            Action::ExperimentRegister => "experiment_register",
+            Action::ExperimentApplyWriteBack => "experiment_apply_write_back",
+            Action::ExperimentAbort => "experiment_abort",
             Action::AppAccess => "app_access",
             Action::WorkspaceDataAccess => "workspace_data_access",
             Action::AppAdmin => "app_admin",
@@ -493,8 +538,13 @@ impl Action {
             Action::OrgBilling => Ring::OrgAdminStrict,
             Action::OrgOwnerManage => Ring::OwnerOnly,
             Action::OrgReadStrict => Ring::MemberStrict,
-            Action::WorkspaceManage => Ring::WorkspaceAdmin,
-            Action::WorkspaceEdit => Ring::WorkspaceEdit,
+            Action::WorkspaceManage | Action::ExperimentAbort | Action::ExperimentRegister => {
+                Ring::WorkspaceAdmin
+            }
+            Action::WorkspaceEdit
+            | Action::ExperimentPrice
+            | Action::ExperimentAuthor
+            | Action::ExperimentApplyWriteBack => Ring::WorkspaceEdit,
             Action::AppAccess => Ring::AppAccess,
             Action::WorkspaceDataAccess => Ring::WorkspaceData,
             Action::AppAdmin => Ring::AppAdmin,
@@ -2233,6 +2283,59 @@ mod policy_tests {
         assert!(allows(&partner, Action::WorkspaceManage, &r));
     }
 
+    /// Abort runs `lever.off` at every treated unit, so it rides the ring that
+    /// gates running a stored automation by hand (schedule Run-now,
+    /// `WorkspaceAdmin`). Asserted as "same answer as WorkspaceManage" for
+    /// every caller shape that test enumerates, so a later move of either
+    /// action to another ring shows up here.
+    #[test]
+    fn experiment_abort_is_the_workspace_admin_ring() {
+        let ws = Uuid::from_u128(700);
+        let r = Resource::workspace(ws, org());
+        let shapes = [
+            PrincipalFacts {
+                admin_orgs: vec![org()],
+                member_orgs: vec![org()],
+                ..facts()
+            },
+            PrincipalFacts {
+                member_orgs: vec![org()],
+                ..facts()
+            },
+            PrincipalFacts {
+                member_orgs: vec![org()],
+                ws_admin_override: vec![ws],
+                ..facts()
+            },
+            PrincipalFacts {
+                member_orgs: vec![org()],
+                ws_admin_override: vec![Uuid::from_u128(701)],
+                ..facts()
+            },
+            PrincipalFacts {
+                partners: vec![standing(partner_org(), org(), &Cap::ALL)],
+                ..facts()
+            },
+            facts(),
+        ];
+        for f in &shapes {
+            assert_eq!(
+                allows(f, Action::ExperimentAbort, &r),
+                allows(f, Action::WorkspaceManage, &r),
+                "{f:?}"
+            );
+        }
+        assert!(
+            !allows(&shapes[1], Action::ExperimentAbort, &r),
+            "a plain member cannot abort"
+        );
+        assert!(
+            allows(&shapes[0], Action::ExperimentAbort, &r),
+            "an org admin can"
+        );
+        assert_eq!(Action::ExperimentAbort.as_str(), "experiment_abort");
+    }
+
     #[test]
     fn workspace_edit_is_any_member_partner_or_global() {
         let ws = Uuid::from_u128(700);
@@ -2257,6 +2360,87 @@ mod policy_tests {
         assert!(allows(&partner, Action::WorkspaceEdit, &r));
         assert!(allows(&global, Action::WorkspaceEdit, &r));
         assert!(!allows(&outsider, Action::WorkspaceEdit, &r));
+    }
+
+    #[test]
+    fn experiment_price_shares_the_workspace_edit_ring() {
+        // Pricing is a contributor act — warehouse queries and a log row, no
+        // file edit, no lever moved. It reuses the ring; a synonym would let
+        // the two drift.
+        let r = Resource::workspace(Uuid::from_u128(700), org());
+        let member = PrincipalFacts {
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        let outsider = PrincipalFacts {
+            member_orgs: vec![other_org()],
+            ..facts()
+        };
+        let global = PrincipalFacts {
+            platform: global_admin_standing(),
+            ..facts()
+        };
+        for who in [&member, &outsider, &global, &facts()] {
+            assert_eq!(
+                allows(who, Action::ExperimentPrice, &r),
+                allows(who, Action::WorkspaceEdit, &r)
+            );
+        }
+        assert!(allows(&member, Action::ExperimentPrice, &r));
+        assert!(!allows(&outsider, Action::ExperimentPrice, &r));
+        assert!(
+            !allows(&facts(), Action::ExperimentPrice, &r),
+            "fail closed"
+        );
+    }
+
+    #[test]
+    fn experiment_author_and_register_share_the_price_and_abort_rings() {
+        let r = Resource::workspace(Uuid::from_u128(700), org());
+        let member = PrincipalFacts {
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        let admin = PrincipalFacts {
+            member_orgs: vec![org()],
+            ws_admin_override: vec![Uuid::from_u128(700)],
+            ..facts()
+        };
+        for who in [&member, &admin, &facts()] {
+            assert_eq!(
+                allows(who, Action::ExperimentAuthor, &r),
+                allows(who, Action::ExperimentPrice, &r)
+            );
+            assert_eq!(
+                allows(who, Action::ExperimentRegister, &r),
+                allows(who, Action::ExperimentAbort, &r)
+            );
+        }
+        assert!(allows(&member, Action::ExperimentAuthor, &r));
+        assert!(
+            !allows(&facts(), Action::ExperimentAuthor, &r),
+            "fail closed"
+        );
+        assert_eq!(Action::ExperimentAuthor.as_str(), "experiment_author");
+        assert_eq!(Action::ExperimentRegister.as_str(), "experiment_register");
+    }
+
+    #[test]
+    fn experiment_apply_write_back_sits_on_the_workspace_edit_ring() {
+        assert_eq!(
+            Action::ExperimentApplyWriteBack.ring(),
+            Action::WorkspaceEdit.ring()
+        );
+        let r = Resource::workspace(Uuid::from_u128(77), org());
+        let member = PrincipalFacts {
+            member_orgs: vec![org()],
+            ..facts()
+        };
+        assert!(allows(&member, Action::ExperimentApplyWriteBack, &r));
+        assert!(
+            !allows(&facts(), Action::ExperimentApplyWriteBack, &r),
+            "no facts, no access"
+        );
     }
 
     #[test]

@@ -28,7 +28,7 @@ use entity::workspace_compiled_configs::CompiledConfig;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
@@ -59,7 +59,8 @@ const IDEMPOTENCY_WINDOW_SECS: i64 = 60 * 60;
 /// One row queued for insertion. Mirrors the per-entity tables.
 #[derive(Debug, Clone)]
 pub enum CompiledRow {
-    Config(CompiledConfig),
+    /// Boxed: by far the largest row, and there is one per revision.
+    Config(Box<CompiledConfig>),
     Agent(CompiledAgent),
     View(CompiledView),
     Topic(CompiledTopic),
@@ -442,6 +443,53 @@ pub async fn compile_workspace(
     }
 }
 
+/// What compiling every discovered file produced.
+struct CompileBatch {
+    rows: Vec<CompiledRow>,
+    failures: Vec<FileFailure>,
+    compiled: u32,
+}
+
+/// Compile each file and flag duplicates within one revision. Two files with
+/// the same identifier would collide on the per-kind PK and crash the transaction; catching it here turns
+/// it into a structured per-file failure. The failure is recorded on the later
+/// file (discovery is sorted by `rel_path`) and its message names the file that
+/// declared the identifier first, so the operator sees both paths.
+async fn compile_files(files: &[DiscoveredFile]) -> CompileBatch {
+    let mut batch = CompileBatch {
+        rows: Vec::new(),
+        failures: Vec::new(),
+        compiled: 0,
+    };
+    let mut first_seen: HashMap<(FileKind, String), String> = HashMap::new();
+
+    for file in files {
+        match compile_one(file).await {
+            Ok(produced) => {
+                for row in produced {
+                    if let Some(key) = row_dedupe_key(&row, &file.kind) {
+                        if let Some(first_path) = first_seen.get(&(file.kind, key.clone())) {
+                            batch.failures.push(FileFailure {
+                                path: file.rel_path.clone(),
+                                kind: FailureKind::Duplicate,
+                                message: format!(
+                                    "duplicate identifier '{key}' for this entity kind; already declared by {first_path}"
+                                ),
+                            });
+                            continue;
+                        }
+                        first_seen.insert((file.kind, key), file.rel_path.clone());
+                    }
+                    batch.rows.push(row);
+                }
+                batch.compiled += 1;
+            }
+            Err(f) => batch.failures.push(f),
+        }
+    }
+    batch
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn drive_compile(
     db: &DatabaseConnection,
@@ -456,37 +504,11 @@ async fn drive_compile(
     let files = discover(workspace_path)?;
     debug!(file_count = files.len(), "files discovered");
 
-    let mut rows: Vec<CompiledRow> = Vec::new();
-    let mut failures: Vec<FileFailure> = Vec::new();
-    let mut compiled = 0u32;
-
-    // Track (kind, identifier) so we can flag duplicates within one
-    // revision. Two .agentic.yml files with the same `name` would
-    // collide on the (revision_id, name) PK and crash the txn;
-    // catching it here turns it into a structured per-file failure.
-    let mut seen_keys: HashSet<(FileKind, String)> = HashSet::new();
-
-    for file in &files {
-        match compile_one(file).await {
-            Ok(produced) => {
-                for row in produced {
-                    if let Some(key) = row_dedupe_key(&row, &file.kind)
-                        && !seen_keys.insert((file.kind, key.clone()))
-                    {
-                        failures.push(FileFailure {
-                            path: file.rel_path.clone(),
-                            kind: FailureKind::Duplicate,
-                            message: format!("duplicate identifier '{}' for this entity kind", key),
-                        });
-                        continue;
-                    }
-                    rows.push(row);
-                }
-                compiled += 1;
-            }
-            Err(f) => failures.push(f),
-        }
-    }
+    let CompileBatch {
+        mut rows,
+        mut failures,
+        compiled,
+    } = compile_files(&files).await;
 
     // Mirror local-file DuckDB warehouses to S3 so the stateless fleet can
     // query them (no-op without OXY_COMPILE_BLOB_S3_BUCKET). Only on an
@@ -740,7 +762,7 @@ fn compile_config(file: &DiscoveredFile, content: &str) -> Result<Vec<CompiledRo
             kind: FailureKind::Shape,
             message,
         })?;
-    Ok(vec![CompiledRow::Config(cfg)])
+    Ok(vec![CompiledRow::Config(Box::new(cfg))])
 }
 
 /// Pure config compilation: split the top-level `config.yml` mapping into the
@@ -1368,7 +1390,7 @@ where
     Ok(vec![make_row(name, file.rel_path.clone(), value)])
 }
 
-fn parse_yaml(file: &DiscoveredFile, content: &str) -> Result<Value, FileFailure> {
+pub(crate) fn parse_yaml(file: &DiscoveredFile, content: &str) -> Result<Value, FileFailure> {
     serde_yaml::from_str::<Value>(content).map_err(|e| FileFailure {
         path: file.rel_path.clone(),
         kind: FailureKind::Yaml,
@@ -1618,6 +1640,25 @@ mod tests {
         // A staging compile may reuse either: a pin reads rows by id.
         assert_eq!(RevisionKind::Staging.reusable_kinds(), &["staging", "main"]);
         assert!(RevisionKind::Draft.reusable_kinds().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_duplicate_of_another_kind_keeps_its_message_prefix() {
+        // The extraction must not change what existing kinds already said.
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        write(root, "agents/a.agentic.yml", "name: foo\n");
+        write(root, "agents/b.agentic.yml", "name: foo\n");
+        let batch = compile_files(&discover(root).unwrap()).await;
+        assert_eq!(batch.failures.len(), 1, "{:?}", batch.failures);
+        let f = &batch.failures[0];
+        assert!(
+            f.message
+                .starts_with("duplicate identifier 'agent:foo' for this entity kind"),
+            "{}",
+            f.message
+        );
+        assert!(f.message.contains("agents/a.agentic.yml"), "{}", f.message);
     }
 
     #[tokio::test]

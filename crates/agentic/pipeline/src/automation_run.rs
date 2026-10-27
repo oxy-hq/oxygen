@@ -286,79 +286,28 @@ pub async fn start_automation_run(
     workspace_id: Uuid,
 ) -> Result<String, AutomationRunError> {
     request.validate()?;
-
     let run_id = Uuid::new_v4().to_string();
-    let mut metadata = serde_json::json!({
-        "workflow_ref": request.workflow_ref,
-        "cache_enabled": request.cache_enabled,
-        "retry_from_run_id": request.retry_from_run_id,
-        // `null` when not supplied — the executor only acts when this is
-        // a non-empty array, so the conventional `Option<Vec<_>>` →
-        // `Some([...])` round-trip is preserved through Serde.
-        "invalidate_steps": request.invalidate_steps,
-        // `null` when not supplied. Executor reads this once at seed and
-        // stamps onto `agentic_workflow_state.invalidate_iterations` so
-        // the decider applies it inline without re-reading metadata.
-        "invalidate_iterations": request.invalidate_iterations,
-        // Stamped so `retry_run` can reconstruct a parameterised retry
-        // without re-reading the queue spec.
-        "variables": request.variables,
-    });
-    crate::scheduler::stamp_trigger_metadata(
-        &mut metadata,
-        &request.trigger,
-        &request.logical_date,
-        &request.retry_of,
-    );
-
-    // `validate()` already confirmed any supplied thread_id parses as UUID,
-    // so the unwrap here is infallible — but we route through `parse_str`
-    // again rather than carrying state across the gap because the strict
-    // check stays co-located with the validator.
-    let thread_uuid = match request.thread_id.as_deref() {
-        Some(s) => Some(
-            Uuid::parse_str(s)
-                .map_err(|e| AutomationRunError::InvalidInput(format!("thread_id {s:?}: {e}")))?,
-        ),
-        None => None,
+    let Some(schedule_id) = request.schedule_id.clone() else {
+        crate::automation_seed::seed_automation_run(db, &run_id, request, scope, workspace_id)
+            .await?;
+        return Ok(run_id);
     };
-
+    let metadata = crate::automation_seed::automation_metadata(&request);
+    let thread_uuid = crate::automation_seed::thread_uuid(&request)?;
     let question = format!("workflow: {}", request.workflow_ref);
-    if let Some(schedule_id) = request.schedule_id.as_deref() {
-        crud::insert_run_with_schedule(
-            db,
-            &run_id,
-            &question,
-            thread_uuid,
-            agentic_automation::SOURCE_TYPE,
-            Some(metadata),
-            schedule_id,
-            workspace_id,
-        )
-        .await?;
-    } else {
-        crud::insert_run(
-            db,
-            &run_id,
-            &question,
-            thread_uuid,
-            agentic_automation::SOURCE_TYPE,
-            Some(metadata),
-            workspace_id,
-        )
-        .await?;
-    }
-
-    let spec = TaskSpec::Automation {
-        workflow_ref: request.workflow_ref,
-        variables: request.variables,
-        retry_from_run_id: request.retry_from_run_id,
-        cache_enabled: request.cache_enabled,
-        body: None,
-        initial_render_context: None,
-    };
+    crud::insert_run_with_schedule(
+        db,
+        &run_id,
+        &question,
+        thread_uuid,
+        agentic_automation::SOURCE_TYPE,
+        Some(metadata),
+        &schedule_id,
+        workspace_id,
+    )
+    .await?;
+    let spec = crate::automation_seed::automation_task_spec(request);
     crud::enqueue_task(db, &run_id, &run_id, None, &spec, None, scope).await?;
-
     Ok(run_id)
 }
 

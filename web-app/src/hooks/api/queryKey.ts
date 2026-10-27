@@ -906,7 +906,9 @@ const semanticKeys = {
   topicDetails: (projectId: string, filePathB64: string | undefined, branchName?: string) =>
     [...semanticKeys.all, "topicDetails", projectId, filePathB64, branchName] as const,
   viewDetails: (projectId: string, filePathB64: string | undefined, branchName?: string) =>
-    [...semanticKeys.all, "viewDetails", projectId, filePathB64, branchName] as const
+    [...semanticKeys.all, "viewDetails", projectId, filePathB64, branchName] as const,
+  dimensionValues: (projectId: string, dimension: string, branchName?: string) =>
+    [...semanticKeys.all, "dimensionValues", projectId, dimension, branchName] as const
 };
 
 const simulationKeys = {
@@ -916,6 +918,26 @@ const simulationKeys = {
   runs: (projectId: string) => [...simulationKeys.all, "runs", projectId] as const,
   run: (projectId: string, runId: string) =>
     [...simulationKeys.all, "run", projectId, runId] as const
+};
+
+/**
+ * No branch slot on purpose: the `/experiments*` routes are never sent one
+ * (see `ExperimentService`), so a per-branch cache would only ever hold copies
+ * of the same answer.
+ */
+const experimentKeys = {
+  all: ["experiment"] as const,
+  list: (projectId: string) => [...experimentKeys.all, "list", projectId] as const,
+  proposals: (projectId: string, name: string) =>
+    [...experimentKeys.all, "proposals", projectId, name] as const,
+  run: (projectId: string, name: string) =>
+    [...experimentKeys.all, "run", projectId, name] as const,
+  result: (projectId: string, name: string) =>
+    [...experimentKeys.all, "result", projectId, name] as const,
+  interim: (projectId: string, name: string) =>
+    [...experimentKeys.all, "interim", projectId, name] as const,
+  design: (projectId: string, name: string) =>
+    [...experimentKeys.all, "design", projectId, name] as const
 };
 
 const metricTreeKeys = {
@@ -1224,6 +1246,7 @@ const queryKeys = {
   semantic: semanticKeys,
   metricTree: metricTreeKeys,
   simulation: simulationKeys,
+  experiment: experimentKeys,
   worldModel: worldModelKeys,
   metricAnomalies: metricAnomaliesKeys,
   org: orgKeys,

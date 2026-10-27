@@ -124,6 +124,20 @@
                   "build/world-model/calibration"
                 ]
               },
+              {
+                "group": "Experiments",
+                "pages": [
+                  "build/world-model/experiments/index",
+                  "build/world-model/experiments/design",
+                  "build/world-model/experiments/pricing",
+                  "build/world-model/experiments/running",
+                  "build/world-model/experiments/grain",
+                  "build/world-model/experiments/report",
+                  "build/world-model/experiments/statistics",
+                  "build/world-model/experiments/past-data-and-few-units",
+                  "build/world-model/experiments/examples"
+                ]
+              },
               "build/world-model/compared-to-palantir"
             ]
           },

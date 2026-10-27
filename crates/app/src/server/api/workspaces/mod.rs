@@ -19,3 +19,4 @@ pub use ops::cleanup_workspace_schedules;
 pub use ops::{
     build_workspace_details_response_for_uninitialized_local, compute_workspace_storage_key,
 };
+pub(crate) use ops::{git_delete_branch, git_switch_branch};

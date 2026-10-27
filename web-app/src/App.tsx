@@ -92,6 +92,8 @@ const DatabaseLayout = React.lazy(() => import("./pages/ide/Database"));
 const QueryWorkspacePage = React.lazy(() => import("./pages/ide/Database/QueryWorkspace"));
 const ModelingPage = React.lazy(() => import("./pages/ide/modeling"));
 const SemanticLayerPage = React.lazy(() => import("./pages/ide/SemanticLayer"));
+const ExperimentsListPage = React.lazy(() => import("./pages/ide/Experiments"));
+const ExperimentDetailPage = React.lazy(() => import("./pages/ide/Experiments/ExperimentDetail"));
 const EdgeLayout = React.lazy(() => import("./pages/ide/edge"));
 const EdgeDashboardPage = React.lazy(() => import("./pages/ide/edge/DashboardPage"));
 const EdgePlaybackPage = React.lazy(() => import("./pages/ide/edge/PlaybackPage"));
@@ -442,6 +444,10 @@ const WorkspaceLayout = React.memo(function WorkspaceLayout() {
 
             {/* World Model — business-model graph; first icon in the IDE sidebar */}
             <Route path='world-model' element={<WorldModelView />} />
+
+            {/* Experiments — pre-registered, priced, run and reported. */}
+            <Route path='experiments' element={<ExperimentsListPage />} />
+            <Route path='experiments/:name' element={<ExperimentDetailPage />} />
 
             {/* Edge routes — fleet topology, list management, timeline
               playback (subsumes the old Compliance pages), audit log,

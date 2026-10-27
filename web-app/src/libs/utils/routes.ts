@@ -161,6 +161,10 @@ const ROUTES = {
             WORLD_MODEL: {
               ROOT: `${wsBase}/ide/world-model`
             },
+            EXPERIMENTS: {
+              ROOT: `${wsBase}/ide/experiments`,
+              DETAIL: (name: string) => `${wsBase}/ide/experiments/${encodeURIComponent(name)}`
+            },
             EDGE: {
               ROOT: `${wsBase}/ide/edge`,
               DASHBOARD: `${wsBase}/ide/edge`,

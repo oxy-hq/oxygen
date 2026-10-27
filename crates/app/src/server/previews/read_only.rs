@@ -124,6 +124,48 @@ pub const REFUSED: &[(&str, &str, &str)] = &[
         "Explaining an anomaly",
     ),
     ("*", "/simulations/{name}/runs", "Running a simulation"),
+    ("POST", "/experiments", "Creating an experiment"),
+    (
+        "PUT",
+        "/experiments/{name}/design",
+        "Editing an experiment design",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/duplicate",
+        "Duplicating an experiment",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/proposals/{proposal_id}/use",
+        "Adopting a priced experiment design",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/register",
+        "Registering an experiment",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/retrospective",
+        "Analysing an experiment retrospectively",
+    ),
+    ("POST", "/experiments/{name}/price", "Pricing an experiment"),
+    (
+        "POST",
+        "/experiments/{name}/interim",
+        "Reading an experiment's interim estimate",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/abort",
+        "Aborting an experiment",
+    ),
+    (
+        "POST",
+        "/experiments/{name}/write-back/apply",
+        "Writing an experiment result back to a git branch",
+    ),
     (
         "*",
         "/semantic/preagg-rebuild",

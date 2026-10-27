@@ -13,9 +13,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 const BIN = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.mjs");
+
+// Every case spawns the built CLI, and `session` already gives the child 20s
+// before killing it. Vitest's 5s default undercut that on a 2-core CI runner,
+// failing a case while its child was still booting — so the test's budget sits
+// above the child's, and a hang still surfaces as the child's own timeout.
+vi.setConfig({ testTimeout: 30_000 });
 
 interface Frame {
   id?: number;

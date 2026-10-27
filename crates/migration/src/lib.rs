@@ -199,7 +199,10 @@ mod m20261002_000002_oidc_trust_policies;
 mod m20261003_000001_automation_runs_execution_started_at;
 mod m20261003_000001_org_token_policies;
 mod m20261005_000001_audit_events_token_indexes;
+mod m20261005_000001_create_experiment_definitions;
 mod m20261005_000001_workspace_default_branch_and_subdir;
+mod m20261005_000002_create_experiment_proposals;
+mod m20261005_000003_create_experiment_runs;
 mod m20261006_000001_create_context_document_definitions;
 mod m20261006_000001_sandbox_agent_token;
 mod m20261006_000001_workspace_compile_checks;
@@ -209,21 +212,30 @@ mod m20261006_000004_custom_app_usage_reports;
 mod m20261007_000001_server_keys;
 mod m20261007_000002_users_email_lower_index;
 mod m20261007_000003_app_builds_published_token;
+mod m20261012_000001_create_experiment_results;
+mod m20261013_000001_experiment_results_series;
 mod m20261014_000001_app_notifications;
+mod m20261014_000001_experiments_as_records;
 mod m20261014_000002_platform_notification_mutes;
 mod m20261015_000001_app_builds_published_to;
+mod m20261015_000001_experiment_runs_retrospective;
+mod m20261016_000001_experiment_designs_single_draft;
 mod m20261016_000001_notification_categories;
 mod m20261017_000001_app_environment_tails;
 mod m20261017_000001_notification_settings;
 mod m20261017_000002_app_environment_schedules_enabled;
 mod m20261017_000003_app_environment_events_retained_builds;
+mod m20261018_000001_experiment_runs_abort_levers;
+mod m20261019_000001_create_experiment_interims;
 mod m20261019_000001_function_invocation_activity_index;
 mod m20261019_000002_device_tokens_web_push_keys;
 mod m20261020_000001_drop_app_build_pointer_columns;
+mod m20261020_000001_experiment_flips_due_at;
 mod m20261021_000001_cli_device_requests;
 mod m20261021_000002_cli_device_requests_approver;
 mod m20261022_000001_function_invocation_calls;
 mod m20261023_000001_app_custom_domains;
+mod m20261023_000001_experiment_reopen_refused_retrospective;
 mod m20261024_000001_function_invocation_error_kind;
 mod m20261024_000002_custom_app_usage_backfill;
 mod m20261024_000003_custom_app_usage_parked_since;
@@ -468,10 +480,22 @@ impl MigratorTrait for Migrator {
             Box::new(m20261019_000001_function_invocation_activity_index::Migration),
             Box::new(m20261019_000002_device_tokens_web_push_keys::Migration),
             Box::new(m20261020_000001_drop_app_build_pointer_columns::Migration),
+            Box::new(m20261005_000001_create_experiment_definitions::Migration),
+            Box::new(m20261005_000002_create_experiment_proposals::Migration),
+            Box::new(m20261005_000003_create_experiment_runs::Migration),
+            Box::new(m20261012_000001_create_experiment_results::Migration),
+            Box::new(m20261013_000001_experiment_results_series::Migration),
+            Box::new(m20261014_000001_experiments_as_records::Migration),
+            Box::new(m20261015_000001_experiment_runs_retrospective::Migration),
+            Box::new(m20261016_000001_experiment_designs_single_draft::Migration),
+            Box::new(m20261018_000001_experiment_runs_abort_levers::Migration),
+            Box::new(m20261019_000001_create_experiment_interims::Migration),
+            Box::new(m20261020_000001_experiment_flips_due_at::Migration),
             Box::new(m20261021_000001_cli_device_requests::Migration),
             Box::new(m20261021_000002_cli_device_requests_approver::Migration),
             Box::new(m20261022_000001_function_invocation_calls::Migration),
             Box::new(m20261023_000001_app_custom_domains::Migration),
+            Box::new(m20261023_000001_experiment_reopen_refused_retrospective::Migration),
             Box::new(m20261024_000001_function_invocation_error_kind::Migration),
             Box::new(m20261024_000002_custom_app_usage_backfill::Migration),
             Box::new(m20261024_000003_custom_app_usage_parked_since::Migration),

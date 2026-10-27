@@ -521,6 +521,69 @@ fn simulation_routes_are_fleet_ok_including_the_profit_race() {
 }
 
 #[test]
+fn experiment_pricing_routes_are_declared_fleet_ok() {
+    // Unlike the tests above this asserts the routes are *declared*: an unknown
+    // path classifies FleetOk by default (`classify`), so a `classify` check
+    // alone would pass before the routes were mounted.
+    //
+    // `route_fleet` declares for every method (`*`), so a `*` hit counts.
+    //
+    // Every route reads or writes Postgres (`experiments`, `experiment_designs`,
+    // `experiment_proposals`, `experiment_runs`)
+    // or enqueues a `TaskSpec` — no working copy, no `.git`. The warehouse query
+    // runs on the worker, which is why pricing is queued work rather than a spawn
+    // in the handler.
+    install_route_declarations_for_tests();
+    let declared = dump_manifest();
+    for (method, suffix) in [
+        ("GET", "/experiments"),
+        // Experiments are records: create, edit the draft, duplicate, adopt,
+        // register — Postgres only.
+        ("POST", "/experiments"),
+        ("GET", "/experiments/{name}/design"),
+        ("PUT", "/experiments/{name}/design"),
+        ("POST", "/experiments/{name}/duplicate"),
+        ("POST", "/experiments/{name}/proposals/{proposal_id}/use"),
+        ("POST", "/experiments/{name}/register"),
+        ("POST", "/experiments/{name}/retrospective"),
+        ("POST", "/experiments/{name}/price"),
+        ("GET", "/experiments/{name}/proposals"),
+        // PR 4: the run status read and the abort flag the tick actuates.
+        ("GET", "/experiments/{name}/run"),
+        ("POST", "/experiments/{name}/abort"),
+        // PR 5: the sealed report — two Postgres reads.
+        ("GET", "/experiments/{name}/result"),
+        // The interim reading: a Postgres read, and an enqueue.
+        ("GET", "/experiments/{name}/interim"),
+        ("POST", "/experiments/{name}/interim"),
+    ] {
+        let hit = declared
+            .iter()
+            .find(|(m, p, _)| (*m == method || *m == "*") && p.ends_with(suffix))
+            .unwrap_or_else(|| panic!("{method} …{suffix} is not declared by any mount"));
+        assert_eq!(
+            hit.2,
+            RouteRole::FleetOk.as_str(),
+            "{method} …{suffix} must serve from any replica"
+        );
+    }
+}
+
+#[test]
+fn experiment_write_back_apply_is_declared_ide_only() {
+    // It creates a git worktree and branch in the working copy. Declared, not
+    // `classify`d: an unmounted route classifies as the `FleetOk` default.
+    install_route_declarations_for_tests();
+    let hit = dump_manifest()
+        .into_iter()
+        .find(|(m, p, _)| {
+            (*m == "POST" || *m == "*") && p.ends_with("/experiments/{name}/write-back/apply")
+        })
+        .expect("POST …/experiments/{name}/write-back/apply is not declared by any mount");
+    assert_eq!(hit.2, RouteRole::IdeOnly.as_str());
+}
+
+#[test]
 fn workspace_metric_tree_routes_are_fleet_ok() {
     // Every workspace-surface metric-tree route must serve from ANY replica.
     //

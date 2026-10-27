@@ -20,6 +20,34 @@ describe("metricTree.projection key", () => {
   });
 });
 
+describe("experiment keys", () => {
+  it("are scoped by project and experiment name, and never by branch", () => {
+    expect(queryKeys.experiment.run("p1", "a")).not.toEqual(queryKeys.experiment.run("p2", "a"));
+    expect(queryKeys.experiment.run("p1", "a")).not.toEqual(queryKeys.experiment.run("p1", "b"));
+    // The key tuple has no branch slot: these routes are never sent one.
+    expect(queryKeys.experiment.list("p1")).toEqual(["experiment", "list", "p1"]);
+  });
+
+  it("keeps the run, result and proposal caches disjoint for one experiment", () => {
+    const keys = [
+      queryKeys.experiment.run("p", "a"),
+      queryKeys.experiment.result("p", "a"),
+      queryKeys.experiment.proposals("p", "a")
+    ].map((k) => JSON.stringify(k));
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("shares one prefix so a mutation can invalidate everything about an experiment", () => {
+    for (const key of [
+      queryKeys.experiment.list("p"),
+      queryKeys.experiment.run("p", "a"),
+      queryKeys.experiment.result("p", "a")
+    ]) {
+      expect(key[0]).toBe(queryKeys.experiment.all[0]);
+    }
+  });
+});
+
 describe("metricTree.cohort key", () => {
   const PERIOD = ["2026-04-15", "2026-07-13"] as [string, string];
 

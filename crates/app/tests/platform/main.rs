@@ -19,7 +19,7 @@
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
-//!   `simulation_lifecycle`, the two
+//!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
 //!   `workspace_previews_*` modules, `preview_routes` and `preview_ttl` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
@@ -67,6 +67,10 @@ mod compiled_reader_semantic;
 mod context_documents_boundary;
 mod coordinator_any_replica;
 mod data_placement;
+mod experiment_pricing;
+mod experiment_results;
+mod experiment_routes;
+mod experiment_runner;
 mod feature_flag_refresh;
 mod frontline_app_grant;
 mod frontline_pin;

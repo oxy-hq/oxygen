@@ -4,6 +4,7 @@
 manages customer workspace repos.
 
 - **API client** — `api`, `routes`, `schema`, `openapi`, `login`, `whoami`, `token`, `login-link`, `tokens`, `assume`, `oltp`
+- **Experiments** — `experiments` (draft, price, register, status, interim, abort, result)
 - **Customer workspaces** — `list`, `new`, `import`, `doctor`, `update`, `adopt`, `launch`
 - **Custom apps** — `publish`, `init-ci`, `proxy`, `apps`
 - **Checks** — `checks run`
@@ -542,6 +543,53 @@ shows its age and calls it stale past 30 days; nothing resets it on a timer.
 `reset --branch staging` re-copies it from production, discarding every app's
 staging data in the org, so it lists those apps and asks first (`--yes`
 without a terminal).
+
+## Experiments
+
+An experiment's whole lifecycle, as records on the deployment: a draft design
+edited in place, priced, registered (which freezes it and makes it the run),
+watched, aborted or reported. Every verb takes `--workspace <id>` and `--json`.
+
+```bash
+oxyc experiments list
+oxyc experiments design <name> > promo.yml          # the config, as YAML
+oxyc experiments create --file promo.yml           # a new draft
+oxyc experiments edit <name> --file promo.yml      # overwrite the draft
+oxyc experiments duplicate <name> <new-name>       # how a registered one is changed
+oxyc experiments price <name> --candidate '<yaml|json|@file>' [--candidate …] [--wait]
+oxyc experiments proposals <name>
+oxyc experiments use <name> <proposal-id>          # pricing's keys onto the draft
+oxyc experiments register <name> [--yes]           # freeze it; it becomes the run
+oxyc experiments retrospective <name> [--yes]      # past dates only: analyse as its one run
+oxyc experiments status <name>                     # flips, guardrails, compliance, estimate
+oxyc experiments abort <name> --reason <text> [--levers off|keep] [--yes]
+oxyc experiments interim <name> [--refresh [--wait]]  # the reading so far, badged not final
+oxyc experiments result <name>                     # sealed until reported
+oxyc experiments write-back <name>                 # branch writing the coefficient back
+```
+
+A candidate is one design to price, tagged by `shape`:
+`{shape: waves, wave_sizes: [20, 20], first_switch_on: 2026-11-02, spacing_days: 14}`
+or `{shape: switchback, first_period_on: 2026-11-02, period_days: 7, pairs: 6}`
+(`blocks`, `assign_by` and `alpha` are optional). One to six per request;
+`--wait` polls until each is priced, refused or failed — a refusal is the
+answer, not an error. Lengths count periods of the design's `grain` (day by
+default; hour, week, month), and every date must start one: a Monday at week
+grain, the 1st at month grain, a local whole hour at hour grain
+(`first_period_on: 2026-10-26T14:00`).
+
+`edit` sends the hash of the draft it read (or `--base-hash`), and `register` /
+`retrospective` send the hash of the draft they just read, so an edit someone
+made in between is a 409 rather than a silent overwrite or a design registered
+unseen. `register`, `retrospective` and `abort` ask first, and refuse without
+`--yes` when stdin is not a terminal. `result` on a run that is not reported
+prints that it is sealed and exits 0: there is deliberately no effect number
+before `reported`. `interim` is the registered analysis over the periods
+finished so far on a live or closing run, labelled not final (its interval is
+the fixed-horizon one, so reading it early overstates confidence); `--refresh`
+asks for a fresh one and a run not in progress exits 0 with its state. `write-back` needs the deployment that holds the
+workspace's working copy. Staff reach a tenant workspace only inside an
+`oxyc assume` session.
 
 ## Customer workspaces
 
@@ -1340,6 +1388,7 @@ its own token (`tokens create --agent` or `--sandbox-agent`) does not: there,
 | `OXYC_DIFF_LINES` | — | cap on diff lines printed by `update` |
 | `OXYC_DEBUG` | — | `1` keeps the stack on an unexpected throw |
 | `OXYC_QUIET` | — | `1` is `--quiet` |
+| `OXYC_POLL_MS` | `3000` | how often `experiments price --wait` polls |
 | `OXYC_DRY_RUN` | — | `1` makes `launch` print the command instead of running it |
 | `NO_COLOR` / `FORCE_COLOR` | — | force plain / coloured output |
 | `HTTPS_PROXY` / `HTTP_PROXY` | — | requests go through it. On Node 22.21+ and 24.5+, `oxyc` turns on Node's proxy support itself (`NODE_USE_ENV_PROXY`), re-running once if it has to. Older Node cannot proxy `fetch`, and the error says so |

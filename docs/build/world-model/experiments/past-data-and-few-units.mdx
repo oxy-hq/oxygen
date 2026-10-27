@@ -1,0 +1,177 @@
+---
+title: "Past data and few-unit designs"
+description: "Analysing a design whose dates have passed, designing for a handful of markets, and the synthetic-control design that is planned but not built"
+---
+
+## Analyse past data
+
+Sometimes the question is about something that already happened: *did last
+spring's flash sale work?* The data exists, but nobody registered a plan
+before it ran. Oxygen can still analyse it, under a label that makes its
+standing clear.
+
+### When it is offered
+
+Write the design as you would for a new experiment, with the dates on which
+the change actually happened, and price it. Its registration deadline has
+passed, so the page shows **Registration refused** with the reason. Once all
+of the design's dates are in the past, the same page offers **Analyse past
+data** (workspace owners and admins), with this explanation:
+
+> All of this design's dates are in the past. The result will be labelled
+> "not pre-registered": it is exploratory, not a registered test, and no
+> levers are switched.
+
+It is refused while any day of the last after window is still to come.
+
+### A rollout that was not randomised
+
+When the change was rolled out to units someone chose (a feature switched on for
+some listings, a policy applied to some stores), say so: under **Lever**, choose
+**Already changed**. The form then asks for no automations. Under **Assignment**,
+add one wave for each date the change went live, with the units it reached; every
+other unit becomes the comparison. No seed is needed and pricing is optional. When
+pricing cannot size the design (too little history), the report says **MDE
+unavailable** with pricing's reason instead of refusing to read the data.
+
+The report's **Randomisation** check then reads **Observational**: the treated and
+comparison units were not drawn at random, so they may differ in ways other than
+the change. If you edit a priced design's waves by hand, the same check reads
+**Written by hand**.
+
+### Units with missing data
+
+When reading past data, a unit with too little data (fewer than the design's coverage
+floor of the days, 90% by default) is left out, and a listed unit with no data at all is
+left out of its group. Neither stops the analysis or removes days for the other units.
+The report lists each one under **Dropped units, waves or pairs**, with the reason.
+
+### A share as the outcome
+
+To measure a share per unit (for example merchant-fulfilled units out of all units
+sold), set **Divided by** under **Outcome**. Each unit's share is its total of the
+outcome measure over its total of this one in each window, so a busy day counts for
+more than a quiet one. Shares are analysed from past data only for now, and the report
+gives no total for them.
+
+### When the analysis is refused
+
+If the analysis is refused (for example, a unit listed in a wave has no data), fix
+the design or the data and choose **Analyse past data** again. A refused analysis
+leaves no result, so the design stays editable; an analysis that produced a result
+is final.
+
+### What is different from a registered run
+
+| | Registered run | Analyse past data |
+| --- | --- | --- |
+| Levers | Switched on and off on schedule | **Never touched**; no automation runs |
+| Confirming switches | Checked in the data | Not measured, since Oxygen made no switches |
+| Guardrails | Watched hourly | None |
+| Control group | Fixed shortly after registration | Fixed from the design's own before window: units with data then, never units that appeared later |
+| Report label | **Registered result** | **RETROSPECTIVE — not pre-registered** |
+| Slope proposed to the semantic model | When the guards pass | **Never** |
+
+The run is created directly in the closing state, the design is locked like
+any other, and the estimate runs as soon as possible. An experiment has one
+run, so a design analysed from past data cannot also be registered; duplicate
+it to run it for real.
+
+### Why it is labelled the way it is
+
+Writing the plan before the data exists is what entitles a registered
+experiment to a plain significance test. A design written after the fact had
+no such protection. Its author may, without meaning to, have chosen the
+windows, the units or the measure that made the past look best. So the
+report always leads with *"RETROSPECTIVE — not pre-registered: the design
+was written after its data existed, so this is an exploratory reading, not a
+registered test"*. And a slope found after the fact is a candidate to test,
+not a coefficient to write into the model.
+
+<Tip>
+Use past-data runs to decide **what to test next**. If a retrospective read
+looks promising, duplicate the experiment, move the dates forward and run
+it registered.
+</Tip>
+
+## Designing for a few units
+
+Geographic tests often have only a couple of dozen markets, and a chain may
+have only a handful of stores it controls. With few units, the luck of the
+draw matters a lot: one random split can put the three biggest markets on
+the same side, and those three then decide the result. Four tools help.
+
+### Matched pairs
+
+**Match in pairs** sorts the units by their recent average, pairs neighbours
+in that ranking, and flips a coin within each pair. Every pair puts one unit
+on each side, so a lopsided draw is impossible. With 24 markets you get 12
+pairs, 12 treated and 12 controls; an odd unit out becomes a control. It
+needs at least four units.
+
+### Staggered waves with a few held back
+
+When some units must get the change and others cannot (for example,
+company-owned stores against franchises), staggering the owned stores over
+two or three waves, with any others held back, keeps a control on every date.
+It usually prices close to a single wave of the same size.
+
+### Groups
+
+If single units are too noisy, randomise whole groups. This only helps when
+there are still enough groups: the sample becomes the number of groups.
+
+### Switchback
+
+If no unit can be held back at all, the whole fleet can alternate. It needs
+at least six pairs of periods at a significance level of 0.05, or four at a
+directional 0.2.
+
+<Note>
+Pricing puts these side by side on your data. With few units the honest
+answer is sometimes that nothing can detect the effect you expect. Pricing
+will say so, which is far cheaper than finding out after the run.
+</Note>
+
+## Synthetic control (designed, not built)
+
+<Warning>
+This design is a **proposal under review**. It is not available in the
+product. It is described here so stakeholders can see where few-unit and
+non-random designs are heading.
+</Warning>
+
+Every design available today needs a random element: units held back at
+random, or periods alternated at random. Two real cases have neither:
+
+1. **A campaign that runs in places someone chose.** The brand team picks
+   Denver for a launch. Nothing was randomised, so there is no control group,
+   and the business will not alternate a live campaign week by week.
+2. **A past campaign that was never registered** and was not randomised
+   either.
+
+**Synthetic control** builds the missing comparison from the units that were
+not touched. For the treated market, it finds a weighted blend of untouched
+markets (say 40% Phoenix, 35% Dallas, 25% Kansas City) whose sales tracked
+the treated market's sales closely over a long period before the campaign.
+After the campaign starts, that blend shows what the treated market would
+probably have done without it. The effect is the gap between the two.
+
+How it is planned to work:
+
+- **The fit is the evidence.** The blend is fitted on a long before window,
+  and the report shows the weights and how closely the blend tracked the
+  treated unit before the change. If no blend tracks it well, the design is
+  refused: the "effect" would just be the fit's error.
+- **Is the gap unusual?** The same fit is repeated pretending each untouched
+  market was the treated one. If the real market's gap stands out among those
+  placebo gaps, the effect is real.
+- **Pricing works as usual.** Effects of known size are planted at past dates
+  to find the smallest effect the design can detect.
+- **Clearly labelled.** A synthetic-control result would be labelled as *not
+  randomised*, and pricing would rank a randomised design above it whenever
+  both are possible. It also cannot hold when the change spills into the
+  donor markets, such as a national TV burst, and the report would say so.
+
+The first version is planned for geographic donors only; using other
+products as donors for a single-product campaign is a follow-up.

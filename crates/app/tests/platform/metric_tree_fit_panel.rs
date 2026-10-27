@@ -55,7 +55,7 @@ fn no_deadline() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(3600)
 }
 
-fn enter_fixture_dir() {
+pub(crate) fn enter_fixture_dir() {
     std::env::set_current_dir(repo_root().join("example_new/.db")).unwrap();
 }
 
@@ -68,7 +68,7 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn layer() -> SemanticLayer {
+pub(crate) fn layer() -> SemanticLayer {
     let dir = repo_root().join("example_new/semantics/views");
     let mut paths: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
@@ -116,12 +116,26 @@ fn json_of(v: duckdb::types::Value) -> serde_json::Value {
             let base = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
             serde_json::json!((base + chrono::Duration::days(d as i64)).to_string())
         }
+        // `date_trunc('day', …)` comes back as a TIMESTAMP; production's typed
+        // stream renders it as ISO text, so the fixture does the same.
+        V::Timestamp(unit, v) => {
+            let micros = match unit {
+                duckdb::types::TimeUnit::Second => v.saturating_mul(1_000_000),
+                duckdb::types::TimeUnit::Millisecond => v.saturating_mul(1_000),
+                duckdb::types::TimeUnit::Microsecond => v,
+                duckdb::types::TimeUnit::Nanosecond => v / 1_000,
+            };
+            match chrono::DateTime::from_timestamp_micros(micros) {
+                Some(t) => serde_json::json!(t.naive_utc().format("%Y-%m-%dT%H:%M:%S").to_string()),
+                None => serde_json::json!(format!("{unit:?} {v}")),
+            }
+        }
         other => serde_json::json!(format!("{other:?}")),
     }
 }
 
 /// Compiles each request and runs it on the fixture CSVs.
-fn duckdb_executor(engine: SemanticEngine) -> Box<QueryExecutor> {
+pub(crate) fn duckdb_executor(engine: SemanticEngine) -> Box<QueryExecutor> {
     Box::new(move |req: &QueryRequest| {
         let compiled = engine.compile_query(req)?;
         let conn = duckdb::Connection::open_in_memory()

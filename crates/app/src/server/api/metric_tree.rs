@@ -1423,6 +1423,9 @@ pub struct TimeDimensionsResponse {
     /// (e.g. `orders.order_date`). Includes every `date` and `datetime`
     /// dimension declared on the view. Empty for views without one.
     pub by_view: BTreeMap<String, Vec<String>>,
+    /// The ids above that are `datetime` (they carry a time of day, so they can be
+    /// read per hour), sorted.
+    pub datetime: Vec<String>,
 }
 
 /// `GET .../semantic/metric-tree/time-dimensions` — list valid time
@@ -1431,12 +1434,24 @@ pub struct TimeDimensionsResponse {
 pub async fn get_time_dimensions(
     WorkspaceManagerReadOnly(workspace_manager): WorkspaceManagerReadOnly,
 ) -> Result<Json<TimeDimensionsResponse>, MetricTreeError> {
-    use oxy_airlayer_compat::schema::models::DimensionType;
-
     let source = resolve_scan(&workspace_manager).await?;
     let layer = load_layer_at(&source.scan_path)?;
+    Ok(Json(time_dimensions_of(&layer)))
+}
+
+/// Every `date` and `datetime` dimension per view, and which are `datetime`.
+pub fn time_dimensions_of(layer: &oxy_airlayer_compat::SemanticLayer) -> TimeDimensionsResponse {
+    use oxy_airlayer_compat::schema::models::DimensionType;
+
     let mut by_view: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut datetime: Vec<String> = Vec::new();
     for view in &layer.views {
+        datetime.extend(
+            view.dimensions
+                .iter()
+                .filter(|d| d.dimension_type == DimensionType::Datetime)
+                .map(|d| format!("{}.{}", view.name, d.name)),
+        );
         let mut dims: Vec<String> = view
             .dimensions
             .iter()
@@ -1451,7 +1466,8 @@ pub async fn get_time_dimensions(
         dims.sort();
         by_view.insert(view.name.clone(), dims);
     }
-    Ok(Json(TimeDimensionsResponse { by_view }))
+    datetime.sort();
+    TimeDimensionsResponse { by_view, datetime }
 }
 
 // ── Distribution: structural decomposition at a single period ───────────────

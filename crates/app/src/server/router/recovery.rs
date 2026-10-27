@@ -262,7 +262,7 @@ pub(crate) async fn await_shutdown_hooks(shutdown_token: &tokio_util::sync::Canc
 /// election needed.
 pub(crate) const INPROC_GLOBAL_WORKER_ENV: &str = "OXY_INPROC_GLOBAL_WORKER";
 const INPROC_GLOBAL_WORKER_INTERVAL_ENV: &str = "OXY_INPROC_GLOBAL_WORKER_INTERVAL_SECS";
-const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
+pub(crate) const DEFAULT_INPROC_GLOBAL_WORKER_INTERVAL_SECS: u64 = 30;
 
 pub(crate) fn inproc_global_worker_enabled() -> bool {
     // Explicit env override wins, in both directions.
@@ -758,6 +758,11 @@ async fn recover_local(
         if preagg_fired > 0 {
             tracing::info!(target: "preagg", "preagg schedule fired");
         }
+        let experiments =
+            crate::server::experiment::tick::tick_experiments(db, chrono::Utc::now()).await;
+        if experiments > 0 {
+            tracing::info!(target: "experiment", experiments, "experiment tick advanced runs");
+        }
         recovered + fired
     } else {
         // One-time startup backfill of per-workspace health schedule rows from
@@ -960,6 +965,13 @@ async fn recover_all_workspaces(
         let preagg_fired = agentic_pipeline::scheduler::tick_preagg_schedules(db).await;
         if preagg_fired > 0 {
             tracing::info!(target: "preagg", "cloud preagg schedule fired");
+        }
+        // Global like the health tick: exactly-once per run across replicas by
+        // the CAS on `experiment_runs.next_check_at`.
+        let experiments =
+            crate::server::experiment::tick::tick_experiments(db, chrono::Utc::now()).await;
+        if experiments > 0 {
+            tracing::info!(target: "experiment", experiments, "cloud experiment tick advanced runs");
         }
         // Does nothing unless `OXY_COMPILE_RECONCILE` is set. Each check is
         // claimed in Postgres, so it does not matter how many nodes run this.
@@ -1432,6 +1444,10 @@ fn build_custom_task_registry(
         crate::server::simulation::SIMULATION_RUN_KIND,
         Arc::new(crate::server::simulation::SimulationTaskExecutor { db: db.clone() }),
     );
+    reg.register(
+        crate::server::experiment::EXPERIMENT_PRICE_KIND,
+        Arc::new(crate::server::experiment::ExperimentPriceExecutor { db: db.clone() }),
+    );
     // Insights delivery, queued after a monitor scan whose `.monitor.yml` has a
     // `notify:` block. Nothing can queue one before every pod parses that
     // block — an older pod refuses the file outright — so the kind and its
@@ -1542,6 +1558,28 @@ fn build_custom_task_registry(
     for seam in tasks {
         reg.register(seam.kind, (seam.build)(&deps));
     }
+    // Experiment read-back and guardrails: the warehouse reads the tick must
+    // not make itself. Context rebuilt per task from the run's workspace.
+    reg.register(
+        crate::server::experiment::jobs::CHECK_KIND,
+        Arc::new(
+            crate::server::experiment::check::executor::ExperimentCheckExecutor { db: db.clone() },
+        ),
+    );
+    // The sealed report of a closed or aborted run: the tick enqueues one per run.
+    reg.register(
+        crate::server::experiment::jobs::ESTIMATE_KIND,
+        Arc::new(
+            crate::server::experiment::estimate::ExperimentEstimateExecutor::warehouse(db.clone()),
+        ),
+    );
+    // The interim reading of a live or closing run: on demand and once a day by the tick.
+    reg.register(
+        crate::server::experiment::interim::store::INTERIM_KIND,
+        Arc::new(
+            crate::server::experiment::interim::ExperimentInterimExecutor::warehouse(db.clone()),
+        ),
+    );
     Arc::new(reg)
 }
 
@@ -2397,6 +2435,97 @@ mod health_scan_wiring_tests {
             "and it must REFUSE the working-copy fallback: on a node that does hold the \
              files, falling back judges someone's uncommitted IDE edit and pages the \
              on-call about a promoted revision that is fine"
+        );
+    }
+}
+
+#[cfg(test)]
+mod experiment_tick_wiring_tests {
+    fn src() -> &'static str {
+        include_str!("recovery.rs")
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("source splits on its own test-module attribute")
+    }
+
+    fn between<'a>(s: &'a str, start: &str, end: &str) -> &'a str {
+        s.split(start)
+            .nth(1)
+            .and_then(|rest| rest.split(end).next())
+            .unwrap_or_else(|| panic!("`{start}` … `{end}` not found"))
+    }
+
+    /// The regression is an ABSENCE: drop the call and everything compiles,
+    /// and no experiment ever advances on that path.
+    #[test]
+    fn both_global_driver_passes_tick_experiments() {
+        let s = src();
+        let local = between(
+            s,
+            "async fn recover_local(",
+            "async fn recover_all_workspaces(",
+        );
+        let cloud = between(
+            s,
+            "async fn recover_all_workspaces(",
+            "// ── Per-workspace context builders",
+        );
+        for (pass, body) in [("local", local), ("cloud", cloud)] {
+            assert!(
+                body.contains("experiment::tick::tick_experiments("),
+                "the {pass} global-driver pass must tick experiments"
+            );
+        }
+    }
+
+    #[test]
+    fn the_experiment_check_executor_is_registered() {
+        let registry = between(
+            src(),
+            "fn build_custom_task_registry(",
+            "async fn drive_pending(",
+        );
+        assert!(
+            registry.contains("experiment::jobs::CHECK_KIND"),
+            "without it every experiment_check job dead-letters and read-back never runs"
+        );
+    }
+
+    #[test]
+    fn the_experiment_estimate_executor_is_registered() {
+        let registry: String = between(
+            src(),
+            "fn build_custom_task_registry(",
+            "async fn drive_pending(",
+        )
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+        assert!(
+            registry.contains(
+                "experiment::jobs::ESTIMATE_KIND,Arc::new(crate::server::experiment::estimate::\
+                 ExperimentEstimateExecutor::warehouse("
+            ),
+            "without it every experiment_estimate job sits in the queue and no run ever reports"
+        );
+    }
+
+    #[test]
+    fn the_experiment_interim_executor_is_registered() {
+        let registry: String = between(
+            src(),
+            "fn build_custom_task_registry(",
+            "async fn drive_pending(",
+        )
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+        assert!(
+            registry.contains(
+                "experiment::interim::store::INTERIM_KIND,Arc::new(crate::server::experiment::\
+                 interim::ExperimentInterimExecutor::warehouse("
+            ),
+            "without it every experiment_interim job sits in the queue and no interim is ever read"
         );
     }
 }

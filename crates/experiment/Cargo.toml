@@ -1,0 +1,24 @@
+[package]
+name = "oxy-experiment"
+description = "Pre-registered experiments: the design artifact, its refusals and its calendar"
+version.workspace = true
+documentation.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+# `serde` gives `Tz` its Deserialize/Serialize impls; no other crate in the
+# workspace enables it, so this is the edge that changes Cargo.lock.
+chrono-tz = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

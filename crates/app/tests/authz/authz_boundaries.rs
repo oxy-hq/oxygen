@@ -86,12 +86,12 @@ const BANNED: &[Banned] = &[
 const ALLOWED: &[(&str, &str)] = &[
     // ---- The model, its fact loader, and the guards that enforce it. Said once, here. ----
     // `role_guards.rs` lives here too now (moved out of `oxy-app`); its `existing_allow`
-    // halves — the six guards' legacy `matches!(role, Owner | Admin)` shapes — are the
+    // halves — the four guards' legacy `matches!(role, Owner | Admin)` shapes — are the
     // shipped checks the model is differenced against, and are load-bearing until each ring
     // is enforced on its own. In `oxy-app` only the re-export shim remains (no banned shape).
     (
         "server-authz/src/",
-        "the model, the loader, the six role guards, and their differential tests",
+        "the model, the loader, the nine role guards, and their differential tests",
     ),
     // ---- Legacy terms: the `existing_allow` half of the conjunction. ----
     // These are the shipped checks the model is differenced against. They are load-bearing

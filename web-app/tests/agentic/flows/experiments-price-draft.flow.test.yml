@@ -1,0 +1,263 @@
+# yaml-language-server: $schema=../../../../json-schemas/flow-test.json
+#
+# Price SEVERAL candidate designs of a draft experiment from the Experiments
+# surface, read every outcome INLINE, then (case 2) read a directional switchback
+# report. Nothing else covers this page.
+#
+# WHAT THIS PROVES
+#   1. The rail entry, list and detail routes exist, and a draft experiment can be
+#      CREATED from the surface: the "New experiment" dialog is a plain-label form (no
+#      file text), and POST /experiments saves what it builds as a draft design,
+#      landing on its detail page.
+#   2. Bad input is refused NEXT TO ITS FIELD, before anything is queued (an empty
+#      submit -> a per-field error on candidate 1).
+#   3. A request of three candidates — one staggered design, and a switchback priced
+#      at both alphas (0.05 and the directional 0.2) — enqueues one pricing job
+#      each (POST /price -> { request_id, proposal_ids }), the page polls the
+#      proposal log until EVERY row of that request leaves `pending`, and each
+#      terminal outcome — a priced candidate in the ranked comparison, a refusal
+#      naming its candidate — is page content. `experiment-price-outcome` is
+#      present whichever mix the data yields; a FAILED job is asserted against
+#      below, because a fault is not an acceptable outcome.
+#   4. A finished directional switchback run's report reads as directional, states its
+#      assumptions and sets the World Model's slope against the measurement (case 2; the
+#      run is seeded by scripts/seed-experiment-report.sh, run before this flow by
+#      verify-all.sh).
+#
+# BACKEND — backend_mode: cloud, prepared BEFORE the run (this harness cannot seed;
+# README "Policy"). Same recipe as airway-pipeline-run and scripts/verify-all.sh
+# phase 4, with a WORKSPACE identity rather than staff:
+#
+#   OXY_DEV_LOGIN_EMAILS=flow@oxy.local ./target/debug/oxy start --enterprise   # NOT --clean
+#   OXY_DATABASE_URL=postgresql://postgres:postgres@localhost:15432/oxy \
+#     OXY_GLOBAL_ADMINS=flow@oxy.local ./target/debug/oxy seed --workspace-path ./examples
+#   curl -s "http://localhost:3000/api/auth/dev-login?email=flow@oxy.local" > sess.json
+#   OXY_SESSION_TOKEN=$(jq -r .token sess.json) OXY_SESSION_USER=$(jq -c .user sess.json) \
+#     pnpm test:agentic experiments-price-draft
+#
+# `--clean` would wipe the seed (the runner only spawns its own backend when none is
+# healthy on :3001; verify-all.sh does the same). `flow@oxy.local` is the non-staff org owner: a staff session is
+# bounced off a tenant workspace into /admin (README "One session per invocation").
+# There is no sign-in STEP — dev-login is how the one injected session is minted.
+# CI: none — the skill runs cloud flows from scripts/verify-all.sh phase 4 (SKILL.md:445),
+# where this flow is its own invocation as flow@oxy.local.
+#
+# FIXTURE: the draft `customer_orders_pilot` is NOT seeded and no file is compiled into
+# one any more (experiments are Postgres records). Case 1 creates it through the UI by
+# filling the New experiment FORM field by field with the values of
+# examples/experiments/customer_orders_pilot.experiment.yml. The form leaves a field at
+# its default out of the config it posts, and the example's time zone (UTC), direction
+# (increase) and design (staggered waves) are the form's defaults, so the posted config
+# is the example file exactly — NewExperimentButton.test.tsx asserts that equality
+# against the file itself. Keep the typed values in sync with the example file. Create is 409 when the name exists, so
+# run this flow against a database where `customer_orders_pilot` does not exist yet
+# (a fresh `oxy seed`; scripts/seed-experiment-report.sh seeds only the switchback).
+# The first switch date is typed as 2035-03-05: far enough
+# ahead that the "not in the past" check passes for years without the flow carrying
+# a clock. The org slug and workspace id are `oxy seed`'s own fixed constants
+# (crates/app/src/cli/commands/seed.rs), as in airway-pipeline-run.
+#
+# Navigation is rail-driven after landing on the workspace home.
+#
+# COST (case 1): seven act steps (the two form fills drive eight tool calls each, and
+# the pricing act seven, from one prompt apiece, because each is one tightly coupled
+# sequence), no agent run, no query execution, one judge call.
+
+name: experiments — price several candidates, then read a directional report
+target: ide
+
+settings:
+  runs: 1
+  trace: on-failure
+  cache_actions: true
+  backend_mode: cloud
+  max_steps: 20
+
+setup:
+  - "goto:/local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3/home"
+
+cases:
+  - name: several candidates are priced from the surface, and bad input is refused next to its field
+    tags: [ide, experiments, regression]
+    steps:
+      # data-testid='rail-core' — web-app/src/components/Shell/WorkspaceShell.tsx:89
+      - wait_for: "selector:[data-testid=rail-core]"
+
+      - act: |
+          browser_click [data-testid=rail-core] — the Oxygen Factory tile in the
+          left icon rail. The IDE opens.
+
+      # data-testid='ide-nav-experiments' — web-app/src/pages/ide/Sidebar/index.tsx
+      - wait_for: "selector:[data-testid=ide-nav-experiments];timeout_ms=60000"
+
+      - act: |
+          browser_click [data-testid=ide-nav-experiments] — the flask icon
+          button in the narrow IDE sidebar rail. The URL ends with
+          /ide/experiments and the list of experiments loads.
+
+      # testid `experiment-new` — pages/ide/Experiments/components/NewExperimentButton.tsx.
+      # Present on the list page whether or not any experiment exists.
+      - wait_for: "selector:[data-testid=experiment-new];timeout_ms=60000"
+
+      - act: |
+          browser_click [data-testid=experiment-new] — the "New experiment" button.
+          A dialog opens with a form of labelled fields.
+
+      # testids are `experiment-design-<field>` — components/DesignDialog/components/fields.tsx.
+      - wait_for: "selector:[data-testid=experiment-design-form];timeout_ms=10000"
+
+      # Create the draft through the form: the values of
+      # examples/experiments/customer_orders_pilot.experiment.yml, one field each.
+      # browser_type replaces a field's content, so the pre-filled "0" in the two
+      # buffer fields is overwritten. Time zone (UTC), "Expects an increase" and
+      # "Staggered waves" are already selected and are left alone.
+      - act: |
+          1. browser_type into [data-testid=experiment-design-experiment] the text
+             "customer_orders_pilot".
+          2. browser_type into [data-testid=experiment-design-owner] the text "ops".
+          3. browser_type into [data-testid=experiment-design-hypothesis] the text
+             "A customer-level promo lifts order value per customer-day".
+          4. browser_type into [data-testid=experiment-design-for-each] the text
+             "customer".
+          5. browser_type into [data-testid=experiment-design-target] the text
+             "orders.total_order_value".
+          6. browser_type into [data-testid=experiment-design-on-via] the text
+             "fruit_summary".
+          7. browser_type into [data-testid=experiment-design-off-via] the text
+             "fruit_summary".
+          8. browser_type into [data-testid=experiment-design-when-on] the text
+             "{{orders.total_order_value}} > 0" exactly, braces included.
+
+      # A successful create navigates to the experiment's detail page, which for a
+      # draft shows the pricing form.
+      - act: |
+          1. browser_type into [data-testid=experiment-design-when-off] the text
+             "{{orders.total_order_value}} >= 0" exactly, braces included.
+          2. browser_type into [data-testid=experiment-design-grace-days] the text "2".
+          3. browser_type into [data-testid=experiment-design-time-dimension] the
+             text "orders.order_date".
+          4. browser_type into [data-testid=experiment-design-pre-days] the text "56".
+          5. browser_type into [data-testid=experiment-design-post-days] the text "56".
+          6. browser_type into [data-testid=experiment-design-anticipation-days] the
+             text "3".
+          7. browser_type into [data-testid=experiment-design-washout-days] the text "7".
+          8. browser_click [data-testid=experiment-design-submit] — the "Create
+             experiment" button. The detail page of customer_orders_pilot opens
+             with a "Price this design" form.
+
+      - wait_for: "selector:[data-testid=experiment-price-form];timeout_ms=30000"
+
+      # An empty submit must be refused inline, before any job is queued.
+      - act: |
+          browser_click [data-testid=experiment-price-submit] — the "Price this
+          design" button, with the Wave sizes and First switch date fields left
+          empty.
+
+      - wait_for: "selector:[data-testid=experiment-price-0-wave-sizes-error];timeout_ms=10000"
+
+      # One compound act: these seven calls are one coupled sequence (fill candidate
+      # 1, add candidate 2, make it a switchback priced at both alphas, submit), and
+      # splitting them would cost a snapshot per step. The switchback keeps its
+      # defaults (7-day periods, 6 pairs). Radios, not a select, so each is one click.
+      - act: |
+          1. browser_type into [data-testid=experiment-price-0-wave-sizes] the
+             text "3, 3" (comma-separated wave sizes).
+          2. browser_type into [data-testid=experiment-price-0-first-switch] the
+             text "2035-03-05" (a date input; ISO format).
+          3. browser_click [data-testid=experiment-price-add-candidate] — a
+             second candidate row appears.
+          4. browser_click [data-testid=experiment-price-1-shape-switchback] —
+             the "Switchback" radio of candidate 2.
+          5. browser_type into [data-testid=experiment-price-1-first-period] the
+             text "2035-03-05".
+          6. browser_click [data-testid=experiment-price-1-alpha-both] — the
+             "Both" radio of candidate 2, which prices it at 0.05 and at 0.2.
+          7. browser_click [data-testid=experiment-price-submit] — its label now
+             reads "Price 3 candidates".
+
+      # Pricing is a job per candidate: a permutation test per draw. Generous
+      # ceiling; the page shows the outcome only when every row has settled as
+      # done, refused or failed — never a timeout.
+      - wait_for: "selector:[data-testid=experiment-price-outcome];timeout_ms=180000"
+
+    expect:
+      - assert: "selector [data-testid=experiment-price-outcome] is visible"
+      # A fault is not an acceptable outcome of pricing a fixture.
+      - assert: "selector [data-testid=experiment-price-failures] is not visible"
+      # The form is still there to price again; the earlier inline error and any
+      # set-level error are gone; the expanded count is three.
+      - assert: "selector [data-testid=experiment-price-form] is visible"
+      - assert: "selector [data-testid=experiment-price-0-wave-sizes-error] is not visible"
+      - assert: "selector [data-testid=experiment-price-candidates-error] is not visible"
+      - assert: "text \"3 of 6 candidates\" is visible"
+      - judge: |
+          The page is the detail view of the experiment "customer_orders_pilot"
+          with a candidate form and, below it, the outcome of pricing three
+          candidates: a staggered design, and a switchback at two alphas.
+
+          Pass if every candidate's outcome is on the page as one of:
+          (a) a row in a comparison table showing its design, its alpha, a
+              minimum detectable effect in the design's own unit and one per
+              unit-day, with the rows ordered by the per-unit-day figure, smallest
+              first, and — for the selected row — a sentence saying what using it
+              saves, and a "Use this design" button; or
+          (b) a "Pricing refused: …" panel naming the candidate and showing the
+              refusal message as readable text in a bordered alert — not hidden in
+              a toast or a collapsed section.
+          Any mix of (a) and (b) passes, including all of one kind.
+
+          Fail if ANY of the following is true:
+          (c) an outcome appears only as a transient toast or a bare error line,
+              with no outcome panel;
+          (d) a spinner reading "Pricing…" is still on screen — the poll never
+              resolved;
+          (e) a "Pricing failed" panel is shown;
+          (f) any visible text contains "Request failed with status code";
+          (g) any visible text shows a number labelled "net", or an effect number
+              of any kind for a run that has not reported;
+          (h) the table's rows are not ordered by minimum detectable effect per
+              unit-day, smallest first;
+          (i) any visible text shows the design as file text — lines of
+              "key: value" pairs such as "design:" or "seed:".
+
+  - name: a seeded directional switchback report reads as directional, with its assumptions and prediction
+    tags: [ide, experiments, regression]
+    steps:
+      # `setup:` re-runs before EACH case, so this case starts at the workspace home.
+      # The report is a deep link: case 1 already proves the rail, so no clicks here.
+      - wait_for: "selector:[data-testid=rail-core]"
+
+      - act: |
+          browser_navigate to
+          /local/workspaces/70787bb2-e11b-5488-b2c3-02e60d5fc7d3/ide/experiments/customer_orders_switchback
+          — the report page of the seeded, already-reported run.
+
+      # `experiment-report` exists only for a released report: a sealed or
+      # "being prepared" run renders `experiment-sealed` / `experiment-report-pending`.
+      - wait_for: "selector:[data-testid=experiment-report];timeout_ms=60000"
+
+    expect:
+      - assert: "selector [data-testid=experiment-report-verdict] is visible"
+      - assert: "text \"directional at α = 0.2\" is visible"
+      - assert: "selector [data-testid=experiment-report-assumptions] is visible"
+      - assert: "selector [data-testid=experiment-report-prediction] is visible"
+      - assert: "selector [data-testid=experiment-sealed] is not visible"
+      - judge: |
+          The page is the report of the experiment "customer_orders_switchback".
+
+          Pass if ALL of the following are true:
+          (a) the verdict reads "directional at α = 0.2", and the word
+              "significant" is not used to label the result;
+          (b) a section states the design's assumptions — carryover and
+              pull-forward — as readable text, not collapsed or hidden;
+          (c) a "Predicted against measured" section shows a World Model slope,
+              a predicted and a measured figure in $/unit-day with an interval,
+              and a sentence saying the experiment agrees with the World Model's
+              slope;
+          (d) the headline is a gross effect with an interval.
+
+          Fail if ANY of the following is true:
+          (e) the result is called "significant" anywhere as its verdict;
+          (f) the assumptions are missing, or only reachable by expanding something;
+          (g) any visible text shows a number labelled "net";
+          (h) the page shows a "sealed" or "being prepared" message instead of a report.

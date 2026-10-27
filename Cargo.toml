@@ -19,6 +19,7 @@ members = [
   "crates/cameras",
   "crates/core",
   "crates/entity",
+  "crates/experiment",
   "crates/git",
   "crates/integration/looker",
   "crates/integration/slack-client",
@@ -107,6 +108,7 @@ oxy-server-authz = { path = "crates/server-authz" }
 oxy-billing = { path = "crates/billing" }
 oxy-cameras = { path = "crates/cameras" }
 oxy-compile = { path = "crates/oxy-compile" }
+oxy-experiment = { path = "crates/experiment" }
 oxy-git = { path = "crates/git" }
 oxy-llm = { path = "crates/infrastructure/llm/oxy-llm" }
 oxy-looker = { path = "crates/integration/looker" }
@@ -707,32 +709,23 @@ aho-corasick = "1.1"
 #   * **No rollup hash moves** for a rollup that resolved fully — only the
 #     refused shape changed — so `PREAGG_BUILDER_GENERATION` stays put.
 #
-# rev is a bare main commit; there is no tag on it (tags can be moved; the rev
-# cannot).
+# NOW AT e338ea7 — airlayer main, the merge of PR #122
+# (`feat/experiment-estimator`, https://github.com/oxy-hq/airlayer/pull/122),
+# whose branch had main 8c7d604 (PR #125) merged in. Not a tag. On top of
+# 8c7d604 it adds only `engine::experiment` — the panel, the placebo-calibrated
+# estimator, the switchback schedule, #128's tie-with-the-observed-statistic
+# tolerance and #131's fully staggered rollout — which the experiments pricing
+# job calls. Nothing it adds changes an existing engine path, so **no rollup
+# hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
 #
-# NOW AT 8c7d604 — airlayer main, the merge of PR #125
-# (`haitrr/predict-by-evaluation`): seven commits on `abe99c2` and nothing else
-# from main. Not a tag; v0.4.0 is still the newest.
-#
-#   * **`predict_with_values` and `opportunity` take a `dialect: Option<Dialect>`.**
-#     Predict now recomputes every composite from its parsed expression in
-#     floating point, and refuses a move integer division would change where
-#     the warehouse truncates `/` (Postgres, Redshift, Presto, SQLite) or the
-#     dialect is `None`. `None` compiles, but on DuckDB / Snowflake / BigQuery /
-#     MySQL / ClickHouse / Databricks it makes a `0/50` ratio come back
-#     `unquantifiable` for nothing — so every call site resolves the real one
-#     through `oxy_airlayer_compat::predict_dialect`.
-#
-#   * **MySQL and Domo round `/` to 4 places** (`div_precision_increment`), and
-#     predict now allows for that gap instead of refusing most ratios there.
-#     A fractional lever on a whole-number operand of a division is refused
-#     where integer division is suspected.
-#
-#   * **Additive:** `reachable_values_outcome_in` reads induced measures back
-#     by their source alias. `simulation/probe.rs` still calls the old
-#     `reachable_values_outcome`, so composites over an induced measure stay
-#     unvalued there until it switches.
-airlayer = { git = "https://github.com/oxy-hq/airlayer", rev = "8c7d6046846d5a633cfbc58106eff4e24982963d" }
+# NOW AT 3f9dfd1 — airlayer main, the merge of PR #135
+# (`fix/experiment-panel-units`, https://github.com/oxy-hq/airlayer/pull/135), on
+# top of e338ea7; its tree is the PR head 38364e6's. Not a tag. It adds
+# `engine::experiment::dropping` (a sparse or missing unit is dropped and listed
+# instead of deleting every unit's days), `EffectResult.dropped_units`, and
+# `estimate_ratio_of_sums`. Nothing it adds changes an existing engine path, so
+# **no rollup hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
+airlayer = { git = "https://github.com/oxy-hq/airlayer", rev = "3f9dfd1b8082c9ecc7ffb3a2ee1e0fffca4dea97" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.

@@ -130,7 +130,7 @@ fn compiled(
 
 /// Per-test database, wired so the handlers' own `establish_connection()` lands
 /// on it.
-async fn setup_db() -> DatabaseConnection {
+pub(crate) async fn setup_db() -> DatabaseConnection {
     let (db, test_url) = crate::common::fresh_db(crate::common::Schema::Central).await;
     // SAFETY: single-threaded test setup before any other env access. nextest
     // isolates each test in its own process.
@@ -152,7 +152,7 @@ async fn setup_db() -> DatabaseConnection {
 }
 
 /// An org + a promoted workspace, returning `(workspace_id, revision_id)`.
-async fn seed_workspace(db: &DatabaseConnection, label: &str) -> (Uuid, Uuid) {
+pub(crate) async fn seed_workspace(db: &DatabaseConnection, label: &str) -> (Uuid, Uuid) {
     let now = chrono::Utc::now().fixed_offset();
     let org_id = Uuid::new_v4();
     organizations::ActiveModel {

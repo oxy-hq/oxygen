@@ -45,6 +45,7 @@ import { runOpenApi, runRoutes, runSchema } from "./commands/discover.js";
 import { runEnvCreate, runEnvDelete, runEnvList, runEnvShow } from "./commands/env.js";
 import { runEnvSchedules } from "./commands/env-schedules.js";
 import { runEnvSecretDelete, runEnvSecretList, runEnvSecretSet } from "./commands/env-secrets.js";
+import { registerExperiments } from "./commands/experiments-cli.js";
 import { runFnCall } from "./commands/fn.js";
 import { LOCAL_RUN_NOTICE, READ_THROUGH_HELP, runFnDev } from "./commands/fn-dev.js";
 import { runFnRun } from "./commands/fn-run.js";
@@ -1109,6 +1110,8 @@ function buildProgram(): Command {
       json: Boolean(opts.json)
     });
   });
+
+  registerExperiments(program, { withGlobals, globals, collect });
 
   const preview = program
     .command("preview")

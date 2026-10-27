@@ -96,13 +96,14 @@ fn both_ways(facts: &PrincipalFacts, token: &TokenReach) -> [PrincipalFacts; 2] 
 
 const ROLES: [RoleCeiling; 3] = [RoleCeiling::Member, RoleCeiling::Admin, RoleCeiling::Owner];
 
-/// The actions a `viewer` loses that a member has, in the model itself: the
-/// `WorkspaceEdit` ring ("not a viewer"), and the creator's claim, which is a
-/// member's act. Everything else a viewer decides as a member does — the model
-/// has no other viewer/member distinction, and the shipped check
+/// The actions a `viewer` loses that a member has, in the model itself: every
+/// action of the `WorkspaceEdit` ring ("not a viewer" — `WorkspaceEdit` and the
+/// experiment contributor acts that share it), and the creator's claim, which
+/// is a member's act. Everything else a viewer decides as a member does — the
+/// model has no other viewer/member distinction, and the shipped check
 /// (`EffectiveWorkspaceRole`, capped at the source) carries the rest.
 fn viewer_loses(action: Action, resource: &Resource) -> bool {
-    action == Action::WorkspaceEdit
+    action.ring() == crate::Ring::WorkspaceEdit
         || (matches!(action, Action::WorkspaceRename | Action::NamespaceDelete)
             && resource.owner == Some(USER))
 }

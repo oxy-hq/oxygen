@@ -311,7 +311,7 @@ if [ "$DRY" = 1 ]; then
 elif curl -sf --max-time 5 http://localhost:3001/api/health >/dev/null 2>&1; then
   CLOUD_UP=1
 else
-  ( OXY_DEV_LOGIN_EMAILS="${OWNER:-hello@oxy.tech}" \
+  ( OXY_DEV_LOGIN_EMAILS="${OWNER:-hello@oxy.tech},flow@oxy.local" \
       ./target/debug/oxy start --enterprise > "$LOG_DIR/cloud-backend.log" 2>&1 ) &
   for _ in $(seq 1 60); do
     curl -sf --max-time 3 http://localhost:3001/api/health >/dev/null 2>&1 && break; sleep 4
@@ -325,7 +325,7 @@ if [ "$CLOUD_UP" = 1 ]; then
   # 403 assume_role_required instead of rendering.
   if ! wet; then
     printf '  [dry-run] OXY_DATABASE_URL=…@%s ./target/debug/oxy seed --workspace-path ./examples\n' "${CLOUD_DB##*@}"
-  elif OXY_DATABASE_URL="$CLOUD_DB" OXY_GLOBAL_ADMINS="${GLOBAL_ADMINS:+$GLOBAL_ADMINS,}${OWNER:-hello@oxy.tech}" \
+  elif OXY_DATABASE_URL="$CLOUD_DB" OXY_GLOBAL_ADMINS="${GLOBAL_ADMINS:+$GLOBAL_ADMINS,}${OWNER:-hello@oxy.tech},flow@oxy.local" \
        ./target/debug/oxy seed --workspace-path ./examples > "$LOG_DIR/cloud-seed.log" 2>&1; then
     record "B: cloud seed" PASS "oxy seed (compiled + promoted)"
     ok "oxy seed: local org + Demo workspace compiled + promoted"
@@ -347,6 +347,30 @@ if [ "$CLOUD_UP" = 1 ]; then
   else
     record "B: cloud admin flows" FAIL "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-cloud.log" | tail -1)"
     bad "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-cloud.log" | tail -1) — see $LOG_DIR/b-cloud.log"
+  fi
+  # Case 2 reads a finished directional switchback report; a report needs a run that
+  # has finished, which takes weeks, so the row is seeded (psql) rather than awaited.
+  if ! wet; then
+    printf '  [dry-run] OXY_DATABASE_URL=…@%s bash scripts/seed-experiment-report.sh\n' "${CLOUD_DB##*@}"
+  elif OXY_DATABASE_URL="$CLOUD_DB" bash scripts/seed-experiment-report.sh \
+       > "$LOG_DIR/experiments-seed.log" 2>&1; then
+    record "B: experiments seed" PASS "directional switchback report"
+  else
+    record "B: experiments seed" FAIL "see $LOG_DIR/experiments-seed.log"
+    bad "seeding the directional report failed — case 2 has nothing to read; see $LOG_DIR/experiments-seed.log"
+  fi
+  # Workspace-scoped flows need the non-staff identity, and the runner injects ONE
+  # session per invocation — so the experiments flow is its own invocation.
+  curl -s --max-time 10 "http://localhost:3000/api/auth/dev-login?email=flow@oxy.local" -o "$LOG_DIR/flow.json" 2>/dev/null
+  FTOK=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["token"])' "$LOG_DIR/flow.json" 2>/dev/null || true)
+  FUSR=$(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("user",{})))' "$LOG_DIR/flow.json" 2>/dev/null || true)
+  if OXY_SESSION_TOKEN="$FTOK" OXY_SESSION_USER="$FUSR" \
+     flow_run experiments-price-draft > "$LOG_DIR/b-experiments.log" 2>&1; then
+    record "B: experiments flow" PASS "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-experiments.log" | tail -1)"
+    ok "experiments-price-draft — $(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-experiments.log" | tail -1)"
+  else
+    record "B: experiments flow" FAIL "$(grep -oE '[0-9]+/[0-9]+ cases passed' "$LOG_DIR/b-experiments.log" | tail -1)"
+    bad "experiments-price-draft — see $LOG_DIR/b-experiments.log"
   fi
 else
   record "B: cloud admin flows" SKIP "no cloud backend on :3001"

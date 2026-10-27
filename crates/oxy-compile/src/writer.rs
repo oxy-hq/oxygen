@@ -163,7 +163,7 @@ pub async fn finalise_revision(
     let txn = db.begin().await?;
     let finished_at = Utc::now();
 
-    write_compiled_rows(&txn, ctx.revision_id, input.rows, &blob_keys).await?;
+    write_compiled_rows(&txn, ctx, input.rows, &blob_keys).await?;
 
     let error_summary_json = if input.failures.is_empty() {
         None
@@ -536,10 +536,11 @@ pub async fn mark_failed(db: &DatabaseConnection, revision_id: Uuid, error: &str
 /// Done one entity table at a time so per-table failures localise.
 async fn write_compiled_rows(
     txn: &impl ConnectionTrait,
-    revision_id: Uuid,
+    ctx: &RevisionContext,
     rows: &[CompiledRow],
     blob_keys: &std::collections::HashMap<(crate::blob_store::BlobKind, String), Option<String>>,
 ) -> Result<(), CompileError> {
+    let revision_id = ctx.revision_id;
     let mut configs = Vec::new();
     let mut agents = Vec::new();
     let mut views = Vec::new();

@@ -1,0 +1,83 @@
+{
+  "status": { "kind": "registered" },
+  "label": "Registered result",
+  "experiment": "customer_orders_switchback",
+  "hypothesis": "A customer-level promo lifts order value per customer-day",
+  "target": "orders.total_order_value",
+  "unit": "customer",
+  "design": "switchback",
+  "estimand": "short-run effect of on against off under alternation, per unit-day",
+  "refusal": null,
+  "directional": true,
+  "alpha": 0.2,
+  "prediction": {
+    "predicted": 6.8,
+    "measured": 9.4,
+    "measured_interval": { "low": 4.2, "high": 14.6 },
+    "prior": { "value": 1.7, "source": "fitted" },
+    "prior_in_interval": true,
+    "statement": "The experiment agrees with the World Model's slope (fitted from history): the prior lies inside the interval the experiment earned for the coefficient."
+  },
+  "prediction_note": null,
+  "assumptions": [
+    "Carryover longer than the washout leaks an on period's effect into the next off period, which biases the estimate toward zero.",
+    "Pull-forward — a customer who buys during an on period instead of later depletes the next off period — biases the estimate away from zero. The estimate is the short-run effect of on against off under alternation, not of leaving the lever on."
+  ],
+  "headline": {
+    "estimate": 9.4,
+    "half_width": 5.2,
+    "interval": { "low": 4.2, "high": 14.6 },
+    "p_value": 0.125,
+    "significant": true,
+    "verdict": "directional at α = 0.2",
+    "text": "gross +$9.40/unit-day (±5.20); substitution not excluded above $31.00/unit-day"
+  },
+  "treated_total": {
+    "units": 40,
+    "days": 20,
+    "total": 7520,
+    "interval": { "low": 3360, "high": 11680 },
+    "basis": "Exact arithmetic on the on days: mean × units × days."
+  },
+  "projection": null,
+  "substitution": {
+    "sibling": null,
+    "floor": null,
+    "statement": "No substitution check was registered.",
+    "sibling_effect": null
+  },
+  "direction": {
+    "predicted": "increase",
+    "observed": "increase",
+    "mismatch": false,
+    "message": null
+  },
+  "promise": {
+    "mde_at_proposal": 8.1,
+    "abs_estimate": 9.4,
+    "below_promise": false,
+    "message": "The estimate is above the $8.10/unit-day the design promised it could read."
+  },
+  "compliance": {
+    "c_treated": 1,
+    "c_control_leak": 0,
+    "n_treated": 6,
+    "n_control": 12,
+    "net": 1,
+    "floor": 0.8,
+    "below_floor": false,
+    "restated_mde": null,
+    "warning": null,
+    "restated": null
+  },
+  "checks": {
+    "pre_trend": null,
+    "pre_trend_note": "A switchback has no control arm, so there is no parallel-trends check; pairing is its substitute.",
+    "dropped_waves": []
+  },
+  "proposals": { "count": 1, "message": "1 assignment was drawn before the registered one." },
+  "ratio": null,
+  "write_back": null,
+  "lever_note": null,
+  "seeds": { "effect": 8841207, "placebo": 4417, "ratio": 2209 }
+}

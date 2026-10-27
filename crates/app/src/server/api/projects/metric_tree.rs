@@ -28,8 +28,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use entity::workspace_members::WorkspaceRole;
-use oxy_airlayer_compat::schema::models::DimensionType;
-use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::agentic_wiring::metric_tree_runner::{OxyMetricTreeRunner, build_query_executor};
@@ -44,8 +42,8 @@ use crate::server::api::metric_tree::{
     ExplainRequest,
     OpportunityRequest,
     PredictRequest,
-    TimeDimensionsResponse,
     TreeQuery,
+    time_dimensions_of,
 };
 use crate::server::api::projects::semantic_boundary::{
     SemanticBoundary, cache_lookup, cache_store, enter_semantic_boundary, err_with_code,
@@ -231,23 +229,7 @@ pub async fn get_time_dimensions(Path(project_id): Path<Uuid>, headers: HeaderMa
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let mut by_view: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for view in &layer.views {
-        let mut dims: Vec<String> = view
-            .dimensions
-            .iter()
-            .filter(|d| {
-                matches!(
-                    d.dimension_type,
-                    DimensionType::Date | DimensionType::Datetime
-                )
-            })
-            .map(|d| format!("{}.{}", view.name, d.name))
-            .collect();
-        dims.sort();
-        by_view.insert(view.name.clone(), dims);
-    }
-    axum::Json(TimeDimensionsResponse { by_view }).into_response()
+    axum::Json(time_dimensions_of(&layer)).into_response()
 }
 
 // ── Query-executing ops ──────────────────────────────────────────────────────

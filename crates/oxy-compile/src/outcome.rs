@@ -126,8 +126,10 @@ pub enum FailureKind {
     /// `.app.yml` with no top-level structure).
     Shape,
     /// Two files of the same kind compiled to the same identifier
-    /// (e.g. two agents named "foo"). Both are recorded as failures
-    /// so the operator sees both paths.
+    /// (e.g. two agents named "foo"). The failure is recorded on the
+    /// later file (discovery is sorted by path) and its message names
+    /// the file that declared the identifier first, so the operator
+    /// sees both paths.
     Duplicate,
     /// The file parsed and had the right shape, but the compiled output
     /// would not deserialise into the runtime type at read time (e.g. a

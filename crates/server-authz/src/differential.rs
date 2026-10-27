@@ -308,6 +308,119 @@ fn org_member_strict_ring_matches_the_shipped_guard() {
     assert_matches_oracle(Action::OrgReadStrict, |s| !s.ctx_override);
 }
 
+/// `Action::ExperimentPrice` sits on the `WorkspaceEdit` ring on purpose
+/// (`crates/authz/CLAUDE.md`: reuse a ring rather than inventing a synonym), and
+/// the shipped gate in front of it is `role_guards::ExperimentPricer`, whose
+/// legacy term is `WorkspaceEditor`'s: a real member, or an assume-session
+/// override. The model may only subtract from that.
+#[test]
+fn experiment_price_ring_matches_the_workspace_edit_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let price = allows(&s.facts, Action::ExperimentPrice, &ws);
+        let edit = allows(&s.facts, Action::WorkspaceEdit, &ws);
+        assert_eq!(
+            price, edit,
+            "ring drift — scenario {:?}: pricing and editing disagree",
+            s.name
+        );
+        let legacy = s.ctx_override || s.facts.member_orgs.contains(&org());
+        assert!(
+            !price || legacy,
+            "scenario {:?}: the model allows pricing where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
+/// Creating an experiment or a design version takes `role_guards::ExperimentAuthorGuard`,
+/// whose legacy term is `WorkspaceEditor`'s (a real member, or an assume-session
+/// override). The action sits on the `WorkspaceEdit` ring, like pricing.
+#[test]
+fn experiment_author_ring_matches_the_workspace_edit_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let author = allows(&s.facts, Action::ExperimentAuthor, &ws);
+        let edit = allows(&s.facts, Action::WorkspaceEdit, &ws);
+        assert_eq!(author, edit, "ring drift — scenario {:?}", s.name);
+        let legacy = s.ctx_override || s.facts.member_orgs.contains(&org());
+        assert!(
+            !author || legacy,
+            "scenario {:?}: the model allows authoring where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
+/// `POST /experiments/{name}/register` takes `ExperimentRegisterGuard`, whose legacy
+/// term is `WorkspaceAdmin`'s: effective workspace role Owner or Admin, or an
+/// assume-session override. The action sits on `ExperimentAbort`'s ring.
+#[test]
+fn experiment_register_ring_matches_the_workspace_admin_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let register = allows(&s.facts, Action::ExperimentRegister, &ws);
+        let abort = allows(&s.facts, Action::ExperimentAbort, &ws);
+        assert_eq!(register, abort, "ring drift — scenario {:?}", s.name);
+        let legacy = matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin) || s.ctx_override;
+        assert!(
+            !register || legacy,
+            "scenario {:?}: the model allows registration where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
+/// Applying a write-back takes `role_guards::ExperimentWriteBackApplier`, whose
+/// legacy term is `WorkspaceEditor`'s (a real member, or an assume-session
+/// override). The action sits on the `WorkspaceEdit` ring; the model may only
+/// subtract from that.
+#[test]
+fn experiment_apply_write_back_ring_matches_the_workspace_edit_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let apply = allows(&s.facts, Action::ExperimentApplyWriteBack, &ws);
+        let edit = allows(&s.facts, Action::WorkspaceEdit, &ws);
+        assert_eq!(
+            apply, edit,
+            "ring drift — scenario {:?}: applying a write-back and editing disagree",
+            s.name
+        );
+        let legacy = s.ctx_override || s.facts.member_orgs.contains(&org());
+        assert!(
+            !apply || legacy,
+            "scenario {:?}: the model allows a write-back where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
+/// `POST /experiments/{name}/abort` takes `ExperimentAbortGuard`, whose legacy
+/// term is `WorkspaceAdmin`'s: effective workspace role Owner or Admin. The
+/// action sits on the `WorkspaceManage` ring on purpose (it runs `lever.off`,
+/// like schedule Run-now), so the model must answer exactly as it does for
+/// `WorkspaceManage`, and may only subtract from the shipped guard: an
+/// Owner/Admin org role, or an assume-session override.
+#[test]
+fn experiment_abort_ring_matches_the_workspace_admin_guard() {
+    let ws = Resource::workspace(Uuid::from_u128(700), org());
+    for s in scenarios() {
+        let abort = allows(&s.facts, Action::ExperimentAbort, &ws);
+        let manage = allows(&s.facts, Action::WorkspaceManage, &ws);
+        assert_eq!(
+            abort, manage,
+            "ring drift — scenario {:?}: abort and workspace management disagree",
+            s.name
+        );
+        let legacy = matches!(s.ctx_role, OrgRole::Owner | OrgRole::Admin) || s.ctx_override;
+        assert!(
+            !abort || legacy,
+            "scenario {:?}: the model allows abort where the shipped guard would not",
+            s.name
+        );
+    }
+}
+
 // ── App rings ─────────────────────────────────────────────────────────────────
 //
 // The app actions turn on an axis the org scenarios above don't carry — per-app

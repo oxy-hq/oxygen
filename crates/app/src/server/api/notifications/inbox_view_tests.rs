@@ -113,3 +113,58 @@ fn every_field_is_in_the_json_null_when_absent() {
     assert_eq!(v["level"], "active");
     assert_eq!(v["actions"], serde_json::json!([]));
 }
+
+fn row(kind: &str, title: &str, body: Option<&str>) -> notifications::Model {
+    notifications::Model {
+        id: Uuid::nil(),
+        org_id: Uuid::nil(),
+        user_id: Uuid::nil(),
+        kind: kind.into(),
+        title: title.into(),
+        body: body.map(str::to_string),
+        link: None,
+        subject_kind: Some("experiment_run".into()),
+        subject_id: Some("r-1".into()),
+        created_at: chrono::Utc::now().fixed_offset(),
+        read_at: None,
+        message_id: None,
+        app_id: None,
+        thread_key: None,
+    }
+}
+
+#[test]
+fn a_row_with_no_app_and_no_stored_message_reads_its_own_words() {
+    // The shape `server::experiment::notify` writes.
+    let n = row(
+        "experiment",
+        "Experiment promo",
+        Some("guardrail breached: x"),
+    );
+    assert_eq!(
+        own_words(&n),
+        Some((
+            "Experiment promo".into(),
+            Some("guardrail breached: x".into())
+        ))
+    );
+}
+
+#[test]
+fn an_apps_row_or_one_with_a_stored_message_or_an_empty_title_does_not() {
+    let mut app = row("experiment", "t", None);
+    app.app_id = Some(Uuid::new_v4());
+    assert_eq!(
+        own_words(&app),
+        None,
+        "an app's words live in its org store"
+    );
+    let mut stored = row("experiment", "t", None);
+    stored.message_id = Some(Uuid::new_v4());
+    assert_eq!(own_words(&stored), None, "the store's words win");
+    assert_eq!(
+        own_words(&row("experiment", "", None)),
+        None,
+        "a legacy empty title"
+    );
+}

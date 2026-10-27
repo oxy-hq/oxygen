@@ -1,0 +1,40 @@
+# A DRAFT experiment: everything but `design.waves`, `design.seed` and
+# `outcome.mde_at_proposal`, which pricing produces. It exists for the agentic
+# flow `experiments-price-draft`, which creates it by filling the New experiment
+# form with these values and prices it from the web surface.
+# Experiments are records now: this file is the flow's source, not compiled.
+#
+# The orders dataset is sparse per customer (a customer-day has a row only when an
+# order was placed), so pricing may well REFUSE on window coverage. A refusal is
+# the platform's most valuable output and the flow accepts it as readily as a
+# priced proposal.
+#
+# The flow prices SEVERAL candidates at once (a staggered design, and a switchback
+# at two alphas). This draft carries the waves keys `pre_days` / `post_days` /
+# `anticipation_days`, which a switchback refuses, so the switchback candidates
+# may well come back REFUSED while the waves one is priced. Every outcome but a
+# fault is acceptable, and a mixed one is the interesting case.
+experiment: customer_orders_pilot
+hypothesis: "A customer-level promo lifts order value per customer-day"
+owner: ops
+for_each: customer
+
+lever:
+  on: { via: fruit_summary }
+  off: { via: fruit_summary }
+  read_back:
+    when_on: "{{orders.total_order_value}} > 0"
+    when_off: "{{orders.total_order_value}} >= 0"
+    grace_days: 2
+
+design:
+  timezone: UTC
+  time_dimension: orders.order_date
+  pre_days: 56
+  post_days: 56
+  anticipation_days: 3
+  washout_days: 7
+
+outcome:
+  target: orders.total_order_value
+  direction: increase

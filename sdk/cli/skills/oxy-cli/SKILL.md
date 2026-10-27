@@ -68,6 +68,7 @@ never sent to the server as a literal.
 
     oxyc validate                  # check the workspace YAML — no network, no token
     oxyc proxy --env dev           # local app dev against cloud data
+    oxyc experiments list          # experiments: draft, price, register, status, interim, abort, result
     oxyc login-link --next /ide    # one-time URL that signs a browser in as your token
     oxyc guide                     # this page, to paste into a context file
 

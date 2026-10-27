@@ -233,6 +233,19 @@
     - ide-pipeline-sp-api
     - airway-pipeline-run
 
+- surface: experiments
+  paths:
+    - "src/pages/ide/Experiments/"
+    - "src/hooks/api/useExperiments.ts"
+    - "src/services/api/experiments.ts"
+    - "src/types/experiment.ts"
+    # Repo-relative (plain substring match, `matchSurfacePath` in runner/cli-modes.ts):
+    # the flow prices this file, so an edit to it can break the flow.
+    - "examples/experiments/"
+    - "tests/agentic/fixtures/experiments/"
+    - "scripts/seed-experiment-report.sh"
+  flows:
+    - experiments-price-draft
 # The Extend popover, the Activity drawer and the status badge live here and
 # are shared by every token surface, so a change to them reaches all four flows.
 - surface: settings-api-keys

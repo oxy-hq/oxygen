@@ -361,6 +361,42 @@ const TABLES: &[(&str, Placement)] = &[
     ("device_registry", Control("factory device identity")),
     ("device_tokens", Control("push delivery tokens")),
     ("edge_boxes", Control("edge box inventory")),
+    (
+        "experiment_designs",
+        Control("insert-only versions of an experiment's design: the pre-registration record"),
+    ),
+    (
+        "experiment_proposals",
+        Control(
+            "pre-registration proposal log: the request, seed, assignment and MDE of every candidate design priced",
+        ),
+    ),
+    (
+        "experiment_flips",
+        Control("experiment lever flips: one row per run, unit, state and due day"),
+    ),
+    (
+        "experiment_interims",
+        Backlog {
+            holds: "a live run's latest interim effect, daily target series and report JSON",
+            belongs: "org OLTP; it is replaced on every reading",
+        },
+    ),
+    (
+        "experiment_results",
+        Backlog {
+            holds: "per-run measured effect, daily target series, compliance and report JSON",
+            belongs: "Airhouse (facts: the sealed report and its series)",
+        },
+    ),
+    (
+        "experiment_runs",
+        Control("experiment run lifecycle, pinned to one design version"),
+    ),
+    (
+        "experiments",
+        Control("experiment identity: one name per workspace"),
+    ),
     ("feature_flags", Control("feature flags")),
     (
         "folders",

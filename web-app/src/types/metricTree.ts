@@ -775,6 +775,8 @@ export interface CohortRequest {
 export interface TimeDimensionsResponse {
   /** view name → fully-qualified time-dim ids (`view.dim`). */
   by_view: Record<string, string[]>;
+  /** The ids above that are datetime (carry a time of day). Absent from an older server. */
+  datetime?: string[];
 }
 
 /** Single-period distribution request. The baseline is auto-derived

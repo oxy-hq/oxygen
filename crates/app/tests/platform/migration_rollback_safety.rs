@@ -139,6 +139,36 @@ const DECLARED: &[(&str, &str, Why)] = &[
                       INSERTs, never ON CONFLICT",
         },
     ),
+    (
+        "central",
+        "m20261014_000001_experiments_as_records",
+        Why::Phase2 {
+            after: "nothing deployed ever used them: experiment_definitions, and the \
+                    experiment_runs / experiment_proposals columns and key it drops or \
+                    tightens, were created by m20261005_* on the experiments integration \
+                    branch, which reaches main in the same deploy as this migration",
+        },
+    ),
+    (
+        "central",
+        "m20261016_000001_experiment_designs_single_draft",
+        Why::Phase2 {
+            after: "nothing deployed ever used them: experiment_designs.version, parent_id \
+                    and the per-experiment version key were created by \
+                    m20261014_000001_experiments_as_records, which reaches main in the same \
+                    deploy as this migration",
+        },
+    ),
+    (
+        "central",
+        "m20261020_000001_experiment_flips_due_at",
+        Why::Phase2 {
+            after: "nothing deployed ever used them: experiment_flips.due_on, confirmed_on and \
+                    experiment_runs.closing_since were created by \
+                    m20261005_000003_create_experiment_runs on the experiments integration \
+                    branch, which reaches main in the same deploy as this migration",
+        },
+    ),
 ];
 
 /// One thing a migration took away.

@@ -2,6 +2,7 @@ import {
   Activity,
   Boxes,
   Database,
+  FlaskConical,
   Folder,
   GitBranch,
   Globe,
@@ -28,10 +29,14 @@ enum SidebarViewMode {
   DATABASE = "database",
   MODELING = "modeling",
   SEMANTIC = "semantic",
+  EXPERIMENTS = "experiments",
   EDGE = "edge"
 }
 
 const getViewModeFromPath = (pathname: string, filesRoot: string): SidebarViewMode => {
+  if (pathname.includes("/ide/experiments")) {
+    return SidebarViewMode.EXPERIMENTS;
+  }
   if (pathname.includes("/ide/world-model")) {
     return SidebarViewMode.WORLD_MODEL;
   }
@@ -100,6 +105,9 @@ const Sidebar: React.FC = () => {
         break;
       case SidebarViewMode.SEMANTIC:
         navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.SEMANTIC.ROOT);
+        break;
+      case SidebarViewMode.EXPERIMENTS:
+        navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.EXPERIMENTS.ROOT);
         break;
       case SidebarViewMode.EDGE:
         navigate(ROUTES.ORG(orgSlug).WORKSPACE(projectId).IDE.EDGE.ROOT);
@@ -232,6 +240,22 @@ const Sidebar: React.FC = () => {
           )}
         >
           <Network className='h-4 w-4' />
+        </Button>
+
+        <Button
+          variant='ghost'
+          size='icon'
+          onClick={() => handleNavigate(SidebarViewMode.EXPERIMENTS)}
+          data-testid='ide-nav-experiments'
+          tooltip={{ content: "Experiments", side: "right" }}
+          className={cn(
+            "h-8 w-8",
+            currentViewMode === SidebarViewMode.EXPERIMENTS
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "opacity-60 hover:opacity-100"
+          )}
+        >
+          <FlaskConical className='h-4 w-4' />
         </Button>
 
         <Button

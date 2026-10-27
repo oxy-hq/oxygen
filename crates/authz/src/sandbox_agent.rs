@@ -145,6 +145,11 @@ pub(crate) fn covers(reach: &SandboxAgentReach, action: Action, resource: &Resou
         | Action::OrgReadStrict
         | Action::WorkspaceManage
         | Action::WorkspaceEdit
+        | Action::ExperimentPrice
+        | Action::ExperimentAuthor
+        | Action::ExperimentRegister
+        | Action::ExperimentApplyWriteBack
+        | Action::ExperimentAbort
         | Action::AppAccess
         | Action::WorkspaceDataAccess
         | Action::AppAccessManage

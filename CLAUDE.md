@@ -238,7 +238,7 @@ Every authorization decision goes through **`oxy-authz`** (`crates/authz`) — o
 
 - **Never decide access by hand.** No `matches!(role, Owner | Admin)` in a handler, no
   reading `OXY_OWNER` / the `app_admins` table. Take a `role_guards::*` extractor (there
-  are 6), or call `server::authz::enforce_guard(..)`. `crates/app/tests/authz/authz_boundaries.rs`
+  are 9), or call `server::authz::enforce_guard(..)`. `crates/app/tests/authz/authz_boundaries.rs`
   **fails the build** otherwise — its allowlist is a backlog, not an exemption list.
 - **Platform standing** (`is_owner` / `is_app_admin`) is read **only** by
   `server::authz::globals`: one door for a decision, one for a flag to display.

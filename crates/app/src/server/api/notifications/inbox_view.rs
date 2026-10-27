@@ -109,9 +109,16 @@ pub async fn items(
                     m.link.as_deref(),
                 )
             });
+            let own = own_words(&n);
             let mut item = base(n, info);
             item.title = msg.map(|m| m.title.clone());
             item.body = msg.and_then(|m| m.body.clone());
+            if msg.is_none()
+                && let Some((title, body)) = own
+            {
+                item.title = Some(title);
+                item.body = body;
+            }
             item.href = href;
             item.link = msg.and_then(|m| m.link.clone());
             item.app = app;
@@ -143,6 +150,18 @@ fn base(n: notifications::Model, info: KindInfo) -> InboxItem {
         actions: info.actions.iter().map(ActionView::from).collect(),
         url: None,
     }
+}
+
+/// The row's own words, for a notice that is neither an app's nor a platform
+/// kind: no app, no content row in an org store, and a title on the row
+/// itself. Experiment owner notices (`server::experiment::notify`) are the one
+/// writer; every other row writes the legacy columns empty, so this is `None`
+/// for them.
+fn own_words(n: &notifications::Model) -> Option<(String, Option<String>)> {
+    if n.app_id.is_some() || n.message_id.is_some() || n.title.is_empty() {
+        return None;
+    }
+    Some((n.title.clone(), n.body.clone()))
 }
 
 fn platform_item(n: notifications::Model, words: Rendered, info: KindInfo) -> InboxItem {

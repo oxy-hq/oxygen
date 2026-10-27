@@ -69,7 +69,7 @@ pub async fn request_facts(parts: &mut Parts) -> Option<PrincipalFacts> {
 
 /// **Enforce** one guard's ring: load the request's facts (memoized) and return
 /// `existing_allow && allows(..)`. Wiring this into a guard makes the model binding for
-/// every route that guard protects — which is why the six role guards are the highest-
+/// every route that guard protects — which is why the nine role guards are the highest-
 /// leverage call sites in the system.
 ///
 /// Fail-safe by construction: if the facts are unknown — no authenticated user, no
