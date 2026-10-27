@@ -105,7 +105,7 @@ describe("ExperimentsListPage", () => {
   });
 
   it("never shows a headline or figure on a row, even if the payload carries one", () => {
-    const leaky = { headline: "gross +$99.00/unit-day" } as unknown as Partial<ExperimentListItem>;
+    const leaky = { headline: "gross +99.00/unit-day" } as unknown as Partial<ExperimentListItem>;
     serve([item({ ...leaky, name: "r", status: "reported" })]);
     renderPage();
 

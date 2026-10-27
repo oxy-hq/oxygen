@@ -237,7 +237,7 @@ describe("OperationsView", () => {
         estimate: 41.7,
         effect: { estimate: 12.3, interval: { low: 1.11, high: 22.2 } },
         net_effect: 9.99,
-        headline: "gross +$77.77/unit-day"
+        headline: "gross +77.77/unit-day"
       }
     );
     const { container } = render(<OperationsView summary={summary} />);

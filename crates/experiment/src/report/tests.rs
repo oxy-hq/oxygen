@@ -762,3 +762,27 @@ fn a_filtered_target_and_sibling_are_named_with_their_filters() {
         v.substitution.statement
     );
 }
+
+#[test]
+fn a_target_filtered_on_many_values_names_a_few_and_counts_the_rest() {
+    use crate::config::{FilterOp, MeasureFilter};
+    let mut c = Case::new();
+    c.cfg.outcome.target_filter = vec![MeasureFilter {
+        dimension: "store_days.sku".into(),
+        op: FilterOp::Equals,
+        values: (1..=40).map(|n| format!("S{n}")).collect(),
+    }];
+    let v = c.build();
+    assert_eq!(
+        v.target,
+        "store_days.beverages_revenue (sku = S1, S2, S3 or 37 more)"
+    );
+    let h = v.headline.unwrap();
+    assert!(
+        h.text.starts_with(
+            "gross +17.40 per unit-day on store_days.beverages_revenue (sku = S1, S2, S3 or 37 more)"
+        ),
+        "{}",
+        h.text
+    );
+}

@@ -294,6 +294,15 @@ pub struct MeasureFilter {
     pub values: Vec<String>,
 }
 
+/// Values joined with "or"; a long list names its first three and counts the rest, so a
+/// filter on hundreds of SKUs does not become the whole headline.
+fn value_list(values: &[String]) -> String {
+    if values.len() <= 5 {
+        return values.join(" or ");
+    }
+    format!("{} or {} more", values[..3].join(", "), values.len() - 3)
+}
+
 /// `measure (dim = a, other ≠ b)`, the measure as a report names it; just the
 /// measure when nothing narrows it. A dimension is named without its view.
 pub fn measure_label(measure: &str, filters: &[MeasureFilter]) -> String {
@@ -311,7 +320,7 @@ pub fn measure_label(measure: &str, filters: &[MeasureFilter]) -> String {
                 FilterOp::Equals => "=",
                 FilterOp::NotEquals => "≠",
             };
-            format!("{dim} {op} {}", f.values.join(" or "))
+            format!("{dim} {op} {}", value_list(&f.values))
         })
         .collect();
     format!("{measure} ({})", clauses.join(", "))

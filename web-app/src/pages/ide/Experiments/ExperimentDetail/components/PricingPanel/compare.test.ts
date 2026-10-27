@@ -11,7 +11,7 @@ import { failed, grouped, pending, proposal, refused, switchback } from "./fixtu
 describe("rankCandidates", () => {
   it("ranks by mde_unit_day, never by the design's own-unit mde", () => {
     const unit = proposal({ id: "unit", mde: 17.5, mde_unit_day: 17.5 });
-    // $1,200/group-day is the biggest raw number and the smallest per unit-day.
+    // 1,200/group-day is the biggest raw number and the smallest per unit-day.
     const group = grouped("group", { mde: 1200, mde_unit_day: 9 });
     const sw = switchback("sw", { mde: 12, mde_unit_day: 12 });
 
@@ -67,9 +67,9 @@ describe("group designs", () => {
   });
 
   it("labels the own-unit MDE with its own unit", () => {
-    expect(formatOwnMde(grouped("g", { mde: 1200 }))).toBe("$1,200.00/group-day");
-    expect(formatOwnMde(proposal({ id: "u", mde: 17.5 }))).toBe("$17.50/unit-day");
-    expect(formatOwnMde(switchback("s", { mde: 12 }))).toBe("$12.00/unit-day");
+    expect(formatOwnMde(grouped("g", { mde: 1200 }))).toBe("1,200.00/group-day");
+    expect(formatOwnMde(proposal({ id: "u", mde: 17.5 }))).toBe("17.50/unit-day");
+    expect(formatOwnMde(switchback("s", { mde: 12 }))).toBe("12.00/unit-day");
     expect(formatOwnMde(grouped("g", { mde: null }))).toBe("—");
   });
 

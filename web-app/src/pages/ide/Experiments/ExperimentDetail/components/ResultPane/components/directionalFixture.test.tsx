@@ -62,7 +62,7 @@ describe("the seeded directional switchback report", () => {
     expect(verdict).toHaveTextContent("directional at α = 0.2");
     expect(verdict.textContent).not.toMatch(/significant/i);
     expect(screen.getByTestId("experiment-report-interval")).toHaveTextContent(
-      "+$4.20/unit-day to +$14.60/unit-day"
+      "+4.20/unit-day to +14.60/unit-day"
     );
   });
 

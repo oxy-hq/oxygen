@@ -62,7 +62,7 @@ const report = (over: Partial<ReportView> = {}): ReportView =>
       p_value: 0.0004,
       significant: true,
       verdict: "significant at α = 0.05",
-      text: "gross +$18.20/unit-day (±6.10)"
+      text: "gross +18.20/unit-day (±6.10)"
     },
     treated_total: null,
     projection: null,

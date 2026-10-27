@@ -20,12 +20,18 @@ export function measureLabel(ref: string): string {
   return view?.endsWith("_days") ? `${label} per ${view.slice(0, -1).replace(/_/g, "-")}` : label;
 }
 
+/** Values joined with "or"; a long list names its first three and counts the rest. */
+export function valueList(values: string[]): string {
+  if (values.length <= 5) return values.join(" or ");
+  return `${values.slice(0, 3).join(", ")} or ${values.length - 3} more`;
+}
+
 /** A measure's filters as words ("only rows where sku is TB-40"); empty when there are none. */
 export function filterText(filters: MeasureFilter[] | undefined): string {
   if (!filters || filters.length === 0) return "";
   const clauses = filters.map((f) => {
     const dim = f.dimension.includes(".") ? f.dimension.split(/\.(.+)/)[1] : f.dimension;
-    return `${dim} ${f.op === "equals" ? "is" : "is not"} ${f.values.join(" or ")}`;
+    return `${dim} ${f.op === "equals" ? "is" : "is not"} ${valueList(f.values)}`;
   });
   return `only rows where ${clauses.join(" and ")}`;
 }

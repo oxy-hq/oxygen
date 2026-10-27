@@ -1,5 +1,5 @@
 import type { EChartsOption, MarkAreaComponentOption, SeriesOption } from "echarts";
-import { formatMoney } from "@/pages/ide/Experiments/format";
+import { formatAmount } from "@/pages/ide/Experiments/format";
 import { type Grain, grainOf, periods, periodWord } from "@/pages/ide/Experiments/grain";
 import type { DailySeries, SeriesPeriod, SeriesWave } from "@/types/experiment";
 
@@ -140,6 +140,9 @@ function band(dates: string[], from: string, to: string, name: string) {
   return [[{ xAxis: inside[0], name }, { xAxis: inside[inside.length - 1] }]];
 }
 
+/** The vertical gap, in pixels, between staggered window labels: one line of label text. */
+const LABEL_STEP = 14;
+
 function markArea(data: unknown[], color: string): MarkAreaComponentOption {
   return {
     silent: true,
@@ -181,8 +184,15 @@ function trendLine(
 }
 
 function wavesSeries(s: WavesSeries, dates: string[], c: SeriesColors): SeriesOption[] {
+  // Waves a few days apart start their bands close together, so each wave's label
+  // drops a line below the one before rather than printing over it.
   const posts = s.waves.flatMap((w, i) =>
-    band(dates, w.post_from, w.post_to, s.waves.length === 1 ? "Post window" : `Wave ${i + 1} post`)
+    s.waves.length === 1
+      ? band(dates, w.post_from, w.post_to, "Post window")
+      : band(dates, w.post_from, w.post_to, `Wave ${i + 1}`).map(([from, to]) => [
+          { ...from, label: { offset: [0, i * LABEL_STEP] } },
+          to
+        ])
   );
   const treated = s.days.map((d) => d.treated);
   const control = s.days.map((d) => d.control);
@@ -218,7 +228,7 @@ export function seriesChartOptions(s: DailySeries, c: SeriesColors): EChartsOpti
   return {
     tooltip: {
       trigger: "axis",
-      valueFormatter: (v) => formatMoney(typeof v === "number" ? v : null)
+      valueFormatter: (v) => formatAmount(typeof v === "number" ? v : null)
     },
     legend: { bottom: 0 },
     grid: { containLabel: true, left: 8, right: 16, top: 24, bottom: 40 },

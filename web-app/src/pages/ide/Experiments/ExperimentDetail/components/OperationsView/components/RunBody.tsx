@@ -15,7 +15,7 @@ import SwitchbackSchedule from "./SwitchbackSchedule";
  * and `RunDetail` has no effect field, so there is nothing here to leak: the
  * registered effect stays sealed until the run reports; the interim panel is a
  * labelled peek, kept apart from the result. (`compliance.restated_mde` is a
- * $/unit-day figure and is deliberately not shown here; it belongs to the report.)
+ * per unit-day figure and is deliberately not shown here; it belongs to the report.)
  */
 export default function RunBody({
   name,

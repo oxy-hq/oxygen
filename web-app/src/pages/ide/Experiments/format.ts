@@ -12,18 +12,20 @@ const isNumber = (value: number | null): value is number =>
   value !== null && Number.isFinite(value);
 
 /**
- * `$17.50/unit-day`, `-$3.10/unit-week`; a missing number is a dash. The period is
- * the design's grain (`design.grain`), day unless given.
+ * `17.50/unit-day`, `-3.10/unit-week`; a missing number is a dash. The period is
+ * the design's grain (`design.grain`), day unless given. No currency: the outcome
+ * is the target measure's own unit (dollars, units sold, hours), and nothing in the
+ * design or the semantic model says which.
  */
 export function formatUnitDay(value: number | null, grain: Grain = "day"): string {
   if (!isNumber(value)) return NOT_AVAILABLE;
-  return `${value < 0 ? "-" : ""}$${TWO_DECIMALS.format(Math.abs(value))}/unit-${grain}`;
+  return `${formatAmount(value)}/unit-${grain}`;
 }
 
-/** `$1,200.00/group-day` — a grouped design's own unit (the sample is the group). */
+/** `1,200.00/group-day` — a grouped design's own unit (the sample is the group). */
 export function formatGroupDay(value: number | null, grain: Grain = "day"): string {
   if (!isNumber(value)) return NOT_AVAILABLE;
-  return `${value < 0 ? "-" : ""}$${TWO_DECIMALS.format(Math.abs(value))}/group-${grain}`;
+  return `${formatAmount(value)}/group-${grain}`;
 }
 
 /** As `formatUnitDay`, with an explicit `+` on a positive number. Zero is unsigned. */
@@ -32,17 +34,16 @@ export function formatSignedUnitDay(value: number | null, grain: Grain = "day"):
   return `${value > 0 ? "+" : ""}${formatUnitDay(value, grain)}`;
 }
 
-/** A dollar amount, unsigned when positive — `$3,057.60`, `-$20.00`. */
-export function formatMoney(value: number | null): string {
+/** An amount in the target's unit, unsigned when positive — `3,057.60`, `-20.00`. */
+export function formatAmount(value: number | null): string {
   if (!isNumber(value)) return NOT_AVAILABLE;
-  return `${value < 0 ? "-" : ""}$${TWO_DECIMALS.format(Math.abs(value))}`;
+  return `${value < 0 ? "-" : ""}${TWO_DECIMALS.format(Math.abs(value))}`;
 }
 
-/** A dollar total — `+$3,057.60`, `-$20.00`. */
-export function formatSignedMoney(value: number | null): string {
+/** A total in the target's unit — `+3,057.60`, `-20.00`. */
+export function formatSignedAmount(value: number | null): string {
   if (!isNumber(value)) return NOT_AVAILABLE;
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}$${TWO_DECIMALS.format(Math.abs(value))}`;
+  return `${value > 0 ? "+" : ""}${formatAmount(value)}`;
 }
 
 /** A share in [0, 1] as a one-decimal percent: `0.674` -> `67.4%`. */
@@ -77,7 +78,7 @@ export function formatRatio(value: number | null): string {
 /**
  * An interval. `serde_json` writes an infinite endpoint as `null`, so a null (or
  * non-finite) endpoint means *unbounded* on that side — the engine could not
- * bound it. Rendering it as `$0` would turn "we cannot say" into "the effect is zero".
+ * bound it. Rendering it as `0` would turn "we cannot say" into "the effect is zero".
  */
 function bounds(low: number | null, high: number | null, format: (n: number) => string): string {
   const lo = isNumber(low) ? format(low) : "unbounded below";
@@ -88,8 +89,8 @@ function bounds(low: number | null, high: number | null, format: (n: number) => 
 export const formatInterval = (low: number | null, high: number | null) =>
   bounds(low, high, formatSignedUnitDay);
 
-export const formatMoneyInterval = (low: number | null, high: number | null) =>
-  bounds(low, high, formatSignedMoney);
+export const formatAmountInterval = (low: number | null, high: number | null) =>
+  bounds(low, high, formatSignedAmount);
 
 export const formatRatioInterval = (low: number | null, high: number | null) =>
   bounds(low, high, formatRatio);
@@ -126,8 +127,8 @@ function formatShareChange(value: number | null, signed: boolean): string {
 
 /**
  * The unit a report's estimate is in. A design that assigns groups estimates
- * $/group-day (the sample is the group); a unit design and a switchback (a fleet
- * mean) estimate $/unit-day. Labelling a group estimate "per unit-day" would be
+ * per group-day (the sample is the group); a unit design and a switchback (a fleet
+ * mean) estimate per unit-day. Labelling a group estimate "per unit-day" would be
  * off by the mean group size, so the report picks its formatter from `design`.
  * `opts.share` (a ratio outcome) takes precedence over `design`: a share is per
  * unit whatever the design assigns.

@@ -4,9 +4,9 @@ import type { Tone } from "@/pages/ide/Experiments/components/glance/tone";
 import {
   complianceLabel,
   formatAlpha,
-  formatMoneyInterval,
+  formatAmountInterval,
   formatShare,
-  formatSignedMoney,
+  formatSignedAmount,
   leakLabel
 } from "@/pages/ide/Experiments/format";
 import { grainOf, periods } from "@/pages/ide/Experiments/grain";
@@ -63,8 +63,8 @@ export default function StatTiles({ report }: { report: ReportView }) {
           testId='experiment-report-treated-total'
           label='Total over treated units'
           hint={HINTS.treatedTotal}
-          value={formatSignedMoney(treated.total)}
-          sub={formatMoneyInterval(treated.interval.low, treated.interval.high)}
+          value={formatSignedAmount(treated.total)}
+          sub={formatAmountInterval(treated.interval.low, treated.interval.high)}
         />
       )}
       {treated && (
@@ -90,7 +90,7 @@ export default function StatTiles({ report }: { report: ReportView }) {
               Assumption
             </Badge>
           }
-          value={formatSignedMoney(projection.total)}
+          value={formatSignedAmount(projection.total)}
           sub={`${projection.untreated_units} units × ${periods(projection.days, grain)}`}
         />
       )}

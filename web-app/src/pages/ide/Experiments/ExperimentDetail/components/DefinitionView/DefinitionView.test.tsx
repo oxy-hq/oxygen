@@ -40,7 +40,7 @@ describe("DefinitionView", () => {
       "expects an increase",
       "α 0.05",
       "80%",
-      "$1.25/unit-day",
+      "1.25/unit-day",
       "No driver set",
       "fruit_summary",
       "within 2 days",
@@ -162,7 +162,7 @@ describe("DefinitionView", () => {
   it("reads the promised effect per unit of the design's grain", () => {
     const fx = definitionFixture as { design: Record<string, unknown> };
     view({ ...fx, design: { ...fx.design, grain: "week" } });
-    expect(screen.getByTestId("definition-stat-mde").textContent).toContain("$1.25/unit-week");
+    expect(screen.getByTestId("definition-stat-mde").textContent).toContain("1.25/unit-week");
   });
 
   it("leads with stat tiles for the design's key facts", () => {
@@ -173,7 +173,7 @@ describe("DefinitionView", () => {
     expect(tile("confidence")).toContain("95%");
     expect(tile("confidence")).toContain("α 0.05");
     expect(tile("power")).toContain("80%");
-    expect(tile("mde")).toContain("$1.25/unit-day");
+    expect(tile("mde")).toContain("1.25/unit-day");
     expect(tile("schedule")).toContain("2");
     expect(tile("window")).toContain("56");
     expect(tile("guardrails")).toContain("1");

@@ -130,6 +130,31 @@ describe("seriesChartOptions", () => {
     });
   });
 
+  it("staggers the labels of several waves' post windows so close ones do not overprint", () => {
+    const three = {
+      ...waves,
+      days: ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"].map((date) => ({
+        date,
+        treated: 1,
+        control: 1
+      })),
+      waves: [0, 1, 2].map((i) => ({
+        ...waves.waves[0],
+        post_from: `2026-03-0${2 + i}`,
+        post_to: "2026-03-06"
+      }))
+    } as typeof waves;
+    const o = seriesChartOptions(three, colors);
+    const area = (o.series as { markArea?: { data: { name?: string; label?: unknown }[][] } }[])[0]
+      .markArea;
+    expect(area?.data.map((d) => d[0].name)).toEqual(["Wave 1", "Wave 2", "Wave 3"]);
+    expect(area?.data.map((d) => d[0].label)).toEqual([
+      { offset: [0, 0] },
+      { offset: [0, 14] },
+      { offset: [0, 28] }
+    ]);
+  });
+
   it("draws the fleet mean and shades the on periods of a switchback", () => {
     const o = seriesChartOptions(switchback, colors);
     const series = o.series as { name: string; data: number[]; markArea?: unknown }[];
@@ -160,9 +185,9 @@ describe("seriesChartOptions", () => {
     expect(treated.lineStyle?.opacity).toBeLessThan(1);
     expect(control.lineStyle?.opacity).toBeLessThan(1);
     expect(treatedTrend.lineStyle?.width).toBeGreaterThan(treated.lineStyle?.width ?? 2);
-    // An average is rarely a round number; the tooltip shows it as money, like the table.
+    // An average is rarely a round number; the tooltip shows it to two decimals, like the table.
     const tooltip = o.tooltip as { valueFormatter: (v: unknown) => string };
-    expect(tooltip.valueFormatter(14 / 3)).toBe("$4.67");
+    expect(tooltip.valueFormatter(14 / 3)).toBe("4.67");
   });
 });
 

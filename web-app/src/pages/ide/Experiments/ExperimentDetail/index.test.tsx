@@ -127,7 +127,7 @@ const report: ReportView = {
     p_value: 0.0004,
     significant: true,
     verdict: "significant at α = 0.05",
-    text: "gross +$18.20/unit-day (±6.10); substitution not excluded above $86.00/unit-day"
+    text: "gross +18.20/unit-day (±6.10); substitution not excluded above 86.00/unit-day"
   },
   treated_total: null,
   projection: null,
@@ -284,7 +284,7 @@ describe("ExperimentDetailPage — status to view", () => {
       renderDetail(status);
 
       expect(screen.getByTestId("experiment-detail")).toHaveAttribute("data-view", "report");
-      expect(screen.getByTestId("experiment-report-headline")).toHaveTextContent("gross +$18.20");
+      expect(screen.getByTestId("experiment-report-headline")).toHaveTextContent("gross +18.20");
       expect(h.run).not.toHaveBeenCalled();
     }
   );

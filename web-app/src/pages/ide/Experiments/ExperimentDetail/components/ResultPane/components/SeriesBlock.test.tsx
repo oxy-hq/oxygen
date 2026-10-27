@@ -47,13 +47,13 @@ describe("SeriesBlock", () => {
     const rows = within(screen.getByTestId("experiment-report-series-table")).getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveTextContent("2026-03-02");
-    expect(rows[1]).toHaveTextContent("$3.00");
-    expect(rows[1]).toHaveTextContent("-$7.00");
+    expect(rows[1]).toHaveTextContent("3.00");
+    expect(rows[1]).toHaveTextContent("-7.00");
     expect(rows[1]).toHaveTextContent("Pre window");
     // A missing control mean is a dash, never 0, and so is the difference.
-    expect(rows[2]).toHaveTextContent("$7.50");
+    expect(rows[2]).toHaveTextContent("7.50");
     expect(rows[2]).toHaveTextContent("—");
-    expect(rows[2]).not.toHaveTextContent("$0.00");
+    expect(rows[2]).not.toHaveTextContent("0.00");
   });
 
   it("puts the fleet mean in a switchback's table", () => {
@@ -72,7 +72,7 @@ describe("SeriesBlock", () => {
     );
     const table = screen.getByTestId("experiment-report-series-table");
     expect(within(table).getByRole("columnheader", { name: "Fleet mean" })).toBeInTheDocument();
-    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("$12.50");
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("12.50");
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("Washout");
   });
 });

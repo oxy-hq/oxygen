@@ -636,7 +636,7 @@ describe("PricingPanel at a glance", () => {
       />
     );
 
-    expect(testid("experiment-pricing-latest")).toHaveTextContent("$17.50/unit-day");
+    expect(testid("experiment-pricing-latest")).toHaveTextContent("17.50/unit-day");
   });
 
   it("keeps the explanation folded but on the page", () => {

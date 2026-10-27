@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DailySeries, ReportView, ResultResponse } from "@/types/experiment";
@@ -43,7 +43,7 @@ const report = (over: Partial<ReportView> = {}): ReportView => ({
     p_value: 0.0004,
     significant: true,
     verdict: "significant at α = 0.05",
-    text: "gross +$18.20/unit-day (±6.10); substitution not excluded above $86.00/unit-day"
+    text: "gross +18.20/unit-day (±6.10); substitution not excluded above 86.00/unit-day"
   },
   treated_total: {
     units: 3,
@@ -63,7 +63,7 @@ const report = (over: Partial<ReportView> = {}): ReportView => ({
   substitution: {
     sibling: "store_days.entree_revenue",
     floor: 86,
-    statement: "Substitution is not excluded above $86.00/unit-day.",
+    statement: "Substitution is not excluded above 86.00/unit-day.",
     sibling_effect: null,
     detected: false
   },
@@ -72,7 +72,7 @@ const report = (over: Partial<ReportView> = {}): ReportView => ({
     mde_at_proposal: 17.5,
     abs_estimate: 18.2,
     below_promise: false,
-    message: "The estimate is above the $17.50/unit-day the design promised it could read."
+    message: "The estimate is above the 17.50/unit-day the design promised it could read."
   },
   compliance: {
     c_treated: 0.67,
@@ -86,7 +86,7 @@ const report = (over: Partial<ReportView> = {}): ReportView => ({
     warning:
       "Compliance is below the floor of 80%: this number measures the attempt, not the lever.",
     restated:
-      "At 67% compliance this design could only have read a lever effect of about $26.10/unit-day."
+      "At 67% compliance this design could only have read a lever effect of about 26.10/unit-day."
   },
   checks: {
     pre_trend: { estimate: 0.4, t_stat: 0.8, diverged: false },
@@ -169,21 +169,21 @@ describe("ReportBody", () => {
 
     expect(screen.getByTestId("experiment-report-label")).toHaveTextContent("Registered result");
     expect(screen.getByTestId("experiment-report-headline")).toHaveTextContent(
-      "gross +$18.20/unit-day (±6.10); substitution not excluded above $86.00/unit-day"
+      "gross +18.20/unit-day (±6.10); substitution not excluded above 86.00/unit-day"
     );
-    expect(screen.getByTestId("experiment-report-estimate")).toHaveTextContent("+$18.20/unit-day");
+    expect(screen.getByTestId("experiment-report-estimate")).toHaveTextContent("+18.20/unit-day");
     expect(screen.getByTestId("experiment-report-interval")).toHaveTextContent(
-      "+$12.10/unit-day to +$24.30/unit-day"
+      "+12.10/unit-day to +24.30/unit-day"
     );
     expect(screen.getByTestId("experiment-report-substitution-floor")).toHaveTextContent(
-      "Substitution is not excluded above $86.00/unit-day."
+      "Substitution is not excluded above 86.00/unit-day."
     );
     expect(screen.getByTestId("experiment-report-promise")).toHaveTextContent(
       "the design promised it could read"
     );
     const total = screen.getByTestId("experiment-report-treated-total");
-    expect(total).toHaveTextContent("+$3,057.60");
-    expect(total).toHaveTextContent("+$2,032.80 to +$4,082.40");
+    expect(total).toHaveTextContent("+3,057.60");
+    expect(total).toHaveTextContent("+2,032.80 to +4,082.40");
     expect(screen.getByTestId("experiment-stat-treated-units")).toHaveTextContent("3");
     expect(screen.getByTestId("experiment-stat-window")).toHaveTextContent("56 days");
     expect(screen.getByTestId("experiment-report-dropped-waves")).toHaveTextContent(
@@ -254,7 +254,7 @@ describe("ReportBody", () => {
 
     const interval = screen.getByTestId("experiment-report-interval");
     expect(interval).toHaveTextContent("unbounded below to unbounded above");
-    expect(interval.textContent).not.toContain("$0");
+    expect(interval.textContent).not.toContain("0.00");
   });
 
   it("renders a one-sided unbounded interval with its finite side intact", () => {
@@ -268,10 +268,10 @@ describe("ReportBody", () => {
     );
 
     expect(screen.getByTestId("experiment-report-interval")).toHaveTextContent(
-      "+$4.20/unit-day to unbounded above"
+      "+4.20/unit-day to unbounded above"
     );
     expect(screen.getByTestId("experiment-report-treated-total")).toHaveTextContent(
-      "unbounded below to +$500.00"
+      "unbounded below to +500.00"
     );
   });
 
@@ -283,7 +283,7 @@ describe("ReportBody", () => {
     );
     const projection = within(screen.getByTestId("experiment-report-projection"));
     expect(projection.getByTestId("experiment-report-assumption")).toHaveTextContent("Assumption");
-    expect(projection.getByText(/\+\$19,366\.40/)).toBeInTheDocument();
+    expect(projection.getByText(/\+19,366\.40/)).toBeInTheDocument();
 
     rerender(
       <ReportBody
@@ -329,9 +329,9 @@ describe("ReportBody", () => {
     );
 
     expect(screen.getByTestId("experiment-report")).toHaveAttribute("data-report-state", "aborted");
-    expect(screen.getByTestId("experiment-report-abort")).toHaveTextContent(
-      "ABORTED RUN — not the registered result (refunds spiked in wave 1)"
-    );
+    const band = screen.getByTestId("experiment-report-abort");
+    expect(band).toHaveTextContent("Not the registered result (refunds spiked in wave 1)");
+    expect(band).not.toHaveTextContent("ABORTED RUN —");
     expect(screen.getByTestId("experiment-abort-levers")).toHaveTextContent(
       "Levers were turned off"
     );
@@ -355,7 +355,7 @@ describe("ReportBody", () => {
     );
   });
 
-  it("shows a retrospective report as a prominent warning with the server's label", () => {
+  it("shows a retrospective report as a prominent warning with the server's label, without its shouted prefix", () => {
     render(
       <ReportBody
         result={result({
@@ -365,9 +365,9 @@ describe("ReportBody", () => {
       />
     );
 
-    expect(screen.getByTestId("experiment-report-retrospective")).toHaveTextContent(
-      "RETROSPECTIVE — not pre-registered: exploratory analysis of past data"
-    );
+    const band = screen.getByTestId("experiment-report-retrospective");
+    expect(band).toHaveTextContent("Not pre-registered: exploratory analysis of past data");
+    expect(band).not.toHaveTextContent("RETROSPECTIVE —");
     expect(screen.queryByTestId("experiment-report-abort")).toBeNull();
     expect(screen.queryByTestId("experiment-report-label")).toBeNull();
   });
@@ -406,7 +406,7 @@ describe("ReportBody", () => {
     expect(screen.getByTestId("experiment-stat-compliance")).toHaveTextContent("67.0%");
     const compliance = screen.getByTestId("experiment-report-compliance");
     expect(compliance).toHaveTextContent("measures the attempt, not the lever");
-    expect(compliance).toHaveTextContent("about $26.10/unit-day");
+    expect(compliance).toHaveTextContent("about 26.10/unit-day");
   });
 
   it("says leakage was not measured when no control entry was read, not 0.0%", () => {
@@ -546,12 +546,12 @@ describe("ReportBody", () => {
     expect(screen.getByTestId("experiment-report-estimand")).toHaveTextContent(
       "intention-to-treat effect per group-day"
     );
-    expect(screen.getByTestId("experiment-report-estimate")).toHaveTextContent("+$18.20/group-day");
+    expect(screen.getByTestId("experiment-report-estimate")).toHaveTextContent("+18.20/group-day");
     expect(screen.getByTestId("experiment-report-interval")).toHaveTextContent(
-      "+$12.10/group-day to +$24.30/group-day"
+      "+12.10/group-day to +24.30/group-day"
     );
     expect(screen.getByTestId("experiment-report-substitution-floor")).toHaveTextContent(
-      "floor $86.00/group-day"
+      "floor 86.00/group-day"
     );
   });
 
@@ -650,10 +650,10 @@ describe("ReportBody", () => {
     expect(screen.getByTestId("experiment-report-prior")).toHaveTextContent(
       "declared in the World Model"
     );
-    expect(screen.getByTestId("experiment-report-predicted")).toHaveTextContent("+$6.80/unit-day");
-    expect(screen.getByTestId("experiment-report-measured")).toHaveTextContent("+$18.20/unit-day");
+    expect(screen.getByTestId("experiment-report-predicted")).toHaveTextContent("+6.80/unit-day");
+    expect(screen.getByTestId("experiment-report-measured")).toHaveTextContent("+18.20/unit-day");
     expect(screen.getByTestId("experiment-report-measured")).toHaveTextContent(
-      "+$12.10/unit-day to +$24.30/unit-day"
+      "+12.10/unit-day to +24.30/unit-day"
     );
     expect(screen.getByTestId("experiment-report-prediction-statement")).toHaveAttribute(
       "data-verdict",
@@ -735,15 +735,15 @@ describe("ReportBody", () => {
 
     const measured = screen.getByTestId("experiment-report-measured");
     expect(measured).toHaveTextContent("unbounded below to unbounded above");
-    expect(measured.textContent).not.toContain("$0");
+    expect(measured.textContent).not.toContain("0.00");
   });
 
   it("prices the prediction in the estimand's unit: per group-day for a groups design", () => {
     render(<ReportBody result={result({ design: "groups", prediction: PREDICTION })} />);
 
-    expect(screen.getByTestId("experiment-report-predicted")).toHaveTextContent("+$6.80/group-day");
+    expect(screen.getByTestId("experiment-report-predicted")).toHaveTextContent("+6.80/group-day");
     expect(screen.getByTestId("experiment-report-measured")).toHaveTextContent(
-      "+$12.10/group-day to +$24.30/group-day"
+      "+12.10/group-day to +24.30/group-day"
     );
   });
 
@@ -936,9 +936,9 @@ describe("ReportBody — at a glance", () => {
 
     const tiles = within(screen.getByTestId("experiment-report-stats"));
     expect(tiles.getByTestId("experiment-stat-confidence")).toHaveTextContent("Passes the 95% bar");
-    expect(tiles.getByTestId("experiment-report-treated-total")).toHaveTextContent("+$3,057.60");
+    expect(tiles.getByTestId("experiment-report-treated-total")).toHaveTextContent("+3,057.60");
     expect(tiles.getByTestId("experiment-stat-treated-units")).toHaveTextContent("3");
-    expect(tiles.getByTestId("experiment-report-projection")).toHaveTextContent("+$19,366.40");
+    expect(tiles.getByTestId("experiment-report-projection")).toHaveTextContent("+19,366.40");
     expect(tiles.getByTestId("experiment-report-projection")).toHaveTextContent(
       "19 units × 56 days"
     );
@@ -1171,6 +1171,33 @@ describe("ReportBody on an observed or hand-assigned split", () => {
   });
 });
 
+describe("ReportBody with a long headline", () => {
+  it("clamps a headline naming hundreds of filter values, and opens it on request", () => {
+    const skus = Array.from({ length: 200 }, (_, i) => `SKU-${i}`).join(" or ");
+    render(
+      <ReportBody
+        result={result({
+          headline: {
+            ...report().headline!,
+            text: `gross +2.79 per unit-day on sales.units (sku = ${skus})`
+          }
+        })}
+      />
+    );
+    const headline = screen.getByTestId("experiment-report-headline");
+    expect(headline).toHaveClass("line-clamp-3");
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(headline).not.toHaveClass("line-clamp-3");
+    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+  });
+
+  it("leaves a short headline whole, with no toggle", () => {
+    render(<ReportBody result={result({})} />);
+    expect(screen.getByTestId("experiment-report-headline")).not.toHaveClass("line-clamp-3");
+    expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();
+  });
+});
+
 describe("ReportBody with units left out", () => {
   it("lists each unit the estimate dropped, with its reason", () => {
     render(
@@ -1186,6 +1213,35 @@ describe("ReportBody with units left out", () => {
     const check = screen.getByTestId("experiment-report-dropped-waves");
     expect(check).toHaveTextContent("1 unit dropped");
     expect(check).toHaveTextContent("s99: a treated unit with no rows in the panel");
+  });
+
+  it("groups many units dropped for one reason into one line that names a few", () => {
+    const missing = Array.from(
+      { length: 40 },
+      (_, i) => `c${i + 1}: a control unit with no rows in the panel`
+    );
+    render(
+      <ReportBody
+        result={result({
+          checks: {
+            ...report().checks,
+            dropped_units: [
+              "s7: holds 45 of the panel's 53 days, under the 90% a unit needs",
+              ...missing
+            ]
+          }
+        })}
+      />
+    );
+    const check = screen.getByTestId("experiment-report-dropped-waves");
+    expect(check).toHaveTextContent("41 units dropped");
+    expect(check).toHaveTextContent(
+      "s7: holds 45 of the panel's 53 days, under the 90% a unit needs"
+    );
+    expect(check).toHaveTextContent(
+      "40 units: a control unit with no rows in the panel (c1, c2, c3 and 37 more)"
+    );
+    expect(check).not.toHaveTextContent("c40");
   });
 });
 

@@ -9,7 +9,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/shadcn/table";
-import { formatMoney, formatSignedMoney } from "@/pages/ide/Experiments/format";
+import { formatAmount, formatSignedAmount } from "@/pages/ide/Experiments/format";
 import { grainOf, periodWord } from "@/pages/ide/Experiments/grain";
 import type { DailySeries } from "@/types/experiment";
 import Section from "../../Section";
@@ -78,12 +78,12 @@ export default function SeriesBlock({
               <TableCell>{r.date}</TableCell>
               {waves ? (
                 <>
-                  <TableCell className='text-right'>{formatMoney(r.treated)}</TableCell>
-                  <TableCell className='text-right'>{formatMoney(r.control)}</TableCell>
-                  <TableCell className='text-right'>{formatSignedMoney(r.difference)}</TableCell>
+                  <TableCell className='text-right'>{formatAmount(r.treated)}</TableCell>
+                  <TableCell className='text-right'>{formatAmount(r.control)}</TableCell>
+                  <TableCell className='text-right'>{formatSignedAmount(r.difference)}</TableCell>
                 </>
               ) : (
-                <TableCell className='text-right'>{formatMoney(r.fleet)}</TableCell>
+                <TableCell className='text-right'>{formatAmount(r.fleet)}</TableCell>
               )}
               <TableCell>{r.lever}</TableCell>
               <TableCell>{r.window}</TableCell>

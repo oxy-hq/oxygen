@@ -144,7 +144,7 @@ export function detailChecks(result: ResultResponse): DetailCheck[] {
     title: units.length > 0 ? "Dropped units, waves or pairs" : "Dropped waves or pairs",
     status: parts.length === 0 ? "None" : parts.join(", "),
     tone: parts.length === 0 ? "success" : "warning",
-    lines: [...units, ...dropped]
+    lines: [...groupDroppedUnits(units), ...dropped]
   });
   out.push(randomisationCheck(report.proposals));
   const wb = result.write_back;
@@ -159,6 +159,26 @@ export function detailChecks(result: ResultResponse): DetailCheck[] {
     });
   }
   return out;
+}
+
+/**
+ * `unit: reason` lines, with every reason shared by more than three units folded
+ * into one line that names a few. A panel can drop a hundred control units for the
+ * same missing data; listing each one buries the reasons that differ.
+ */
+export function groupDroppedUnits(units: string[]): string[] {
+  const byReason = new Map<string, string[]>();
+  for (const line of units) {
+    const at = line.indexOf(": ");
+    const [unit, reason] = at === -1 ? [line, ""] : [line.slice(0, at), line.slice(at + 2)];
+    byReason.set(reason, [...(byReason.get(reason) ?? []), unit]);
+  }
+  return [...byReason].flatMap(([reason, names]) => {
+    if (names.length <= 3 || reason === "")
+      return names.map((n) => (reason ? `${n}: ${reason}` : n));
+    const named = `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+    return [`${names.length} units: ${reason} (${named})`];
+  });
 }
 
 /** How many checks want a reader's attention. */

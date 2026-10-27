@@ -3,14 +3,14 @@ import {
   complianceLabel,
   effectFormat,
   formatAlpha,
+  formatAmount,
+  formatAmountInterval,
   formatGroupDay,
   formatInterval,
-  formatMoney,
-  formatMoneyInterval,
   formatRatio,
   formatRatioInterval,
   formatShare,
-  formatSignedMoney,
+  formatSignedAmount,
   formatSignedUnitDay,
   formatUnitDay,
   leakLabel,
@@ -19,35 +19,35 @@ import {
 
 describe("formatUnitDay", () => {
   it("prices per unit-day with grouping and two decimals", () => {
-    expect(formatUnitDay(17.5)).toBe("$17.50/unit-day");
-    expect(formatUnitDay(1234.5)).toBe("$1,234.50/unit-day");
-    expect(formatUnitDay(-3.1)).toBe("-$3.10/unit-day");
+    expect(formatUnitDay(17.5)).toBe("17.50/unit-day");
+    expect(formatUnitDay(1234.5)).toBe("1,234.50/unit-day");
+    expect(formatUnitDay(-3.1)).toBe("-3.10/unit-day");
   });
 
-  it("renders a missing or non-finite number as a dash, never as $0", () => {
+  it("renders a missing or non-finite number as a dash, never as 0", () => {
     expect(formatUnitDay(null)).toBe(NOT_AVAILABLE);
     expect(formatUnitDay(Number.NaN)).toBe(NOT_AVAILABLE);
     expect(formatUnitDay(Number.POSITIVE_INFINITY)).toBe(NOT_AVAILABLE);
   });
 });
 
-describe("formatSignedUnitDay / formatSignedMoney", () => {
+describe("formatSignedUnitDay / formatSignedAmount", () => {
   it("signs a positive and a negative effect, and leaves zero unsigned", () => {
-    expect(formatSignedUnitDay(17.5)).toBe("+$17.50/unit-day");
-    expect(formatSignedUnitDay(-3.1)).toBe("-$3.10/unit-day");
-    expect(formatSignedUnitDay(0)).toBe("$0.00/unit-day");
-    expect(formatSignedMoney(3057.6)).toBe("+$3,057.60");
-    expect(formatSignedMoney(-20)).toBe("-$20.00");
-    expect(formatSignedMoney(null)).toBe(NOT_AVAILABLE);
+    expect(formatSignedUnitDay(17.5)).toBe("+17.50/unit-day");
+    expect(formatSignedUnitDay(-3.1)).toBe("-3.10/unit-day");
+    expect(formatSignedUnitDay(0)).toBe("0.00/unit-day");
+    expect(formatSignedAmount(3057.6)).toBe("+3,057.60");
+    expect(formatSignedAmount(-20)).toBe("-20.00");
+    expect(formatSignedAmount(null)).toBe(NOT_AVAILABLE);
   });
 });
 
-describe("formatMoney", () => {
+describe("formatAmount", () => {
   it("leaves a positive amount unsigned and a missing one a dash", () => {
-    expect(formatMoney(1234.5)).toBe("$1,234.50");
-    expect(formatMoney(-7)).toBe("-$7.00");
-    expect(formatMoney(null)).toBe(NOT_AVAILABLE);
-    expect(formatMoney(Number.NaN)).toBe(NOT_AVAILABLE);
+    expect(formatAmount(1234.5)).toBe("1,234.50");
+    expect(formatAmount(-7)).toBe("-7.00");
+    expect(formatAmount(null)).toBe(NOT_AVAILABLE);
+    expect(formatAmount(Number.NaN)).toBe(NOT_AVAILABLE);
   });
 });
 
@@ -99,28 +99,28 @@ describe("formatShare / formatRatio", () => {
 
 describe("intervals", () => {
   it("renders a bounded interval with signed endpoints", () => {
-    expect(formatInterval(-2, 4)).toBe("-$2.00/unit-day to +$4.00/unit-day");
-    expect(formatMoneyInterval(100, 250)).toBe("+$100.00 to +$250.00");
+    expect(formatInterval(-2, 4)).toBe("-2.00/unit-day to +4.00/unit-day");
+    expect(formatAmountInterval(100, 250)).toBe("+100.00 to +250.00");
     expect(formatRatioInterval(0.5, 2)).toBe("0.5 to 2");
   });
 
-  it("renders a null interval endpoint as unbounded, never as $0", () => {
+  it("renders a null interval endpoint as unbounded, never as 0", () => {
     expect(formatInterval(null, null)).toBe("unbounded below to unbounded above");
-    expect(formatInterval(1.5, null)).toBe("+$1.50/unit-day to unbounded above");
-    expect(formatInterval(null, 3)).toBe("unbounded below to +$3.00/unit-day");
-    expect(formatInterval(null, null)).not.toContain("$0");
-    expect(formatMoneyInterval(null, null)).toBe("unbounded below to unbounded above");
+    expect(formatInterval(1.5, null)).toBe("+1.50/unit-day to unbounded above");
+    expect(formatInterval(null, 3)).toBe("unbounded below to +3.00/unit-day");
+    expect(formatInterval(null, null)).not.toContain("0");
+    expect(formatAmountInterval(null, null)).toBe("unbounded below to unbounded above");
     expect(formatRatioInterval(null, 2)).toBe("unbounded below to 2");
   });
 
   it("treats an infinite endpoint the same as a null one", () => {
-    expect(formatInterval(Number.NEGATIVE_INFINITY, 3)).toBe("unbounded below to +$3.00/unit-day");
+    expect(formatInterval(Number.NEGATIVE_INFINITY, 3)).toBe("unbounded below to +3.00/unit-day");
   });
 });
 
 describe("formatGroupDay", () => {
   it("prices per group-day, the unit a grouped design's own MDE is in", () => {
-    expect(formatGroupDay(1200)).toBe("$1,200.00/group-day");
+    expect(formatGroupDay(1200)).toBe("1,200.00/group-day");
     expect(formatGroupDay(null)).toBe(NOT_AVAILABLE);
   });
 });
@@ -136,15 +136,15 @@ describe("formatAlpha", () => {
 
 describe("effectFormat", () => {
   it("prices a groups design per group-day and every other design per unit-day", () => {
-    expect(effectFormat("groups").signed(18.2)).toBe("+$18.20/group-day");
-    expect(effectFormat("groups").plain(86)).toBe("$86.00/group-day");
-    expect(effectFormat("groups").interval(null, 3)).toBe("unbounded below to +$3.00/group-day");
-    expect(effectFormat("units").signed(18.2)).toBe("+$18.20/unit-day");
-    expect(effectFormat("switchback").interval(1, 2)).toBe("+$1.00/unit-day to +$2.00/unit-day");
+    expect(effectFormat("groups").signed(18.2)).toBe("+18.20/group-day");
+    expect(effectFormat("groups").plain(86)).toBe("86.00/group-day");
+    expect(effectFormat("groups").interval(null, 3)).toBe("unbounded below to +3.00/group-day");
+    expect(effectFormat("units").signed(18.2)).toBe("+18.20/unit-day");
+    expect(effectFormat("switchback").interval(1, 2)).toBe("+1.00/unit-day to +2.00/unit-day");
   });
 
-  it("falls back to per unit-day for a design this build does not know, and never prints a missing number as $0", () => {
-    expect(effectFormat("something-new").plain(18.2)).toBe("$18.20/unit-day");
+  it("falls back to per unit-day for a design this build does not know, and never prints a missing number as 0", () => {
+    expect(effectFormat("something-new").plain(18.2)).toBe("18.20/unit-day");
     expect(effectFormat("groups").signed(null)).toBe(NOT_AVAILABLE);
   });
 });

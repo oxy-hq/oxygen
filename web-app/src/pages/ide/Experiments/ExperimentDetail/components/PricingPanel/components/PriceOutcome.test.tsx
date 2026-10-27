@@ -27,12 +27,12 @@ describe("PriceOutcome — side by side", () => {
     );
     // The design's own unit, labelled — and the comparable figure beside it.
     expect(screen.getByTestId("experiment-candidate-mde-1")).toHaveTextContent(
-      "$1,200.00/group-day"
+      "1,200.00/group-day"
     );
     expect(screen.getByTestId("experiment-candidate-mde-unit-day-1")).toHaveTextContent(
-      "$9.00/unit-day"
+      "9.00/unit-day"
     );
-    expect(screen.getByTestId("experiment-candidate-mde-2")).toHaveTextContent("$17.50/unit-day");
+    expect(screen.getByTestId("experiment-candidate-mde-2")).toHaveTextContent("17.50/unit-day");
   });
 
   it("states the group-size caveat only when a group design is among the candidates", () => {
@@ -72,7 +72,7 @@ describe("PriceOutcome — side by side", () => {
 
     const first = within(screen.getByTestId("experiment-candidate-1"));
     expect(first.getByText("0.2")).toBeInTheDocument();
-    expect(screen.getByTestId("experiment-candidate-mde-unit-day-1")).toHaveTextContent("$13.30");
+    expect(screen.getByTestId("experiment-candidate-mde-unit-day-1")).toHaveTextContent("13.30");
     expect(
       within(screen.getByTestId("experiment-candidate-2")).getByText("0.05")
     ).toBeInTheDocument();
@@ -136,7 +136,7 @@ describe("PriceOutcome — side by side", () => {
   it("shows the MDE in $/unit-day and relative, and the waves, for a plain design", () => {
     render(<PriceOutcome proposals={[proposal({ id: "p" })]} />);
 
-    expect(screen.getByTestId("experiment-candidate-mde")).toHaveTextContent("$17.50/unit-day");
+    expect(screen.getByTestId("experiment-candidate-mde")).toHaveTextContent("17.50/unit-day");
     expect(screen.getByTestId("experiment-candidate-mde-relative")).toHaveTextContent("5.2%");
     expect(screen.getByTestId("experiment-candidate-waves")).toHaveTextContent("2099-06-01");
     expect(screen.getByTestId("experiment-candidate-waves")).toHaveTextContent("3 units");

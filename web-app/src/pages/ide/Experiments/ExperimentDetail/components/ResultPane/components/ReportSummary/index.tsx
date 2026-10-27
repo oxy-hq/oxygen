@@ -9,6 +9,7 @@ import VerbatimRefusal from "../../../VerbatimRefusal";
 import AbortLeversNote from "../AbortLeversNote";
 import HowCalculated from "../HowCalculated";
 import { alphaInWords, caveatBadges, plainVerdict, runBadge, verdictTone } from "./badges";
+import HeadlineText from "./HeadlineText";
 import { HINTS, Hinted, HintIcon } from "./hints";
 import StatTiles from "./StatTiles";
 
@@ -22,6 +23,15 @@ function BigFigure({ text, testId }: { text: string; testId: string }) {
       {unit && <span className='ml-1 font-normal text-base text-muted-foreground'>{unit}</span>}
     </p>
   );
+}
+
+/**
+ * The server's label without its shouted lead (`RETROSPECTIVE — `, `ABORTED RUN — `):
+ * the band's title already says which it is. The rest starts with a capital.
+ */
+export function bandText(label: string): string {
+  const rest = label.replace(/^[A-Z][A-Z ]+ — /, "");
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 /**
@@ -59,7 +69,7 @@ function StandingBand({ result }: { result: ResultResponse }) {
         <p className='font-semibold'>
           {kind === "aborted" ? "Aborted run" : "Retrospective analysis"}
         </p>
-        <p>{report.label}</p>
+        <p>{bandText(report.label)}</p>
         {report.status.kind === "aborted" && (
           <AbortLeversNote kept={report.status.levers_kept === true} />
         )}
@@ -148,12 +158,7 @@ export default function ReportSummary({ result }: { result: ResultResponse }) {
                 {fmt.interval(h.interval.low, h.interval.high)}
               </span>
             </p>
-            <p
-              className='mt-1 text-muted-foreground text-sm'
-              data-testid='experiment-report-headline'
-            >
-              {h.text}
-            </p>
+            <HeadlineText text={h.text} />
           </div>
         ) : (
           <Alert>

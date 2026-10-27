@@ -78,4 +78,11 @@ describe("filterText", () => {
       ])
     ).toBe("only rows where category is backpacks and sku is not TB-40 or TB-30");
   });
+
+  it("names a few values of a long list and counts the rest", () => {
+    const values = Array.from({ length: 40 }, (_, i) => `S${i + 1}`);
+    expect(filterText([{ dimension: "v.sku", op: "equals", values }])).toBe(
+      "only rows where sku is S1, S2, S3 or 37 more"
+    );
+  });
 });
