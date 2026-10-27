@@ -78,8 +78,12 @@ pub async fn start_server_and_web_app(
         );
     }
     // A run this process drives to a terminal failure is announced to whoever
-    // started it (`oxy.run_failed`).
+    // started it (`oxy.run_failed`); an Ask run whose asker wanted to hear
+    // when it ended, done or failed, to them (`oxy.ask_finished`), and each time
+    // it stops to ask them something (`oxy.ask_waiting`).
     crate::server::api::notifications::platform::run_failed::install();
+    crate::server::api::notifications::platform::ask_finished::install();
+    crate::server::api::notifications::platform::ask_waiting::install();
 
     // In local mode, autodetect a running local Airhouse stack
     // (docker-compose.airhouse.yml) and inject the well-known AIRHOUSE_*

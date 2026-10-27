@@ -27,6 +27,7 @@ pub mod revert;
 pub mod run_execution;
 mod run_metadata;
 pub mod scheduler;
+mod start_guard;
 pub mod usage;
 
 use std::collections::HashMap;
@@ -54,6 +55,7 @@ use crate::platform::{BuilderBridges, PlatformContext, ProjectContext};
 pub use crate::executor::PREVIEW_AIRWAY_SAMPLE;
 pub use crate::revert::{RevertedFile, revert_builder_file_changes};
 pub use crate::run_metadata::{STARTED_BY_KEY, stamp_started_by};
+pub use crate::start_guard::START_INTERRUPTED;
 pub use agentic_airway::preview as airway_preview;
 pub use agentic_airway::{
     AirwayMigrator, DiscoveredColumn, DiscoveredTable, SOURCE_TYPE as AIRWAY_SOURCE_TYPE,
@@ -165,6 +167,10 @@ pub struct PipelineBuilder {
     /// Host keys merged into the run's `metadata` at insert — see
     /// [`PipelineBuilder::run_metadata`].
     run_metadata: serde_json::Map<String, serde_json::Value>,
+    /// The driver lease a start stamps on the row it inserts, so the run is
+    /// never lease-free while it starts; the drive continues under it. Set by
+    /// [`PipelineBuilder::start`]; `None` when the row is not this start's.
+    starting_driver: Option<String>,
 }
 
 enum Domain {
@@ -292,6 +298,7 @@ impl PipelineBuilder {
             builder_test_runner: None,
             builder_app_runner: None,
             existing_run_id: None,
+            starting_driver: None,
             human_input: None,
             builder_llm_override: None,
             builder_llm_metadata: None,
@@ -513,6 +520,14 @@ impl PipelineBuilder {
             Some(id) => (id, true),
             None => (Uuid::new_v4().to_string(), false),
         };
+        // The row this start inserts carries a lease from its first moment —
+        // see `stamp_starting_lease`.
+        self.starting_driver = (!skip_db_insert).then(|| format!("direct-{}", Uuid::new_v4()));
+        let starting_driver = self.starting_driver.clone();
+        // Armed until this returns: a caller that stops waiting (a request
+        // timeout, a disconnect) would otherwise leave the row this start
+        // inserts `running` with nothing to drive it — see `start_guard`.
+        let interrupted = (!skip_db_insert).then(|| start_guard::StartGuard::new(db, &run_id));
         let ctx_root = self.platform.context_root().await;
         // `ctx_root` owns the materialised tempdir (stateless fleet) and must
         // outlive the resolve_context + semantic-catalog load below — keep it
@@ -542,12 +557,20 @@ impl PipelineBuilder {
         {
             mark_run_failed_best_effort(db, &run_id, e).await;
         }
-        result.map_err(|source| PipelineStartError {
-            // Surface the run_id only when a row was actually inserted, so
-            // the caller can reconcile it with the persisted run history.
-            run_id: (!skip_db_insert).then(|| run_id.clone()),
-            source,
-        })
+        if let Some(guard) = interrupted {
+            guard.disarm();
+        }
+        result
+            .map(|mut started| {
+                started.starting_driver = starting_driver;
+                started
+            })
+            .map_err(|source| PipelineStartError {
+                // Surface the run_id only when a row was actually inserted, so
+                // the caller can reconcile it with the persisted run history.
+                run_id: (!skip_db_insert).then(|| run_id.clone()),
+                source,
+            })
     }
 
     /// Resume a suspended run with the user's answer.
@@ -659,6 +682,7 @@ impl PipelineBuilder {
             .await?;
             agentic_analytics::insert_run_meta(db, run_id, agent_id, self.thinking_mode.to_db())
                 .await?;
+            stamp_starting_lease(db, run_id, self.starting_driver.as_deref()).await;
         }
 
         // Resolve project model + connectors via the platform port.
@@ -771,6 +795,7 @@ impl PipelineBuilder {
             run_id: run_id.to_string(),
             source_type: source_type.to_string(),
             inner: ErasedHandle::Analytics(handle),
+            starting_driver: None,
         })
     }
 
@@ -922,6 +947,7 @@ impl PipelineBuilder {
             run_id: run_id.to_string(),
             source_type: "analytics".to_string(),
             inner: ErasedHandle::Analytics(handle),
+            starting_driver: None,
         })
     }
 
@@ -995,6 +1021,7 @@ impl PipelineBuilder {
             run_id: run_id.to_string(),
             source_type: "builder".to_string(),
             inner: ErasedHandle::Builder(handle),
+            starting_driver: None,
         })
     }
 
@@ -1054,6 +1081,7 @@ impl PipelineBuilder {
                 self.workspace_id,
             )
             .await?;
+            stamp_starting_lease(db, run_id, self.starting_driver.as_deref()).await;
         }
 
         let bridges = self.builder_bridges_for_run()?;
@@ -1109,6 +1137,7 @@ impl PipelineBuilder {
             run_id: run_id.to_string(),
             source_type: source_type.to_string(),
             inner: ErasedHandle::Builder(handle),
+            starting_driver: None,
         })
     }
 }
@@ -1210,6 +1239,10 @@ pub struct StartedPipeline {
     pub run_id: String,
     pub source_type: String,
     inner: ErasedHandle,
+    /// The lease the start stamped on the row it inserted, which the drive
+    /// continues ([`drive_with_coordinator`]). `None` for a resume or a
+    /// delegation child.
+    starting_driver: Option<String>,
 }
 
 enum ErasedHandle {
@@ -1396,6 +1429,7 @@ pub async fn drive_with_coordinator(
 
     let run_id = started.run_id.clone();
     let _source_type = started.source_type.clone();
+    let starting_driver = started.starting_driver.clone();
 
     // Convert the already-started pipeline into an ExecutingTask.
     let (executing_task, bridge_handle) = started.into_executing_task();
@@ -1717,10 +1751,13 @@ pub async fn drive_with_coordinator(
 
     // Hold the driver lease for the life of the drive: it is what tells every
     // other process this run is alive (`agentic_runtime::lifecycle::driver_lease`).
-    let lease = agentic_runtime::lifecycle::driver_lease::hold_direct_drive_lease(
+    // Under the id the start stamped, so the run is never lease-free between
+    // its insert and here.
+    let lease = agentic_runtime::lifecycle::driver_lease::hold_direct_drive_lease_as(
         &lease_db,
         state.clone(),
         &run_id,
+        starting_driver,
     )
     .await;
 
@@ -1767,6 +1804,26 @@ pub fn build_event_registry() -> EventRegistry {
     // source type, so its run renders like any Airway run.
     registry.register(PREVIEW_AIRWAY_SAMPLE, airway_event_handler());
     registry
+}
+
+/// Stamp the driver lease on a run this start just inserted.
+///
+/// A start runs for a while after its insert — the connectors are built then,
+/// tens of seconds on a cold DuckDB directory — and until the drive takes the
+/// lease the row read as `running` with no driver: exactly what the startup
+/// pass (`get_resumable_root_runs`) treats as orphaned by a dead process. It
+/// retired such a run as "has no checkpoint" while this start went on to drive
+/// it. With the stamp, the row is a live driver's from its first moment; a
+/// start that fails writes the run terminal, which clears it. No ticker: a
+/// start that outlived `DRIVER_LEASE_TTL_SECS` would read as dead again, as
+/// before. Best-effort, like the drive's own acquire.
+async fn stamp_starting_lease(db: &DatabaseConnection, run_id: &str, driver: Option<&str>) {
+    let Some(driver) = driver else { return };
+    match agentic_runtime::crud::try_acquire_driver(db, run_id, driver).await {
+        Ok(true) => {}
+        Ok(false) => tracing::info!(run_id, "start: the run already has a live driver"),
+        Err(e) => tracing::warn!(run_id, error = %e, "start: could not stamp the driver lease"),
+    }
 }
 
 // ── Domain-specific CRUD facades ────────────────────────────────────────────

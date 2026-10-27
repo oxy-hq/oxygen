@@ -18,9 +18,10 @@ use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
 use super::kinds::{
-    self, ANOMALY, BILLING_PAST_DUE, CLI_APPROVAL, RUN_FAILED, SUBJECT_AIRWAY_RUN, SUBJECT_ANOMALY,
-    SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST, SUBJECT_TEST,
-    SUBJECT_WORKSPACE, TEST, WORKSPACE_READY,
+    self, ANOMALY, ASK_FAILED, ASK_FINISHED, ASK_WAITING, BILLING_PAST_DUE, CLI_APPROVAL,
+    RUN_FAILED, SUBJECT_AIRWAY_RUN, SUBJECT_ANALYTICS_RUN, SUBJECT_ANALYTICS_SUSPENSION,
+    SUBJECT_ANOMALY, SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST,
+    SUBJECT_TEST, SUBJECT_WORKSPACE, TEST, WORKSPACE_READY,
 };
 use super::subjects;
 
@@ -132,6 +133,8 @@ pub fn fallback(kind: &str) -> Rendered {
         ANOMALY => "A monitor found an anomaly",
         CLI_APPROVAL => "oxyc asks for your approval",
         TEST => super::self_test::TITLE,
+        ASK_FINISHED | ASK_FAILED => super::ask_finished::title(kind),
+        ASK_WAITING => super::ask_waiting::TITLE,
         _ => "Oxygen notice",
     };
     Rendered {
@@ -209,6 +212,12 @@ fn words(about: &About, org: Option<&OrgNames>, record: &subjects::Record) -> Op
             super::cli_approval::words(record, chrono::Utc::now())
         }
         (SUBJECT_TEST, Record::Test(t)) => Some(t.words(slug)),
+        (SUBJECT_ANALYTICS_RUN, Record::Ask(a)) => {
+            Some(super::ask_finished::words(a, &about.kind, slug))
+        }
+        (SUBJECT_ANALYTICS_SUSPENSION, Record::AskWaiting(w)) => {
+            Some(super::ask_waiting::words(w, slug))
+        }
         _ => None,
     }
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use sea_orm::{
     ColumnTrait, Condition, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
-    FromQueryResult, QueryFilter, QueryOrder, Statement,
+    FromQueryResult, PaginatorTrait, QueryFilter, QueryOrder, Statement,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -94,6 +94,23 @@ pub async fn get_runs_by_thread(
         .order_by_asc(run::Column::CreatedAt)
         .all(db)
         .await
+}
+
+/// Whether a run on `thread_id` is executing or will be picked up again
+/// (`PENDING_GLOBAL_STATUSES`). Such a run still writes its answer to the
+/// thread and tells its asker through it, so the thread must outlive it.
+/// A run waiting on the user's answer is not live: nothing runs until they
+/// answer.
+pub async fn thread_has_live_run(db: &DatabaseConnection, thread_id: Uuid) -> Result<bool, DbErr> {
+    let live = run::Entity::find()
+        .filter(run::Column::ThreadId.eq(thread_id))
+        .filter(
+            run::Column::TaskStatus
+                .is_in(crate::orchestrator::crud::recovery::PENDING_GLOBAL_STATUSES),
+        )
+        .count(db)
+        .await?;
+    Ok(live > 0)
 }
 
 /// Given a candidate set of run ids, return the subset that belongs to

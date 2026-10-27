@@ -9,6 +9,15 @@
 //! or failed them. Holding the same lease recovery holds makes "a fresh lease"
 //! the one liveness test for every driver.
 //!
+//! **From the row's first moment.** A chat run's row is inserted when its
+//! start begins, and the start can take tens of seconds (a cold connector
+//! build) before the drive exists. So the start stamps the lease right after
+//! the insert (`agentic_pipeline::PipelineBuilder::start`) and the drive takes
+//! it over under the same id ([`hold_direct_drive_lease_as`]). Without that, a
+//! startup pass running during the start (the second one, after
+//! `DRIVER_LEASE_TTL_SECS`) found a lease-free `running` row, retired it as
+//! "has no checkpoint", and the start then drove it to `done` anyway.
+//!
 //! While held, a ticker:
 //!
 //! - heartbeats the lease every third of [`DRIVER_LEASE_TTL_SECS`], and stops
@@ -80,7 +89,21 @@ pub async fn hold_direct_drive_lease(
     state: Arc<RuntimeState>,
     run_id: &str,
 ) -> DirectDriveLease {
-    let driver_id = format!("direct-{}", uuid::Uuid::new_v4());
+    hold_direct_drive_lease_as(db, state, run_id, None).await
+}
+
+/// [`hold_direct_drive_lease`], continuing the lease `driver_id` already
+/// stamped on the row — the start's, taken when it inserted the run. The
+/// acquire accepts its own id, so this renews it and starts the ticker; a
+/// fresh id would find the start's stamp live and drive without a lease.
+/// `None` takes a fresh one.
+pub async fn hold_direct_drive_lease_as(
+    db: &DatabaseConnection,
+    state: Arc<RuntimeState>,
+    run_id: &str,
+    driver_id: Option<String>,
+) -> DirectDriveLease {
+    let driver_id = driver_id.unwrap_or_else(|| format!("direct-{}", uuid::Uuid::new_v4()));
     let held = match try_acquire_driver(db, run_id, &driver_id).await {
         Ok(held) => held,
         Err(e) => {

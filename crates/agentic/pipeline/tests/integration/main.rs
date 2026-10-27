@@ -27,4 +27,5 @@ mod preview_airway_sample_test;
 mod preview_run_recovery_test;
 mod run_platform_resolver_test;
 mod scheduler_test;
+mod starting_run_recovery_test;
 mod suspended_root_requeue_test;

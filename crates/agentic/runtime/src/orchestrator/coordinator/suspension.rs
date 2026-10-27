@@ -103,10 +103,10 @@ impl Coordinator {
                     question_count = questions.len(),
                     "suspended for human input"
                 );
-                let run_id = {
+                let (run_id, is_root) = {
                     let node = self.tasks.get_mut(task_id).unwrap();
                     node.status = TaskStatus::SuspendedHuman;
-                    node.run_id.clone()
+                    (node.run_id.clone(), node.parent_task_id.is_none())
                 };
 
                 // Persist status + suspension data atomically in one transaction.
@@ -120,7 +120,7 @@ impl Coordinator {
                     .map(|q| q.suggestions.clone())
                     .unwrap_or_default();
 
-                if let Err(e) = crud::suspend_with_data_txn(
+                match crud::suspend_with_data_txn(
                     &self.db,
                     &run_id,
                     "awaiting_input",
@@ -131,13 +131,19 @@ impl Coordinator {
                 )
                 .await
                 {
-                    tracing::error!(
+                    // After the commit: the host's observer reads the run, its
+                    // suspension and whether anyone asked to hear, back.
+                    Ok(()) if is_root => {
+                        crate::lifecycle::suspend_hook::root_run_suspended(&run_id).await
+                    }
+                    Ok(()) => {}
+                    Err(e) => tracing::error!(
                         target: "coordinator",
                         task_id,
                         run_id = %run_id,
                         error = %e,
                         "failed to persist suspension"
-                    );
+                    ),
                 }
                 self.state.statuses.insert(
                     run_id,

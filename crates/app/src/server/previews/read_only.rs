@@ -58,6 +58,9 @@ pub const ALLOWED: &[(&str, &str)] = &[
     ("POST", "/analytics/runs/{id}/answer"),
     ("POST", "/analytics/runs/{id}/cancel"),
     ("PATCH", "/analytics/runs/{id}/thinking_mode"),
+    // Asking to hear when a run ends: a flag on the run row. A preview's run
+    // is never noticed (`notifications::platform::ask_finished`).
+    ("POST", "/analytics/runs/{id}/notify"),
     ("POST", "/threads"),
     ("POST", "/threads/{id}/stop"),
     // Rendering a data app runs the branch's tasks: task SQL that is not a

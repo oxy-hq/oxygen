@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use agentic_runtime::crud;
 use agentic_runtime::lifecycle::driver_lease::{
-    CANCEL_POLL, await_held_leases_released, hold_direct_drive_lease,
+    CANCEL_POLL, await_held_leases_released, hold_direct_drive_lease, hold_direct_drive_lease_as,
 };
 use agentic_runtime::state::RuntimeState;
 use sea_orm::DatabaseConnection;
@@ -87,6 +87,42 @@ async fn a_lease_held_elsewhere_is_not_taken() {
         Some("recovery-elsewhere"),
         "releasing a lease it never took does not touch the holder's"
     );
+}
+
+/// The start stamps the lease when it inserts the run; the drive continues it
+/// under the same id. A fresh id would find the start's stamp live and drive
+/// with no lease at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drive_continues_the_lease_its_start_stamped() {
+    let Some(db) = test_db().await else {
+        return;
+    };
+    let run_id = seed_run(&db, "analytics").await;
+    assert!(
+        crud::try_acquire_driver(&db, &run_id, "direct-start")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !resumable(&db, &run_id).await,
+        "a starting run is not orphaned"
+    );
+
+    let fresh = hold_direct_drive_lease(&db, Arc::new(RuntimeState::new()), &run_id).await;
+    assert!(!fresh.is_held(), "a fresh id cannot take the start's stamp");
+    fresh.release().await;
+
+    let lease = hold_direct_drive_lease_as(
+        &db,
+        Arc::new(RuntimeState::new()),
+        &run_id,
+        Some("direct-start".into()),
+    )
+    .await;
+    assert!(lease.is_held(), "the start's id continues its own lease");
+    lease.release().await;
+    let run = crud::get_run(&db, &run_id).await.unwrap().unwrap();
+    assert_eq!(run.driver_id, None, "and gives it back when the drive ends");
 }
 
 /// A cancel taken by another replica sets only the durable flag (it may not

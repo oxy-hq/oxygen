@@ -17,9 +17,14 @@
 //!   [`workspace_ready`] (called by onboarding's clone), billing's
 //!   `billing/notify.rs`, the anomaly delivery task's people
 //!   (`anomaly_notify/people.rs`), [`cli_approval`] (a CLI naming who must
-//!   approve its device-code request), and [`self_test`] (a person testing their
-//!   own push, `POST /api/notifications/test`).
+//!   approve its device-code request), [`self_test`] (a person testing their
+//!   own push, `POST /api/notifications/test`), [`ask_finished`] (an Ask
+//!   answer someone asked to hear about; installed into `agentic-runtime` as a
+//!   run-done observer), and [`ask_waiting`] (that run stopping to ask them
+//!   something; installed as the run-suspended observer).
 
+pub mod ask_finished;
+pub mod ask_waiting;
 pub mod cli_approval;
 pub mod kinds;
 pub mod people;

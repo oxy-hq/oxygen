@@ -29,6 +29,12 @@ pub struct DuckDbConfig {
     pub data_dir: PathBuf,
     /// Whether files are loaded as views (lazy) or materialized temp tables.
     pub load_strategy: DuckDbLoadStrategy,
+    /// Whether the connector may be a clone of the process's cached database
+    /// for this directory (`DuckDbConnector::from_directory_cached`). `false`
+    /// builds its own, as every connector did before the cache: right for a
+    /// caller that writes before it reads, which would only move onto a
+    /// private copy at its first statement — pre-aggregation builds.
+    pub reuse_cached_directory: bool,
 }
 
 // ── Postgres / Redshift ───────────────────────────────────────────────────────
@@ -218,6 +224,20 @@ impl ConnectorConfig {
         Self::DuckDb(DuckDbConfig {
             data_dir: data_dir.into(),
             load_strategy: DuckDbLoadStrategy::View,
+            reuse_cached_directory: true,
         })
+    }
+
+    /// This config, building a directory database of its own rather than
+    /// cloning the cached one (see [`DuckDbConfig::reuse_cached_directory`]).
+    /// Every other kind is returned unchanged.
+    pub fn without_cached_directory(self) -> Self {
+        match self {
+            Self::DuckDb(c) => Self::DuckDb(DuckDbConfig {
+                reuse_cached_directory: false,
+                ..c
+            }),
+            other => other,
+        }
     }
 }

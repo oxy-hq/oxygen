@@ -360,8 +360,12 @@ pub fn split_sql_statements(sql: &str) -> Vec<String> {
                 i += 2;
             }
             // Postgres dollar-quoted string: $tag$ ... $tag$ (tag may be empty).
+            // Only where a token starts: Postgres and DuckDB read `$` inside
+            // an identifier as part of it, so `x$y$` is a name, not a quote.
             '$' => {
-                if let Some(tag_len) = dollar_tag_len(&chars[i..]) {
+                if let Some(tag_len) =
+                    dollar_tag_len(&chars[i..]).filter(|_| !follows_identifier_char(&chars, i))
+                {
                     let tag: Vec<char> = chars[i..i + tag_len].to_vec();
                     i += tag_len;
                     while i < chars.len() {
@@ -403,9 +407,18 @@ fn is_blank_statement(stmt: &str) -> bool {
     strip_leading_noise(stmt).is_empty()
 }
 
+/// Whether the char before `i` continues an identifier or a number, so a `$`
+/// at `i` belongs to that token rather than opening a dollar quote.
+pub(crate) fn follows_identifier_char(chars: &[char], i: usize) -> bool {
+    i > 0 && {
+        let prev = chars[i - 1];
+        prev.is_alphanumeric() || prev == '_' || prev == '$'
+    }
+}
+
 /// If `chars` begins with a Postgres dollar-quote opening tag (`$$` or
 /// `$ident$`), return the tag length in chars; otherwise `None`.
-fn dollar_tag_len(chars: &[char]) -> Option<usize> {
+pub(crate) fn dollar_tag_len(chars: &[char]) -> Option<usize> {
     debug_assert_eq!(chars.first(), Some(&'$'));
     let mut j = 1;
     while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
@@ -797,6 +810,18 @@ mod tests {
         assert_eq!(s.len(), 2);
         assert!(s[0].contains("BEGIN; RETURN 1; END;"));
         assert_eq!(s[1], "SELECT f()");
+    }
+
+    /// `$` inside an identifier is part of it (Postgres, DuckDB), so a name
+    /// like `x$y$` does not open a dollar quote that swallows the statements
+    /// after it.
+    #[test]
+    fn split_reads_a_dollar_inside_a_name_as_part_of_it() {
+        let s = split_sql_statements("SELECT 1 AS x$y$; DROP TABLE t; SELECT 1 AS x$y$");
+        assert_eq!(s, ["SELECT 1 AS x$y$", "DROP TABLE t", "SELECT 1 AS x$y$"]);
+        // A quote that opens where a token starts still does.
+        let s = split_sql_statements("SELECT $y$a; b$y$ AS s; SELECT 2");
+        assert_eq!(s, ["SELECT $y$a; b$y$ AS s", "SELECT 2"]);
     }
 
     #[test]

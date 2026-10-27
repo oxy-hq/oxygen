@@ -6,8 +6,10 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use sea_orm_migration::prelude::*;
 
+mod run_notify_requested;
 mod run_source_file_index;
 mod task_queue_retry_attempt;
+pub use run_notify_requested::AddRunNotifyRequested;
 pub use run_source_file_index::{AddRunSourceFileIndex, RUN_SOURCE_FILE_INDEX_SQL};
 pub use task_queue_retry_attempt::AddTaskQueueRetryAttempt;
 
@@ -44,6 +46,7 @@ impl MigratorTrait for RuntimeMigrator {
             Box::new(AddCompileTaskBackoffIndex),
             Box::new(AddRunSourceFileIndex),
             Box::new(AddTaskQueueRetryAttempt),
+            Box::new(AddRunNotifyRequested),
         ]
     }
 

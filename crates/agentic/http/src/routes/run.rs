@@ -19,13 +19,14 @@ use uuid::Uuid;
 use agentic_pipeline::PipelineBuilder;
 use agentic_pipeline::platform::{BuilderBridges, PlatformContext, ThreadOwnerLookup};
 use agentic_pipeline::{AutoAcceptInputProvider, BuilderLlmMetadata, LlmClient, OpenAiProvider};
+use oxy_auth::extractor::AuthenticatedUserExtractor;
 
 use crate::{
     db, sse,
     state::{AgenticState, RunStatus},
 };
 
-use super::run_scope::run_in_workspace;
+use super::run_scope::{ensure_thread_access, run_in_workspace};
 use super::{AnswerRequest, CreateRunRequest, CreateRunResponse, RunIdPath, ThinkingMode};
 
 /// Cap on the number of tables an onboarding request may supply — guards
@@ -98,6 +99,7 @@ pub async fn create_run(
     Extension(state): Extension<Arc<AgenticState>>,
     Extension(platform): Extension<Arc<dyn PlatformContext>>,
     Extension(bridges): Extension<BuilderBridges>,
+    AuthenticatedUserExtractor(user): AuthenticatedUserExtractor,
     Json(body): Json<CreateRunRequest>,
 ) -> Response {
     tracing::info!(
@@ -123,6 +125,15 @@ pub async fn create_run(
         .thread_id
         .as_deref()
         .and_then(|s| Uuid::parse_str(s).ok());
+
+    // The pipeline reads this thread's history into the run and appends the
+    // run to it: the thread must be in this workspace and not another user's.
+    if let Some(tid) = thread_id_uuid
+        && let Err(refused) =
+            ensure_thread_access(&state, &user.id, tid, platform.workspace_id()).await
+    {
+        return refused;
+    }
 
     // If onboarding context is provided, build the prompt server-side.
     // Otherwise use the raw question from the request.

@@ -112,6 +112,9 @@ pub struct OxyProjectContext {
     /// driven on a spawned task keeps the answer the request had. See
     /// [`preview_hold`].
     hold: Option<crate::server::previews::request_hold::HoldScope>,
+    /// Build each DuckDB directory connector's own database instead of
+    /// cloning the process's cached one. See [`Self::with_own_directory_databases`].
+    own_directory_databases: bool,
 }
 
 impl OxyProjectContext {
@@ -128,7 +131,18 @@ impl OxyProjectContext {
             semantic_scan: None,
             semantic_scan_required: false,
             hold: crate::server::previews::request_hold::current(),
+            own_directory_databases: false,
         }
+    }
+
+    /// Give every DuckDB directory connector this context builds a database
+    /// of its own, as before the directory cache. For a caller whose first
+    /// statement writes — a pre-aggregation cycle — a cached clone buys
+    /// nothing: the write moves it onto a private copy built the same way,
+    /// after a cold cache has made it wait for the shared build first.
+    pub fn with_own_directory_databases(mut self) -> Self {
+        self.own_directory_databases = true;
+        self
     }
 
     /// The compile-boundary revision this context's `Config` came from, or
@@ -519,6 +533,11 @@ impl OxyProjectContext {
                 .resolve_connector(name)
                 .await
                 .ok_or_else(|| format!("database '{name}' not found in workspace config"))?;
+            let cfg = if self.own_directory_databases {
+                cfg.without_cached_directory()
+            } else {
+                cfg
+            };
             agentic_connector::build_connector_async(cfg)
                 .await
                 .map(Arc::from)
@@ -915,6 +934,7 @@ where
                 Some(ConnectorConfig::DuckDb(DuckDbConfig {
                     data_dir: path,
                     load_strategy: DuckDbLoadStrategy::View,
+                    reuse_cached_directory: true,
                 }))
             }
             DuckDBOptions::File { path } => {

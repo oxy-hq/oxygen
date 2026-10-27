@@ -10,12 +10,13 @@ use std::collections::BTreeMap;
 use super::model::{Action, Catalogue, CategoryDef, KindDef, Level};
 use super::source::{Source, SourceCatalogue};
 use crate::server::api::notifications::platform::kinds::{
-    ANOMALY, BILLING_PAST_DUE, CLI_APPROVAL, RUN_FAILED, TEST, WORKSPACE_READY,
+    ANOMALY, ASK_FAILED, ASK_FINISHED, ASK_WAITING, BILLING_PAST_DUE, CLI_APPROVAL, RUN_FAILED,
+    TEST, WORKSPACE_READY,
 };
 use crate::server::api::notifications::platform::self_test::TITLE as TEST_TITLE;
 
 /// (kind, label, category, category label, level).
-const PLATFORM: [(&str, &str, &str, &str, Level); 5] = [
+const PLATFORM: [(&str, &str, &str, &str, Level); 8] = [
     (
         BILLING_PAST_DUE,
         "Payment past due",
@@ -50,6 +51,19 @@ const PLATFORM: [(&str, &str, &str, &str, Level); 5] = [
         "access",
         "Access and sign-in",
         Level::TimeSensitive,
+    ),
+    // An answer the person asked to hear about when they left Ask. The label is
+    // what a push says beside "Oxygen": a platform push carries no other words.
+    (ASK_FINISHED, "Answer ready", "ask", "Ask", Level::Active),
+    // Or it failed or timed out instead.
+    (ASK_FAILED, "Couldn't answer", "ask", "Ask", Level::Active),
+    // The run they left stopped to ask them a clarifying question.
+    (
+        ASK_WAITING,
+        "Needs your answer",
+        "ask",
+        "Ask",
+        Level::Active,
     ),
 ];
 
@@ -150,6 +164,26 @@ mod tests {
             run.channels,
             crate::server::api::notifications::platform::kinds::channels(RUN_FAILED)
         );
+        for (kind, label) in [
+            (ASK_FINISHED, "Answer ready"),
+            (ASK_FAILED, "Couldn't answer"),
+            (ASK_WAITING, "Needs your answer"),
+        ] {
+            let ask = c.describe(kind);
+            assert_eq!(
+                (ask.label.as_str(), ask.category.as_str(), ask.level),
+                (label, "ask", Level::Active),
+                "{kind}"
+            );
+            assert_eq!(ask.category_labels, vec!["Ask"], "{kind}");
+            assert_eq!(ask.channels, vec!["push"], "{kind}");
+            assert_eq!(ask.actions.len(), 1, "{kind}");
+            assert_eq!(
+                (ask.actions[0].id.as_str(), ask.actions[0].label.as_str()),
+                ("open", "Open"),
+                "{kind}"
+            );
+        }
         let newer = c.describe("oxy.something_new");
         assert_eq!(
             (newer.category.as_str(), newer.label.as_str()),

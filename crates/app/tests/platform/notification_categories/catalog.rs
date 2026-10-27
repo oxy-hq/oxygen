@@ -73,10 +73,17 @@ async fn notification_categories_the_catalogue_lists_each_source_as_a_tree() {
             .collect();
         assert_eq!(
             paths,
-            vec!["access", "billing", "monitoring", "runs", "workspaces"]
+            vec![
+                "access",
+                "ask",
+                "billing",
+                "monitoring",
+                "runs",
+                "workspaces"
+            ]
         );
-        // Categories sort by path, so "access" precedes "billing".
-        let billing = &oxygen["categories"][1]["kinds"][0];
+        // Categories sort by path, so "access" and "ask" precede "billing".
+        let billing = &oxygen["categories"][2]["kinds"][0];
         assert_eq!(
             (billing["critical"].as_bool(), billing["level"].as_str()),
             (Some(true), Some("critical"))

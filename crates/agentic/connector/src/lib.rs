@@ -142,8 +142,14 @@ pub fn build_connector(cfg: ConnectorConfig) -> Result<Box<dyn DatabaseConnector
                     DuckDbLoadStrategy::View => LoadStrategy::View,
                     DuckDbLoadStrategy::Materialized => LoadStrategy::Materialized,
                 };
-                let connector = DuckDbConnector::from_directory(&c.data_dir, strategy)
-                    .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+                // Cached: runs build their connectors fresh, and re-reading
+                // an unchanged directory cost every run its whole file scan.
+                let connector = if c.reuse_cached_directory {
+                    DuckDbConnector::from_directory_cached(&c.data_dir, strategy)
+                } else {
+                    DuckDbConnector::from_directory(&c.data_dir, strategy)
+                }
+                .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
                 Ok(Box::new(connector))
             }
             #[cfg(not(feature = "duckdb"))]

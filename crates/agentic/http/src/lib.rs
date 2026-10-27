@@ -92,6 +92,15 @@ pub fn router_roles() -> &'static [RouteRoleDecl] {
             path: "/runs/{id}/thinking_mode",
             role: FleetOk,
         },
+        // One UPDATE of the run row after the same workspace-scope read and a
+        // thread-owner read; when the run already ended, the host's run
+        // observer writes the notice and queues its delivery as a durable
+        // task. Postgres only, and asked from a phone: it must not need the ide.
+        RouteRoleDecl {
+            method: "POST",
+            path: "/runs/{id}/notify",
+            role: FleetOk,
+        },
         // Ops dashboard — run history, recovery counts and queue health are
         // SELECTs over `agentic_runs`, `agentic_run_events` and
         // `agentic_task_queue`. With the Factory down these are how an
@@ -162,6 +171,7 @@ where
         .route("/runs/{id}/events", get(routes::stream_events))
         .route("/runs/{id}/answer", post(routes::answer_run))
         .route("/runs/{id}/cancel", post(routes::cancel_run))
+        .route("/runs/{id}/notify", post(routes::request_run_notice))
         .route(
             "/runs/{id}/revert-file-changes",
             post(routes::revert_file_changes),

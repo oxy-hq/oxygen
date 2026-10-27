@@ -16,6 +16,10 @@
 //! or a starter who left — the workspace's admins. Schedules record no
 //! creator, so there is no one closer to tell.
 //!
+//! An Ask (analytics) run is not this kind's, but a failed one whose thread
+//! owner asked to hear when it ended gets `oxy.ask_finished` from the same
+//! observer ([`super::ask_finished`]).
+//!
 //! **Once per failing streak, then daily** ([`run_streak`]), so a pipeline
 //! that fails every hour does not email its admins every hour. A person is
 //! told about a failure unless they were told about a run of the same streak
@@ -60,22 +64,33 @@ impl RunFailureObserver for RunFailureNotices {
                 return;
             }
         };
-        match notify_run_failed(&db, run_id).await {
-            Ok(Some(sent)) if sent.recipients == 0 && sent.already_told > 0 => tracing::info!(
-                %run_id,
-                already_told = sent.already_told,
-                "run failure notice not sent: already told about this failing streak"
-            ),
-            Ok(Some(sent)) if sent.recipients == 0 => {
-                tracing::info!(%run_id, "run failure notice not sent: no one to tell")
-            }
-            Ok(Some(sent)) => {
-                tracing::info!(%run_id, recipients = sent.recipients, "run failure notice sent")
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!(%run_id, error = %e, "run failure notice not sent"),
-        }
+        announce_failure(&db, run_id).await;
     }
+}
+
+/// What the observer does once it has a connection: the `oxy.run_failed`
+/// notice when the run warrants one, then the `oxy.ask_finished` one when it
+/// is an Ask run whose asker wanted to hear. Logs, never fails.
+pub async fn announce_failure(db: &DatabaseConnection, run_id: &str) {
+    match notify_run_failed(db, run_id).await {
+        Ok(Some(sent)) if sent.recipients == 0 && sent.already_told > 0 => tracing::info!(
+            %run_id,
+            already_told = sent.already_told,
+            "run failure notice not sent: already told about this failing streak"
+        ),
+        Ok(Some(sent)) if sent.recipients == 0 => {
+            tracing::info!(%run_id, "run failure notice not sent: no one to tell")
+        }
+        Ok(Some(sent)) => {
+            tracing::info!(%run_id, recipients = sent.recipients, "run failure notice sent")
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!(%run_id, error = %e, "run failure notice not sent"),
+    }
+    super::ask_finished::log_outcome(
+        run_id,
+        super::ask_finished::notify_ask_finished(db, run_id).await,
+    );
 }
 
 /// The notice for run `run_id`, if it is one that warrants one.
@@ -167,14 +182,25 @@ async fn notify_once_per_streak(
 /// so each exclusion is pinned by a unit test.
 pub fn warrants_notice(row: &run::Model) -> bool {
     let failed = matches!(row.task_status.as_deref(), Some("failed" | "timed_out"));
-    let cancelled = row.cancel_requested_at.is_some()
-        || row.error_message.as_deref() == Some("cancelled by user");
-    let preview = row
-        .metadata
+    failed
+        && !cancelled(row)
+        && !previewed(row)
+        && row.parent_run_id.is_none()
+        && run_record(row).is_some()
+}
+
+/// A cancel. It can land as `failed` ("cancelled by user") on several
+/// defensive paths, but every one of them sets `cancel_requested_at` first.
+pub(super) fn cancelled(row: &run::Model) -> bool {
+    row.cancel_requested_at.is_some() || row.error_message.as_deref() == Some("cancelled by user")
+}
+
+/// A workspace preview's run: nobody is told about one.
+pub(super) fn previewed(row: &run::Model) -> bool {
+    row.metadata
         .as_ref()
         .and_then(|m| m.get(agentic_runtime::crud::PREVIEW_STAMP_KEY))
-        .is_some_and(|v| !v.is_null());
-    failed && !cancelled && !preview && row.parent_run_id.is_none() && run_record(row).is_some()
+        .is_some_and(|v| !v.is_null())
 }
 
 /// The starter while still a member, else the workspace's admins.

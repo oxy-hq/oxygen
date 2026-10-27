@@ -20,15 +20,26 @@ pub const ANOMALY: &str = "oxy.anomaly";
 pub const CLI_APPROVAL: &str = "oxy.cli_approval";
 /// A notice a person sent themselves (`POST /api/notifications/test`).
 pub const TEST: &str = "oxy.test";
+/// An Ask answer someone asked to hear about is ready
+/// (`POST …/analytics/runs/{id}/notify`; `ask_finished`).
+pub const ASK_FINISHED: &str = "oxy.ask_finished";
+/// That Ask run failed or timed out instead (`ask_finished`).
+pub const ASK_FAILED: &str = "oxy.ask_failed";
+/// An Ask run someone asked to hear about stopped to ask them a clarifying
+/// question (`ask_waiting`).
+pub const ASK_WAITING: &str = "oxy.ask_waiting";
 
 /// Every kind the platform sends.
-pub const KINDS: [&str; 6] = [
+pub const KINDS: [&str; 9] = [
     BILLING_PAST_DUE,
     WORKSPACE_READY,
     RUN_FAILED,
     ANOMALY,
     CLI_APPROVAL,
     TEST,
+    ASK_FINISHED,
+    ASK_FAILED,
+    ASK_WAITING,
 ];
 
 /// Whether `kind` is one the platform sends.
@@ -64,7 +75,9 @@ pub fn is_mutable(kind: &str) -> bool {
 /// named person). A CLI approval asks for all three channels: the person is
 /// away from the terminal that is waiting on them, so push, email and Slack
 /// are each a way to reach their phone. A ready workspace is news its creator is looking at. A test
-/// notice tests push and the inbox, nothing else.
+/// notice tests push and the inbox, nothing else. A finished or failed Ask
+/// answer, and an Ask run waiting on the person, were asked for from the phone
+/// that left them, so push only.
 pub fn channels(kind: &str) -> &'static [&'static str] {
     match kind {
         RUN_FAILED | CLI_APPROVAL => &["push", "email", "slack"],
@@ -93,6 +106,10 @@ pub const SUBJECT_ANOMALY: &str = "anomaly";
 pub const SUBJECT_CLI_DEVICE_REQUEST: &str = "cli_device_request";
 /// A test notice: its id is a [`TestSubject`].
 pub const SUBJECT_TEST: &str = "test";
+/// An analytics (Ask) run, by its id.
+pub const SUBJECT_ANALYTICS_RUN: &str = "analytics_run";
+/// One suspension of an analytics run: its id is a [`SuspensionSubject`].
+pub const SUBJECT_ANALYTICS_SUSPENSION: &str = "analytics_suspension";
 
 /// The subject kind as stored, mapped back to its `'static` name. `None` for
 /// a name this binary does not know.
@@ -105,6 +122,8 @@ pub fn subject_kind(stored: &str) -> Option<&'static str> {
         SUBJECT_ANOMALY,
         SUBJECT_CLI_DEVICE_REQUEST,
         SUBJECT_TEST,
+        SUBJECT_ANALYTICS_RUN,
+        SUBJECT_ANALYTICS_SUSPENSION,
     ]
     .into_iter()
     .find(|k| *k == stored)
@@ -126,6 +145,28 @@ pub struct TestSubject {
 }
 
 impl TestSubject {
+    pub fn id(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// `None` for an id this binary cannot read.
+    pub fn parse(id: &str) -> Option<Self> {
+        serde_json::from_str(id).ok()
+    }
+}
+
+/// One stop of a run to ask the person something: the run, and when that
+/// suspension began (`agentic_run_suspensions.created_at`, which each new
+/// suspension of the run resets). A run that asks twice is two subjects, so
+/// the at-most-once check tells the person of each; the same suspension
+/// observed twice is one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuspensionSubject {
+    pub run: String,
+    pub at: DateTime<Utc>,
+}
+
+impl SuspensionSubject {
     pub fn id(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
@@ -174,6 +215,26 @@ pub enum PlatformNotice {
     CliApproval { org_id: Uuid, user_code: String },
     /// A person sent themselves a test, filed under one of their orgs.
     Test { org_id: Uuid, subject: TestSubject },
+    /// An analytics run whose thread owner asked to hear when it ended
+    /// finished with an answer.
+    AskFinished {
+        org_id: Uuid,
+        workspace_id: Uuid,
+        run_id: String,
+    },
+    /// The same, when it failed or timed out instead.
+    AskFailed {
+        org_id: Uuid,
+        workspace_id: Uuid,
+        run_id: String,
+    },
+    /// An analytics run whose thread owner asked to hear about it stopped to
+    /// ask them something. One per suspension.
+    AskWaiting {
+        org_id: Uuid,
+        workspace_id: Uuid,
+        suspension: SuspensionSubject,
+    },
 }
 
 impl PlatformNotice {
@@ -185,6 +246,9 @@ impl PlatformNotice {
             Self::Anomaly { .. } => ANOMALY,
             Self::CliApproval { .. } => CLI_APPROVAL,
             Self::Test { .. } => TEST,
+            Self::AskFinished { .. } => ASK_FINISHED,
+            Self::AskFailed { .. } => ASK_FAILED,
+            Self::AskWaiting { .. } => ASK_WAITING,
         }
     }
 
@@ -196,7 +260,10 @@ impl PlatformNotice {
             | Self::AirwayRunFailed { org_id, .. }
             | Self::Anomaly { org_id, .. }
             | Self::CliApproval { org_id, .. }
-            | Self::Test { org_id, .. } => *org_id,
+            | Self::Test { org_id, .. }
+            | Self::AskFinished { org_id, .. }
+            | Self::AskFailed { org_id, .. }
+            | Self::AskWaiting { org_id, .. } => *org_id,
         }
     }
 
@@ -208,7 +275,10 @@ impl PlatformNotice {
             Self::WorkspaceReady { workspace_id, .. }
             | Self::AutomationRunFailed { workspace_id, .. }
             | Self::AirwayRunFailed { workspace_id, .. }
-            | Self::Anomaly { workspace_id, .. } => Some(*workspace_id),
+            | Self::Anomaly { workspace_id, .. }
+            | Self::AskFinished { workspace_id, .. }
+            | Self::AskFailed { workspace_id, .. }
+            | Self::AskWaiting { workspace_id, .. } => Some(*workspace_id),
         }
     }
 
@@ -243,6 +313,14 @@ impl PlatformNotice {
             Self::Test { subject, .. } => Subject {
                 kind: SUBJECT_TEST,
                 id: subject.id(),
+            },
+            Self::AskFinished { run_id, .. } | Self::AskFailed { run_id, .. } => Subject {
+                kind: SUBJECT_ANALYTICS_RUN,
+                id: run_id.clone(),
+            },
+            Self::AskWaiting { suspension, .. } => Subject {
+                kind: SUBJECT_ANALYTICS_SUSPENSION,
+                id: suspension.id(),
             },
         }
     }
@@ -285,8 +363,13 @@ mod tests {
             let emailed = kind == RUN_FAILED || kind == CLI_APPROVAL;
             assert_eq!(ch.contains(&"email"), emailed, "{kind}");
             // A ready workspace is news in the product; a test notice tests push
-            // and the inbox, nothing else.
-            let push_only = kind == WORKSPACE_READY || kind == TEST;
+            // and the inbox, nothing else; a finished answer was asked for on
+            // the phone.
+            let push_only = kind == WORKSPACE_READY
+                || kind == TEST
+                || kind == ASK_FINISHED
+                || kind == ASK_FAILED
+                || kind == ASK_WAITING;
             assert_eq!(ch.contains(&"slack"), !push_only, "{kind}");
         }
         let run = PlatformNotice::AirwayRunFailed {
@@ -351,6 +434,85 @@ mod tests {
             user_code: "BCDFGHJL".into(),
         };
         assert_ne!(notice.subject(), other.subject());
+    }
+
+    #[test]
+    fn a_finished_answer_is_push_only_and_keyed_by_its_run() {
+        let (org, ws) = (Uuid::new_v4(), Uuid::new_v4());
+        let notice = PlatformNotice::AskFinished {
+            org_id: org,
+            workspace_id: ws,
+            run_id: "r-7".into(),
+        };
+        assert_eq!(notice.kind(), "oxy.ask_finished");
+        assert!(is_platform_kind(ASK_FINISHED));
+        assert_eq!(channels(ASK_FINISHED), &["push"]);
+        assert!(!notice.emailed() && !notice.slacked() && !notice.critical());
+        assert!(is_mutable(ASK_FINISHED));
+        assert_eq!((notice.org_id(), notice.workspace_id()), (org, Some(ws)));
+        let subject = notice.subject();
+        assert_eq!(
+            (subject.kind, subject.id.as_str()),
+            (SUBJECT_ANALYTICS_RUN, "r-7")
+        );
+        assert_eq!(subject_kind("analytics_run"), Some(SUBJECT_ANALYTICS_RUN));
+    }
+
+    #[test]
+    fn a_failed_answer_is_its_own_push_only_kind_about_the_same_run() {
+        let failed = PlatformNotice::AskFailed {
+            org_id: Uuid::nil(),
+            workspace_id: Uuid::nil(),
+            run_id: "r-7".into(),
+        };
+        assert_eq!(failed.kind(), "oxy.ask_failed");
+        assert!(is_platform_kind(ASK_FAILED) && is_mutable(ASK_FAILED));
+        assert_eq!(channels(ASK_FAILED), &["push"]);
+        assert!(!failed.emailed() && !failed.slacked() && !failed.critical());
+        let subject = failed.subject();
+        assert_eq!(
+            (subject.kind, subject.id.as_str()),
+            (SUBJECT_ANALYTICS_RUN, "r-7")
+        );
+    }
+
+    #[test]
+    fn a_waiting_run_is_push_only_and_keyed_by_each_suspension() {
+        let at = |s| DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc);
+        let notice = |when| PlatformNotice::AskWaiting {
+            org_id: Uuid::nil(),
+            workspace_id: Uuid::nil(),
+            suspension: SuspensionSubject {
+                run: "r-7".into(),
+                at: at(when),
+            },
+        };
+        let first = notice("2026-10-23T09:00:00.123456Z");
+        assert_eq!(first.kind(), "oxy.ask_waiting");
+        assert!(is_platform_kind(ASK_WAITING) && is_mutable(ASK_WAITING));
+        assert_eq!(channels(ASK_WAITING), &["push"]);
+        assert!(!first.emailed() && !first.slacked() && !first.critical());
+        let subject = first.subject();
+        assert_eq!(subject.kind, SUBJECT_ANALYTICS_SUSPENSION);
+        assert_eq!(
+            subject_kind("analytics_suspension"),
+            Some(SUBJECT_ANALYTICS_SUSPENSION)
+        );
+        assert_eq!(
+            SuspensionSubject::parse(&subject.id).map(|s| s.run),
+            Some("r-7".to_string())
+        );
+        assert_eq!(
+            subject,
+            notice("2026-10-23T09:00:00.123456Z").subject(),
+            "the same suspension seen twice is one subject"
+        );
+        assert_ne!(
+            subject,
+            notice("2026-10-23T09:05:00Z").subject(),
+            "a second suspension of the run is another"
+        );
+        assert_eq!(SuspensionSubject::parse("r-7"), None);
     }
 
     #[test]

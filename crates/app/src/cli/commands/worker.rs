@@ -219,8 +219,11 @@ pub async fn run_worker(
         tracing::info!("no push transport configured — notifications are inbox-only");
     }
     // Workers drive most global runs to their end, so their failures are
-    // announced from here (`oxy.run_failed`).
+    // announced from here (`oxy.run_failed`), and an Ask answer someone asked
+    // to hear about (`oxy.ask_finished`) and its questions (`oxy.ask_waiting`).
     crate::server::api::notifications::platform::run_failed::install();
+    crate::server::api::notifications::platform::ask_finished::install();
+    crate::server::api::notifications::platform::ask_waiting::install();
 
     // Same first line as `start_server_and_web_app`, and for a sharper reason
     // here. `current_process_role()` falls back to `Role::All` when nothing set

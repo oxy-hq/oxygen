@@ -3,7 +3,7 @@
 //! Lives in the host application so the agentic stack stays free of the
 //! `entity` crate.
 
-use agentic_pipeline::platform::ThreadOwnerLookup;
+use agentic_pipeline::platform::{ThreadOwnerLookup, ThreadScope};
 use async_trait::async_trait;
 use sea_orm::{ActiveValue, DatabaseConnection, EntityTrait};
 
@@ -27,6 +27,19 @@ impl ThreadOwnerLookup for OxyThreadOwnerLookup {
             .one(&self.db)
             .await
             .map(|opt| opt.map(|t| t.user_id))
+            .map_err(|e| e.to_string())
+    }
+
+    async fn thread_scope(&self, thread_id: uuid::Uuid) -> Result<Option<ThreadScope>, String> {
+        entity::threads::Entity::find_by_id(thread_id)
+            .one(&self.db)
+            .await
+            .map(|opt| {
+                opt.map(|t| ThreadScope {
+                    owner: t.user_id,
+                    workspace_id: t.project_id,
+                })
+            })
             .map_err(|e| e.to_string())
     }
 

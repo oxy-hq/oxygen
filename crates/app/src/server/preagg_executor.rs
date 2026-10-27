@@ -156,8 +156,10 @@ async fn build_task_config(
         .pre_aggregations
         .clone();
     let renewal_threshold = oxy::config::preagg_check::resolve_renewal_threshold(cfg.as_ref());
+    // Its own directory databases: every rollup rebuild writes first.
     let ctx = OxyProjectContext::new(workspace_manager)
-        .with_preagg_renewal_threshold_secs(renewal_threshold.as_secs());
+        .with_preagg_renewal_threshold_secs(renewal_threshold.as_secs())
+        .with_own_directory_databases();
 
     let config = PreaggWorkerConfig {
         renewal_threshold,

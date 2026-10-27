@@ -322,6 +322,8 @@ fn coordinator_postgres_reads_are_fleet_ok() {
             "PATCH",
             format!("/api/{ws}/analytics/runs/r-1/thinking_mode"),
         ),
+        // Asking to hear when a run ends: an UPDATE, and the notice it may send.
+        ("POST", format!("/api/{ws}/analytics/runs/r-1/notify")),
         // The same router is mounted on the external API surface.
         (
             "GET",
@@ -369,6 +371,7 @@ fn coordinator_routes_that_need_the_driving_process_stay_ide_only() {
         ("POST", format!("/api/{ws}/analytics/coordinator/runs")),
         ("DELETE", format!("/api/{ws}/analytics/coordinator/queue")),
         ("GET", format!("/api/{ws}/analytics/runs/r-1/thinking_mode")),
+        ("GET", format!("/api/{ws}/analytics/runs/r-1/notify")),
         // Not routes today. One added under this mount without a declaration
         // of its own must land here, not on the fleet.
         ("GET", format!("/api/{ws}/analytics/coordinator/runs/r-1")),

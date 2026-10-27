@@ -72,6 +72,7 @@ pub struct RunSummary {
 pub mod airway;
 pub mod airway_not_servable;
 pub mod automation;
+pub mod notify;
 pub mod run;
 mod run_scope;
 pub mod thread;
@@ -86,6 +87,7 @@ pub use automation::{
     cancel_automation_run, create_automation_run, get_automation_file, get_automation_run,
     latest_run_for_thread, list_automation_files, list_runs_for_automation,
 };
+pub use notify::request_run_notice;
 pub use run::{
     RevertFileChangesRequest, UpdateThinkingModeRequest, answer_run, cancel_run, create_run,
     revert_file_changes, stream_events, update_thinking_mode,

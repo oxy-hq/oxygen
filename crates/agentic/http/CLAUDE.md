@@ -40,6 +40,11 @@ from the app's `workspace_middleware`.
 - `sse.rs` is domain-agnostic — `UiEvent`, `squash_deltas`, `is_terminal` only.
 - `state.rs` uses `agentic_pipeline::AnalyticsSchemaCatalog` and `BuilderTestRunnerTrait` re-exports.
 - `routes.rs` uses `PipelineBuilder` for all pipeline creation — no inline config/solver setup.
+- **A caller-supplied `thread_id` is checked before a run starts on it** (`run_scope::ensure_thread_access`):
+  404 for a missing thread or one in another workspace, 403 for another user's. The pipeline reads
+  the thread's history into the run and appends the run to it, so an unchecked id is a read of
+  someone else's conversation and a write into it. Unowned (auto-provisioned) threads stay open to
+  the workspace.
 
 ## State Management
 

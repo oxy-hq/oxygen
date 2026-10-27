@@ -235,14 +235,17 @@ impl Coordinator {
             self.state.deregister_notifier(&run_id);
         } else {
             // Root task done.
-            if let Err(e) = crud::update_run_done(&self.db, &run_id, &answer, metadata).await {
-                tracing::error!(
+            match crud::update_run_done(&self.db, &run_id, &answer, metadata).await {
+                // After the commit: the host's observer reads the row (and
+                // whether anyone asked to hear of it) back.
+                Ok(()) => crate::lifecycle::done_hook::root_run_done(&run_id).await,
+                Err(e) => tracing::error!(
                     target: "coordinator",
                     task_id,
                     run_id = %run_id,
                     error = %e,
                     "failed to persist run done status"
-                );
+                ),
             }
             self.state.statuses.insert(run_id.clone(), RunStatus::Done);
             self.state.notify(&run_id);

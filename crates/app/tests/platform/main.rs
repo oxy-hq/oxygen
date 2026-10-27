@@ -46,12 +46,18 @@
 //! environment variables or another process-global needs the same attribute — a
 //! guard private to one file excludes nothing once the files share a binary.
 
+// A test that drives an agentic-http route and the notice it sends in one async
+// body (`platform_notices::ask_finished`) needs a type-layout depth past the
+// default 128 — the same limit, for the same reason, as `oxy-app`'s own lib.
+#![recursion_limit = "256"]
+
 #[path = "../common/mod.rs"]
 mod common;
 
 mod admin_staff_scope;
 mod airway_compile_boundary;
 mod airway_fleet_control;
+mod analytics_run_thread_access;
 mod anomaly_bulk_status;
 mod anomaly_notify;
 mod artifact_naming_agrees;

@@ -9,12 +9,13 @@
 //! 5. `DROP TABLE IF EXISTS _agentic_tmp` — cleanup.
 //!
 //! File loading registers Parquet/CSV files as temp views or materialized temp
-//! tables via `from_directory()` / `from_files()`.
+//! tables via `from_directory()` / `from_files()`. `from_directory_cached()`
+//! shares one database per unchanged directory across connectors instead
+//! (see [`dir_cache`]).
 
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use agentic_core::hub_task::spawn_blocking_with_hub;
@@ -39,7 +40,7 @@ pub use duckdb::Connection as DuckDbConnection;
 // ── Load strategy & metadata ──────────────────────────────────────────────────
 
 /// Controls whether a file is loaded lazily (view) or eagerly (temp table).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum LoadStrategy {
     /// `CREATE TEMP VIEW` — zero memory, re-reads the file on each query.
     ///
@@ -72,15 +73,22 @@ pub enum TableSource {
 }
 
 mod conversion;
+mod dir_cache;
+mod loading;
+mod parse_check;
+mod read_only;
 mod schema;
+mod session;
 
 use conversion::{
     describe_type_to_typed, duckdb_to_cell, duckdb_to_cell_opt, duckdb_value_to_typed,
 };
+use loading::{Catalog, open_directory, open_in_memory, register_files};
 use schema::{describe_query, describe_table, detect_join_keys, parse_summarize_cell};
+use session::{Session, Sessions};
 
 pub struct DuckDbConnector {
-    conn: Arc<Mutex<Connection>>,
+    conn: Arc<Sessions>,
     /// Tables / views registered during construction.
     loaded_tables: Vec<TableInfo>,
     /// In-pod memory backstop for `execute_query_full` (see [`ResultCap`]).
@@ -93,9 +101,26 @@ impl DuckDbConnector {
     /// Wrap an existing, already-configured DuckDB connection.
     pub fn new(conn: Connection) -> Self {
         ensure_icu(&conn);
+        Self::with_tables(conn, Vec::new())
+    }
+
+    fn with_tables(conn: Connection, loaded_tables: Vec<TableInfo>) -> Self {
         Self {
-            conn: Arc::new(Mutex::new(conn)),
-            loaded_tables: Vec::new(),
+            conn: Arc::new(Sessions::new(Session::private(conn))),
+            loaded_tables,
+            result_cap: ResultCap::default(),
+        }
+    }
+
+    /// A clone of a cached directory database (see [`dir_cache`]).
+    fn from_shared(
+        conn: Connection,
+        origin: Arc<dir_cache::SharedDb>,
+        loaded_tables: Vec<TableInfo>,
+    ) -> Self {
+        Self {
+            conn: Arc::new(Sessions::new(Session::shared(conn, origin))),
+            loaded_tables,
             result_cap: ResultCap::default(),
         }
     }
@@ -109,9 +134,7 @@ impl DuckDbConnector {
 
     /// Fresh in-memory DuckDB instance with no pre-loaded tables.
     pub fn in_memory() -> Result<Self, ConnectorError> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
-        Ok(Self::new(conn))
+        Ok(Self::new(open_in_memory()?))
     }
 
     /// Scan `dir` for `*.csv` and `*.parquet` files and register each as a
@@ -119,56 +142,24 @@ impl DuckDbConnector {
     ///
     /// When two files share the same stem (e.g. `orders.csv` and
     /// `orders.parquet`) only the Parquet file is registered.
+    ///
+    /// Builds a fresh database every call. [`Self::from_directory_cached`]
+    /// is the same connector without re-reading an unchanged directory.
     pub fn from_directory(dir: &Path, strategy: LoadStrategy) -> Result<Self, ConnectorError> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
+        let (conn, loaded_tables) = open_directory(dir, strategy, Catalog::Temp)?;
+        Ok(Self::with_tables(conn, loaded_tables))
+    }
 
-        // Set file_search_path so queries referencing CSV/Parquet filenames
-        // (e.g. `FROM 'cardio_4_4.csv'`) resolve to this directory.
-        if let Ok(abs_dir) = dir.canonicalize() {
-            let search_path_sql = format!("SET file_search_path = '{}'", abs_dir.display());
-            let _ = conn.execute_batch(&search_path_sql);
-        }
-
-        // Collect candidates: stem → (abs_path, is_parquet).
-        // Prefer Parquet over CSV on collision.
-        let mut candidates: HashMap<String, (PathBuf, bool)> = HashMap::new();
-        let entries = std::fs::read_dir(dir)
-            .map_err(|e| ConnectorError::ConnectionError(format!("cannot read directory: {e}")))?;
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default();
-            if ext != "csv" && ext != "parquet" {
-                continue;
-            }
-            let stem = match path.file_stem().and_then(|s| s.to_str()) {
-                Some(s) if !s.is_empty() => s.to_string(),
-                _ => continue,
-            };
-            let is_parquet = ext == "parquet";
-            candidates
-                .entry(stem)
-                .and_modify(|e| {
-                    if is_parquet {
-                        *e = (path.clone(), true);
-                    }
-                })
-                .or_insert((path, is_parquet));
-        }
-
-        let pairs: Vec<(PathBuf, LoadStrategy)> = candidates
-            .into_values()
-            .map(|(p, _)| (p, strategy))
-            .collect();
-        let file_refs: Vec<(&Path, LoadStrategy)> =
-            pairs.iter().map(|(p, s)| (p.as_path(), *s)).collect();
-
-        Self::from_files_with_conn(conn, &file_refs)
+    /// [`Self::from_directory`], sharing one database per unchanged
+    /// directory across the process: the first call registers and describes
+    /// the files, later calls get their own connection to that database.
+    /// Same tables, aliases and columns; a statement that may write moves the
+    /// connector onto a private copy first. See [`dir_cache`].
+    pub fn from_directory_cached(
+        dir: &Path,
+        strategy: LoadStrategy,
+    ) -> Result<Self, ConnectorError> {
+        dir_cache::global().connector(dir, strategy)
     }
 
     /// Register an explicit list of files, each with its own load strategy.
@@ -181,104 +172,9 @@ impl DuckDbConnector {
     /// ])
     /// ```
     pub fn from_files(files: &[(&Path, LoadStrategy)]) -> Result<Self, ConnectorError> {
-        let conn = Connection::open_in_memory()
-            .map_err(|e| ConnectorError::ConnectionError(e.to_string()))?;
-        Self::from_files_with_conn(conn, files)
-    }
-
-    // Shared registration logic used by both `from_directory` and `from_files`.
-    fn from_files_with_conn(
-        conn: Connection,
-        files: &[(&Path, LoadStrategy)],
-    ) -> Result<Self, ConnectorError> {
-        ensure_icu(&conn);
-        let mut loaded_tables: Vec<TableInfo> = Vec::with_capacity(files.len());
-
-        for (path, strategy) in files {
-            let abs = path.canonicalize().map_err(|e| {
-                ConnectorError::ConnectionError(format!("cannot resolve {}: {e}", path.display()))
-            })?;
-            let raw_stem = abs
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unnamed");
-            let name = normalize_table_name(raw_stem);
-            let full_name = abs
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string().replace('"', "\"\""));
-            let ext = abs
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-                .unwrap_or_default();
-
-            let path_str = abs.display().to_string().replace('\'', "''");
-            let src_expr = match ext.as_str() {
-                "parquet" => format!("read_parquet('{path_str}')"),
-                "csv" => format!("read_csv_auto('{path_str}')"),
-                _ => format!("'{path_str}'"),
-            };
-
-            let create_sql = match strategy {
-                LoadStrategy::View => {
-                    format!(r#"CREATE OR REPLACE TEMP VIEW "{name}" AS SELECT * FROM {src_expr}"#)
-                }
-                LoadStrategy::Materialized => {
-                    format!(r#"CREATE OR REPLACE TEMP TABLE "{name}" AS SELECT * FROM {src_expr}"#)
-                }
-            };
-
-            conn.execute_batch(&create_sql)
-                .map_err(|e| ConnectorError::query_failed(create_sql.clone(), e.to_string()))?;
-
-            // Also expose the file under its full name (e.g. `oxymart.csv`) so
-            // semantic-model views that declare `table: "oxymart.csv"` resolve
-            // without falling through to DuckDB's file-replacement scan, which
-            // does not honor `file_search_path` for quoted identifiers.
-            if let Some(full) = full_name.as_deref()
-                && full != name
-            {
-                let alias_sql =
-                    format!(r#"CREATE OR REPLACE TEMP VIEW "{full}" AS SELECT * FROM "{name}""#);
-                conn.execute_batch(&alias_sql)
-                    .map_err(|e| ConnectorError::query_failed(alias_sql.clone(), e.to_string()))?;
-            }
-
-            // Also register a schema-qualified alias `"<stem>"."<ext>"`. The
-            // semantic-model compiler renders `table: stores.parquet` as an
-            // UNQUOTED `FROM stores.parquet`, which DuckDB parses as
-            // schema.table; the single-identifier alias above only matches the
-            // quoted form, so the unquoted reference otherwise depends on the
-            // file-replacement scan (environment-sensitive; silently empty for
-            // Parquet in some setups). The qualified view makes it resolve to a
-            // real catalog object. Mirrors the oxy-core local pool registration.
-            let stem_q = raw_stem.replace('"', "\"\"");
-            let ext_q = ext.replace('"', "\"\"");
-            let _ = conn.execute_batch(&format!(r#"CREATE SCHEMA IF NOT EXISTS "{stem_q}""#));
-            let qualified_sql =
-                format!(r#"CREATE OR REPLACE VIEW "{stem_q}"."{ext_q}" AS SELECT * FROM "{name}""#);
-            let _ = conn.execute_batch(&qualified_sql);
-
-            let columns = describe_table(&conn, &name).map_err(|e| {
-                ConnectorError::query_failed(format!("DESCRIBE \"{name}\""), e.to_string())
-            })?;
-
-            loaded_tables.push(TableInfo {
-                name,
-                columns,
-                source: TableSource::File {
-                    path: abs,
-                    strategy: *strategy,
-                },
-            });
-        }
-
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-            loaded_tables,
-            result_cap: ResultCap::default(),
-        })
+        let conn = open_in_memory()?;
+        let loaded_tables = register_files(&conn, files, Catalog::Temp)?;
+        Ok(Self::with_tables(conn, loaded_tables))
     }
 
     /// Tables / views registered during construction.
@@ -381,10 +277,8 @@ impl DatabaseConnector for DuckDbConnector {
         // any leading statements for their side effects first, then sample
         // only the final statement.
         let script = plan_sql_script(sql);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
+        let turn = self.conn.turn_for(sql).await?;
+        let conn = turn.session()?;
 
         for stmt in &script.prefix {
             conn.execute_batch(stmt)
@@ -550,12 +444,10 @@ impl DatabaseConnector for DuckDbConnector {
         // long warehouse CTAS calls flowing through here (e.g. preagg
         // build-plan rebuilds) would otherwise starve the runtime thread
         // that parked this task.
-        let conn = self.conn.clone();
+        let turn = self.conn.turn_for(sql).await?;
         let sql_owned = sql.to_string();
         spawn_blocking_with_hub(move || {
-            let conn = conn
-                .lock()
-                .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
+            let conn = turn.session()?;
             conn.execute_batch(&sql_owned)
                 .map_err(|e| ConnectorError::query_failed(sql_owned.clone(), e.to_string()))
         })
@@ -579,7 +471,7 @@ impl DatabaseConnector for DuckDbConnector {
     )]
     async fn execute_query_full(&self, sql: &str) -> Result<TypedRowStream, ConnectorError> {
         let sql = normalize_sql(sql);
-        let conn = self.conn.clone();
+        let turn = self.conn.turn_for(sql).await?;
         let sql_owned = sql.to_string();
         let cap = self.result_cap;
         // Move all blocking DuckDB work off the Tokio worker thread so concurrent
@@ -587,9 +479,7 @@ impl DatabaseConnector for DuckDbConnector {
         // rather than serialising on the limited worker-thread pool.  Pattern is
         // identical to `execute_statement` above.
         spawn_blocking_with_hub(move || {
-            let conn = conn
-                .lock()
-                .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
+            let conn = turn.session()?;
 
             // DESCRIBE resolves column names + types at the logical plan level —
             // no rows are fetched, no temp table needed.
@@ -653,10 +543,7 @@ impl DatabaseConnector for DuckDbConnector {
     }
 
     fn introspect_schema(&self) -> Result<SchemaInfo, ConnectorError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
+        let conn = self.conn.session()?;
 
         // ── 1. All non-system tables + views ──────────────────────────────────
         let table_rows: Vec<(String, String)> = conn
@@ -769,10 +656,8 @@ impl crate::connector::AsArrowConnector for DuckDbConnector {
         sql: &str,
     ) -> Result<crate::connector::ArrowQueryStream, ConnectorError> {
         let sql = normalize_sql(sql);
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| ConnectorError::ConnectionError(format!("mutex poisoned: {e}")))?;
+        let turn = self.conn.turn_for(sql).await?;
+        let conn = turn.session()?;
 
         let mut stmt = conn
             .prepare(sql)

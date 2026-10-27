@@ -12,9 +12,12 @@
 
 pub mod bridge;
 pub mod crud;
+pub mod done_hook;
 pub mod driver_lease;
 pub mod entity;
 pub mod event_registry;
 pub mod failure_hook;
 pub mod handle;
+pub mod notice_request;
 pub mod state;
+pub mod suspend_hook;

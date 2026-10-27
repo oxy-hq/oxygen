@@ -1,8 +1,9 @@
 //! The Oxy records platform notices are rendered from, loaded in batches.
 //!
 //! One query per subject kind on a page: workspaces by id, runs by id (plus
-//! one for their failing streaks), anomaly buckets by event, CLI device
-//! requests by user code. A billing episode needs no query — its id is the
+//! one for their failing streaks), Ask runs by id, Ask suspensions by run (one
+//! query for the runs, one for their suspensions), anomaly buckets by event,
+//! CLI device requests by user code. A billing episode needs no query — its id is the
 //! end of the grace period, which is the one fact the notice states — and a
 //! test notice needs one only to name the token that sent it.
 
@@ -16,8 +17,9 @@ use sea_orm::{ColumnTrait, DatabaseConnection, DbErr, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
 use super::kinds::{
-    SUBJECT_AIRWAY_RUN, SUBJECT_ANOMALY, SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING,
-    SUBJECT_CLI_DEVICE_REQUEST, SUBJECT_TEST, SUBJECT_WORKSPACE,
+    SUBJECT_AIRWAY_RUN, SUBJECT_ANALYTICS_RUN, SUBJECT_ANALYTICS_SUSPENSION, SUBJECT_ANOMALY,
+    SUBJECT_AUTOMATION_RUN, SUBJECT_BILLING, SUBJECT_CLI_DEVICE_REQUEST, SUBJECT_TEST,
+    SUBJECT_WORKSPACE,
 };
 use super::render::About;
 use super::run_streak::Streak;
@@ -49,6 +51,10 @@ pub enum Record {
         expires_at: DateTime<Utc>,
     },
     Test(super::self_test::TestRecord),
+    /// An Ask run someone asked to hear about.
+    Ask(super::ask_finished::AskRecord),
+    /// One suspension of an Ask run someone asked to hear about.
+    AskWaiting(super::ask_waiting::AskWaitingRecord),
 }
 
 /// A failed automation or Airway run.
@@ -167,6 +173,12 @@ pub async fn load(
     }
     for (id, record) in super::self_test::load(db, ids(SUBJECT_TEST)).await? {
         out.insert((SUBJECT_TEST, id), Record::Test(record));
+    }
+    for (id, record) in super::ask_finished::load(db, ids(SUBJECT_ANALYTICS_RUN)).await? {
+        out.insert((SUBJECT_ANALYTICS_RUN, id), record);
+    }
+    for (id, record) in super::ask_waiting::load(db, ids(SUBJECT_ANALYTICS_SUSPENSION)).await? {
+        out.insert((SUBJECT_ANALYTICS_SUSPENSION, id), record);
     }
     Ok(out)
 }

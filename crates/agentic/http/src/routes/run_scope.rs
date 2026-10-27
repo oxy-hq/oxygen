@@ -68,3 +68,37 @@ pub(super) async fn ensure_run_access(
         }
     }
 }
+
+/// Verify `user_id` may start a run on `thread_id` in `workspace_id`. The
+/// pipeline loads the thread's earlier questions and answers into the new run
+/// and appends the run to the thread, so this is a read of the conversation
+/// and a write into it:
+///
+/// - `404` if the thread does not exist, or is in another workspace — answered
+///   exactly like a missing one
+/// - `403` if another user owns it — the answer `GET /threads/{id}/runs` gives
+/// - `500` on a lookup failure
+///
+/// A thread nobody owns (auto-provisioned for a run started without one, whose
+/// id is handed back for follow-ups) is open to the workspace's members, as its
+/// runs already are on the read side.
+pub(super) async fn ensure_thread_access(
+    state: &AgenticState,
+    user_id: &Uuid,
+    thread_id: Uuid,
+    workspace_id: Uuid,
+) -> Result<(), Response> {
+    match state.thread_owner.thread_scope(thread_id).await {
+        Ok(Some(scope)) if scope.workspace_id != workspace_id => {
+            Err((StatusCode::NOT_FOUND, "thread not found").into_response())
+        }
+        Ok(None) => Err((StatusCode::NOT_FOUND, "thread not found").into_response()),
+        Ok(Some(scope)) if scope.owner.is_some_and(|owner| &owner != user_id) => {
+            Err((StatusCode::FORBIDDEN, "access denied").into_response())
+        }
+        Ok(Some(_)) => Ok(()),
+        Err(e) => {
+            Err((StatusCode::INTERNAL_SERVER_ERROR, format!("db error: {e}")).into_response())
+        }
+    }
+}

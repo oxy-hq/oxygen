@@ -411,6 +411,7 @@ pub async fn create_thread(
         (status = 400, description = "Invalid thread ID format"),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Thread not found"),
+        (status = 409, description = "A run on the thread is still going: stop it first"),
         (status = 500, description = "Internal server error")
     ),
     security(
@@ -451,7 +452,17 @@ pub async fn delete_thread(
         })?;
 
     if let Some(thread) = thread {
-        if thread.is_processing {
+        // A Slack reply marks its thread `is_processing`; an Ask run never
+        // does, so its own status says whether it is still going. Deleting
+        // under a live run would leave it answering, and telling its asker,
+        // into a thread that is gone.
+        let live_run = agentic_runtime::crud::thread_has_live_run(&connection, thread_id)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to look up live runs on thread {}: {}", thread_id, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        if thread.is_processing || live_run {
             tracing::warn!(
                 "Attempted to delete thread {} that is currently being processed",
                 thread_id

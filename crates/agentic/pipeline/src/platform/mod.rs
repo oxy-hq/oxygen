@@ -297,6 +297,15 @@ pub trait ProjectContext: Send + Sync {
     }
 }
 
+/// Who owns a conversation thread, and which workspace it belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThreadScope {
+    /// `None` for a thread nobody owns — one auto-provisioned for a run
+    /// started without a thread.
+    pub owner: Option<uuid::Uuid>,
+    pub workspace_id: uuid::Uuid,
+}
+
 /// Thread-ownership lookup for transport-layer auth checks.
 ///
 /// Implemented by the host against its threads table. Pipeline + HTTP call
@@ -310,6 +319,18 @@ pub trait ThreadOwnerLookup: Send + Sync {
         &self,
         thread_id: uuid::Uuid,
     ) -> Result<Option<Option<uuid::Uuid>>, String>;
+
+    /// The thread's owner and workspace; `Ok(None)` when it does not exist.
+    ///
+    /// For callers that must also know the thread is in *their* workspace —
+    /// a run started on a thread reads its history and writes into it.
+    ///
+    /// Default `Ok(None)`: an adapter that cannot say which workspace a
+    /// thread is in cannot vouch for one, so its threads read as missing
+    /// (fail closed). The host adapter (`OxyThreadOwnerLookup`) answers.
+    async fn thread_scope(&self, _thread_id: uuid::Uuid) -> Result<Option<ThreadScope>, String> {
+        Ok(None)
+    }
 
     /// Create a new conversation thread in `project_id` (the run's
     /// workspace) titled `title`, returning the new thread id.

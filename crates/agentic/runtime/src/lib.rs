@@ -76,9 +76,9 @@ pub mod crud {
         insert_run_with_parent, insert_run_with_schedule, is_cancel_requested, list_active_runs,
         list_recent_runs, list_runs_filtered, llm_usage_for_run, llm_usage_for_runs,
         load_task_tree, load_task_tree_in_workspace, release_driver, request_cancel,
-        runs_in_workspace, try_acquire_driver, update_run_done, update_run_failed,
-        update_run_running, update_run_suspended, update_run_terminal_from_events,
-        update_task_status, upsert_suspension,
+        runs_in_workspace, thread_has_live_run, try_acquire_driver, update_run_done,
+        update_run_failed, update_run_running, update_run_suspended,
+        update_run_terminal_from_events, update_task_status, upsert_suspension,
     };
     pub use crate::lifecycle::crud::{
         DRIVER_LEASE_TTL_SECS, PREVIEW_STAMP_KEY, RUN_ENVIRONMENT_KEY, clear_run_error,
