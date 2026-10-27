@@ -2,8 +2,7 @@ name: Set up Rust for CI
 description: >-
   The toolchain, linker, cargo tools, private-git-dep auth, cargo cache and
   protoc that every job compiling this workspace needs, in the order they
-  depend on each other. Shared by `cargo-clippy` and `cargo-check-and-test` in
-  ci.yaml.
+  depend on each other. Shared by the Rust jobs in ci.yaml.
 
 inputs:
   app-client-id:
@@ -16,8 +15,17 @@ inputs:
     description: rust-cache `shared-key`. One per job shape, so clippy and build artifacts never evict each other.
     required: true
   tools:
-    description: taiki-e/install-action `tool` list.
-    required: true
+    description: taiki-e/install-action `tool` list; empty installs none.
+    required: false
+    default: ""
+  save-cache:
+    description: >-
+      "false" to restore the cache without saving it on main. For a job that
+      shares a `cache-key` with a job building a superset of its dependencies:
+      whichever finishes first saves, so the smaller one would win and every PR
+      would restore an entry missing the other's crates.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -49,6 +57,7 @@ runs:
         components: clippy, rustfmt
 
     - name: Install cargo tools
+      if: inputs.tools != ''
       uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
       with:
         tool: ${{ inputs.tools }}
@@ -79,7 +88,7 @@ runs:
         # Only main writes. A PR's entry is readable by that PR alone, yet it
         # counts against the repo's cache quota and evicts main's — the one
         # entry every PR restores from. ruff, uv, Deno and Biome do the same.
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.save-cache == 'true' }}
 
     # protobuf is required by lance https://github.com/lancedb/lance/issues/3073
     # Use apt instead of arduino/setup-protoc to avoid GitHub release rate limits / outages.

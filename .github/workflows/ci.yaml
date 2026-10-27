@@ -43,7 +43,7 @@ env:
   # thrown away and inflate cache size. Force it off (overrides the global
   # `incremental = true` in .cargo/config.toml, which is there for local dev).
   CARGO_INCREMENTAL: "0"
-  # One nextest for `cargo-check-and-test` (which writes the test archive) and
+  # One nextest for `cargo-test-archive` (which writes the test archive) and
   # every `cargo-test-partition` (which reads it): an archive is only promised
   # to work with the version that made it.
   NEXTEST_VERSION: "0.9.148"
@@ -902,7 +902,8 @@ jobs:
   # compiling and running every test, ~45 minutes on a cold-ish cache (run
   # 39779472634: build 14m, test compile 13m, 10,406 tests 16m). It is now:
   #
-  #   cargo-check-and-test   8x runner: build `oxy`, pick the tests this PR can
+  #   cargo-check-and-test   4x runner: build `oxy` and upload it
+  #   cargo-test-archive     8x runner, beside it: pick the tests this PR can
   #                          affect, compile and `nextest archive` only those
   #   cargo-test-partition   1–4 4x runners, each running one `slice:` of the
   #                          archive against its own Postgres/ClickHouse/MinIO
@@ -911,7 +912,7 @@ jobs:
   #
   # Downstream jobs that need the binary (agentic-tests, custom-app-canary) wait
   # on `cargo-check-and-test` alone, so they start as soon as it is built
-  # rather than after the test run. One consequence: a red test no longer
+  # rather than after the test compile or the test run. One consequence: a red test no longer
   # skips them. Their results stand on their own, and the required status is
   # still red.
   #
@@ -1004,7 +1005,7 @@ jobs:
           cargo test --locked --manifest-path "$manifest"
 
   cargo-check-and-test:
-    name: Build oxy & archive tests
+    name: Build oxy
     concurrency:
       group: cargo-check-and-test-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
@@ -1019,19 +1020,164 @@ jobs:
     # has to run the matrix, and the matrix has no binary unless this job
     # builds one. Skipped here, `agentic-tests` below is skipped with it — which
     # is how a PR that rewired every bucket merged without booting any of them.
-    # The "Build" step drops to the build-only path whenever `oxy` did not
-    # fire, so such a PR pays for `cargo build`, not for archiving tests.
+    # Such a PR pays for `cargo build` only: cargo-test-archive runs for `oxy`.
+    #
+    # The job id is older than the job: agentic-tests, custom-app-canary and
+    # internal-docs know this as "the job that uploads oxy-binary-ci".
     if: |
       inputs.agentic_only == true ||
       needs.changesets.outputs.oxy == 'true' ||
       needs.changesets.outputs.agentic == 'true'
+    # 4x: a warm binary build is mostly linking and took 5m11s on the 4x
+    # against 6m12s on the 8x (2026-10-26). It runs beside cargo-test-archive,
+    # not before it, so the 8x's cores go to test-compile.
+    # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
+    runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
+    # A cold build; 45m kills a true hang.
+    timeout-minutes: 45
+    env:
+      # Fast CI builds: omit debug info entirely (this replaces the old `ci`
+      # cargo profile's `debug = false`). Local dev keeps full debug via the
+      # default dev profile — this override only applies in CI.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      # Restore the old `ci` profile's `strip = true`: shrinks the uploaded
+      # `oxy-binary-ci` artifact and the test archive, and cuts link memory.
+      # Trade-off: CI panic backtraces lose symbol names; drop this var if you
+      # need them while debugging a flaky test.
+      CARGO_PROFILE_DEV_STRIP: "symbols"
+      AGENTIC_ONLY: ${{ inputs.agentic_only == true || needs.changesets.outputs.oxy != 'true' }}
+    steps:
+      - name: Free disk space
+        if: runner.environment == 'github-hosted'
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Collect Workflow Telemetry
+        uses: cilium/workflow-telemetry-action@b1a318f80a08acede58027afe1455d037379966f # v2.2.0
+        with:
+          comment_on_pr: false
+      - uses: ./.github/actions/setup-rust-ci
+        with:
+          app-client-id: ${{ vars.ARGO_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.ARGO_APP_PRIVATE_KEY }}
+          # Restores the `test` cache cargo-test-archive saves, which holds every
+          # registry crate this build needs. Saving it too would race that job
+          # for the entry with a subset of it.
+          cache-key: test
+          save-cache: "false"
+
+      # `cargo build` embeds the web-app dist into the oxy binary via
+      # `include_dir!` in crates/app/src/cli/commands/serve.rs. The dist
+      # path is a committed symlink: `crates/app/dist -> ../../web-app/dist`.
+      # If `web-app/dist` is empty when cargo runs, the binary serves 404
+      # on `/` — every Playwright/agentic flow then fails because the
+      # frontend never loads. Build the web-app first so the symlink
+      # resolves to populated content. cargo-test-archive does the same for
+      # the test binaries that link oxy-app.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.0.9
+        with:
+          run_install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: "pnpm"
+      - name: Build web-app dist (embedded into oxy binary)
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          # Bundle only (skip `tsc -b`): the cargo build just needs the `dist/`
+          # bytes for the `include_dir!` embed. Typechecking is covered in
+          # parallel by the `build-web` job (full `pnpm build`), so running
+          # `tsc -b` here too would duplicate the slowest part of the web build
+          # on this job's critical path for no added signal.
+          #
+          # `build-web` is the whole of it, despite what this comment used to
+          # say: `lint:ts` is not run by any job here, and for `oxy-web` it was
+          # `tsc --noEmit` against a `files: []` solution tsconfig, which
+          # type-checks zero files. It is `tsc -b` now, but it is still not
+          # wired into CI — `build-web` is the enforcer.
+          pnpm --filter oxy-web exec vite build
+
+      # The same swap top-up as cargo-test-archive's (see there). A binary build
+      # peaks well below test-compile, but this runner is a 4x.
+      - name: Add swap
+        if: runner.environment != 'github-hosted'
+        run: |
+          swapon --show
+          have=$(free -m | awk '/^Swap:/ { print $2 }')
+          add=$((16384 - have))
+          disk_free=$(df -m --output=avail / | tail -1)
+          if ((add <= 0)); then
+            echo "swap is already ${have} MiB; leaving it"
+          elif ((disk_free - add < 61440)); then
+            echo "::warning title=No extra swap::${disk_free} MiB free on /; a ${add} MiB swapfile would leave the build under 60 GiB"
+          elif sudo fallocate -l "${add}M" /ci-swapfile \
+            && sudo chmod 600 /ci-swapfile \
+            && sudo mkswap /ci-swapfile \
+            && sudo swapon /ci-swapfile; then
+            swapon --show
+          else
+            sudo rm -f /ci-swapfile
+            echo "::warning title=No extra swap::could not enable /ci-swapfile; the build runs with ${have} MiB of swap"
+          fi
+          free -m
+          df -h /
+
+
+      - name: Build
+        env:
+          BIGQUERY_SAMPLE_KEY: ${{ secrets.BIGQUERY_SAMPLE_KEY }}
+        run: |
+          # Into this step's log, so a run the runner kills still shows how
+          # close it came. Stopped on every exit: a child still holding stdout
+          # can keep the step from finishing.
+          scripts/ci/mem-watermark.sh &
+          watermark=$!
+          trap 'kill "$watermark" 2>/dev/null || true' EXIT
+
+          touch examples/bigquery-sample.key
+          echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
+
+          cargo build
+          if [[ "$AGENTIC_ONLY" != "true" ]]; then
+            ./target/debug/oxy gen-config-schema --check
+          fi
+
+      # The tests run against this binary (OXY_BIN in cargo-test-partition), and
+      # so do agentic-tests and custom-app-canary. It is built from the same
+      # commit, profile env and cache as the test archive, by a separate cargo.
+      - name: Upload oxy binary artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
+        with:
+          name: oxy-binary-ci
+          path: target/debug/oxy
+          retention-days: 1
+
+  cargo-test-archive:
+    name: Archive Rust tests
+    concurrency:
+      group: cargo-test-archive-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    needs: [changesets]
+    if: |
+      inputs.agentic_only != true &&
+      needs.changesets.outputs.oxy == 'true'
     # 8x, not 4x: this job is compile and link and nothing else, and on the 4x
     # its memory peak (test-compile, 19–22 GB) outgrew 15 GiB of RAM and paged
     # (see "Add swap"). Trialled 2026-10-02: 8x took the old combined job from
     # ~30 to 17 minutes for ~$0.05 a run; 16x was no faster than 8x.
-    # Still arm64: agentic-tests and custom-app-canary run this binary on arm64.
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-8x' || 'ubuntu-latest' }}
-    # A cold build plus test compile; 60m kills a true hang within the hour.
+    # A cold test compile; 60m kills a true hang within the hour.
     timeout-minutes: 60
     outputs:
       run-tests: ${{ steps.archive.outputs.run-tests }}
@@ -1048,11 +1194,6 @@ jobs:
       # Trade-off: CI panic backtraces lose symbol names; drop this var if you
       # need them while debugging a flaky test.
       CARGO_PROFILE_DEV_STRIP: "symbols"
-      # Build-only (no test archive) when the job is here just for the binary:
-      # a dispatch that asked for it, or a diff that fired `agentic` without
-      # `oxy` — no Rust changed, so there is nothing for nextest to say that
-      # main's run has not already said.
-      AGENTIC_ONLY: ${{ inputs.agentic_only == true || needs.changesets.outputs.oxy != 'true' }}
     steps:
       - name: Free disk space
         if: runner.environment == 'github-hosted'
@@ -1083,13 +1224,12 @@ jobs:
           # version that wrote it.
           tools: nextest@${{ env.NEXTEST_VERSION }}
 
-      # Before the build, so a broken selector fails in seconds. Everything
+      # Before the compile, so a broken selector fails in seconds. Everything
       # but a pull request tests the whole workspace. On a pull request the
       # checkout is GitHub's merge commit, whose first parent is the base
       # branch as it is now: exactly the change this PR would merge.
       - name: Select tests
         id: select
-        if: env.AGENTIC_ONLY != 'true'
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref_name }}
@@ -1116,8 +1256,8 @@ jobs:
       # If `web-app/dist` is empty when cargo runs, the binary serves 404
       # on `/` — every Playwright/agentic flow then fails because the
       # frontend never loads. Build the web-app first so the symlink
-      # resolves to populated content. The test binaries that link oxy-app
-      # embed the same bytes.
+      # resolves to populated content. Here because the test binaries that
+      # link oxy-app embed the same bytes as the binary job's `oxy`.
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.0.9
         with:
@@ -1147,14 +1287,14 @@ jobs:
 
       # Swap behind the memory peak, which is test-compile: oxy-app's lib tests
       # in one rustc while mold links test binaries that each statically link
-      # DuckDB, DataFusion and Arrow. On the arm64-4x this job used to run on
+      # DuckDB, DataFusion and Arrow. On the arm64-4x this used to run on
       # (15.3 GiB of RAM, a 4 GiB swapfile) that peak outgrew both: PR #3632
       # measured 19.2 GB in use with RAM and the stock swap full, then 22.2 GB
       # once this step had made room, and twice on 2026-10-16 (main's run
       # 38898953093, then a branch) the runner was shut down at exactly that
       # point, exit 143, with no compiler or test error. The 8x has the RAM for
-      # it; the swap stays as insurance, and the mem-watermark lines in "Build"
-      # say how high it goes.
+      # it; the swap stays as insurance, and the mem-watermark lines in
+      # "Archive tests" say how high it goes.
       #
       # The swapfile takes real blocks on the disk the build uses, so it is
       # skipped when it would leave less than 60 GiB free, and removed if it
@@ -1184,37 +1324,8 @@ jobs:
           df -h /
 
 
-      - name: Build
-        env:
-          BIGQUERY_SAMPLE_KEY: ${{ secrets.BIGQUERY_SAMPLE_KEY }}
-        run: |
-          # Into this step's log, so a run the runner kills still shows how
-          # close it came. See "Add swap" above. Stopped on every exit: a
-          # child still holding stdout can keep the step from finishing.
-          scripts/ci/mem-watermark.sh &
-          watermark=$!
-          trap 'kill "$watermark" 2>/dev/null || true' EXIT
-
-          touch examples/bigquery-sample.key
-          echo $BIGQUERY_SAMPLE_KEY > examples/bigquery-sample.key
-
-          cargo build
-          if [[ "$AGENTIC_ONLY" != "true" ]]; then
-            ./target/debug/oxy gen-config-schema --check
-          fi
-
-      # Uploaded before the test archive is built, and from the same target
-      # dir, so this is byte for byte the binary the tests run against.
-      - name: Upload oxy binary artifact
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v7
-        with:
-          name: oxy-binary-ci
-          path: target/debug/oxy
-          retention-days: 1
-
       - name: Archive tests
         id: archive
-        if: env.AGENTIC_ONLY != 'true'
         run: |
           scripts/ci/mem-watermark.sh &
           watermark=$!
@@ -1234,9 +1345,12 @@ jobs:
           cargo nextest archive "${scope[@]}" --archive-file nextest-archive.tar.zst
           ls -lh nextest-archive.tar.zst
 
-          # One partition per ~2,500 tests, at most 4: the whole suite (~10.4k)
-          # gets 4, a typical PR's subset 2–3, a one-crate change 1. Counted
-          # after nextest's default-filter, from the binaries just built.
+          # One partition per ~1,600 tests, at most 4. Sized by count rather
+          # than by a fixed share of the suite: at ~2,500 a partition, PR subsets
+          # of 5.8k–7.2k tests got 3 partitions of ~5 minutes each and finished
+          # no sooner than the whole suite on 4 (PRs #3815–#3840 on 2026-10-26).
+          # At ~1,600 they get 4 of ~3.5 minutes. Counted after nextest's
+          # default-filter, from the binaries just built.
           tests=$(cargo nextest list "${scope[@]}" --message-format json 2>/dev/null |
             jq '[.["rust-suites"][].testcases[] | select(.["filter-match"].status == "matches")] | length')
           # Never a real answer here: `always-test` alone puts thousands of
@@ -1248,7 +1362,7 @@ jobs:
             echo "::error::archive built but 0 tests counted; has the 'nextest list' JSON shape changed?"
             exit 1
           fi
-          count=$(( (tests + 2499) / 2500 ))
+          count=$(( (tests + 1599) / 1600 ))
           (( count < 1 )) && count=1
           (( count > 4 )) && count=4
           echo "$tests tests in $count partition(s)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -1269,9 +1383,11 @@ jobs:
           compression-level: 0
 
   cargo-test-partition:
-    name: Rust tests (${{ matrix.partition }}/${{ needs.cargo-check-and-test.outputs.partition-count }})
-    needs: [cargo-check-and-test]
-    if: needs.cargo-check-and-test.outputs.run-tests == 'true'
+    name: Rust tests (${{ matrix.partition }}/${{ needs.cargo-test-archive.outputs.partition-count }})
+    # The archive, and the binary for `oxy migrate` and OXY_BIN. The two jobs
+    # run side by side; whichever is slower gates the partitions.
+    needs: [cargo-check-and-test, cargo-test-archive]
+    if: needs.cargo-test-archive.outputs.run-tests == 'true'
     concurrency:
       group: cargo-test-partition-${{ matrix.partition }}-${{
         github.event.pull_request.number || github.ref }}
@@ -1280,7 +1396,7 @@ jobs:
       # Every partition reports: one red slice should not hide another's.
       fail-fast: false
       matrix:
-        partition: ${{ fromJSON(needs.cargo-check-and-test.outputs.partitions) }}
+        partition: ${{ fromJSON(needs.cargo-test-archive.outputs.partitions) }}
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'warp-ubuntu-latest-arm64-4x' || 'ubuntu-latest' }}
     # A quarter of a ~16-minute suite plus setup; 30m kills a hang.
     timeout-minutes: 30
@@ -1422,8 +1538,8 @@ jobs:
       # this says so plainly if that ever stops being true.
       - name: Check the checkout is where the archive was built
         run: |
-          if [[ "$GITHUB_WORKSPACE" != "${{ needs.cargo-check-and-test.outputs.workspace }}" ]]; then
-            echo "::error::archive built in ${{ needs.cargo-check-and-test.outputs.workspace }}, checkout is $GITHUB_WORKSPACE"
+          if [[ "$GITHUB_WORKSPACE" != "${{ needs.cargo-test-archive.outputs.workspace }}" ]]; then
+            echo "::error::archive built in ${{ needs.cargo-test-archive.outputs.workspace }}, checkout is $GITHUB_WORKSPACE"
             exit 1
           fi
       # No Rust toolchain here: `cargo-nextest nextest run --archive-file`
@@ -1476,7 +1592,7 @@ jobs:
           cargo-nextest nextest run \
             --archive-file nextest-archive.tar.zst \
             --workspace-remap "$GITHUB_WORKSPACE" \
-            --partition "slice:${{ matrix.partition }}/${{ needs.cargo-check-and-test.outputs.partition-count }}" \
+            --partition "slice:${{ matrix.partition }}/${{ needs.cargo-test-archive.outputs.partition-count }}" \
             --no-fail-fast
       - name: Slowest tests
         if: ${{ !cancelled() }}
@@ -1491,7 +1607,7 @@ jobs:
   # Skipped exactly when that job is (no Rust change), as before.
   cargo-test:
     name: Format cargo, check & test (test)
-    needs: [cargo-check-and-test, cargo-test-partition]
+    needs: [cargo-check-and-test, cargo-test-archive, cargo-test-partition]
     if: ${{ !cancelled() && needs.cargo-check-and-test.result != 'skipped' }}
     runs-on: ${{ github.repository == 'oxy-hq/oxygen-internal' && 'ubuntu-slim' || 'ubuntu-latest' }}
     timeout-minutes: 5
@@ -1499,12 +1615,20 @@ jobs:
       - name: Every partition passed
         env:
           BUILD: ${{ needs.cargo-check-and-test.result }}
-          RUN_TESTS: ${{ needs.cargo-check-and-test.outputs.run-tests }}
+          # Skipped exactly when `oxy` did not fire (a binary-only run for the
+          # agentic matrix); a skip for any other reason is cancellation, which
+          # this job's own `if` already excludes.
+          ARCHIVE: ${{ needs.cargo-test-archive.result }}
+          RUN_TESTS: ${{ needs.cargo-test-archive.outputs.run-tests }}
           TESTS: ${{ needs.cargo-test-partition.result }}
         run: |
-          echo "build: $BUILD, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS"
+          echo "build: $BUILD, archive: $ARCHIVE, tests to run: ${RUN_TESTS:-false}, partitions: $TESTS"
           if [[ "$BUILD" != "success" ]]; then
-            echo "::error::Build oxy & archive tests: $BUILD"
+            echo "::error::Build oxy: $BUILD"
+            exit 1
+          fi
+          if [[ "$ARCHIVE" != "success" && "$ARCHIVE" != "skipped" ]]; then
+            echo "::error::Archive Rust tests: $ARCHIVE"
             exit 1
           fi
           if [[ "$RUN_TESTS" == "true" && "$TESTS" != "success" ]]; then
