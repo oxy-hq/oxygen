@@ -46,15 +46,6 @@
   cold_usd: 0.30
   warm_usd: 0.005
 
-- flow: builder-rejected-suggestion
-  # Local-mode against demo_project/insights.app.yml: 1 act to open the
-  # builder and submit a prompt with auto-approve OFF, wait for the
-  # propose_change suspension (Reject button), 1 act to click Reject,
-  # then streaming_complete. Builder pipeline reaches its first
-  # propose_change in 30–90s.
-  cold_usd: 0.50
-  warm_usd: 0.01
-
 - flow: metric-tree
   # Local-mode: click the Semantic Layer rail icon, then the Metric Tree tab
   # (there is no /ide/metric-tree route — the page is /ide/semantic with
@@ -223,15 +214,6 @@
   # by visible label costs a bit more than a testid-anchored click. Measured
   # cold on the fleet: $0.51 (57s wall clock, dominated by the ~145-file
   # bulk hydration wait, not LLM iterations).
-  cold_usd: 0.55
-  warm_usd: 0.01
-
-- flow: ide-database-fleet
-  # Four act steps (expand a connection, open a query tab + pick the
-  # database, type SQL into Monaco, run it). Zero testids anywhere on this
-  # page (see the flow's header), so every step is text/role-selector-based
-  # — cold cost per step runs higher than a testid-anchored flow, similar to
-  # partners-console-fleet.
   cold_usd: 0.55
   warm_usd: 0.01
 

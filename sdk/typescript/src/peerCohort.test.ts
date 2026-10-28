@@ -4,12 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { OxyConfig } from "./config";
 import { PeerCohortClient } from "./peerCohort";
 
-// client.ts pulls in parquet.ts, which imports `@duckdb/duckdb-wasm` — a
-// dependency declared by web-app, not by this package, and not resolvable
-// from sdk/typescript's own node_modules. Stub it out so importing OxyClient
-// here doesn't fail on that unrelated, pre-existing phantom dependency.
-vi.mock("./parquet", () => ({ readParquet: vi.fn() }));
-
 const { OxyClient } = await import("./client");
 
 function makeClient() {

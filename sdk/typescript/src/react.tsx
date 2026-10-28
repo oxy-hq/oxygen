@@ -28,14 +28,6 @@ export interface OxyProviderProps {
    */
   useAsync?: boolean;
   /**
-   * Optional app path to load initial app data from upon initialization
-   */
-  appPath?: string;
-  /**
-   * Optional initial files to preload into the SDK as a mapping of filename to content
-   */
-  files?: Record<string, string>;
-  /**
    * Called when SDK is successfully initialized
    */
   onReady?: (sdk: OxySDK) => void;
@@ -97,8 +89,6 @@ export function OxyProvider({
   children,
   config,
   useAsync = false,
-  appPath,
-  files,
   onReady,
   onError
 }: OxyProviderProps) {
@@ -118,17 +108,6 @@ export function OxyProvider({
         if (useAsync) {
           // Async initialization (supports postMessage auth)
           sdkInstance = await OxySDK.create(config);
-          if (appPath) {
-            await sdkInstance.loadAppData(appPath);
-          }
-
-          if (files) {
-            const fileEntries = Object.entries(files).map(([tableName, filePath]) => ({
-              tableName,
-              filePath
-            }));
-            await sdkInstance.loadFiles(fileEntries);
-          }
         } else {
           // Sync initialization with provided config
           if (!config) {
@@ -166,7 +145,7 @@ export function OxyProvider({
         sdkInstance.close().catch(console.error);
       }
     };
-  }, [config, useAsync, onReady, onError, appPath, files]);
+  }, [config, useAsync, onReady, onError]);
 
   return <OxyContext.Provider value={{ sdk, isLoading, error }}>{children}</OxyContext.Provider>;
 }
@@ -184,7 +163,7 @@ export function OxyProvider({
  *
  *   useEffect(() => {
  *     if (sdk) {
- *       sdk.loadAppData('dashboard.app.yml')
+ *       sdk.getReader().registerParquet(blob, 'my_table')
  *         .then(() => sdk.query('SELECT * FROM my_table'))
  *         .then(result => console.log(result));
  *     }
@@ -224,7 +203,7 @@ export function useOxy(): OxyContextValue {
  *   const [data, setData] = useState(null);
  *
  *   useEffect(() => {
- *     sdk.loadFile('data.parquet', 'data')
+ *     sdk.getReader().registerParquet(blob, 'data')
  *       .then(() => sdk.query('SELECT * FROM data LIMIT 100'))
  *       .then(setData);
  *   }, [sdk]);

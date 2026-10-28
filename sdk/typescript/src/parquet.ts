@@ -99,7 +99,7 @@ export class ParquetReader {
    *
    * @example
    * ```typescript
-   * const blob = await client.getFile('data/sales.parquet');
+   * const blob = await (await fetch(salesParquetUrl)).blob();
    * const reader = new ParquetReader();
    * await reader.registerParquet(blob, 'sales');
    * ```
@@ -321,7 +321,7 @@ export class ParquetReader {
  *
  * @example
  * ```typescript
- * const blob = await client.getFile('data/sales.parquet');
+ * const blob = await (await fetch(salesParquetUrl)).blob();
  * const result = await queryParquet(blob, 'sales', 'SELECT product, SUM(amount) as total FROM sales GROUP BY product');
  * console.log(result);
  * ```
@@ -352,7 +352,7 @@ export async function queryParquet(
  *
  * @example
  * ```typescript
- * const blob = await client.getFile('data/sales.parquet');
+ * const blob = await (await fetch(salesParquetUrl)).blob();
  * const data = await readParquet(blob, 'sales', 1000);
  * console.log(`Loaded ${data.rowCount} rows`);
  * ```

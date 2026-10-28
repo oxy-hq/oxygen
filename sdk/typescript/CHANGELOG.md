@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new tab. Marking an item read is a `keepalive` request, so leaving the page
   does not cancel it.
 
+### Removed
+
+- **Source for Data Apps (`.app.yml`), which the server no longer serves.**
+  Oxygen removed Data Apps (every `/apps/*` route now answers 404), and this
+  deletes the client code that called them: `OxyClient` (`listApps`,
+  `getAppData`, `runApp`, `getDisplays`, `getFile`, `getFileUrl`,
+  `getTableData`), `OxySDK` (`loadFile`, `loadFiles`, `loadAppData`),
+  `OxyProvider`, the Parquet reader, the Data App types (`AppItem`,
+  `AppDataResponse`, `GetDisplaysResponse`, `DataContainer`, …) and the
+  `react-vite-demo` example. **No published API changes:** none of this was
+  reachable from any entry point since v2 (see 2.0.0 — the v1 `OxyClient` /
+  `OxySDK` stack was dropped from the exports), so the built package is
+  unchanged and this is not a major release.
+
 ## [2.21.0] - 2026-10-17
 
 ### Added

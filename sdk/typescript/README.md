@@ -8,6 +8,10 @@ small set of hooks, plus a couple of drop-in components.
 > **v2 is a complete rewrite.** The v1 stack (`OxyClient` / `OxySDK`, the
 > Parquet/DuckDB-WASM reader, postMessage auth) is gone. Bundles now talk to
 > `/api/projects/:id/*` exclusively. See `CHANGELOG.md`.
+>
+> Data Apps (`.app.yml`) are gone from Oxygen, and so is the SDK code that
+> called their `/apps/*` routes. A bundle replaces a Data App with a custom
+> app that reads through `useQuery` / `useSemanticQuery`.
 
 ## Install
 

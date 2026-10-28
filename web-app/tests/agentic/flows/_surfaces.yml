@@ -28,7 +28,6 @@
     - ide-save
     - ide-create-file
     - ide-compile-error
-    - ide-database-fleet
 
 - surface: threads
   paths:

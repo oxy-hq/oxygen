@@ -3,7 +3,6 @@ import { OxyClient } from "./client";
 import { createConfigAsync, type OxyConfig } from "./config";
 import type { MetricTreeClient } from "./metricTree";
 import { ParquetReader, type QueryResult } from "./parquet";
-import type { DataContainer } from "./types";
 
 /**
  * OxySDK provides a unified interface for fetching data from Oxy and querying it with SQL.
@@ -15,8 +14,8 @@ import type { DataContainer } from "./types";
  * // Create SDK instance
  * const sdk = new OxySDK({ apiKey: 'your-key', projectId: 'your-project' });
  *
- * // Load a parquet file and query it
- * await sdk.loadFile('data/sales.parquet', 'sales');
+ * // Register a parquet blob and query it
+ * await sdk.getReader().registerParquet(salesBlob, 'sales');
  * const result = await sdk.query('SELECT * FROM sales WHERE amount > 1000');
  * console.log(result.rows);
  *
@@ -54,87 +53,6 @@ export class OxySDK {
   }
 
   /**
-   * Load a Parquet file from Oxy and register it for SQL queries
-   *
-   * @param filePath - Path to the parquet file in the app state directory
-   * @param tableName - Name to use for the table in SQL queries
-   *
-   * @example
-   * ```typescript
-   * await sdk.loadFile('data/sales.parquet', 'sales');
-   * await sdk.loadFile('data/customers.parquet', 'customers');
-   *
-   * const result = await sdk.query(`
-   *   SELECT s.*, c.name
-   *   FROM sales s
-   *   JOIN customers c ON s.customer_id = c.id
-   * `);
-   * ```
-   */
-  async loadFile(filePath: string, tableName: string): Promise<void> {
-    const blob = await this.client.getFile(filePath);
-    await this.reader.registerParquet(blob, tableName);
-  }
-
-  /**
-   * Load multiple Parquet files at once
-   *
-   * @param files - Array of file paths and table names
-   *
-   * @example
-   * ```typescript
-   * await sdk.loadFiles([
-   *   { filePath: 'data/sales.parquet', tableName: 'sales' },
-   *   { filePath: 'data/customers.parquet', tableName: 'customers' },
-   *   { filePath: 'data/products.parquet', tableName: 'products' }
-   * ]);
-   *
-   * const result = await sdk.query('SELECT * FROM sales');
-   * ```
-   */
-  async loadFiles(files: Array<{ filePath: string; tableName: string }>): Promise<void> {
-    for (const file of files) {
-      await this.loadFile(file.filePath, file.tableName);
-    }
-  }
-
-  /**
-   * Load all data from an app's data container
-   *
-   * This fetches the app's data and registers all parquet files using their container keys as table names.
-   *
-   * @param appPath - Path to the app file
-   * @returns DataContainer with file references
-   *
-   * @example
-   * ```typescript
-   * // If app has data: { sales: { file_path: 'data/sales.parquet' } }
-   * const data = await sdk.loadAppData('dashboard.app.yml');
-   * // Now you can query the 'sales' table
-   * const result = await sdk.query('SELECT * FROM sales LIMIT 10');
-   * ```
-   */
-  async loadAppData(appPath: string): Promise<DataContainer | null> {
-    const appDataResponse = await this.client.getAppData(appPath);
-
-    if (appDataResponse.error) {
-      throw new Error(`Failed to load app data: ${appDataResponse.error}`);
-    }
-
-    if (!appDataResponse.data) {
-      return null;
-    }
-
-    const loadPromises = Object.entries(appDataResponse.data).map(async ([tableName, fileRef]) => {
-      await this.loadFile(fileRef.file_path, tableName);
-    });
-
-    await Promise.all(loadPromises);
-
-    return appDataResponse.data;
-  }
-
-  /**
    * Execute a SQL query against loaded data
    *
    * @param sql - SQL query to execute
@@ -142,7 +60,7 @@ export class OxySDK {
    *
    * @example
    * ```typescript
-   * await sdk.loadFile('data/sales.parquet', 'sales');
+   * await sdk.getReader().registerParquet(salesBlob, 'sales');
    *
    * const result = await sdk.query('SELECT product, SUM(amount) as total FROM sales GROUP BY product');
    * console.log(result.columns); // ['product', 'total']
@@ -163,7 +81,7 @@ export class OxySDK {
    *
    * @example
    * ```typescript
-   * await sdk.loadFile('data/sales.parquet', 'sales');
+   * await sdk.getReader().registerParquet(salesBlob, 'sales');
    * const allData = await sdk.getAll('sales');
    * const first100 = await sdk.getAll('sales', 100);
    * ```
@@ -180,7 +98,7 @@ export class OxySDK {
    *
    * @example
    * ```typescript
-   * await sdk.loadFile('data/sales.parquet', 'sales');
+   * await sdk.getReader().registerParquet(salesBlob, 'sales');
    * const schema = await sdk.getSchema('sales');
    * console.log(schema.columns); // ['column_name', 'column_type', ...]
    * console.log(schema.rows);    // [['id', 'INTEGER'], ['name', 'VARCHAR'], ...]
@@ -198,7 +116,7 @@ export class OxySDK {
    *
    * @example
    * ```typescript
-   * await sdk.loadFile('data/sales.parquet', 'sales');
+   * await sdk.getReader().registerParquet(salesBlob, 'sales');
    * const count = await sdk.count('sales');
    * console.log(`Total rows: ${count}`);
    * ```
@@ -238,14 +156,13 @@ export class OxySDK {
   /**
    * Get direct access to the underlying OxyClient
    *
-   * Useful for advanced operations like listing apps, getting displays, etc.
+   * Useful for the metric-tree, anomaly and peer-cohort clients.
    *
    * @returns The OxyClient instance
    *
    * @example
    * ```typescript
-   * const apps = await sdk.getClient().listApps();
-   * const displays = await sdk.getClient().getDisplays('my-app.app.yml');
+   * const tree = await sdk.getClient().metricTree.getTree();
    * ```
    */
   getClient(): OxyClient {
@@ -277,7 +194,7 @@ export class OxySDK {
    * @example
    * ```typescript
    * const sdk = new OxySDK({ apiKey: 'key', projectId: 'project' });
-   * await sdk.loadFile('data/sales.parquet', 'sales');
+   * await sdk.getReader().registerParquet(salesBlob, 'sales');
    * const result = await sdk.query('SELECT * FROM sales');
    * await sdk.close(); // Clean up
    * ```
