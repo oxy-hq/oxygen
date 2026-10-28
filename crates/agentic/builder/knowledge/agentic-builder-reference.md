@@ -2,7 +2,7 @@
 source:
   - sdk/cli/skills/oxy-agents/SKILL.md
   - sdk/cli/skills/oxy-agents/references/quick-reference.md
-reconciled-hash: 8949bc70afe8efc72689013e936d508d0854923a
+reconciled-hash: 0412d30e02a631c73631b7347108736ebe858fec
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -84,9 +84,10 @@ clarifying → specifying → solving → executing → interpreting → done
 4. **executing** runs the SQL (no LLM), then the result checks.
 5. **interpreting** writes the answer and picks a chart.
 
-Diagnosing: unresolved metric/join, empty result, compile error or bad SQL →
-specifying (fresh attempt); ambiguous column → clarifying; outlier, freshness
-gap or bad chart → interpreting, which answers and states the caveat.
+Diagnosing: unresolved metric/join, empty result, compile error, bad SQL, or
+null-ratio/duplicate failures after solving → specifying (fresh attempt);
+ambiguous column → clarifying; outlier, freshness gap or bad chart →
+interpreting, which answers and states the caveat.
 
 **Guidance every answer needs goes in the global `instructions:`,
 `clarifying` or `interpreting` — never only in `solving`**, which rarely runs
@@ -97,7 +98,7 @@ on a well-modelled workspace.
 | State | Tools |
 | --- | --- |
 | clarifying | `search_catalog`, `search_automations`, `propose_semantic_query`, `ask_user` |
-| root cause / opportunity | `explain_metric`, `find_opportunities`, `metric_sensitivity`, `predict_impact` (+ `list_anomalies`, `detect_anomalies`, `explain_anomaly` with anomaly monitoring) |
+| root cause / opportunity | `explain_metric`, `find_opportunities`, `metric_sensitivity`, `predict_impact` plus the clarifying catalog tools (+ `list_anomalies`, `detect_anomalies`, `explain_anomaly` with anomaly monitoring) |
 | specifying | `search_catalog`, `sample_columns`, `ask_user`; with a semantic model `check_data_freshness`; without, `get_join_path`, `list_tables`, `describe_table` |
 | solving | `execute_preview` (candidate query, `LIMIT 5`) |
 | executing | none |
@@ -122,12 +123,15 @@ config.yml database**; with none, the run fails `no databases configured`.
 
 | Matches | Becomes |
 | --- | --- |
-| `*.view.yml`, `*.topic.yml` | semantic catalog |
+| `*.view.yml`, `*.topic.yml` (or `.yaml`) | semantic catalog |
 | `*.sql` with an `oxy:` header | **verified query**, run verbatim when chosen |
 | `*.sql` without the header | SQL style examples in the solving prompt only |
 | `*.md` | domain notes for clarifying and interpreting |
-| `*.automation.yml`, `*.procedure.yml` | automations the agent may run |
+| `*.automation.yml`, `*.procedure.yml` (or `.yaml`) | automations the agent may run |
 | anything else | ignored |
+
+Context files under an excluded path (see File rules) are not deployed, so a
+glob that matches locally can come back empty in the cloud.
 
 ```sql
 /*
@@ -143,9 +147,12 @@ in the cloud — and base URL come from it; prefer it). With neither `ref` nor
 `model`, the first config.yml model is used. A `ref` not in config.yml is
 **not** a load error: it falls back to a built-in Claude model and the
 server's `ANTHROPIC_API_KEY`. `model` alone skips config.yml (key from
-`api_key` or server env). `vendor`: `anthropic`, `open_ai` (Responses API),
-`open_ai_compat` (`/chat/completions`) — write these spellings; `oxyc validate`
-rejects `openai`/`openai_compat`. Google/Gemini is not supported. Leave
+`api_key` or the server's `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). `vendor`
+(default from `ref`, else `anthropic`): `anthropic`, `open_ai` (Responses
+API), `open_ai_compat` (`/chat/completions`, for gateways; `base_url`
+defaults to `http://localhost:11434/v1`) — write these spellings; the runtime
+accepts `openai`/`openai_compat` but `oxyc validate` rejects them.
+Google/Gemini is not supported. Leave
 `max_tokens` unset (default 4,096, or 16,384 / budget + 4,096 with thinking);
 a set value is used as-is and thinking counts against it.
 
@@ -157,9 +164,10 @@ after which the run pauses to ask the user whether to continue; not a
 failure-retry count. Defaults: specifying 5, solving 3, interpreting 5;
 clarifying's limit is fixed.
 
-**`semantic_engine`** — Cube (`base_url`, `api_token`) or Looker (`base_url`,
-`client_id`, `client_secret`) ahead of Oxy's semantic model. `${VAR}` reads
-the **server's environment**, not workspace secrets; an unset var or an
+**`semantic_engine`** — `vendor: cube` (`base_url`, `api_token`) or
+`vendor: looker` (`base_url`, `client_id`, `client_secret`) ahead of Oxy's
+semantic model; any other vendor is a YAML parse error. `${VAR}` reads the
+**server's environment**, not workspace secrets; an unset var or an
 unreachable engine at run start fails the run. Omit it normally.
 
 ## Thinking
@@ -207,10 +215,16 @@ ignored).
   every edit. Both are **structural only**: they miss unknown keys, `llm.ref`,
   `databases:`, globs, rule names, timezones and `${VAR}`.
 - The first full check is a run: `oxy agentic run <path> -q "<question>"`
-  (needs Oxy's Postgres; `--json`, `--thinking-mode extended_thinking`).
-- `oxy test <file>.test.yml` runs LLM-judged evals (`target:`, `settings:
-  {runs, concurrency, judge_model}`, `cases: [{prompt, expected, tags}]`).
-- **`oxy build` does not check agents** (it builds search embeddings).
+  (needs Oxy's Postgres, `OXY_DATABASE_URL`; `--json`, `--thinking-mode
+  extended_thinking`). A CLI run that pauses to ask the user can't be resumed
+  from the CLI (`oxy agentic answer` doesn't deliver the text) — ask a more
+  specific question, or continue in the app.
+- `oxy test [<file>.test.yml]` runs LLM-judged evals — with no file, every
+  `*.test.yml` (`target:`, inferred from `sales.agentic.test.yml` →
+  `sales.agentic.yml`; `settings: {runs: 3, concurrency: 5, judge_model}`;
+  `cases: [{name, prompt, expected, tags}]`; `--min-accuracy 0.8` exits 1
+  below it).
+- **`oxy build` does not check agents** — it does nothing any more.
 - A JSON schema *is* published for `.agentic.yml`; an editor header on line 1
   is optional — preserve it if present:
   `# yaml-language-server: $schema=https://raw.githubusercontent.com/oxy-hq/oxygen/refs/heads/main/json-schemas/agentic.json`.
@@ -227,8 +241,11 @@ ignored).
 | verified query never chosen | add the `oxy:` header with a `description`; check the glob |
 | state override does nothing | misspelled key, `executing`, or `clarifying.max_retries` |
 | thinking silently off | unknown string like `enabled` — use a listed form |
+| `thinking: false` rejected | boolean, not a mode — write `disabled` |
 | a default check stopped running | a `validation:` section replaced the defaults |
 | `validation config error: unknown … rule` | fix the name or move it to its stage |
 | `invalid timezone '…'` | use an IANA name (`UTC`, `America/New_York`) |
 | `environment variable '${X}' … is not set` | set it in the server environment |
+| `semantic engine connection error` | check the Cube/Looker `base_url` and credentials |
+| `glob pattern error` | fix the `context:` pattern |
 | agent missing in the cloud, fine locally | `.agentic.yaml`, excluded path, or `.test.` in the name |

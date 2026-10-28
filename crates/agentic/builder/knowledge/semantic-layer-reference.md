@@ -1,7 +1,7 @@
 ---
 source:
   - sdk/cli/skills/oxy-semantic-modeling/SKILL.md
-reconciled-hash: eda741a8ea6cd05a46bedd9ca547754870ff88a5
+reconciled-hash: e04d7ded4adfdbdec9ba2b48f84b73a7839fdeb7
 note: |
   Authored condensation of the platform skills listed above. Not auto-synced —
   scripts/sync-skills.sh only copies the verbatim YAML templates. Re-condense
@@ -207,9 +207,13 @@ resolves against a view *named like the topic*, not `base_view`.
 
 **Twin views** (e.g. a ClickHouse → Airhouse migration leaving `sales_daily`
 and `airhouse_sales_daily`) are not mirrors: their measures diverge, and
-their entity names differ (`airhouse_restaurant` vs `restaurant`) so a topic
-mixing families silently fails to join. Keep each topic within one family,
-read the twin before assuming a measure exists, and don't copy the pattern.
+their **foreign** entity names differ (`airhouse_restaurant` vs `restaurant`)
+so a topic mixing families silently fails to join — missing rows, no error.
+Keep each topic within one family, read the twin before assuming a measure
+exists, and don't copy the pattern. Watch the inverse: a new-family view with
+a **bare primary** entity (`payment`) will silently auto-join *across* the
+divide — wrong rows — the day an old-family view declares the same name.
+Prefix the primary too on any new view in a migrated family.
 
 ## Pre-aggregations (rollups)
 
@@ -243,8 +247,9 @@ pre_aggregations:
   coarser — **except `week`**, which serves neither `month`, `quarter` nor
   `year` (store `day` for both). Otherwise the warehouse answers — correct,
   just slower.
-- Limits: one view's members only; fixed granularities. Multi-view or custom
-  buckets need a rollup table built by an automation.
+- Limits: one view's members only; fixed granularities (no 15-minute
+  buckets). Multi-view or custom buckets need a rollup table built by an
+  automation.
 
 `config.yml` (all optional): `pre_aggregations: { schema: AIRLAYER, database:
 <connector, default each view's datasource>, refresh_worker: { enabled: true,
@@ -261,9 +266,8 @@ heartbeat: "10m" (clamped 30s–24h), renewal_threshold: "120s" (clamped
    tool before calling it done. Validators don't check cross-file wiring — an
    entity join that matches nothing, a topic naming a missing view, a measure
    a twin lacks.
-3. **`oxy build` does not validate the semantic model** (search embeddings
-   only). Read real column names from `.databases/` (written
-   by `oxy sync`).
+3. **`oxy build` does not validate the semantic model** — it does nothing any
+   more. Read real column names from `.databases/` (written by `oxy sync`).
 
 When refreshing a view, build fresh from the schema source (`.databases/`),
 not from git history — old definitions drift from the live schema.
@@ -272,6 +276,7 @@ not from git history — old definitions drift from the live schema.
 | --- | --- |
 | "measure not found" after switching topics | the twin view lacks it — read the twin |
 | topic returns missing rows / no join | entity names differ between views, or the topic mixes twin families |
+| topic returns unexpected extra rows | a bare primary entity name collides across twin families |
 | `TYPE_MISMATCH` on a date filter | sample one row; `type: date` + cast from the table above |
 | "unresolved reference" | a `{{ }}` names no dimension/measure |
 | whole model fails to load | a bare boolean/number in `samples`, or a bare string in `meta` |
