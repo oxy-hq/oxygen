@@ -6,7 +6,6 @@ authors.workspace = true
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 agentic-connector = { workspace = true }

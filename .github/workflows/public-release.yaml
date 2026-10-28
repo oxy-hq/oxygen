@@ -338,8 +338,11 @@ jobs:
       needs.determine-build-type.result == 'success' &&
       needs.build-web-app.result == 'success'
     runs-on: macos-latest
-    # Release-mode build of the macOS CLI; 90m for a cold release build.
-    timeout-minutes: 90
+    # Release-mode build of the macOS CLI: ~45m warm, over 90m cold. Must cover a
+    # cold build, because a job that times out saves no rust-cache entry, so the
+    # next run starts cold again and the edge CLI release never ships (three
+    # runs in a row were cancelled at 90m on 2026-10-28). Free in this public repo.
+    timeout-minutes: 150
     steps:
       # Checkout must run before the local composite action can be resolved.
       - name: Checkout repository

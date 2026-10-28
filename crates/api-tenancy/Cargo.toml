@@ -9,7 +9,6 @@ description = "Tenancy HTTP surface — org onboarding (workspace create/demo/im
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # Imported through `oxy_app::surface` (the S4 prelude) plus the backlog that

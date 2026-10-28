@@ -6,7 +6,6 @@ description = "Custom Apps domain crate: the modules of the custom-apps surface 
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [features]
 # `usage_fixtures`: an in-process stand-in for a workspace's Airhouse (DuckDB

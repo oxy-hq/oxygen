@@ -19,4 +19,4 @@
 # on every cold image build. CI requests them via dtolnay/rust-toolchain, and a
 # local auto-install uses your rustup default profile, which includes both.
 [toolchain]
-channel = "1.98.1"
+channel = "1.99.1"

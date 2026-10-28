@@ -1168,7 +1168,6 @@ documentation = "https://oxygen-hq.com/docs"
 edition = "2024"
 exclude = []
 publish = false
-rust-version = "1.97.1"
 
 # Lint policy: bug-shaped lints are errors, cosmetic ones are off.
 #

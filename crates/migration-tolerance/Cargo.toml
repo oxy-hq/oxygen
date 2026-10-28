@@ -6,7 +6,6 @@ description = "Lets a Sea-ORM migrator tolerate ledger rows written by a NEWER b
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 # Deliberately a LEAF crate: `sea-orm` + `sea-orm-migration` + `tracing` only.
 # All eight migrators depend on this, and they span the platform (`migration`,

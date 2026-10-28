@@ -6,7 +6,6 @@ description = "The generated HTTP route table `GET /api/_catalog` serves. Sits a
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # The `GeneratedRoute` / `RouteCatalog` types and the handler live in oxy-app;

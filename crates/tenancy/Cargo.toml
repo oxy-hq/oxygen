@@ -6,7 +6,6 @@ description = "Tenancy domain logic shared across bounded contexts (org teams an
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 entity = { workspace = true }

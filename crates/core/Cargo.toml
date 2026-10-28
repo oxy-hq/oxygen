@@ -6,7 +6,6 @@ description.workspace = true
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 # Override workspace exclude to prevent rebuilds from runtime-generated files
 exclude = [
   # Runtime-generated directories that should not trigger rebuilds

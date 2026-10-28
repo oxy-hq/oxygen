@@ -6,7 +6,6 @@ description = "Compile boundary — walks a workspace and writes parsed YAML/SQL
 documentation.workspace = true
 edition.workspace = true
 publish.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 async-trait.workspace = true

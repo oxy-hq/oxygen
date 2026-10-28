@@ -6,7 +6,6 @@ description = "Camera fleet domain — sites, edge boxes, cameras + control-plan
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 exclude.workspace = true
 
 [dependencies]

@@ -9,7 +9,6 @@ description = "Source-report upload HTTP surface (validated writes into the S3 l
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # The only oxy-app dependency: the `WorkspaceEditor` guard and the

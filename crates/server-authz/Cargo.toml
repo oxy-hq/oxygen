@@ -6,7 +6,6 @@ description = "App-side authorization wiring for Oxy (fact loading, guards, part
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # The transport-agnostic decision model this crate wires into the app.

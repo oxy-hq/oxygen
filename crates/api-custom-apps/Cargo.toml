@@ -9,7 +9,6 @@ description = "Custom Apps HTTP surface: the /customer-apps bundle route, health
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [features]
 default = ["custom-app-functions"]

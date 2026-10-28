@@ -9,7 +9,6 @@ description = "Document-library HTTP surface (folders, documents, immutable vers
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # The only oxy-app dependency: the helpers this surface still shares with it —

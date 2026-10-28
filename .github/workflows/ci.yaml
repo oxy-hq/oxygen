@@ -756,7 +756,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Prep Rust (rustfmt)
-        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
+        uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml
         with:
           components: rustfmt
       - name: cargo fmt --all --check
@@ -1884,7 +1884,7 @@ jobs:
           make-default: true
       - name: Prep Rust (build path)
         if: needs.cargo-check-and-test.result == 'skipped'
-        uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
+        uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml
       # Private cargo git deps (airlayer, airform, airway-internal,
       # snowflake-rs): `git-fetch-with-cli` is on, so cargo shells out to git,
       # which uses gh as its credential helper — see the check job.

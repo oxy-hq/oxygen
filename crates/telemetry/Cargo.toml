@@ -2,7 +2,6 @@
 name = "oxy-telemetry"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 publish.workspace = true
 description = "Platform telemetry: OTLP export of traces + logs to the cluster OTel collector (ClickStack / HyperDX), the structured log format, HTTP request spans and W3C trace propagation"
 

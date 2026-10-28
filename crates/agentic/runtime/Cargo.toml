@@ -5,7 +5,6 @@ version = "0.5.31"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 
 [dependencies]

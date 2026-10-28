@@ -6,7 +6,6 @@ description = "Shared seam for the oxy-app HTTP layer: audit trail, serve-mode d
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [features]
 # `agent_fixture`: a sandbox-agent credential for tests. Dev-dependencies only.

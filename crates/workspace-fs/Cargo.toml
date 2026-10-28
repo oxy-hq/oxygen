@@ -6,7 +6,6 @@ description = "The WorkspaceFs port — the boundary between the stateless servi
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }

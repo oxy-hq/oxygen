@@ -6,7 +6,6 @@ description = "Stripe-backed billing for Oxy organizations"
 documentation.workspace = true
 edition.workspace = true
 publish.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 chrono.workspace = true

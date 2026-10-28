@@ -6,7 +6,6 @@ description = "Git CLI client for Oxy — one place owns all git operations"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 tokio = { workspace = true }

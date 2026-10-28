@@ -6,7 +6,6 @@ description = "Oxy Application - CLI and HTTP server"
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 # The `oxy` binary lives in the `oxy-server` crate (the composition root that
 # mounts the API surfaces); oxy-app is a library only.

@@ -4,7 +4,6 @@ version.workspace = true
 authors.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Frontend web application for Oxy (changelog tracking only)"
 
 # Keep the Rust source out of the TypeScript src/ directory

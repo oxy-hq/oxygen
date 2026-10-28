@@ -64,9 +64,28 @@ runs:
         make-default: true
 
     - name: Setup Rust
-      uses: dtolnay/rust-toolchain@1.98.1 # keep in step with rust-toolchain.toml
+      uses: dtolnay/rust-toolchain@1.99.1 # keep in step with rust-toolchain.toml
       with:
         targets: ${{ inputs.target }}
+
+    # rust-cache hashes EVERY installed toolchain (`rustup toolchain list`) into
+    # the restore key, including the runner image's own stable, which this build
+    # never uses. GitHub rolls a new image stable out across runners over days,
+    # so the key flip-flopped between two values and each flip was a cold build:
+    # x86 72 min instead of 25, and macOS past its timeout. A timed-out job saves
+    # no cache, so macOS then stayed cold. Seen 2026-10-28, when the image went
+    # to 1.99.0 and the pin is 1.98.1. Keep only the toolchain this build uses.
+    - name: Remove the runner image's other Rust toolchains
+      shell: bash
+      run: |
+        set -euo pipefail
+        active=$(rustup show active-toolchain | cut -d' ' -f1)
+        rustup toolchain list --quiet | while read -r toolchain; do
+          if [[ -n "$toolchain" && "$toolchain" != "$active" ]]; then
+            rustup toolchain uninstall "$toolchain"
+          fi
+        done
+        rustup toolchain list
 
     - name: Setup Rust cache
       uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2

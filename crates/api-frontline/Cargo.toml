@@ -9,7 +9,6 @@ description = "Frontline HTTP surface (PIN sign-in, kiosk binding, worker enrolm
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # What this surface still reaches into oxy-app for: the OrgAdmin role guard and

@@ -9,7 +9,6 @@ description = "GitHub OAuth + git-namespace HTTP surface — a sibling crate mou
 documentation.workspace = true
 publish.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 # The route mount re-applies the org-scoped inner middleware (org_middleware +

@@ -6,7 +6,6 @@ description.workspace = true
 documentation.workspace = true
 edition.workspace = true
 publish.workspace = true
-rust-version.workspace = true
 
 [dependencies]
 airlayer = { workspace = true }
