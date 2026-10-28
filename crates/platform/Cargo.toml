@@ -29,6 +29,8 @@ tokio-postgres = { workspace = true }
 # Encryption
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
+# Key fingerprints in the boot check's messages (`secrets::key_check`).
+sha2 = { workspace = true }
 
 # AWS RDS IAM auth
 aws-config = { workspace = true, features = ["behavior-version-latest"] }

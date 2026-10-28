@@ -21,7 +21,7 @@
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
 //!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
 //!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
-//!   `workspace_previews_*` modules, `preview_routes` and `preview_ttl` are database-backed
+//!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl` and `encryption_key_check` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `projects_query` and `local_mode_router` call `api_router(..)`, which
@@ -77,6 +77,7 @@ mod compiled_reader_semantic;
 mod context_documents_boundary;
 mod coordinator_any_replica;
 mod data_placement;
+mod encryption_key_check;
 mod experiment_pricing;
 mod experiment_results;
 mod experiment_routes;

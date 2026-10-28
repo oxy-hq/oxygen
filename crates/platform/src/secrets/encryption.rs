@@ -12,12 +12,35 @@
 //! per node, and a second node would mint its own and fail to read what the
 //! first sealed.
 //!
+//! Step 3 is also refused, as a panic naming the variable, in any process that
+//! is not the single process: one whose `OXY_ROLE` is `ide`, `serve` or
+//! `worker` (a CLI subcommand run inside a fleet pod inherits it), or one that
+//! called [`forbid_key_file_creation`] (`oxy serve` and `oxy worker` in a fleet
+//! role, and `oxy migrate`, which runs as the chart's migrate Job). A key made
+//! there seals values that nothing else can open.
+//!
+//! ## A set key that is the wrong key
+//!
+//! Every boot of `oxy serve` and `oxy worker`, in every role, opens a value
+//! sealed with this key and stored in Postgres (`server_keys` row
+//! `encryption_check`) and refuses to start when it does not open — see
+//! [`super::key_check`]. That is what catches a variable that is set but is
+//! not the key this deployment's data was sealed with (an edited Secret, a
+//! value copied from another environment, a restore): without it every sealed
+//! value becomes unreadable while the pods report healthy.
+//!
+//! Rotation (opening with a previous key and sealing again with a new one) is
+//! not implemented; it would go in [`super::key_check`], which is the one place
+//! that knows which key a deployment's data was sealed with.
+//!
 //! The master key is consumed by [`crate::secrets::OrgSecretsService`] for
 //! per-org secret encryption and by other oxy modules that encrypt their
-//! own values (GitHub OAuth tokens, the legacy `_var` secret manager).
+//! own values (Airhouse and OLTP credentials, camera device secrets, the
+//! legacy `_var` secret manager).
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use aes_gcm::aead::Generate;
 use aes_gcm::{Aes256Gcm, Key};
@@ -43,6 +66,40 @@ fn get_state_dir() -> PathBuf {
 
 fn get_key_file_path() -> PathBuf {
     get_state_dir().join("encryption_key.txt")
+}
+
+/// Set once by an entry point that is not the single process; names it in the
+/// refusal.
+static KEY_FILE_CREATION_FORBIDDEN_BY: OnceLock<String> = OnceLock::new();
+
+/// Never create `encryption_key.txt` in this process. `by` names the process
+/// for the panic message, e.g. `"OXY_ROLE=worker"` or `"oxy migrate"`. First
+/// call wins.
+pub fn forbid_key_file_creation(by: impl Into<String>) {
+    let _ = KEY_FILE_CREATION_FORBIDDEN_BY.set(by.into());
+}
+
+/// Who forbids creating the key file in this process, if anyone: an entry point
+/// that called [`forbid_key_file_creation`], or an `OXY_ROLE` naming a fleet
+/// role. `role` is the value of `OXY_ROLE`, passed in so this is testable.
+fn key_file_creation_forbidden_by(role: Option<&str>) -> Option<String> {
+    if let Some(by) = KEY_FILE_CREATION_FORBIDDEN_BY.get() {
+        return Some(by.clone());
+    }
+    match role.map(str::trim) {
+        Some(role @ ("ide" | "serve" | "worker")) => Some(format!("OXY_ROLE={role}")),
+        _ => None,
+    }
+}
+
+/// Where [`get_encryption_key`] takes the key from, for a message: the
+/// variable when it is set, otherwise the key file.
+pub fn encryption_key_source() -> String {
+    if std::env::var(ENCRYPTION_KEY_VAR).is_ok() {
+        ENCRYPTION_KEY_VAR.to_string()
+    } else {
+        format!("the key file {}", get_key_file_path().display())
+    }
 }
 
 /// Decode a master key without panicking: base64 of exactly 32 bytes.
@@ -88,6 +145,15 @@ pub fn get_encryption_key() -> [u8; 32] {
         }
     }
 
+    if let Some(by) = key_file_creation_forbidden_by(std::env::var("OXY_ROLE").ok().as_deref()) {
+        panic!(
+            "{ENCRYPTION_KEY_VAR} is not set, and {by} may not create a key file of its own \
+             ({}): a key made here would seal values that no other process can open. \
+             Set {ENCRYPTION_KEY_VAR} to this deployment's key.",
+            key_file_path.display()
+        );
+    }
+
     let key = Key::<Aes256Gcm>::generate();
 
     // Ensure directory exists
@@ -112,4 +178,29 @@ pub fn get_encryption_key() -> [u8; 32] {
         key_file_path
     );
     key.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `forbid_key_file_creation` is process-wide and never called in this
+    // test binary, so only the `OXY_ROLE` half is exercised here; the boot
+    // test in `oxy-app` (`shared_state_boot`) covers the entry points.
+    #[test]
+    fn a_fleet_role_may_not_create_the_key_file() {
+        for role in ["ide", "serve", "worker", " worker "] {
+            assert_eq!(
+                key_file_creation_forbidden_by(Some(role)).as_deref(),
+                Some(format!("OXY_ROLE={}", role.trim()).as_str()),
+            );
+        }
+    }
+
+    #[test]
+    fn the_single_process_may() {
+        for role in [None, Some("all"), Some(""), Some("something-else")] {
+            assert_eq!(key_file_creation_forbidden_by(role), None, "{role:?}");
+        }
+    }
 }

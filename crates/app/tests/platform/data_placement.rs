@@ -567,7 +567,9 @@ const TABLES: &[(&str, Placement)] = &[
     ("semantic_views", Control("compiled .view.yml")),
     (
         "server_keys",
-        Control("secrets the deployment generates for itself: the session-signing root"),
+        Control(
+            "secrets the deployment generates for itself: the session-signing root, the encryption-key check value",
+        ),
     ),
     (
         "service_accounts",

@@ -273,6 +273,11 @@ pub async fn run_worker(
         serve::run_database_migrations(args.enterprise).await?;
         tracing::info!("worker: migrations complete");
     }
+    // As at `oxy serve` boot: a key that cannot open this database's sealed
+    // values is refused before the worker claims anything off the queue.
+    crate::server::shared_state_check::check_encryption_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     // As at `oxy serve` boot: a rollback's mutes, into the settings table.
     crate::server::api::notifications::settings::reconcile::at_boot().await;
 

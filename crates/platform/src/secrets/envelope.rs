@@ -19,8 +19,13 @@ const TAG_LEN: usize = 16;
 
 /// Seal `plaintext` under the platform master key. Returns `nonce || ct`.
 pub fn seal(plaintext: &[u8]) -> Result<Vec<u8>, OxyError> {
-    let key_bytes = get_encryption_key();
-    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(key_bytes));
+    seal_with_key(&get_encryption_key(), plaintext)
+}
+
+/// [`seal`] under a key the caller already holds, rather than the one the
+/// loader finds. For the boot check (`super::key_check`) and its tests.
+pub fn seal_with_key(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, OxyError> {
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
     let nonce = AeadNonce::<Aes256Gcm>::generate();
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
@@ -33,12 +38,16 @@ pub fn seal(plaintext: &[u8]) -> Result<Vec<u8>, OxyError> {
 
 /// Open a blob produced by [`seal`].
 pub fn open(blob: &[u8]) -> Result<Vec<u8>, OxyError> {
+    open_with_key(&get_encryption_key(), blob)
+}
+
+/// [`open`] with a key the caller already holds.
+pub fn open_with_key(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, OxyError> {
     if blob.len() < NONCE_LEN + TAG_LEN {
         return Err(OxyError::SecretManager("ciphertext too short".into()));
     }
     let (nonce_bytes, ct) = blob.split_at(NONCE_LEN);
-    let key_bytes = get_encryption_key();
-    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(key_bytes));
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
     let nonce = <&Nonce<_>>::try_from(nonce_bytes)
         .map_err(|_| OxyError::SecretManager("ciphertext has a malformed nonce".to_string()))?;
     cipher

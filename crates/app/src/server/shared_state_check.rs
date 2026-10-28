@@ -20,7 +20,14 @@
 //! `oxy start` runs) is the single process, and keeps every fallback. Every
 //! other role (`ide`, `serve`, `worker`) refuses to start, naming each setting
 //! it is missing, instead of booting into a state that fails later and
-//! somewhere else.
+//! somewhere else. Such a process also may never create the key file later
+//! (`oxy::utils::forbid_key_file_creation`).
+//!
+//! A key that is set is not yet the right key. [`check_encryption_key`] runs
+//! after migrations, in every role including `all`, and refuses a key that
+//! does not open this database's encryption check value
+//! (`oxy_platform::secrets::key_check`, which also has the rule for a
+//! deployment that has sealed data and no check value yet).
 
 use oxy_app_core::process_role::Role;
 
@@ -86,9 +93,24 @@ pub fn check(role: Role, read: impl Fn(&str) -> Option<String>) -> Result<(), St
     ))
 }
 
-/// [`check`] against the real environment, for the entry points.
+/// [`check`] against the real environment, for the entry points. A process
+/// that is not the single process is also barred from creating a key file of
+/// its own for the rest of its life.
 pub fn check_process_env(role: Role) -> Result<(), String> {
+    if role != Role::All {
+        oxy::utils::forbid_key_file_creation(format!("OXY_ROLE={}", role.as_str()));
+    }
     check(role, |name| std::env::var(name).ok())
+}
+
+/// The second half, for the entry points after migrations: the key this
+/// process loaded must open what this database's values were sealed with.
+/// `Err(message)` names the key's source and what an operator does next.
+pub async fn check_encryption_key() -> Result<(), String> {
+    let db = oxy::database::client::establish_connection()
+        .await
+        .map_err(|e| format!("Could not check the encryption key against the database: {e}"))?;
+    oxy::adapters::secrets::key_check::check_at_boot(&db).await
 }
 
 #[cfg(test)]

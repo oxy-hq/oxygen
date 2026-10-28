@@ -133,6 +133,12 @@ pub async fn start_server_and_web_app(
         println!("serve: running database migrations");
         run_database_migrations(args.enterprise).await?;
     }
+    // Every role, `all` included: refuse a key that cannot open what this
+    // database's secrets were sealed with. After migrations, because the check
+    // value lives in `server_keys`.
+    crate::server::shared_state_check::check_encryption_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     // Mutes made on a previous release while it was rolled back to reach the
     // settings table (`notifications::settings::reconcile`). Best-effort.
     crate::server::api::notifications::settings::reconcile::at_boot().await;

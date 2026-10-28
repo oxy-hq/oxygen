@@ -1,7 +1,9 @@
 //! `SeaORM` Entity for `server_keys` — secrets a deployment generates for
-//! itself and every one of its instances must agree on. One row per key; today
-//! only `session`, the root of the browser-session signing key
-//! (`oxy_auth::session_key`).
+//! itself and every one of its instances must agree on. One row per key:
+//! `session`, the root of the browser-session signing key
+//! (`oxy_auth::session_key`), and `encryption_check`, a fixed value sealed with
+//! the master key that every boot must be able to open
+//! (`oxy_platform::secrets::key_check`).
 
 use sea_orm::entity::prelude::*;
 
@@ -11,7 +13,8 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub name: String,
-    /// Random bytes. Never logged, never returned by an API.
+    /// Random bytes (`session`) or a sealed value (`encryption_check`). Never
+    /// logged, never returned by an API.
     pub secret: Vec<u8>,
     pub created_at: DateTimeWithTimeZone,
 }
