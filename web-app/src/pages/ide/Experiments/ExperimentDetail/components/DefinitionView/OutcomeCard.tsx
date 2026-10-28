@@ -15,8 +15,18 @@ import { Chip, LabelledChip } from "./shared";
 
 const tile = (id: string) => `definition-stat-${id}`;
 
-/** The design's key facts as tiles, then the few outcome extras as chips. */
-export default function OutcomeCard({ def }: { def: SafeDefinition }) {
+/**
+ * The design's key facts as tiles, then the few outcome extras as chips. A run
+ * read from past data (`past`) was never priced, so it shows no power or
+ * promised effect.
+ */
+export default function OutcomeCard({
+  def,
+  past = false
+}: {
+  def: SafeDefinition;
+  past?: boolean;
+}) {
   const o = def.outcome ?? {};
   const d = def.design ?? {};
   const grain = grainOf(d.grain);
@@ -69,22 +79,26 @@ export default function OutcomeCard({ def }: { def: SafeDefinition }) {
           sub={orDash(o.alpha, significanceText)}
           hint='How sure the result must be before it counts: one minus the allowed false-alarm rate (alpha).'
         />
-        <StatTile
-          id='power'
-          testId={tile("power")}
-          label='Power'
-          value={orDash(o.power, percent)}
-          sub='chance to detect the promised effect'
-          hint='If the promised effect is real, the share of runs that would find it.'
-        />
-        <StatTile
-          id='mde'
-          testId={tile("mde")}
-          label='Promised min. effect'
-          value={o.mde_at_proposal == null ? DASH : mde(o.mde_at_proposal)}
-          sub={o.mde_at_proposal === null ? "Not priced yet" : undefined}
-          hint='The smallest effect the design was priced to detect (minimum detectable effect).'
-        />
+        {!past && (
+          <>
+            <StatTile
+              id='power'
+              testId={tile("power")}
+              label='Power'
+              value={orDash(o.power, percent)}
+              sub='chance to detect the promised effect'
+              hint='If the promised effect is real, the share of runs that would find it.'
+            />
+            <StatTile
+              id='mde'
+              testId={tile("mde")}
+              label='Promised min. effect'
+              value={o.mde_at_proposal == null ? DASH : mde(o.mde_at_proposal)}
+              sub={o.mde_at_proposal === null ? "Not priced yet" : undefined}
+              hint='The smallest effect the design was priced to detect (minimum detectable effect).'
+            />
+          </>
+        )}
         <StatTile
           id='schedule'
           testId={tile("schedule")}

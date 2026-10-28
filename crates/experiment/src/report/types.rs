@@ -298,6 +298,30 @@ pub struct ReportView {
     /// share, not money per unit-day.
     #[serde(default)]
     pub share: bool,
+    /// The outcome is read on a proportional scale (`outcome.scale`): the
+    /// headline, its interval and each wave's are shares (0.12 = +12%).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub proportional: bool,
+    /// Each wave's own effect, when the estimate compared more than one. Empty
+    /// on a report sealed before it existed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waves: Vec<WaveView>,
+}
+
+/// One wave's own effect, in the headline's scale.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WaveView {
+    /// The first day of the period its units switched in.
+    pub switch_on: Option<chrono::NaiveDate>,
+    pub n_treated: usize,
+    pub n_control: usize,
+    pub estimate: Option<f64>,
+    pub interval: Interval,
+    pub p_value: Option<f64>,
+    /// Its interval, at the registered per-comparison level, excludes zero.
+    /// Not adjusted for the number of waves.
+    pub significant: bool,
+    pub refusal: Option<String>,
 }
 
 /// Everything `build_report` reads. Plain values: the rules are a pure function.

@@ -16,6 +16,9 @@ pub fn is_registrable(c: &ExperimentConfig) -> Result<(), Vec<ConfigError>> {
     if c.outcome.denominator.is_some() {
         return Err(vec![ConfigError::RatioNotRegistrable]);
     }
+    if c.outcome.scale == crate::config::Scale::Proportional {
+        return Err(vec![ConfigError::ProportionalNotRegistrable]);
+    }
     let mut missing = Vec::new();
     if c.lever.is_none() {
         missing.push(ConfigError::MissingLever);

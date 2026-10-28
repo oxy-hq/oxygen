@@ -14,7 +14,7 @@ use chrono::NaiveDate;
 use oxy_airlayer_compat::engine::experiment::{
     DroppedUnit, ExperimentDesign, PanelMatrix, estimate, estimate_ratio, placebo_power,
 };
-use oxy_experiment::config::{ExperimentConfig, MeasureFilter};
+use oxy_experiment::config::{ExperimentConfig, MeasureFilter, Scale};
 use oxy_experiment::engine_in::{EffectIn, PowerIn, RatioIn};
 use oxy_experiment::report::{Seeds, SwitchbackFacts};
 use oxy_shared::errors::OxyError;
@@ -285,6 +285,7 @@ pub fn run_engines(
             lenient: panels.lenient,
             denominator: panels.denominator.as_ref(),
             dropped: &panels.dropped,
+            proportional: cfg.outcome.scale == Scale::Proportional,
         },
     };
     let target = target_part(&stage, &panels.target);
@@ -324,20 +325,22 @@ fn target_part(st: &Stage<'_>, target: &Loaded) -> Target {
     };
     match target {
         Loaded::Panel(m) => {
-            // What was read, day by day — kept even when the estimate below refuses.
+            let effect =
+                super::target_estimate::estimate_target(m, &st.design, st.seeds.effect, st.read);
+            // What was read, day by day — kept even when the estimate refuses. A
+            // treated unit the estimate left out of its wave is in neither arm, so
+            // the chart counts the treated units the headline does.
             let series = Some(daily_series(
                 &st.cfg.outcome.target,
                 st.cfg.design.grain,
-                &st.design,
+                &without_left_out_treated(&st.design, &effect.view),
                 m,
             ));
-            let effect =
-                super::target_estimate::estimate_target(m, &st.design, st.seeds.effect, st.read);
             // A switchback's totals need the fleet (from the panel) and the on-days (the
             // engine's own `retained_on_days`, C1); lacking the count is a section refusal.
             match switchback_facts(st.cfg, &effect.view, m.units().len()) {
                 Ok(switchback) => Target {
-                    n_untreated: never_treated(&st.design),
+                    n_untreated: never_treated(&st.design, m),
                     switchback,
                     effect,
                     series,
@@ -347,6 +350,21 @@ fn target_part(st: &Stage<'_>, target: &Loaded) -> Target {
         }
         Loaded::Unavailable(why) => refused(why.clone(), None),
     }
+}
+
+/// The design with every treated unit the estimate names as left out removed. A
+/// treated unit belongs to one wave, so left out there it was compared nowhere;
+/// a control left out of one wave may still be compared in another, and stays.
+pub(super) fn without_left_out_treated(d: &ExperimentDesign, e: &EffectIn) -> ExperimentDesign {
+    let mut d = d.clone();
+    if let ExperimentDesign::Waves(a) = &mut d {
+        for left in &e.dropped_units {
+            if matches!(a.switch_day.get(&left.unit), Some(Some(_))) {
+                a.switch_day.remove(&left.unit);
+            }
+        }
+    }
+    d
 }
 
 /// The sibling's own estimate, and its placebo power — bounded before the first

@@ -3,6 +3,9 @@ import { complianceLabel, effectFormat } from "@/pages/ide/Experiments/format";
 import { grainOf, periods } from "@/pages/ide/Experiments/grain";
 import type { ResultResponse } from "@/types/experiment";
 
+/** The engine's reason for a named unit the panel holds no rows for. */
+const NO_ROWS = /with no rows in the panel/;
+
 const FALLBACK_WARNING = "This number measures the attempt, not the lever.";
 
 /** One line of the details checklist; its lines are the server's sentences, verbatim. */
@@ -63,6 +66,8 @@ function randomisationCheck(p: Proposals): DetailCheck {
  */
 export function detailChecks(result: ResultResponse): DetailCheck[] {
   const { report } = result;
+  // Every figure here (the sibling's floor, a restated MDE) is in the measure's own
+  // units, so a proportional report's % format does not apply.
   const fmt = effectFormat(report.design, grainOf(report.grain), { share: report.share });
   const out: DetailCheck[] = [];
   if (report.refusal === null) {
@@ -134,8 +139,13 @@ export function detailChecks(result: ResultResponse): DetailCheck[] {
   });
   const dropped = report.checks.dropped_waves;
   const units = report.checks.dropped_units ?? [];
+  // A unit the measure returned no rows for (usually one its filter excludes) was
+  // never in the data, so it is counted apart from the units the estimate left out.
+  const noRows = units.filter((u) => NO_ROWS.test(u)).length;
+  const left = units.length - noRows;
   const parts = [
-    ...(units.length > 0 ? [`${units.length} unit${units.length === 1 ? "" : "s"} dropped`] : []),
+    ...(left > 0 ? [`${left} unit${left === 1 ? "" : "s"} dropped`] : []),
+    ...(noRows > 0 ? [`${noRows} with no data`] : []),
     ...(dropped.length > 0 ? [`${dropped.length} dropped`] : [])
   ];
   out.push({

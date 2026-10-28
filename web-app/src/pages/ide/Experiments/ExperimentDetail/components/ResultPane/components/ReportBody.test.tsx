@@ -1211,7 +1211,7 @@ describe("ReportBody with units left out", () => {
       />
     );
     const check = screen.getByTestId("experiment-report-dropped-waves");
-    expect(check).toHaveTextContent("1 unit dropped");
+    expect(check).toHaveTextContent("1 with no data");
     expect(check).toHaveTextContent("s99: a treated unit with no rows in the panel");
   });
 
@@ -1234,7 +1234,7 @@ describe("ReportBody with units left out", () => {
       />
     );
     const check = screen.getByTestId("experiment-report-dropped-waves");
-    expect(check).toHaveTextContent("41 units dropped");
+    expect(check).toHaveTextContent("1 unit dropped, 40 with no data");
     expect(check).toHaveTextContent(
       "s7: holds 45 of the panel's 53 days, under the 90% a unit needs"
     );
@@ -1258,5 +1258,78 @@ describe("ReportBody for a ratio outcome", () => {
     const estimate = screen.getByTestId("experiment-report-estimate");
     expect(estimate).toHaveTextContent("+12.0 pp per unit");
     expect(estimate).not.toHaveTextContent("$");
+  });
+});
+
+describe("ReportBody for a proportional outcome", () => {
+  it("shows the lift as a percentage", () => {
+    render(
+      <ReportBody
+        result={result({
+          proportional: true,
+          headline: {
+            ...report().headline!,
+            estimate: 0.5,
+            interval: { low: 0.228, high: 0.832 }
+          }
+        })}
+      />
+    );
+    expect(screen.getByTestId("experiment-report-estimate")).toHaveTextContent("+50.0%");
+    expect(screen.getByTestId("experiment-report-interval")).toHaveTextContent("+22.8% to +83.2%");
+  });
+
+  it("says the day-by-day figures are the measure's own units, not percentages", () => {
+    render(<ReportBody result={result({ proportional: true }, { series: daily })} />);
+    expect(screen.getByTestId("experiment-report-series-units")).toHaveTextContent(
+      "not percentages"
+    );
+    cleanup();
+    render(<ReportBody result={result({}, { series: daily })} />);
+    expect(screen.queryByTestId("experiment-report-series-units")).toBeNull();
+  });
+});
+
+describe("ReportBody per-wave table", () => {
+  const wave = (switch_on: string, estimate: number, significant: boolean) => ({
+    switch_on,
+    n_treated: 3,
+    n_control: 160,
+    estimate,
+    interval: { low: estimate - 5, high: estimate + 5 },
+    p_value: significant ? 0.01 : 0.4,
+    significant,
+    refusal: null
+  });
+
+  it("lists each wave with its own verdict when there are two or more", () => {
+    render(
+      <ReportBody
+        result={result({
+          waves: [wave("2026-05-06", 11, true), wave("2026-05-14", 0.4, false)]
+        })}
+      />
+    );
+    const rows = within(screen.getByTestId("experiment-report-waves")).getAllByTestId(
+      "experiment-report-wave"
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("2026-05-06");
+    expect(rows[0]).toHaveTextContent("Clear on its own");
+    expect(rows[1]).toHaveTextContent("No clear effect");
+  });
+
+  it("shows no table for a single wave", () => {
+    render(<ReportBody result={result({ waves: [wave("2026-05-06", 11, true)] })} />);
+    expect(screen.queryByTestId("experiment-report-waves")).toBeNull();
+  });
+});
+
+describe("ReportBody for a proportional outcome with a sibling", () => {
+  it("keeps the sibling's floor in the measure's units", () => {
+    render(<ReportBody result={result({ proportional: true })} />);
+    const floor = screen.getByTestId("experiment-report-substitution-floor");
+    expect(floor).toHaveTextContent("86.00/unit-day");
+    expect(floor).not.toHaveTextContent("%");
   });
 });

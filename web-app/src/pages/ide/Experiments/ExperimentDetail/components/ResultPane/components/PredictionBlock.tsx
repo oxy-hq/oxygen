@@ -1,5 +1,4 @@
-import { effectFormat, formatRatio } from "@/pages/ide/Experiments/format";
-import { grainOf } from "@/pages/ide/Experiments/grain";
+import { formatRatio, reportFormat } from "@/pages/ide/Experiments/format";
 import { predictionVerdict, priorSourceLabel } from "@/pages/ide/Experiments/prediction";
 import type { ReportView } from "@/types/experiment";
 import Section from "../../Section";
@@ -24,7 +23,7 @@ export default function PredictionBlock({ report }: { report: ReportView }) {
       </Section>
     );
   }
-  const fmt = effectFormat(report.design, grainOf(report.grain), { share: report.share });
+  const fmt = reportFormat(report);
   return (
     <Section title='Predicted against measured' testId='experiment-report-prediction'>
       <dl className='grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-sm'>

@@ -46,6 +46,14 @@ floor of the days, 90% by default) is left out, and a listed unit with no data a
 left out of its group. Neither stops the analysis or removes days for the other units.
 The report lists each one under **Dropped units, waves or pairs**, with the reason.
 
+A unit that is missing only a few days keeps the days it has: its before and after
+averages use those days, and no other unit loses anything. If it holds less than the
+coverage floor of one comparison's before or after window, it is left out of that
+comparison only, and named, for example: *"left out of the comparison switching on
+2026-05-14: holds 14 of the 20 days in its after window, under the 90% coverage
+floor"*. A product out of stock for a week therefore no longer removes that week for
+every product, which used to drop whole waves.
+
 ### A share as the outcome
 
 To measure a share per unit (for example merchant-fulfilled units out of all units
@@ -53,6 +61,24 @@ sold), set **Divided by** under **Outcome**. Each unit's share is its total of t
 outcome measure over its total of this one in each window, so a busy day counts for
 more than a quiet one. Shares are analysed from past data only for now, and the report
 gives no total for them.
+
+### A percentage lift instead of a change in units
+
+When the units differ a lot in size (a product that sells 100 a day beside ones
+that sell 2), a change in units is dominated by the big ones: their ordinary swings
+from day to day are larger than the whole lift on a small product. Under
+**Outcome**, set **Read the change as** to **% lift per unit**. Each unit's daily
+value `y` is read as `ln(1 + y)`, so a product going from 2 to 3 a day and one
+going from 100 to 150 both move by the same amount, and the report gives the result
+as a percentage: *"+18.4% per unit-day (+3.1% to +36.0%)"*. The interval is not
+symmetric around the percentage, so both ends are shown.
+
+Read it as the typical unit's lift, with every unit counting alike; it is not the
+total change in units, so the report gives no total for it. It is approximate when
+values sit close to zero, where the `+ 1` dominates. A day with a negative value
+(refunds larger than sales) cannot be read this way, and the analysis is refused,
+naming the unit and day. Like a share, it is analysed from past data only for now,
+and it cannot be combined with **Divided by**, a driver, or a switchback.
 
 ### When the analysis is refused
 

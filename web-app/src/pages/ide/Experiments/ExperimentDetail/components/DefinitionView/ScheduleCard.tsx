@@ -41,10 +41,13 @@ function Waves({ waves, noun }: { waves: Wave[]; noun: string }) {
 
 export default function ScheduleCard({
   design,
-  noun
+  noun,
+  past = false
 }: {
   design: SafeDefinition["design"];
   noun: string;
+  /** Read from past data: nothing was assigned, so there is no seed to show. */
+  past?: boolean;
 }) {
   const d: Design = design ?? {};
   const waves = (d.waves ?? []) as Wave[];
@@ -83,7 +86,9 @@ export default function ScheduleCard({
         <LabelledChip label='Measured per'>
           {GRAIN_CHOICES.find((c) => c.value === grain)?.label}
         </LabelledChip>
-        <LabelledChip label='Seed'>{d.seed == null ? "No seed yet" : d.seed}</LabelledChip>
+        {!past && (
+          <LabelledChip label='Seed'>{d.seed == null ? "No seed yet" : d.seed}</LabelledChip>
+        )}
         {d.strata && (
           <LabelledChip label='Blocks'>
             {plural(d.strata.length, "block")} by baseline volume (
@@ -94,8 +99,9 @@ export default function ScheduleCard({
       <HowCalculated title='Windows and buffers'>
         <p>{windows}</p>
         <p>
-          {d.seed == null ? "No seed yet" : `Assignment seed ${d.seed}`}. Calendar:{" "}
-          {d.time_dimension ? <Chip>{d.time_dimension}</Chip> : "No date dimension named"}.
+          {past ? "" : d.seed == null ? "No seed yet. " : `Assignment seed ${d.seed}. `}
+          Calendar: {d.time_dimension ? <Chip>{d.time_dimension}</Chip> : "No date dimension named"}
+          .
         </p>
       </HowCalculated>
       {waves.length > 0 && (

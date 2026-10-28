@@ -140,9 +140,19 @@ estimate refused (a unit with no rows, coverage) leaves the design editable: fix
 it, then `retrospective` again.
 
 A retrospective leaves out a unit with too little data, or listed with none,
-and names it under the report's dropped units; it does not refuse the run.
+and names it under the report's dropped units; it does not refuse the run. A
+unit missing a few days keeps the rest and costs no other unit anything; one
+under the coverage floor of a single wave's window is left out of that wave only.
 `outcome.denominator` makes the outcome a per-unit share (`Σ target / Σ
-denominator`): retrospective only, and pricing refuses it.
+denominator`): retrospective only, and pricing refuses it. `outcome.scale:
+proportional` reads each value as `ln(1 + y)` and reports a % lift per unit
+(`report.proportional`, the headline as a share, 0.12 = +12%): use it when units
+differ in size by orders of magnitude. Retrospective only; refused with a
+denominator, a driver or a switchback, and on a negative value.
+
+With two or more waves, `report.waves` lists each wave's own effect and
+interval. They are not adjusted for the number of waves: quote the pooled
+headline as the answer, and a clear single wave as a lead, never a finding.
 
 Both take the experiment's only run, both are irreversible, and both refuse
 without `--yes` when stdin is not a terminal (exit 8). Confirm with the person

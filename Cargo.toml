@@ -725,7 +725,16 @@ aho-corasick = "1.1"
 # instead of deleting every unit's days), `EffectResult.dropped_units`, and
 # `estimate_ratio_of_sums`. Nothing it adds changes an existing engine path, so
 # **no rollup hash moves** and `PREAGG_BUILDER_GENERATION` stays put.
-airlayer = { git = "https://github.com/oxy-hq/airlayer", rev = "3f9dfd1b8082c9ecc7ffb3a2ee1e0fffca4dea97" }
+#
+# NOW AT 753d59d — airlayer main, the merge of PR #137
+# (`claude/project-thread-g2c606`, https://github.com/oxy-hq/airlayer/pull/137),
+# on top of 3f9dfd1; its tree is the PR head 309dd85's. Not a tag. A
+# sparse unit's missing days now cost only that unit (`from_triples_keeping_gaps`,
+# a presence mask: an absent cell reads `NaN`), `EffectResult.waves` lists each
+# wave's own effect, and `PanelMatrix::log1p` + `proportional` read an effect as
+# a share. Only `engine::experiment` changes, so **no rollup hash moves** and
+# `PREAGG_BUILDER_GENERATION` stays put.
+airlayer ={ git = "https://github.com/oxy-hq/airlayer", rev = "753d59d78c4450f24d33394f5b09c689e29e252a" }
 # Anomaly detection: ETS forecasting + MSTL decomposition. augurs-ets gives
 # Holt-Winters family (with auto model selection); augurs-mstl handles
 # multi-seasonality (daily + weekly + yearly). Pulled in by oxy-metric-monitoring.

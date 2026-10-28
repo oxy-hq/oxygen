@@ -144,6 +144,16 @@ pub enum ConfigError {
     RatioOnSwitchback,
 
     #[error(
+        "outcome.scale is proportional, which is read from past data only: pricing cannot size one yet"
+    )]
+    ProportionalNotRegistrable,
+
+    #[error(
+        "outcome.scale is proportional alongside {with}; a proportional outcome is one measure read with waves"
+    )]
+    ProportionalWith { with: &'static str },
+
+    #[error(
         "design.assignment is observed: an observed rollout already happened, so it is analysed from past data, not registered"
     )]
     ObservedNotRegistrable,
@@ -330,6 +340,19 @@ fn check_rates(c: &ExperimentConfig, out: &mut Vec<ConfigError>) {
 fn check_ratio(c: &ExperimentConfig, out: &mut Vec<ConfigError>) {
     if c.outcome.denominator.is_some() && c.design.switchback.is_some() {
         out.push(ConfigError::RatioOnSwitchback);
+    }
+    if c.outcome.scale == crate::config::Scale::Proportional {
+        // A share has no log of its own to take; a switchback's pairs and a driver's
+        // slope are read on the measure's levels.
+        for (set, with) in [
+            (c.outcome.denominator.is_some(), "outcome.denominator"),
+            (c.design.switchback.is_some(), "design.switchback"),
+            (c.outcome.driver.is_some(), "outcome.driver"),
+        ] {
+            if set {
+                out.push(ConfigError::ProportionalWith { with });
+            }
+        }
     }
 }
 

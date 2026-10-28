@@ -221,6 +221,7 @@ function outcome(r: Reader, v: DesignFormValues) {
   if (targetFilter) out.target_filter = targetFilter;
   const denominator = r.optional("denominator");
   if (denominator) out.denominator = denominator;
+  if (v.scale === "proportional") out.scale = "proportional";
   const driver = r.optional("driver");
   if (driver) out.driver = driver;
   const driverFilter = filters(r, v.driverFilter, "driverFilter");

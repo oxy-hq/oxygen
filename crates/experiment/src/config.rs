@@ -234,6 +234,12 @@ pub struct OutcomeConfig {
     /// serializes, and hashes, as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub denominator: Option<String>,
+    /// How the target's change is read: in its own units (the default), or as a
+    /// proportional change per unit, so units whose sizes differ by orders of
+    /// magnitude count alike. Read from past data only; skipped at the default,
+    /// so a design without one serializes, and hashes, as before.
+    #[serde(default, skip_serializing_if = "Scale::is_units")]
+    pub scale: Scale,
     pub driver: Option<String>,
     /// Narrows `driver`, like `target_filter`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -264,6 +270,24 @@ pub struct PriorCoefficient {
 pub enum PriorSource {
     Declared,
     Fitted,
+}
+
+/// The scale the target's change is read on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scale {
+    /// The measure's own units per unit-period.
+    #[default]
+    Units,
+    /// `ln(1 + y)` per unit-period, reported back as a share (`exp(x) − 1`): a
+    /// percentage lift that weighs a slow unit like a fast one.
+    Proportional,
+}
+
+impl Scale {
+    pub fn is_units(&self) -> bool {
+        *self == Scale::Units
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

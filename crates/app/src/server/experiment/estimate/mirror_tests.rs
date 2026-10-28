@@ -1,7 +1,7 @@
 use oxy_airlayer_compat::engine::experiment::{
-    EffectResult, PowerResult, PreTrend, RatioResult, SizeBias,
+    EffectResult, PowerResult, PreTrend, RatioResult, SizeBias, WaveEffect,
 };
-use oxy_experiment::engine_in::{EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn};
+use oxy_experiment::engine_in::{EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn, WaveEffectIn};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -38,6 +38,16 @@ fn engine_effect() -> EffectResult {
         }),
         retained_on_days: None,
         dropped_units: Vec::new(),
+        waves: vec![WaveEffect {
+            switch_day: 739_740,
+            n_treated: 3,
+            n_control: 9,
+            estimate: 12.5,
+            ci_low: f64::NEG_INFINITY,
+            ci_high: f64::INFINITY,
+            p_value: 0.001,
+            refusal: None,
+        }],
         refusal: None,
     }
 }
@@ -99,6 +109,17 @@ fn every_effect_mirror_key_is_an_engine_key() {
     assert_mirror_keys_in_engine::<EffectIn>(&e, "EffectResult");
     assert_mirror_keys_in_engine::<PreTrendIn>(&e["pre_trend"], "PreTrend");
     assert_mirror_keys_in_engine::<SizeBiasIn>(&e["size_bias"], "SizeBias");
+    assert_mirror_keys_in_engine::<WaveEffectIn>(&e["waves"][0], "WaveEffect");
+}
+
+#[test]
+fn each_wave_reads_back_with_its_switch_day_and_unbounded_ends() {
+    let v = Judged::<EffectIn>::from_engine(&engine_effect()).view;
+    assert_eq!(v.waves.len(), 1);
+    let w = &v.waves[0];
+    assert_eq!((w.switch_day, w.n_treated, w.n_control), (739_740, 3, 9));
+    assert_eq!((w.estimate, w.p_value), (Some(12.5), Some(0.001)));
+    assert_eq!((w.ci_low, w.ci_high), (None, None));
 }
 
 #[test]

@@ -7,6 +7,7 @@ mod prior;
 mod spillover;
 mod types;
 mod validity;
+mod waves;
 
 #[cfg(test)]
 mod design_tests;
@@ -16,6 +17,9 @@ mod observed_tests;
 mod prior_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod waves_tests;
 
 pub use build::build_report;
 pub use types::*;
+pub use waves::PROPORTIONAL_ESTIMAND;

@@ -220,6 +220,13 @@ pub fn price_design(
              analyse it from past data instead",
         );
     }
+    // Placebo power reads the measure's own units; an MDE in units is not a % lift.
+    if cfg.outcome.scale == oxy_experiment::config::Scale::Proportional {
+        return PriceComputation::refused(
+            "outcome.scale is proportional, which pricing cannot size yet; analyse it from \
+             past data instead",
+        );
+    }
     match candidate {
         Candidate::Waves(c) => price_waves(cfg, panel, c, run),
         Candidate::Switchback(c) => price_switchback(cfg, panel, c, run),

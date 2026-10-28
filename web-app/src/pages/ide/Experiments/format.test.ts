@@ -14,7 +14,8 @@ import {
   formatSignedUnitDay,
   formatUnitDay,
   leakLabel,
-  NOT_AVAILABLE
+  NOT_AVAILABLE,
+  reportFormat
 } from "./format";
 
 describe("formatUnitDay", () => {
@@ -162,5 +163,15 @@ describe("effectFormat for a share", () => {
     const fmt = effectFormat("units", "day", { share: true });
     expect(fmt.signed(0.0004)).toBe("0.0 pp per unit");
     expect(fmt.signed(-0.0004)).toBe("0.0 pp per unit");
+  });
+});
+
+describe("a proportional report", () => {
+  it("formats its figures as a signed one-decimal percentage", () => {
+    const fmt = reportFormat({ design: "units", proportional: true });
+    expect(fmt.signed(0.1234)).toBe("+12.3%");
+    expect(fmt.signed(-0.05)).toBe("-5.0%");
+    expect(fmt.plain(0.5)).toBe("50.0%");
+    expect(fmt.interval(null, 0.2)).toBe("unbounded below to +20.0%");
   });
 });

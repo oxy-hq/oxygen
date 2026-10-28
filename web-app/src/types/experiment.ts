@@ -168,6 +168,8 @@ export interface ExperimentDefinition {
     target: string;
     /** Makes the outcome a ratio per unit: Σ target ÷ Σ denominator. Read from past data only. */
     denominator?: string;
+    /** "proportional" reads the change as a % lift per unit. Absent = units. Read from past data only. */
+    scale?: "units" | "proportional";
     /** Absent when nothing narrows the target (the server omits an empty list). */
     target_filter?: MeasureFilter[];
     driver: string | null;
@@ -413,6 +415,20 @@ export interface CoefficientEdit {
 }
 
 /** The report, in the server's own words wherever a rule is worded. */
+/** One wave's own effect, in the headline's scale. Not adjusted for the number of waves. */
+export interface WaveView {
+  /** The first day of the period its units switched in. */
+  switch_on: string | null;
+  n_treated: number;
+  n_control: number;
+  estimate: number | null;
+  interval: Interval;
+  p_value: number | null;
+  /** Its interval, at the registered level, excludes zero. */
+  significant: boolean;
+  refusal: string | null;
+}
+
 export interface ReportView {
   status:
     | { kind: "registered" }
@@ -530,6 +546,10 @@ export interface ReportView {
   mde_note?: string | null;
   /** The outcome is a ratio per unit: its numbers are a share, not money per unit-day. */
   share?: boolean;
+  /** The outcome is read as a proportional change: the headline, its interval and each wave's are shares (0.12 = +12%). */
+  proportional?: boolean;
+  /** Each wave's own effect, when the estimate compared more than one; absent otherwise. */
+  waves?: WaveView[];
   ratio: {
     coefficient: number | null;
     interval: Interval;

@@ -39,6 +39,15 @@ export default function OutcomeSection(p: SectionProps) {
       />
       <ChoiceField
         {...p}
+        name='scale'
+        label='Read the change as'
+        choices={[
+          { value: "units", label: "Change in the measure" },
+          { value: "proportional", label: "% lift per unit (past data only)" }
+        ]}
+      />
+      <ChoiceField
+        {...p}
         name='direction'
         label='Expected direction'
         choices={[

@@ -11,8 +11,16 @@ use super::prior::{is_directional, prediction, ratio_view, verdict, write_back_v
 use super::spillover::{carryover, substitution};
 use super::types::*;
 use super::validity::{checks, compliance, lever_note, proposals};
+use super::waves::{PROPORTIONAL_ESTIMAND, in_report_scale, is_proportional, signed_pct, waves};
 
 pub fn build_report(i: ReportInput<'_>) -> ReportView {
+    // On a proportional scale every number below is already a share.
+    let scaled = in_report_scale(i.config, i.target);
+    let i = ReportInput {
+        target: &scaled,
+        ..i
+    };
+    let proportional = is_proportional(i.config);
     let finite_estimate = i.target.estimate.filter(|e| e.is_finite());
     let refusal = i.target.refusal.clone().or_else(|| {
         finite_estimate.is_none().then(|| {
@@ -50,21 +58,24 @@ pub fn build_report(i: ReportInput<'_>) -> ReportView {
         grain: i.config.design.grain,
         estimand: match &i.config.outcome.denominator {
             Some(_) => RATIO_ESTIMAND.to_string(),
+            None if proportional => PROPORTIONAL_ESTIMAND.to_string(),
             None => estimand(kind, i.config.design.grain),
         },
         directional: is_directional(alpha),
         alpha,
         assumptions: assumptions(kind),
         headline: est.map(|e| headline(&i, e, &substitution.statement, kind)),
-        // A share summed over unit-days is not a quantity: no totals for a ratio.
+        // A share summed over unit-days is not a quantity: no totals for a ratio,
+        // nor for a proportional change.
         treated_total: est
-            .filter(|_| i.config.outcome.denominator.is_none())
+            .filter(|_| i.config.outcome.denominator.is_none() && !proportional)
             .and_then(|e| treated_total(&i, e, kind)),
         projection: est
-            .filter(|_| i.config.outcome.denominator.is_none())
+            .filter(|_| i.config.outcome.denominator.is_none() && !proportional)
             .and_then(|e| projection(&i, e, kind)),
         direction: direction(&i, est),
-        promise: est.and_then(|e| promise(&i, e)),
+        // A promise priced in the measure's units says nothing about a share.
+        promise: est.filter(|_| !proportional).and_then(|e| promise(&i, e)),
         compliance: compliance(&i),
         checks: checks(i.target),
         proposals: proposals(
@@ -81,6 +92,8 @@ pub fn build_report(i: ReportInput<'_>) -> ReportView {
         seeds: i.seeds,
         mde_note: mde_note(&i),
         share: i.config.outcome.denominator.is_some(),
+        proportional,
+        waves: waves(i.config, i.target, est),
         refusal,
         substitution,
     }
@@ -164,10 +177,16 @@ fn headline(i: &ReportInput<'_>, est: f64, substitution: &str, kind: DesignKind)
         (Some(l), Some(h)) => Some((h - l) / 2.0),
         _ => None,
     };
-    let spread = half_width.map_or_else(
-        || "interval unbounded".to_string(),
-        |h| format!("±{}", num(h)),
-    );
+    let proportional = is_proportional(i.config);
+    // A share's interval is not symmetric about it: state both ends.
+    let spread = match (proportional, finite(t.ci_low), finite(t.ci_high)) {
+        (true, Some(l), Some(h)) => format!("{} to {}", signed_pct(l), signed_pct(h)),
+        (_, _, _) => half_width.map_or_else(
+            || "interval unbounded".to_string(),
+            |h| format!("±{}", num(h)),
+        ),
+    };
+    let half_width = half_width.filter(|_| !proportional);
     let alpha = i.config.outcome.alpha;
     let verdict = verdict(t.significant, alpha);
     // A ratio is one number per unit and window, not per unit-day.
@@ -175,8 +194,13 @@ fn headline(i: &ReportInput<'_>, est: f64, substitution: &str, kind: DesignKind)
         Some(_) => "unit".to_string(),
         None => cell(kind, i.config.design.grain),
     };
+    let figure = if proportional {
+        signed_pct(est)
+    } else {
+        format!("{est:+.2}")
+    };
     let base = format!(
-        "gross {est:+.2} per {per} on {} ({spread}); {substitution}",
+        "gross {figure} per {per} on {} ({spread}); {substitution}",
         target_label(i.config)
     );
     let text = if t.significant && is_directional(alpha) {

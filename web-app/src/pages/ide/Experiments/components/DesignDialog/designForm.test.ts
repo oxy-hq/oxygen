@@ -234,3 +234,17 @@ describe("a ratio outcome", () => {
     expect(plain.outcome).not.toHaveProperty("denominator");
   });
 });
+
+describe("a proportional outcome", () => {
+  it("round-trips its scale, and omits it at the default", () => {
+    const lift = {
+      ...definitionFixture,
+      outcome: { ...definitionFixture.outcome, scale: "proportional" as const }
+    };
+    const values = toFormValues(lift);
+    expect(values.scale).toBe("proportional");
+    expect(toConfig(values).config.outcome?.scale).toBe("proportional");
+    const plain = toConfig(toFormValues(definitionFixture)).config;
+    expect(plain.outcome).not.toHaveProperty("scale");
+  });
+});

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use oxy_airlayer_compat::engine::experiment::{
-    Assignment, DesignShape, ExperimentDesign, Period, SwitchbackSchedule,
+    Assignment, DesignShape, ExperimentDesign, PanelMatrix, Period, SwitchbackSchedule,
 };
 use oxy_experiment::config::parse;
 use oxy_experiment::engine_in::EffectIn;
@@ -179,13 +179,22 @@ fn a_design_with_no_treated_unit_or_period_has_no_spec() {
 }
 
 #[test]
-fn never_treated_counts_the_controls_and_a_switchback_has_none() {
+fn never_treated_counts_the_controls_the_panel_holds_and_a_switchback_has_none() {
+    let m = PanelMatrix::from_triples(["a", "b", "c"].map(|u| (u.to_string(), 1_i64, 1.0)));
     assert_eq!(
-        never_treated(&waves(&[("a", Some(1)), ("b", None), ("c", None)])),
+        never_treated(&waves(&[("a", Some(1)), ("b", None), ("c", None)]), &m),
         2
     );
     assert_eq!(
-        never_treated(&schedule()),
+        never_treated(
+            &waves(&[("a", Some(1)), ("b", None), ("c", None), ("filtered", None)]),
+            &m
+        ),
+        2,
+        "a control with no rows in the panel is not projected onto"
+    );
+    assert_eq!(
+        never_treated(&schedule(), &m),
         0,
         "the whole fleet is treated on its on-days"
     );

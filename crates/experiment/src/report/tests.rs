@@ -1,7 +1,7 @@
 use super::*;
 use crate::compliance::ComplianceSummary;
 use crate::config::{Direction, ExperimentConfig};
-use crate::engine_in::{EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn};
+use crate::engine_in::{EffectIn, PowerIn, PreTrendIn, RatioIn, SizeBiasIn, WaveEffectIn};
 use crate::patch::{CoefficientEdit, PatchRefusal};
 use crate::test_fixtures::{compliance, config, effect, power, ratio, refused, unbounded_ratio};
 
@@ -437,6 +437,26 @@ fn pre_trend_is_shown_as_a_check_not_proof() {
 
     c.target = effect(12.5, 2.0);
     assert!(c.build().checks.pre_trend_note.contains("not computed"));
+}
+
+/// Across waves the flag is "any wave diverged" while the figures are a mean
+/// over waves, so the note says so instead of implying the mean diverged.
+#[test]
+fn a_divergence_across_waves_says_it_was_in_one_wave() {
+    let mut c = Case::new();
+    c.target = EffectIn {
+        pre_trend: Some(PreTrendIn {
+            estimate: Some(-0.4),
+            t_stat: Some(-0.78),
+            diverged: true,
+        }),
+        ..effect(12.5, 2.0)
+    };
+    let one = c.build().checks.pre_trend_note;
+    assert!(!one.contains("at least one wave"), "{one}");
+    c.target.waves = vec![WaveEffectIn::default(), WaveEffectIn::default()];
+    let many = c.build().checks.pre_trend_note;
+    assert!(many.contains("diverged in at least one wave"), "{many}");
 }
 
 #[test]

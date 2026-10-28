@@ -146,9 +146,15 @@ fn retained(m: &PanelMatrix, from: i64, to: i64) -> Vec<(i64, usize)> {
         .collect()
 }
 
-/// Unweighted mean of `rows` on one panel column; `None` with no row.
+/// Unweighted mean of `rows` on one panel column, over the units that hold that day
+/// (a past-data panel keeps one unit's gaps to itself); `None` when none does.
 fn mean(m: &PanelMatrix, rows: &[usize], col: usize) -> Option<f64> {
-    (!rows.is_empty()).then(|| rows.iter().map(|r| m.get(*r, col)).sum::<f64>() / rows.len() as f64)
+    let held: Vec<f64> = rows
+        .iter()
+        .filter(|r| m.is_present(**r, col))
+        .map(|r| m.get(*r, col))
+        .collect();
+    (!held.is_empty()).then(|| held.iter().sum::<f64>() / held.len() as f64)
 }
 
 fn waves(a: &Assignment, m: &PanelMatrix, date: &dyn Fn(i64) -> Moment) -> SeriesShape {

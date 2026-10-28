@@ -79,6 +79,8 @@ export interface DesignFormValues {
   targetFilter: FilterRow[];
   /** Empty = a plain outcome; a measure = the outcome is target ÷ this, per unit. */
   denominator: string;
+  /** How the change is read: in the measure's units, or as a % lift per unit (past data only). */
+  scale: "units" | "proportional";
   driver: string;
   driverFilter: FilterRow[];
   direction: "increase" | "decrease";
@@ -150,6 +152,7 @@ export function emptyDesignValues(): DesignFormValues {
     priorSource: "declared",
     target: "",
     denominator: "",
+    scale: "units",
     targetFilter: [],
     driver: "",
     driverFilter: [],
@@ -253,6 +256,7 @@ export function toFormValues(input: Partial<ExperimentDefinition> | Loose): Desi
     priorSource: oneOf(prior?.source, ["declared", "fitted"] as const, base.priorSource),
     target: text(outcome.target),
     denominator: text(outcome.denominator),
+    scale: oneOf(outcome.scale, ["units", "proportional"] as const, base.scale),
     targetFilter: filterRows(outcome.target_filter),
     driver: text(outcome.driver),
     driverFilter: filterRows(outcome.driver_filter),

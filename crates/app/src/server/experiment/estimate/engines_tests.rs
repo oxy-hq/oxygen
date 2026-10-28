@@ -389,3 +389,46 @@ async fn a_ratio_outcome_reads_no_driver_slope() {
         "{refusal:?}"
     );
 }
+
+/// The chart counts the treated units the headline does: a treated unit the
+/// estimate left out of its wave goes, a control left out of one wave stays.
+#[test]
+fn the_series_design_leaves_out_a_treated_unit_the_estimate_left_out() {
+    use oxy_airlayer_compat::engine::experiment::{Assignment, ExperimentDesign};
+    use oxy_experiment::engine_in::{DroppedUnitIn, EffectIn};
+    let switch_day: std::collections::HashMap<String, Option<i64>> =
+        [("t1", Some(10)), ("t2", Some(10)), ("c1", None)]
+            .into_iter()
+            .map(|(u, d)| (u.to_string(), d))
+            .collect();
+    let design = ExperimentDesign::Waves(Assignment {
+        switch_day,
+        strata: None,
+        pre_days: 7,
+        post_days: 7,
+        anticipation_days: 0,
+        washout_days: 0,
+        coverage_floor: 0.9,
+        alpha: 0.05,
+        family: 1,
+    });
+    let left = |unit: &str| DroppedUnitIn {
+        unit: unit.into(),
+        reason: "left out of the comparison switching on 2026-05-11".into(),
+    };
+    let effect = EffectIn {
+        dropped_units: vec![left("t2"), left("c1")],
+        ..Default::default()
+    };
+    let ExperimentDesign::Waves(a) = super::engines::without_left_out_treated(&design, &effect)
+    else {
+        panic!("still waves");
+    };
+    let mut kept: Vec<&String> = a.switch_day.keys().collect();
+    kept.sort();
+    assert_eq!(
+        kept,
+        ["c1", "t1"],
+        "t2 was compared nowhere; c1 may be compared in another wave"
+    );
+}

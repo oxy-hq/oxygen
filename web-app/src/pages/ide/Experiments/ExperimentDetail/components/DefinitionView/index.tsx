@@ -6,7 +6,14 @@ import {
 } from "@/components/ui/shadcn/collapsible";
 import type { ExperimentListItem } from "@/types/experiment";
 import { isEditable } from "../ExperimentMenu";
-import { confidenceText, directionText, measureLabel, plural, randomisesText } from "./describe";
+import {
+  comparesText,
+  confidenceText,
+  directionText,
+  measureLabel,
+  plural,
+  randomisesText
+} from "./describe";
 import GuardrailList from "./GuardrailList";
 import LeverCard from "./LeverCard";
 import OtherSettings from "./OtherSettings";
@@ -59,6 +66,10 @@ export default function DefinitionView({ summary }: { summary: ExperimentListIte
   }
   const extra = Object.fromEntries(Object.entries(def).filter(([k]) => !KNOWN.has(k)));
   const noun = def.assign_by ?? def.for_each ?? "unit";
+  // A run read from past data, or a draft whose split is declared rather than
+  // drawn, was never randomised or priced, and has no seed.
+  const past = summary.retrospective || def.design?.assignment === "observed";
+  const assignText = past ? comparesText : randomisesText;
   return (
     <Collapsible asChild defaultOpen={isEditable(summary.status)}>
       <section className='group/def rounded-lg border p-4' data-testid='experiment-definition'>
@@ -74,13 +85,13 @@ export default function DefinitionView({ summary }: { summary: ExperimentListIte
             <Block id='experiment' title='What it tests'>
               <p className='font-medium text-sm'>{def.hypothesis ?? "—"}</p>
               <p className='text-muted-foreground text-xs'>
-                {def.for_each ? `${randomisesText(def.for_each, def.assign_by ?? null)}. ` : ""}
+                {def.for_each ? `${assignText(def.for_each, def.assign_by ?? null)}. ` : ""}
                 Owned by {def.owner ?? "—"}.
               </p>
             </Block>
-            <OutcomeCard def={def} />
+            <OutcomeCard def={def} past={past} />
             <LeverCard lever={def.lever} />
-            <ScheduleCard design={def.design} noun={noun} />
+            <ScheduleCard design={def.design} noun={noun} past={past} />
             <GuardrailList def={def} />
             <OtherSettings extra={extra} />
           </div>

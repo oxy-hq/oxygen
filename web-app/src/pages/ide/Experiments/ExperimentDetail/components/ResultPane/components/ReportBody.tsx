@@ -6,6 +6,7 @@ import PredictionBlock from "./PredictionBlock";
 import ReportDetails from "./ReportDetails";
 import ReportSummary from "./ReportSummary";
 import SeriesBlock from "./SeriesBlock";
+import WavesBlock from "./WavesBlock";
 import WriteBackSection from "./WriteBackSection";
 
 /**
@@ -25,10 +26,12 @@ export default function ReportBody({ result }: { result: ResultResponse }) {
       data-report-state={result.state}
     >
       <ReportSummary result={result} />
+      <WavesBlock report={report} />
       {result.series && (
         <SeriesBlock
           series={result.series}
           retrospective={result.report.status.kind === "retrospective"}
+          proportional={report.proportional ?? false}
         />
       )}
       <AssumptionsBlock assumptions={report.assumptions} />

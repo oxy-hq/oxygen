@@ -23,11 +23,14 @@ import { seriesChartOptions, seriesRows, seriesSummary } from "../series";
  */
 export default function SeriesBlock({
   series,
-  retrospective = false
+  retrospective = false,
+  proportional = false
 }: {
   series: DailySeries;
   /** Nothing was switched: the lever column shows a dash. */
   retrospective?: boolean;
+  /** The headline is a % lift: say these figures are the measure's own units. */
+  proportional?: boolean;
 }) {
   const options = useMemo(
     () =>
@@ -46,6 +49,12 @@ export default function SeriesBlock({
       testId='experiment-report-series'
     >
       <p className='text-muted-foreground text-sm'>{seriesSummary(series)}</p>
+      {proportional && (
+        <p className='text-muted-foreground text-sm' data-testid='experiment-report-series-units'>
+          These figures are the measure itself, not percentages. The % lift above compares each unit
+          to its own level, so a unit selling 2 a day counts as much as one selling 200.
+        </p>
+      )}
       <Echarts
         options={options}
         isLoading={false}

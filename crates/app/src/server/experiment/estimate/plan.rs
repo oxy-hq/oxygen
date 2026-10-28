@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use chrono::NaiveDate;
 
 use oxy_airlayer_compat::engine::experiment::{
-    Assignment, DesignShape, DesignSpec, ExperimentDesign, SwitchbackSchedule,
+    Assignment, DesignShape, DesignSpec, ExperimentDesign, PanelMatrix, SwitchbackSchedule,
 };
 use oxy_experiment::Moment;
 use oxy_experiment::config::ExperimentConfig;
@@ -53,10 +53,17 @@ pub fn earliest_day(d: &ExperimentDesign) -> Option<i64> {
     }
 }
 
-/// Units that never switch — the pinned controls. A switchback treats the whole fleet.
-pub fn never_treated(d: &ExperimentDesign) -> usize {
+/// Units that never switch and that the panel holds — the controls the estimate
+/// could read, which is what the projection multiplies by. A control the panel
+/// never received (filtered out of the target, or with no rows) is not one. A
+/// switchback treats the whole fleet.
+pub fn never_treated(d: &ExperimentDesign, m: &PanelMatrix) -> usize {
     match d {
-        ExperimentDesign::Waves(a) => a.switch_day.values().filter(|day| day.is_none()).count(),
+        ExperimentDesign::Waves(a) => a
+            .switch_day
+            .iter()
+            .filter(|(unit, day)| day.is_none() && m.unit_index(unit).is_some())
+            .count(),
         ExperimentDesign::Switchback(_) => 0,
     }
 }

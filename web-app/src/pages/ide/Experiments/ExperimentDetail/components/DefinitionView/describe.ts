@@ -39,6 +39,12 @@ export function filterText(filters: MeasureFilter[] | undefined): string {
 export const randomisesText = (forEach: string, assignBy: string | null) =>
   assignBy ? `Randomises groups of ${forEach} by ${assignBy}` : `Randomises each ${forEach}`;
 
+/** A past-data run chose nothing at random: it compares the units as they were switched. */
+export const comparesText = (forEach: string, assignBy: string | null) =>
+  assignBy
+    ? `Compares groups of ${forEach} by ${assignBy} as they were switched, not at random`
+    : `Compares each ${forEach} as it was switched, not at random`;
+
 export const directionText = (d: "increase" | "decrease") =>
   d === "increase" ? "expects an increase" : "expects a decrease";
 

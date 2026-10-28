@@ -55,6 +55,23 @@ pub struct EffectIn {
     /// Units left out because their data was missing or too sparse, each with
     /// the reason: the engine's own, and the host's panel builder's.
     pub dropped_units: Vec<DroppedUnitIn>,
+    /// Each compared wave's own effect, in switch order (one entry on a common
+    /// switch date). Not adjusted for the number of waves.
+    pub waves: Vec<WaveEffectIn>,
+    pub refusal: Option<String>,
+}
+
+/// One wave's own Welch effect. `switch_day` is a `num_days_from_ce` ordinal.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WaveEffectIn {
+    pub switch_day: i64,
+    pub n_treated: usize,
+    pub n_control: usize,
+    pub estimate: Option<f64>,
+    pub ci_low: Option<f64>,
+    pub ci_high: Option<f64>,
+    pub p_value: Option<f64>,
     pub refusal: Option<String>,
 }
 

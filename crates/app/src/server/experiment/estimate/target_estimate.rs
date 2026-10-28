@@ -23,6 +23,9 @@ pub struct Read<'a> {
     pub lenient: bool,
     pub denominator: Option<&'a Loaded>,
     pub dropped: &'a [DroppedUnit],
+    /// `outcome.scale: proportional`: the target is read as `ln(1 + value)` and
+    /// the report reads the effect back as a share.
+    pub proportional: bool,
 }
 
 impl Read<'_> {
@@ -30,6 +33,7 @@ impl Read<'_> {
         lenient: false,
         denominator: None,
         dropped: &[],
+        proportional: false,
     };
 }
 
@@ -39,6 +43,23 @@ pub fn estimate_target(
     seed: u64,
     read: Read<'_>,
 ) -> Judged<EffectIn> {
+    let logged;
+    let m = if read.proportional {
+        if read.denominator.is_some() {
+            return Judged::refused(
+                "a proportional outcome is one measure: it cannot also be a ratio".to_string(),
+            );
+        }
+        match m.log1p() {
+            Ok(l) => {
+                logged = l;
+                &logged
+            }
+            Err(why) => return Judged::refused(why),
+        }
+    } else {
+        m
+    };
     let mut r: EffectResult = match (read.denominator, design) {
         (Some(Loaded::Unavailable(why)), _) => {
             return Judged::refused(format!("the ratio's denominator: {why}"));
@@ -173,6 +194,7 @@ mod tests {
             lenient: true,
             denominator: None,
             dropped: &[],
+            proportional: false,
         };
         let j = estimate_target(&m, &d, 1, lenient);
         assert!(j.view.refusal.is_none(), "{:?}", j.view.refusal);
@@ -191,9 +213,51 @@ mod tests {
             lenient: true,
             denominator: None,
             dropped: &built,
+            proportional: false,
         };
         let j = estimate_target(&m, &design(&m, None), 1, read);
         assert_eq!(j.view.dropped_units[0].unit, "c99");
+    }
+
+    #[test]
+    fn a_proportional_read_estimates_on_the_log_scale() {
+        let m = panel(5.0);
+        let read = Read {
+            proportional: true,
+            ..Read::STRICT
+        };
+        let j = estimate_target(&m, &design(&m, None), 1, read);
+        assert!(j.view.refusal.is_none(), "{:?}", j.view.refusal);
+        // +5 on ~105 is ln(110/105) ≈ 0.047 on the log scale, not 5.
+        let e = j.view.estimate.unwrap();
+        assert!((e - (110.0_f64 / 105.0).ln()).abs() < 0.01, "{e}");
+        assert_eq!(j.view.waves.len(), 1);
+    }
+
+    #[test]
+    fn a_proportional_read_refuses_a_negative_value_by_unit() {
+        let mut rows: Vec<(String, i64, f64)> = Vec::new();
+        for u in 0..12 {
+            let name = if u < 6 {
+                format!("t{u}")
+            } else {
+                format!("c{u}")
+            };
+            for day in 1..=40_i64 {
+                let v = if u == 7 && day == 3 { -4.0 } else { 10.0 };
+                rows.push((name.clone(), day, v));
+            }
+        }
+        let m = PanelMatrix::from_triples(rows);
+        let read = Read {
+            proportional: true,
+            ..Read::STRICT
+        };
+        let why = estimate_target(&m, &design(&m, None), 1, read)
+            .view
+            .refusal
+            .expect("a negative value cannot be logged");
+        assert!(why.contains("c7"), "{why}");
     }
 
     #[test]
@@ -205,6 +269,7 @@ mod tests {
             lenient: true,
             denominator: Some(&loaded),
             dropped: &[],
+            proportional: false,
         };
         let j = estimate_target(&num, &design(&num, None), 1, read);
         // Numerator == denominator: every unit's ratio is 1 in both windows, which
@@ -266,6 +331,7 @@ mod dedup_tests {
             lenient: true,
             denominator: None,
             dropped: &built,
+            proportional: false,
         };
         let j = estimate_target(&m, &design, 1, read);
         assert_eq!(j.view.dropped_units.len(), 1, "{:?}", j.view.dropped_units);
@@ -323,6 +389,7 @@ mod ratio_missing_tests {
             lenient: true,
             denominator: Some(&den),
             dropped: &[],
+            proportional: false,
         };
         let j = estimate_target(&num, &design, 1, read);
         assert!(

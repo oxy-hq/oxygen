@@ -1,4 +1,4 @@
-import type { Grain } from "./grain";
+import { type Grain, grainOf } from "./grain";
 
 /** What a missing or non-finite number renders as. Never `0`. */
 export const NOT_AVAILABLE = "—";
@@ -126,6 +126,17 @@ function formatShareChange(value: number | null, signed: boolean): string {
 }
 
 /**
+ * A proportional outcome's change: a share, `+12.3%` (one decimal). The sign
+ * follows the rounded figure, as for a share change.
+ */
+function formatLift(value: number | null, signed: boolean): string {
+  if (!isNumber(value)) return NOT_AVAILABLE;
+  const tenths = Math.round(value * 1000) / 10;
+  const sign = tenths < 0 ? "-" : signed && tenths > 0 ? "+" : "";
+  return `${sign}${Math.abs(tenths).toFixed(1)}%`;
+}
+
+/**
  * The unit a report's estimate is in. A design that assigns groups estimates
  * per group-day (the sample is the group); a unit design and a switchback (a fleet
  * mean) estimate per unit-day. Labelling a group estimate "per unit-day" would be
@@ -136,8 +147,16 @@ function formatShareChange(value: number | null, signed: boolean): string {
 export function effectFormat(
   design: string,
   grain: Grain = "day",
-  opts: { share?: boolean } = {}
+  opts: { share?: boolean; proportional?: boolean } = {}
 ): EffectFormat {
+  if (opts.proportional) {
+    const signed = (v: number | null) => formatLift(v, true);
+    return {
+      plain: (v) => formatLift(v, false),
+      signed,
+      interval: (low, high) => bounds(low, high, signed)
+    };
+  }
   if (opts.share) {
     const signed = (v: number | null) => formatShareChange(v, true);
     return {
@@ -160,4 +179,17 @@ export function effectFormat(
     signed,
     interval: (low, high) => bounds(low, high, signed)
   };
+}
+
+/** The format a report's figures are in: its design, grain and scale. */
+export function reportFormat(report: {
+  design: string;
+  grain?: string;
+  share?: boolean;
+  proportional?: boolean;
+}): EffectFormat {
+  return effectFormat(report.design, grainOf(report.grain), {
+    share: report.share,
+    proportional: report.proportional
+  });
 }

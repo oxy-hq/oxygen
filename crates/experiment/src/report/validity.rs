@@ -71,7 +71,12 @@ pub(super) fn checks(t: &EffectIn) -> ChecksView {
                 t_stat: finite(p.t_stat),
                 diverged: p.diverged,
             };
-            let note = if p.diverged {
+            // Across waves the check flags a divergence in ANY wave, while its
+            // figures are the size-weighted mean over waves, which can sit near zero.
+            let note = if p.diverged && t.waves.len() > 1 {
+                "the pre-period trends diverged in at least one wave, though the mean over waves \
+                 may not show it: parallel trends is doubtful there. This is a check, not proof."
+            } else if p.diverged {
                 "the pre-period trends diverged: parallel trends is doubtful. This is a check, not proof."
             } else {
                 "no divergence was detected in the pre-period. This is a check, not proof of parallel trends."

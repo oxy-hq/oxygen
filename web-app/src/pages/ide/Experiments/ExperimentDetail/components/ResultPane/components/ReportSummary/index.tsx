@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/shadcn/aler
 import { cn } from "@/libs/shadcn/utils";
 import { TONE_SURFACE, ToneBadge, ToneIcon } from "@/pages/ide/Experiments/components/glance/tone";
 import { formatInstant } from "@/pages/ide/Experiments/dates";
-import { effectFormat } from "@/pages/ide/Experiments/format";
+import { reportFormat } from "@/pages/ide/Experiments/format";
 import { grainOf } from "@/pages/ide/Experiments/grain";
 import type { ResultResponse } from "@/types/experiment";
 import VerbatimRefusal from "../../../VerbatimRefusal";
@@ -86,7 +86,7 @@ function StandingBand({ result }: { result: ResultResponse }) {
 export default function ReportSummary({ result }: { result: ResultResponse }) {
   const { report } = result;
   const h = report.headline;
-  const fmt = effectFormat(report.design, grainOf(report.grain), { share: report.share });
+  const fmt = reportFormat(report);
   const run = runBadge(report.status.kind);
   const refused = report.refusal !== null;
   return (

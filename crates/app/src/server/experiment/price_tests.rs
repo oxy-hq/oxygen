@@ -508,3 +508,14 @@ fn a_ratio_outcome_is_refused_with_its_reason() {
     };
     assert!(reason.contains("ratio"), "{reason}");
 }
+
+#[test]
+fn a_proportional_outcome_is_refused_with_its_reason() {
+    let mut cfg = draft(7);
+    cfg.outcome.scale = oxy_experiment::config::Scale::Proportional;
+    let c = price_design(&cfg, &panel(), &Candidate::Waves(waves(&[6])), &run());
+    let PriceComputation::Refused { reason, .. } = c else {
+        panic!("a proportional outcome is not priced")
+    };
+    assert!(reason.contains("proportional"), "{reason}");
+}

@@ -128,6 +128,31 @@ describe("DefinitionView", () => {
     expect(view(draft).textContent).toContain("Not priced yet");
   });
 
+  it("a run read from past data claims no randomisation, pricing or seed", () => {
+    render(
+      <DefinitionView
+        summary={{ ...summary("reported"), retrospective: true } as ExperimentListItem}
+      />
+    );
+    const t = screen.getByTestId("experiment-definition").textContent ?? "";
+    expect(t).toContain("Compares each customer as it was switched, not at random");
+    for (const gone of ["Randomises", "Power", "Promised min. effect", "seed", "Seed"]) {
+      expect(t).not.toContain(gone);
+    }
+  });
+
+  it("a design with a declared split claims no randomisation, pricing or seed", () => {
+    const t =
+      view({
+        ...definitionFixture,
+        design: { ...definitionFixture.design, assignment: "observed" }
+      }).textContent ?? "";
+    expect(t).toContain("Compares each customer as it was switched, not at random");
+    for (const gone of ["Randomises", "Power", "Promised min. effect", "seed", "Seed"]) {
+      expect(t).not.toContain(gone);
+    }
+  });
+
   it("shows unknown keys with humanized labels, as text", () => {
     const el = view({ ...definitionFixture, vendor_note: "<b>kept</b>" });
     expect(within(el).getByTestId("definition-other").textContent).toContain("Vendor note");
