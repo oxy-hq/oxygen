@@ -4,6 +4,7 @@
 //! Sydney: the second wave's 2026-03-16 switch + 7 washout + 56 post days.
 
 use oxy_app::server::experiment::jobs::{CHECK_KIND, ESTIMATE_KIND};
+use oxy_app::server::experiment::list::list_items;
 use oxy_app::server::experiment::register::RegisterError;
 use oxy_app::server::experiment::retrospective::{Retrospective, judge};
 
@@ -119,7 +120,11 @@ async fn the_status_offers_it_only_once_the_window_is_past() {
 /// Seal `fx`'s run as the estimate would: a results row whose report carries
 /// `refusal` (or none), and the run `reported`.
 async fn seal(fx: &Fx, refusal: Option<&str>) {
-    let report = serde_json::json!({ "refusal": refusal });
+    seal_report(fx, serde_json::json!({ "refusal": refusal })).await;
+}
+
+/// Seal `fx`'s run with `report` as its stored report.
+async fn seal_report(fx: &Fx, report: serde_json::Value) {
     fx.exec(
         "INSERT INTO experiment_results (id, run_id, effect, compliance, report, aborted, created_at) \
          SELECT gen_random_uuid(), id, '{}'::jsonb, '{}'::jsonb, $1, false, now() \
@@ -278,4 +283,53 @@ async fn only_a_refused_retrospective_is_offered_for_reopening() {
     seal(&reported, None).await;
     let rid = reported.experiment().await.id;
     assert!(!is_reopenable(&reported.db, rid).await.unwrap());
+}
+
+#[tokio::test]
+async fn the_list_carries_a_reported_runs_headline_and_nothing_before() {
+    let fx = Fx::seed(DESIGN).await;
+    let at = utc("2026-06-01T01:00:00Z");
+    assert_eq!(
+        list_items(&fx.db, fx.ws, at).await.unwrap()[0].report_glance,
+        None
+    );
+    fx.retrospective_at(utc("2026-06-01T00:00:00Z"))
+        .await
+        .expect("created");
+    assert_eq!(
+        list_items(&fx.db, fx.ws, at).await.unwrap()[0].report_glance,
+        None,
+        "a closing run has no report to show"
+    );
+    seal_report(
+        &fx,
+        serde_json::json!({
+            "status": { "kind": "retrospective" },
+            "design": "units", "grain": "day", "proportional": true,
+            "directional": false, "alpha": 0.05, "refusal": null,
+            "headline": {
+                "estimate": 0.357, "significant": true,
+                "verdict": "significant at α = 0.05", "text": "a long sentence",
+                "interval": { "low": 0.2, "high": 0.5 }
+            },
+            "seeds": { "assignment": 1 }
+        }),
+    )
+    .await;
+    let glance = list_items(&fx.db, fx.ws, at).await.unwrap()[0]
+        .report_glance
+        .clone()
+        .expect("a reported run shows its headline");
+    assert_eq!(
+        glance,
+        serde_json::json!({
+            "status": { "kind": "retrospective" },
+            "design": "units", "grain": "day", "proportional": true,
+            "directional": false, "alpha": 0.05, "refusal": null,
+            "headline": {
+                "estimate": 0.357, "significant": true, "verdict": "significant at α = 0.05"
+            }
+        }),
+        "only what the row renders, not the whole report"
+    );
 }

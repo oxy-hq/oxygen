@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/pages/ide/coordinator/co
 import NewExperimentButton from "./components/NewExperimentButton";
 import PageShell from "./components/PageShell";
 import RefreshError from "./components/RefreshError";
+import ReportGlanceBadge from "./components/ReportGlanceBadge";
 import StateBadge from "./components/StateBadge";
 import { useExperimentRoutes } from "./useExperimentRoutes";
 
@@ -69,6 +70,7 @@ export default function ExperimentsListPage() {
             <TableRow>
               <TableHead>Experiment</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Result</TableHead>
               <TableHead>Owner</TableHead>
               <TableHead>Next switch</TableHead>
             </TableRow>
@@ -88,6 +90,13 @@ export default function ExperimentsListPage() {
                 </TableCell>
                 <TableCell>
                   <StateBadge state={e.status} retrospective={e.retrospective} />
+                </TableCell>
+                <TableCell>
+                  {e.status === "reported" && e.report_glance ? (
+                    <ReportGlanceBadge name={e.name} glance={e.report_glance} />
+                  ) : (
+                    <span className='text-muted-foreground'>—</span>
+                  )}
                 </TableCell>
                 <TableCell>{e.owner}</TableCell>
                 <TableCell data-testid={`experiment-row-next-switch-${e.name}`}>

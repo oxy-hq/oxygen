@@ -3,7 +3,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExperimentListItem } from "@/types/experiment";
+import type { ExperimentListItem, ReportGlance } from "@/types/experiment";
 import { definitionFixture } from "./fixtures";
 import ExperimentsListPage from "./index";
 
@@ -38,7 +38,20 @@ const item = (over: Partial<ExperimentListItem>): ExperimentListItem => ({
   retrospective_ready: false,
   proposals_count: 0,
   latest_proposal: null,
+  report_glance: null,
   definition: definitionFixture,
+  ...over
+});
+
+const glance = (over: Partial<ReportGlance> = {}): ReportGlance => ({
+  status: { kind: "retrospective" },
+  design: "units",
+  grain: "day",
+  proportional: true,
+  directional: false,
+  alpha: 0.05,
+  refusal: null,
+  headline: { estimate: 0.357, significant: true, verdict: "significant at α = 0.05" },
   ...over
 });
 
@@ -104,12 +117,62 @@ describe("ExperimentsListPage", () => {
     );
   });
 
-  it("never shows a headline or figure on a row, even if the payload carries one", () => {
+  it("never shows a figure a row's payload carries outside its report glance", () => {
     const leaky = { headline: "gross +99.00/unit-day" } as unknown as Partial<ExperimentListItem>;
     serve([item({ ...leaky, name: "r", status: "reported" })]);
     renderPage();
 
     expect(screen.queryByText(/99\.00/)).toBeNull();
+    expect(screen.queryByTestId("experiment-row-glance-r")).toBeNull();
+  });
+
+  it("sums up a reported row's result: the verdict in plain words and the effect", () => {
+    serve([
+      item({ name: "lift", status: "reported", report_glance: glance() }),
+      item({
+        name: "flat",
+        status: "reported",
+        report_glance: glance({
+          headline: { estimate: -0.012, significant: false, verdict: "not distinguishable" }
+        })
+      }),
+      item({
+        name: "loose",
+        status: "reported",
+        report_glance: glance({ directional: true, proportional: false, design: "groups" })
+      })
+    ]);
+    renderPage();
+
+    const lift = within(screen.getByTestId("experiment-row-glance-lift"));
+    expect(lift.getByTestId("experiment-row-verdict-lift")).toHaveTextContent("Strong evidence");
+    expect(lift.getByTestId("experiment-row-effect-lift")).toHaveTextContent("+35.7%");
+    const flat = within(screen.getByTestId("experiment-row-glance-flat"));
+    expect(flat.getByTestId("experiment-row-verdict-flat")).toHaveTextContent("No clear effect");
+    expect(flat.getByTestId("experiment-row-effect-flat")).toHaveTextContent("-1.2%");
+    expect(screen.getByTestId("experiment-row-verdict-loose")).toHaveTextContent("Weak evidence");
+    expect(screen.getByTestId("experiment-row-effect-loose")).toHaveTextContent("/group-day");
+  });
+
+  it("says the estimator refused, with no figure, when the report is a refusal", () => {
+    serve([
+      item({
+        name: "r",
+        status: "reported",
+        report_glance: glance({ refusal: "too few units", headline: null })
+      })
+    ]);
+    renderPage();
+
+    expect(screen.getByTestId("experiment-row-verdict-r")).toHaveTextContent("Estimator refused");
+    expect(screen.queryByTestId("experiment-row-effect-r")).toBeNull();
+  });
+
+  it("shows no glance on a row that is not reported", () => {
+    serve([item({ name: "a", status: "aborted", report_glance: glance() })]);
+    renderPage();
+
+    expect(screen.queryByTestId("experiment-row-glance-a")).toBeNull();
   });
 
   it("says so when the workspace has no experiments", () => {

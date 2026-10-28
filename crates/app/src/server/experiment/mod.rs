@@ -35,6 +35,7 @@ pub mod dispatch;
 pub mod enqueue;
 pub mod estimate;
 pub mod executor;
+pub mod glance;
 pub mod interim;
 pub mod job;
 pub mod jobs;

@@ -67,6 +67,7 @@ const item = (status: string, over: Partial<ExperimentListItem> = {}): Experimen
   retrospective_ready: false,
   proposals_count: 0,
   latest_proposal: null,
+  report_glance: null,
   definition: definitionFixture,
   ...over
 });

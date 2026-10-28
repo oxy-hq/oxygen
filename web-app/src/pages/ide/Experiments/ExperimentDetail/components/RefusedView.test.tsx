@@ -33,6 +33,7 @@ const summary = (over: Partial<ExperimentListItem> = {}): ExperimentListItem => 
   retrospective_ready: true,
   proposals_count: 0,
   latest_proposal: null,
+  report_glance: null,
   definition: definitionFixture,
   ...over
 });

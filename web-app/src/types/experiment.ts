@@ -220,7 +220,20 @@ export interface ExperimentListItem {
   latest_proposal: ProposalSummary | null;
   /** The whole compiled definition; rendered by the Definition section. */
   definition: ExperimentDefinition;
+  /** A reported run's headline, picked from its stored report; null before then. */
+  report_glance: ReportGlance | null;
 }
+
+/** The few report fields a list row reads to sum up the result, as the stored report states them. */
+export type ReportGlance = Pick<
+  ReportView,
+  "status" | "design" | "grain" | "share" | "proportional" | "directional" | "alpha" | "refusal"
+> & {
+  headline: Pick<
+    NonNullable<ReportView["headline"]>,
+    "estimate" | "significant" | "verdict"
+  > | null;
+};
 
 // ---- GET /run (PR 4 Task 13), POST /abort ------------------------------------
 

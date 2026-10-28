@@ -72,6 +72,9 @@ pub struct ExperimentListItem {
     /// No run yet, and the latest version's dates are all past: it can be analysed
     /// retrospectively.
     pub retrospective_ready: bool,
+    /// A `reported` run's headline, picked from its stored report: what the row
+    /// shows at a glance. `None` before the report is sealed (see [`super::glance`]).
+    pub report_glance: Option<Value>,
 }
 
 /// Index C5's `Proposal`, key for key.
@@ -535,6 +538,7 @@ mod tests {
             definition: json!({}),
             retrospective: false,
             retrospective_ready: false,
+            report_glance: None,
         };
         let v = serde_json::to_value(item).unwrap();
         let mut keys: Vec<_> = v.as_object().unwrap().keys().cloned().collect();
@@ -553,6 +557,7 @@ mod tests {
                 "owner",
                 "proposals_count",
                 "registration_refusal",
+                "report_glance",
                 "retrospective",
                 "retrospective_ready",
                 "status"

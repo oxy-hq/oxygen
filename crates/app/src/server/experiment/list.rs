@@ -10,6 +10,7 @@ use sea_orm::{DatabaseConnection, DbErr};
 use uuid::Uuid;
 
 use super::design_store::{self, Design};
+use super::glance;
 use super::lever::LeverChecks;
 use super::register::{self, Registration};
 use super::retrospective::{self, Retrospective};
@@ -32,15 +33,22 @@ pub async fn list_items(
 ) -> Result<Vec<ExperimentListItem>, DbErr> {
     let latest = latest_proposals(db, workspace_id).await?;
     let experiments = design_store::list_experiments(db, workspace_id).await?;
-    // One query each for every experiment's run and design, and one lever
+    // One query each for every experiment's run, design and reported headline, and one lever
     // lookup per distinct lever: the list's cost does not grow per experiment.
     let ids: Vec<Uuid> = experiments.iter().map(|e| e.id).collect();
     let mut runs = store::runs_of(db, &ids).await?;
+    let reported: Vec<Uuid> = runs
+        .values()
+        .filter(|r| RunState::parse(&r.state) == Some(RunState::Reported))
+        .map(|r| r.id)
+        .collect();
+    let mut glances = glance::glances_of(db, &reported).await?;
     let mut designs = design_store::designs_of(db, &ids).await?;
     let mut levers = LeverChecks::default();
     let mut out = Vec::new();
     for e in experiments {
         let run = runs.remove(&e.id);
+        let report_glance = run.as_ref().and_then(|r| glances.remove(&r.id));
         let row = match &run {
             Some(run) => designs.remove(&run.design_id),
             None => designs
@@ -53,6 +61,7 @@ pub async fn list_items(
             Some((design, standing, retro)) => {
                 let mut it = item(&e, &design, standing, latest.get(&e.name));
                 (it.retrospective, it.retrospective_ready) = (retro.run, retro.ready);
+                it.report_glance = report_glance;
                 out.push(it);
             }
             None => tracing::warn!(
@@ -149,6 +158,7 @@ fn item(
         definition: serde_json::to_value(&d.config).unwrap_or_else(|_| d.row.config.clone()),
         retrospective: false,
         retrospective_ready: false,
+        report_glance: None,
     }
 }
 

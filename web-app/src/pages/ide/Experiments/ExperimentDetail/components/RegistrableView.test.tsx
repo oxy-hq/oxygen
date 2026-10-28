@@ -38,6 +38,7 @@ const summary: ExperimentListItem = {
   retrospective_ready: false,
   proposals_count: 0,
   latest_proposal: null,
+  report_glance: null,
   definition: definitionFixture
 };
 

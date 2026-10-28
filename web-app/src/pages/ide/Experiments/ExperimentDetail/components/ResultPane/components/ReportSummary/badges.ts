@@ -27,12 +27,17 @@ export function runBadge(kind: ReportView["status"]["kind"]): ReportBadge {
   }
 }
 
+/** What the verdict reads from a report: the full report, or a list row's glance of it. */
+type VerdictFacts = Pick<ReportView, "directional"> & {
+  headline: { significant: boolean } | null;
+};
+
 /**
  * The verdict's colour. The words are always the server's `verdict`; `significant`
  * and `directional` only pick a colour: clears a strict α → success, clears a
  * looser registered α → caution, misses → neutral.
  */
-export function verdictTone(report: ReportView): Tone {
+export function verdictTone(report: VerdictFacts): Tone {
   const h = report.headline;
   if (!h?.significant) return "neutral";
   return report.directional ? "warning" : "success";
@@ -75,7 +80,7 @@ export function caveatBadges(report: ReportView): ReportBadge[] {
 }
 
 /** The verdict in plain words, from the same colour rule. The server's exact wording goes on hover. */
-export function plainVerdict(report: ReportView): string {
+export function plainVerdict(report: VerdictFacts & Pick<ReportView, "status">): string {
   // An interim reading is a peek, never a verdict: every word says "so far".
   if (report.status.kind === "interim") {
     switch (verdictTone(report)) {
