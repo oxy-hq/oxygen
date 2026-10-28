@@ -1,5 +1,5 @@
 use crate::agentic_wiring::OxyProjectContext;
-use crate::agentic_wiring::project_ctx::database_to_connector_config;
+use crate::agentic_wiring::project_ctx::try_database_to_connector_config;
 use crate::server::api::middlewares::role_guards::WorkspaceAdmin;
 use crate::server::api::middlewares::workspace_context::{
     EffectiveWorkspaceRole, WorkspaceManagerReadOnly, WorkspaceManagerWorkingCopy, WorkspacePath,
@@ -791,7 +791,28 @@ pub async fn test_database_connection(
         // redirect URL is streamed back to the client via SSE before we block
         // waiting for the browser login to complete.
         // Only Snowflake private-key auth still falls through to the legacy path.
-        if let Some(mut cfg) = database_to_connector_config(db_config, &workspace_manager).await {
+        //
+        // A connection field that does not resolve (a `*_var` naming no secret)
+        // is the answer to the test, not a reason to try the legacy path: say
+        // which secret is missing.
+        let translated = match try_database_to_connector_config(db_config, &workspace_manager).await
+        {
+            Ok(translated) => translated,
+            Err(e) => {
+                let _ = tx
+                    .send(ConnectionTestEvent::Complete {
+                        result: TestDatabaseConnectionResponse {
+                            success: false,
+                            message: "Connection failed".to_string(),
+                            connection_time_ms: Some(start_time.elapsed().as_millis() as u64),
+                            error_details: Some(e.to_string()),
+                        },
+                    })
+                    .await;
+                return;
+            }
+        };
+        if let Some(mut cfg) = translated {
             // Wire up the SSO URL channel for Snowflake browser auth.
             if let ConnectorConfig::Snowflake(ref mut sf_cfg) = cfg
                 && let SnowflakeAuth::Browser {

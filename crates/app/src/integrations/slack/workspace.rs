@@ -11,10 +11,12 @@
 //! A Slack message carries no branch context, so the hint is always `None`: the
 //! promoted default-branch revision.
 
+use oxy::adapters::secrets::SecretsManager;
 use oxy::adapters::workspace::builder::WorkspaceBuilder;
 use oxy::adapters::workspace::manager::WorkspaceManager;
 use oxy::adapters::workspace::resolve_workspace_path;
 use oxy::config::WorkingCopy;
+use oxy::service::secret_manager::SecretManagerService;
 use oxy_shared::errors::OxyError;
 use uuid::Uuid;
 
@@ -37,9 +39,17 @@ pub async fn build_manager(
     let revision_id = compiled_reader::resolve_request_revision(workspace_id, None).await;
     tracing::debug!(%workspace_id, ?revision_id, caller, "slack workspace manager");
 
+    // The workspace's secrets in oxydb first, then the environment — the same
+    // `SecretsManager` the request middleware and the queued-run builders hand
+    // their managers. Without it `WorkspaceBuilder::build` falls back to an
+    // environment-only manager, and on a replica a warehouse whose credentials
+    // are workspace secrets (a ClickHouse `host_var`) resolves to nothing.
+    let secrets_manager =
+        SecretsManager::from_database_with_env_fallback(SecretManagerService::new(workspace_id))?;
     builder
         .with_working_copy(&path, revision_id, oxy::config::OnMissing::Empty)
         .await?
+        .with_secrets_manager(secrets_manager)
         .build()
         .await
 }

@@ -19,6 +19,7 @@
 //! * `admin_staff_scope`, `compiled_reader_semantic`, `toast_webhook_compile_boundary`,
 //!   `airway_compile_boundary`, `file_credentials_at_compile`, `revision_miss_not_from_disk`,
 //!   `semantic_scan_from_memory`, `context_documents_boundary`, `anomaly_bulk_status`,
+//!   `connector_vars_from_workspace_secrets`,
 //!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
 //!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
 //!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl` and `encryption_key_check` are database-backed
@@ -74,6 +75,7 @@ mod compile_request;
 mod compile_self_heal;
 mod compiled_reader_is_not_a_back_door;
 mod compiled_reader_semantic;
+mod connector_vars_from_workspace_secrets;
 mod context_documents_boundary;
 mod coordinator_any_replica;
 mod data_placement;

@@ -28,6 +28,8 @@ use oxy_shared::errors::OxyError;
 // they need no re-export — the trait impls are visible wherever the trait and
 // `OxyProjectContext` are in scope.
 mod compile_cooldown;
+#[cfg(test)]
+mod connector_translation_tests;
 mod context_documents;
 mod function_context;
 mod monitor_scan;
@@ -486,8 +488,8 @@ where
                 as Arc<dyn DatabaseConnector>)
         }
         _ => {
-            let cfg = database_to_connector_config(&db, workspace_manager)
-                .await
+            let cfg = try_database_to_connector_config(&db, workspace_manager)
+                .await?
                 .ok_or_else(|| {
                     OxyError::ConfigurationError(format!(
                         "could not build connector config for database '{db_name}' (type {})",
@@ -529,10 +531,23 @@ impl OxyProjectContext {
             if let Some(conn) = self.resolve_pre_built_connector(name).await {
                 return Ok(conn);
             }
-            let cfg = self
-                .resolve_connector(name)
+            // The reason, not a `None`: a `*_var` that names no secret used to
+            // reach the caller as "not found in workspace config", which sends
+            // the reader to `config.yml` when the fix is a missing secret.
+            let db = self
+                .workspace_manager
+                .config_manager
+                .resolve_database(name)
+                .map_err(|_| format!("database '{name}' not found in workspace config"))?;
+            let cfg = try_database_to_connector_config(&db, &self.workspace_manager)
                 .await
-                .ok_or_else(|| format!("database '{name}' not found in workspace config"))?;
+                .map_err(|e| format!("failed to build connector for '{name}': {e}"))?
+                .ok_or_else(|| {
+                    format!(
+                        "could not build connector config for database '{name}' (type {})",
+                        db.database_type_name()
+                    )
+                })?;
             let cfg = if self.own_directory_databases {
                 cfg.without_cached_directory()
             } else {
@@ -799,34 +814,97 @@ mod tests {
 
 // ── Connector translation ───────────────────────────────────────────────────
 
-/// Take a resolved connection field, or fall back — reporting WHY it fell back.
+/// Take a resolved connection field, falling back to `unset_default` only when
+/// the author set neither the field nor its `*_var`.
 ///
-/// Both errors `SecretsManager::resolve_config_value` returns name a real
-/// misconfiguration: `SecretNotFound(var)` when a `*_var` is declared but the
-/// secrets store has no such secret, and `ConfigurationError` when neither the
-/// field nor its `*_var` is set. The fallbacks themselves are legitimate — an
-/// unset ClickHouse user, password or database means "use the server's default"
-/// — so this does not change which configurations connect. What it changes is
-/// that the reason is no longer discarded: an unresolvable `host_var` used to
-/// become a plausible-looking connection to `http://localhost:8123` with
-/// `database = ''`, and the failure surfaced as a connection error naming a
-/// host nobody had configured, with the missing var mentioned nowhere.
-fn or_default(
-    db_name: &str,
+/// `SecretsManager::resolve_config_value` answers one of three ways, and they
+/// are not the same kind of answer:
+///
+/// * `Ok(value)` — the literal, or the `*_var` resolved (workspace secret in
+///   oxydb first, then the process environment).
+/// * `ConfigurationError` — neither the field nor its `*_var` is set. The
+///   default is legitimate here: an unset ClickHouse user or database means
+///   "the server's default", and an unset Postgres host has always meant
+///   `localhost` for a database on the developer's own machine.
+/// * `SecretNotFound(var)` — the author NAMED where the value lives and it is
+///   not there. That is an error, never a default. Defaulting is how a
+///   ClickHouse `host_var` with no matching secret became a connection to
+///   `http://localhost:8123` with `database = ''`: the query then failed as
+///   "error sending request for url (http://localhost:8123/…)", naming a host
+///   nobody configured, and the agent retried it until `max iterations
+///   exceeded`. The secret's name appeared nowhere.
+///
+/// Any other error (the secrets store itself failing) is propagated as well:
+/// a default there would hide an outage behind the same wrong host.
+fn connection_field(
+    db: &oxy::config::model::Database,
     field: &str,
     resolved: Result<String, OxyError>,
-    fallback: &str,
-) -> String {
+    unset_default: &str,
+) -> Result<String, OxyError> {
     match resolved {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(
-                db = %db_name,
-                "ClickHouse {field}: {e} — falling back to the default"
-            );
-            fallback.to_string()
-        }
+        Ok(v) => Ok(v),
+        Err(OxyError::ConfigurationError(_)) => Ok(unset_default.to_string()),
+        Err(OxyError::SecretNotFound(var)) => Err(unresolved_var_error(db, field, var.as_deref())),
+        Err(e) => Err(OxyError::ConfigurationError(format!(
+            "database '{}' ({}): could not resolve `{field}`: {e}",
+            db.name,
+            db.database_type_name()
+        ))),
     }
+}
+
+/// The error for a declared `*_var` that resolved to nothing. Names the
+/// database, the field, the secret and both places it was looked for, so the
+/// person reading it can fix it without reading code.
+fn unresolved_var_error(
+    db: &oxy::config::model::Database,
+    field: &str,
+    var: Option<&str>,
+) -> OxyError {
+    let var = var.unwrap_or("<unnamed>");
+    OxyError::ConfigurationError(format!(
+        "database '{}' ({}): `{field}_var: {var}` did not resolve — no secret named {var} \
+         is available to this workspace, and the process has no environment variable of \
+         that name. Add {var} to the workspace's secrets.",
+        db.name,
+        db.database_type_name()
+    ))
+}
+
+/// [`connection_field`] for a field with no usable default — a Snowflake
+/// password, a BigQuery key path, a MotherDuck token. Unset is an error too.
+fn required_field(
+    db: &oxy::config::model::Database,
+    field: &str,
+    resolved: Result<String, OxyError>,
+) -> Result<String, OxyError> {
+    match resolved {
+        Ok(v) => Ok(v),
+        Err(OxyError::SecretNotFound(var)) => Err(unresolved_var_error(db, field, var.as_deref())),
+        Err(e) => Err(OxyError::ConfigurationError(format!(
+            "database '{}' ({}): could not resolve `{field}`: {e}",
+            db.name,
+            db.database_type_name()
+        ))),
+    }
+}
+
+/// A port, by the [`connection_field`] rules, that must also be a number. A
+/// `port_var` holding `abc` used to become the default port without a word.
+fn connection_port(
+    db: &oxy::config::model::Database,
+    resolved: Result<String, OxyError>,
+    unset_default: u16,
+) -> Result<u16, OxyError> {
+    let raw = connection_field(db, "port", resolved, &unset_default.to_string())?;
+    raw.trim().parse().map_err(|_| {
+        OxyError::ConfigurationError(format!(
+            "database '{}' ({}): port `{raw}` is not a port number",
+            db.name,
+            db.database_type_name()
+        ))
+    })
 }
 
 async fn resolve_connector_impl(
@@ -861,6 +939,10 @@ async fn resolve_connector_impl(
 /// handle — today, Snowflake browser-auth and Snowflake private-key auth
 /// both fall into this bucket. The test-connection handler uses that as a
 /// signal to fall back to the legacy `oxy::connector::Connector` path.
+///
+/// A caller that can report a failure should use
+/// [`try_database_to_connector_config`], which says WHY a database could not
+/// be translated (a `*_var` that names no secret) instead of returning `None`.
 pub async fn database_to_connector_config<S: DiskSlot>(
     db: &oxy::config::model::Database,
     workspace_manager: &WorkspaceManager<S>,
@@ -868,6 +950,34 @@ pub async fn database_to_connector_config<S: DiskSlot>(
 where
     ConfigManager<S>: ResolveWorkspaceFile,
 {
+    match try_database_to_connector_config(db, workspace_manager).await {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::error!(db = %db.name, "cannot build a connector: {e}");
+            None
+        }
+    }
+}
+
+/// [`database_to_connector_config`], with the reason a database could not be
+/// translated.
+///
+/// `Ok(None)` keeps its meaning — a shape `agentic-connector` does not handle,
+/// or a database another path builds (airhouse). `Err` is a connection field
+/// that does not resolve: a declared `*_var` with no workspace secret and no
+/// environment variable of that name, or a secrets store that could not be
+/// read. Every process resolves the same way — the request middleware, the
+/// queued-run builders and the preagg cycle all hand the manager a
+/// `SecretsManager::from_database_with_env_fallback` for the workspace — so a
+/// value that resolves on one role resolves on every role.
+pub async fn try_database_to_connector_config<S: DiskSlot>(
+    db: &oxy::config::model::Database,
+    workspace_manager: &WorkspaceManager<S>,
+) -> Result<Option<ConnectorConfig>, OxyError>
+where
+    ConfigManager<S>: ResolveWorkspaceFile,
+{
+    let sm = &workspace_manager.secrets_manager;
     match &db.database_type {
         // Stateless fleet only (Serve/Worker): the local DuckDB data file is
         // absent here. The compile worker mirrored this local-file warehouse to
@@ -894,9 +1004,9 @@ where
                 ) =>
         {
             let mirror = duck.s3_mirror.as_ref().expect("guarded by is_some()");
-            Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
+            Ok(Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
                 init_statements: oxy::connector::build_s3_mirror_sql(mirror),
-            }))
+            })))
         }
         DatabaseType::DuckDB(duck) => match &duck.options {
             DuckDBOptions::Local { file_search_path } => {
@@ -908,14 +1018,14 @@ where
                     Ok(p) => std::path::PathBuf::from(p),
                     Err(e) => {
                         tracing::warn!(db = %db.name, "DuckDB: cannot resolve path: {e}");
-                        return None;
+                        return Ok(None);
                     }
                 };
-                Some(ConnectorConfig::DuckDb(DuckDbConfig {
+                Ok(Some(ConnectorConfig::DuckDb(DuckDbConfig {
                     data_dir: path,
                     load_strategy: DuckDbLoadStrategy::View,
                     reuse_cached_directory: true,
-                }))
+                })))
             }
             DuckDBOptions::File { path } => {
                 let resolved = match workspace_manager
@@ -926,12 +1036,12 @@ where
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!(db = %db.name, "DuckDB file: cannot resolve path: {e}");
-                        return None;
+                        return Ok(None);
                     }
                 };
-                Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig {
+                Ok(Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig {
                     url: resolved,
-                }))
+                })))
             }
             DuckDBOptions::DuckLake(ducklake_config) => {
                 let stmts = match ducklake_config
@@ -939,41 +1049,31 @@ where
                     .await
                 {
                     Ok(s) => s,
+                    // Its secrets (`ManagedSecret` S3 / catalog values) did not
+                    // resolve: the reason, not a `None` the caller has to guess at.
                     Err(e) => {
-                        tracing::warn!(db = %db.name, "DuckLake attach: {e}");
-                        return None;
+                        return Err(OxyError::ConfigurationError(format!(
+                            "database '{}' (duckdb, ducklake): cannot build the attach: {e}",
+                            db.name
+                        )));
                     }
                 };
-                Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
+                Ok(Some(ConnectorConfig::DuckDbRaw(DuckDbRawConfig {
                     init_statements: stmts,
-                }))
+                })))
             }
         },
 
         DatabaseType::Postgres(pg) => {
-            let host = pg
-                .get_host(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "localhost".into());
-            let port: u16 = pg
-                .get_port(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "5432".into())
-                .parse()
-                .unwrap_or(5432);
-            let user = pg
-                .get_user(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let password = pg
-                .get_password(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let database = pg
-                .get_database(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            Some(ConnectorConfig::Postgres(PostgresConfig {
+            // The `get_*` defaults (`localhost`, `5432`, `postgres`) apply only
+            // when neither the field nor its `*_var` is set; a declared var that
+            // resolves to nothing is an error — see [`connection_field`].
+            let host = connection_field(db, "host", pg.get_host(sm).await, "localhost")?;
+            let port = connection_port(db, pg.get_port(sm).await, 5432)?;
+            let user = connection_field(db, "user", pg.get_user(sm).await, "")?;
+            let password = connection_field(db, "password", pg.get_password(sm).await, "")?;
+            let database = connection_field(db, "database", pg.get_database(sm).await, "")?;
+            Ok(Some(ConnectorConfig::Postgres(PostgresConfig {
                 host,
                 port,
                 user,
@@ -983,14 +1083,14 @@ where
                 // so this keeps tokio_postgres's `prefer`. `postgres_managed`
                 // below is the one where Oxy DID decide.
                 sslmode: None,
-            }))
+            })))
         }
 
         // `Airhouse` and `AirhouseManaged` are handled by the host's
         // `resolve_pre_built_connector` path — see `resolve_pre_built_airhouse`
         // below — because the connector lives in the standalone `airhouse`
         // crate, not in `agentic-connector::ConnectorConfig`.
-        DatabaseType::Airhouse(_) | DatabaseType::AirhouseManaged(_) => None,
+        DatabaseType::Airhouse(_) | DatabaseType::AirhouseManaged(_) => Ok(None),
 
         // `postgres_managed` carries no connection details in config.yml —
         // they come from the org's `oltp_tenants` row, reached through
@@ -1004,7 +1104,9 @@ where
         //
         // Always the read-only analyst — see `oxy_oltp::resolver`.
         DatabaseType::PostgresManaged(_) => {
-            let db_conn = oxy::database::client::establish_connection().await.ok()?;
+            let Ok(db_conn) = oxy::database::client::establish_connection().await else {
+                return Ok(None);
+            };
             match oxy_oltp::resolver::resolve_analyst_connection(
                 &db_conn,
                 workspace_manager.workspace_id,
@@ -1026,7 +1128,7 @@ where
                 // `disable` (loopback, no certificate). The DSN string keeps
                 // `c.sslmode` (`require`/`disable`), the only spellings libpq's
                 // parser accepts; this stronger mode lives only on the connector.
-                Ok(c) => Some(ConnectorConfig::Postgres(PostgresConfig {
+                Ok(c) => Ok(Some(ConnectorConfig::Postgres(PostgresConfig {
                     host: c.host,
                     port: c.port,
                     user: c.user,
@@ -1037,59 +1139,43 @@ where
                     } else {
                         c.sslmode
                     }),
-                })),
+                }))),
                 Err(e) => {
                     tracing::warn!(
                         db = %db.name,
                         workspace_id = %workspace_manager.workspace_id,
                         "postgres_managed resolve failed: {e}"
                     );
-                    None
+                    Ok(None)
                 }
             }
         }
 
         DatabaseType::Redshift(rds) => {
-            let host = rds
-                .get_host(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "localhost".into());
-            let port: u16 = rds
-                .get_port(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "5439".into())
-                .parse()
-                .unwrap_or(5439);
-            let user = rds
-                .get_user(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let password = rds
-                .get_password(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let database = rds
-                .get_database(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            Some(ConnectorConfig::Redshift(PostgresConfig {
+            let host = connection_field(db, "host", rds.get_host(sm).await, "localhost")?;
+            let port = connection_port(db, rds.get_port(sm).await, 5439)?;
+            let user = connection_field(db, "user", rds.get_user(sm).await, "")?;
+            let password = connection_field(db, "password", rds.get_password(sm).await, "")?;
+            let database = connection_field(db, "database", rds.get_database(sm).await, "")?;
+            Ok(Some(ConnectorConfig::Redshift(PostgresConfig {
                 host,
                 port,
                 user,
                 password,
                 database,
                 sslmode: None,
-            }))
+            })))
         }
 
         DatabaseType::ClickHouse(ch) => {
-            // Same fallbacks as before, but the reason for one is no longer
-            // discarded — see [`or_default`].
-            let sm = &workspace_manager.secrets_manager;
-            let host = or_default(&db.name, "host", ch.get_host(sm).await, "localhost");
-            let user = or_default(&db.name, "user", ch.get_user(sm).await, "");
-            let password = or_default(&db.name, "password", ch.get_password(sm).await, "");
-            let database = or_default(&db.name, "database", ch.get_database(sm).await, "");
+            // An unset user, password or database means the server's default,
+            // and an unset host keeps the historical `localhost`. A declared
+            // `host_var` that resolves to nothing is an error, never
+            // `http://localhost:8123` — see [`connection_field`].
+            let host = connection_field(db, "host", ch.get_host(sm).await, "localhost")?;
+            let user = connection_field(db, "user", ch.get_user(sm).await, "")?;
+            let password = connection_field(db, "password", ch.get_password(sm).await, "")?;
+            let database = connection_field(db, "database", ch.get_database(sm).await, "")?;
             let url = if host.contains("://") {
                 // Caller already provided a full URL (scheme + host + optional
                 // port + optional path).  Pass it through verbatim — common for
@@ -1103,12 +1189,12 @@ where
                 // Bare hostname — fall back to the default ClickHouse HTTP port.
                 format!("http://{host}:8123")
             };
-            Some(ConnectorConfig::ClickHouse(ClickHouseConfig {
+            Ok(Some(ConnectorConfig::ClickHouse(ClickHouseConfig {
                 url,
                 user,
                 password,
                 database,
-            }))
+            })))
         }
 
         DatabaseType::Snowflake(sf) => {
@@ -1126,20 +1212,14 @@ where
                         db = %db.name,
                         "Snowflake: private-key auth not yet supported in agentic connector"
                     );
-                    return None;
+                    return Ok(None);
                 }
                 _ => {
-                    let password = match sf.get_password(&workspace_manager.secrets_manager).await {
-                        Ok(p) => p,
-                        Err(e) => {
-                            tracing::warn!(db = %db.name, "Snowflake: cannot resolve password: {e}");
-                            return None;
-                        }
-                    };
+                    let password = required_field(db, "password", sf.get_password(sm).await)?;
                     SnowflakeAuth::Password { password }
                 }
             };
-            Some(ConnectorConfig::Snowflake(SnowflakeConfig {
+            Ok(Some(ConnectorConfig::Snowflake(SnowflakeConfig {
                 account: sf.account.clone(),
                 username: sf.username.clone(),
                 auth,
@@ -1147,17 +1227,11 @@ where
                 warehouse: sf.warehouse.clone(),
                 database: Some(sf.database.clone()),
                 schema: sf.schema.clone(),
-            }))
+            })))
         }
 
         DatabaseType::Bigquery(bq) => {
-            let key_path = match bq.get_key_path(&workspace_manager.secrets_manager).await {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::warn!(db = %db.name, "BigQuery: {e}");
-                    return None;
-                }
-            };
+            let key_path = required_field(db, "key_path", bq.get_key_path(sm).await)?;
             let key_path = workspace_manager
                 .config_manager
                 .try_resolve_file(&key_path)
@@ -1172,86 +1246,60 @@ where
                 {
                     datasets.push(ds.clone());
                 }
-                Some(ConnectorConfig::BigQuery(BigQueryConfig {
+                Ok(Some(ConnectorConfig::BigQuery(BigQueryConfig {
                     key_path,
                     project_id,
                     datasets,
-                }))
+                })))
             }
         }
 
         DatabaseType::MotherDuck(md) => {
-            let token = match md.get_token(&workspace_manager.secrets_manager).await {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::warn!(db = %db.name, "MotherDuck token: {e}");
-                    return None;
-                }
-            };
+            let token = required_field(db, "token", md.get_token(sm).await)?;
             let url = match &md.database {
                 Some(db) => format!("md:{}?motherduck_token={}", db, token),
                 None => format!("md:?motherduck_token={}", token),
             };
-            Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig { url }))
+            Ok(Some(ConnectorConfig::DuckDbUrl(DuckDbUrlConfig { url })))
         }
 
         DatabaseType::Mysql(my) => {
-            let host = my
-                .get_host(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "localhost".into());
-            let port: u16 = my
-                .get_port(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "3306".into())
-                .parse()
-                .unwrap_or(3306);
-            let user = my
-                .get_user(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let password = my
-                .get_password(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            let database = my
-                .get_database(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_default();
-            Some(ConnectorConfig::Mysql(MysqlConfig {
+            let host = connection_field(db, "host", my.get_host(sm).await, "localhost")?;
+            let port = connection_port(db, my.get_port(sm).await, 3306)?;
+            let user = connection_field(db, "user", my.get_user(sm).await, "")?;
+            let password = connection_field(db, "password", my.get_password(sm).await, "")?;
+            let database = connection_field(db, "database", my.get_database(sm).await, "")?;
+            Ok(Some(ConnectorConfig::Mysql(MysqlConfig {
                 host,
                 port,
                 user,
                 password,
                 database,
-            }))
+            })))
         }
 
         DatabaseType::DOMO(d) => {
-            let developer_token = match workspace_manager
-                .secrets_manager
-                .resolve_secret(&d.developer_token_var)
-                .await
-            {
+            let developer_token = match sm.resolve_secret(&d.developer_token_var).await {
                 Ok(Some(t)) => t,
                 Ok(None) => {
-                    tracing::warn!(
-                        db = %db.name,
-                        var = %d.developer_token_var,
-                        "DOMO developer-token secret not found"
-                    );
-                    return None;
+                    return Err(unresolved_var_error(
+                        db,
+                        "developer_token",
+                        Some(&d.developer_token_var),
+                    ));
                 }
                 Err(e) => {
-                    tracing::warn!(db = %db.name, "DOMO developer-token resolution failed: {e}");
-                    return None;
+                    return Err(OxyError::ConfigurationError(format!(
+                        "database '{}' (domo): could not resolve `developer_token`: {e}",
+                        db.name
+                    )));
                 }
             };
-            Some(ConnectorConfig::Domo(DomoConfig::from_instance(
+            Ok(Some(ConnectorConfig::Domo(DomoConfig::from_instance(
                 &d.instance,
                 developer_token,
                 &d.dataset_id,
-            )))
+            ))))
         }
     }
 }
@@ -1405,28 +1453,15 @@ async fn airhouse_wire_params<S>(
 ) -> Result<(String, u16, String, String, String), OxyError> {
     let params = match &db.database_type {
         DatabaseType::Airhouse(ah) => {
-            let host = ah
-                .get_host(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "localhost".into());
-            let port: u16 = ah
-                .get_port(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "5445".into())
-                .parse()
-                .unwrap_or(5445);
-            let user = ah
-                .get_user(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "admin".into());
-            let password = ah
-                .get_password(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "airhouse".into());
-            let database = ah
-                .get_database(&workspace_manager.secrets_manager)
-                .await
-                .unwrap_or_else(|_| "airhouse".into());
+            // The local-airhouse defaults apply only to fields the author left
+            // unset; a declared `*_var` with no secret is an error, as for every
+            // other warehouse — see [`connection_field`].
+            let sm = &workspace_manager.secrets_manager;
+            let host = connection_field(db, "host", ah.get_host(sm).await, "localhost")?;
+            let port = connection_port(db, ah.get_port(sm).await, 5445)?;
+            let user = connection_field(db, "user", ah.get_user(sm).await, "admin")?;
+            let password = connection_field(db, "password", ah.get_password(sm).await, "airhouse")?;
+            let database = connection_field(db, "database", ah.get_database(sm).await, "airhouse")?;
             (host, port, user, password, database)
         }
         DatabaseType::AirhouseManaged(_) => {

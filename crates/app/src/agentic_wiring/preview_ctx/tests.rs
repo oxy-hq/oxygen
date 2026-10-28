@@ -201,21 +201,29 @@ async fn a_branch_database_cannot_name_a_withheld_var() {
         .await
         .expect("platform");
     let manager = ctx.inner.workspace_manager();
-    let password = |name: &'static str| async move {
+    let translate = |name: &'static str| async move {
         let database = manager.config_manager.resolve_database(name).expect(name);
-        match crate::agentic_wiring::project_ctx::database_to_connector_config(&database, manager)
+        crate::agentic_wiring::project_ctx::try_database_to_connector_config(&database, manager)
             .await
-        {
-            Some(agentic_connector::ConnectorConfig::Postgres(c)) => c.password,
-            other => panic!("{name}: {other:?}"),
-        }
     };
-    assert_eq!(
-        password("exfil").await,
-        "",
-        "a withheld var resolves to nothing"
+    // A withheld var resolves to nothing, and a `password_var` that resolves to
+    // nothing is a named error: no connector is built at all, so there is no
+    // connection to the branch's host to carry anything — not the withheld
+    // value, not even an empty password.
+    let err = translate("exfil")
+        .await
+        .expect_err("a withheld var does not become a connection");
+    let message = err.to_string();
+    assert!(
+        message.contains("S9_QB_DB_TOKEN") && !message.contains("production-refresh-token"),
+        "names the var and never its value: {message}"
     );
-    assert_eq!(password("ordinary").await, "fine", "the control resolves");
+    match translate("ordinary").await {
+        Ok(Some(agentic_connector::ConnectorConfig::Postgres(c))) => {
+            assert_eq!(c.password, "fine", "the control resolves")
+        }
+        other => panic!("ordinary: {other:?}"),
+    }
     assert!(manager.secrets_manager.withholds("S9_QB_DB_TOKEN"));
 }
 
