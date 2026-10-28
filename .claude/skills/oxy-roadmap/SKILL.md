@@ -10,6 +10,25 @@ under three audiences, sorted by confidence. Its Governance section is the rule;
 `roadmap` merge status (`scripts/review/src/roadmap.ts`) checks the shape of it on every
 PR, and the automated review judges the substance. This skill is the mechanics.
 
+## Draft it before the PR body
+
+```bash
+node scripts/roadmap/roadmap.ts draft --title "<PR title>"
+```
+
+prints the brief: what the status says for the branch as it stands (working tree against
+the merge base with `origin/main`), the product files it counts, and the roadmap lines
+whose words the branch shares, closest first. Pick a row of the table below from that,
+make the doc edit it names, and end the PR body with the trailer. A PreToolUse hook
+(`.claude/hooks/guard-pr.sh`) runs `check` on the title and body of every PR created
+through the GitHub tool or `gh pr create`, against the checkout the command runs in, and
+refuses the creation until they pass; its message is the same verdict the status would
+post. A `wt-claim` slot is judged once the shell is already in it (a `cd` in an earlier
+call); a `cd` the command text cannot settle, `cd "$(just wt-claim …)" && gh pr create …`
+in one call, is let through unchecked, so run `check` yourself before such a command.
+The hook cannot know the PR number, so `link --id <id> --pr <n> --write` still runs
+after the PR opens.
+
 ## Decide: does this PR move a line?
 
 Ask it before the PR body is written, not after the status fails.
@@ -36,6 +55,7 @@ node scripts/roadmap/roadmap.ts link --id <id> --pr <n> --write    # cite PR n o
 node scripts/roadmap/roadmap.ts pin --write                        # pin every unpinned (new) line to its id
 node scripts/roadmap/roadmap.ts summary --write                    # regenerate platform-roadmap-summary.md
 node scripts/roadmap/roadmap.ts check --body-file body.md --pr <n> --title "<PR title>"  # what the status will say
+node scripts/roadmap/roadmap.ts draft --title "<PR title>"                               # the brief for writing the trailer
 ```
 
 `check` reads the PR title's type (`feat:`, `chore:`, …) from `--title`; without it, the
