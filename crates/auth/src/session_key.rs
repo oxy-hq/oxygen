@@ -14,11 +14,16 @@
 //!    variable or key file can promise: a pod that is missing the variable, or
 //!    fabricates its own file, signs sessions its neighbours refuse, and that
 //!    reads as "signed out at random".
-//! 2. **Mixed with `OXY_ENCRYPTION_KEY`, when that variable is set.** Then a
-//!    copy of the database alone — a backup, a read replica, a leaked dump — is
-//!    not enough to sign a session. Only the variable is used, never the
-//!    state-dir key file [`oxy_platform::secrets`] falls back to: the variable
-//!    is the same on every pod of a fleet, the file is not.
+//! 2. **Mixed with the master key, when the deployment has a fleet-wide one**:
+//!    `OXY_ENCRYPTION_KEY` while it is set, or the key loaded from KMS-sealed
+//!    `server_keys` (`oxy_platform::secrets::master_key`) once it is not
+//!    ([`oxy_platform::secrets::master_key_text_for_signing`], which gives the
+//!    same text for the same key, so removing the variable keeps every
+//!    session). Then a copy of the database alone — a backup, a read replica,
+//!    a leaked dump — is not enough to sign a session: the KMS-sealed row is
+//!    useless without KMS. Never the state-dir key file
+//!    [`oxy_platform::secrets`] falls back to: the variable is the same on
+//!    every pod of a fleet, the file is not.
 //!
 //! Each [`Purpose`] is signed with a key of its own, derived from that root, so
 //! an OAuth `state` can never be replayed as a session.
@@ -29,7 +34,9 @@
 //! and are untouched, and a token session (`token::browser_session`) is signed
 //! by its own token. That is the cost of deploying this, of rotating the row
 //! (`DELETE FROM server_keys WHERE name = 'session'`, then restart), and of
-//! adding, removing or rotating `OXY_ENCRYPTION_KEY`.
+//! adding, removing or rotating `OXY_ENCRYPTION_KEY` — except removing it once
+//! the same key is loaded from KMS-sealed `server_keys`, which mixes in the
+//! same text.
 //!
 //! Because of (2), an instance that is missing the variable while its
 //! neighbours have it derives a different root, and its sessions are refused
@@ -49,9 +56,6 @@ use tokio::sync::OnceCell;
 
 /// `server_keys.name` of the row every session key is derived from.
 const SESSION_ROW: &str = "session";
-/// The fleet-wide master key, when the deployment sets one. Read as text and
-/// mixed in as-is; whether it decodes is `oxy_platform::secrets`' business.
-const MASTER_KEY_VAR: &str = "OXY_ENCRYPTION_KEY";
 const ROOT_DOMAIN: &[u8] = b"oxy-signing-root:v1\0";
 
 /// What a key signs. One key each: a JWT signed for one purpose does not
@@ -136,7 +140,8 @@ async fn load_root() -> Result<[u8; 32], OxyError> {
         .await
         .map_err(|e| unavailable("connect", e))?;
     let stored = stored_secret(&db).await?;
-    let master = std::env::var(MASTER_KEY_VAR).ok().filter(|v| !v.is_empty());
+    // Read after boot loaded the key, so a KMS-loaded key is already there.
+    let master = oxy_platform::secrets::master_key_text_for_signing();
     let root = root_from(&stored, master.as_deref());
     // Once per process, and never the key. Every instance of a deployment must
     // print the same fingerprint: one that differs is an instance whose

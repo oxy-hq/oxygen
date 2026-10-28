@@ -41,7 +41,6 @@ aws-sigv4 = { version = "1", features = ["http0-compat", "sign-eventstream", "si
 aws-smithy-http = { version = "0.63", default-features = false, features = ["event-stream"] }
 aws-smithy-http-client = { version = "1", default-features = false, features = ["legacy-rustls-ring", "rustls-aws-lc", "test-util"] }
 aws-smithy-runtime = { version = "1", default-features = false, features = ["client", "default-https-client", "rt-tokio", "tls-rustls"] }
-aws-smithy-runtime-api = { version = "1", features = ["client", "http-02x", "http-auth", "test-util"] }
 aws-smithy-types = { version = "1", default-features = false, features = ["byte-stream-poll-next", "http-body-0-4-x", "http-body-1-x", "rt-tokio", "test-util"] }
 axum = { version = "0.8", features = ["http2", "macros", "multipart"] }
 axum-core = { version = "0.5", default-features = false, features = ["tracing"] }
@@ -99,7 +98,6 @@ icu_locale_core = { version = "2", default-features = false, features = ["alloc"
 icu_provider = { version = "2", default-features = false, features = ["alloc", "baked"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.13" }
 lazy_static = { version = "1", default-features = false, features = ["spin_no_std"] }
 libc = { version = "0.2" }
 liblzma = { version = "0.4", features = ["static"] }
@@ -250,7 +248,6 @@ icu_locale_core = { version = "2", default-features = false, features = ["alloc"
 icu_provider = { version = "2", default-features = false, features = ["alloc", "baked"] }
 idna = { version = "1" }
 indexmap = { version = "2", features = ["serde"] }
-itertools = { version = "0.13" }
 libc = { version = "0.2" }
 litemap = { version = "0.8", default-features = false, features = ["alloc"] }
 log = { version = "0.4", default-features = false, features = ["kv_unstable", "std"] }

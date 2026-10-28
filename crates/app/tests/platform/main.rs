@@ -22,7 +22,7 @@
 //!   `connector_vars_from_workspace_secrets`,
 //!   `anomaly_notify`, `workspace_health_history`, `usage_report`, `simulation_routes`,
 //!   `simulation_lifecycle`, `experiment_pricing`, `experiment_routes`, the two
-//!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl` and `encryption_key_check` are database-backed
+//!   `workspace_previews_*` modules, `preview_routes`, `preview_ttl`, `encryption_key_check` and `master_key_kms` are database-backed
 //!   through [`common::fresh_db`] — own database each, so they sit in
 //!   `db-per-test` (`max-threads = 4`).
 //! * `projects_query` and `local_mode_router` call `api_router(..)`, which
@@ -90,6 +90,7 @@ mod file_credentials_at_compile;
 mod frontline_app_grant;
 mod frontline_pin;
 mod local_mode_router;
+mod master_key_kms;
 mod metric_tree_fit_panel;
 mod migration_rollback_safety;
 mod migration_rollback_tolerance;

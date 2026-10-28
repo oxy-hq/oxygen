@@ -45,7 +45,8 @@ fn requirements() -> [Requirement; 3] {
         Requirement {
             var: oxy::utils::ENCRYPTION_KEY_VAR,
             why: "the AES key for stored secrets; base64 of 32 bytes, e.g. `openssl rand -base64 32`. \
-                  Every node must hold the same value",
+                  Every node must hold the same value. Not needed once the key is in \
+                  server_keys and OXY_ENCRYPTION_KMS_KEY_ID is set",
         },
         Requirement {
             var: oxy_custom_apps::build_store::BUCKET_VAR,
@@ -68,7 +69,13 @@ pub fn check(role: Role, read: impl Fn(&str) -> Option<String>) -> Result<(), St
     let mut problems = Vec::new();
     for req in requirements() {
         let value = read(req.var).filter(|v| !v.trim().is_empty());
+        // With the key in KMS-sealed `server_keys`, the variable is only the
+        // seed for the first boot; `master_key::load_at_boot` says when that
+        // boot needs it.
+        let key_in_kms = req.var == oxy::utils::ENCRYPTION_KEY_VAR
+            && read(oxy::utils::KMS_KEY_ID_VAR).is_some_and(|v| !v.trim().is_empty());
         match value {
+            None if key_in_kms => {}
             None => problems.push(format!("  {}: not set. {}", req.var, req.why)),
             Some(v) if req.var == oxy::utils::ENCRYPTION_KEY_VAR => {
                 if let Err(e) = oxy::utils::parse_encryption_key(&v) {
@@ -101,6 +108,20 @@ pub fn check_process_env(role: Role) -> Result<(), String> {
         oxy::utils::forbid_key_file_creation(format!("OXY_ROLE={}", role.as_str()));
     }
     check(role, |name| std::env::var(name).ok())
+}
+
+/// For the entry points, before migrations (a migration may seal a value) and
+/// again after them (a fresh database has no `server_keys` before): with
+/// `OXY_ENCRYPTION_KMS_KEY_ID` set, load the master key from `server_keys`,
+/// sealing `OXY_ENCRYPTION_KEY` into it on the first boot. Nothing otherwise.
+pub async fn load_master_key() -> Result<(), String> {
+    if oxy::utils::kms_key_id().is_none() {
+        return Ok(());
+    }
+    let db = oxy::database::client::establish_connection()
+        .await
+        .map_err(|e| format!("Could not load the master key from the database: {e}"))?;
+    oxy::adapters::secrets::master_key::load_at_boot(&db).await
 }
 
 /// The second half, for the entry points after migrations: the key this
@@ -189,6 +210,21 @@ mod tests {
         assert!(err.contains("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET"), "{err}");
         assert!(!err.contains("OXY_ENCRYPTION_KEY"), "{err}");
         assert!(!err.contains("OXY_CUSTOMER_APPS_S3_BUCKET:"), "{err}");
+    }
+
+    #[test]
+    fn a_kms_key_id_stands_in_for_the_variable() {
+        let mut pairs = full();
+        pairs.retain(|(k, _)| *k != "OXY_ENCRYPTION_KEY");
+        pairs.push(("OXY_ENCRYPTION_KMS_KEY_ID", "alias/oxy-dev-oxy-master-key"));
+        assert_eq!(check(Role::Serve, env(&pairs)), Ok(()));
+        // Both set: the variable is still checked, since the first boot seals it.
+        pairs.push(("OXY_ENCRYPTION_KEY", "QUJD"));
+        let err = check(Role::Serve, env(&pairs)).expect_err("must refuse");
+        assert!(
+            err.contains("OXY_ENCRYPTION_KEY: set but unusable"),
+            "{err}"
+        );
     }
 
     #[test]

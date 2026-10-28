@@ -568,7 +568,7 @@ const TABLES: &[(&str, Placement)] = &[
     (
         "server_keys",
         Control(
-            "secrets the deployment generates for itself: the session-signing root, the encryption-key check value",
+            "secrets the deployment generates for itself: the session-signing root, the encryption-key check value, the KMS-sealed master key",
         ),
     ),
     (

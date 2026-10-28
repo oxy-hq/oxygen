@@ -266,6 +266,11 @@ pub async fn run_worker(
     // because the two disagree. It also logs two contradictory
     // "role manifest initialised" lines.
 
+    // As at `oxy serve` boot: the master key from `server_keys` when it is in
+    // KMS, before and after migrations.
+    crate::server::shared_state_check::load_master_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     if args.skip_migrations || serve::skip_migrations_requested() {
         tracing::info!("worker: skipping migrations (--skip-migrations or OXY_SKIP_MIGRATIONS)");
     } else {
@@ -275,6 +280,9 @@ pub async fn run_worker(
     }
     // As at `oxy serve` boot: a key that cannot open this database's sealed
     // values is refused before the worker claims anything off the queue.
+    crate::server::shared_state_check::load_master_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     crate::server::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;

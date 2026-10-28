@@ -127,6 +127,12 @@ pub async fn start_server_and_web_app(
     // sets `OXY_SKIP_MIGRATIONS=1` on the stateless serve fleet; honouring it
     // here avoids every serve pod re-running (and, pre-advisory-lock, racing)
     // the full migrator on boot. Unset → migrate as before (single-node / dev).
+    // With OXY_ENCRYPTION_KMS_KEY_ID: the master key, from `server_keys`, before
+    // anything can seal a value. Again after migrations, for a database that had
+    // no `server_keys` yet.
+    crate::server::shared_state_check::load_master_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     if skip_migrations_requested() {
         println!("serve: OXY_SKIP_MIGRATIONS set — skipping migrations (run by the migrate Job)");
     } else {
@@ -136,6 +142,9 @@ pub async fn start_server_and_web_app(
     // Every role, `all` included: refuse a key that cannot open what this
     // database's secrets were sealed with. After migrations, because the check
     // value lives in `server_keys`.
+    crate::server::shared_state_check::load_master_key()
+        .await
+        .map_err(OxyError::RuntimeError)?;
     crate::server::shared_state_check::check_encryption_key()
         .await
         .map_err(OxyError::RuntimeError)?;

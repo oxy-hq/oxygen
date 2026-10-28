@@ -29,6 +29,17 @@
 //! value copied from another environment, a restore): without it every sealed
 //! value becomes unreadable while the pods report healthy.
 //!
+//! ## The key in Postgres, sealed by KMS
+//!
+//! When `OXY_ENCRYPTION_KMS_KEY_ID` is set, the master key is a `server_keys`
+//! row (`master_key`) sealed by that KMS key, loaded once at boot by
+//! [`super::master_key`] and installed here ([`install_master_key`]); from
+//! then on [`get_encryption_key`] returns it and nothing else. The first boot
+//! seals `OXY_ENCRYPTION_KEY` into that row, after [`super::key_check`] has
+//! shown it opens the existing data; after that the variable may be removed. A
+//! process with the setting and neither a loaded key nor the variable panics
+//! rather than make a key.
+//!
 //! Rotation (opening with a previous key and sealing again with a new one) is
 //! not implemented; it would go in [`super::key_check`], which is the one place
 //! that knows which key a deployment's data was sealed with.
@@ -49,6 +60,74 @@ use oxy_shared::errors::OxyError;
 
 /// The env var holding the master key: base64 of 32 bytes.
 pub const ENCRYPTION_KEY_VAR: &str = "OXY_ENCRYPTION_KEY";
+
+/// The KMS key (id, ARN or alias) that seals the master key stored in
+/// `server_keys`. When set, the master key comes from there and nowhere else
+/// once the process has loaded it; see [`super::master_key`].
+pub const KMS_KEY_ID_VAR: &str = "OXY_ENCRYPTION_KMS_KEY_ID";
+
+/// [`KMS_KEY_ID_VAR`], when it is set to something.
+pub fn kms_key_id() -> Option<String> {
+    std::env::var(KMS_KEY_ID_VAR)
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// Where a key installed with [`install_master_key`] came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MasterKeySource {
+    /// `server_keys` row `master_key`, opened with this KMS key.
+    Kms { key_id: String },
+}
+
+struct Installed {
+    key: [u8; 32],
+    source: MasterKeySource,
+}
+
+/// The master key this process loaded at boot, when it loads it from somewhere
+/// other than the variable or the file. Once set, it is what
+/// [`get_encryption_key`] returns for the life of the process.
+static INSTALLED: OnceLock<Installed> = OnceLock::new();
+
+/// Hold `key` as this process's master key from now on. A second call with
+/// the same key is a no-op; with a different key it is an error, since two
+/// keys in one process is exactly what this module exists to prevent.
+pub fn install_master_key(key: [u8; 32], source: MasterKeySource) -> Result<(), String> {
+    let installed = INSTALLED.get_or_init(|| Installed { key, source });
+    if installed.key == key {
+        Ok(())
+    } else {
+        Err("a different master key is already loaded in this process".to_string())
+    }
+}
+
+/// The key [`install_master_key`] installed, if any.
+pub fn installed_master_key() -> Option<[u8; 32]> {
+    INSTALLED.get().map(|i| i.key)
+}
+
+/// The text `oxy_auth::session_key` mixes into the session-signing root.
+///
+/// While `OXY_ENCRYPTION_KEY` is set, its raw value, exactly as that module
+/// has always read it. Without the variable, the base64 of a master key loaded
+/// from KMS, which is the same text whenever the variable held the canonical
+/// encoding of the same key (the usual `openssl rand -base64 32` value). So
+/// removing the variable once the key is in `server_keys` keeps every session.
+/// A key from the key file is never mixed in, as before.
+pub fn master_key_text_for_signing() -> Option<String> {
+    signing_text(
+        std::env::var(ENCRYPTION_KEY_VAR).ok(),
+        INSTALLED.get().map(|i| i.key),
+    )
+}
+
+fn signing_text(variable: Option<String>, installed: Option<[u8; 32]>) -> Option<String> {
+    variable
+        .filter(|v| !v.is_empty())
+        .or_else(|| installed.map(|key| BASE64.encode(key)))
+}
 
 /// Look up oxy's state directory.
 ///
@@ -92,9 +171,13 @@ fn key_file_creation_forbidden_by(role: Option<&str>) -> Option<String> {
     }
 }
 
-/// Where [`get_encryption_key`] takes the key from, for a message: the
-/// variable when it is set, otherwise the key file.
+/// Where [`get_encryption_key`] takes the key from, for a message: the key
+/// loaded from KMS, the variable when it is set, otherwise the key file.
 pub fn encryption_key_source() -> String {
+    if let Some(installed) = INSTALLED.get() {
+        let MasterKeySource::Kms { key_id } = &installed.source;
+        return format!("server_keys row `master_key` (opened with KMS key {key_id})");
+    }
     if std::env::var(ENCRYPTION_KEY_VAR).is_ok() {
         ENCRYPTION_KEY_VAR.to_string()
     } else {
@@ -131,9 +214,23 @@ fn decode_key_from_string(key_str: &str) -> [u8; 32] {
 /// Get the encryption key from environment variable.
 /// Falls back to a development key for development (NOT secure for production).
 pub fn get_encryption_key() -> [u8; 32] {
-    // First try environment variable
+    // The key loaded at boot, when there is one: the process holds it from
+    // then on, and boot already refused a variable that differs from it.
+    if let Some(installed) = INSTALLED.get() {
+        return installed.key;
+    }
+    // Then the environment variable
     if let Ok(key_str) = std::env::var(ENCRYPTION_KEY_VAR) {
         return decode_key_from_string(&key_str);
+    }
+    // A deployment whose key lives in KMS has no file and no variable: a
+    // process that reached here never loaded the key at boot.
+    if let Some(key_id) = kms_key_id() {
+        panic!(
+            "{KMS_KEY_ID_VAR} is set ({key_id}) but this process has not loaded the master key \
+             from server_keys, and {ENCRYPTION_KEY_VAR} is not set. Only `oxy serve`, \
+             `oxy worker` and `oxy migrate` load it; set {ENCRYPTION_KEY_VAR} for anything else."
+        );
     }
 
     let key_file_path = get_key_file_path();
@@ -195,6 +292,19 @@ mod tests {
                 Some(format!("OXY_ROLE={}", role.trim()).as_str()),
             );
         }
+    }
+
+    /// Removing the variable once the key is loaded from KMS must not change
+    /// what the session-signing root is derived from.
+    #[test]
+    fn the_signing_text_is_the_same_with_the_variable_or_the_loaded_key() {
+        let key = [9u8; 32];
+        let variable = BASE64.encode(key); // what `openssl rand -base64 32` prints
+        let before = signing_text(Some(variable.clone()), None);
+        assert_eq!(signing_text(Some(variable.clone()), Some(key)), before);
+        assert_eq!(signing_text(None, Some(key)), before);
+        assert_eq!(signing_text(Some(String::new()), None), None);
+        assert_eq!(signing_text(None, None), None);
     }
 
     #[test]

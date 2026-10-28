@@ -13,5 +13,6 @@ pub use storage::SecretsStorage;
 // depending on the full `oxy` crate. The envelope-crypto helpers ride along
 // for callers that need to seal small values under the master key without
 // going through the org_secrets table, and so does the boot check that the
-// master key opens what this database was sealed with (`key_check`).
-pub use oxy_platform::secrets::{OrgSecretsService, envelope, key_check};
+// master key opens what this database was sealed with (`key_check`), and the
+// loader for a master key kept in Postgres under KMS (`master_key`).
+pub use oxy_platform::secrets::{OrgSecretsService, envelope, key_check, master_key};

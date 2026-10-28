@@ -37,6 +37,9 @@ aws-config = { workspace = true, features = ["behavior-version-latest"] }
 aws-credential-types = { workspace = true }
 aws-sigv4 = { workspace = true }
 url = { workspace = true }
+# The master key, sealed by KMS and stored in `server_keys`
+# (`secrets::master_key`).
+aws-sdk-kms = { workspace = true }
 
 # Async + utilities
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
