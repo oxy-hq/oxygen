@@ -1,4 +1,4 @@
-import { Handshake, House, MessagesSquare, Shield, SquareTerminal } from "lucide-react";
+import { Handshake, House, MessagesSquare, Shield } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AskDock } from "@/components/Ask/AskDock";
@@ -149,7 +149,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       ? `Open ${currentOrg.name}'s Factory, or search every organization`
       : "Open an organization's Factory",
     testId: "rail-open-factory",
-    icon: <SquareTerminal className='h-4 w-4' />,
+    icon: <OxygenFactoryMark className='h-6 w-6' />,
     active: path.startsWith(ws.IDE.ROOT),
     onSelect: () => {
       if (actingHere && wsId) {

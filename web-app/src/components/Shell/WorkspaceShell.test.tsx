@@ -192,6 +192,14 @@ describe("the staff Factory button in the rail", () => {
     expect(screen.getByTestId("open-factory-dialog")).toHaveTextContent("Acme");
   });
 
+  it("shows the Oxygen Factory mark, not a terminal icon", () => {
+    appsFirst = true;
+    operator = true;
+    renderAt("/acme/home");
+    const mark = screen.getByTestId("rail-open-factory").querySelector("img");
+    expect(mark?.getAttribute("src")).toMatch(/oxygen-factory-mark-(light|dark)\.svg$/);
+  });
+
   it("goes straight into the Factory when staff already act as this org", () => {
     appsFirst = true;
     operator = true;

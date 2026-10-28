@@ -1,7 +1,8 @@
-import { FolderOpen, RefreshCw, Search, SquareTerminal } from "lucide-react";
+import { FolderOpen, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type FactoryTarget, OpenFactoryDialog } from "@/components/admin/OpenFactoryDialog";
+import { OxygenFactoryMark } from "@/components/OxygenFactoryMark";
 import { Button } from "@/components/ui/shadcn/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/shadcn/card";
 import { Input } from "@/components/ui/shadcn/input";
@@ -111,7 +112,7 @@ export default function AdminWorkspaces() {
               onClick={() => setOpenFactory({ target: null })}
               data-testid='admin-workspaces-open-factory'
             >
-              <SquareTerminal className='size-4' />
+              <OxygenFactoryMark className='size-4' />
               Open Factory…
             </Button>
             <Button variant='outline' size='sm' onClick={() => refetch()} disabled={isFetching}>
@@ -211,7 +212,7 @@ export default function AdminWorkspaces() {
                             }}
                             data-testid={`admin-workspaces-open-factory-${w.id}`}
                           >
-                            <SquareTerminal className='size-4' />
+                            <OxygenFactoryMark className='size-4' />
                             Open Factory
                           </Button>
                         )}
