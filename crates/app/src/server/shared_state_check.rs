@@ -45,8 +45,8 @@ fn requirements() -> [Requirement; 3] {
         Requirement {
             var: oxy::utils::ENCRYPTION_KEY_VAR,
             why: "the AES key for stored secrets; base64 of 32 bytes, e.g. `openssl rand -base64 32`. \
-                  Every node must hold the same value. Not needed once the key is in \
-                  server_keys and OXY_ENCRYPTION_KMS_KEY_ID is set",
+                  Every node must hold the same value. Not needed in Kubernetes once the key \
+                  is in server_keys row `master_key`, sealed by KMS",
         },
         Requirement {
             var: oxy_custom_apps::build_store::BUCKET_VAR,
@@ -62,21 +62,26 @@ fn requirements() -> [Requirement; 3] {
 /// `Err(message)` when `role` is not the single process and a required
 /// setting is missing or, for the key, unusable. `read` is the environment, so
 /// the check is testable without touching the process's.
-pub fn check(role: Role, read: impl Fn(&str) -> Option<String>) -> Result<(), String> {
+///
+/// `in_kubernetes`: the master key may be in `server_keys`, sealed by KMS
+/// (`oxy::adapters::secrets::master_key`), which only the database can say. A
+/// missing key variable is then left to [`check_encryption_key`], after the
+/// row is read; an unusable one is still refused here.
+pub fn check(
+    role: Role,
+    read: impl Fn(&str) -> Option<String>,
+    in_kubernetes: bool,
+) -> Result<(), String> {
     if role == Role::All {
         return Ok(());
     }
     let mut problems = Vec::new();
     for req in requirements() {
         let value = read(req.var).filter(|v| !v.trim().is_empty());
-        // With the key in KMS-sealed `server_keys`, the variable is only the
-        // seed for the first boot; `master_key::load_at_boot` says when that
-        // boot needs it.
-        let key_in_kms = req.var == oxy::utils::ENCRYPTION_KEY_VAR
-            && read(oxy::utils::KMS_KEY_ID_VAR).is_some_and(|v| !v.trim().is_empty());
+        let key_may_be_stored = req.var == oxy::utils::ENCRYPTION_KEY_VAR && in_kubernetes;
         match value {
-            None if key_in_kms => {}
-            None => problems.push(format!("  {}: not set. {}", req.var, req.why)),
+            None if key_may_be_stored => {}
+            None => problems.push(problem_not_set(&req)),
             Some(v) if req.var == oxy::utils::ENCRYPTION_KEY_VAR => {
                 if let Err(e) = oxy::utils::parse_encryption_key(&v) {
                     problems.push(format!(
@@ -91,13 +96,36 @@ pub fn check(role: Role, read: impl Fn(&str) -> Option<String>) -> Result<(), St
     if problems.is_empty() {
         return Ok(());
     }
-    Err(format!(
+    Err(refusal(role, &problems))
+}
+
+fn problem_not_set(req: &Requirement) -> String {
+    format!("  {}: not set. {}", req.var, req.why)
+}
+
+fn refusal(role: Role, problems: &[String]) -> String {
+    format!(
         "OXY_ROLE={} needs state that every node can read, and these settings are missing:\n{}\n\n\
          Without them this process would keep the state on its own disk, where no other node \
          can see it. A single process (OXY_ROLE=all, or `oxy start`) does not need them.",
         role.as_str(),
         problems.join("\n"),
-    ))
+    )
+}
+
+/// The half of [`check`] that waits for the database: `role` is not the single
+/// process, no master key was loaded from `server_keys`, and the variable is
+/// not set either. `key_loaded` and `variable_set` are passed in so this is
+/// testable.
+fn check_key_after_load(role: Role, key_loaded: bool, variable_set: bool) -> Result<(), String> {
+    if role == Role::All || key_loaded || variable_set {
+        return Ok(());
+    }
+    let key = requirements()
+        .into_iter()
+        .find(|r| r.var == oxy::utils::ENCRYPTION_KEY_VAR)
+        .expect("the key is a requirement");
+    Err(refusal(role, &[problem_not_set(&key)]))
 }
 
 /// [`check`] against the real environment, for the entry points. A process
@@ -107,27 +135,52 @@ pub fn check_process_env(role: Role) -> Result<(), String> {
     if role != Role::All {
         oxy::utils::forbid_key_file_creation(format!("OXY_ROLE={}", role.as_str()));
     }
-    check(role, |name| std::env::var(name).ok())
+    check(
+        role,
+        |name| std::env::var(name).ok(),
+        oxy::adapters::secrets::master_key::pod_namespace().is_some(),
+    )
 }
 
-/// For the entry points, before migrations (a migration may seal a value) and
-/// again after them (a fresh database has no `server_keys` before): with
-/// `OXY_ENCRYPTION_KMS_KEY_ID` set, load the master key from `server_keys`,
-/// sealing `OXY_ENCRYPTION_KEY` into it on the first boot. Nothing otherwise.
+/// For `oxy serve` and `oxy worker`, before migrations (a migration may seal a
+/// value) and again after them (a fresh database has no `server_keys` before):
+/// in Kubernetes, load the master key from `server_keys` row `master_key`, or
+/// seal `OXY_ENCRYPTION_KEY` into it when the namespace's KMS alias exists
+/// (`oxy::adapters::secrets::master_key`). Nothing outside Kubernetes.
 pub async fn load_master_key() -> Result<(), String> {
-    if oxy::utils::kms_key_id().is_none() {
+    if oxy::adapters::secrets::master_key::pod_namespace().is_none() {
         return Ok(());
     }
-    let db = oxy::database::client::establish_connection()
-        .await
-        .map_err(|e| format!("Could not load the master key from the database: {e}"))?;
+    let db = master_key_db().await?;
     oxy::adapters::secrets::master_key::load_at_boot(&db).await
 }
 
-/// The second half, for the entry points after migrations: the key this
-/// process loaded must open what this database's values were sealed with.
-/// `Err(message)` names the key's source and what an operator does next.
+/// For `oxy migrate`: in Kubernetes, open `server_keys` row `master_key` when
+/// it is there. Never seals a new one.
+pub async fn open_master_key() -> Result<(), String> {
+    if oxy::adapters::secrets::master_key::pod_namespace().is_none() {
+        return Ok(());
+    }
+    let db = master_key_db().await?;
+    oxy::adapters::secrets::master_key::open_at_boot(&db).await
+}
+
+async fn master_key_db() -> Result<sea_orm::DatabaseConnection, String> {
+    oxy::database::client::establish_connection()
+        .await
+        .map_err(|e| format!("Could not load the master key from the database: {e}"))
+}
+
+/// The second half, for the entry points after migrations: a process that is
+/// not the single process has a key (from `server_keys` or the variable), and
+/// the key this process loaded opens what this database's values were sealed
+/// with. `Err(message)` names the key's source and what an operator does next.
 pub async fn check_encryption_key() -> Result<(), String> {
+    check_key_after_load(
+        oxy_app_core::process_role::current_process_role(),
+        oxy::utils::installed_master_key().is_some(),
+        std::env::var(oxy::utils::ENCRYPTION_KEY_VAR).is_ok_and(|v| !v.trim().is_empty()),
+    )?;
     let db = oxy::database::client::establish_connection()
         .await
         .map_err(|e| format!("Could not check the encryption key against the database: {e}"))?;
@@ -174,13 +227,13 @@ mod tests {
 
     #[test]
     fn the_single_process_needs_none_of_it() {
-        assert_eq!(check(Role::All, env(&[])), Ok(()));
+        assert_eq!(check(Role::All, env(&[]), false), Ok(()));
     }
 
     #[test]
     fn every_other_role_refuses_an_empty_environment_naming_each_setting() {
         for role in [Role::Ide, Role::Serve, Role::Worker] {
-            let err = check(role, env(&[])).expect_err("must refuse");
+            let err = check(role, env(&[]), false).expect_err("must refuse");
             assert!(
                 err.starts_with(&format!("OXY_ROLE={} needs", role.as_str())),
                 "{err}"
@@ -198,7 +251,7 @@ mod tests {
     #[test]
     fn a_complete_environment_passes_in_every_role() {
         for role in [Role::Ide, Role::Serve, Role::Worker, Role::All] {
-            assert_eq!(check(role, env(&full())), Ok(()), "{role:?}");
+            assert_eq!(check(role, env(&full()), false), Ok(()), "{role:?}");
         }
     }
 
@@ -206,21 +259,22 @@ mod tests {
     fn only_the_missing_settings_are_named() {
         let mut pairs = full();
         pairs.retain(|(k, _)| *k != "OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET");
-        let err = check(Role::Serve, env(&pairs)).expect_err("must refuse");
+        let err = check(Role::Serve, env(&pairs), false).expect_err("must refuse");
         assert!(err.contains("OXY_CUSTOMER_APPS_STORAGE_S3_BUCKET"), "{err}");
         assert!(!err.contains("OXY_ENCRYPTION_KEY"), "{err}");
         assert!(!err.contains("OXY_CUSTOMER_APPS_S3_BUCKET:"), "{err}");
     }
 
     #[test]
-    fn a_kms_key_id_stands_in_for_the_variable() {
+    fn in_kubernetes_a_missing_key_waits_for_the_database() {
         let mut pairs = full();
         pairs.retain(|(k, _)| *k != "OXY_ENCRYPTION_KEY");
-        pairs.push(("OXY_ENCRYPTION_KMS_KEY_ID", "alias/oxy-dev-oxy-master-key"));
-        assert_eq!(check(Role::Serve, env(&pairs)), Ok(()));
-        // Both set: the variable is still checked, since the first boot seals it.
+        assert_eq!(check(Role::Serve, env(&pairs), true), Ok(()));
+        // Outside Kubernetes nothing can stand in for it.
+        assert!(check(Role::Serve, env(&pairs), false).is_err());
+        // An unusable variable is refused in Kubernetes too: the first boot seals it.
         pairs.push(("OXY_ENCRYPTION_KEY", "QUJD"));
-        let err = check(Role::Serve, env(&pairs)).expect_err("must refuse");
+        let err = check(Role::Serve, env(&pairs), true).expect_err("must refuse");
         assert!(
             err.contains("OXY_ENCRYPTION_KEY: set but unusable"),
             "{err}"
@@ -228,11 +282,26 @@ mod tests {
     }
 
     #[test]
+    fn after_the_database_a_fleet_role_needs_a_loaded_key_or_the_variable() {
+        for role in [Role::Ide, Role::Serve, Role::Worker] {
+            let err = check_key_after_load(role, false, false).expect_err("must refuse");
+            assert!(
+                err.starts_with(&format!("OXY_ROLE={} needs", role.as_str())),
+                "{err}"
+            );
+            assert!(err.contains("OXY_ENCRYPTION_KEY: not set"), "{err}");
+            assert_eq!(check_key_after_load(role, true, false), Ok(()));
+            assert_eq!(check_key_after_load(role, false, true), Ok(()));
+        }
+        assert_eq!(check_key_after_load(Role::All, false, false), Ok(()));
+    }
+
+    #[test]
     fn a_blank_value_is_not_a_value() {
         let mut pairs = full();
         pairs.retain(|(k, _)| *k != "OXY_CUSTOMER_APPS_S3_BUCKET");
         pairs.push(("OXY_CUSTOMER_APPS_S3_BUCKET", "   "));
-        let err = check(Role::Worker, env(&pairs)).expect_err("must refuse");
+        let err = check(Role::Worker, env(&pairs), false).expect_err("must refuse");
         assert!(
             err.contains("OXY_CUSTOMER_APPS_S3_BUCKET: not set"),
             "{err}"
@@ -247,7 +316,7 @@ mod tests {
             let mut pairs = full();
             pairs.retain(|(k, _)| *k != "OXY_ENCRYPTION_KEY");
             pairs.push(("OXY_ENCRYPTION_KEY", bad));
-            let err = check(Role::Ide, env(&pairs)).expect_err("must refuse");
+            let err = check(Role::Ide, env(&pairs), false).expect_err("must refuse");
             assert!(
                 err.contains("OXY_ENCRYPTION_KEY: set but unusable"),
                 "{err}"

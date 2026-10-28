@@ -4,8 +4,8 @@
 //! (`oxy_auth::session_key`); `encryption_check`, a fixed value sealed with
 //! the master key that every boot must be able to open
 //! (`oxy_platform::secrets::key_check`); and `master_key`, the master key
-//! itself sealed by KMS when `OXY_ENCRYPTION_KMS_KEY_ID` is set
-//! (`oxy_platform::secrets::master_key`).
+//! itself sealed by KMS, in a Kubernetes namespace that has the KMS alias for
+//! it (`oxy_platform::secrets::master_key`).
 
 use sea_orm::entity::prelude::*;
 

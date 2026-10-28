@@ -266,8 +266,8 @@ pub async fn run_worker(
     // because the two disagree. It also logs two contradictory
     // "role manifest initialised" lines.
 
-    // As at `oxy serve` boot: the master key from `server_keys` when it is in
-    // KMS, before and after migrations.
+    // As at `oxy serve` boot: in Kubernetes, the master key from `server_keys`
+    // (sealed by KMS), before and after migrations.
     crate::server::shared_state_check::load_master_key()
         .await
         .map_err(OxyError::RuntimeError)?;

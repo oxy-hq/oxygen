@@ -31,14 +31,15 @@
 //!
 //! ## The key in Postgres, sealed by KMS
 //!
-//! When `OXY_ENCRYPTION_KMS_KEY_ID` is set, the master key is a `server_keys`
-//! row (`master_key`) sealed by that KMS key, loaded once at boot by
-//! [`super::master_key`] and installed here ([`install_master_key`]); from
-//! then on [`get_encryption_key`] returns it and nothing else. The first boot
-//! seals `OXY_ENCRYPTION_KEY` into that row, after [`super::key_check`] has
-//! shown it opens the existing data; after that the variable may be removed. A
-//! process with the setting and neither a loaded key nor the variable panics
-//! rather than make a key.
+//! In Kubernetes, the master key can be a `server_keys` row (`master_key`)
+//! sealed by KMS, loaded once at boot by [`super::master_key`] and installed
+//! here ([`install_master_key`]); from then on [`get_encryption_key`] returns
+//! it and nothing else. Nothing is configured for it: a row that is there is
+//! opened, and with no row the first boot of a pod whose namespace has a KMS
+//! alias `alias/<namespace>-oxy-master-key` seals `OXY_ENCRYPTION_KEY` into
+//! it, after [`super::key_check`] has shown it opens the existing data; after
+//! that the variable may be removed. Without the alias, or outside
+//! Kubernetes, the steps above apply as before.
 //!
 //! Rotation (opening with a previous key and sealing again with a new one) is
 //! not implemented; it would go in [`super::key_check`], which is the one place
@@ -61,23 +62,10 @@ use oxy_shared::errors::OxyError;
 /// The env var holding the master key: base64 of 32 bytes.
 pub const ENCRYPTION_KEY_VAR: &str = "OXY_ENCRYPTION_KEY";
 
-/// The KMS key (id, ARN or alias) that seals the master key stored in
-/// `server_keys`. When set, the master key comes from there and nowhere else
-/// once the process has loaded it; see [`super::master_key`].
-pub const KMS_KEY_ID_VAR: &str = "OXY_ENCRYPTION_KMS_KEY_ID";
-
-/// [`KMS_KEY_ID_VAR`], when it is set to something.
-pub fn kms_key_id() -> Option<String> {
-    std::env::var(KMS_KEY_ID_VAR)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
-
 /// Where a key installed with [`install_master_key`] came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MasterKeySource {
-    /// `server_keys` row `master_key`, opened with this KMS key.
+    /// `server_keys` row `master_key`, sealed by this KMS key (an ARN).
     Kms { key_id: String },
 }
 
@@ -176,7 +164,7 @@ fn key_file_creation_forbidden_by(role: Option<&str>) -> Option<String> {
 pub fn encryption_key_source() -> String {
     if let Some(installed) = INSTALLED.get() {
         let MasterKeySource::Kms { key_id } = &installed.source;
-        return format!("server_keys row `master_key` (opened with KMS key {key_id})");
+        return format!("server_keys row `master_key` (sealed by KMS key {key_id})");
     }
     if std::env::var(ENCRYPTION_KEY_VAR).is_ok() {
         ENCRYPTION_KEY_VAR.to_string()
@@ -223,16 +211,6 @@ pub fn get_encryption_key() -> [u8; 32] {
     if let Ok(key_str) = std::env::var(ENCRYPTION_KEY_VAR) {
         return decode_key_from_string(&key_str);
     }
-    // A deployment whose key lives in KMS has no file and no variable: a
-    // process that reached here never loaded the key at boot.
-    if let Some(key_id) = kms_key_id() {
-        panic!(
-            "{KMS_KEY_ID_VAR} is set ({key_id}) but this process has not loaded the master key \
-             from server_keys, and {ENCRYPTION_KEY_VAR} is not set. Only `oxy serve`, \
-             `oxy worker` and `oxy migrate` load it; set {ENCRYPTION_KEY_VAR} for anything else."
-        );
-    }
-
     let key_file_path = get_key_file_path();
     if let Ok(key_str) = fs::read_to_string(&key_file_path) {
         let key_str = key_str.trim();

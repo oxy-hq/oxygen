@@ -20,13 +20,13 @@ use oxy_shared::errors::OxyError;
 pub async fn migrate() -> Result<(), OxyError> {
     oxy::utils::forbid_key_file_creation("oxy migrate");
     // With the key in KMS-sealed `server_keys`, the Job needs no variable at
-    // all: load it before a migration can seal anything. Only once the
-    // variable is gone: while it is set the Job uses it and never calls KMS,
-    // so its own service account needs no KMS grant until then, and sealing
-    // the row stays with `oxy serve` / `oxy worker`, which compare it. A fresh
-    // database has no `server_keys` yet, and nothing to seal either.
+    // all: open the row before a migration can seal anything. Only without the
+    // variable: while it is set the Job uses it and never calls KMS, so its own
+    // service account needs no KMS grant until then. The Job never seals a new
+    // row; that stays with `oxy serve` / `oxy worker`, which compare it. A
+    // fresh database has no `server_keys` yet, and nothing to seal either.
     if std::env::var(oxy::utils::ENCRYPTION_KEY_VAR).is_err() {
-        crate::server::shared_state_check::load_master_key()
+        crate::server::shared_state_check::open_master_key()
             .await
             .map_err(OxyError::RuntimeError)?;
     }

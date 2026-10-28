@@ -1,6 +1,7 @@
 //! The KMS-sealed master key against a real Postgres, with a fake KMS: the
-//! first boot seals `OXY_ENCRYPTION_KEY` into `server_keys` only after it opens
-//! the data already there, and later boots take the key from the row.
+//! first boot of a pod whose namespace has the KMS alias seals
+//! `OXY_ENCRYPTION_KEY` into `server_keys` only after it opens the data
+//! already there, and later boots take the key from the row.
 //!
 //! The boot rule is unit-tested with a fake store in
 //! `oxy_platform::secrets::master_key`. These pin the SQL and the hand-off to
@@ -13,36 +14,60 @@ use entity::organizations;
 use oxy::adapters::secrets::envelope;
 use oxy::adapters::secrets::key_check::CHECK_ROW;
 use oxy::adapters::secrets::master_key::{
-    Kms, MASTER_KEY_ROW, PostgresStore, StoredMasterKey, resolve,
+    KeyLookup, Kms, MASTER_KEY_ROW, PostgresStore, Resolved, StoredMasterKey, resolve,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement,
 };
 use uuid::Uuid;
 
-const KMS_KEY: &str = "alias/oxy-test-master-key";
+/// The pod's namespace, and the alias and key it names.
+const NS: &str = "oxy-test";
+const ALIAS: &str = "alias/oxy-test-oxy-master-key";
+const ARN: &str = "arn:aws:kms:us-west-2:1:key/test";
 const A: [u8; 32] = [5; 32];
 const B: [u8; 32] = [6; 32];
 
-/// Seals by XOR, tagged with the key id, so a blob opens only under the key
-/// id that made it.
+/// Knows [`ALIAS`], naming [`ARN`]. Seals by XOR, tagged with the ARN, so a
+/// blob opens with no key id and says which key opened it.
 struct FakeKms;
 
 impl Kms for FakeKms {
-    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<(String, Vec<u8>), String> {
-        let mut ct = key_id.as_bytes().to_vec();
-        ct.push(0);
-        ct.extend(plaintext.iter().map(|b| b ^ 0xa5));
-        Ok((format!("arn:aws:kms:us-west-2:1:key/{key_id}"), ct))
+    async fn find_key(&self, key_id: &str) -> Result<KeyLookup, String> {
+        Ok(if key_id == ALIAS {
+            KeyLookup::Found
+        } else {
+            KeyLookup::NotFound
+        })
     }
 
-    async fn decrypt(&self, key_id: &str, ciphertext: &[u8]) -> Result<Vec<u8>, String> {
-        let split = ciphertext.iter().position(|b| *b == 0).ok_or("not ours")?;
-        if &ciphertext[..split] != key_id.as_bytes() {
-            return Err("IncorrectKeyException".into());
-        }
-        Ok(ciphertext[split + 1..].iter().map(|b| b ^ 0xa5).collect())
+    async fn encrypt(&self, key_id: &str, plaintext: &[u8]) -> Result<(String, Vec<u8>), String> {
+        assert_eq!(key_id, ALIAS);
+        let mut ct = ARN.as_bytes().to_vec();
+        ct.push(0);
+        ct.extend(plaintext.iter().map(|b| b ^ 0xa5));
+        Ok((ARN.to_string(), ct))
     }
+
+    async fn decrypt(
+        &self,
+        _sealed_by: &str,
+        ciphertext: &[u8],
+    ) -> Result<(String, Vec<u8>), String> {
+        let split = ciphertext.iter().position(|b| *b == 0).ok_or("not ours")?;
+        let arn = String::from_utf8(ciphertext[..split].to_vec()).map_err(|e| e.to_string())?;
+        Ok((
+            arn,
+            ciphertext[split + 1..].iter().map(|b| b ^ 0xa5).collect(),
+        ))
+    }
+}
+
+fn stored(key: [u8; 32]) -> Result<Resolved, String> {
+    Ok(Resolved::Stored {
+        key,
+        sealed_by: ARN.to_string(),
+    })
 }
 
 async fn db() -> DatabaseConnection {
@@ -89,18 +114,25 @@ async fn the_first_boot_seals_the_variable_and_later_boots_need_only_the_row() {
     seed_org_secret(&db, &A).await;
     let store = PostgresStore { db: &db };
 
-    assert_eq!(resolve(&FakeKms, &store, KMS_KEY, Some(A)).await, Ok(A));
-    let stored = StoredMasterKey::from_bytes(&row(&db, MASTER_KEY_ROW).await.expect("row written"))
-        .expect("row format");
-    assert!(stored.sealed_by.ends_with(KMS_KEY), "{stored:?}");
+    assert_eq!(
+        resolve(&FakeKms, &store, Some(NS), true, Some(A)).await,
+        stored(A)
+    );
+    let row_written =
+        StoredMasterKey::from_bytes(&row(&db, MASTER_KEY_ROW).await.expect("row written"))
+            .expect("row format");
+    assert_eq!(row_written.sealed_by, ARN, "{row_written:?}");
     // The data check ran on the way, and recorded the check value.
     assert!(row(&db, CHECK_ROW).await.is_some());
 
     // The variable removed: the row alone is the key.
-    assert_eq!(resolve(&FakeKms, &store, KMS_KEY, None).await, Ok(A));
+    assert_eq!(
+        resolve(&FakeKms, &store, Some(NS), true, None).await,
+        stored(A)
+    );
 
     // A variable that is not the stored key is refused, naming both.
-    let err = resolve(&FakeKms, &store, KMS_KEY, Some(B))
+    let err = resolve(&FakeKms, &store, Some(NS), true, Some(B))
         .await
         .unwrap_err();
     assert!(
@@ -115,7 +147,7 @@ async fn a_variable_that_does_not_open_the_data_is_never_sealed_into_the_row() {
     seed_org_secret(&db, &A).await;
     let store = PostgresStore { db: &db };
 
-    let err = resolve(&FakeKms, &store, KMS_KEY, Some(B))
+    let err = resolve(&FakeKms, &store, Some(NS), true, Some(B))
         .await
         .unwrap_err();
     assert!(err.contains("opens none of the sealed values"), "{err}");
@@ -126,9 +158,31 @@ async fn a_variable_that_does_not_open_the_data_is_never_sealed_into_the_row() {
 #[tokio::test]
 async fn no_row_and_no_variable_refuses_without_making_a_key() {
     let db = db().await;
-    let err = resolve(&FakeKms, &PostgresStore { db: &db }, KMS_KEY, None)
+    let err = resolve(&FakeKms, &PostgresStore { db: &db }, Some(NS), true, None)
         .await
         .unwrap_err();
     assert!(err.contains("needs OXY_ENCRYPTION_KEY"), "{err}");
     assert_eq!(row(&db, MASTER_KEY_ROW).await, None);
+}
+
+#[tokio::test]
+async fn a_namespace_without_the_alias_writes_nothing() {
+    let db = db().await;
+    let got = resolve(
+        &FakeKms,
+        &PostgresStore { db: &db },
+        Some("no-such-namespace"),
+        true,
+        Some(A),
+    )
+    .await;
+    let Ok(Resolved::NotSealed { warning: Some(w) }) = got else {
+        panic!("expected the variable, got {got:?}");
+    };
+    assert!(
+        w.contains("alias/no-such-namespace-oxy-master-key does not exist"),
+        "{w}"
+    );
+    assert_eq!(row(&db, MASTER_KEY_ROW).await, None);
+    assert_eq!(row(&db, CHECK_ROW).await, None);
 }

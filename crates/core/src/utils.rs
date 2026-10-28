@@ -32,7 +32,7 @@ pub const MAX_OUTPUT_LENGTH: usize = 1000;
 /// `airhouse` and other leaf integrations can use it without pulling in the
 /// full `oxy` crate.
 pub use oxy_platform::secrets::{
-    ENCRYPTION_KEY_VAR, KMS_KEY_ID_VAR, forbid_key_file_creation, get_encryption_key, kms_key_id,
+    ENCRYPTION_KEY_VAR, forbid_key_file_creation, get_encryption_key, installed_master_key,
     parse_encryption_key,
 };
 

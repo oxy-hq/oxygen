@@ -127,7 +127,7 @@ pub async fn start_server_and_web_app(
     // sets `OXY_SKIP_MIGRATIONS=1` on the stateless serve fleet; honouring it
     // here avoids every serve pod re-running (and, pre-advisory-lock, racing)
     // the full migrator on boot. Unset → migrate as before (single-node / dev).
-    // With OXY_ENCRYPTION_KMS_KEY_ID: the master key, from `server_keys`, before
+    // In Kubernetes: the master key, from `server_keys` (sealed by KMS), before
     // anything can seal a value. Again after migrations, for a database that had
     // no `server_keys` yet.
     crate::server::shared_state_check::load_master_key()
